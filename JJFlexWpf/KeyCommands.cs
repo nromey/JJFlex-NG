@@ -1019,11 +1019,19 @@ public class KeyCommands
 
     #region TX Filter Handlers
 
+    // These four flat chords are a DOOR onto the transmit edges, and since
+    // #527 they walk by the same width-adaptive ladder the filter layer and
+    // the bracket chords do — so an edge moves the same distance whichever
+    // door the operator came in by. They stepped by a hard-coded 50, which
+    // the register's count of "three step rules" had missed; it was a
+    // fourth. The 50s that remain below are the RAIL — the radio's minimum
+    // transmit width — and that is a different number that happens to match.
+
     private void TXFilterLowDownHandler()
     {
         var rig = _context.GetRigControl();
         if (rig == null) return;
-        int newLow = Math.Max(0, rig.TXFilterLow - 50);
+        int newLow = Math.Max(0, rig.TXFilterLow - FreqOutHandlers.TxFilterStep(rig));
         rig.TXFilterLow = newLow;
         EarconPlayer.FilterEdgeMoveTone(true);
         int width = rig.TXFilterHigh - newLow;
@@ -1035,7 +1043,7 @@ public class KeyCommands
     {
         var rig = _context.GetRigControl();
         if (rig == null) return;
-        int newLow = rig.TXFilterLow + 50;
+        int newLow = rig.TXFilterLow + FreqOutHandlers.TxFilterStep(rig);
         if (newLow >= rig.TXFilterHigh - 50)
         {
             newLow = rig.TXFilterHigh - 50;
@@ -1055,7 +1063,7 @@ public class KeyCommands
     {
         var rig = _context.GetRigControl();
         if (rig == null) return;
-        int newHigh = rig.TXFilterHigh - 50;
+        int newHigh = rig.TXFilterHigh - FreqOutHandlers.TxFilterStep(rig);
         if (newHigh <= rig.TXFilterLow + 50)
         {
             newHigh = rig.TXFilterLow + 50;
@@ -1075,7 +1083,7 @@ public class KeyCommands
     {
         var rig = _context.GetRigControl();
         if (rig == null) return;
-        int newHigh = Math.Min(10000, rig.TXFilterHigh + 50);
+        int newHigh = Math.Min(10000, rig.TXFilterHigh + FreqOutHandlers.TxFilterStep(rig));
         rig.TXFilterHigh = newHigh;
         EarconPlayer.FilterEdgeMoveTone(false);
         int width = newHigh - rig.TXFilterLow;
@@ -4122,8 +4130,10 @@ public class KeyCommands
     /// (C), speech processor mode (S) — all radio-wide or app-wide — and
     /// pan (Ctrl+P), which is per slice and follows a Shift+letter jump.
     /// Up and Down adjust the picked target (Shift by one); Left and Right
-    /// also adjust pan; Home centres pan. Enter keeps everything, Escape
-    /// puts back everything that moved, out loud.
+    /// also adjust pan; Home, End and 0 place it at its minimum, maximum or
+    /// centre (#522) — the engine's, on every target, so nothing here
+    /// declares them. Enter keeps everything, Escape puts back everything
+    /// that moved, out loud.
     /// </summary>
     internal void EnterAudioLayer(bool onPan)
     {
@@ -4362,6 +4372,16 @@ public class KeyCommands
     /// The edges a width would land on about the current centre, kept
     /// inside the side's bounds and never narrower than its minimum.
     /// </summary>
+    /// <remarks>
+    /// A width that will not fit about the centre SLIDES into the bounds
+    /// before it is truncated, so a filter widened against a band edge grows
+    /// on the side that still has room — which is what "wider" means to the
+    /// hand that asked. It used to truncate: the edge that hit the bound
+    /// stopped and the other one kept its half, so widening near a bound
+    /// gained half of what was asked, and Ctrl+End (#522) reported the
+    /// maximum while landing well short of it — the engine's Constrain and
+    /// the host's Apply computed two different answers from one number.
+    /// </remarks>
     private static (int low, int high) EdgesForWidth(FilterSide s, int width)
     {
         int centre = (s.Bank.Low + s.Bank.High) / 2;
@@ -4369,8 +4389,9 @@ public class KeyCommands
         int low = centre - half;
         int high = centre + (width - half);
         int lowMin = s.LowMin(), highMax = s.HighMax();
+        if (low < lowMin) { high += lowMin - low; low = lowMin; }
+        if (high > highMax) { low -= high - highMax; high = highMax; }
         if (low < lowMin) low = lowMin;
-        if (high > highMax) high = highMax;
         if (high - low < s.MinWidth)
         {
             high = low + s.MinWidth;
@@ -4536,9 +4557,14 @@ public class KeyCommands
             PerSlice = false,
             LowMin = () => rig.TXFilterLowMin,
             HighMax = () => rig.TXFilterHighMax,
+            // The radio's own minimum transmit width, which is what
+            // TXFilterLowMax and TXFilterHighMin are computed against. It is
+            // a RAIL, not a step: since #527 the transmit edges walk by the
+            // width-adaptive ladder the receive edges use, so pressing T no
+            // longer changes what an arrow is worth.
             MinWidth = rig.TXFilterLowIncrement,
-            StepNow = () => rig.TXFilterLowIncrement,
         };
+        tx.StepNow = () => FreqOutHandlers.GetAdaptiveFilterStep(tx.Bank.Low, tx.Bank.High);
         tx.Apply = (l, h) => ApplyTxFilter(rig, tx.Bank, l, h);
         tx.LowEdge = v => Radios.Lexicon.Get("audio.tx.filter_low", ("value", v));
         tx.HighEdge = v => Radios.Lexicon.Get("audio.tx.filter_high", ("value", v));

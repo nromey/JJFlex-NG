@@ -16,7 +16,7 @@
   "audio.audio_layer.entered_on_pan": {
     "critical": "Audio layer. {target}.",
     "terse": "Audio layer. {target}.",
-    "chatty": "Audio layer. {target}. Left and right or up and down adjust, Shift moves by one, Home centers. Enter keeps it, Escape puts it back, H lists the keys."
+    "chatty": "Audio layer. {target}. Left and right or up and down adjust, Shift moves by one, 0 centers. Enter keeps it, Escape puts it back, H lists the keys."
   },
   "audio.audio_layer.headphone": "Headphone {value}",
   "audio.audio_layer.headphone_selected": "On-radio headphone {value}",

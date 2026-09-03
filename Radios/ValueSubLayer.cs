@@ -88,6 +88,30 @@ namespace Radios
         ByModifier,
     }
 
+    /// <summary>
+    /// Where a jump key PLACES a value, rather than hunting for it with the
+    /// arrows (#522). Home is the minimum, End the maximum, 0 the centre —
+    /// and on a target with no centre declared, zero. The same three keys on
+    /// every target in every layer: <c>Home</c> and <c>End</c> already mean
+    /// minimum and maximum on every range control in Windows, including
+    /// every slider in this app, so spending them on a bespoke meaning
+    /// inside one layer would charge the operator for knowledge they
+    /// already have.
+    /// </summary>
+    public enum ValueLayerJump
+    {
+        /// <summary>Hard left: <see cref="ValueTarget.Min"/>, or whatever
+        /// <see cref="ValueTarget.Constrain"/> allows below it.</summary>
+        Minimum,
+
+        /// <summary>Hard right: <see cref="ValueTarget.Max"/>, constrained.</summary>
+        Maximum,
+
+        /// <summary>The value the operator returns to:
+        /// <see cref="ValueTarget.Anchor"/>, or zero where none is declared.</summary>
+        Centre,
+    }
+
     /// <summary>Why a layer closed — for the host's exit hook.</summary>
     public enum ValueLayerExit
     {
@@ -250,12 +274,14 @@ namespace Radios
         public Func<int, int>? Constrain;
 
         /// <summary>
-        /// The value the operator returns to (pan: centre). Home jumps here,
-        /// plus any <see cref="AnchorKeys"/>. Null = no anchor.
+        /// The value the operator returns to (pan: centre). <c>0</c> jumps
+        /// here, plus any <see cref="AnchorKeys"/>. Null = zero, which is the
+        /// centre of an unsigned target anyway (#522). Home and End need no
+        /// declaration: they are <see cref="Min"/> and <see cref="Max"/>.
         /// </summary>
         public int? Anchor;
 
-        /// <summary>Extra bare keys that jump to the anchor.</summary>
+        /// <summary>Extra bare keys that jump to the anchor, beside <c>0</c>.</summary>
         public Keys[] AnchorKeys = Array.Empty<Keys>();
 
         /// <summary>The words form — interpretable, spoken at Chatty. Null =
@@ -363,11 +389,11 @@ namespace Radios
         /// <summary>Which arrow pair adjusts the single value.</summary>
         public ValueLayerAxis Axis = ValueLayerAxis.UpDown;
 
-        /// <summary>The single value's anchor. Null = no anchor; Home is then
-        /// an unhandled key.</summary>
+        /// <summary>The single value's anchor, which <c>0</c> jumps to. Null
+        /// = zero (#522).</summary>
         public int? Anchor;
 
-        /// <summary>Extra bare keys that jump to the anchor.</summary>
+        /// <summary>Extra bare keys that jump to the anchor, beside <c>0</c>.</summary>
         public Keys[] AnchorKeys = Array.Empty<Keys>();
 
         /// <summary>The words form of the single value (Chatty).</summary>
@@ -572,9 +598,19 @@ namespace Radios
     /// a restore write is the wrong side of every safety argument — #187
     /// especially — so a forced drop keeps, never restores.</para>
     ///
+    /// <para><b>Placing a value rather than hunting for it.</b> Home is hard
+    /// left, End is hard right, and 0 is the centre — the same three keys on
+    /// every target, addressed exactly as the arrows address one, so the
+    /// filter layer's Left Shift still names the low edge (#522). They are
+    /// what Windows already spends those keys on, everywhere else the
+    /// operator goes. There is deliberately NO numpad binding: both NVDA and
+    /// JAWS claim the pad in their default desktop layouts, and a key
+    /// reference that lies to most of its readers is worse than a missing
+    /// row.</para>
+    ///
     /// <para><b>For #200:</b> the knob host skips <see cref="HandleKey"/> and
     /// drives the semantic surface directly — <see cref="Nudge"/>,
-    /// <see cref="Select"/>, <see cref="SelectNext"/>, <see cref="JumpToAnchor"/>,
+    /// <see cref="Select"/>, <see cref="SelectNext"/>, <see cref="JumpTo(ValueLayerJump)"/>,
     /// <see cref="Confirm"/>, <see cref="Cancel"/>, <see cref="SpeakHelp"/> —
     /// so hardware layers and keyboard layers share one set of decisions.</para>
     /// </summary>
@@ -863,13 +899,51 @@ namespace Radios
                 return ValueLayerKeyResult.Handled;
             }
 
-            // Home — and any anchor letter the current target declares —
-            // jumps to its anchor. Centre is one key away (#304).
-            if (_current != null && _current.Def.Anchor.HasValue &&
-                (code == Keys.Home && mods == Keys.None
-                 || Array.IndexOf(_current.Def.AnchorKeys, k) >= 0))
+            // Home, End and 0 PLACE a value instead of hunting for it (#522).
+            // Home is hard left / minimum, End is hard right / maximum, 0 is
+            // the centre — or zero, on a target that declares no centre. The
+            // same three keys on EVERY target, never special-cased to pan,
+            // and addressed exactly the way the arrows address one, so the
+            // filter layer's Left Shift still names the low edge and
+            // Left Shift+Home slams it to its rail.
+            //
+            // Home used to be the anchor here, which was right while pan was
+            // its own mode and Home had no competing meaning. Six of the
+            // audio layer's seven targets are ordinary ranges on which
+            // Windows already spends Home and End, so the layer was leaving
+            // knowledge the operator already had unused, and charging them
+            // for a bespoke one instead. NO numpad binding, deliberately:
+            // both NVDA and JAWS own the pad in their default desktop
+            // layouts (numpad 5 is NVDA's read-current-word, measured at the
+            // keyboard), so a Key.Clear row in the key reference would lie to
+            // most of the people reading it.
+            if (code == Keys.Home || code == Keys.End || code == Keys.D0)
             {
-                JumpToAnchor();
+                ValueLayerJump where = code == Keys.Home ? ValueLayerJump.Minimum
+                    : code == Keys.End ? ValueLayerJump.Maximum
+                    : ValueLayerJump.Centre;
+
+                if (_def.Selection == ValueLayerSelection.ByModifier)
+                {
+                    // No axis: Home is not a direction, and every target has
+                    // a minimum whichever arrow pair moves it.
+                    var addressed = AddressedSlot(mods, axis: null);
+                    if (addressed != null) JumpSlot(addressed, where);
+                    return ValueLayerKeyResult.Handled;
+                }
+                if (mods == Keys.None)
+                {
+                    if (_current != null) JumpSlot(_current, where);
+                    else Refuse(_def.PickTargetHint?.Invoke());
+                    return ValueLayerKeyResult.Handled;
+                }
+            }
+
+            // Any anchor letter the current target declares — a second bare
+            // key onto the centre 0 already reaches.
+            if (_current != null && Array.IndexOf(_current.Def.AnchorKeys, k) >= 0)
+            {
+                JumpSlot(_current, ValueLayerJump.Centre);
                 return ValueLayerKeyResult.Handled;
             }
 
@@ -929,28 +1003,8 @@ namespace Radios
             {
                 case ValueLayerSelection.ByModifier:
                 {
-                    bool ctrl = (mods & Keys.Control) != 0;
-                    ShiftSide side = ShiftSide.None;
-                    if ((mods & Keys.Shift) != 0)
-                    {
-                        side = _def.ShiftSideNow!();
-                        if (side == ShiftSide.None || side == ShiftSide.Both)
-                        {
-                            // The Shift bit says a Shift was down; the probe
-                            // cannot say which. Refuse and say so — moving the
-                            // wrong edge silently is the invisible failure.
-                            Refuse(_def.WhichShiftHint?.Invoke());
-                            return;
-                        }
-                    }
-                    var slot = _slots.FirstOrDefault(s => InGroup(s)
-                        && (s.Def.Axes & axis) != 0 && s.Def.Shift == side && s.Def.Ctrl == ctrl);
-                    if (slot == null)
-                    {
-                        Refuse(_def.NoVerbHint?.Invoke() ?? _def.WrongAxisHint?.Invoke());
-                        return;
-                    }
-                    NudgeSlot(slot, direction, fine: false);
+                    var slot = AddressedSlot(mods, axis);
+                    if (slot != null) NudgeSlot(slot, direction, fine: false);
                     return;
                 }
 
@@ -988,6 +1042,41 @@ namespace Radios
                     Refuse(HintFor(_current));
                     return;
             }
+        }
+
+        /// <summary>
+        /// The target a <see cref="ValueLayerSelection.ByModifier"/> press
+        /// names: which Shift is physically down picks the edge, Ctrl picks
+        /// the width, neither picks the whole. <paramref name="axis"/>
+        /// narrows it to the targets that arrow pair moves; a JUMP passes
+        /// null, because Home is not a direction and every target has a
+        /// minimum whichever pair walks it.
+        /// </summary>
+        /// <returns>
+        /// Null when nothing was named — having already refused OUT LOUD, so
+        /// the caller only has to decide what to do with a target it got.
+        /// </returns>
+        private Slot? AddressedSlot(Keys mods, ValueLayerAxes? axis)
+        {
+            bool ctrl = (mods & Keys.Control) != 0;
+            ShiftSide side = ShiftSide.None;
+            if ((mods & Keys.Shift) != 0)
+            {
+                side = _def.ShiftSideNow!();
+                if (side == ShiftSide.None || side == ShiftSide.Both)
+                {
+                    // The Shift bit says a Shift was down; the probe cannot
+                    // say which. Refuse and say so — moving the wrong edge
+                    // silently is the invisible failure.
+                    Refuse(_def.WhichShiftHint?.Invoke());
+                    return null;
+                }
+            }
+            var slot = _slots.FirstOrDefault(s => InGroup(s)
+                && (axis == null || (s.Def.Axes & axis.Value) != 0)
+                && s.Def.Shift == side && s.Def.Ctrl == ctrl);
+            if (slot == null) Refuse(_def.NoVerbHint?.Invoke() ?? _def.WrongAxisHint?.Invoke());
+            return slot;
         }
 
         private void Refuse(string? hint)
@@ -1054,21 +1143,27 @@ namespace Radios
             if (_def.DescribeGroup != null) EmitSay(_def.DescribeGroup(group));
         }
 
-        /// <summary>Jump the current target to its anchor (pan: centre) and speak it.</summary>
-        public void JumpToAnchor()
+        /// <summary>
+        /// Place the current target at one end of its range, or at its
+        /// centre, and speak where it landed (#522). A jump is not a nudge:
+        /// it lands ON the rail on purpose, so it never sounds the rail cue.
+        /// </summary>
+        public void JumpTo(ValueLayerJump where)
         {
-            if (!_live || _current == null || !_current.Def.Anchor.HasValue) return;
-            var s = _current;
-            EnsureSeeded(s);
-            int before = s.Shadow;
-            s.Shadow = Math.Clamp(s.Def.Anchor.Value, s.Def.Min, s.Def.Max);
-            if (s.Shadow != before || !s.Def.Linked)
-            {
-                s.Def.Apply!(s.Shadow);
-                Touch(s);
-            }
-            EmitMove(FormOf(s, s.Shadow), SubjectOf(s));
+            if (!_live || _current == null) return;
+            JumpSlot(_current, where);
         }
+
+        /// <summary>Place a named target, whether or not it is selected.</summary>
+        public void JumpTo(ValueTarget target, ValueLayerJump where)
+        {
+            if (!_live) return;
+            var slot = SlotOf(target);
+            if (slot != null) JumpSlot(slot, where);
+        }
+
+        /// <summary>Jump the current target to its centre (pan: centre) and speak it.</summary>
+        public void JumpToAnchor() => JumpTo(ValueLayerJump.Centre);
 
         /// <summary>
         /// Speak the current state and the keys without changing anything —
@@ -1310,6 +1405,43 @@ namespace Radios
             // repeat — unless the target has a rail sentence, which says why.
             _def.Cues.Rail?.Invoke();
             EmitMove(s.Def.DescribeRail?.Invoke(next) ?? FormOf(s, next), SubjectOf(s));
+        }
+
+        /// <summary>
+        /// Place one target rather than stepping it (#522). The clamp and
+        /// the constraint are the nudge's own, so a jump can never land
+        /// somewhere a nudge could not reach — a transmit edge asked for its
+        /// maximum stops against the other edge, exactly as walking it does.
+        /// </summary>
+        /// <remarks>
+        /// It speaks the plain form and never the rail sentence: landing on
+        /// the rail is the whole point of Home and End, and "at the limit"
+        /// reports a refusal. Nothing sounds the rail cue for the same
+        /// reason.
+        /// </remarks>
+        private void JumpSlot(Slot s, ValueLayerJump where)
+        {
+            EnsureSeeded(s);
+            if (s.Def.Linked) s.Shadow = s.Def.Read!();
+
+            int wanted = where switch
+            {
+                ValueLayerJump.Minimum => s.Def.Min,
+                ValueLayerJump.Maximum => s.Def.Max,
+                _ => s.Def.Anchor ?? 0,
+            };
+            int before = s.Shadow;
+            int next = Math.Clamp(wanted, s.Def.Min, s.Def.Max);
+            if (s.Def.Constrain != null) next = s.Def.Constrain(next);
+
+            s.Shadow = next;
+            if (next != before || !s.Def.Linked)
+            {
+                s.Def.Apply!(next);
+                Touch(s);
+            }
+            Tracing.TraceLine("ValueSubLayer(" + Tag(s) + "): jumped " + where + " to " + next, TraceLevel.Info);
+            EmitMove(FormOf(s, next), SubjectOf(s));
         }
 
         private void SpeakAddressed(Keys mods)

@@ -68,9 +68,9 @@ The second key follows a grammar, and the grammar is the point: you work out a c
 
 ### Audio and transmit
 
-- **A** — Enter the audio layer — a letter picks what to adjust, the arrows adjust it, Enter keeps it, Escape puts it back (see "The audio layer" below)
-- **V** — Enter the audio layer — a letter picks what to adjust, the arrows adjust it, Enter keeps it, Escape puts it back (see "The audio layer" below)
-- **Alt+P** — Enter the audio layer with pan already picked — Left and Right, or Up and Down, place the slice you're on in the stereo field, Shift moves by one, Home centers, Enter keeps it, Escape puts it back. Speaks positions in words at chatty verbosity and numbers at terse
+- **A** — Enter the audio layer — a letter picks what to adjust, the arrows adjust it, Home, End and `0` place it at once, Enter keeps it, Escape puts it back (see "The audio layer" below)
+- **V** — Enter the audio layer — a letter picks what to adjust, the arrows adjust it, Home, End and `0` place it at once, Enter keeps it, Escape puts it back (see "The audio layer" below)
+- **Alt+P** — Enter the audio layer with pan already picked — Left and Right, or Up and Down, place the slice you're on in the stereo field, Shift moves by one, 0 centers, Home and End are hard left and hard right, Enter keeps it, Escape puts it back. Speaks positions in words at chatty verbosity and numbers at terse
 - **K** — Mic check — speak your mic-audio verdict and level, nothing else (see below)
 - **G** — Arm or disarm the TX test tone (it replaces your microphone while transmitting)
 - **C** — Toggle Compander
@@ -80,7 +80,7 @@ The second key follows a grammar, and the grammar is the point: you work out a c
 
 ### Filter information
 
-- **F** — Enter the filter layer — hold Left Shift for the low edge or Right Shift for the high edge, the arrows move it, `T` and `R` switch between the transmit and receive filters, and `S` speaks it (see "The filter layer" below)
+- **F** — Enter the filter layer — hold Left Shift for the low edge or Right Shift for the high edge, the arrows move it, Home and End send it straight to its limit, `T` and `R` switch between the transmit and receive filters, and `S` speaks it (see "The filter layer" below)
 - **Ctrl+F** — Enter a frequency
 
 The two filter-width readouts used to live here, on `F` and `Shift+F`. Plain `F` is the filter layer's door now and `Shift+F` is slice F, so both readouts have moved inside the filter layer. The receive width still answers to the flat `Ctrl+Alt+F` from anywhere in radio mode.
@@ -132,11 +132,13 @@ The targets:
 - **L** — on-radio line out volume. The line out jacks on the radio itself.
 - **C** — compander level. (Toggle the compander itself with `Ctrl+J`, `C`.)
 - **S** — speech processor mode: Up and Down step through Normal, DX, and DX plus. (Toggle the processor with `Ctrl+J`, `Shift+P`.)
-- **Ctrl+P** — pan, for the slice you're on. Plain `P` is PC output, so pan wears Ctrl. Left and Right move it too — for pan, direction means something real — and Home snaps it to center.
+- **Ctrl+P** — pan, for the slice you're on. Plain `P` is PC output, so pan wears Ctrl. Left and Right move it too — for pan, direction means something real — and `0` snaps it back to center.
 
 And the keys that work on whatever you've picked:
 
 - **Up and Down** — adjust it. Shift moves by one. Hold an arrow and it sweeps.
+- **Home and End** — hard left and hard right. Minimum and maximum, the same as they mean on every other slider you meet in Windows, and the same on every target in the layer: `Home` on mic level is mic level off, `End` on pan is hard right.
+- **0** — center. On a target that has no center — a level that runs from nothing upward — `0` is nothing, which is where the number says it is.
 - **Shift+A through Shift+H** — jump to that slice without leaving the layer. Pan follows you to it; whatever you'd already done on the old slice stays done.
 - **Enter** — keep everything and leave.
 - **Escape** — put back *everything* you moved in the layer, out loud, and leave. Overshot three things? One key.
@@ -145,7 +147,11 @@ And the keys that work on whatever you've picked:
 
 `Ctrl+J`, then `Alt+P` opens the same layer with pan already picked, so the old pan mode is one keystroke shorter rather than gone. Stereo placement is how you keep two signals apart — slice A a little left, slice B a little right, and a pileup turns into two conversations instead of one mush. Hard left and hard right aren't separation, they're exile; what you want is *slightly* off center, and that's what the fine control is for. It speaks in positions at chatty verbosity — "slightly left", "center", "hard right" — and in numbers at terse: "Pan 40" on a 0-to-100 scale where 0 is hard left, 50 is center, and 100 is hard right, precise enough to jot down and dial in again tomorrow. Cycle verbosity with `Ctrl+Shift+V` inside the layer and the very next nudge speaks in the other form.
 
-Two things changed from pan mode, both on purpose: `C` now picks the compander rather than centering — Home still centers — and Escape puts back everything you moved in the layer, not only the pan. The coarse keys on the Slice field are untouched: Page Up still slams hard right, Home centers, and Page Down slams hard left, and the Slice Operations field still nudges with Page Up and Page Down.
+Three things changed from pan mode, all on purpose. `C` now picks the compander rather than centering. Escape puts back everything you moved in the layer, not only the pan. And **center moved from Home to `0`** — Home and End are the ends now, which is what they mean on every range control you touch outside this app, and there are six other targets in this layer where an end is exactly what you'd want them for. `0` is not a hard reach, and it works on everything.
+
+The coarse keys on the Slice field in Home are untouched: Page Up still slams hard right, Home centers, and Page Down slams hard left, and the Slice Operations field still nudges with Page Up and Page Down. Those are Home-surface keys on a field, not layer keys, and nothing about them changed.
+
+There's deliberately no numpad shortcut for center, and it's worth saying why, because it comes up: with NumLock off the numpad arrows already *are* the arrows, so numpad navigation works in here for free. The one key that would have needed a binding is numpad 5 — and in NVDA's and JAWS's default desktop layouts that key is the screen reader's own, so it never reaches this app at all. A line in a key reference that only works for some of the people reading it is worse than no line.
 
 A quick word on "on-radio": those two targets move the radio's own jacks — if you're listening over PC audio from across town, they won't change what you hear, and their names say so. Pan is per slice and lives in the radio, not in this app; like the rest of your slice layout, "Save Station Setup to Radio" on the Slice menu is what makes an arrangement survive.
 
@@ -159,6 +165,8 @@ Press `Ctrl+J`, then `F`, and you're on the receive filter of the slice you're o
 - **Right Shift with Left or Right** — walk the high edge down or up.
 - **Up and Down**, or plain **Left and Right** — slide the whole filter, width intact.
 - **Ctrl+Up and Ctrl+Down** — widen or narrow it about its center.
+- **Home and End** — send whatever you're holding straight to its limit, no walking. `Left Shift+Home` puts the low edge on the floor, `Right Shift+End` puts the high edge on the ceiling, plain `Home` and `End` slide the whole filter to one end of the band with its width intact, and `Ctrl+Home` and `Ctrl+End` are the narrowest and the widest the mode allows. The modifier picks what you're holding here exactly as it does for the arrows, so there's nothing new to learn — the keys just stop asking you to hold an arrow down for a while.
+- **0** — the same idea, aimed at zero hertz: the carrier. It's the third of the three placing keys and it works here for consistency rather than because you'll reach for it often; on an upper-sideband filter it puts the low edge exactly where `Home` does. Escape puts back anything you didn't mean.
 - **S** — speak the whole filter. `Left Shift+S` speaks the low edge, `Right Shift+S` the high edge. Ask twice, get two answers.
 - **T** — work on the transmit filter instead. There's one for the whole radio, so it's the same whichever slice you're on.
 - **R** — back to the receive filter. The layer starts here, because receive is where you live and transmit is a visit.
@@ -167,7 +175,9 @@ Press `Ctrl+J`, then `F`, and you're on the receive filter of the slice you're o
 - **Escape** — put back everything you moved, on both sides, out loud, and leave.
 - **H** — list the layer's keys, count first. `Shift slash` does the same for now.
 
-The edges step by a fixed amount and never speed up, however long you hold the key — an edge is placed by the number, and your ear won't tell you when you've reached 2,700 hertz. The step is the same one the bracket keys use, chosen by how wide the filter is right now: 10 hertz under 200 wide, 25 under 500, 50 under 2,000, 100 under 5,000, and 200 above that. The transmit side steps by 50 hertz, which is what the radio accepts.
+The edges step by a fixed amount and never speed up, however long you hold the key — an edge is placed by the number, and your ear won't tell you when you've reached 2,700 hertz. The step is the same one the bracket keys use, chosen by how wide the filter is right now: 10 hertz under 200 wide, 25 under 500, 50 under 3,500, 100 under 5,000, and 200 above that. Transmit steps by that same ladder, so pressing `T` changes which filter you're working on and nothing else.
+
+Two things there are new. The 50 hertz rung used to stop at 2,000 wide, which sounds harmless until you notice that an ordinary SSB filter is 2.7 kilohertz — so the step you were using most of the time was the 100, and every SSB edge moved twice as far as it should have. It's 50 now. And the transmit side used to step by a flat 50 of its own, which meant that pressing `T` quietly changed what an arrow was worth without saying so. One rule now, both sides, in a layer that presents them as the same thing.
 
 When an edge can't go any further it says so — "Low edge 2650, at the limit" — rather than going quiet, because a control that silently refuses to move sounds exactly like a broken one. The transmit edges are constrained against each other by the radio: the low edge stops 50 hertz short of the high edge, and narrowing hits that rail. If you hold a Shift and the app can't tell which one — both, or none — it asks rather than guessing, because walking the wrong edge without saying so is the one thing this layer must never do.
 
@@ -327,6 +337,8 @@ These keys work when you're in either Classic or Modern tuning mode:
 - **Ctrl+Shift+]** — Move the TX filter low edge up
 - **Ctrl+Alt+[** — Move the TX filter high edge down
 - **Ctrl+Alt+]** — Move the TX filter high edge up
+
+These step by the same width-chosen ladder everything else that moves a filter edge uses — 50 hertz for an ordinary transmit filter — so an edge moves the same distance whether you come at it from here, from the Radio menu's TX Filter submenu, or from inside the filter layer. They used to have a step of their own.
 
 ### Push to Talk
 

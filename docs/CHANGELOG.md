@@ -55,6 +55,8 @@ This release is about the space where you actually spend your time in the app �
 - **[Ctrl silences the Morse now, too](#ctrl-silences-cw).** The stop-talking reflex you already have finally stops everything — speech *and* CW notifications, in one tap, from anywhere. And the notifications stopped queueing: arrow across four slices and you hear the slice you landed on, not a recital of everywhere you passed through.
 - **["Which build are you on?" is one key away now](#speak-the-build)** — `Ctrl+J` then `Alt+V` speaks the version, whether it's a test build or a release build, and the day it was built. No more opening About in the middle of writing up a problem.
 - **[Volume mode and pan mode are one audio layer now, and the filter has a layer of its own](#audio-and-filter-layers).** `Ctrl+J`, `V` still opens it: a letter picks the target — headphone is `Ctrl+H` now, because plain `H` lists the layer's keys everywhere — the arrows adjust, and Escape puts back *everything* you moved, not just the last thing. Pan is in there as `Ctrl+P`, still answering Left and Right. The filter layer is the one that feels like a radio with knobs: hold Left Shift to grab the low edge, Right Shift for the high edge, and walk it with the arrows.
+- **[Home and End go to the ends now, and `0` is the middle](#ends-and-the-middle).** Inside the audio layer and the filter layer, `Home` is hard left and `End` is hard right — minimum and maximum, exactly what those two keys mean on every other slider you touch. Centering pan moved from `Home` to `0`. In the filter layer they slam whatever you're holding straight to its limit, so an edge no longer needs an arrow held down for a while.
+- **[The filter edges step by the right amount now](#filter-step-fifty).** An ordinary SSB filter moves by 50 hertz a press instead of 100 — the rung that was meant for everyday voice work had been set for a width almost nobody runs. The transmit edges use that same rule now, so pressing `T` inside the filter layer no longer quietly changes what an arrow is worth.
 - [The JJ key list is complete again](#jj-key-list-complete). Three JJ keys were working and written down nowhere; they're documented now, the help and the app check each other from here on, and a near miss in the layer tells you which key you nearly pressed instead of just "Unknown command."
 - **[The JJ layer waits for you after an unknown key](#jj-layer-waits).** "Press H for help" was advice you couldn't take — the layer had already closed by the time it finished saying so. Now it stays open for `H`, `Shift slash` and `Escape`, and nothing else, so the sentence is finally true. It's also shorter.
 - **[The JJ key has a grammar now](#jj-key-grammar).** A plain letter opens a layer, Shift plus a letter jumps to that slice, Ctrl plus a letter toggles, Alt plus a letter is everything else — so you can work out a chord instead of memorising it. Three things moved because of it: PC audio is `Ctrl+J` then `Ctrl+P`, Auto Notch is `Ctrl+J` then `Ctrl+A`, and `Shift+F` finally jumps to slice F.
@@ -497,6 +499,34 @@ Two things are different, and I want you to hear them from me rather than from t
 The filter layer is new, and it's the one I'm most pleased with. `Ctrl+J`, then `F`. Hold **Left Shift** and the arrows walk the **low** edge of your receive filter. Hold **Right Shift** and they walk the **high** edge. No Shift, and Up and Down slide the whole thing; `Ctrl` with Up and Down widens and narrows it around the middle. `S` tells you where it is — with Left or Right Shift held, it tells you just that edge. `T` hops over to the transmit filter, `R` comes back. The left Shift key is on the left and grabs the left edge. You don't learn that; your hands already know it. It reminds me of turning the knobs on my old TS-2000, and that's the point.
 
 The edges never speed up while you hold a key. That's deliberate: when you're placing an edge you're listening for a number, and your ear won't tell you when you've hit 2,700 hertz. When an edge can't go any further, it says "at the limit" instead of going silent — a quiet control and a broken one sound identical, and you've got enough to worry about. The bracket keys you already use for the filter are exactly where they were. Don's used to them, and two ways in beats one.
+
+[Return to version headlines](#unreleased-headlines)
+
+### Home and End go to the ends, and 0 is the middle {#ends-and-the-middle}
+
+Here's a thing I got wrong, and I only saw it once the audio layer had grown up.
+
+Back when panning was its own little mode, `Home` centered it. That was a fine call at the time — there was one thing in that mode, `Home` had nothing else to do in there, and center is the value you reach for most. Then pan moved into the audio layer alongside six other things, and every one of those six is an ordinary level with a bottom and a top. Which means the layer was sitting on the two keys you already know for "bottom" and "top" — the ones that do exactly that on every slider, every list, every volume control you've ever touched in Windows — and spending one of them on something else.
+
+So: **`Home` is hard left, or minimum. `End` is hard right, or maximum. `0` is center.** On something like mic level, where there is no center, `0` is nothing — which is where zero belongs anyway. It works the same on every target in the layer, because a key that means one thing on pan and another thing everywhere else isn't a key you can learn, it's a key you have to look up.
+
+The filter layer gets the same three, and this is where I think you'll actually feel it. Whatever you're holding goes straight to its limit. `Left Shift+Home` puts the low edge on the floor. `Right Shift+End` puts the high edge on the ceiling. Plain `Home` and `End` slide the whole filter to one end of the band with its width intact. `Ctrl+Home` and `Ctrl+End` are the narrowest and the widest the mode allows. The modifier picks what you're holding exactly as it does for the arrows, so there's genuinely nothing new to learn — you just stop holding an arrow down for a while.
+
+Pan is the one that changed on you, so I'll say it plainly: **`Home` on pan is hard left now, not center. Center is `0`.** If your hands are trained on the old key, that first press will be a surprise once. The keys on the Slice field in Home are untouched — Page Up, Home and Page Down still slam right, center and left there, exactly as they always have.
+
+There is no numpad shortcut, and I want to explain that rather than leave you wondering, because a numpad 5 for "center" is the obvious idea and I did try it. With NumLock off, the numpad arrows already *are* the arrows, so numpad navigation works in these layers for free. The only key that would have needed anything is numpad 5 — and in NVDA's and JAWS's default desktop layouts that key belongs to the screen reader, so it never reaches this app at all. Every key we add has to go in the keyboard reference, and a line in the reference that only works for some of the people reading it is worse than no line.
+
+[Return to version headlines](#unreleased-headlines)
+
+### The filter edges finally step by the right amount {#filter-step-fifty}
+
+I found this one by using the filter layer for an afternoon and thinking "that's too coarse," which is a sentence I've said about software many times and rarely been right about. This time it was one number in one place.
+
+The step has always been chosen by how wide your filter is — fine for a narrow CW filter, coarse for a wide AM one, which is the right instinct. But the rung that gives you 50 hertz only applied below 2,000 hertz of width, and an ordinary SSB filter is 2.7 kilohertz. So the rung that was *meant* for everyday voice work was set for a width almost nobody runs, and every SSB edge you moved went 100 hertz whether you liked it or not. The 50 hertz rung now runs up to 3,500. CW and AM are exactly where they were.
+
+The transmit side had a second problem hiding behind the first: it stepped by a flat 50 of its own, which meant pressing `T` inside the filter layer quietly changed what an arrow was worth, in a layer that presents both filters as the same thing. It's one rule for both now. Same for the `Ctrl+Shift+[` family and the Radio menu's TX Filter items — they all move an edge by the same amount, so it no longer matters which door you came in by.
+
+One more thing while I was in there. Widening a filter that's already sitting against the edge of the band used to gain you only half of what you asked for, because the edge that hit the wall stopped and the other one kept its half. It grows on the side that has room now, which is what "wider" meant when you pressed the key.
 
 [Return to version headlines](#unreleased-headlines)
 

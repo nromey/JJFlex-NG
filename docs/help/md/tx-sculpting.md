@@ -19,7 +19,7 @@ You can adjust the TX filter edges directly from the keyboard, without opening a
 - `Ctrl+Alt+[` — lower the TX filter high edge.
 - `Ctrl+Alt+]` — raise the TX filter high edge.
 
-Each press adjusts the corresponding edge by one step, and JJ Flexible Radio Access speaks the new value aloud.
+Each press adjusts the corresponding edge by one step, and JJ Flexible Radio Access speaks the new value aloud. The step is chosen by how wide the filter is right now — 50 hertz for an ordinary transmit filter, finer as it narrows, coarser out past 3.5 kilohertz — and it never speeds up while you hold the key, because an edge is placed by the number and your ear will not tell you when you have reached 2,800 hertz. It is the same step the Radio menu's TX Filter submenu uses and the same one the filter layer uses, so an edge moves the same distance whichever way you reach it.
 
 You can also open the Audio Workshop (`Ctrl+Shift+W`) for a more visual view of the TX sculpting controls. From the Audio Workshop you can adjust:
 

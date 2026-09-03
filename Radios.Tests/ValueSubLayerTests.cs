@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Windows.Forms;
 using Radios;
 using Xunit;
@@ -172,15 +173,90 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Single_home_and_the_anchor_letter_jump_to_the_anchor()
+        public void Single_zero_and_the_anchor_letter_jump_to_the_anchor()
         {
+            // #522: 0 is the centre now, and Home is the minimum. The anchor
+            // LETTER a target declares still works — it is a second key onto
+            // the same place, not a different idea.
             var (h, rig) = OpenSingle(10, VerbosityLevel.Terse);
-            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.Home));
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.D0));
             Assert.Equal(50, rig.Value);
             h.Layer.HandleKey(Keys.Up);
             h.Layer.HandleKey(Keys.C);
             Assert.Equal(50, rig.Value);
             Assert.Equal("Power 50", h.LastMove);
+        }
+
+        [Fact]
+        public void Single_home_is_hard_left_and_end_is_hard_right()
+        {
+            // The convention Windows already spends these keys on, and the
+            // whole reason #522 took them off centre: every range control the
+            // operator meets outside this layer answers Home and End this way.
+            var (h, rig) = OpenSingle(40, VerbosityLevel.Terse);
+
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.Home));
+            Assert.Equal(0, rig.Value);
+            Assert.Equal("Power 0", h.LastMove);
+
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.End));
+            Assert.Equal(100, rig.Value);
+            Assert.Equal("Power 100", h.LastMove);
+
+            // And back to the centre, out of either end.
+            h.Layer.HandleKey(Keys.D0);
+            Assert.Equal(50, rig.Value);
+            Assert.Equal("Power 50", h.LastMove);
+        }
+
+        [Fact]
+        public void Single_escape_puts_back_a_value_a_jump_moved()
+        {
+            // A jump is a move like any other: it touches the target, so the
+            // one guaranteed way back still works.
+            var (h, rig) = OpenSingle(40, VerbosityLevel.Terse);
+            h.Layer.HandleKey(Keys.End);
+            Assert.Equal(100, rig.Value);
+            h.Layer.HandleKey(Keys.Escape);
+            Assert.Equal(40, rig.Value);
+            Assert.Equal("Back to power 40. Power layer closed", h.LastSaid);
+        }
+
+        [Fact]
+        public void Single_zero_on_a_target_with_no_centre_declared_is_zero()
+        {
+            // "0 = centre, and on an unsigned target, zero" — a target that
+            // declares no anchor lands on zero, clamped into its own range.
+            var h = new Harness { Verbosity = VerbosityLevel.Terse };
+            var rig = new SingleRig { Value = 40 };
+            h.Open(new ValueSubLayerDefinition
+            {
+                Id = "power",
+                Read = () => rig.Value,
+                Apply = v => { rig.Value = v; rig.Writes.Add(v); },
+                Min = 0, Max = 100, Step = 5, FineStep = 1,
+                Number = v => "Power " + v,
+                DescribeEntry = (cur, entry) => "Power layer.",
+                DescribeClosed = () => "Power layer closed",
+            });
+
+            h.Layer.HandleKey(Keys.D0);
+            Assert.Equal(0, rig.Value);
+            Assert.Equal("Power 0", h.LastMove);
+        }
+
+        [Fact]
+        public void Single_a_modified_jump_key_is_an_unknown_key_and_travels_on()
+        {
+            // Ctrl+Home means "top of the document" everywhere else; inside a
+            // layer that selects by letter it is simply not ours, so it keeps
+            // the value, says the layer closed, and goes on to mean what it
+            // always means.
+            var (h, rig) = OpenSingle(40, VerbosityLevel.Terse);
+            Assert.Equal(ValueLayerKeyResult.ClosedPassThrough,
+                h.Layer.HandleKey(Keys.Home | Keys.Control));
+            Assert.Equal(40, rig.Value);
+            Assert.False(h.Layer.IsLive);
         }
 
         [Fact]
@@ -500,7 +576,7 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Audio_pan_answers_both_arrow_pairs_and_home_centres()
+        public void Audio_pan_answers_both_arrow_pairs_and_zero_centres()
         {
             var (h, rig) = OpenAudio(VerbosityLevel.Chatty);
             h.Layer.HandleKey(Keys.P | Keys.Control);
@@ -511,9 +587,81 @@ namespace Radios.Tests
             Assert.Equal(49, rig.Pan["A"]);
             Assert.Equal(new[] { "slightly left", "center", "slightly left" },
                 h.Moves.Select(m => m.Text));
-            h.Layer.HandleKey(Keys.Home);
+            h.Layer.HandleKey(Keys.D0);
             Assert.Equal(50, rig.Pan["A"]);
             Assert.Equal("center", h.LastMove);
+        }
+
+        [Fact]
+        public void Audio_home_and_end_are_hard_left_and_hard_right_on_pan()
+        {
+            // #522. Pan is the target that made Home mean centre in the first
+            // place, back when pan was its own mode; it is now the target
+            // that shows the general rule, because it is the one where "hard
+            // left" and "hard right" are literally what the words say.
+            var (h, rig) = OpenAudio(VerbosityLevel.Chatty);
+            h.Layer.HandleKey(Keys.P | Keys.Control);
+
+            h.Layer.HandleKey(Keys.Home);
+            Assert.Equal(0, rig.Pan["A"]);
+            Assert.Equal("hard left", h.LastMove);
+
+            h.Layer.HandleKey(Keys.End);
+            Assert.Equal(100, rig.Pan["A"]);
+            Assert.Equal("hard right", h.LastMove);
+
+            h.Layer.HandleKey(Keys.D0);
+            Assert.Equal(50, rig.Pan["A"]);
+            Assert.Equal("center", h.LastMove);
+        }
+
+        [Fact]
+        public void Audio_the_same_three_keys_place_a_plain_level_too()
+        {
+            // "Never special-cased to pan, or we have invented a second
+            // vocabulary for one idea." Headphone is an ordinary 0-to-100
+            // level, so 0 and Home land in the same place — which is what
+            // zero means on an unsigned target.
+            var (h, rig) = OpenAudio(VerbosityLevel.Terse);
+            h.Layer.HandleKey(Keys.H | Keys.Control);
+
+            h.Layer.HandleKey(Keys.End);
+            Assert.Equal(100, rig.Headphone);
+            Assert.Equal("Headphone 100", h.LastMove);
+
+            h.Layer.HandleKey(Keys.Home);
+            Assert.Equal(0, rig.Headphone);
+            Assert.Equal("Headphone 0", h.LastMove);
+
+            h.Layer.HandleKey(Keys.End);
+            h.Layer.HandleKey(Keys.D0);
+            Assert.Equal(0, rig.Headphone);
+        }
+
+        [Fact]
+        public void Audio_a_jump_before_a_letter_hints_and_stays()
+        {
+            // The same answer an arrow gets: a layer key that names no target
+            // asks for one and never ejects the operator.
+            var (h, rig) = OpenAudio(VerbosityLevel.Terse);
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.End));
+            Assert.Equal("Pick a target first: Ctrl+H, P, M, L, C, S, or Ctrl+P.", h.LastSaid);
+            Assert.True(h.Layer.IsLive);
+            Assert.Empty(h.Moves);
+        }
+
+        [Fact]
+        public void Audio_escape_puts_back_everything_a_jump_moved()
+        {
+            var (h, rig) = OpenAudio(VerbosityLevel.Terse);
+            h.Layer.HandleKey(Keys.H | Keys.Control);
+            h.Layer.HandleKey(Keys.End);
+            h.Layer.HandleKey(Keys.M);
+            h.Layer.HandleKey(Keys.Home);
+            Assert.Equal((100, 0), (rig.Headphone, rig.Mic));
+
+            h.Layer.HandleKey(Keys.Escape);
+            Assert.Equal((40, 30), (rig.Headphone, rig.Mic));
         }
 
         [Fact]
@@ -522,7 +670,7 @@ namespace Radios.Tests
             var (h, _) = OpenAudio(VerbosityLevel.Chatty, onPan: true);
             Assert.Equal(
                 "Audio layer. Pan, slice A, slightly left. Left and right or up and down adjust, "
-                + "Shift moves by one, Home centers. Enter keeps it, Escape puts it back, H lists the keys.",
+                + "Shift moves by one, 0 centers. Enter keeps it, Escape puts it back, H lists the keys.",
                 Assert.Single(h.Said));
             var (t, _) = OpenAudio(VerbosityLevel.Terse, onPan: true);
             Assert.Equal("Audio layer. Pan, slice A, pan 40.", Assert.Single(t.Said));
@@ -666,12 +814,20 @@ namespace Radios.Tests
             public void Seed(int low, int high) { Low = EntryLow = low; High = EntryHigh = high; Touched = false; }
         }
 
+        /// <summary>
+        /// The receive ladder this file mirrors, and — since #527 — the
+        /// transmit one too. Radios.Tests cannot load the WPF assembly where
+        /// the real <c>FreqOutHandlers.GetAdaptiveFilterStep</c> lives, so
+        /// this is a copy, and a copy drifts;
+        /// <see cref="The_shipped_step_ladder_is_the_one_this_file_mirrors"/>
+        /// reads the shipped rungs out of source and refuses to let it.
+        /// </summary>
         private static int AdaptiveStep(int low, int high)
         {
             int width = high - low;
             if (width < 200) return 10;
             if (width < 500) return 25;
-            if (width < 2000) return 50;
+            if (width < 3500) return 50;
             if (width < 5000) return 100;
             return 200;
         }
@@ -707,8 +863,11 @@ namespace Radios.Tests
             int half = width / 2;
             int low = centre - half, high = centre + (width - half);
             int lowMin = s.LowMin(), highMax = s.HighMax();
+            // A width that will not fit about the centre SLIDES into the
+            // bounds before it is truncated — see the shipped EdgesForWidth.
+            if (low < lowMin) { high += lowMin - low; low = lowMin; }
+            if (high > highMax) { low -= high - highMax; high = highMax; }
             if (low < lowMin) low = lowMin;
-            if (high > highMax) high = highMax;
             if (high - low < s.MinWidth) { high = low + s.MinWidth; if (high > highMax) { high = highMax; low = high - s.MinWidth; } }
             return (low, high);
         }
@@ -775,8 +934,12 @@ namespace Radios.Tests
             var tx = new Side
             {
                 Group = "transmit", Prefix = "tx", PerSlice = false,
-                LowMin = () => 0, HighMax = () => 10000, MinWidth = 50, StepNow = () => 50,
+                LowMin = () => 0, HighMax = () => 10000, MinWidth = 50,
             };
+            // #527: one step rule for both sides. The transmit edges used to
+            // walk by rig.TXFilterLowIncrement, a flat 50, so pressing T
+            // silently changed what an arrow was worth inside one layer.
+            tx.StepNow = () => AdaptiveStep(tx.Bank.Low, tx.Bank.High);
             tx.Apply = (l, hi) =>
             {
                 // The shipped host writes the edge that opens the gap first;
@@ -863,16 +1026,18 @@ namespace Radios.Tests
         public void Filter_left_shift_with_left_walks_the_low_edge_down_by_the_bracket_step()
         {
             // The transcript the brief asked for: enter, move one target, leave.
+            // 100 to 2800 is 2.7 kHz wide, which since #526 is a 50 Hz rung —
+            // it was 100 Hz, and every ordinary SSB filter was in that rung.
             var (h, rig) = OpenFilter(VerbosityLevel.Terse);
             Assert.Equal(ValueLayerKeyResult.Handled, Press(h, rig, Keys.Left | Keys.Shift, ShiftSide.Left));
             Assert.Equal(ValueLayerKeyResult.Closed, h.Layer.HandleKey(Keys.Return));
             Assert.Equal(new[]
             {
                 "Filter layer. RX filter 100 to 2800, 2.7 kilohertz.",
-                "Low edge 0",
+                "Low edge 50",
                 "Filter layer closed",
             }, h.Transcript);
-            Assert.Equal((0, 2800), (rig.RxLow, rig.RxHigh));
+            Assert.Equal((50, 2800), (rig.RxLow, rig.RxHigh));
             Assert.Equal("value-layer:filter:rx-low", h.Moves[0].Key);
         }
 
@@ -881,8 +1046,8 @@ namespace Radios.Tests
         {
             var (h, rig) = OpenFilter(VerbosityLevel.Terse);
             Press(h, rig, Keys.Right | Keys.Shift, ShiftSide.Right);
-            Assert.Equal((100, 2900), (rig.RxLow, rig.RxHigh));
-            Assert.Equal("High edge 2900", h.LastMove);
+            Assert.Equal((100, 2850), (rig.RxLow, rig.RxHigh));
+            Assert.Equal("High edge 2850", h.LastMove);
         }
 
         [Fact]
@@ -904,8 +1069,8 @@ namespace Radios.Tests
         {
             var (h, rig) = OpenFilter(VerbosityLevel.Terse);
             h.Layer.HandleKey(Keys.Up);
-            Assert.Equal((200, 2900), (rig.RxLow, rig.RxHigh));
-            Assert.Equal("Filter 200 to 2900", h.LastMove);
+            Assert.Equal((150, 2850), (rig.RxLow, rig.RxHigh));
+            Assert.Equal("Filter 150 to 2850", h.LastMove);
             h.Layer.HandleKey(Keys.Left);
             Assert.Equal((100, 2800), (rig.RxLow, rig.RxHigh));
         }
@@ -915,8 +1080,8 @@ namespace Radios.Tests
         {
             var (h, rig) = OpenFilter(VerbosityLevel.Terse);
             h.Layer.HandleKey(Keys.Up | Keys.Control);
-            Assert.Equal((0, 2900), (rig.RxLow, rig.RxHigh));
-            Assert.Equal("Width 2900, 0 to 2900", h.LastMove);
+            Assert.Equal((50, 2850), (rig.RxLow, rig.RxHigh));
+            Assert.Equal("Width 2800, 50 to 2850", h.LastMove);
             h.Layer.HandleKey(Keys.Down | Keys.Control);
             Assert.Equal((100, 2800), (rig.RxLow, rig.RxHigh));
         }
@@ -925,9 +1090,11 @@ namespace Radios.Tests
         public void Filter_the_whole_filter_stops_at_the_mode_bound_and_says_so()
         {
             var (h, rig) = OpenFilter(VerbosityLevel.Terse);
-            h.Layer.HandleKey(Keys.Down);   // low would be 0 → allowed
+            h.Layer.HandleKey(Keys.Down);   // 50 → allowed
+            Assert.Equal((50, 2750), (rig.RxLow, rig.RxHigh));
+            h.Layer.HandleKey(Keys.Down);   // 0 → allowed, and exactly the USB floor
             Assert.Equal((0, 2700), (rig.RxLow, rig.RxHigh));
-            h.Layer.HandleKey(Keys.Down);   // low would be -100 → USB floor
+            h.Layer.HandleKey(Keys.Down);   // low would be -50 → USB floor refuses
             Assert.Equal((0, 2700), (rig.RxLow, rig.RxHigh));
             Assert.Equal("Filter 0 to 2700, at the limit", h.LastMove);
         }
@@ -987,7 +1154,11 @@ namespace Radios.Tests
             Assert.Equal((100, 2800), (rig.RxLow, rig.RxHigh));   // receive untouched
 
             // Narrow until the low edge meets TXFilterLowMax = high - 50.
-            for (int i = 0; i < 60; i++) Press(h, rig, Keys.Right | Keys.Shift, ShiftSide.Left);
+            // Since #527 the transmit edges walk by the same width-adaptive
+            // ladder the receive edges do, so the step TIGHTENS as the filter
+            // closes — 50, then 25 under 500 of width, then 10 under 200 —
+            // and the rail takes more presses to reach than a flat 50 would.
+            for (int i = 0; i < 80; i++) Press(h, rig, Keys.Right | Keys.Shift, ShiftSide.Left);
             Assert.Equal((2650, 2700), (rig.TxLow, rig.TxHigh));
             Assert.Equal("TX low 2650, at the limit", h.LastMove);
 
@@ -1000,8 +1171,8 @@ namespace Radios.Tests
         public void Filter_escape_puts_back_both_sides_through_one_snapshot()
         {
             var (h, rig) = OpenFilter(VerbosityLevel.Terse);
-            Press(h, rig, Keys.Left | Keys.Shift, ShiftSide.Left);   // rx 0..2800
-            h.Layer.HandleKey(Keys.Up);                                // rx 100..2900
+            Press(h, rig, Keys.Left | Keys.Shift, ShiftSide.Left);   // rx 50..2800
+            h.Layer.HandleKey(Keys.Up);                                // rx 100..2850
             h.Layer.HandleKey(Keys.T);
             Press(h, rig, Keys.Right | Keys.Shift, ShiftSide.Right);  // tx 300..2750
             var r = h.Layer.HandleKey(Keys.Escape);
@@ -1030,7 +1201,7 @@ namespace Radios.Tests
             var (h, rig) = OpenFilter(VerbosityLevel.Terse);
             h.Layer.HandleKey(Keys.Up);
             h.Layer.HandleKey(Keys.Return);
-            Assert.Equal(new[] { "rx 200 2900" }, rig.Writes);
+            Assert.Equal(new[] { "rx 150 2850" }, rig.Writes);
             Assert.Equal("Filter layer closed", h.LastSaid);
         }
 
@@ -1043,6 +1214,189 @@ namespace Radios.Tests
             h.Layer.HandleKey(Keys.T);
             h.Layer.HandleKey(k);
             Assert.Equal("HELP: Filter layer, TX filter 300 to 2700, 2.4 kilohertz", h.LastSaid);
+        }
+
+        [Fact]
+        public void Filter_a_shift_and_home_slams_the_addressed_edge_to_its_rail()
+        {
+            // #522's "the same mapping on EVERY target" reaches the layer
+            // where nothing is ever selected: the modifier still names the
+            // target, and the key is still the verb. Left Shift+Home is the
+            // low edge at its floor, Right Shift+End the high edge at its
+            // ceiling — and both stop where WALKING them would stop, because
+            // a jump runs the same constraint a nudge does.
+            var (h, rig) = OpenFilter(VerbosityLevel.Terse);
+
+            Assert.Equal(ValueLayerKeyResult.Handled, Press(h, rig, Keys.Home | Keys.Shift, ShiftSide.Left));
+            Assert.Equal((0, 2800), (rig.RxLow, rig.RxHigh));    // USB floor
+            Assert.Equal("Low edge 0", h.LastMove);
+
+            Press(h, rig, Keys.End | Keys.Shift, ShiftSide.Right);
+            Assert.Equal((0, 12000), (rig.RxLow, rig.RxHigh));   // USB ceiling
+            Assert.Equal("High edge 12000", h.LastMove);
+        }
+
+        [Fact]
+        public void Filter_home_with_no_shift_slams_the_whole_filter_left_and_keeps_its_width()
+        {
+            var (h, rig) = OpenFilter(VerbosityLevel.Terse);
+            h.Layer.HandleKey(Keys.Home);
+            Assert.Equal((0, 2700), (rig.RxLow, rig.RxHigh));
+            Assert.Equal("Filter 0 to 2700", h.LastMove);
+
+            h.Layer.HandleKey(Keys.End);
+            Assert.Equal((9300, 12000), (rig.RxLow, rig.RxHigh));
+            Assert.Equal("Filter 9300 to 12000", h.LastMove);
+        }
+
+        [Fact]
+        public void Filter_ctrl_home_and_ctrl_end_are_the_narrowest_and_widest()
+        {
+            // Ctrl addresses the width, exactly as it does for the arrows.
+            // Narrowest is the floor width about the current centre; widest
+            // is the whole span the mode allows, in ONE press — which is
+            // what made the truncation in EdgesForWidth worth fixing.
+            var (h, rig) = OpenFilter(VerbosityLevel.Terse);
+            h.Layer.HandleKey(Keys.Home | Keys.Control);
+            Assert.Equal((1425, 1475), (rig.RxLow, rig.RxHigh));
+            h.Layer.HandleKey(Keys.End | Keys.Control);
+            Assert.Equal((0, 12000), (rig.RxLow, rig.RxHigh));
+        }
+
+        [Fact]
+        public void Filter_widening_against_a_band_edge_grows_on_the_side_with_room()
+        {
+            // The same fix, seen from the arrows: a USB filter sitting on the
+            // 0 Hz floor used to gain only half of each widen, because the
+            // low edge stopped at the bound and the high edge kept its half.
+            var (h, rig) = OpenFilter(VerbosityLevel.Terse, rxLow: 0, rxHigh: 2700);
+            h.Layer.HandleKey(Keys.Up | Keys.Control);   // width 2700 + 2 × 50
+            Assert.Equal((0, 2800), (rig.RxLow, rig.RxHigh));
+            Assert.Equal("Width 2800, 0 to 2800", h.LastMove);
+        }
+
+        [Fact]
+        public void Filter_zero_sends_what_you_are_holding_to_zero_hertz()
+        {
+            // "0 is the centre, and on a target with no centre, zero." A
+            // filter edge declares no centre, so 0 is zero hertz — the
+            // carrier. On USB that is also the floor, so the low edge lands
+            // where Home would put it; the high edge cannot pass the low one
+            // and stops at the minimum width, out loud, like any other rail.
+            var (h, rig) = OpenFilter(VerbosityLevel.Terse, rxLow: 300, rxHigh: 2700);
+
+            Press(h, rig, Keys.D0 | Keys.Shift, ShiftSide.Left);
+            Assert.Equal((0, 2700), (rig.RxLow, rig.RxHigh));
+            Assert.Equal("Low edge 0", h.LastMove);
+
+            Press(h, rig, Keys.D0 | Keys.Shift, ShiftSide.Right);
+            Assert.Equal((0, 50), (rig.RxLow, rig.RxHigh));
+            Assert.Equal("High edge 50", h.LastMove);
+
+            // And Escape is still the whole way back, from anywhere.
+            h.Layer.HandleKey(Keys.Escape);
+            Assert.Equal((300, 2700), (rig.RxLow, rig.RxHigh));
+        }
+
+        [Fact]
+        public void Filter_a_jump_escapes_back_through_the_one_snapshot()
+        {
+            var (h, rig) = OpenFilter(VerbosityLevel.Terse);
+            Press(h, rig, Keys.Home | Keys.Shift, ShiftSide.Left);
+            h.Layer.HandleKey(Keys.T);
+            Press(h, rig, Keys.End | Keys.Shift, ShiftSide.Right);
+            h.Layer.HandleKey(Keys.Escape);
+
+            Assert.Equal((100, 2800), (rig.RxLow, rig.RxHigh));
+            Assert.Equal((300, 2700), (rig.TxLow, rig.TxHigh));
+        }
+
+        [Fact]
+        public void Filter_a_jump_whose_shift_side_cannot_be_read_is_refused_not_guessed()
+        {
+            // The same refusal the arrows make, for the same reason: slamming
+            // the WRONG edge to a rail without saying so would be worse than
+            // walking it there.
+            var (h, rig) = OpenFilter(VerbosityLevel.Terse);
+            Assert.Equal(ValueLayerKeyResult.Handled, Press(h, rig, Keys.Home | Keys.Shift, ShiftSide.Both));
+            Assert.Empty(rig.Writes);
+            Assert.Equal("Hold Left Shift for the low edge, or Right Shift for the high edge.", h.LastSaid);
+            Assert.True(h.Layer.IsLive);
+        }
+
+        [Fact]
+        public void Filter_an_ordinary_ssb_filter_steps_by_fifty_not_a_hundred()
+        {
+            // #526, stated as the operator hears it. A 100–2,800 passband is
+            // 2.7 kHz, and until the 50 Hz rung moved from 2,000 to 3,500 it
+            // fell into the 100 Hz rung — so the ladder's most-used step was
+            // set for a width almost nobody runs.
+            Assert.Equal(50, AdaptiveStep(100, 2800));
+            Assert.Equal(50, AdaptiveStep(300, 2700));    // a narrower SSB filter
+            Assert.Equal(50, AdaptiveStep(200, 3600));    // 3.4 kHz, still 50
+
+            // CW and AM are untouched, which is the point of moving one rung
+            // rather than flattening the ladder.
+            Assert.Equal(10, AdaptiveStep(2700, 2800));   // 100 Hz CW
+            Assert.Equal(25, AdaptiveStep(2600, 3000));   // 400 Hz CW
+            Assert.Equal(100, AdaptiveStep(0, 4000));     // 4 kHz
+            Assert.Equal(200, AdaptiveStep(-6000, 6000)); // 12 kHz AM
+        }
+
+        [Fact]
+        public void Filter_transmit_and_receive_edges_step_by_the_same_rule()
+        {
+            // #527. Pressing T used to change what an arrow was worth, inside
+            // a single layer that presents both sides as the same thing: the
+            // receive side walked the adaptive ladder and the transmit side a
+            // flat TXFilterLowIncrement. Same width, same step, both sides.
+            var (h, rig) = OpenFilter(VerbosityLevel.Terse, rxLow: 300, rxHigh: 2700);
+
+            Press(h, rig, Keys.Right | Keys.Shift, ShiftSide.Right);
+            int receiveStep = rig.RxHigh - 2700;
+
+            h.Layer.HandleKey(Keys.T);
+            Press(h, rig, Keys.Right | Keys.Shift, ShiftSide.Right);
+            int transmitStep = rig.TxHigh - 2700;
+
+            Assert.Equal(50, receiveStep);
+            Assert.Equal(receiveStep, transmitStep);
+        }
+
+        [Fact]
+        public void The_shipped_step_ladder_is_the_one_this_file_mirrors()
+        {
+            // Radios.Tests cannot load the WPF assembly, so AdaptiveStep above
+            // is a COPY of FreqOutHandlers.GetAdaptiveFilterStep — and a copy
+            // that nothing compares is a copy that drifts, which is this
+            // project's dominant defect class. Read the shipped rungs out of
+            // source and hold the mirror to them.
+            string source = ReadSource("JJFlexWpf/FreqOutHandlers.cs");
+            int start = source.IndexOf("int GetAdaptiveFilterStep(", StringComparison.Ordinal);
+            Assert.True(start > 0, "GetAdaptiveFilterStep not found in FreqOutHandlers.cs");
+            int end = source.IndexOf('}', source.IndexOf('{', start));
+            string body = source.Substring(start, end - start);
+
+            var rungs = Regex.Matches(body, @"if \(width < (\d+)\) return (\d+);")
+                             .Select(m => (Width: int.Parse(m.Groups[1].Value), Step: int.Parse(m.Groups[2].Value)))
+                             .ToList();
+            var last = Regex.Match(body, @"\n\s*return (\d+);\s*$");
+
+            // Prove the reader before trusting it: a scanner that sees nothing
+            // reports perfect agreement.
+            Assert.Equal(4, rungs.Count);
+            Assert.True(last.Success, "the ladder's final rung was not read out of source");
+
+            foreach (var (width, step) in rungs)
+            {
+                Assert.Equal(step, AdaptiveStep(0, width - 1));
+                Assert.NotEqual(step, AdaptiveStep(0, width));   // the rung really ends there
+            }
+            Assert.Equal(int.Parse(last.Groups[1].Value), AdaptiveStep(0, rungs[^1].Width));
+
+            // And the boundary #526 moved, named outright, so a revert reads
+            // as a decision rather than an accident.
+            Assert.Contains((3500, 50), rungs);
         }
 
         [Fact]
@@ -1272,11 +1626,37 @@ namespace Radios.Tests
             Assert.Contains("[Keys.R] = \"receive\"", source);
             Assert.Contains("[Keys.T] = \"transmit\"", source);
             Assert.Contains("InitialGroup = \"receive\"", source);   // lands on receive (#516)
-            Assert.Contains("FreqOutHandlers.GetAdaptiveFilterStep(", source);   // one step rule, two doors
             Assert.Contains("FreqOutHandlers.FilterBoundsForMode(", source);
             Assert.Contains("FreqOutHandlers.MinFilterWidthHz", source);
-            Assert.Contains("rig.TXFilterLowIncrement", source);
             Assert.Contains("rig.SetFilter(", source);
+
+            // #527: ONE step rule, both sides and both doors. Three rules for
+            // filter edges existed — the adaptive ladder, TXFilterLowIncrement
+            // and the menu's hard-coded 50 — and at most two of those could be
+            // right. TXFilterLowIncrement survives only as the transmit RAIL.
+            Assert.Contains("rx.StepNow = () => FreqOutHandlers.GetAdaptiveFilterStep(rx.Bank.Low, rx.Bank.High);", source);
+            Assert.Contains("tx.StepNow = () => FreqOutHandlers.GetAdaptiveFilterStep(tx.Bank.Low, tx.Bank.High);", source);
+            Assert.Contains("MinWidth = rig.TXFilterLowIncrement", source);
+            Assert.DoesNotContain("StepNow = () => rig.TXFilterLowIncrement", source);
+
+            string menu = ReadSource("JJFlexWpf/NativeMenuBar.cs");
+            Assert.Contains("FreqOutHandlers.TxFilterStep(Rig)", menu);
+            Assert.DoesNotContain("const int txFilterStep", menu);
+
+            // The FOURTH door the register's count of three had missed: the
+            // flat Ctrl+Shift and Ctrl+Alt bracket chords, which moved a
+            // transmit edge by a hard-coded 50 of their own. Every remaining
+            // 50 in those four handlers is the RAIL, and each is written
+            // against the OTHER edge, which is what tells them apart.
+            var handlers = Regex.Match(source,
+                @"#region TX Filter Handlers.*?#endregion", RegexOptions.Singleline);
+            Assert.True(handlers.Success, "the TX Filter Handlers region was not found in KeyCommands.cs");
+            Assert.Equal(4, Regex.Matches(handlers.Value, @"FreqOutHandlers\.TxFilterStep\(rig\)").Count);
+            foreach (Match m in Regex.Matches(handlers.Value, @"[-+] 50\b"))
+            {
+                Assert.Contains("TXFilter", handlers.Value.Substring(
+                    Math.Max(0, m.Index - 40), Math.Min(40, m.Index)));
+            }
 
             foreach (string key in new[]
             {

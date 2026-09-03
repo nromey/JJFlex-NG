@@ -2857,24 +2857,57 @@ public class FreqOutHandlers
     internal const int MinFilterWidthHz = 50;
 
     /// <summary>
-    /// Adaptive filter step: 10 Hz below 200 Hz bandwidth, 25 Hz below 500 Hz, 50 Hz default.
+    /// Adaptive filter step, by the filter's current width: 10 Hz under 200,
+    /// 25 under 500, 50 under 3,500, 100 under 5,000, 200 above.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Internal since Sprint 44 Track I: the filter layer (JJ key F, #516)
     /// walks the same receive edges these bracket chords do, and the two
-    /// doors must step by the same rule or an operator learns two. The step
-    /// is chosen by the current WIDTH, never by how fast a key repeats — an
-    /// edge is placed by number, and the number must not accelerate.
+    /// doors must step by the same rule or an operator learns two. Since
+    /// #527 the TRANSMIT edges walk by this rule too, so pressing T inside
+    /// the layer no longer silently changes what an arrow is worth.
+    /// </para>
+    /// <para>
+    /// The step is chosen by the current WIDTH, never by how fast a key
+    /// repeats — an edge is placed by number, and the number must not
+    /// accelerate. Acceleration belongs where the EAR is the feedback;
+    /// explicit steps belong where the NUMBER is.
+    /// </para>
+    /// <para>
+    /// <b>The 50 Hz rung reached 3,500 in #526, and it had been 2,000.</b>
+    /// The intent of the ladder was always right — wider filter, coarser
+    /// step — but that one boundary sat below every ordinary SSB filter: a
+    /// 100–2,800 passband is 2.7 kHz wide, so the mode an operator is in
+    /// most of the time fell into the 100 Hz rung and every SSB edge moved
+    /// twice as far as it should. Noel found it by pressing the layer. CW
+    /// and AM are untouched — CW filters live under 500 and AM above 5,000.
+    /// </para>
     /// </remarks>
     internal static int GetAdaptiveFilterStep(int low, int high)
     {
         int width = high - low;
         if (width < 200) return 10;
         if (width < 500) return 25;
-        if (width < 2000) return 50;
+        if (width < 3500) return 50;
         if (width < 5000) return 100;
         return 200;
     }
+
+    /// <summary>
+    /// How far one press moves a TRANSMIT filter edge, for every door that
+    /// reads the edges off the radio: the flat Ctrl+Shift and Ctrl+Alt
+    /// bracket chords and the Radio menu's TX Filter submenu (#527).
+    /// </summary>
+    /// <remarks>
+    /// The filter layer does NOT call this — while it is live its own shadow
+    /// of the pair is authoritative, not a radio read-back, so it asks
+    /// <see cref="GetAdaptiveFilterStep"/> about that shadow. Same rule,
+    /// different source for the two numbers, which is the whole reason the
+    /// rule takes them as arguments.
+    /// </remarks>
+    internal static int TxFilterStep(Radios.FlexBase rig)
+        => GetAdaptiveFilterStep(rig.TXFilterLow, rig.TXFilterHigh);
 
     /// <summary>
     /// Handle bracket keys for filter adjustment.
