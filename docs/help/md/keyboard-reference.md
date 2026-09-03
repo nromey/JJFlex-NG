@@ -166,6 +166,7 @@ Press `Ctrl+J`, then `F`, and you're on the receive filter of the slice you're o
 - **Up and Down**, or plain **Left and Right** — slide the whole filter, width intact.
 - **Ctrl+Up and Ctrl+Down** — widen or narrow it about its center.
 - **Home and End** — send whatever you're holding straight to its limit, no walking. `Left Shift+Home` puts the low edge on the floor, `Right Shift+End` puts the high edge on the ceiling, plain `Home` and `End` slide the whole filter to one end of the band with its width intact, and `Ctrl+Home` and `Ctrl+End` are the narrowest and the widest the mode allows. The modifier picks what you're holding here exactly as it does for the arrows, so there's nothing new to learn — the keys just stop asking you to hold an arrow down for a while.
+- **0** — the same idea, aimed at zero hertz: the carrier. It's the third of the three placing keys and it works here for consistency rather than because you'll reach for it often; on an upper-sideband filter it puts the low edge exactly where `Home` does. Escape puts back anything you didn't mean.
 - **S** — speak the whole filter. `Left Shift+S` speaks the low edge, `Right Shift+S` the high edge. Ask twice, get two answers.
 - **T** — work on the transmit filter instead. There's one for the whole radio, so it's the same whichever slice you're on.
 - **R** — back to the receive filter. The layer starts here, because receive is where you live and transmit is a visit.

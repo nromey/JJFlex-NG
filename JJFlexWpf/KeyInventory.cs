@@ -791,10 +791,10 @@ public static class KeyInventory
             new[] { "filter", "slide", "passband", "shift", "move", "whole" }, "Radio", "Filter"),
         new(FilterLayerContext, "Filter layer", "Ctrl+Up / Ctrl+Down", "Widen or narrow the filter about its center",
             new[] { "filter", "width", "widen", "narrow", "wider", "narrower", "bandwidth", "center" }, "Radio", "Filter"),
-        new(FilterLayerContext, "Filter layer", "Home / End", "Slam whatever you're holding to its limit — the same Shift that walks an edge sends it there, no Shift sends the whole filter, Ctrl sends the width",
-            new[] { "home", "end", "limit", "rail", "minimum", "maximum", "min", "max", "hard",
-                    "narrowest", "widest", "slam", "jump", "place", "edge", "width" }, "Radio", "Filter")
-            { KeySpoken = "Home or End" },
+        new(FilterLayerContext, "Filter layer", "Home / End / 0", "Send whatever you're holding straight to a place: Home its lowest, End its highest, 0 zero hertz. The same Shift that walks an edge sends it, no Shift sends the whole filter, Ctrl sends the width",
+            new[] { "home", "end", "zero", "limit", "rail", "minimum", "maximum", "min", "max", "hard",
+                    "narrowest", "widest", "slam", "jump", "place", "carrier", "edge", "width" }, "Radio", "Filter")
+            { KeySpoken = "Home, End or 0" },
         new(FilterLayerContext, "Filter layer", "S", "Speak the whole filter",
             new[] { "filter", "speak", "read", "width", "edges" }, "Radio", "Filter"),
         new(FilterLayerContext, "Filter layer", "Left Shift + S", "Speak the low edge",

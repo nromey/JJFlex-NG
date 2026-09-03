@@ -1276,6 +1276,29 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void Filter_zero_sends_what_you_are_holding_to_zero_hertz()
+        {
+            // "0 is the centre, and on a target with no centre, zero." A
+            // filter edge declares no centre, so 0 is zero hertz — the
+            // carrier. On USB that is also the floor, so the low edge lands
+            // where Home would put it; the high edge cannot pass the low one
+            // and stops at the minimum width, out loud, like any other rail.
+            var (h, rig) = OpenFilter(VerbosityLevel.Terse, rxLow: 300, rxHigh: 2700);
+
+            Press(h, rig, Keys.D0 | Keys.Shift, ShiftSide.Left);
+            Assert.Equal((0, 2700), (rig.RxLow, rig.RxHigh));
+            Assert.Equal("Low edge 0", h.LastMove);
+
+            Press(h, rig, Keys.D0 | Keys.Shift, ShiftSide.Right);
+            Assert.Equal((0, 50), (rig.RxLow, rig.RxHigh));
+            Assert.Equal("High edge 50", h.LastMove);
+
+            // And Escape is still the whole way back, from anywhere.
+            h.Layer.HandleKey(Keys.Escape);
+            Assert.Equal((300, 2700), (rig.RxLow, rig.RxHigh));
+        }
+
+        [Fact]
         public void Filter_a_jump_escapes_back_through_the_one_snapshot()
         {
             var (h, rig) = OpenFilter(VerbosityLevel.Terse);
