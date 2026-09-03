@@ -60,7 +60,7 @@ namespace JJFlexWpf.Tests
             var rows = KeyLayerHelp.Rows(KeyInventory.AudioLayerContext);
             Assert.Contains(rows, r => r.key == "V" && r.description.StartsWith("Slice volume", System.StringComparison.Ordinal));
             Assert.Contains(rows, r => r.key == "Ctrl+M" && r.description.StartsWith("Mute or unmute", System.StringComparison.Ordinal));
-            Assert.Contains(rows, r => r.key == "Ctrl+A" && r.description.StartsWith("Turn PC audio on or off", System.StringComparison.Ordinal));
+            Assert.Contains(rows, r => r.key == "Ctrl+P" && r.description.StartsWith("Turn PC audio on or off", System.StringComparison.Ordinal));
             Assert.Contains(rows, r => r.key == "Ctrl+B" && r.description.StartsWith("Binaural receive on or off", System.StringComparison.Ordinal));
         }
 
@@ -72,7 +72,7 @@ namespace JJFlexWpf.Tests
             var rows = KeyLayerHelp.Rows(KeyInventory.AudioLayerContext);
             string s = KeyLayerHelp.SpokenList(KeyInventory.AudioLayerContext);
             Assert.StartsWith(rows.Count + " keys in Audio layer: V, Slice volume", s);
-            Assert.Contains("; Ctrl+P, Pan for the slice you're on", s);
+            Assert.Contains("; P, Pan for the slice you're on", s);
             Assert.Contains("; Shift slash, Open the JJ key explorer", s);
             Assert.DoesNotContain("; ?, ", s);
         }

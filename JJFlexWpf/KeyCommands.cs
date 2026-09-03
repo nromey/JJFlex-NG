@@ -4355,7 +4355,7 @@ public class KeyCommands
         {
             Id = "pan",
             Name = "",
-            SelectKey = Keys.P | Keys.Control,
+            SelectKey = Keys.P,
             PerSlice = true,
             Read = () => { int vfo = rig.RXVFO; return rig.ValidVFO(vfo) ? rig.GetVFOPan(vfo) : centre; },
             Apply = v => { int vfo = rig.RXVFO; if (rig.ValidVFO(vfo)) rig.SetVFOPan(vfo, v); },
@@ -4398,7 +4398,7 @@ public class KeyCommands
         // lands on the current state is silent. Turning it on can FAIL (no
         // usable sound device), so the answer reads the OUTCOME off the rig
         // rather than the wish — PCAudioHandler's rule, kept here.
-        var pcAudio = Switch("pc-audio", Keys.A | Keys.Control,
+        var pcAudio = Switch("pc-audio", Keys.P | Keys.Control,
             () => rig.PCAudio,
             on => { if (rig.PCAudio != on) _context.PCAudioToggle(); },
             on => Radios.Lexicon.Get(on ? "audio.pc_audio.on" : "audio.pc_audio.off"),

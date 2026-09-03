@@ -433,7 +433,7 @@ namespace Radios.Tests
             var headphone = Level("headphone", "audio.audio_layer.name_headphone", Keys.H | Keys.Control,
                 () => rig.Headphone, v => { rig.Headphone = v; rig.Writes.Add("headphone " + v); }, 0, 100, 5,
                 "audio.audio_layer.headphone", "audio.audio_layer.headphone_selected");
-            var pcOutput = Level("pc-output", "audio.audio_layer.name_pc_output", Keys.P,
+            var pcOutput = Level("pc-output", "audio.audio_layer.name_pc_output", Keys.O,
                 () => rig.PcVolume, v => { rig.PcVolume = v; rig.Writes.Add("pc " + v); pcTouched = true; }, 0, 24, 1,
                 "audio.audio_layer.pc_output");
             var mic = Level("mic", "audio.audio_layer.name_mic", Keys.M,
@@ -459,7 +459,7 @@ namespace Radios.Tests
             };
             var pan = new ValueTarget
             {
-                Id = "pan", Name = "", SelectKey = Keys.P | Keys.Control, PerSlice = true,
+                Id = "pan", Name = "", SelectKey = Keys.P, PerSlice = true,
                 Read = () => rig.Pan[rig.Slice],
                 Apply = v => { rig.Pan[rig.Slice] = v; rig.Writes.Add("pan " + rig.Slice + " " + v); },
                 Min = 0, Max = 100, Step = 5, FineStep = 1, Axes = ValueLayerAxes.Both, Anchor = centre,
@@ -496,7 +496,7 @@ namespace Radios.Tests
                 on => { rig.Muted[rig.Slice] = on; rig.Writes.Add("mute " + rig.Slice + " " + on); },
                 on => Lexicon.Get(on ? "audio.mute.slice_muted" : "audio.mute.slice_unmuted", ("letter", rig.Slice)),
                 perSlice: true);
-            var pcAudio = Switch("pc-audio", Keys.A | Keys.Control,
+            var pcAudio = Switch("pc-audio", Keys.P | Keys.Control,
                 () => rig.PcAudio,
                 on => { if (rig.PcAudio != on) { rig.Writes.Add("pc audio " + on); if (!on || rig.PcAudioCanStart) rig.PcAudio = on; } },
                 on => Lexicon.Get(on ? "audio.pc_audio.on" : "audio.pc_audio.off"),
@@ -558,14 +558,18 @@ namespace Radios.Tests
         {
             // #524: entry was 175 characters, every time — helpful once,
             // punishing forever. Where you are, what is picked, and H does
-            // the rest (#519). Track P owns how this scales with verbosity;
-            // here it is short at every tier.
-            foreach (var level in new[] { VerbosityLevel.Terse, VerbosityLevel.Chatty })
-            {
-                var (h, _) = OpenAudio(level);
-                Assert.Equal("Audio layer, nothing picked.", Assert.Single(h.Said));
-                Assert.Null(h.Layer.CurrentTarget);
-            }
+            // the rest (#519). Noel ruled on 2026-09-02 that chatty need not
+            // recite the keys either: it points at H, which is the surface
+            // that lists them properly. So chatty is terse plus one sentence,
+            // and the letters live in exactly one place.
+            var (t, _) = OpenAudio(VerbosityLevel.Terse);
+            Assert.Equal("Audio layer, nothing picked.", Assert.Single(t.Said));
+            Assert.Null(t.Layer.CurrentTarget);
+
+            var (h, _) = OpenAudio(VerbosityLevel.Chatty);
+            Assert.Equal("Audio layer, nothing picked. Press H for a list of keys.",
+                Assert.Single(h.Said));
+            Assert.Null(h.Layer.CurrentTarget);
         }
 
         [Fact]
@@ -603,7 +607,7 @@ namespace Radios.Tests
             Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.Up));
             Assert.True(h.Layer.IsLive);
             Assert.Empty(rig.Writes);
-            Assert.Equal("Pick a target first: V, Ctrl+H, P, M, L, C, S, or Ctrl+P.", h.LastSaid);
+            Assert.Equal("Pick a target first: V, Ctrl+H, O, M, L, C, S, or P.", h.LastSaid);
         }
 
         // ── Sprint 44 Track N (#524): slice volume and the switches ──
@@ -662,7 +666,7 @@ namespace Radios.Tests
             h.Layer.HandleKey(Keys.B | Keys.Control);
             Assert.Null(h.Layer.CurrentTarget);
             h.Layer.HandleKey(Keys.Up);
-            Assert.Equal("Pick a target first: V, Ctrl+H, P, M, L, C, S, or Ctrl+P.", h.LastSaid);
+            Assert.Equal("Pick a target first: V, Ctrl+H, O, M, L, C, S, or P.", h.LastSaid);
         }
 
         [Fact]
@@ -711,12 +715,12 @@ namespace Radios.Tests
             // layer — so "PC audio on" is never said while nothing plays.
             var (h, rig) = OpenAudio(VerbosityLevel.Terse);
             rig.PcAudioCanStart = false;
-            h.Layer.HandleKey(Keys.A | Keys.Control);
+            h.Layer.HandleKey(Keys.P | Keys.Control);
             Assert.Equal("PC audio could not start, still off", h.LastAnswer);
             Assert.False(rig.PcAudio);
 
             var (ok, okRig) = OpenAudio(VerbosityLevel.Terse);
-            ok.Layer.HandleKey(Keys.A | Keys.Control);
+            ok.Layer.HandleKey(Keys.P | Keys.Control);
             Assert.Equal("PC audio on", ok.LastAnswer);
             Assert.True(okRig.PcAudio);
             ok.Layer.HandleKey(Keys.Escape);
@@ -844,7 +848,7 @@ namespace Radios.Tests
             Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.Up));
 
             Assert.Equal(1, tones.Invalid);
-            Assert.Equal("Pick a target first: V, Ctrl+H, P, M, L, C, S, or Ctrl+P.", h.LastSaid);
+            Assert.Equal("Pick a target first: V, Ctrl+H, O, M, L, C, S, or P.", h.LastSaid);
             Assert.Equal(saidBefore + 1, h.Said.Count);
             Assert.True(h.Layer.IsLive);
             Assert.Empty(rig.Writes);
@@ -890,7 +894,7 @@ namespace Radios.Tests
             Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.Up));
 
             Assert.Equal(1, tones.Invalid);   // still invoked; the player itself is what is gated
-            Assert.Equal("Pick a target first: V, Ctrl+H, P, M, L, C, S, or Ctrl+P.", h.LastSaid);
+            Assert.Equal("Pick a target first: V, Ctrl+H, O, M, L, C, S, or P.", h.LastSaid);
             Assert.True(h.Layer.IsLive);
             Assert.Empty(rig.Writes);
         }
@@ -921,7 +925,7 @@ namespace Radios.Tests
         public void Audio_pan_answers_both_arrow_pairs_and_zero_centres()
         {
             var (h, rig) = OpenAudio(VerbosityLevel.Chatty);
-            h.Layer.HandleKey(Keys.P | Keys.Control);
+            h.Layer.HandleKey(Keys.P);
             Assert.Equal("Pan, slice A, slightly left", h.LastAnswer);
             h.Layer.HandleKey(Keys.Right);   // 45
             h.Layer.HandleKey(Keys.Up);      // 50
@@ -942,7 +946,7 @@ namespace Radios.Tests
             // that shows the general rule, because it is the one where "hard
             // left" and "hard right" are literally what the words say.
             var (h, rig) = OpenAudio(VerbosityLevel.Chatty);
-            h.Layer.HandleKey(Keys.P | Keys.Control);
+            h.Layer.HandleKey(Keys.P);
 
             h.Layer.HandleKey(Keys.Home);
             Assert.Equal(0, rig.Pan["A"]);
@@ -987,7 +991,7 @@ namespace Radios.Tests
             // asks for one and never ejects the operator.
             var (h, rig) = OpenAudio(VerbosityLevel.Terse);
             Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.End));
-            Assert.Equal("Pick a target first: V, Ctrl+H, P, M, L, C, S, or Ctrl+P.", h.LastSaid);
+            Assert.Equal("Pick a target first: V, Ctrl+H, O, M, L, C, S, or P.", h.LastSaid);
             Assert.True(h.Layer.IsLive);
             Assert.Empty(h.Moves);
         }
@@ -1010,7 +1014,8 @@ namespace Radios.Tests
         public void Audio_the_alt_p_door_opens_on_pan()
         {
             var (h, _) = OpenAudio(VerbosityLevel.Chatty, onPan: true);
-            Assert.Equal("Audio layer. Pan, slice A, slightly left.", Assert.Single(h.Said));
+            Assert.Equal("Audio layer. Pan, slice A, slightly left. Press H for a list of keys.",
+                Assert.Single(h.Said));
             var (t, _) = OpenAudio(VerbosityLevel.Terse, onPan: true);
             Assert.Equal("Audio layer. Pan, slice A, pan 40.", Assert.Single(t.Said));
         }
@@ -1020,8 +1025,8 @@ namespace Radios.Tests
         {
             var (h, rig) = OpenAudio(VerbosityLevel.Terse);
             h.Layer.HandleKey(Keys.H | Keys.Control); h.Layer.HandleKey(Keys.Up);          // headphone 45
-            h.Layer.HandleKey(Keys.P);                h.Layer.HandleKey(Keys.Down);        // pc 11
-            h.Layer.HandleKey(Keys.P | Keys.Control); h.Layer.HandleKey(Keys.Right);       // pan 45
+            h.Layer.HandleKey(Keys.O);                h.Layer.HandleKey(Keys.Down);        // pc 11
+            h.Layer.HandleKey(Keys.P); h.Layer.HandleKey(Keys.Right);       // pan 45
             h.Layer.HandleKey(Keys.M);                                                     // picked, not moved
             var r = h.Layer.HandleKey(Keys.Escape);
 
@@ -1047,7 +1052,7 @@ namespace Radios.Tests
         public void Audio_escape_at_chatty_puts_pan_back_in_words()
         {
             var (h, _) = OpenAudio(VerbosityLevel.Chatty);
-            h.Layer.HandleKey(Keys.P | Keys.Control);
+            h.Layer.HandleKey(Keys.P);
             h.Layer.HandleKey(Keys.Right);
             h.Layer.HandleKey(Keys.Escape);
             Assert.Equal("Put back pan slightly left. Audio layer closed", h.LastSaid);
@@ -1057,7 +1062,7 @@ namespace Radios.Tests
         public void Audio_enter_keeps_everything_and_persists_the_pc_volume_once()
         {
             var (h, rig) = OpenAudio(VerbosityLevel.Terse);
-            h.Layer.HandleKey(Keys.P); h.Layer.HandleKey(Keys.Up); h.Layer.HandleKey(Keys.Up);
+            h.Layer.HandleKey(Keys.O); h.Layer.HandleKey(Keys.Up); h.Layer.HandleKey(Keys.Up);
             h.Layer.HandleKey(Keys.Return);
             Assert.Equal(14, rig.PcVolume);
             Assert.Equal(1, rig.Persisted);
@@ -1067,7 +1072,7 @@ namespace Radios.Tests
         public void Audio_ctrl_j_hands_off_and_still_persists_the_pc_volume()
         {
             var (h, rig) = OpenAudio(VerbosityLevel.Terse);
-            h.Layer.HandleKey(Keys.P); h.Layer.HandleKey(Keys.Up);
+            h.Layer.HandleKey(Keys.O); h.Layer.HandleKey(Keys.Up);
             Assert.Equal(ValueLayerKeyResult.ClosedHandOff, h.Layer.HandleKey(Keys.J | Keys.Control));
             Assert.Equal(1, rig.Persisted);
         }
@@ -1099,7 +1104,7 @@ namespace Radios.Tests
             // #515: Shift+letter jumps from inside a layer, so the layer never
             // spends A-F on slices. What was done on the old slice is kept.
             var (h, rig) = OpenAudio(VerbosityLevel.Chatty);
-            h.Layer.HandleKey(Keys.P | Keys.Control);
+            h.Layer.HandleKey(Keys.P);
             h.Layer.HandleKey(Keys.Right);                       // A: 45
             Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.C | Keys.Shift));
             Assert.True(h.Layer.IsLive);
@@ -1342,13 +1347,16 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Filter_entry_lands_on_receive_and_teaches_the_grammar_at_chatty()
+        public void Filter_entry_lands_on_receive_and_points_at_H_at_chatty()
         {
+            // Noel ruled on 2026-09-02 that chatty need not recite the keys:
+            // it points at H, the surface that lists them properly. This
+            // entry used to carry 260 characters of grammar lesson on every
+            // press, which is the recitation #524 was raised about wearing a
+            // different hat.
             var (h, _) = OpenFilter(VerbosityLevel.Chatty);
             Assert.Equal(
-                "Filter layer. RX filter 100 to 2800, 2.7 kilohertz. Left Shift with Left and Right walks the low edge, "
-                + "Right Shift the high edge. Up and down slide the whole filter, Control up and down set the width. "
-                + "S speaks it, T transmit, R receive. Enter keeps it, Escape puts it back, H lists the keys.",
+                "Filter layer. RX filter 100 to 2800, 2.7 kilohertz. Press H for a list of keys.",
                 Assert.Single(h.Said));
             Assert.Equal("receive", h.Layer.CurrentGroup);
             Assert.Null(h.Layer.CurrentTarget);
@@ -1921,7 +1929,7 @@ namespace Radios.Tests
 
             Assert.Contains("Selection = Radios.ValueLayerSelection.ByLetter", source);
             Assert.Contains("\"audio.audio_layer.name_headphone\", Keys.H | Keys.Control,", source);   // headphone wears Ctrl: H is help
-            Assert.Contains("SelectKey = Keys.P | Keys.Control", source);   // pan wears Ctrl: P is PC output
+            Assert.Contains("SelectKey = Keys.P", source);   // pan wears Ctrl: P is PC output
             Assert.Contains("Axes = Radios.ValueLayerAxes.Both", source);   // pan answers both pairs
             Assert.Contains("HostKeys = LayerSliceJump", source);
             Assert.Contains("PersistPcOutputVolume()", source);
@@ -1934,7 +1942,7 @@ namespace Radios.Tests
             Assert.Contains("Min = FlexBase.AudioGainMinValue", source);
             Assert.Contains("Switch(\"mute\", Keys.M | Keys.Control,", source);
             Assert.Contains("rig.SliceMute = on;", source);
-            Assert.Contains("Switch(\"pc-audio\", Keys.A | Keys.Control,", source);
+            Assert.Contains("Switch(\"pc-audio\", Keys.P | Keys.Control,", source);
             Assert.Contains("if (rig.PCAudio != on) _context.PCAudioToggle();", source);
             Assert.Contains("Switch(\"binaural\", Keys.B | Keys.Control,", source);
             Assert.Contains("rig.Binaural = on ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off;", source);
@@ -2092,7 +2100,7 @@ namespace Radios.Tests
             Assert.Contains("foreach (var e in AudioLayerCommands) yield return e;", source);
             // Every target the shipped layer builds has a row, in the words
             // the explorer and the H list read (#524's four included).
-            foreach (string chord in new[] { "\"V\"", "\"Ctrl+M\"", "\"Ctrl+A\"", "\"Ctrl+B\"" })
+            foreach (string chord in new[] { "\"V\"", "\"Ctrl+M\"", "\"Ctrl+P\"", "\"Ctrl+B\"" })
                 Assert.Contains("new(AudioLayerContext, \"Audio layer\", " + chord + ",", source);
             Assert.Contains("foreach (var e in FilterLayerCommands) yield return e;", source);
             Assert.DoesNotContain("VolumeModeCommands", source);

@@ -74,7 +74,7 @@ The second key follows a grammar, and the grammar is the point: you work out a c
 - **K** — Mic check — speak your mic-audio verdict and level, nothing else (see below)
 - **G** — Arm or disarm the TX test tone (it replaces your microphone while transmitting)
 - **C** — Toggle Compander
-- **Ctrl+P** — Turn PC audio on or off — whether radio audio plays through this computer at all. P for PC; it was `Ctrl+A` until now. (`Ctrl+J`, `V`, `P` rides how *loud* it plays; this is the switch, and it tells you which way it went)
+- **Ctrl+P** — Turn PC audio on or off — whether radio audio plays through this computer at all. P for PC; it was `Ctrl+A` until now. (`Ctrl+J`, `V`, `O` rides how *loud* it plays; this is the switch, and it tells you which way it went)
 - **Shift+P** — Toggle Speech Processor
 - **E** — Echo the CW notifications you just heard — press again to step further back (see "CW echo" below)
 
@@ -131,17 +131,17 @@ The levels — pick one, then ride Up and Down:
 
 - **V** — slice volume, for the slice you're on: how loud that slice sits in the mix, 0 to 100. This is the volume most people mean, and it is *not* the PC output volume below — one is the slice, the other is your computer. It follows you when you jump slices.
 - **Ctrl+H** — on-radio headphone volume. The headphone jack on the radio itself. Plain `H` is help in this layer and in every layer, so headphone wears Ctrl.
-- **P** — PC output volume, in dB of boost. This is how loud radio audio plays *through your computer* — the one remote operators actually want. Ranges 0 to 24 dB; the long-time default is 12 dB.
+- **O** — PC output volume, in dB of boost. O for output — the computer’s. This is how loud radio audio plays *through your computer* — the one remote operators actually want. Ranges 0 to 24 dB; the long-time default is 12 dB.
 - **M** — mic level, your transmit audio level. Applies to PC audio too.
 - **L** — on-radio line out volume. The line out jacks on the radio itself.
 - **C** — compander level. (Toggle the compander itself with `Ctrl+J`, `C`.)
 - **S** — speech processor mode: Up and Down step through Normal, DX, and DX plus. (Toggle the processor with `Ctrl+J`, `Shift+P`.)
-- **Ctrl+P** — pan, for the slice you're on. Plain `P` is PC output, so pan wears Ctrl. Left and Right move it too — for pan, direction means something real — and `0` snaps it back to center.
+- **P** — pan, for the slice you're on. Pan mode lived on `P` before the layers, so this is the letter your hands already know. Left and Right move it too — for pan, direction means something real — and `0` snaps it back to center.
 
 The switches — one press flips it, and it tells you which way it went:
 
 - **Ctrl+M** — mute or unmute the slice you're on. The same mute as `M` on Home, reachable from in here.
-- **Ctrl+A** — PC audio on or off: whether radio audio plays through this computer at all. `P` above sets how loud; this is the switch. It reads the radio back before answering, so if turning it on couldn't find a sound device it tells you that rather than claiming success.
+- **Ctrl+P** — PC audio on or off: whether radio audio plays through this computer at all. The same chord as `Ctrl+J`, `Ctrl+P` outside the layer, on purpose — one chord, one meaning, wherever you press it. `O` above sets how loud; this is the switch. It reads the radio back before answering, so if turning it on couldn't find a sound device it tells you that rather than claiming success.
 - **Ctrl+B** — binaural receive on or off, the radio's own stereo widening of what you hear. There used to be a control for this and it went missing in the move; this is it, back.
 
 And the keys that work on whatever you've picked:

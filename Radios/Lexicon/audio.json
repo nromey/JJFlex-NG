@@ -11,12 +11,12 @@
   "audio.audio_layer.entered": {
     "critical": "Audio layer, nothing picked.",
     "terse": "Audio layer, nothing picked.",
-    "chatty": "Audio layer, nothing picked."
+    "chatty": "Audio layer, nothing picked. Press H for a list of keys."
   },
   "audio.audio_layer.entered_on_pan": {
     "critical": "Audio layer. {target}.",
     "terse": "Audio layer. {target}.",
-    "chatty": "Audio layer. {target}."
+    "chatty": "Audio layer. {target}. Press H for a list of keys."
   },
   "audio.audio_layer.headphone": "Headphone {value}",
   "audio.audio_layer.headphone_selected": "On-radio headphone {value}",
@@ -43,7 +43,7 @@
     "chatty": "Pan, slice {letter}, {position}"
   },
   "audio.audio_layer.pc_output": "PC volume {value} dB",
-  "audio.audio_layer.pick_target_first": "Pick a target first: V, Ctrl+H, P, M, L, C, S, or Ctrl+P.",
+  "audio.audio_layer.pick_target_first": "Pick a target first: V, Ctrl+H, O, M, L, C, S, or P.",
   "audio.audio_layer.processor": "Processor {name}",
   "audio.audio_layer.processor_is_off_suffix": ", processor is off",
   "audio.audio_layer.restored": "Put back {list}. Audio layer closed",
@@ -372,7 +372,7 @@
   "audio.filter_layer.entered": {
     "critical": "Filter layer. {filter}.",
     "terse": "Filter layer. {filter}.",
-    "chatty": "Filter layer. {filter}. Left Shift with Left and Right walks the low edge, Right Shift the high edge. Up and down slide the whole filter, Control up and down set the width. S speaks it, T transmit, R receive. Enter keeps it, Escape puts it back, H lists the keys."
+    "chatty": "Filter layer. {filter}. Press H for a list of keys."
   },
   "audio.filter_layer.name": "Filter layer",
   "audio.filter_layer.no_slice": "No slice for the receive filter",
