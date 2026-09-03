@@ -5351,7 +5351,15 @@ public class KeyCommands
     /// </remarks>
     private void OpenKeyExplorer()
     {
-        LeaderKeyHelp();
+        EarconPlayer.LeaderHelpTone();
+        // Sprint 44 integration pass. Track J left this body calling
+        // LeaderKeyHelp() as its merge point for Track K's explorer, and
+        // wrote the instruction down; the merge did the first half of that
+        // note and not the second, so JJ key slash gave the LIST — the same
+        // surface H already opens — for the whole of Sprint 44. #519 is
+        // explicit that these are two doors: H lists this layer's commands,
+        // slash walks the tree of every layer.
+        OnMainDispatcher(() => Dialogs.KeyExplorerDialog.Open(KeyLayerHelp.LeaderContext));
     }
 
     /// <summary>
