@@ -9,6 +9,146 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-09-02 — SIXTEEN TRACKS IN THREE FLIGHTS, AND THE THIRD FLIGHT'S SCOPE CAME ENTIRELY FROM PRESSING THE SECOND FLIGHT'S KEYS
+
+**Sealed 21:12. 51 commits in JJFlex-NG, 20 in jjf-private, 6 in rigmeter.
+Rigmeter +20,345 / −2,844, net +17,501 across 94 files — both figures agree, so
+nothing was reverted. C# is +19,780 / −2,695 across 76 files. 13.7 hours read
+aloud; 407 printed pages. Sixteen tracks merged and contained: 2,685 Radios tests
+and 43 JJFlexWpf tests passing. Register #520 through #533. NO build shipped to
+Don — his call, and he gave a reason.**
+
+### The headline
+
+**Three flights, and only the first was planned.** Flight one (A–F) delivered the
+sprint plan written the night before. Flight two (G–K) delivered what that plan
+named as follow-on. **Flight three (M–Q) exists entirely because Noel pressed the
+keys flight two shipped**, and found the audio layer thin, the filter step too
+coarse, the layers ignoring verbosity, and himself trapped in an invisible dialog.
+
+Noel asked whether that should still be Sprint 44. **It should**, and the rule is
+worth keeping: *a flight that fixes the sprint's own output is the same sprint; a
+flight that takes on unrelated work is a new one.* Three of flight three's five
+tracks repair flight two. Only Track Q is a passenger — a four-month-old focus bug
+that got adopted because it bit him tonight.
+
+### The Flex Control knob, characterised from nothing to a full spec
+
+The knob came out of its box and we probed it read-only across four runs before
+writing a line against it (#520).
+
+**84 detents per revolution, on a 15.6 ms / 64 Hz report clock.** The clock is the
+load-bearing finding and it was confirmed twice independently: every gap in a turn
+is an integer multiple of it, and two buttons pressed together arrive **exactly two
+ticks apart**. So SilkTune's velocity and acceleration must be computed from tick
+counts, not arrival times — the wrist is already sampled at 64 Hz before we see it.
+
+**All fourteen codes now measured, none assumed.** Three capability answers, all
+negative and all useful: **press-and-turn emits nothing at all** (four seconds of
+holding and turning produced zero rotation events, and no undecoded code either);
+**there is no chord code**, simultaneous presses arriving as two independent
+shorts; and **pressing the knob emits a phantom rotation step**, reproducible in
+two of three double-presses. **So the knob must be modal** — the same shape as the
+JJ key grammar, one mental model across two input devices.
+
+**Events buffer while nothing is listening and replay on connect**, proven by
+presence when he had handled it and by absence when he had not. Noel ruled that
+they must be discarded, and the rule is wider than connect: the same burst arrives
+whenever our reader stalls. **`F0304`** arrives undecoded at every connect and is
+still unexplained.
+
+### What the three flights delivered
+
+**Flight one** fixed the speech channel (#503), the binding class (#496/#502), the
+alarm's settling rule (#453) and the guest-radio granularity — all verified at the
+radio that morning.
+
+**Flight two** composed the connect narration down from **711 characters and 56.9
+seconds of speech in a five-second window to 159 characters**, with a healthy
+connect at 56; built the salvage settle window at a bracketed 600 ms; extended
+`ValueSubLayer` to four selection policies including the two-axis form; landed the
+four-tier grammar; and built the tree explorer and navigable help.
+
+**Flight three** established what NVDA can actually report, gave the audio layer
+the four targets it was missing, moved Home and End to the ends with `0` as the
+middle, wired verbosity into the layers, and built a focus watchdog.
+
+### The finding that will shape the next sprint
+
+**NVDA can tell us exactly what it said.** `nvdaController_speakSsml` with
+`asynchronous = FALSE` blocks and returns **0 spoken to the end** or **1223
+cancelled**, calling back for every `<mark>` the synth reaches — so we learn not
+just *whether* an utterance was cut off but **how far it got**. Proved with a
+positive control, and **`SPEECH_PRIORITY_NOW` already does #503's salvage
+natively**, resuming a suspended queue from the last mark.
+
+**Prism as pinned cannot reach any of it.** Its `nvda.cpp` calls four functions and
+the DLL exports no `nvdaController_*`; 0.18.2 is byte-identical. That is the
+decision waiting for tomorrow.
+
+### Corrections — four, and three were mine
+
+- **My 89-second measurement was wrong by a factor of ten.** Full history renders
+  in **8.7 seconds**; the rest was Git Bash's pipe. An elapsed time also claims the
+  harness cost nothing.
+- **"The April stuck-connect design was never built" was false.** It shipped
+  2026-05-04. It is WinForms in the main project, so searching `JJFlexWpf/Dialogs/`
+  found nothing and I reported that absence as global.
+- **There is no "Normal" verbosity level.** I described a three-tier rule, Noel
+  agreed, and the engine has Off, Terse and Chatty. Track P refused to invent a
+  fourth, correctly.
+- **`JJ key slash` opened the list, not the explorer, for the entire sprint.**
+  Track J's merge note had two clauses; I verified the first and stopped. Track K's
+  explorer had never run once.
+
+### Decisions Noel made
+
+**No build to Don until these are fixed** — his call, unprompted. **The audio
+layer's letters:** PC output to `O`, pan back to plain `P`, PC audio on/off to
+`Ctrl+P` so that chord means one thing everywhere. **Chatty stops reciting** and
+points at `H` instead. **Home and End are the ends**, because that is what they
+mean on every slider in Windows, and **the numpad is not ours** — both NVDA and
+JAWS claim it, measured at the keyboard. **The knob remembers the intent and
+discovers the address**, because a stored COM port is description drift in
+hardware form.
+
+### Cross-surface activity
+
+**No memory files modified today** — unusual for a day this size, and worth noting
+because the durable record is therefore entirely in the register and here.
+`MEMORY.md` is **12,016 bytes, at the seal threshold**. rigmeter took 6 commits
+(Track L) and still has no remote. **Freight Fate holds 16 unpushed commits**,
+unchanged, still Noel's call; Civ VI is clean; neither was active. Dependency
+check: **no vulnerable packages**. Memory drift check ran with its positive
+control; no new candidates from today's work.
+
+### Setup for tomorrow
+
+**Nothing is pressed.** Sixteen tracks of keyboard work merged and not one binding
+has been physically pressed on a real build — `Ctrl+J, A`, `Ctrl+J, F`, `0` in the
+value layer, the filter layer's Shift chords under **both** readers, `Ctrl+J,
+Alt+W`, and the focus watchdog's positive and negative cases.
+
+**Three probes are written and unrun**, awaiting a quiet keyboard, to settle what
+160 characters really costs against the 12.8-second model.
+
+**Open for Noel:** whether to add a middle verbosity level; whether the window
+census also wants a Diagnostics button; whether `.claude/agents/` should be
+un-ignored so the three new agent definitions travel.
+
+### Rigmeter snapshot — end of 2026-09-02
+
+Plus 20,345, minus 2,844, net **+17,501** across 94 files and 51 commits. Both
+figures agree. By type: **C# +19,780 / −2,695 across 76 files**, markdown
++312/−88, JSON +174/−59, plus XAML and VB. **13.7 hours read aloud**; 407 printed
+pages. Snapshot on the NAS at `2026-09-02-fbb89a7a.json`.
+
+**Branch-scope caveat:** this counts JJFlex-NG only. The **20 jjf-private commits**
+— fourteen register entries and every ruling of the day — and rigmeter's **6** are
+not in that number. rigmeter's own work is invisible to it twice over, since it
+does not measure itself.
+
+
 ## END-OF-DAY SEAL — 2026-09-01 — TWELVE TRACKS SHIPPED, AND AN EVENING AT THE RADIO FOUND WHAT NONE OF THEM COULD
 
 **Sealed 22:35. 53 commits in JJFlex-NG, 56 in jjf-private. Rigmeter +14,476 /
