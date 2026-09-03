@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading;
 
 namespace JJFlexWpf
@@ -107,7 +107,11 @@ namespace JJFlexWpf
         /// </summary>
         public const int HoldMs = 60;
 
-        private static volatile bool _enabled = true;
+        // OFF by default since 2026-09-03 (#534). AudioOutputConfig is the
+        // authority once a config has been loaded; this initialiser is what
+        // holds before that, and the two must agree, or the duck would be live
+        // for the window between process start and config load.
+        private static volatile bool _enabled = false;
         private static float _depthDb = DefaultDepthDb;
         private static long _activeUntilTicks;
 

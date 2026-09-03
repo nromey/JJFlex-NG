@@ -359,11 +359,36 @@ namespace JJFlexWpf
 
         /// <summary>
         /// Whether the radio's PC audio dips while a warning earcon sounds
-        /// (#116). On by default; fully defeatable, because this attenuates
-        /// received audio and an operator who wants their band untouched is
-        /// entitled to that.
+        /// (#116). Fully defeatable, because this attenuates received audio
+        /// and an operator who wants their band untouched is entitled to that.
         /// </summary>
-        public bool RxDuckEnabled { get; set; } = true;
+        /// <remarks>
+        /// <b>OFF by default since 2026-09-03 (#534), reversing the shipped
+        /// default.</b> Ruled by Noel after living with it: in practice the dip
+        /// read as a distraction rather than as help, which is the opposite of
+        /// what #116 predicted. The dip is a movement in the band that happens
+        /// rarely - warnings only - and a rare movement draws more attention to
+        /// itself than a constant one does, so the thing meant to clear a path
+        /// for the alert ended up being the event.
+        /// <para>
+        /// The code stays, deliberately: the reasoning behind #116 is unchanged,
+        /// and remote operators, for whom PC audio is the only audio path there
+        /// is, are exactly the people who may still want it. This is a change of
+        /// default, not a retraction. What changes is who has to make a choice -
+        /// before, everyone got the dip and had to find the switch to escape it;
+        /// now nobody gets it until they ask for it.
+        /// </para>
+        /// <para>
+        /// <b>An existing config keeps whatever it stored.</b> XmlSerializer only
+        /// falls back to this initialiser when the element is ABSENT, so this
+        /// reaches new installs and operators who last saved before the setting
+        /// existed. Anyone whose file already carries a value keeps it, which is
+        /// correct - we do not silently reverse a setting somebody may have
+        /// chosen - but it does mean a tester on an older config still gets the
+        /// dip until they turn it off themselves.
+        /// </para>
+        /// </remarks>
+        public bool RxDuckEnabled { get; set; } = false;
 
         /// <summary>
         /// How far the band audio dips under a warning, in dB. Modest by

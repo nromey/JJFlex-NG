@@ -1493,7 +1493,11 @@
                          shipped in Sprint 41 Track G, on by default, with no
                          way to reach it; "fully defeatable" was a requirement
                          of the original ruling and this checkbox is that
-                         requirement. It matters most to remote operators, for
+                         requirement. The default reversed to OFF on 2026-09-03
+                         (#534) after it read as a distraction in use, so this
+                         checkbox is now how the duck is REACHED rather than how
+                         it is escaped - which is why the help text below leads
+                         with what switching it on buys you. It matters most to remote operators, for
                          whom PC audio is the only audio path there is — a
                          local operator can escape the duck by switching PC
                          audio off and listening at the rig; a remote one
@@ -1514,7 +1518,7 @@
                               Checked="RxDuckEnabledCheck_Changed"
                               Unchecked="RxDuckEnabledCheck_Changed"
                               AutomationProperties.Name="Dip radio audio through this computer while a warning sounds"
-                   local:JJFlexHelp.Text="While a warning sound plays, radio audio through this computer dips by the depth below, so the alert is heard over the band instead of buried in it. Warnings only — keyclicks, confirmations and every other sound never touch your audio. If you are on a remote connection, PC audio is the only audio path there is, so this switch is the only say you have over the dip. Takes effect the moment you change it."/>
+                   local:JJFlexHelp.Text="Off unless you switch it on. When it is on, radio audio through this computer dips while a warning sound plays, so the alert is heard over the band instead of buried in it, and then comes straight back. Worth trying if you work a noisy band and a warning has ever gone past you; worth leaving off if you would rather your receive audio was never touched at all. Warnings only — keyclicks, confirmations and every other sound never touch your audio. If you are on a remote connection, PC audio is the only audio path there is, so this switch is the only say you have over the dip. Takes effect the moment you change it."/>
                     <!-- Collapsed rather than disabled when the duck is off:
                          house rule keeps controls that cannot act out of the
                          tab order. -->

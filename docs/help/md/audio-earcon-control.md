@@ -56,16 +56,20 @@ The sounds ship balanced against each other — warnings strong, confirmations m
 
 ## Warnings Can Dip the Radio Audio
 
-A warning that band noise swallowed is a warning that did not happen. So while a warning sound plays, radio audio through this computer dips a few decibels — enough for the alert to land on top of the band instead of inside it — and glides back the moment the warning is done. Only warnings do this; no other sound ever touches your receive audio. The dip cannot get stuck on: the audio always returns to exactly where it was, even if something goes wrong mid-warning.
+**This one is off unless you switch it on**, and it is worth knowing about because you will not stumble across it by accident.
 
-It is entirely yours to control, under **Settings, then the Notifications tab, under Warnings and Radio Audio**:
+The idea: a warning that band noise swallowed is a warning that did not happen. So there is a setting that makes radio audio through this computer dip a few decibels while a warning sound plays — just enough for the alert to land on top of the band instead of inside it — and glide back the moment the warning is done. Only warnings ever do this; no other sound touches your receive audio, not keyclicks, not confirmations, nothing. The dip cannot get stuck on either: the audio returns to exactly where it was even if something goes wrong mid-warning.
 
-- **Dip radio audio while a warning sounds** — the switch. Turn it off and your band is never touched.
-- **Dip depth** — 0 to 12 decibels, default 4. A small number nudges; a large one makes room.
+It shipped switched on, and it is off now because I lived with it and found that the dip drew more attention to itself than the warning did. A rare movement in the band turns out to be more noticeable than a constant one. That is a matter of taste rather than a fault, which is why the setting is still here rather than gone — and if you work a genuinely noisy band, or a warning has ever gone straight past you, it may well be worth switching on.
 
-Both apply the moment you change them. To hear the effect, set your depth, then pick Warning alarm under Per-Sound Loudness below and press Play with radio audio running — the band dips at exactly the depth you chose.
+You will find it under **Settings, then the Notifications tab, under Warnings and Radio Audio**:
 
-If you operate remotely, this section matters most to you: over a remote link PC audio is the only audio path there is, so this switch is the only say you have over whether warnings may dip your receive audio.
+- **Dip radio audio while a warning sounds** — the switch. Off to start with.
+- **Dip depth** — 0 to 12 decibels, 4 to start with. A small number nudges; a large one makes room.
+
+Both apply the moment you change them, so you can find your depth by ear rather than by guessing. To hear the effect, switch the dip on, set a depth, then pick Warning alarm under Per-Sound Loudness below and press Play with radio audio running — the band dips at exactly the depth you chose.
+
+If you operate remotely, this setting matters more to you than to anyone else: over a remote link PC audio is the only audio path there is, so there is no listening at the rig to fall back on, and this switch is your entire say in the matter.
 
 ## What Earcons Are Not
 
