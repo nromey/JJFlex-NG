@@ -477,6 +477,23 @@ public class NativeMenuBar : IDisposable
             ("label", label), ("value", newVal), ("suffix", suffix)));
     }
 
+    /// <summary>
+    /// How far one TX-filter menu press moves an edge — the SAME
+    /// width-adaptive ladder the filter layer and the bracket chords walk by
+    /// (#527). This menu hard-coded 50 Hz, which made three step rules for
+    /// filter edges where at most two could be right, and meant a menu press
+    /// and an arrow press inside the layer moved the same edge by different
+    /// amounts.
+    /// </summary>
+    /// <remarks>
+    /// Evaluated at CLICK time, inside each item's handler, so it follows the
+    /// filter's current width. With no radio it answers the ladder's own
+    /// mid-rung value and <see cref="AdjustValue"/> refuses a moment later,
+    /// which is where the no-radio sentence belongs.
+    /// </remarks>
+    private int TxFilterStep()
+        => Rig == null ? 50 : FreqOutHandlers.GetAdaptiveFilterStep(Rig.TXFilterLow, Rig.TXFilterHigh);
+
     private void SpeakNoRadio()
     {
         Tracing.TraceLine("NativeMenuBar: no-radio guard fired", TraceLevel.Info);
@@ -1591,15 +1608,14 @@ public class NativeMenuBar : IDisposable
 
         // --- TX filter ---
         var txFilterSub = AddSubmenu(parent, "TX &Filter");
-        const int txFilterStep = 50;
         AddWired(txFilterSub, "Low Edge Up", () =>
-            AdjustValue("TX filter low", () => Rig.TXFilterLow, v => Rig.TXFilterLow = v, txFilterStep, 0, 9950));
+            AdjustValue("TX filter low", () => Rig.TXFilterLow, v => Rig.TXFilterLow = v, TxFilterStep(), 0, 9950));
         AddWired(txFilterSub, "Low Edge Down", () =>
-            AdjustValue("TX filter low", () => Rig.TXFilterLow, v => Rig.TXFilterLow = v, -txFilterStep, 0, 9950));
+            AdjustValue("TX filter low", () => Rig.TXFilterLow, v => Rig.TXFilterLow = v, -TxFilterStep(), 0, 9950));
         AddWired(txFilterSub, "High Edge Up", () =>
-            AdjustValue("TX filter high", () => Rig.TXFilterHigh, v => Rig.TXFilterHigh = v, txFilterStep, 50, 10000));
+            AdjustValue("TX filter high", () => Rig.TXFilterHigh, v => Rig.TXFilterHigh = v, TxFilterStep(), 50, 10000));
         AddWired(txFilterSub, "High Edge Down", () =>
-            AdjustValue("TX filter high", () => Rig.TXFilterHigh, v => Rig.TXFilterHigh = v, -txFilterStep, 50, 10000));
+            AdjustValue("TX filter high", () => Rig.TXFilterHigh, v => Rig.TXFilterHigh = v, -TxFilterStep(), 50, 10000));
         AddWired(txFilterSub, "Read TX Filter", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
