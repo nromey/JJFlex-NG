@@ -317,39 +317,117 @@ public class FreqOutHandlers
     private FlexBase? Rig => _window.RigControl;
 
     /// <summary>
-    /// Convert a WPF KeyEventArgs to a simple key character for digit/letter handlers.
-    /// Returns '\0' when Alt is held so letter handlers don't conflict with menu accelerators.
+    /// The bare character a Home field handler dispatches on, or <c>'\0'</c>
+    /// when the chord is not a bare key.
     /// </summary>
-    private static char KeyToChar(KeyEventArgs e)
-    {
-        // Don't convert letters when Alt is held — let menu accelerators handle them
-        if ((Keyboard.Modifiers & ModifierKeys.Alt) != 0) return '\0';
+    /// <remarks>
+    /// <para>
+    /// <b>The invariant, and #546 is why it is one:</b> a non-zero result
+    /// means NO modifier is held. Every <c>ch == 'M'</c>, <c>ch &gt;= 'A'
+    /// &amp;&amp; ch &lt;= 'H'</c> and <c>ch &gt;= '0'</c> test in this file
+    /// is therefore a bare-key test by construction — in every handler
+    /// written so far and in every one written next. Until 2026-09-05 this
+    /// blanked only Alt, so on the Slice field <c>A</c>, <c>Shift+A</c> and
+    /// <c>Ctrl+A</c> were the same value down the same branch (Noel, at the
+    /// keyboard: "a, shift, and ctrl a all do slice changes") and
+    /// <c>Ctrl+1</c> on the frequency field typed a digit. The author had
+    /// seen the hazard: <c>Shift+M</c> and <c>Shift+Comma</c> carried
+    /// explicit modifier guards, added one collision at a time, while the
+    /// general letter and digit paths never got one. This is the general
+    /// case, so the next collision cannot be silent.
+    /// </para>
+    /// <para>
+    /// <b>The one Shift exception is a character, not a chord.</b> The
+    /// physical <c>=</c>/<c>+</c> key (<c>Key.OemPlus</c> on US layouts)
+    /// yields <c>'='</c> unshifted and <c>'+'</c> shifted, because those are
+    /// two characters the field maps both use: <c>=</c> is transceive and
+    /// <c>+</c> opens step entry. Before 2026-04 it mapped to <c>'+'</c>
+    /// unconditionally, which silently killed every <c>ch == '='</c> branch.
+    /// Nothing else is shifted into a different character — Shift+comma is
+    /// <c>'&lt;'</c> on a US keyboard, not <c>','</c>.
+    /// </para>
+    /// <para>
+    /// <b>Where a field's own Shift chord goes:</b> test the raw key,
+    /// <c>key == Key.M &amp;&amp; Keyboard.Modifiers == ModifierKeys.Shift</c>,
+    /// exactly as the Shift+Comma guard always did. A <c>ch == 'M'</c> test
+    /// ANDed with a Shift check is dead code under this invariant, and
+    /// <c>Radios.Tests.HomeFieldModifierTierTests</c> refuses it.
+    /// </para>
+    /// </remarks>
+    private static char KeyToChar(KeyEventArgs e) => CharFor(RawKey(e), Keyboard.Modifiers);
 
-        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+    /// <summary>
+    /// <see cref="KeyToChar"/> as a pure function of the key and the
+    /// modifier state, so the rule can be asserted without a keyboard
+    /// (<c>JJFlexWpf.Tests.HomeFieldChordTests</c>).
+    /// </summary>
+    internal static char CharFor(Key key, ModifierKeys mods)
+    {
+        // Ctrl chords belong to the key table, which ran at window level
+        // before any field handler saw the key; Alt chords are the menu
+        // bar's and the mode keys'; the Windows key is the shell's. None of
+        // them can be a Home field key, so none of them is a character here.
+        if ((mods & (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Windows)) != 0)
+            return '\0';
+
+        bool shift = (mods & ModifierKeys.Shift) != 0;
         return key switch
         {
-            >= Key.D0 and <= Key.D9 => (char)('0' + (key - Key.D0)),
-            >= Key.NumPad0 and <= Key.NumPad9 => (char)('0' + (key - Key.NumPad0)),
-            >= Key.A and <= Key.Z => (char)('A' + (key - Key.A)),
-            // OemPlus is the physical '='/'+' key on US layouts: unshifted = '=',
-            // shifted = '+'. Pre-fix this mapped to '+' unconditionally, which made
-            // every `ch == '='` check unreachable — silently breaking Sprint 28
-            // Phase 5's '=' transceive in AdjustFreq, the long-standing `else if
-            // (ch == '=' && isRIT)` RIT→XIT copy in AdjustRITXIT, and the
-            // universal '=' transceive added 2026-04-26. Numpad '+' (Key.Add)
-            // is always '+' regardless of modifier — separate physical key, no
-            // shifted variant.
-            Key.OemPlus => (Keyboard.Modifiers & ModifierKeys.Shift) != 0 ? '+' : '=',
-            Key.Add => '+',
-            Key.OemMinus or Key.Subtract => '-',
-            Key.OemPeriod or Key.Decimal => '.',
-            Key.OemComma => ',',
-            Key.Space => ' ',
+            >= Key.D0 and <= Key.D9 => shift ? '\0' : (char)('0' + (key - Key.D0)),
+            >= Key.NumPad0 and <= Key.NumPad9 => shift ? '\0' : (char)('0' + (key - Key.NumPad0)),
+            >= Key.A and <= Key.Z => shift ? '\0' : (char)('A' + (key - Key.A)),
+            Key.OemPlus => shift ? '+' : '=',
+            // Numpad '+' is its own physical key with no shifted variant.
+            Key.Add => shift ? '\0' : '+',
+            Key.OemMinus or Key.Subtract => shift ? '\0' : '-',
+            Key.OemPeriod or Key.Decimal => shift ? '\0' : '.',
+            Key.OemComma => shift ? '\0' : ',',
+            Key.Space => shift ? '\0' : ' ',
             _ => '\0'
         };
     }
 
     private static Key RawKey(KeyEventArgs e) => e.Key == Key.System ? e.SystemKey : e.Key;
+
+    /// <summary>
+    /// The letter a key names, <c>'A'</c> to <c>'Z'</c>, regardless of the
+    /// modifiers held — or <c>'\0'</c> for anything that is not a letter
+    /// key. For naming a chord back to the operator, where the modifier is
+    /// part of the name rather than a reason to say nothing.
+    /// </summary>
+    private static char LetterOf(Key key)
+        => key >= Key.A && key <= Key.Z ? (char)('A' + (key - Key.A)) : '\0';
+
+    /// <summary>
+    /// Whether a key is one the Home field maps use at all — a letter, a
+    /// digit, Space, Up or Down, or the field punctuation — read from the
+    /// key itself so the answer does not change with the modifier held.
+    /// </summary>
+    private static bool IsFieldActionKey(Key key)
+        => LetterOf(key) != '\0'
+        || (key >= Key.D0 && key <= Key.D9)
+        || (key >= Key.NumPad0 && key <= Key.NumPad9)
+        || key == Key.Space || key == Key.Up || key == Key.Down
+        || key == Key.OemPlus || key == Key.Add
+        || key == Key.OemMinus || key == Key.Subtract
+        || key == Key.OemPeriod || key == Key.Decimal
+        || key == Key.OemComma;
+
+    /// <summary>
+    /// A chord as it is spoken: "A", "Shift A", "Control A", "Control Shift
+    /// A". Words, not glyphs, and no plus sign — this goes straight to a
+    /// screen reader, and the keystroke-naming convention (#303) says name
+    /// what the hands do in words that survive a low punctuation setting.
+    /// "Control", not "Ctrl", because that is the word the lexicon already
+    /// speaks for the JJ key ("Control J then Q").
+    /// </summary>
+    private static string SpokenChord(ModifierKeys mods, char letter)
+    {
+        string name = letter.ToString();
+        if ((mods & ModifierKeys.Shift) != 0) name = "Shift " + name;
+        if ((mods & ModifierKeys.Control) != 0) name = "Control " + name;
+        return name;
+    }
 
     #region AdjustFreq
 
@@ -364,9 +442,12 @@ public class FreqOutHandlers
         var key = RawKey(e);
         char ch = KeyToChar(e);
 
-        // Multi-slice universal Home keys — handled before the main switch so
-        // Shift-modified characters don't collide with unshifted handlers.
-        if (ch == 'M' && Keyboard.Modifiers == ModifierKeys.Shift)
+        // The two Shift chords every Home field owns, tested by KEY: `ch` is
+        // never a letter while Shift is held (KeyToChar, #546), so a Shift
+        // chord is a binding in its own right here, not a guard on the plain
+        // letter. Kept inline because this handler implements the universal
+        // keys itself instead of falling through to TryHandleUniversalHomeKey.
+        if (key == Key.M && Keyboard.Modifiers == ModifierKeys.Shift)
         {
             ToggleMuteAllSlices();
             e.Handled = true;
@@ -1157,20 +1238,11 @@ public class FreqOutHandlers
         char ch = KeyToChar(e);
         int vfo = Rig.RXVFO;
 
-        // Multi-slice universal Home keys — handled before the main switch so
-        // Shift-modified characters don't collide with unshifted handlers.
-        if (ch == 'M' && Keyboard.Modifiers == ModifierKeys.Shift)
-        {
-            ToggleMuteAllSlices();
-            e.Handled = true;
-            return;
-        }
-        if (key == Key.OemComma && Keyboard.Modifiers == ModifierKeys.Shift)
-        {
-            ReleaseAllExtraSlicesAndAnnounce();
-            e.Handled = true;
-            return;
-        }
+        // Shift+M and Shift+Comma used to be claimed here, ahead of the
+        // switch, so the 'M' and ',' cases would not eat them. KeyToChar no
+        // longer yields a character for a shifted letter or comma (#546), so
+        // the switch cannot see them and the universal fall-through at the
+        // bottom binds both — one home for the pair instead of five.
 
         switch (ch)
         {
@@ -1453,20 +1525,9 @@ public class FreqOutHandlers
         char ch = KeyToChar(e);
         int vfo = Rig.RXVFO;
 
-        // Multi-slice universal Home keys — handled before the main switch so
-        // Shift-modified characters don't collide with unshifted handlers.
-        if (ch == 'M' && Keyboard.Modifiers == ModifierKeys.Shift)
-        {
-            ToggleMuteAllSlices();
-            e.Handled = true;
-            return;
-        }
-        if (key == Key.OemComma && Keyboard.Modifiers == ModifierKeys.Shift)
-        {
-            ReleaseAllExtraSlicesAndAnnounce();
-            e.Handled = true;
-            return;
-        }
+        // Shift+M and Shift+Comma used to be claimed here too; see the note
+        // at the top of AdjustSlice. The universal fall-through below binds
+        // both, and nothing in this switch can see a shifted character.
 
         switch (key)
         {
@@ -2191,9 +2252,10 @@ public class FreqOutHandlers
         var key = RawKey(e);
         char ch = KeyToChar(e);
 
-        // Multi-slice keys — checked before single-key M because Shift+M also
-        // produces ch == 'M'.
-        if (ch == 'M' && Keyboard.Modifiers == ModifierKeys.Shift)
+        // The two Shift chords, tested by KEY: `ch` is never a letter while
+        // Shift is held (KeyToChar, #546), so a shifted binding names the key
+        // it is on, the way the Shift+Comma line below always has.
+        if (key == Key.M && Keyboard.Modifiers == ModifierKeys.Shift)
         {
             ToggleMuteAllSlices();
             e.Handled = true;
@@ -2280,42 +2342,61 @@ public class FreqOutHandlers
     /// so the recovery can never drift from the real map.</para>
     ///
     /// <para><b>What it deliberately does NOT claim.</b> Anything carrying
-    /// Ctrl or Alt (menu accelerators and registry chords), navigation keys
-    /// (Left/Right/Home/End/PageDown belong to FrequencyDisplay's cursor
+    /// Alt (the menu bar and the mode chords) or the Windows key, navigation
+    /// keys (Left/Right/Home/End/PageDown belong to FrequencyDisplay's cursor
     /// movement, and claiming PageDown here would break jump-to-Frequency
     /// while disconnected), Escape, Tab, Enter, function keys — and any chord
-    /// the KeyCommands registry has bound in the current scope, which must
-    /// keep bubbling up to window-level dispatch. A user keymap can bind
-    /// Shift+letter chords, so the registry is asked, not assumed.</para>
+    /// the KeyCommands registry has bound in the current scope. A user keymap
+    /// can bind a Shift or Ctrl letter, so the registry is asked, not
+    /// assumed.</para>
     ///
-    /// <para>Connected, the claim is LETTERS only (bare or Shift): that is
-    /// the class Noel hit — "s and shift s in the vfo do nothing ... this
+    /// <para><b>Ctrl letters ARE claimed when connected, since 2026-09-05
+    /// (#546), and the reason is the order things run in.</b> The registry
+    /// dispatches from the window's PreviewKeyDown, which tunnels and so runs
+    /// BEFORE this handler — the #338 bench capture shows a Home key arriving
+    /// as <c>DoCommand:key not found:R</c> — so a Ctrl letter that reaches
+    /// here is one the registry has already declined. (This paragraph used
+    /// to say bound chords "must keep bubbling up to window-level dispatch";
+    /// dispatch is upstream, not downstream, and the exclusion rested on
+    /// that.) Left unclaimed, the chord falls to the read-only TextBox under
+    /// the fields, where Ctrl+A is Select All: the caret lands at position
+    /// zero and the field tracking reads that as a jump to the first field.
+    /// Naming it back — "Control A does nothing on the Slice field" — is the
+    /// same promise the plain letter already keeps, on the tier the fix
+    /// newly exposed.</para>
+    ///
+    /// <para>Connected, the claim is LETTERS only (bare, Shift or Ctrl): that
+    /// is the class Noel hit — "s and shift s in the vfo do nothing ... this
     /// shows the keys aren't actually working" — and widening it to every
     /// unclaimed key would swallow keys that legitimately belong to other
     /// layers. Disconnected, the claim widens to the whole action-key set
     /// the fields would otherwise use (letters, digits, Space, Up/Down, and
     /// the field punctuation), because with no rig none of them can mean
-    /// anything and all of them were silent.</para>
+    /// anything and all of them were silent — but only bare and Shift
+    /// presses, because a Ctrl chord with no radio is the registry's to
+    /// explain, and it already does.</para>
     /// </summary>
     private void AnnounceDeadHomeKey(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
         if (e.Handled) return;
         var key = RawKey(e);
-        char ch = KeyToChar(e);
         var mods = Keyboard.Modifiers;
 
-        // Only bare and Shift-only presses can belong to a field map.
-        if ((mods & ~ModifierKeys.Shift) != 0) return;
+        // Alt chords are the menu bar's and the mode keys'; the Windows key
+        // is the shell's. Neither can be a field key, and claiming either
+        // would take it from its owner.
+        if ((mods & (ModifierKeys.Alt | ModifierKeys.Windows)) != 0) return;
 
-        bool isLetter = ch >= 'A' && ch <= 'Z';
-        bool isActionKey = isLetter
-            || (ch >= '0' && ch <= '9')
-            || ch == ' ' || ch == '+' || ch == '-' || ch == '.' || ch == ',' || ch == '='
-            || key == Key.Up || key == Key.Down;
+        // Classified from the KEY, not from KeyToChar: a shifted or
+        // controlled letter is still a letter for the purpose of naming it
+        // back, even though it is no longer a character the field maps use.
+        char letter = LetterOf(key);
+        bool isLetter = letter != '\0';
 
         if (Rig == null)
         {
-            if (!isActionKey) return;
+            if ((mods & ModifierKeys.Control) != 0) return;
+            if (!IsFieldActionKey(key)) return;
             if (IsRegistryBound(e)) return;
             // Same sentence, same key, as every registry command that needs a
             // radio and has none — one vocabulary for one situation.
@@ -2329,13 +2410,9 @@ public class FreqOutHandlers
         if (!isLetter) return;
         if (IsRegistryBound(e)) return;
 
-        // "Shift S", not "Shift+S": this goes straight to a screen reader,
-        // and the keystroke-naming convention (#303) says name what the
-        // hands do, in words that survive a low punctuation setting.
-        string keyName = mods == ModifierKeys.Shift ? "Shift " + ch : ch.ToString();
         Radios.ScreenReaderOutput.Speak(
             Lexicon.Get("settings.home.key_unbound",
-                ("key", keyName), ("field", field.Label ?? field.Key)),
+                ("key", SpokenChord(mods, letter)), ("field", field.Label ?? field.Key)),
             VerbosityLevel.Terse, true);
         e.Handled = true;
     }
@@ -2520,8 +2597,10 @@ public class FreqOutHandlers
         var key = RawKey(e);
         char ch = KeyToChar(e);
 
-        // Note the modifier check on M: without it, Shift+M would be eaten here
-        // as a single-slice mute toggle, hiding the universal Shift+M = mute-all.
+        // The modifier check on M is belt and braces since #546 — KeyToChar
+        // no longer yields 'M' for Shift+M or Ctrl+M — and stays as the local
+        // statement that this is the bare letter. Before 2026-09-05 it was
+        // the only thing keeping Shift+M (mute all) out of this branch.
         if (key == Key.Space || (ch == 'M' && Keyboard.Modifiers == ModifierKeys.None))
         {
             ToggleSliceMuteAndAnnounce(interrupt: false);
@@ -2663,9 +2742,10 @@ public class FreqOutHandlers
         var key = RawKey(e);
         char ch = KeyToChar(e);
 
-        // Multi-slice universal Home keys — handled before the main switch so
-        // Shift-modified characters don't collide with unshifted handlers.
-        if (ch == 'M' && Keyboard.Modifiers == ModifierKeys.Shift)
+        // The two Shift chords every Home field owns, tested by KEY — see the
+        // same block in AdjustFreq. Kept inline for the same reason: this
+        // handler implements the universal keys itself.
+        if (key == Key.M && Keyboard.Modifiers == ModifierKeys.Shift)
         {
             ToggleMuteAllSlices();
             e.Handled = true;
@@ -2730,10 +2810,11 @@ public class FreqOutHandlers
             }
 
             default:
-                if (ch == 'S' && Keyboard.Modifiers == ModifierKeys.Shift)
+                if (key == Key.S && Keyboard.Modifiers == ModifierKeys.Shift)
                 {
                     // Shift+S — announce both step sizes (no current mode to
                     // pick between any more, so report the whole picture).
+                    // By KEY, not `ch`: a shifted letter is no character (#546).
                     Radios.ScreenReaderOutput.Speak(
                         Lexicon.Get("settings.tuning.steps_coarse_fine",
                             ("coarse", FormatStepForSpeech(_coarseStep)),
