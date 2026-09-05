@@ -398,6 +398,29 @@ namespace JJFlexWpf
         public float RxDuckDepthDb { get; set; } = RxDuck.DefaultDepthDb;
 
         /// <summary>
+        /// How the dip moves (#535): the name of an
+        /// <see cref="RxDuckTimingPreset"/> — "Quick", "Gentle" or "Lingering".
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>A string, not the enum, on purpose.</b> XmlSerializer throws on an
+        /// enum name it does not know, <see cref="ReadFrom"/> swallows the
+        /// exception, and <see cref="Load"/> then hands back a fresh config —
+        /// so a preset added by a later build would, on a downgrade, silently
+        /// reset every audio setting in this file. A string reaches
+        /// <see cref="RxDuck.ParseTiming"/>, which falls back to the default
+        /// and leaves everything else alone. The same lenience covers a hand
+        /// edit.
+        /// </para>
+        /// <para>
+        /// Quick is the shipped timing and the control arm of the #535
+        /// hypothesis. This initialiser and <see cref="RxDuck.DefaultTiming"/>
+        /// must agree, for the same reason the two duck-enabled defaults must.
+        /// </para>
+        /// </remarks>
+        public string RxDuckTiming { get; set; } = RxDuck.TimingName(RxDuck.DefaultTiming);
+
+        /// <summary>
         /// The one meter list (Track D2): each entry is a source plus a range
         /// plus a voice, with audibility and readability as properties of the
         /// same meter. Empty = never configured; the engine seeds from the
@@ -698,10 +721,12 @@ namespace JJFlexWpf
                         trims.Add(new KeyValuePair<string, float>(t.Id, t.Db));
             EarconPlayer.SetAllLevelTrimsDb(trims);
 
-            // #116 — the warning duck. Both clamp in their setters, so a
-            // hand-edited file cannot leave the band permanently attenuated.
+            // #116 — the warning duck. Depth clamps in its setter and the timing
+            // name parses leniently, so a hand-edited file cannot leave the band
+            // permanently attenuated or fail to load.
             RxDuck.Enabled = RxDuckEnabled;
             RxDuck.DepthDb = RxDuckDepthDb;
+            RxDuck.Timing = RxDuck.ParseTiming(RxDuckTiming);
 
             EarconPlayer.MasterVolume = MasterVolume;
             EarconPlayer.AlertVolume = AlertVolume;
@@ -805,6 +830,7 @@ namespace JJFlexWpf
 
             RxDuckEnabled = RxDuck.Enabled;
             RxDuckDepthDb = RxDuck.DepthDb;
+            RxDuckTiming = RxDuck.TimingName(RxDuck.Timing);
 
             // What the engine hands back is always current-model, so say so.
             // The migration is a no-op on an already-current file even without
