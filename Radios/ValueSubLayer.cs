@@ -536,6 +536,46 @@ namespace Radios
         public Func<Keys, bool>? PassThroughKeys;
 
         /// <summary>
+        /// Does a key this layer did not take MEAN something outside it? The
+        /// host answers from the live registry, so a remap is honoured.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// #547. The engine's unhandled-key rule is "keep the value, close out
+        /// loud, and travel on to mean what it always means" — and the last
+        /// clause is a promise the engine cannot keep on its own. A key with
+        /// no meaning to travel to leaves the layer and then does nothing,
+        /// which is a mode change bought for no gain.
+        /// </para>
+        /// <para>
+        /// Null, or a host that answers false, means "no meaning out there",
+        /// and that is the deliberate DEFAULT: it is the answer under which a
+        /// near miss is caught and named. Defaulting the other way would make
+        /// the whole check silently inert in any layer that forgot to wire it
+        /// — the invisible failure this exists to close.
+        /// </para>
+        /// </remarks>
+        public Func<Keys, bool>? MeansSomethingOutside;
+
+        /// <summary>
+        /// The recovery line for a key this layer did not take that is one
+        /// modifier away from a chord it does have; null when the key is no
+        /// near miss. The host owns the words because it owns the layer's key
+        /// inventory, which is the same table H lists — one vocabulary, not
+        /// two.
+        /// </summary>
+        /// <remarks>
+        /// #547, following the leader layer's #206: "Ctrl+G is not a command.
+        /// G: arm or disarm the TX test tone." A non-null answer is also the
+        /// engine's signal to STAY OPEN, because a key with a near neighbour
+        /// in here and no meaning out there is a slipped modifier, not an
+        /// exit. Spoken through the engine's own refusal path, so #528 governs
+        /// it like every other refusal: the tone alone below Chatty, the words
+        /// at every level when the tone cannot sound.
+        /// </remarks>
+        public Func<Keys, string?>? DescribeNearMiss;
+
+        /// <summary>
         /// H: show this layer's commands as a NAVIGABLE LIST (#519). Returns
         /// true when a surface was shown; false or null falls back to the
         /// spoken help, count first.
@@ -584,10 +624,14 @@ namespace Radios
     /// <para><b>How you get out.</b> Enter confirms and closes. Escape cancels:
     /// everything the layer moved is written back, out loud, and the layer
     /// closes. Ctrl+J confirms silently and hands off to a fresh leader
-    /// chord. Any UNHANDLED key confirms, announces the close, and travels on
-    /// to mean what it always means — the layer cannot strand anyone, because
-    /// every key either works or leaves. Alt chords, F1 and the host's
-    /// whitelist (the verbosity cycle) travel on with the layer still live,
+    /// chord. Any UNHANDLED key that MEANS something outside confirms,
+    /// announces the close, and travels on to mean what it always means — the
+    /// layer cannot strand anyone, because every key either works or leaves.
+    /// An unhandled key that means nothing outside and is one modifier from a
+    /// chord this layer does have is a SLIP, not an exit: it names the
+    /// neighbour and the layer stays, the leader layer's answer since #206
+    /// (#547). Alt chords, F1 and the host's whitelist
+    /// (the verbosity cycle) travel on with the layer still live,
     /// so the operator can flip words-versus-numbers mid-hunt. Confirm never
     /// writes; only cancel writes. (Volume mode predated this pattern and
     /// differed — its Escape kept the adjustments and its unknown keys were
@@ -1046,6 +1090,41 @@ namespace Radios
                 _def.Cues.Help?.Invoke();
                 if (_def.OpenExplorer?.Invoke() != true) SpeakHelpSentence();
                 return ValueLayerKeyResult.Handled;
+            }
+
+            // A SLIPPED MODIFIER IS NOT AN EXIT (#547). The rule below this
+            // one — close out loud and travel on to mean what it always
+            // means — is right exactly when the key HAS a meaning to travel
+            // to. A bare B has none: it is one modifier from Ctrl+B, this
+            // layer's binaural switch, and nothing at all outside. Closing on
+            // it drops the operator out of the mode for a typo, and the next
+            // keystroke then lands somewhere other than where they believe
+            // they are.
+            //
+            // So the distinction is not "did the layer handle it" but "is
+            // there anywhere for it to go". A key that means something
+            // elsewhere still leaves, because the operator who pressed it
+            // meant to. A key that is one modifier from a chord in HERE, and
+            // means nothing out THERE, is a slip: name the neighbour and stay,
+            // which is what the leader layer has done since #206 — and the
+            // layer with more modifier tiers had less modifier help, which was
+            // backwards.
+            //
+            // The two questions are the host's to answer: only it knows the
+            // live registry, and only it holds the inventory rows that say
+            // what a chord does in the words H already uses. The engine owns
+            // what HAPPENS — refuse, and stay live — and Refuse() carries the
+            // #528 voice rule for free.
+            if (!(_def.MeansSomethingOutside?.Invoke(k) ?? false))
+            {
+                string? nearMiss = _def.DescribeNearMiss?.Invoke(k);
+                if (!string.IsNullOrEmpty(nearMiss))
+                {
+                    Tracing.TraceLine("ValueSubLayer(" + _def.Id + "): near miss on " + k
+                        + ", staying open", TraceLevel.Info);
+                    Refuse(nearMiss);
+                    return ValueLayerKeyResult.Handled;
+                }
             }
 
             // Everything else: keep the value, close out loud, and let the

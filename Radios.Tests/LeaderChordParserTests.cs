@@ -134,5 +134,44 @@ namespace Radios.Tests
             Assert.Empty(LeaderChordParser.NearMissCandidates(Keys.Control));
             Assert.Empty(LeaderChordParser.NearMissCandidates(Keys.None));
         }
+
+        // ── Layer candidates (#547) ─────────────────────────────────────
+
+        [Fact]
+        public void A_layer_offers_the_ctrl_form_before_the_shift_form()
+        {
+            // The whole reason the second ordering exists. Inside a value
+            // layer Ctrl+B is binaural — the same subject as a bare B, one
+            // modifier away — while Shift+B jumps to slice B, which is a
+            // different subject and is advertised as one range row covering
+            // eight letters. Under the leader's order the slice jump would
+            // win every bare letter A through H, and the recovery line for
+            // the press this task was reported for would name the wrong key.
+            var c = LeaderChordParser.LayerNearMissCandidates(Keys.B);
+
+            Assert.Equal(new[] { Keys.B | Keys.Control, Keys.B | Keys.Shift }, c);
+        }
+
+        [Fact]
+        public void Both_orderings_agree_once_the_pressed_chord_carries_a_modifier()
+        {
+            // The bare form leads in either ordering, so a Ctrl or Shift press
+            // gets the same first answer from both. Only the tail differs, and
+            // the tail is only reached when the bare form is unbound.
+            foreach (var pressed in new[] { Keys.V | Keys.Control, Keys.S | Keys.Shift })
+            {
+                Assert.Equal(
+                    LeaderChordParser.NearMissCandidates(pressed)[0],
+                    LeaderChordParser.LayerNearMissCandidates(pressed)[0]);
+            }
+        }
+
+        [Fact]
+        public void A_layer_candidate_list_never_contains_the_pressed_chord()
+        {
+            Assert.DoesNotContain(Keys.B | Keys.Control,
+                LeaderChordParser.LayerNearMissCandidates(Keys.B | Keys.Control));
+            Assert.Empty(LeaderChordParser.LayerNearMissCandidates(Keys.None));
+        }
     }
 }

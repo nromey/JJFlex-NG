@@ -518,6 +518,10 @@ The filter layer is new, and it's the one I'm most pleased with. `Ctrl+J`, then 
 
 The edges never speed up while you hold a key. That's deliberate: when you're placing an edge you're listening for a number, and your ear won't tell you when you've hit 2,700 hertz. When an edge can't go any further, it says "at the limit" instead of going silent — a quiet control and a broken one sound identical, and you've got enough to worry about. The bracket keys you already use for the filter are exactly where they were. Don's used to them, and two ways in beats one.
 
+One more thing, and I only found it by sitting there pressing keys. I reached for binaural — `Ctrl+B` — my thumb slipped, I got a plain `B`, and the layer was just *gone*. No thunk, no sentence, nothing to act on. The next key I pressed went somewhere I wasn't expecting, because I no longer knew where I was standing. And that was by design: any key the layer doesn't recognise hands you back to the rest of the app so it can do its normal job, which is a good rule and I'm keeping it. But a bare `B` doesn't mean anything out there either. Leaving cost me the whole mode and bought nothing at all.
+
+So a near miss is treated as the slip it is now. Press a letter the layer doesn't have, one modifier away from a letter it *does* have and with no meaning anywhere else, and you get the same thunk you already know from arrowing the wrong way, the layer stays exactly where it was, and on chatty verbosity it names what you were reaching for: "B is not a key in the Audio layer. Ctrl+B: Binaural receive on or off." It works both directions — `Ctrl+V` when you meant `V` recovers the same way — and the filter layer does it too. Keys that genuinely mean something elsewhere still take you out to go and do it; nothing there has changed. The JJ key layer has been catching near misses like this for a while, and it turns out the layer with the *most* modifiers on its letters was the one without it.
+
 [Return to version headlines](#unreleased-headlines)
 
 ### Home and End go to the ends, and 0 is the middle {#ends-and-the-middle}

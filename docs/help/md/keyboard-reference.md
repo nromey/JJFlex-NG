@@ -153,7 +153,8 @@ And the keys that work on whatever you've picked:
 - **Enter** — keep everything and leave.
 - **Escape** — put back *everything* you moved in the layer — the switches too — out loud, and leave. Overshot three things? One key.
 - **H** — the layer's keys as a list you can arrow through, count first. `Shift slash` opens the JJ key explorer instead: the whole map as a tree, with this layer's branch already open.
-- Any other key keeps your changes, announces the layer closed, and then does its normal job — you can't get stuck in here.
+- Any other key that means something elsewhere keeps your changes, announces the layer closed, and then does its normal job — you can't get stuck in here.
+- A key that means nothing anywhere, and sits one modifier away from a key that *does* mean something in here, is treated as a slip rather than an exit. You get the refusal tone, the layer stays where it was, and at chatty verbosity it names the key you nearly pressed: "B is not a key in the Audio layer. Ctrl+B: Binaural receive on or off." Reaching for `Ctrl+B` and landing on plain `B` used to end the layer without a word.
 
 `Ctrl+J`, then `Alt+P` opens the same layer with pan already picked, so the old pan mode is one keystroke shorter rather than gone. Stereo placement is how you keep two signals apart — slice A a little left, slice B a little right, and a pileup turns into two conversations instead of one mush. Hard left and hard right aren't separation, they're exile; what you want is *slightly* off center, and that's what the fine control is for. It always speaks the number: "Pan 40" on a 0-to-100 scale where 0 is hard left, 50 is center, and 100 is hard right, precise enough to jot down and dial in again tomorrow. At chatty verbosity it adds the position in words after it — "Pan 40, slightly left" — which is the friendlier form while you're learning where things sit. Turn verbosity down with `Ctrl+Shift+V` inside the layer and the very next nudge drops the words and keeps the number; the figure never goes away, because "left" covers everything from 15 to 34 and you can't get back to where you were from a word.
 
@@ -184,6 +185,7 @@ Press `Ctrl+J`, then `F`, and you're on the receive filter of the slice you're o
 - **Enter** — keep everything and leave.
 - **Escape** — put back everything you moved, on both sides, out loud, and leave.
 - **H** — list the layer's keys, count first. `Shift slash` does the same for now.
+- Any other key that means something elsewhere keeps your changes, announces the layer closed, and does its normal job. A key that means nothing anywhere but sits one modifier from one of the letters above — `Ctrl+S` when you meant `S` — is a slip, not an exit: the layer stays, and at chatty verbosity it names the key you were reaching for.
 
 The edges step by a fixed amount and never speed up, however long you hold the key — an edge is placed by the number, and your ear won't tell you when you've reached 2,700 hertz. The step is the same one the bracket keys use, chosen by how wide the filter is right now: 10 hertz under 200 wide, 25 under 500, 50 under 3,500, 100 under 5,000, and 200 above that. Transmit steps by that same ladder, so pressing `T` changes which filter you're working on and nothing else.
 

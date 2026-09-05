@@ -173,13 +173,51 @@ public static class LeaderChordParser
     /// intent." The caller takes the first candidate that is actually bound.
     /// </remarks>
     public static IReadOnlyList<Keys> NearMissCandidates(Keys pressed)
+        => Candidates(pressed, Keys.None, Keys.Shift, Keys.Control);
+
+    /// <summary>
+    /// The same key at other modifier levels for a VALUE SUB-LAYER, most
+    /// likely intent first: the bare form, then Ctrl, then Shift.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// #547. The order differs from <see cref="NearMissCandidates"/> by one
+    /// swap, and the swap is the whole point: a value layer's grammar is not
+    /// the leader's. Inside a layer a plain letter PICKS a level, Ctrl+letter
+    /// FLIPS a switch on the same subject, and Shift+letter changes SLICE
+    /// (#515) — a different subject entirely, advertised as one range row
+    /// covering all eight letters.
+    /// </para>
+    /// <para>
+    /// So the operator who reached for binaural and pressed a bare B was one
+    /// modifier from Ctrl+B, not from "jump to slice B". Under the leader's
+    /// order the slice jump would win every bare letter A through H and the
+    /// recovery line would name the wrong thing, in the exact case the task
+    /// was reported for. Shift stays last rather than being dropped: a letter
+    /// with no Ctrl form still has a slice jump worth naming.
+    /// </para>
+    /// <para>
+    /// A pressed chord that already carries a modifier gets the same answer
+    /// from both methods, because the bare form leads in either.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<Keys> LayerNearMissCandidates(Keys pressed)
+        => Candidates(pressed, Keys.None, Keys.Control, Keys.Shift);
+
+    /// <summary>
+    /// The pressed key's code at each named modifier tier, in the order
+    /// given, with the pressed chord itself left out. One body for both
+    /// orderings so they cannot drift in anything but the order.
+    /// </summary>
+    private static IReadOnlyList<Keys> Candidates(Keys pressed, params Keys[] tiers)
     {
         var result = new List<Keys>();
         Keys code = pressed & Keys.KeyCode;
         if (code == Keys.None) return result;
 
-        foreach (Keys candidate in new[] { code, code | Keys.Shift, code | Keys.Control })
+        foreach (Keys tier in tiers)
         {
+            Keys candidate = code | tier;
             if (candidate != pressed)
                 result.Add(candidate);
         }

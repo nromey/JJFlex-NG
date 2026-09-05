@@ -410,6 +410,64 @@ namespace Radios.Tests
             public readonly List<string> Jumps = new();
         }
 
+        // ── The #547 near-miss hook, as the shipped hosts wire it ───────
+        //
+        // KeyCommands answers DescribeNearMiss out of KeyInventory's rows for
+        // the layer — the same table H lists — through
+        // LeaderChordParser.LayerNearMissCandidates. Radios.Tests cannot load
+        // either, so the tables below stand in with the same shape and the
+        // same words, and the ORDERING rule, which is the part that decides
+        // which neighbour gets named, is exercised for real.
+
+        private static readonly Dictionary<Keys, (string Key, string What)> AudioLetterChords = new()
+        {
+            [Keys.V] = ("V", "Slice volume"),
+            [Keys.M] = ("M", "Mic level"),
+            [Keys.C] = ("C", "Compander level"),
+            [Keys.M | Keys.Control] = ("Ctrl+M", "Mute or unmute the slice you're on"),
+            [Keys.B | Keys.Control] = ("Ctrl+B", "Binaural receive on or off"),
+            [Keys.B | Keys.Shift] = ("Shift+B", "Jump to that slice without leaving the layer"),
+            [Keys.F | Keys.Shift] = ("Shift+F", "Jump to that slice without leaving the layer"),
+        };
+
+        private static readonly Dictionary<Keys, (string Key, string What)> FilterLetterChords = new()
+        {
+            [Keys.S] = ("S", "Speak the whole filter"),
+            [Keys.T] = ("T", "Work on the transmit filter"),
+            [Keys.R] = ("R", "Work on the receive filter of the slice you're on"),
+        };
+
+        private static string? AudioLayerNearMiss(Keys pressed, VerbosityLevel verbosity)
+            => LayerNearMiss(AudioLetterChords, "audio.audio_layer.name", pressed, verbosity);
+
+        private static string? FilterLayerNearMiss(Keys pressed, VerbosityLevel verbosity)
+            => LayerNearMiss(FilterLetterChords, "audio.filter_layer.name", pressed, verbosity);
+
+        private static string? LayerNearMiss(Dictionary<Keys, (string Key, string What)> chords,
+            string layerNameKey, Keys pressed, VerbosityLevel verbosity)
+        {
+            Keys code = pressed & Keys.KeyCode;
+            if (code < Keys.A || code > Keys.Z) return null;
+            if (chords.ContainsKey(pressed)) return null;
+
+            foreach (var candidate in LeaderChordParser.LayerNearMissCandidates(pressed))
+            {
+                if (!chords.TryGetValue(candidate, out var hit)) continue;
+                return Lexicon.Get("audio.value_layer.near_miss", verbosity,
+                    ("pressed", KeyName(pressed)),
+                    ("layer", Lexicon.Get(layerNameKey)),
+                    ("alt", hit.Key), ("what", hit.What));
+            }
+            return null;
+        }
+
+        /// <summary>KeyManifest.FormatKey's answer for the letter chords, which
+        /// is all this file needs and all it can reach.</summary>
+        private static string KeyName(Keys k)
+            => ((k & Keys.Control) != 0 ? "Ctrl+" : "")
+             + ((k & Keys.Shift) != 0 ? "Shift+" : "")
+             + (k & Keys.KeyCode).ToString();
+
         private static (Harness h, AudioRig rig) OpenAudio(VerbosityLevel verbosity, bool onPan = false,
             ValueLayerCues? cues = null)
         {
@@ -537,6 +595,14 @@ namespace Radios.Tests
                                 ("level", r.RestoredTo), ("position", PanPhrase.Words(r.RestoredTo)))
                             : layer.FormOf(r.Target, r.RestoredTo))))),
                 PickTargetHint = () => Lexicon.Get("audio.audio_layer.pick_target_first"),
+                // #547. The shipped hooks read the live key registry and the
+                // layer's inventory rows, neither of which Radios.Tests can
+                // load; these stand in with the same shape and the same
+                // answers for the chords the tests press. Ctrl+F is the
+                // registry chord that proves a key WITH somewhere to go still
+                // leaves.
+                MeansSomethingOutside = k => k == (Keys.F | Keys.Control),
+                DescribeNearMiss = k => AudioLayerNearMiss(k, h.Verbosity),
                 PassThroughKeys = k => k == (Keys.V | Keys.Control | Keys.Shift),
                 HostKeys = k =>
                 {
@@ -1164,6 +1230,127 @@ namespace Radios.Tests
             Assert.Equal("Audio layer closed", h.LastSaid);
         }
 
+        // ── A slipped modifier is not an exit (#547) ────────────────────
+
+        [Fact]
+        public void Audio_a_bare_b_names_ctrl_b_and_the_layer_is_still_there()
+        {
+            // The report, verbatim: "I accidentally pressed b and it exited
+            // and said nothing." B means nothing outside the layer either, so
+            // there was nothing for the key to travel on and do — the operator
+            // paid for a typo with the whole mode, and the next keystroke
+            // landed somewhere other than where they believed they were.
+            var (h, rig) = OpenAudio(VerbosityLevel.Chatty);
+            h.Layer.HandleKey(Keys.M);
+            h.Layer.HandleKey(Keys.Up);
+
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.B));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal("B is not a key in the Audio layer. Ctrl+B: Binaural receive on or off",
+                h.LastSaid);
+
+            // Still the layer it was: the arrows still move what was picked.
+            h.Layer.HandleKey(Keys.Up);
+            Assert.Equal(40, rig.Mic);
+        }
+
+        [Fact]
+        public void Audio_the_named_alternative_is_the_ctrl_form_not_the_slice_jump()
+        {
+            // Both Ctrl+B (binaural) and Shift+B (jump to slice B) are one
+            // modifier from a bare B. The Ctrl form is the one on the same
+            // SUBJECT, and it is the one the operator was reaching for; the
+            // slice jump is a different axis wearing the same letter (#515).
+            var (h, _) = OpenAudio(VerbosityLevel.Chatty);
+            h.Layer.HandleKey(Keys.B);
+            Assert.Contains("Ctrl+B", h.LastSaid);
+            Assert.DoesNotContain("Shift+B", h.LastSaid);
+        }
+
+        [Fact]
+        public void Audio_a_letter_with_only_a_slice_jump_still_gets_that_answer()
+        {
+            // F carries no target and no switch, but Shift+F jumps to slice F.
+            // Naming it beats a silent exit, and it is a real thing to press.
+            var (h, _) = OpenAudio(VerbosityLevel.Chatty);
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.F));
+            Assert.True(h.Layer.IsLive);
+            Assert.Contains("Shift+F", h.LastSaid);
+        }
+
+        [Fact]
+        public void Audio_a_near_miss_the_other_way_recovers_to_the_bare_letter()
+        {
+            // The slip runs both ways: the grammar is plain-letter picks
+            // against Ctrl toggles, so holding Ctrl by mistake is as likely as
+            // dropping it. Ctrl+V is not a chord here; V is slice volume.
+            var (h, _) = OpenAudio(VerbosityLevel.Chatty);
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.V | Keys.Control));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal("Ctrl+V is not a key in the Audio layer. V: Slice volume", h.LastSaid);
+        }
+
+        [Fact]
+        public void Audio_a_key_that_means_something_outside_still_leaves()
+        {
+            // The distinction the whole change turns on. Ctrl+F is a registry
+            // chord — enter a frequency — so the operator who pressed it meant
+            // to go there, and Shift+F being a slice jump does not make it a
+            // slip. It keeps the value, says the layer closed, and travels.
+            var (h, rig) = OpenAudio(VerbosityLevel.Chatty);
+            h.Layer.HandleKey(Keys.M);
+            h.Layer.HandleKey(Keys.Up);
+
+            Assert.Equal(ValueLayerKeyResult.ClosedPassThrough,
+                h.Layer.HandleKey(Keys.F | Keys.Control));
+            Assert.False(h.Layer.IsLive);
+            Assert.Equal(35, rig.Mic);
+            Assert.Equal("Audio layer closed", h.LastSaid);
+        }
+
+        [Fact]
+        public void Audio_a_letter_bound_at_no_tier_is_still_a_plain_unknown_key()
+        {
+            // Z is nothing here at any tier. Inventing an alternative would be
+            // worse than the exit, so the unhandled-key rule stands untouched.
+            var (h, _) = OpenAudio(VerbosityLevel.Chatty);
+            Assert.Equal(ValueLayerKeyResult.ClosedPassThrough, h.Layer.HandleKey(Keys.Z));
+            Assert.False(h.Layer.IsLive);
+            Assert.Equal("Audio layer closed", h.LastSaid);
+        }
+
+        [Fact]
+        public void Audio_a_near_miss_below_chatty_is_the_tone_alone()
+        {
+            // #528, unchanged and not re-decided here: a refusal is a refusal,
+            // and the near miss goes through the same door as a wrong-axis
+            // arrow. Below Chatty the thunk is the whole answer — and it is the
+            // SAME thunk, which is what tells the operator they are still in
+            // the layer without a word being said.
+            var tones = new ToneCounter();
+            var (h, _) = OpenAudio(VerbosityLevel.Terse, cues: tones.Cues);
+            int saidBefore = h.Said.Count;
+
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.B));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal(1, tones.Invalid);
+            Assert.Equal(saidBefore, h.Said.Count);
+        }
+
+        [Fact]
+        public void Audio_a_near_miss_speaks_at_every_level_when_the_tone_cannot_sound()
+        {
+            // Earcons off: the words are the only feedback there is, so they
+            // are spoken at Terse too. A refusal is never silent, which is the
+            // whole complaint this task started from.
+            var tones = new ToneCounter { Audible = false };
+            var (h, _) = OpenAudio(VerbosityLevel.Terse, cues: tones.Cues);
+
+            h.Layer.HandleKey(Keys.B);
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal("B is not a key in the Audio layer.", h.LastSaid);
+        }
+
         // ════════════════════════════════════════════════════════════════
         //  PART THREE — the filter layer (#516): the modifier picks the
         //  edge, the key picks the verb, T and R pick the side
@@ -1361,6 +1548,11 @@ namespace Radios.Tests
                 WhichShiftHint = () => Lexicon.Get("audio.filter_layer.which_shift"),
                 NoVerbHint = () => Lexicon.Get("audio.filter_layer.no_verb"),
                 WrongAxisHint = () => Lexicon.Get("audio.filter_layer.no_verb"),
+                // #547, the shipped shape. This layer's letters are S, T and R
+                // plus the slice-jump range, so a slipped Ctrl recovers rather
+                // than ending the mode without a word.
+                MeansSomethingOutside = k => false,
+                DescribeNearMiss = k => FilterLayerNearMiss(k, h.Verbosity),
             };
             h.Open(def);
             return (h, rig);
@@ -1995,8 +2187,22 @@ namespace Radios.Tests
             Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(
                 source, @"Audible = \(\) => EarconPlayer\.IsOn\(EarconPlayer\.EarconCategory\.CommandsAndConfirmations\)").Count);
 
+            // #547: both shipped layers ask the registry whether a refused key
+            // has anywhere to go, and both answer the near miss from their own
+            // inventory rows. A layer that wired only one of the pair would
+            // either never catch a slip or catch keys that meant something —
+            // and neither failure announces itself, which is why the count is
+            // pinned rather than the presence.
+            Assert.Equal(2, Regex.Matches(
+                source, @"MeansSomethingOutside = MeansSomethingOutsideTheLayer").Count);
+            Assert.Equal(2, Regex.Matches(source, @"DescribeNearMiss = key => LayerNearMiss\(").Count);
+            Assert.Contains("KeyInventory.TryFindLayerNearMiss(context, pressed", source);
+            Assert.Contains("KeyLayerHelp.LayerName(context)", source);
+            Assert.Contains("private bool MeansSomethingOutsideTheLayer(Keys k) => Lookup(k) != null;", source);
+
             foreach (string key in new[]
             {
+                "audio.value_layer.near_miss",
                 "audio.audio_layer.entered",
                 "audio.audio_layer.entered_on_pan",
                 "audio.audio_layer.closed",
@@ -2141,6 +2347,33 @@ namespace Radios.Tests
             {
                 Assert.Contains(chord, source);
             }
+        }
+
+        [Fact]
+        public void The_layer_near_miss_reads_the_help_rows_and_the_layer_ordering()
+        {
+            // #547. Two properties the mirror above cannot prove, both of them
+            // the difference between a useful recovery and a wrong one.
+            string source = ReadSource("JJFlexWpf/KeyInventory.cs");
+
+            // The words come from the SAME rows H lists, briefed the same way
+            // the leader's near miss briefs them — one vocabulary, not two.
+            Assert.Contains("foreach (var e in LayerCommands(context))", source);
+            Assert.Contains("Radios.LeaderPhrase.Brief(e.Description)", source);
+
+            // The layer ordering, not the leader's: inside a layer the
+            // neighbour of a bare letter is its Ctrl form, on the same
+            // subject, and not its Shift form, which changes slice (#515).
+            Assert.Contains("Radios.LeaderChordParser.LayerNearMissCandidates(pressed)", source);
+
+            // Letters only, and stated as a rule rather than left to depend on
+            // whether a help row's punctuation happens to parse.
+            Assert.Equal(2, Regex.Matches(source,
+                @"if \(code < WinFormsKeys\.A \|\| code > WinFormsKeys\.Z\)").Count);
+
+            string parser = ReadSource("Radios/LeaderChordParser.cs");
+            Assert.Contains("Candidates(pressed, Keys.None, Keys.Shift, Keys.Control)", parser);
+            Assert.Contains("Candidates(pressed, Keys.None, Keys.Control, Keys.Shift)", parser);
         }
 
         [Fact]
