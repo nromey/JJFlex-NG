@@ -766,6 +766,11 @@
   "audio.unit.watt": "watt",
   "audio.unit.watts": "watts",
   "audio.value.adjusted": "{label} {value}{suffix}",
+  "audio.value_layer.near_miss": {
+    "critical": "{pressed} is not a key in the {layer}.",
+    "terse": "{pressed} is not a key in the {layer}.",
+    "chatty": "{pressed} is not a key in the {layer}. {alt}: {what}"
+  },
   "audio.workshop.section_nothing_to_adjust": "{section}, nothing to adjust here.",
   "audio.workshop.unnamed_section": "Section"
 }

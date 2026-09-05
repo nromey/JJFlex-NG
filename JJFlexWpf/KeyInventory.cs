@@ -727,6 +727,108 @@ public static class KeyInventory
     }
 
     // ────────────────────────────────────────────────────────────────
+    //  Value sub-layer near-miss lookup (#547, Sprint 45 Track C2)
+    // ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Context → (chord → spoken key name, brief description) for the LETTER
+    /// chords one layer advertises, built once per layer from its own rows.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Letters only, deliberately.</b> The near-miss answer exists for the
+    /// layers' letter grammar — a plain letter picks, Ctrl+letter flips,
+    /// Shift+letter jumps to a slice (#515) — and that is the tier where a
+    /// slipped modifier is predictable. Everything else keeps the old
+    /// unhandled-key answer untouched: Ctrl+Home still means "top of the
+    /// document" on its way out, and a layer is never in the business of
+    /// refusing Tab, Space or a function key.
+    /// </para>
+    /// <para>
+    /// Without the restriction the behaviour would depend on how a row
+    /// happens to be WRITTEN. "Home / End / 0" contributes nothing today only
+    /// because the parser cannot read a slash list; rewrite it as "Home or End
+    /// or 0" and Ctrl+Home would silently start being refused. A rule that
+    /// turns on a punctuation choice in a help string is not a rule.
+    /// </para>
+    /// </remarks>
+    private static readonly Dictionary<string, Dictionary<WinFormsKeys, (string KeyName, string Description)>>
+        _layerChords = new Dictionary<string, Dictionary<WinFormsKeys, (string, string)>>();
+
+    private static Dictionary<WinFormsKeys, (string KeyName, string Description)> LayerChords(string context)
+    {
+        lock (_layerChords)
+        {
+            if (_layerChords.TryGetValue(context, out var cached)) return cached;
+
+            var table = new Dictionary<WinFormsKeys, (string, string)>();
+            foreach (var e in LayerCommands(context))
+            {
+                foreach (var chord in Radios.LeaderChordParser.ParseDisplay(e.KeyDisplay, e.ExcludedKeys))
+                {
+                    WinFormsKeys code = chord & WinFormsKeys.KeyCode;
+                    if (code < WinFormsKeys.A || code > WinFormsKeys.Z) continue;
+                    // Brief, not the full row: the operator has already made a
+                    // mistake and wants the name of the key they nearly
+                    // pressed, not its paragraph (#206). Same rendering the
+                    // leader near-miss uses, from the same rows H lists.
+                    if (!table.ContainsKey(chord))
+                        table[chord] = (KeyManifest.FormatKey(chord), Radios.LeaderPhrase.Brief(e.Description));
+                }
+            }
+            _layerChords[context] = table;
+            return table;
+        }
+    }
+
+    /// <summary>
+    /// When a letter a value sub-layer does not take is one modifier away
+    /// from one it does, name the neighbour — so an accidental bare B becomes
+    /// a recovery instead of an unannounced exit (#547).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The layer's own answer to "which keys are these?" is
+    /// <see cref="LayerCommands"/>, and this reads the same table, so the
+    /// recovery line and the H list cannot describe one chord two ways.
+    /// </para>
+    /// <para>
+    /// The candidate ORDER is
+    /// <see cref="Radios.LeaderChordParser.LayerNearMissCandidates"/> and not
+    /// the leader's: inside a layer the neighbour of a bare letter is its Ctrl
+    /// form, on the same subject, and not its Shift form, which changes slice.
+    /// </para>
+    /// <para>
+    /// Returns false when the pressed chord is itself advertised (not this
+    /// method's business — the layer handled it), when it is not a letter, or
+    /// when no neighbouring tier is advertised either.
+    /// </para>
+    /// </remarks>
+    public static bool TryFindLayerNearMiss(string context, WinFormsKeys pressed,
+        out string altKeyName, out string altDescription)
+    {
+        altKeyName = "";
+        altDescription = "";
+
+        WinFormsKeys code = pressed & WinFormsKeys.KeyCode;
+        if (code < WinFormsKeys.A || code > WinFormsKeys.Z) return false;
+
+        var table = LayerChords(context);
+        if (table.ContainsKey(pressed)) return false;
+
+        foreach (var candidate in Radios.LeaderChordParser.LayerNearMissCandidates(pressed))
+        {
+            if (table.TryGetValue(candidate, out var hit))
+            {
+                altKeyName = hit.KeyName;
+                altDescription = hit.Description;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // ────────────────────────────────────────────────────────────────
     //  The audio layer (Sprint 44 Track I, #514) — pan and volume, one
     //  layer on the value sub-layer engine. Opened by Ctrl+J, V, and by
     //  Ctrl+J, Alt+P with pan already picked, until Track J's four-tier

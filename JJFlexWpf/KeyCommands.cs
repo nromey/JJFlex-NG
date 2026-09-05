@@ -4466,6 +4466,12 @@ public class KeyCommands
             // operator can flip words-versus-numbers mid-hunt.
             PassThroughKeys = key => Lookup(key)?.KeyDef.Id == CommandValues.CycleVerbosity,
             HostKeys = LayerSliceJump,
+            // #547: a letter that means nothing out there and sits one
+            // modifier from a chord in here is a slip, and the layer says so
+            // rather than vanishing. Reaching for Ctrl+B and getting B was
+            // the report.
+            MeansSomethingOutside = MeansSomethingOutsideTheLayer,
+            DescribeNearMiss = key => LayerNearMiss(KeyInventory.AudioLayerContext, key),
             ListCommands = () => TryShowLayerCommandList(KeyInventory.AudioLayerContext),
             OpenExplorer = () => TryOpenLayerExplorer(KeyInventory.AudioLayerContext),
             Exited = why => { if (pcTouched) _context.GetMainWindow()?.PersistPcOutputVolume(); },
@@ -4814,6 +4820,11 @@ public class KeyCommands
             WrongAxisHint = () => Radios.Lexicon.Get("audio.filter_layer.no_verb"),
             PassThroughKeys = key => Lookup(key)?.KeyDef.Id == CommandValues.CycleVerbosity,
             HostKeys = LayerSliceJump,
+            // #547, the same rule as the audio layer. This layer's letters are
+            // S, T and R, so a Ctrl+S or a Shift+T recovers here instead of
+            // ending the mode without a word.
+            MeansSomethingOutside = MeansSomethingOutsideTheLayer,
+            DescribeNearMiss = key => LayerNearMiss(KeyInventory.FilterLayerContext, key),
             ListCommands = () => TryShowLayerCommandList(KeyInventory.FilterLayerContext),
             OpenExplorer = () => TryOpenLayerExplorer(KeyInventory.FilterLayerContext),
             Exited = why => { _filterRx = null; },
@@ -4905,6 +4916,73 @@ public class KeyCommands
         OnMainDispatcher(() => Dialogs.KeyExplorerDialog.Open(context));
         return true;
     }
+
+    /// <summary>
+    /// The recovery line for a letter a layer did not take that is one
+    /// modifier from one it does — "B is not a key in the Audio layer.
+    /// Ctrl+B: Binaural receive on or off." Null when the letter is no near
+    /// miss, which is the engine's signal to close and let it travel (#547).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The leader's #206 answer, given to the layers that needed it more: the
+    /// audio layer's whole grammar is plain-letter picks against Ctrl
+    /// toggles, so a slipped modifier is its single most predictable mistake,
+    /// and until this it was the one mistake that ended the mode without
+    /// saying why. Noel pressed a bare B reaching for binaural and the layer
+    /// was simply gone.
+    /// </para>
+    /// <para>
+    /// The words come from the layer's own inventory rows — the table H lists
+    /// and the explorer draws — so a re-lettering changes the recovery line
+    /// with everything else, and nothing here needs re-writing when Noel
+    /// rules the provisional map (#524).
+    /// </para>
+    /// <para>
+    /// The sentence is built at the verbosity of the moment, like the
+    /// leader's: the alternative is Chatty's, because naming what to press
+    /// instead is a hint and Terse is values and transitions. Below Chatty
+    /// the engine's refusal tone is usually the whole answer anyway (#528) —
+    /// it decides, not this method. That tone is the one the operator already
+    /// knows from a wrong-axis arrow, and it means the same thing here: the
+    /// key was refused and the layer is still there.
+    /// </para>
+    /// <para>
+    /// The layer is named through <see cref="KeyLayerHelp.LayerName"/>, the
+    /// same mid-sentence form the H list opens with, so the two cannot come
+    /// to call one layer by two names.
+    /// </para>
+    /// </remarks>
+    private static string? LayerNearMiss(string context, Keys pressed)
+    {
+        if (!KeyInventory.TryFindLayerNearMiss(context, pressed, out string alt, out string what))
+            return null;
+
+        return Radios.Lexicon.Get("audio.value_layer.near_miss",
+            Radios.ScreenReaderOutput.CurrentVerbosity,
+            ("pressed", KeyManifest.FormatKey(pressed)),
+            ("layer", KeyLayerHelp.LayerName(context)),
+            ("alt", alt),
+            ("what", what));
+    }
+
+    /// <summary>
+    /// Does a key mean anything once a layer lets go of it? The live
+    /// registry, so a remap is honoured — the same question and the same
+    /// source as <see cref="Lookup(Keys)"/>'s own dispatch (#547).
+    /// </summary>
+    /// <remarks>
+    /// It answers for OUR vocabulary and makes no claim about Windows'. That
+    /// is safe only because its answer decides nothing on its own: it is
+    /// consulted alongside <see cref="LayerNearMiss"/>, which is letters-only,
+    /// so no key without a near neighbour is ever held back on the strength of
+    /// this. Tab, Space and the navigation keys — whose meanings live below
+    /// us, where the registry cannot see them — leave exactly as they did.
+    /// Within letters the answer is sound: no bare letter is bound anywhere in
+    /// the default table, in any scope, so a bare letter this says no to
+    /// genuinely has nowhere to go.
+    /// </remarks>
+    private bool MeansSomethingOutsideTheLayer(Keys k) => Lookup(k) != null;
 
     /// <summary>
     /// Run a surface on the main window's dispatcher — a key can reach the
