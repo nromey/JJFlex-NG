@@ -98,6 +98,23 @@ Public Class ShellForm
     Private Shared Function PostMessage(hWnd As IntPtr, msg As Integer, wParam As IntPtr, lParam As IntPtr) As Boolean
     End Function
 
+    ' #538 - reaching a modal that Alt+Tab cannot see. See WndProc below.
+    Private Const WM_ACTIVATE As Integer = &H6
+    Private Const WA_INACTIVE As Integer = 0
+    Private Const GW_ENABLEDPOPUP As UInteger = 6
+
+    <System.Runtime.InteropServices.DllImport("user32.dll")>
+    Private Shared Function GetWindow(hWnd As IntPtr, uCmd As UInteger) As IntPtr
+    End Function
+
+    <System.Runtime.InteropServices.DllImport("user32.dll")>
+    Private Shared Function SetForegroundWindow(hWnd As IntPtr) As Boolean
+    End Function
+
+    <System.Runtime.InteropServices.DllImport("user32.dll")>
+    Private Shared Function IsWindowEnabled(hWnd As IntPtr) As Boolean
+    End Function
+
     ''' <summary>
     ''' Route keys through DoCommandHandler BEFORE native menu processes them.
     ''' BUG-010 fix: Alt+Letter hotkeys in Logging Mode go to DoCommand.
@@ -137,6 +154,48 @@ Public Class ShellForm
     ''' content when the menu loop exits (Escape or item selected).
     ''' </summary>
     Protected Overrides Sub WndProc(ByRef m As Message)
+        ' #538 - HAND ACTIVATION ON TO THE MODAL. Alt+Tab gives the foreground
+        ' to THIS window even while a dialog owns input, and Windows does not
+        ' pass it along. Measured 2026-09-05 with a foreground watcher: the
+        ' foreground landed on this hwnd with enabled=False and stayed there
+        ' for the rest of the sample, while 'Select Radio' - the only enabled
+        ' window in the process - never received it once. What the operator
+        ' gets is the window title read out, no reachable menu bar, and nothing
+        ' that responds, because every control here is disabled by design while
+        ' a modal is up. It reads exactly like a hang and is not one.
+        '
+        ' Why this was invisible to the focus watchdog (#529) and to
+        ' StrandedFocusSentinel: both ask "does a FOREIGN window hold our
+        ' foreground". Here the answer is no - JJ Flexible holds it, with the
+        ' wrong window of its own. Their world model is us-versus-them and this
+        ' failure is us-but-the-wrong-us, so both correctly did nothing while
+        ' the operator was stuck. That is why it outlived a sprint aimed at
+        ' focus.
+        '
+        ' Me.Enabled is NOT the test. WPF's ShowDialog disables the owner
+        ' through Win32 EnableWindow, which never reaches the WinForms managed
+        ' property, so Me.Enabled still reads True while the HWND is disabled.
+        ' Ask the window itself.
+        '
+        ' GW_ENABLEDPOPUP asks precisely the right question - "the enabled
+        ' popup this window owns" - so there is no enumeration and no guessing
+        ' which dialog sits on top of which when several are stacked.
+        If m.Msg = WM_ACTIVATE AndAlso (m.WParam.ToInt64() And &HFFFF) <> WA_INACTIVE Then
+            If Not IsWindowEnabled(Me.Handle) Then
+                Dim popup = GetWindow(Me.Handle, GW_ENABLEDPOPUP)
+                If popup <> IntPtr.Zero AndAlso popup <> Me.Handle Then
+                    MyBase.WndProc(m)
+                    ' Deferred for the same reason the menu-loop focus restore
+                    ' below is: moving the foreground from inside WndProc
+                    ' re-enters the activation path we are standing in.
+                    If Me.IsHandleCreated Then
+                        Me.BeginInvoke(Sub() SetForegroundWindow(popup))
+                    End If
+                    Return
+                End If
+            End If
+        End If
+
         ' Track native menu loop entry/exit for safe focus return.
         If m.Msg = WM_ENTERMENULOOP Then
             _inNativeMenuLoop = True
