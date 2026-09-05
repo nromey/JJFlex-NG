@@ -129,6 +129,13 @@ namespace Radios
             // radio-wide one here — the three above it act on a slice or on
             // this computer — and because its B is a first letter no other row
             // on this menu claims.
+            //
+            // NO ACCELERATOR, and that is not an oversight — Ctrl+J, V, Ctrl+B
+            // does reach it. A checked row's text is rewritten as "{label}: On"
+            // when the popup opens, and everything past a tab is the Windows key
+            // column, so a key hint here would put ": On" INSIDE the keystroke
+            // and read as part of it. Same reason AddRadioChecked exists. The
+            // other two toggles on this menu carry no accelerator either.
             new("binaural", "Binaural", AudioMenuEntryKind.Toggle, true),
 
             new("sep-levels", "", AudioMenuEntryKind.Separator, false),

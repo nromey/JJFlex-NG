@@ -200,6 +200,28 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void No_toggle_row_carries_an_accelerator()
+        {
+            // A checked row is REWRITTEN as "{label}: On" when the popup opens
+            // (NativeMenuBar.HandleInitMenuPopup), and everything past a tab is
+            // the Windows key column. Give a toggle a key hint and the state
+            // suffix lands inside the keystroke and is read as part of it —
+            // the same trap AddRadioChecked's remarks describe for "USB\tAlt+U".
+            //
+            // It is a tempting thing to add, because every toggle here HAS a
+            // key: mute is Ctrl+J then Ctrl+M, PC audio Ctrl+J then Ctrl+P,
+            // binaural Ctrl+J then V then Ctrl+B (#537). The key belongs in the
+            // help pages, not in this column.
+            foreach (var entry in AudioMenuLayout.Entries)
+            {
+                if (entry.Kind != AudioMenuEntryKind.Toggle) continue;
+                Assert.True(entry.Accelerator.Length == 0,
+                    "'" + entry.Id + "' is a toggle with an accelerator, so its ': On' "
+                    + "suffix will be drawn and spoken inside the key column.");
+            }
+        }
+
+        [Fact]
         public void No_row_carries_an_accelerator_or_a_reason_inside_its_own_label()
         {
             // The label is the words only. Anything else in it would be text

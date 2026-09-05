@@ -4165,7 +4165,9 @@ public class KeyCommands
     //  slice mute (SliceMute), PC audio on/off (PCAudio, until now only
     //  reachable as Ctrl+J, Ctrl+P, outside the layer whose P sets its
     //  level) and binaural receive (Binaural, whose control did not survive
-    //  the WPF migration). The three switches are toggle targets — the Ctrl
+    //  the WPF migration — it has one again since #537, on Home's audio
+    //  expander and the Audio menu, speaking these same strings). The three
+    //  switches are toggle targets — the Ctrl
     //  tier of #515, one press each, restored by Escape like everything
     //  else the layer moved.
     //
