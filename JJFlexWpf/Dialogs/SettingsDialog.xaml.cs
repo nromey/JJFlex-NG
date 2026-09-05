@@ -480,6 +480,11 @@ namespace JJFlexWpf.Dialogs
                     SliceOrderBottomToTopRadio.IsChecked = true;
                 else
                     SliceOrderTopToBottomRadio.IsChecked = true;
+
+                // Sprint 45 Track D2 — the focus watchdog's off switch, same
+                // tab, same config file, same suppression window.
+                ReclaimForegroundCheckbox.IsChecked =
+                    AccessibilityConfig.Current.ReclaimStolenForeground;
             }
             finally
             {
@@ -1513,6 +1518,15 @@ namespace JJFlexWpf.Dialogs
             // Sprint 43 Track E (#318). Committed alongside the tolerance so
             // the whole Accessibility tab saves or does not save together.
             AccessibilityConfig.Current.SliceArrowOrder = GetSelectedSliceArrowOrder();
+            // Sprint 45 Track D2 — the focus watchdog's off switch. Committed
+            // here rather than applied on the Checked event: JJFlexDialog reads
+            // AccessibilityConfig.Current on every tick, so a live-applied
+            // toggle would take effect on the Settings dialog's OWN watchdog
+            // while the operator was still deciding. IsChecked is nullable and
+            // this box is never three-state; the ?? keeps a null reading as ON,
+            // which is the safe direction for a rescue.
+            AccessibilityConfig.Current.ReclaimStolenForeground =
+                ReclaimForegroundCheckbox.IsChecked ?? true;
             if (!string.IsNullOrEmpty(ConfigDirectory) && !string.IsNullOrEmpty(OperatorName))
             {
                 AccessibilityConfig.Current.Save(ConfigDirectory, OperatorName);

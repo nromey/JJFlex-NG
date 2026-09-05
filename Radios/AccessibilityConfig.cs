@@ -116,6 +116,55 @@ namespace Radios
             SliceArrowOrder == SliceArrowOrder.TopToBottom ? 1 : -1;
 
         /// <summary>
+        /// Whether the #529 focus watchdog may take the keyboard back when
+        /// another program takes the foreground from an idle operator while a
+        /// dialog of ours is up. Default <c>true</c>.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Why this exists (Sprint 45 Track D2).</b> The note that went to
+        /// Don on 2026-09-05 says, in Noel's own words: <i>"if a JJ Flexible
+        /// window ever comes to the front while you are doing something else,
+        /// and you did not ask it to, that is this. Tell me when and what you
+        /// were doing and I will switch it off."</i> That promise was made to a
+        /// tester before there was anything to switch, so keeping it needed a
+        /// rebuild. A promise a tester can act on has to be reachable from the
+        /// tester's own keyboard.
+        /// </para>
+        /// <para>
+        /// <b>Default ON, and that is not a formality.</b> The watchdog's
+        /// negative case was measured at the radio on 2026-09-05 — the desktop
+        /// held the foreground over one of our modals for 115 seconds with the
+        /// operator genuinely absent, and nothing reclaimed. This is the switch
+        /// for when it misbehaves, not a retreat from it.
+        /// </para>
+        /// <para>
+        /// <b>It governs the RECLAIM only.</b> The two black-hole repairs — no
+        /// window anywhere taking input, and a foreground of our own whose
+        /// thread has no focus window — are untouched by it, and deliberately
+        /// so. Neither of those can be "you were doing something else": in the
+        /// first nothing on the desktop has the keyboard, and in the second we
+        /// already hold it. Switching those off would take away the 2026-08-30
+        /// rescue while answering a complaint that is not about them.
+        /// </para>
+        /// <para>
+        /// <b>Off is not silent.</b> With this false the sentinel still ticks,
+        /// still reaches the same verdict through the same six gates, and
+        /// traces what it would have done — so a later diagnostic bundle can
+        /// say "this would have rescued you and you had it switched off"
+        /// rather than showing an unexplained outage with no watchdog line in
+        /// it at all. See <see cref="StrandedFocusSentinel.WithOperatorPreference"/>.
+        /// </para>
+        /// <para>
+        /// A missing element in an older config file leaves this at the
+        /// property initialiser, so every operator who upgrades keeps the
+        /// watchdog on without touching anything. Pinned by
+        /// <c>Radios.Tests.FocusWatchdogSettingTests</c>.
+        /// </para>
+        /// </remarks>
+        public bool ReclaimStolenForeground { get; set; } = true;
+
+        /// <summary>
         /// The active (most recently loaded or saved) accessibility config. UI-layer
         /// consumers that don't take an AccessibilityConfig parameter (e.g., double-tap
         /// detectors in FreqOutHandlers or ScreenFieldsPanel) read this. Updated by

@@ -251,6 +251,51 @@ namespace Radios.Tests
             Assert.Contains(theft.When.ToString("t", System.Globalization.CultureInfo.CurrentCulture), row);
         }
 
+        /// <summary>
+        /// Sprint 45 Track D2. With the watchdog switched off the theft still
+        /// gets its row — it is the only place the operator can find out what
+        /// happened, because nothing spoke and nothing moved — but the row must
+        /// not claim a recovery that never happened. A row that says "It was
+        /// taken back" when nothing was is worse than no row at all.
+        /// </summary>
+        [Fact]
+        public void TheTheftRowDoesNotClaimARecoveryThatDidNotHappen()
+        {
+            var when = new System.DateTime(2026, 9, 5, 18, 30, 0);
+            var reclaimed = new ForegroundTheft(when, W(proc: "explorer"), "Select Radio");
+            var suppressed = new ForegroundTheft(when, W(proc: "explorer"), "Select Radio",
+                Reclaimed: false);
+
+            string reclaimedRow = DesktopWindowCensusSpeech.LastTheftRow(reclaimed);
+            string suppressedRow = DesktopWindowCensusSpeech.LastTheftRow(suppressed);
+
+            // Positive control: the reclaimed row really does say it was taken
+            // back, so the absence below is about the suppressed case and not
+            // about wording that was never there.
+            Assert.Contains("was taken back", reclaimedRow);
+            Assert.DoesNotContain("was not taken back", reclaimedRow);
+
+            // Both still name who, where and when.
+            Assert.Contains("Windows File Explorer", suppressedRow);
+            Assert.Contains("Select Radio", suppressedRow);
+
+            Assert.Contains("not taken back", suppressedRow);
+            // And it says where the switch is, so the row is actionable.
+            Assert.Contains("Accessibility", suppressedRow);
+        }
+
+        /// <summary>
+        /// The reclaim path is the older and commoner one, and it says nothing
+        /// about suppression at its call sites. The default keeps it reading
+        /// exactly as it did before the switch existed.
+        /// </summary>
+        [Fact]
+        public void ATheftIsAssumedReclaimedUnlessSaidOtherwise()
+        {
+            Assert.True(new ForegroundTheft(
+                System.DateTime.Now, W(proc: "explorer"), "Select Radio").Reclaimed);
+        }
+
         [Fact]
         public void TheSnapshotFindsItsForeground()
         {
