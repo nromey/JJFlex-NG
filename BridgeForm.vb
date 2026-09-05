@@ -58,10 +58,67 @@ Public Class ShellForm
         WpfContent.OpenSettingsCallback = Sub(tab) _nativeMenu.OpenSettings(tab)
     End Sub
 
+    ' ── The shell's handle, as a plain value ───────────────────────────────
+    '
+    ' Sprint 45 Track A. Two kinds of caller need the shell's HWND and cannot
+    ' take it from Control.Handle: the Connecting window, which runs on its own
+    ' thread and is to be Win32-OWNED by the shell (Handle refuses cross-thread
+    ' reads under a debugger, and a form's Owner property refuses cross-thread
+    ' forms outright); and every WPF dialog, through
+    ' JJFlexDialog.OwnerHandleProvider. An IntPtr captured here is safe to read
+    ' from anywhere, and it is Zero exactly when the shell has no window yet -
+    ' which on the launch route is the whole of the front door.
+    Private _nativeHandle As IntPtr
+
+    Friend ReadOnly Property NativeHandle As IntPtr
+        Get
+            Return _nativeHandle
+        End Get
+    End Property
+
     Protected Overrides Sub OnHandleCreated(e As EventArgs)
         MyBase.OnHandleCreated(e)
+        _nativeHandle = Me.Handle
         ' Now that we have an HWND, attach the native menu bar
         _nativeMenu.AttachTo(Me.Handle)
+    End Sub
+
+    Protected Overrides Sub OnHandleDestroyed(e As EventArgs)
+        _nativeHandle = IntPtr.Zero
+        MyBase.OnHandleDestroyed(e)
+    End Sub
+
+    ' ── Showing the shell without taking the foreground ────────────────────
+    '
+    ' The shell is first shown MID-CONNECT, so that error dialogs raised
+    ' during Start() have a parent and can be announced. Until Sprint 45
+    ' Track A that was Show() followed by Activate(), and a 60 ms trace of a
+    ' connect on 2026-09-05 shows the cost: the shell took the foreground from
+    ' the Connecting window the instant it appeared, Connecting's reclaim
+    ' timer took it back 158 ms later, and the screen reader announced "JJ
+    ' Flexible window" into the middle of the connect narration, flushing it.
+    ' Visible by design; grabbing by accident. WinForms consults
+    ' ShowWithoutActivation inside Show(), so it is a flag held for exactly
+    ' that call.
+    Private _showWithoutActivation As Boolean
+
+    Protected Overrides ReadOnly Property ShowWithoutActivation As Boolean
+        Get
+            Return _showWithoutActivation
+        End Get
+    End Property
+
+    ''' <summary>
+    ''' Show the shell without making it the foreground window. Used when a
+    ''' window of ours is already in front of the operator and must stay there.
+    ''' </summary>
+    Friend Sub ShowWithoutActivating()
+        _showWithoutActivation = True
+        Try
+            Show()
+        Finally
+            _showWithoutActivation = False
+        End Try
     End Sub
 
     Protected Overrides Sub OnShown(e As EventArgs)

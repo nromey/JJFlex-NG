@@ -1,8 +1,10 @@
 ﻿using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using JJTrace;
 
 namespace JJFlexWpf.Dialogs
@@ -31,6 +33,16 @@ namespace JJFlexWpf.Dialogs
     /// Escape skips the wait - the picker can still be met mid-discovery by
     /// anyone who would rather not wait, and it degrades to the old behaviour
     /// rather than to a wrong one.
+    ///
+    /// **Shown with <see cref="ShowAndWaitForSettle"/>, and it does not close
+    /// itself** (Sprint 45 Track A). It used to be a ShowDialog that closed on
+    /// settle, and the picker was constructed only after it had gone - so for
+    /// 155 ms the process owned no visible window and the foreground fell to
+    /// File Explorer, which the screen reader began to announce. Now the wait
+    /// returns with this window still on screen, the caller brings the picker
+    /// up over it, and <see cref="WindowHandoff"/> closes this one once the
+    /// picker has rendered. The foreground goes from one window of ours to the
+    /// next and never through the desktop.
     /// </summary>
     public sealed class DiscoveringRadiosWindow : JJFlexDialog
     {
@@ -53,6 +65,18 @@ namespace JJFlexWpf.Dialogs
         private DateTime _lastSighting = DateTime.MinValue;
         private volatile bool _anySeen;
         private bool _skipped;
+
+        /// <summary>The pump behind <see cref="ShowAndWaitForSettle"/> -
+        /// non-null exactly while the caller is waiting on us.</summary>
+        private DispatcherFrame? _waitFrame;
+
+        /// <summary>True once <see cref="ShowAndWaitForSettle"/> has been
+        /// called: from then on the CALLER closes this window, never us.</summary>
+        private bool _handoffMode;
+
+        /// <summary>True once the wait has been ended, by settle, ceiling or
+        /// skip. Anything that arrives after that is ignored.</summary>
+        private bool _waitEnded;
 
         /// <param name="lead">
         /// Something to say BEFORE "Searching for radios" - typically what just
@@ -109,10 +133,51 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
-        /// True when the operator pressed Escape rather than letting discovery
-        /// settle. The caller may want to know it is opening the picker early.
+        /// True when the operator pressed Escape (or closed the window) rather
+        /// than letting discovery settle. The caller may want to know it is
+        /// opening the picker early.
         /// </summary>
         public bool Skipped => _skipped;
+
+        /// <summary>
+        /// Show the window and return when discovery has settled, the ceiling
+        /// has passed, or the operator has skipped - WITH THE WINDOW STILL ON
+        /// SCREEN. The caller brings the next window up and then closes this
+        /// one; <see cref="WindowHandoff.CloseAfterSuccessorShown"/> does both
+        /// halves of that in the right order.
+        ///
+        /// <para>Pumps a dispatcher frame, exactly as ShowDialog does, so the
+        /// UI stays live throughout. Not modal: the shell stays enabled for the
+        /// two seconds at most this holds, on purpose - a disabled shell cannot
+        /// be activated, so if anything DID go wrong in the hand-off the
+        /// foreground would fall past it to another application, whereas an
+        /// enabled shell is a window of ours for it to land on.</para>
+        /// </summary>
+        public void ShowAndWaitForSettle()
+        {
+            if (_waitFrame != null)
+                throw new InvalidOperationException("ShowAndWaitForSettle is already running.");
+
+            _handoffMode = true;
+            var frame = new DispatcherFrame();
+            _waitFrame = frame;
+
+            // Closed by anything at all while we pump - an exception, a caller
+            // giving up - and the wait is over too. Nobody may sit in a frame
+            // for a window that no longer exists.
+            EventHandler onClosed = (_, _) => frame.Continue = false;
+            Closed += onClosed;
+            try
+            {
+                Show();
+                System.Windows.Threading.Dispatcher.PushFrame(frame);
+            }
+            finally
+            {
+                Closed -= onClosed;
+                _waitFrame = null;
+            }
+        }
 
         /// <summary>
         /// Focus the window itself - there is no control to focus, by design.
@@ -121,6 +186,25 @@ namespace JJFlexWpf.Dialogs
         {
             Focus();
             System.Windows.Input.Keyboard.Focus(this);
+        }
+
+        /// <summary>
+        /// While the caller is waiting on us, a close from the operator -
+        /// Escape (the base class turns it into Close()), the X, Alt+F4 - is a
+        /// SKIP, not a close. The window stays until the picker is up; closing
+        /// it here would open the very gap this window's hand-off exists to
+        /// remove. One funnel for every way of asking to leave early.
+        /// </summary>
+        protected override void OnClosing(CancelEventArgs e)
+        {
+            if (_waitFrame != null && _waitFrame.Continue)
+            {
+                e.Cancel = true;
+                _skipped = true;
+                SettleReached("skipped by the operator, picker opening early.");
+                return;
+            }
+            base.OnClosing(e);
         }
 
         protected override void OnClosed(EventArgs e)
@@ -144,6 +228,8 @@ namespace JJFlexWpf.Dialogs
             var deadline = DateTime.UtcNow.AddMilliseconds(MaxWaitMs);
             while (DateTime.UtcNow < deadline)
             {
+                if (_waitEnded) return;   // Skipped - nothing more to decide.
+
                 // Settled: something answered, and nothing new has arrived for
                 // a beat. Waiting the full ceiling once the answer is in would
                 // just be a delay the operator can hear and cannot explain.
@@ -151,38 +237,42 @@ namespace JJFlexWpf.Dialogs
                     && _lastSighting != DateTime.MinValue
                     && (DateTime.UtcNow - _lastSighting).TotalMilliseconds >= QuietMs)
                 {
-                    Tracing.TraceLine(
-                        "DiscoveringRadios: settled early, radios answered.",
-                        TraceLevel.Info);
-                    break;
+                    SettleReached("settled early, radios answered.");
+                    return;
                 }
 
                 await System.Threading.Tasks.Task.Delay(PollMs);
-                if (!IsLoaded) return;   // Escape closed us mid-wait.
+                if (!IsLoaded) return;   // Closed mid-wait.
             }
 
-            if (!_anySeen)
-            {
-                // Nothing answered. That is a real answer and the picker will
-                // say so - the point of waiting was to be able to say it ONCE,
-                // instead of guessing and then retracting.
-                Tracing.TraceLine(
-                    "DiscoveringRadios: ceiling reached, nothing found.",
-                    TraceLevel.Info);
-            }
-
-            try { DialogResult = true; } catch (InvalidOperationException) { }
-            Close();
+            // Nothing answered, or it never went quiet. Either is a real
+            // answer and the picker will say so - the point of waiting was to
+            // be able to say it ONCE, instead of guessing and then retracting.
+            SettleReached(_anySeen
+                ? "ceiling reached, radios still announcing."
+                : "ceiling reached, nothing found.");
         }
 
         /// <summary>
-        /// Escape skips the wait. Recorded so the caller can tell a deliberate
-        /// skip from a settle.
+        /// The wait is over. In hand-off mode that means releasing the caller's
+        /// frame and STAYING PUT; otherwise - shown some other way, as the
+        /// accessibility harness and any leftover ShowDialog caller do - it
+        /// means what it always meant, which is closing.
         /// </summary>
-        protected override void OnKeyDown(System.Windows.Input.KeyEventArgs e)
+        private void SettleReached(string how)
         {
-            if (e.Key == System.Windows.Input.Key.Escape) _skipped = true;
-            base.OnKeyDown(e);
+            if (_waitEnded) return;
+            _waitEnded = true;
+            Tracing.TraceLine("DiscoveringRadios: " + how, TraceLevel.Info);
+
+            if (_waitFrame != null)
+            {
+                _waitFrame.Continue = false;
+                return;
+            }
+            if (_handoffMode) return;   // The frame already exited; the caller owns the close.
+
+            CloseWithResult(true);
         }
     }
 }
