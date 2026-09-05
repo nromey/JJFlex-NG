@@ -222,6 +222,8 @@
   "audio.fields.atu_mode_auto": "Auto",
   "audio.fields.atu_mode_manual": "Manual",
   "audio.fields.atu_mode_none": "None",
+  "audio.fields.binaural": "Binaural",
+  "audio.fields.binaural_help": "Binaural receive is the radio's own stereo widening of what you hear: the same signal, spread across your two ears instead of sitting in the middle of your head. It is a property of the radio, not of one slice, so it changes every slice at once. Ctrl+J, V, Ctrl+B flips it too.",
   "audio.fields.cancel_noise_button": "Cancel Noise Capture",
   "audio.fields.cancel_noise_name": "Cancel the noise capture in progress",
   "audio.fields.cannot_release_only_slice": "Cannot release the only slice",

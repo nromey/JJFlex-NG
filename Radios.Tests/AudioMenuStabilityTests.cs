@@ -78,15 +78,22 @@ namespace Radios.Tests
             // whole reported defect, in one index.
             Assert.Equal(0, Array.IndexOf(oldDisconnected, "audio-devices"));
 
-            // The same ids, so this really is the same menu reordered and not a
-            // list that drifted away from what it is being compared against.
-            Assert.Equal(
-                oldConnected.OrderBy(x => x, StringComparer.Ordinal).ToList(),
-                AudioMenuLayout.Entries
-                    .Where(e => e.Kind != AudioMenuEntryKind.Separator)
-                    .Select(e => e.Id)
-                    .OrderBy(x => x, StringComparer.Ordinal)
-                    .ToList());
+            // The same menu, so this really is a reordering and not a list that
+            // drifted away from what it is being compared against.
+            //
+            // A SUBSET rather than an equal set, since #537 added "binaural"
+            // to the layout after this history was written. What has to hold is
+            // that every row of the old menu is still here — a row that
+            // vanished would make the comparison above meaningless while still
+            // passing. Rows ARRIVING is ordinary growth, and the positional
+            // tests below cover where they land.
+            var today = AudioMenuLayout.Entries
+                .Where(e => e.Kind != AudioMenuEntryKind.Separator)
+                .Select(e => e.Id)
+                .ToList();
+
+            foreach (string id in oldConnected)
+                Assert.Contains(id, today);
         }
 
         // ────────────────────────────────────────────────────────────────

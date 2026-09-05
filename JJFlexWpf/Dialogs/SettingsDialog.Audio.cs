@@ -28,6 +28,23 @@ namespace JJFlexWpf.Dialogs
     /// The rest of the tab (volumes, devices, CW parameters) still commits on
     /// OK, because those are preferences rather than a knob you are turning.
     /// </para>
+    /// <para>
+    /// <b>Binaural receive is deliberately NOT here (#537), and the reasoning
+    /// is the boundary this tab is built on.</b> It was restored to two visual
+    /// surfaces in Sprint 45 — a checkbox in Home's audio expander and a row on
+    /// the Audio menu — and the obvious third home was this tab, beside the
+    /// output levels. It was declined. The live exception above is earned by a
+    /// LEVEL you can only find by ear, on a radio whose only volume knob is
+    /// software; binaural is a switch you flip, hear, and flip back, and a
+    /// modal dialog is the one place you cannot do that without closing it
+    /// first. Nothing about it is stored, so there is no preference to keep
+    /// here either. A third door would buy an operator nothing and give the
+    /// wording a third place to drift — which is the failure the restoration
+    /// was written to avoid, not one to add. If this is ever revisited, speak
+    /// <c>audio.binaural.on</c> / <c>audio.binaural.off</c> like the three
+    /// surfaces that do have it, and add this file to the Surfaces list in
+    /// <c>BinauralOneVocabularyTests</c>, which holds that line.
+    /// </para>
     /// </remarks>
     public partial class SettingsDialog
     {
