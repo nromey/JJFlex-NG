@@ -1689,14 +1689,31 @@ public partial class MainWindow : UserControl
         ForegroundProbe.GetWindowThreadProcessId(fg, out uint pid);
         if (pid != (uint)Environment.ProcessId) return false;
 
-        // Our shell is the root window above the HwndSource hosting this
-        // control. Not Process.MainWindowHandle: that property guesses from
-        // z-order and can return whichever of our windows happens to be on
-        // top — including the very window being tested.
-        if (PresentationSource.FromVisual(this)
-            is not System.Windows.Interop.HwndSource source) return true;
-        var shell = ForegroundProbe.GetAncestor(source.Handle, ForegroundProbe.GA_ROOT);
+        var shell = ShellHandle();
+        if (shell == IntPtr.Zero) return true;
         return fg != shell;
+    }
+
+    /// <summary>
+    /// The shell's window handle: the root window above the HwndSource
+    /// hosting this control. Zero before this control has a presentation
+    /// source.
+    /// </summary>
+    /// <remarks>
+    /// Not <c>Process.MainWindowHandle</c>. That property guesses from
+    /// z-order - "the first visible, unowned top-level window of the
+    /// process" - and can return whichever of our windows happens to be on
+    /// top, including a dialog, the Connecting window, or the very window
+    /// being tested. Sprint 45 Track A removed the guess from JJFlexDialog
+    /// (see <see cref="JJFlexDialog.OwnerHandleProvider"/>); this is the same
+    /// answer for callers inside the shell's own content, where the handle
+    /// can be read off the visual tree instead of asked of the host.
+    /// </remarks>
+    private IntPtr ShellHandle()
+    {
+        if (PresentationSource.FromVisual(this)
+            is not System.Windows.Interop.HwndSource source) return IntPtr.Zero;
+        return ForegroundProbe.GetAncestor(source.Handle, ForegroundProbe.GA_ROOT);
     }
 
     private static class ForegroundProbe
@@ -1988,8 +2005,7 @@ public partial class MainWindow : UserControl
                 "ConnectQuiet: focus was stranded with no window of ours in the "
                 + "foreground - repairing silently (#395 lockout guard)",
                 TraceLevel.Info);
-            Radios.WindowActivation.EnsureForeground(
-                System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle);
+            Radios.WindowActivation.EnsureForeground(ShellHandle());
             FocusHome();
         }
         catch (System.Exception ex)
@@ -2080,8 +2096,10 @@ public partial class MainWindow : UserControl
             // would move the operator somewhere they did not ask to be.
             if (!IsKeyboardFocusWithin)
             {
-                Radios.WindowActivation.EnsureForeground(
-                    System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle);
+                // The shell, read off our own visual tree - the last caller of
+                // Process.MainWindowHandle outside JJFlexDialog's harness
+                // fallback went here (Sprint 45 Track A2).
+                Radios.WindowActivation.EnsureForeground(ShellHandle());
                 FocusHome();
             }
         }

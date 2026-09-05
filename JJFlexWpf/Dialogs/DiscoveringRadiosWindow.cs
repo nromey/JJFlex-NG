@@ -43,6 +43,10 @@ namespace JJFlexWpf.Dialogs
     /// up over it, and <see cref="WindowHandoff"/> closes this one once the
     /// picker has rendered. The foreground goes from one window of ours to the
     /// next and never through the desktop.
+    ///
+    /// **And because it now outlives its own message, it changes its caption
+    /// when the search is over** (Sprint 45 Track A2, #548) - see
+    /// <see cref="RetitleForHandoff"/>. The spoken name does not change.
     /// </summary>
     public sealed class DiscoveringRadiosWindow : JJFlexDialog
     {
@@ -100,6 +104,13 @@ namespace JJFlexWpf.Dialogs
             // having just launched it - and then the actual message from the
             // body text. A window that exists for one second to say one thing
             // should say that thing in its name.
+            //
+            // "Exists for one second" stopped being true on 2026-09-05, when the
+            // hand-off kept this window up until the picker had rendered, and
+            // the operator noticed it still said "Searching for radios" after
+            // the search was done. The SPOKEN name is still set once, here and
+            // at Loaded; the CAPTION is updated when the wait ends
+            // (RetitleForHandoff). The two are split on purpose - see there.
             Title = string.IsNullOrWhiteSpace(lead)
                 ? "Searching for radios"
                 : lead + ". Searching for radios";
@@ -267,12 +278,75 @@ namespace JJFlexWpf.Dialogs
 
             if (_waitFrame != null)
             {
+                // Still on screen for as long as the picker takes to come up,
+                // so say what is coming rather than what is finished.
+                RetitleForHandoff();
                 _waitFrame.Continue = false;
                 return;
             }
             if (_handoffMode) return;   // The frame already exited; the caller owns the close.
 
             CloseWithResult(true);
+        }
+
+        /// <summary>
+        /// The search is over and this window is still up, waiting for the
+        /// picker to render behind it: change the caption to the picker's own
+        /// title, and leave the spoken name alone.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Why the caption.</b> The window's whole rationale was to say one
+        /// thing in its name for the second it existed; the hand-off made it
+        /// live on past that second, so for the stretch between settle and
+        /// the picker's first frame - the picker's constructor and first
+        /// render, which is not nothing cold - it sat there announcing a
+        /// search that had finished. The operator's own words, 2026-09-05:
+        /// "Shouldn't it be connect to radio once it all settles down?"
+        /// </para>
+        /// <para>
+        /// <b>Why NOT the spoken name.</b> This window is the focused object
+        /// while it waits, and a screen reader speaks the focused object's name
+        /// when that name changes. A spoken retitle here would land in the
+        /// last few hundred milliseconds before the picker arrives - the exact
+        /// window change that flushes it - so at best it is cut off, and at
+        /// worst the operator hears "Select Radio" twice in a row, once from
+        /// us and once from the picker. The Loaded handler pinned
+        /// AutomationProperties.Name to the original title, and that pin is
+        /// what keeps this change out of the reader's ear: the UIA name does
+        /// not move, so there is no name-change event to speak. What the
+        /// sighted see and what the reader hears diverge for at most the
+        /// picker's construction time, and diverge in the direction where the
+        /// reader is told less, not something wrong.
+        /// </para>
+        /// <para>
+        /// The picker's title is taken from the picker's own Lexicon key so
+        /// there is one vocabulary for the word that is about to arrive.
+        /// </para>
+        /// <para>
+        /// This is the interim answer. The full one is the single-window
+        /// redesign - one window whose content moves through Searching, Select
+        /// and Connecting - which is written up in private planning and is its
+        /// own sprint. There, this method has nothing to do.
+        /// </para>
+        /// </remarks>
+        private void RetitleForHandoff()
+        {
+            string arriving;
+            try { arriving = Radios.Lexicon.Get("connect.selector.select_radio_title"); }
+            catch { return; }
+            if (string.IsNullOrWhiteSpace(arriving) || arriving == Title) return;
+
+            // Belt: Loaded normally pinned the spoken name already. If this
+            // runs before Loaded did (a skip during a very early frame), pin it
+            // now so the caption change below cannot become a spoken one.
+            if (string.IsNullOrEmpty(AutomationProperties.GetName(this)))
+                AutomationProperties.SetName(this, Title);
+
+            Tracing.TraceLine(
+                $"DiscoveringRadios: caption '{Title}' -> '{arriving}' while the picker comes up (spoken name unchanged)",
+                TraceLevel.Info);
+            Title = arriving;
         }
     }
 }

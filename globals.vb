@@ -3702,6 +3702,13 @@ Module globals
                 Return AutoConnectStartupResult.Connected
             End If
 
+            ' Deliberately NOT CloseConnectingWindowOntoTheShell (#545). The
+            ' successor here is the Auto-Connect Failed dialog, not the shell,
+            ' and showing the shell first would fire its OnShown - whose
+            ' FocusHome, 250 ms later, would pull activation out of that modal
+            ' on the same thread. This close still lets the foreground fall
+            ' for the moment before the dialog takes it; that gap is in the
+            ' task register, and its fix is to raise the dialog first.
             _connectingForm?.CloseForm()
             _connectingForm = Nothing
 
@@ -3935,6 +3942,60 @@ Module globals
         ready.Wait(2000)
     End Sub
 
+    ''' <summary>
+    ''' Close the Connecting window so that the foreground lands on the SHELL -
+    ''' the window the operator is about to be in - and nowhere else.
+    ''' </summary>
+    ''' <remarks>
+    ''' <para><b>#545, measured 2026-09-05 on the launch route.</b> Track A made
+    ''' the shell the Connecting window's Win32 owner and showed the shell
+    ''' mid-connect without activation, expecting Windows to activate the owner
+    ''' when the owned foreground window closed. The trace, with the operator
+    ''' listening: the shell SHOWN at 48544 ms, Connecting GONE at 49091, and
+    ''' at 49092 the foreground on File Explorer, which his screen reader began
+    ''' to announce. Enabled, visible, owned - and still not chosen. So the
+    ''' hand-over is no longer left to the window manager: ConnectingForm hands
+    ''' the foreground to its owner itself as it closes
+    ''' (ConnectingForm.HandForegroundToOwner), and THIS is the one place that
+    ''' makes sure the owner exists and is visible before asking it to.</para>
+    ''' <para>Three things, in an order that matters. The shell is shown
+    ''' (without activation) if it is not visible yet - on the launch route a
+    ''' FAILED connect reached the close with the shell still hidden, so the
+    ''' foreground fell to Explorer and the failure verdict was spoken into the
+    ''' shell's later arrival. Then the form adopts the shell as owner, which is
+    ''' a no-op when it already has. Then it is asked to close, and on its way
+    ''' out it moves the foreground to the shell while it still holds it. The
+    ''' two calls to the form are BeginInvoke'd onto its own thread in that
+    ''' order, so adopt runs before close.</para>
+    ''' <para><b>Not used where the successor is not the shell.</b>
+    ''' TryAutoConnectOnStartup's failure paths close the Connecting window and
+    ''' then raise the Auto-Connect Failed dialog; showing the shell there would
+    ''' fire ShellForm.OnShown 250 ms later, and its FocusHome would pull
+    ''' activation out of that modal on the same thread - the 2026-08-04 live
+    ''' find, re-created. Those sites keep the plain close and are recorded in
+    ''' the task register as the remaining gap of this class.</para>
+    ''' </remarks>
+    Private Sub CloseConnectingWindowOntoTheShell(why As String)
+        Dim form = _connectingForm
+        _connectingForm = Nothing
+        If form Is Nothing Then Return
+
+        Dim shell = AppShellForm
+        If shell IsNot Nothing Then
+            If Not shell.Visible Then
+                Tracing.TraceLine($"CloseConnectingWindow ({why}): shell not yet visible - showing it without activation so the close has a window of ours to land on", TraceLevel.Info)
+                shell.ShowWithoutActivating()
+                Radios.ConnectionProfiler.Current?.RecordEvent("shellform_shown")
+            End If
+            form.AdoptOwner(shell.NativeHandle)
+        Else
+            Tracing.TraceLine($"CloseConnectingWindow ({why}): no shell - the close will land wherever Windows puts it", TraceLevel.Warning)
+        End If
+
+        Tracing.TraceLine($"CloseConnectingWindow ({why}): closing the Connecting window onto the shell", TraceLevel.Info)
+        form.CloseForm()
+    End Sub
+
     Private Sub wpfRadioFoundHandler(sender As Object, e As FlexBase.RigData)
         Tracing.TraceLine("wpfRadioFoundHandler:" & e.Serial &
             " occupancy stations=" & e.GuiClientStations.Count, TraceLevel.Info)
@@ -4160,6 +4221,11 @@ Module globals
         Dim localDiscoveryRunning As Boolean = False
 
         ' Build the callbacks for the WPF dialog
+        ' Declared BEFORE the callbacks that capture it, assigned once the
+        ' picker exists, so a callback the picker invokes can name the picker
+        ' as the owner of whatever it puts up - see ShowConnecting below.
+        Dim dialog As JJFlexWpf.Dialogs.RigSelectorDialog = Nothing
+
         Dim callbacks As New JJFlexWpf.Dialogs.RigSelectorCallbacks() With {
             .StartLocalDiscovery = Sub()
                                        If localDiscoveryRunning Then
@@ -4264,7 +4330,23 @@ Module globals
                                   ' #294). This used to hand over a bare message
                                   ' and let the window guess its own subject by
                                   ' scraping it.
-                                  Dim frm = New ConnectingForm(msg, voice)
+                                  '
+                                  ' OWNED BY THE PICKER (Sprint 45 Track A2). Track A
+                                  ' left this one unowned, so when the pass finished
+                                  ' the foreground went wherever Windows put it
+                                  ' rather than back to the picker that asked. The
+                                  ' picker is the window this callback belongs to,
+                                  ' and this reads its handle at the moment it asks
+                                  ' - always after it has been constructed and shown,
+                                  ' because only a live picker can press Refresh.
+                                  Dim pickerHandle = IntPtr.Zero
+                                  If dialog IsNot Nothing Then
+                                      Try
+                                          pickerHandle = New System.Windows.Interop.WindowInteropHelper(dialog).Handle
+                                      Catch
+                                      End Try
+                                  End If
+                                  Dim frm = New ConnectingForm(msg, voice, pickerHandle)
                                   frm.Show()
                                   Return Sub() frm.CloseForm()
                               End Function,
@@ -4398,7 +4480,7 @@ Module globals
         ' and never from "whatever window of ours is visible", which right now
         ' would be the settling window; Windows destroys owned windows with
         ' their owner, so a picker owned by it would go down with it.
-        Dim dialog As New JJFlexWpf.Dialogs.RigSelectorDialog(callbacks)
+        dialog = New JJFlexWpf.Dialogs.RigSelectorDialog(callbacks)
         If settling IsNot Nothing Then
             JJFlexWpf.WindowHandoff.CloseAfterSuccessorShown(settling, dialog)
         End If
@@ -4555,8 +4637,11 @@ Module globals
             If Not connectOk Then
                 _pendingWalk = Nothing
                 Radios.ConnectionHistory.DiscardPendingOutcome()
-                _connectingForm?.CloseForm()
-                _connectingForm = Nothing
+                ' Onto the shell, shown first if need be (#545). On the launch
+                ' route this close used to happen with the shell still hidden,
+                ' so the foreground fell to whatever was behind us and the
+                ' verdict below was spoken into the shell's later arrival.
+                CloseConnectingWindowOntoTheShell("connect leg failed")
                 ' QB Track D: speak the classified evidence, not a bare verdict.
                 ' FlexBase files LastConnectFailureReport at every failure site
                 ' (auth vs server vs radio-missing vs refused vs timed out),
@@ -5203,9 +5288,9 @@ RadioConnected:
                 End If
             End If
 
-            ' Close the connecting window
-            _connectingForm?.CloseForm()
-            _connectingForm = Nothing
+            ' Close the connecting window - onto the shell, which the form
+            ' hands the foreground to as it goes (#545).
+            CloseConnectingWindowOntoTheShell(If(rv, "open succeeded", "open failed"))
 
             If rv Then
                 WpfMainWindow.OnRadioStarted()

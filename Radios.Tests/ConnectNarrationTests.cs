@@ -120,6 +120,127 @@ namespace Radios.Tests
         }
 
         // ------------------------------------------------------------------
+        // The opening line waits for the connect to prove slow (#544)
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// THE FINDING. Measured 2026-09-05: the connecting window lived 626 ms
+        /// on a warm LAN connect and 1,327 ms on a cold one, and the word
+        /// "Connecting" is about 800 ms of speech. The same keypress on the
+        /// same radio sometimes told the operator and sometimes did not. The
+        /// rule now: the opening sentence is only shown and spoken once the
+        /// connect is STILL running at the threshold.
+        /// </summary>
+        [Fact]
+        public void The_opening_line_is_spoken_when_the_connect_is_still_reaching_at_the_threshold()
+        {
+            var n = new ConnectNarrator(Radio, new Clock().Read);
+
+            var step = n.OpeningLineDue("Connecting to FLEX-8600 over SmartLink.");
+
+            Assert.Equal("Connecting to FLEX-8600 over SmartLink.", step.StatusText);
+            Assert.True(step.Speak);
+            Assert.Null(step.SpeakExtra);
+            Assert.False(step.PlayPhaseTone);
+            Assert.Null(step.Arm);
+        }
+
+        /// <summary>
+        /// The threshold sits above the warm-LAN figure and inside the range
+        /// the operator discussed (750 ms to 1 s). Pinned so that moving it is
+        /// a decision with the two measurements in front of it, not a drift.
+        /// </summary>
+        [Fact]
+        public void The_opening_line_threshold_is_one_second()
+        {
+            Assert.Equal(1_000, ConnectNarrator.OpeningLineThresholdMs);
+            Assert.True(ConnectNarrator.OpeningLineThresholdMs > 626,
+                "the warm-LAN connect measured 626 ms; the threshold must let it finish in silence");
+            Assert.InRange(ConnectNarrator.OpeningLineThresholdMs, 750, 1_000);
+        }
+
+        /// <summary>
+        /// The radio has already answered by the time the threshold arrives.
+        /// The phase line is on the window and in the operator's ear; saying
+        /// "Connecting to X" after "Connected to X" would narrate backwards.
+        /// </summary>
+        [Fact]
+        public void The_opening_line_is_dropped_once_a_phase_has_spoken()
+        {
+            var clock = new Clock();
+            var n = new ConnectNarrator(Radio, clock.Read);
+
+            clock.Advance(700);
+            n.OnEvent("start_slices_available");
+
+            Assert.True(n.OpeningLineDue("Connecting to FLEX-8600 over the local network.").IsEmpty);
+        }
+
+        /// <summary>
+        /// A phase change that was too fast to be SPOKEN still put its text on
+        /// the window, and that text is newer than the opening line.
+        /// </summary>
+        [Fact]
+        public void The_opening_line_is_dropped_once_a_phase_has_changed_the_text_even_silently()
+        {
+            var clock = new Clock();
+            var n = new ConnectNarrator(Radio, clock.Read);
+
+            clock.Advance(120);
+            var step = n.OnEvent("start_slices_available");
+            Assert.False(step.Speak);
+            Assert.NotNull(step.StatusText);
+
+            Assert.True(n.OpeningLineDue("Connecting to FLEX-8600 over the local network.").IsEmpty);
+        }
+
+        /// <summary>
+        /// Said once. The threshold timer is one-shot, but the model does not
+        /// rely on the window to remember that.
+        /// </summary>
+        [Fact]
+        public void The_opening_line_is_never_said_twice()
+        {
+            var n = new ConnectNarrator(Radio, new Clock().Read);
+
+            Assert.True(n.OpeningLineDue("Connecting to FLEX-8600 over SmartLink.").Speak);
+            Assert.True(n.OpeningLineDue("Connecting to FLEX-8600 over SmartLink.").IsEmpty);
+        }
+
+        /// <summary>
+        /// The picker composes the sentence; the narrator never invents one.
+        /// With nothing handed over there is nothing to say at the threshold.
+        /// </summary>
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        public void No_opening_line_means_nothing_to_say_at_the_threshold(string lead)
+        {
+            var n = new ConnectNarrator(Radio, new Clock().Read);
+
+            Assert.True(n.OpeningLineDue(lead).IsEmpty);
+        }
+
+        /// <summary>
+        /// The heartbeat keeps its own clock. Speaking the opening line at the
+        /// threshold does not re-arm or stop the voice that OpeningVoice armed
+        /// at arrival; that voice's first "Still connecting" is still due one
+        /// repeat interval in.
+        /// </summary>
+        [Fact]
+        public void The_opening_line_leaves_the_opening_heartbeat_alone()
+        {
+            var n = new ConnectNarrator(Radio, new Clock().Read);
+            n.OpeningVoice();
+
+            var step = n.OpeningLineDue("Connecting to FLEX-8600 over SmartLink.");
+
+            Assert.Null(step.Arm);
+            Assert.False(step.StopVoice);
+        }
+
+        // ------------------------------------------------------------------
         // The fast case must not become a conversation
         // ------------------------------------------------------------------
 

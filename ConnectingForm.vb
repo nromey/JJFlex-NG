@@ -31,6 +31,15 @@ Imports Radios
 '''     project_dialog_escape_rule.md — "forced taskkill is the worst-case
 '''     escape path"; auto-cancel is the next-worst-case and we provide it
 '''     before the user has to reach for taskkill).
+'''
+''' A third, one-shot, decides whether the opening sentence is said at all
+''' (Sprint 45 Track A2, #544). The window arrives with its TITLE only; the
+''' picker's "Connecting to X over Y" is added and spoken at
+''' ConnectNarrator.OpeningLineThresholdMs, and only if the connect is still
+''' reaching the radio then. See OnOpeningLineThreshold for the measurements.
+'''
+''' And when it closes, it hands the foreground to its owner ITSELF (#545) -
+''' see HandForegroundToOwner - rather than trusting Windows to do so.
 ''' </summary>
 Public Class ConnectingForm
     Inherits Form
@@ -39,6 +48,12 @@ Public Class ConnectingForm
     Private ReadOnly _focusTimer As System.Windows.Forms.Timer
     Private ReadOnly _escalationTimer As System.Windows.Forms.Timer
     Private ReadOnly _autoCancelTimer As System.Windows.Forms.Timer
+    ''' <summary>One shot at <see cref="Radios.ConnectNarrator.OpeningLineThresholdMs"/>:
+    ''' does the opening sentence get said? Started only for a real radio connect.</summary>
+    Private ReadOnly _openingLineTimer As System.Windows.Forms.Timer
+    ''' <summary>The sentence withheld at arrival - the picker's lead, or the
+    ''' plain "Connecting to X..." - released by <see cref="OnOpeningLineThreshold"/>.</summary>
+    Private ReadOnly _openingLine As String
     Private ReadOnly _cancelCallback As Action
     Private ReadOnly _profiler As Radios.ConnectionProfiler
     Private ReadOnly _radioName As String
@@ -113,12 +128,30 @@ Public Class ConnectingForm
         Dim initialMessage = If(String.IsNullOrWhiteSpace(lead),
                                 Radios.Lexicon.Get("connect.connecting.initial", ("radioName", _radioName)),
                                 Radios.Lexicon.Get("connect.connecting.initial_lead", ("lead", lead.Trim())))
+        _openingLine = initialMessage
+
+        ' WITHHELD AT ARRIVAL for a real radio connect (#544). A screen reader
+        ' announces this window as it takes the foreground - the title, then
+        ' the dialog's text - and this label IS the dialog's text. With the
+        ' sentence here from the first frame the arrival ran three and a half
+        ' seconds, on a window measured to live 626 ms warm and 1,327 ms cold,
+        ' so every LAN connect cut it mid-sentence at a different word. Now the
+        ' arrival is the one-word title, which completes on any connect longer
+        ' than about a second, and the sentence is added by
+        ' OnOpeningLineThreshold only once the connect has proven slow enough
+        ' for it to matter. Text and accessible name move together: what the
+        ' screen shows and what the reader says are the same thing.
+        '
+        ' An account pass (no profiler) is not a connect and keeps its sentence
+        ' from the start - that window's contract is the picker's (task #294).
+        Dim isRadioConnect = _profiler IsNot Nothing
+        Dim shownAtArrival = If(isRadioConnect, String.Empty, initialMessage)
         _statusLabel = New Label() With {
-            .Text = initialMessage,
+            .Text = shownAtArrival,
             .Dock = DockStyle.Fill,
             .TextAlign = ContentAlignment.MiddleCenter,
             .Font = New Drawing.Font(Font.FontFamily, 11),
-            .AccessibleName = initialMessage,
+            .AccessibleName = shownAtArrival,
             .AccessibleRole = AccessibleRole.StaticText,
             .TabStop = False
         }
@@ -171,6 +204,9 @@ Public Class ConnectingForm
         _autoCancelTimer = New System.Windows.Forms.Timer() With {.Interval = AutoCancelCeilingMs}
         AddHandler _autoCancelTimer.Tick, AddressOf OnAutoCancelTick
 
+        _openingLineTimer = New System.Windows.Forms.Timer() With {.Interval = Radios.ConnectNarrator.OpeningLineThresholdMs}
+        AddHandler _openingLineTimer.Tick, AddressOf OnOpeningLineThreshold
+
         If _cancelCallback IsNot Nothing Then
             _escalationTimer.Start()
             _autoCancelTimer.Start()
@@ -198,6 +234,9 @@ Public Class ConnectingForm
         If _profiler IsNot Nothing Then
             _armedVoice = _narrator.OpeningVoice()
             ArmWaitVoice(_armedVoice)
+            ' And the one-shot that decides whether the opening sentence is
+            ' ever said. Same condition as the heartbeat: a real connect.
+            _openingLineTimer.Start()
         End If
     End Sub
 
@@ -239,13 +278,20 @@ Public Class ConnectingForm
     ''' browser, and give the wait a voice — is identical for both operations.
     ''' Only the words differ, and words are what a caller supplies.</para>
     ''' </remarks>
-    Public Sub New(statusLine As String, waitVoice As Radios.ConnectWaitVoice)
+    ''' <param name="ownerHandle">
+    ''' The window that asked for the pass - the radio picker - so that when
+    ''' this one closes the foreground goes back there and not to whatever is
+    ''' next in the Z-order. Zero for none. (Sprint 45 Track A2; Track A left
+    ''' this one unowned.)
+    ''' </param>
+    Public Sub New(statusLine As String, waitVoice As Radios.ConnectWaitVoice,
+                   Optional ownerHandle As IntPtr = Nothing)
         ' No radio name, no cancel callback and no profiler: this is not a
         ' connect. Without a cancel callback the escalation and auto-cancel
         ' timers stay parked, which is what the old overload relied on too —
         ' there is nothing here for a "Connection slow — keep waiting?" prompt
         ' to cancel.
-        Me.New(Nothing, Nothing, Nothing, statusLine)
+        Me.New(Nothing, Nothing, Nothing, statusLine, ownerHandle)
 
         _armedVoice = waitVoice
         ArmWaitVoice(waitVoice)
@@ -452,9 +498,47 @@ Public Class ConnectingForm
         If IsDisposed Then Return
 
         Dim step_ = _narrator.OnEvent(eventName, data)
+        ApplyStep(step_, "connect: " & eventName)
+    End Sub
+
+    ' ── The opening line, at the threshold ────────────────────────────────
+    '
+    ' #544. The window arrived with its title only (see the constructor). If
+    ' the connect is STILL reaching the radio when this fires, the picker's
+    ' sentence goes on the window and into the operator's ear, where it now
+    ' has a stable window under it and time to be heard. If the connect has
+    ' already moved on - a phase event put its own text up - the sentence is
+    ' history and the narrator says so by returning nothing. If the connect
+    ' finished inside the threshold this timer was stopped with the others and
+    ' the outcome speaks alone.
+    '
+    ' The DECISION is ConnectNarrator.OpeningLineDue, so Radios.Tests can pin
+    ' it without a window; this is the adapter, as for every other step.
+
+    Private Sub OnOpeningLineThreshold(sender As Object, e As EventArgs)
+        _openingLineTimer.Stop()
+        If _cancelHandled OrElse IsDisposed Then Return
+
+        Dim step_ = _narrator.OpeningLineDue(_openingLine)
+        If step_ Is Nothing OrElse step_.IsEmpty Then
+            Tracing.TraceLine($"ConnectingForm: {Radios.ConnectNarrator.OpeningLineThresholdMs} ms in and the connect has moved on - opening line not said", TraceLevel.Info)
+            Return
+        End If
+
+        Tracing.TraceLine($"ConnectingForm: still reaching the radio at {Radios.ConnectNarrator.OpeningLineThresholdMs} ms - showing and speaking the opening line", TraceLevel.Info)
+        ApplyStep(step_, "opening line")
+    End Sub
+
+    ''' <summary>
+    ''' Apply one narration step to the window: its label, the voice, the
+    ''' counting earcon and the heartbeat. One funnel for the profiler's
+    ''' events and for the opening-line threshold, so both say things the same
+    ''' way at the same verbosity and under the same subject.
+    ''' </summary>
+    Private Sub ApplyStep(step_ As Radios.ConnectNarrationStep, source As String)
         If step_ Is Nothing OrElse step_.IsEmpty Then Return
 
-        If step_.StopVoice Then StopWaitVoice("connect: " & eventName)
+        If step_.StopVoice Then StopWaitVoice(source)
 
         If step_.StatusText IsNot Nothing Then UpdateStatus(step_.StatusText)
 
@@ -540,7 +624,93 @@ Public Class ConnectingForm
             Return
         End If
         MyBase.OnFormClosing(e)
+        If e.Cancel Then Return
+
+        ' The close is going ahead, however it was asked for - the connect
+        ' finished, the operator cancelled, the ceiling fired. Nothing on a
+        ' clock may run past this point, and the foreground goes to the owner
+        ' NOW, while this window still holds it (#545).
+        StopTimers()
+        HandForegroundToOwner()
     End Sub
+
+    ' ── Handing the foreground on, rather than dropping it ─────────────────
+    '
+    ' #545. Track A made the shell this window's Win32 owner so that, on the
+    ' documented rule, destroying the active window would activate its owner.
+    ' Measured that afternoon on the launch route, with the shell visible and
+    ' enabled:
+    '
+    '     48544  SHOWN  main window          (shown without activation)
+    '     49091  GONE   'Connecting'
+    '     49092  FOCUS  [explorer] 'win-x64 - File Explorer'
+    '
+    ' The operator's screen reader began announcing File Explorer. Whatever
+    ' the window manager's reason - and the same close on the menu route, where
+    ' the shell had held the foreground earlier in its life, lands correctly -
+    ' a fix that depends on that fallback is a fix that depends on the thing
+    ' that just failed. So the hand-over is made explicitly, here, and the
+    ' owner rule is kept as the belt behind it.
+    '
+    ' Why HERE and on THIS thread: SetForegroundWindow is honoured for a
+    ' thread whose process owns the current foreground window, and at this
+    ' moment that is us - this window is the foreground, and this is its
+    ' thread. No AttachThreadInput, no retries; the ordinary call is enough.
+    ' Radios.WindowActivation.EnsureForeground is the wrong tool: it stands
+    ' down when the foreground is already ours, which is exactly this case.
+    ' And it runs before Close() has done anything, so the transition the
+    ' screen reader sees is one: this window to the shell. When this window
+    ' is then destroyed it is no longer the foreground and nothing moves.
+    '
+    ' Not when the foreground is elsewhere. If the operator Alt-Tabbed away
+    ' during the connect and the reclaim timer stood down for a sign-in or a
+    ' modal, they are where they chose to be; closing must not drag them back.
+
+    Private Sub HandForegroundToOwner()
+        If _ownerHandle = IntPtr.Zero OrElse Not IsHandleCreated Then Return
+
+        Dim foreground = GetForegroundWindow()
+        If foreground <> Handle Then
+            Tracing.TraceLine($"ConnectingForm: closing without the foreground (it is on 0x{foreground.ToInt64():X}); leaving it where it is", TraceLevel.Info)
+            Return
+        End If
+
+        If Not IsWindowVisible(_ownerHandle) Then
+            ' The caller's job was to make the successor visible before asking
+            ' us to close - see globals.CloseConnectingWindowOntoTheShell. When
+            ' it did not, say so: this line in a trace IS the diagnosis of a
+            ' foreground that fell to another application.
+            Tracing.TraceLine("ConnectingForm: owner is not visible at close - the foreground will fall wherever Windows puts it", TraceLevel.Warning)
+            Return
+        End If
+
+        ' A disabled owner is fine: a modal of ours is up over the shell, and
+        ' the shell's own WM_ACTIVATE handler (#538) passes activation on to
+        ' its enabled popup. Traced so the hop is legible if it ever is not.
+        Dim ownerEnabled = IsWindowEnabled(_ownerHandle)
+        Dim handed = SetForegroundWindow(_ownerHandle)
+        Tracing.TraceLine(
+            If(handed,
+               $"ConnectingForm: foreground handed to the owner before closing (owner enabled={ownerEnabled})",
+               $"ConnectingForm: SetForegroundWindow(owner) refused (owner enabled={ownerEnabled}); relying on ownership at destroy"),
+            If(handed, TraceLevel.Info, TraceLevel.Warning))
+    End Sub
+
+    <System.Runtime.InteropServices.DllImport("user32.dll")>
+    Private Shared Function GetForegroundWindow() As IntPtr
+    End Function
+
+    <System.Runtime.InteropServices.DllImport("user32.dll")>
+    Private Shared Function SetForegroundWindow(hWnd As IntPtr) As <System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)> Boolean
+    End Function
+
+    <System.Runtime.InteropServices.DllImport("user32.dll")>
+    Private Shared Function IsWindowVisible(hWnd As IntPtr) As <System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)> Boolean
+    End Function
+
+    <System.Runtime.InteropServices.DllImport("user32.dll")>
+    Private Shared Function IsWindowEnabled(hWnd As IntPtr) As <System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)> Boolean
+    End Function
 
     Protected Overrides Sub OnFormClosed(e As FormClosedEventArgs)
         StopTimers()
@@ -603,6 +773,7 @@ Public Class ConnectingForm
         Try : _focusTimer?.Stop() : Catch : End Try
         Try : _escalationTimer?.Stop() : Catch : End Try
         Try : _autoCancelTimer?.Stop() : Catch : End Try
+        Try : _openingLineTimer?.Stop() : Catch : End Try
         StopWaitVoice("connecting window finished")
     End Sub
 
