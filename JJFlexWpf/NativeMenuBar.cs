@@ -963,6 +963,10 @@ public class NativeMenuBar : IDisposable
                     AddChecked(parent, label, MenuTogglePcAudio,
                         () => Rig?.PCAudio == true, enabled);
                     break;
+                case "binaural":
+                    AddChecked(parent, label, MenuToggleBinaural,
+                        () => Rig?.Binaural == FlexBase.OffOnValues.on, enabled);
+                    break;
                 case "pc-audio-levels":
                     AddWired(parent, label, MenuPcAudioLevels, enabled);
                     break;
@@ -1067,6 +1071,38 @@ public class NativeMenuBar : IDisposable
             actual ? Radios.Lexicon.Get("audio.pc_audio.on")
             : wanted ? Radios.Lexicon.Get("audio.pc_audio.could_not_start")
             : Radios.Lexicon.Get("audio.pc_audio.off"));
+    }
+
+    /// <summary>
+    /// Binaural receive on or off (#537) — the radio's own stereo widening of
+    /// what you hear.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// It announces the WANTED state rather than reading the radio back, which
+    /// is the opposite of <see cref="MenuTogglePcAudio"/> directly above and is
+    /// deliberate. PC audio can refuse to come on when there is no usable sound
+    /// device, so its answer has to be the outcome. Binaural is a queued write
+    /// to the radio (<c>FlexBase.Binaural</c> enqueues, like every mute and
+    /// level on this menu), so reading it back on the next line would report
+    /// the state it was in a moment ago and announce every flip backwards. The
+    /// audio layer's Ctrl+B answers the same way for the same reason.
+    /// </para>
+    /// <para>
+    /// The words are <c>audio.binaural.on</c> / <c>audio.binaural.off</c> —
+    /// the audio layer's own strings, which the Home audio expander's checkbox
+    /// also speaks. One flag, three doors, one sentence.
+    /// </para>
+    /// </remarks>
+    private void MenuToggleBinaural()
+    {
+        if (Rig == null) { SpeakNoRadio(); return; }
+        bool wanted = Rig.Binaural != FlexBase.OffOnValues.on;
+        Rig.Binaural = wanted ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off;
+        EarconPlayer.ToggleTone(wanted);
+        SpeakAfterMenuClose(wanted
+            ? Radios.Lexicon.Get("audio.binaural.on")
+            : Radios.Lexicon.Get("audio.binaural.off"));
     }
 
     // === Levels dialogs (Audio Arc Track A-2, 2026-08-11) ===

@@ -14311,8 +14311,14 @@ namespace Radios
         /// Binaural receive — the radio's own stereo widening of the slice
         /// audio (FlexLib <c>BinauralRX</c>). Jim had a BinauralControl for
         /// it; the control did not survive the WPF migration and the
-        /// capability did (#524). Public since Sprint 44 Track N: the audio
-        /// layer's Ctrl+B toggle is its operator surface.
+        /// capability did (#524). Public since Sprint 44 Track N, which gave
+        /// it the audio layer's Ctrl+B; Sprint 45 Track C gave it a visual
+        /// surface again (#537) — a checkbox in Home's audio expander and a
+        /// row on the Audio menu. All three speak
+        /// <c>audio.binaural.on</c> / <c>audio.binaural.off</c>, and
+        /// <c>BinauralOneVocabularyTests</c> keeps it that way.
+        ///
+        /// Radio-wide, not per-slice: this changes every slice at once.
         /// </summary>
         public OffOnValues Binaural
         {

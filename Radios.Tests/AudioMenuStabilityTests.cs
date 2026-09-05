@@ -78,15 +78,22 @@ namespace Radios.Tests
             // whole reported defect, in one index.
             Assert.Equal(0, Array.IndexOf(oldDisconnected, "audio-devices"));
 
-            // The same ids, so this really is the same menu reordered and not a
-            // list that drifted away from what it is being compared against.
-            Assert.Equal(
-                oldConnected.OrderBy(x => x, StringComparer.Ordinal).ToList(),
-                AudioMenuLayout.Entries
-                    .Where(e => e.Kind != AudioMenuEntryKind.Separator)
-                    .Select(e => e.Id)
-                    .OrderBy(x => x, StringComparer.Ordinal)
-                    .ToList());
+            // The same menu, so this really is a reordering and not a list that
+            // drifted away from what it is being compared against.
+            //
+            // A SUBSET rather than an equal set, since #537 added "binaural"
+            // to the layout after this history was written. What has to hold is
+            // that every row of the old menu is still here — a row that
+            // vanished would make the comparison above meaningless while still
+            // passing. Rows ARRIVING is ordinary growth, and the positional
+            // tests below cover where they land.
+            var today = AudioMenuLayout.Entries
+                .Where(e => e.Kind != AudioMenuEntryKind.Separator)
+                .Select(e => e.Id)
+                .ToList();
+
+            foreach (string id in oldConnected)
+                Assert.Contains(id, today);
         }
 
         // ────────────────────────────────────────────────────────────────
@@ -190,6 +197,28 @@ namespace Radios.Tests
             Assert.True(suffixAt >= 0);
             Assert.True(tabAt >= 0);
             Assert.True(suffixAt < tabAt);
+        }
+
+        [Fact]
+        public void No_toggle_row_carries_an_accelerator()
+        {
+            // A checked row is REWRITTEN as "{label}: On" when the popup opens
+            // (NativeMenuBar.HandleInitMenuPopup), and everything past a tab is
+            // the Windows key column. Give a toggle a key hint and the state
+            // suffix lands inside the keystroke and is read as part of it —
+            // the same trap AddRadioChecked's remarks describe for "USB\tAlt+U".
+            //
+            // It is a tempting thing to add, because every toggle here HAS a
+            // key: mute is Ctrl+J then Ctrl+M, PC audio Ctrl+J then Ctrl+P,
+            // binaural Ctrl+J then V then Ctrl+B (#537). The key belongs in the
+            // help pages, not in this column.
+            foreach (var entry in AudioMenuLayout.Entries)
+            {
+                if (entry.Kind != AudioMenuEntryKind.Toggle) continue;
+                Assert.True(entry.Accelerator.Length == 0,
+                    "'" + entry.Id + "' is a toggle with an accelerator, so its ': On' "
+                    + "suffix will be drawn and spoken inside the key column.");
+            }
         }
 
         [Fact]

@@ -142,7 +142,7 @@ The switches — one press flips it, and it tells you which way it went:
 
 - **Ctrl+M** — mute or unmute the slice you're on. The same mute as `M` on Home, reachable from in here.
 - **Ctrl+P** — PC audio on or off: whether radio audio plays through this computer at all. The same chord as `Ctrl+J`, `Ctrl+P` outside the layer, on purpose — one chord, one meaning, wherever you press it. `O` above sets how loud; this is the switch. It reads the radio back before answering, so if turning it on couldn't find a sound device it tells you that rather than claiming success.
-- **Ctrl+B** — binaural receive on or off, the radio's own stereo widening of what you hear. There used to be a control for this and it went missing in the move; this is it, back.
+- **Ctrl+B** — binaural receive on or off, the radio's own stereo widening of what you hear. It is a property of the radio rather than of one slice, so it changes every slice at once. There are two other ways to reach it if you would rather see it than remember it: **Binaural** in Home's Audio and Slice group (`Ctrl+Shift+U`), and **Binaural** on the Audio menu. All three say the same thing when they flip.
 
 And the keys that work on whatever you've picked:
 

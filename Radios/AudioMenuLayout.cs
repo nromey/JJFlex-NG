@@ -122,6 +122,22 @@ namespace Radios
             new("release-extra-slices", "Release All Extra Slices", AudioMenuEntryKind.Command, true),
             new("pc-audio", "PC Audio On/Off", AudioMenuEntryKind.Toggle, true),
 
+            // #537. The radio's own stereo widening of what you hear. It was
+            // wired the whole time and reachable only from Ctrl+B inside the
+            // audio layer; Jim had a control for it and the WinForms-to-WPF
+            // move lost it. Last in the toggle block because it is the only
+            // radio-wide one here — the three above it act on a slice or on
+            // this computer — and because its B is a first letter no other row
+            // on this menu claims.
+            //
+            // NO ACCELERATOR, and that is not an oversight — Ctrl+J, V, Ctrl+B
+            // does reach it. A checked row's text is rewritten as "{label}: On"
+            // when the popup opens, and everything past a tab is the Windows key
+            // column, so a key hint here would put ": On" INSIDE the keystroke
+            // and read as part of it. Same reason AddRadioChecked exists. The
+            // other two toggles on this menu carry no accelerator either.
+            new("binaural", "Binaural", AudioMenuEntryKind.Toggle, true),
+
             new("sep-levels", "", AudioMenuEntryKind.Separator, false),
 
             new("pc-audio-levels", "PC Audio Levels (this computer)",

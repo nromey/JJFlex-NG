@@ -79,6 +79,12 @@ public partial class ScreenFieldsPanel : UserControl
     private CheckBox _muteCheck = null!;
     private ValueFieldControl _volumeControl = null!;
     private ValueFieldControl _panControl = null!;
+
+    // Binaural receive (#537). Radio-wide rather than per-slice, unlike the
+    // three above it — see the note where it is built for why it sits there
+    // anyway.
+    private CheckBox _binauralCheck = null!;
+
     private ValueFieldControl _headphoneControl = null!;
     private ValueFieldControl _lineoutControl = null!;
 
@@ -623,6 +629,35 @@ public partial class ScreenFieldsPanel : UserControl
         _panControl.ValueChanged += (s, v) => { if (_rig != null) _rig.AudioPan = v; };
         AudioContent.Children.Add(_panControl);
 
+        // Binaural receive (#537). Wired since Sprint 44 and reachable only by
+        // Ctrl+B inside the audio layer until now — Jim had a BinauralControl
+        // and the WinForms-to-WPF move lost it (FlexBase.Binaural). A key you
+        // must already know about is not a feature anyone FINDS; a control in
+        // this list is read out while arrowing, which is how most operators
+        // will ever learn binaural exists.
+        //
+        // It sits beside Pan on purpose even though it is RADIO-WIDE and Pan
+        // is per-slice. Pan places a slice in the stereo field and binaural
+        // widens it: they are the two controls that decide where the audio
+        // sits between your ears, and someone hunting for one is hunting for
+        // the other. The help text carries the radio-wide part, since that is
+        // the fact a per-slice neighbour would otherwise imply wrongly.
+        //
+        // It speaks the AUDIO LAYER'S OWN sentence rather than composing a
+        // second phrasing out of the label. One flag, three doors — this
+        // checkbox, the Audio menu's Binaural row, and Ctrl+B — and all three
+        // name audio.binaural.on / audio.binaural.off, so there is one string
+        // to change and nothing to keep in step by hand.
+        _binauralCheck = MakeToggle(Lexicon.Get("audio.fields.binaural"));
+        JJFlexHelp.SetText(_binauralCheck, Lexicon.Get("audio.fields.binaural_help"));
+        _binauralCheck.Checked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.binaural"),
+            v => { if (_rig != null) _rig.Binaural = v; }, true,
+            Lexicon.Get("audio.binaural.on"));
+        _binauralCheck.Unchecked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.binaural"),
+            v => { if (_rig != null) _rig.Binaural = v; }, false,
+            Lexicon.Get("audio.binaural.off"));
+        AudioContent.Children.Add(_binauralCheck);
+
         // === PC audio group (Audio Arc Track A, 2026-08-11) ===
         // These are the controls a remote PC-audio operator actually needs;
         // they were missing entirely while the on-radio jack levels sat here
@@ -1112,14 +1147,24 @@ public partial class ScreenFieldsPanel : UserControl
 
     #region Rig Toggle Helpers
 
-    private void ToggleRig(string label, Action<FlexBase.OffOnValues> setter, bool isOn)
+    /// <param name="sentence">
+    /// The exact words to speak, for a toggle that already announces itself
+    /// somewhere else. Left null, the label is composed into the panel's own
+    /// "{label} on" / "{label} off" — which is right for a control that lives
+    /// only here. #537's binaural is reachable from the audio layer's Ctrl+B
+    /// and from the Audio menu as well, and two doors into one radio flag must
+    /// say one sentence, so it passes the layer's own string rather than
+    /// growing a second phrasing that agrees only by coincidence.
+    /// </param>
+    private void ToggleRig(string label, Action<FlexBase.OffOnValues> setter, bool isOn,
+                           string? sentence = null)
     {
         if (_polling || _rig == null) return;
         setter(isOn ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off);
         if (isOn) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
         // interrupt: true cuts off NVDA's native "checked"/"not checked" announcement
         ScreenReaderOutput.Speak(
-            Lexicon.Get(isOn ? "audio.fields.toggle_on" : "audio.fields.toggle_off", ("label", label)),
+            sentence ?? Lexicon.Get(isOn ? "audio.fields.toggle_on" : "audio.fields.toggle_off", ("label", label)),
             VerbosityLevel.Terse, interrupt: true);
     }
 
@@ -1239,6 +1284,7 @@ public partial class ScreenFieldsPanel : UserControl
         _muteCheck.IsChecked = _rig.SliceMute;
         _volumeControl.Value = _rig.AudioGain;
         _panControl.Value = _rig.AudioPan;
+        _binauralCheck.IsChecked = _rig.Binaural == FlexBase.OffOnValues.on;
 
         // PC audio group
         _pcVolumeControl.Value = _rig.PcOutputVolumeDb;
