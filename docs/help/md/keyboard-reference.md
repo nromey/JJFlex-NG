@@ -398,6 +398,8 @@ Navigation inside the Home: Left and Right arrows move one character at a time, 
 
 No letter on the Home surface is ever silent. Press a letter that isn't bound on the field you're on and JJ Flexible Radio says so — "S does nothing on the Volume field" — and points you at Shift slash, which speaks the keys that do work right there. With no radio connected, these keys answer "No radio connected" instead of pretending to be broken.
 
+That promise covers Shift and Ctrl too. A letter with a modifier held is never mistaken for the plain letter: on the Slice field, A selects slice A, while Shift+A and Ctrl+A do only what they are bound to — and if that is nothing, you hear "Control A does nothing on the Slice field." Alt plus a letter belongs to the menus and the mode keys, so Home leaves it alone.
+
 ## JJ Flexible Home — Slice Field Keys
 
 When focused on the Slice field specifically:
