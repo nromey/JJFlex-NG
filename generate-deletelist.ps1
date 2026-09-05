@@ -75,12 +75,37 @@ Get-ChildItem -LiteralPath $root -Directory | ForEach-Object {
 # this installer. The API-doc XMLs are named explicitly rather than wildcarded,
 # because *.xml in an install root is the kind of pattern that eventually eats
 # something it should not.
+#
+# The Tolk-era speech natives (#541) are the case this sweep exists for, and
+# the one with teeth. Tolk went away in 4d71fc20 (2026-08-17) and Radios.csproj
+# stopped copying any screen-reader native to the app root, but Tolk and its
+# five bridge DLLs sat in the build trees from 2026-02-22 until Sprint 45 and
+# were walked into every generated list in between — the committed deleteList
+# still names four of them — so they are on installed machines now, and
+# dropping them from our output alone would only stop shipping NEW ones.
+# Both architectures are listed unconditionally: this script does not know
+# which arch it is generating for, and a Delete of an absent file is a no-op.
+#
+# Leaving them behind is not merely untidy the way a stray .xml is. The
+# `nvdaControllerClient64.dll` we shipped is the PRE-2024.1 client: it exports
+# nvdaController_brailleMessage, cancelSpeech, speakText and testIfRunning, and
+# NOT speakSsml. Windows resolves an unqualified LoadLibrary against the exe's
+# own directory first, so the day anything P/Invokes that name (#521) the
+# loader finds this fossil beside jjflexible.exe and the call fails at RUN time
+# with a missing entry point — never at build time, on exactly the machines we
+# cannot see. Sweeping it is what defuses that, not the build-tree cleanup.
 $lines.Add('')
 $lines.Add('; Litter from earlier releases (see generate-deletelist.ps1).')
 $lines.Add('Delete "$INSTDIR\*.pdb"')
 $lines.Add('Delete "$INSTDIR\JJLogIO.xml"')
 $lines.Add('Delete "$INSTDIR\JJTrace.xml"')
 $lines.Add('Delete "$INSTDIR\runPgm.bat"')
+$lines.Add('Delete "$INSTDIR\Tolk.dll"')
+$lines.Add('Delete "$INSTDIR\nvdaControllerClient64.dll"')
+$lines.Add('Delete "$INSTDIR\nvdaControllerClient32.dll"')
+$lines.Add('Delete "$INSTDIR\SAAPI64.dll"')
+$lines.Add('Delete "$INSTDIR\SAAPI32.dll"')
+$lines.Add('Delete "$INSTDIR\dolapi32.dll"')
 
 # Write ASCII without BOM — NSIS chokes on BOMs inside !included files.
 [System.IO.File]::WriteAllLines($OutFile, $lines, [System.Text.UTF8Encoding]::new($false))
