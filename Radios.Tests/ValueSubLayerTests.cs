@@ -566,11 +566,11 @@ namespace Radios.Tests
             // that lists them properly. So chatty is terse plus one sentence,
             // and the letters live in exactly one place.
             var (t, _) = OpenAudio(VerbosityLevel.Terse);
-            Assert.Equal("Audio layer, nothing picked.", Assert.Single(t.Said));
+            Assert.Equal("Audio layer.", Assert.Single(t.Said));
             Assert.Null(t.Layer.CurrentTarget);
 
             var (h, _) = OpenAudio(VerbosityLevel.Chatty);
-            Assert.Equal("Audio layer, nothing picked. Press H for a list of keys.",
+            Assert.Equal("Audio layer. Press H for a list of keys.",
                 Assert.Single(h.Said));
             Assert.Null(h.Layer.CurrentTarget);
         }
@@ -585,7 +585,7 @@ namespace Radios.Tests
             // this it was recited on every entry at every verbosity, and
             // Track I's own transcript at "Terse" still named every letter.
             var (h, _) = OpenAudio(VerbosityLevel.Terse);
-            Assert.Equal("Audio layer, nothing picked.", Assert.Single(h.Said));
+            Assert.Equal("Audio layer.", Assert.Single(h.Said));
         }
 
         [Fact]
@@ -788,7 +788,7 @@ namespace Radios.Tests
 
             Assert.Equal(new[]
             {
-                "Audio layer, nothing picked.",
+                "Audio layer.",
                 "On-radio headphone 40",
                 "Headphone 45",
                 "Audio layer closed",
@@ -1069,7 +1069,7 @@ namespace Radios.Tests
             h.Layer.HandleKey(Keys.L);
             h.Layer.HandleKey(Keys.Escape);
             Assert.Empty(rig.Writes);
-            Assert.Equal("Nothing moved. Audio layer closed", h.LastSaid);
+            Assert.Equal("No audio changes made. Audio layer closed", h.LastSaid);
         }
 
         [Fact]
@@ -1567,7 +1567,7 @@ namespace Radios.Tests
             h.Layer.HandleKey(Keys.T);
             h.Layer.HandleKey(Keys.Escape);
             Assert.Empty(rig.Writes);
-            Assert.Equal("Nothing moved. Filter layer closed", h.LastSaid);
+            Assert.Equal("No filter changes made. Filter layer closed", h.LastSaid);
         }
 
         [Fact]

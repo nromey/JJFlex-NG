@@ -4181,7 +4181,7 @@ public class KeyCommands
     //  KeyInventory.AudioLayerCommands, in audio.json's pick_target_first
     //  and in the two help pages, and nowhere else.
     //
-    //  Doors: Ctrl+J, V opens it with nothing picked; Ctrl+J, Alt+P opens
+    //  Doors: Ctrl+J, V opens it with no target selected; Ctrl+J, Alt+P opens
     //  it with pan picked — the chords an operator's fingers know. The
     //  four-tier allocation (#515) gives the audio layer JJ key A; that
     //  letter, and what V becomes, are Track J's. EnterAudioLayer is the

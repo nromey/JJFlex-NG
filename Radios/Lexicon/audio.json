@@ -9,9 +9,9 @@
   "audio.audio_layer.compander": "Compander {value}",
   "audio.audio_layer.compander_is_off_suffix": ", compander is off",
   "audio.audio_layer.entered": {
-    "critical": "Audio layer, nothing picked.",
-    "terse": "Audio layer, nothing picked.",
-    "chatty": "Audio layer, nothing picked. Press H for a list of keys."
+    "critical": "Audio layer.",
+    "terse": "Audio layer.",
+    "chatty": "Audio layer. Press H for a list of keys."
   },
   "audio.audio_layer.entered_on_pan": {
     "critical": "Audio layer. {target}.",
@@ -47,7 +47,7 @@
   "audio.audio_layer.processor": "Processor {name}",
   "audio.audio_layer.processor_is_off_suffix": ", processor is off",
   "audio.audio_layer.restored": "Put back {list}. Audio layer closed",
-  "audio.audio_layer.restored_nothing": "Nothing moved. Audio layer closed",
+  "audio.audio_layer.restored_nothing": "No audio changes made. Audio layer closed",
   "audio.audio_layer.slice_volume": "Volume {value}",
   "audio.audio_layer.slice_volume_no_slice": "Volume, no slice",
   "audio.audio_layer.slice_volume_selected": "Slice {letter} volume {value}",
@@ -380,7 +380,7 @@
   "audio.filter_layer.no_slice": "No slice for the receive filter",
   "audio.filter_layer.no_verb": "Up and down slide the whole filter, Control up and down set the width. Left and right with a Shift walk an edge.",
   "audio.filter_layer.restored": "Put back {list}. Filter layer closed",
-  "audio.filter_layer.restored_nothing": "Nothing moved. Filter layer closed",
+  "audio.filter_layer.restored_nothing": "No filter changes made. Filter layer closed",
   "audio.filter_layer.restored_receive": "receive filter {low} to {high}",
   "audio.filter_layer.restored_transmit": "transmit filter {low} to {high}",
   "audio.filter_layer.tx_width": "TX width {width}, {low} to {high}",
