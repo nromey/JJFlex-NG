@@ -58,6 +58,7 @@ This release is about the space where you actually spend your time in the app �
 - **["Which build are you on?" is one key away now](#speak-the-build)** — `Ctrl+J` then `Alt+V` speaks the version, whether it's a test build or a release build, and the day it was built. No more opening About in the middle of writing up a problem.
 - **[Volume mode and pan mode are one audio layer now, and the filter has a layer of its own](#audio-and-filter-layers).** `Ctrl+J`, `V` still opens it: a letter picks the target — headphone is `Ctrl+H` now, because plain `H` lists the layer's keys everywhere — the arrows adjust, and Escape puts back *everything* you moved, not just the last thing. Pan is in there as `Ctrl+P`, still answering Left and Right — and now so are slice volume, mute, PC audio on or off, and binaural. The filter layer is the one that feels like a radio with knobs: hold Left Shift to grab the low edge, Right Shift for the high edge, and walk it with the arrows.
 - **[Home and End go to the ends now, and `0` is the middle](#ends-and-the-middle).** Inside the audio layer and the filter layer, `Home` is hard left and `End` is hard right — minimum and maximum, exactly what those two keys mean on every other slider you touch. Centering pan moved from `Home` to `0`. In the filter layer they slam whatever you're holding straight to its limit, so an edge no longer needs an arrow held down for a while.
+- **[Pan says the number at every verbosity now](#pan-says-the-number).** It used to give you "slightly left" on Chatty and "Pan 40" on Terse, which had it exactly backwards — one word covers twenty points of the stereo field, so the chattier setting was the one telling you less. The number is there at every level now, with the word after it on Chatty: "Pan 40, slightly left."
 - **[The filter edges step by the right amount now](#filter-step-fifty).** An ordinary SSB filter moves by 50 hertz a press instead of 100 — the rung that was meant for everyday voice work had been set for a width almost nobody runs. The transmit edges use that same rule now, so pressing `T` inside the filter layer no longer quietly changes what an arrow is worth.
 - [The JJ key list is complete again](#jj-key-list-complete). Three JJ keys were working and written down nowhere; they're documented now, the help and the app check each other from here on, and a near miss in the layer tells you which key you nearly pressed instead of just "Unknown command."
 - **[The JJ layer waits for you after an unknown key](#jj-layer-waits).** "Press H for help" was advice you couldn't take — the layer had already closed by the time it finished saying so. Now it stays open for `H`, `Shift slash` and `Escape`, and nothing else, so the sentence is finally true. It's also shorter.
@@ -531,6 +532,18 @@ The filter layer gets the same three, and this is where I think you'll actually 
 Pan is the one that changed on you, so I'll say it plainly: **`Home` on pan is hard left now, not center. Center is `0`.** If your hands are trained on the old key, that first press will be a surprise once. The keys on the Slice field in Home are untouched — Page Up, Home and Page Down still slam right, center and left there, exactly as they always have.
 
 There is no numpad shortcut, and I want to explain that rather than leave you wondering, because a numpad 5 for "center" is the obvious idea and I did try it. With NumLock off, the numpad arrows already *are* the arrows, so numpad navigation works in these layers for free. The only key that would have needed anything is numpad 5 — and in NVDA's and JAWS's default desktop layouts that key belongs to the screen reader, so it never reaches this app at all. Every key we add has to go in the keyboard reference, and a line in the reference that only works for some of the people reading it is worse than no line.
+
+[Return to version headlines](#unreleased-headlines)
+
+### Pan says the number at every verbosity now {#pan-says-the-number}
+
+Here's one I had backwards, and I only heard it once I'd spent an evening actually placing signals with it.
+
+Pan spoke in words on Chatty — "slightly left", "center", "hard right" — and in numbers on Terse — "Pan 40". The thinking at the time was that words are the friendly form and the number is the compact one. Look at what that actually did, though. "Left" covers everything from 15 to 34. Two of us twenty points apart hear the same word. And when you nudge past the spot that sounded right, a word can't take you back to it, because it never told you where you were standing.
+
+So the setting meant to tell you *more* was the one telling you *less*. That's not verbosity, that's a trade nobody agreed to.
+
+The number rides at every level now. Terse gives you "Pan 40". Chatty gives you "Pan 40, slightly left" — the figure first, then the word, because the word really is the useful half while you're placing a signal by ear and still learning where things sit in the field. Nothing left Chatty; the number joined it. And the number is the one you can scribble on the back of a QSL card and dial in again tomorrow night, which is the entire reason to have one.
 
 [Return to version headlines](#unreleased-headlines)
 
