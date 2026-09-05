@@ -189,9 +189,12 @@ namespace JJFlexWpf
         /// <para>
         /// The increment is sized so a full excursion takes
         /// <see cref="RxDuck.AttackMs"/> going down and
-        /// <see cref="RxDuck.ReleaseMs"/> coming back, whatever the depth is
-        /// set to — so changing the depth changes how deep it goes and not how
-        /// abrupt it feels.
+        /// <see cref="RxDuck.ReleaseMs"/> coming back. Both are read here on
+        /// every buffer rather than cached, because since #535 they follow the
+        /// operator's timing preset live — and the release also grows with
+        /// the depth, so a deeper dip comes back at the same RATE rather than
+        /// in the same time. Changing the depth changes how deep it goes and
+        /// how long it takes to come home, never how steep the return is.
         /// </para>
         /// <para>
         /// <b>It converges on 1.0 whenever nothing is asking for a duck</b>,

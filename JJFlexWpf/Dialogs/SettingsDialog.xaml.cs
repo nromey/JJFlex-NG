@@ -1495,6 +1495,7 @@ namespace JJFlexWpf.Dialogs
             // persist the wiped state as if it were chosen.
             _audioConfig.RxDuckEnabled = RxDuck.Enabled;
             _audioConfig.RxDuckDepthDb = RxDuck.DepthDb;
+            _audioConfig.RxDuckTiming = RxDuck.TimingName(RxDuck.Timing);
             var liveTrims = new List<AudioOutputConfig.EarconLevelTrim>();
             foreach (var kv in EarconPlayer.GetAllLevelTrimsDb())
                 liveTrims.Add(new AudioOutputConfig.EarconLevelTrim { Id = kv.Key, Db = kv.Value });
@@ -1741,6 +1742,16 @@ namespace JJFlexWpf.Dialogs
                 unit: Lexicon.Get("settings.audio.decibel_unit"));
             RxDuckDepthControl.ValueChanged += RxDuckDepth_ValueChanged;
 
+            // #535 — how the dip moves. Checking a radio here fires its Checked
+            // handler, which writes the same preset straight back: idempotent,
+            // so no suppression flag is needed.
+            switch (RxDuck.Timing)
+            {
+                case RxDuckTimingPreset.Gentle: RxDuckTimingGentleRadio.IsChecked = true; break;
+                case RxDuckTimingPreset.Lingering: RxDuckTimingLingeringRadio.IsChecked = true; break;
+                default: RxDuckTimingQuickRadio.IsChecked = true; break;
+            }
+
             // #384 — the trims. The value control is set up BEFORE the combo
             // is filled, because filling the combo selects an entry and the
             // selection handler writes this control — against the default
@@ -1864,6 +1875,33 @@ namespace JJFlexWpf.Dialogs
         private void RxDuckDepth_ValueChanged(object? sender, int value)
         {
             RxDuck.DepthDb = value; // live; the setter clamps 0..12
+        }
+
+        /// <summary>
+        /// Checked only, not Unchecked: a radio group raises exactly one Checked
+        /// per change, and the radio giving up the selection has nothing to say.
+        /// Idempotent — it reads the group's state rather than trusting the
+        /// sender — so firing it from InitializeSoundAdjustments is harmless.
+        /// </summary>
+        private void RxDuckTimingRadio_Checked(object sender, RoutedEventArgs e)
+        {
+            // Fired mid-construction, before the later radios exist.
+            if (RxDuckTimingQuickRadio == null || RxDuckTimingGentleRadio == null
+                || RxDuckTimingLingeringRadio == null) return;
+
+            // Live, like the depth, and for the same reason: timing is found by
+            // ear, and the audition path is the same one — pick a step, play
+            // the alarm from Per-Sound Loudness, listen to how the band moves.
+            // No speech of our own: the reader already announces which radio
+            // is checked, and a second voice saying the same thing is noise.
+            RxDuck.Timing = CheckedDuckTiming();
+        }
+
+        private RxDuckTimingPreset CheckedDuckTiming()
+        {
+            if (RxDuckTimingLingeringRadio.IsChecked == true) return RxDuckTimingPreset.Lingering;
+            if (RxDuckTimingGentleRadio.IsChecked == true) return RxDuckTimingPreset.Gentle;
+            return RxDuckTimingPreset.Quick;
         }
 
         #endregion

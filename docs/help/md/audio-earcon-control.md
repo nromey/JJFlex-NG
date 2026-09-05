@@ -66,8 +66,11 @@ You will find it under **Settings, then the Notifications tab, under Warnings an
 
 - **Dip radio audio while a warning sounds** — the switch. Off to start with.
 - **Dip depth** — 0 to 12 decibels, 4 to start with. A small number nudges; a large one makes room.
+- **How the dip moves** — Quick, Gentle or Lingering. Quick is how the dip shipped: the band snaps down as the warning starts and snaps back the instant it ends. Gentle eases down, stays down a little longer, and eases back. Lingering eases down, stays down noticeably after the warning, and comes back slowly, so the band breathes rather than steps.
 
-Both apply the moment you change them, so you can find your depth by ear rather than by guessing. To hear the effect, switch the dip on, set a depth, then pick Warning alarm under Per-Sound Loudness below and press Play with radio audio running — the band dips at exactly the depth you chose.
+A word on why that third control is there. When I found the dip distracting, the first thing I went looking for was a hang time — and there was not one. The timing was welded shut, and the depth was the only thing that moved. That matters, because a dip you notice more than the warning it is making room for is usually a dip that moves too fast, not one that goes too deep: a quick drop and a quick return are two edges your ear catches, while a slow return is one edge it lets go past. So if the dip bothers you, try Gentle or Lingering before you touch the depth. The trade is honest — the slower settings keep your band a little quieter for a little longer after each warning, and that is exactly what buys the smoothness. Lingering never takes more than a second and a half to bring the band all the way back, however deep you set the dip. And on every setting, a deeper dip comes back more slowly than a shallow one, so turning the depth up never turns the return into a lurch.
+
+All three apply the moment you change them, so you can find your depth and your pace by ear rather than by guessing. To hear the effect, switch the dip on, pick a depth and a pace, then pick Warning alarm under Per-Sound Loudness below and press Play with radio audio running — the band dips at exactly the depth you chose, and moves the way you chose.
 
 If you operate remotely, this setting matters more to you than to anyone else: over a remote link PC audio is the only audio path there is, so there is no listening at the rig to fall back on, and this switch is your entire say in the matter.
 

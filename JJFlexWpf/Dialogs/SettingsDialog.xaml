@@ -1527,6 +1527,49 @@
                             Margin="0,0,0,4"
                             AutomationProperties.Name="Dip depth in decibels"
                    local:JJFlexHelp.Text="How far the band audio drops while a warning plays, from zero, no dip at all, to twelve decibels, a deep one. Four is the shipped default — enough for the alert to get through without tearing a hole in weak-signal copy. Applies as you change it: pick Warning alarm under Per-Sound Loudness below and press Play to hear the dip at your chosen depth."/>
+
+                        <!-- #535 — how the dip moves. Attack, hold and release
+                             were compile-time constants until 2026-09-05, so
+                             when the dip read as a distraction (#534) the depth
+                             was the only thing anyone could turn - and a dip
+                             that distracts rather than helps is usually a
+                             timing complaint, not a level one. Three named
+                             steps rather than three millisecond sliders: the
+                             numbers interact, nobody hears "60 ms of hold",
+                             and two steps could not show a direction. The
+                             argument in full is on RxDuck. Quick is the
+                             shipped timing exactly, kept so the hypothesis has
+                             a control arm.
+
+                             A GroupBox so the reader announces the group's
+                             name on entry; short radio names with the
+                             explanation in JJFlexHelp.Text, because a name is
+                             a thing and an explanation is help (#363). The
+                             group cycles and takes one tab stop, like the
+                             other radio groups in this dialog. Live, like the
+                             depth, for the same reason: it is found by ear. -->
+                        <GroupBox Header="How the dip moves" Margin="0,4,0,4"
+                                  AutomationProperties.Name="How the dip moves">
+                            <StackPanel Margin="4"
+                                        KeyboardNavigation.DirectionalNavigation="Cycle"
+                                        KeyboardNavigation.TabNavigation="Once">
+                                <RadioButton x:Name="RxDuckTimingQuickRadio" GroupName="RxDuckTiming"
+                                             Content="Quick" Margin="0,2,0,2"
+                                             AutomationProperties.Name="Quick"
+                                             Checked="RxDuckTimingRadio_Checked"
+                   local:JJFlexHelp.Text="The band snaps down as the warning starts and snaps back the instant it ends. This is how the dip shipped. The most abrupt of the three, and the one whose movement your ear is most likely to catch as an event of its own. Applies as you change it: pick Warning alarm under Per-Sound Loudness below and press Play to hear it."/>
+                                <RadioButton x:Name="RxDuckTimingGentleRadio" GroupName="RxDuckTiming"
+                                             Content="Gentle" Margin="0,2,0,2"
+                                             AutomationProperties.Name="Gentle"
+                                             Checked="RxDuckTimingRadio_Checked"
+                   local:JJFlexHelp.Text="The band eases down over a moment, stays down a little after the warning, and eases back over about a third of a second at the shipped depth. Try this first if the quick setting drew your ear to the dip rather than to the warning. Deeper dips come back more slowly on every setting, so the return never lurches."/>
+                                <RadioButton x:Name="RxDuckTimingLingeringRadio" GroupName="RxDuckTiming"
+                                             Content="Lingering" Margin="0,2,0,2"
+                                             AutomationProperties.Name="Lingering"
+                                             Checked="RxDuckTimingRadio_Checked"
+                   local:JJFlexHelp.Text="The band eases down, stays down noticeably after the warning has finished, and comes back slowly, well over half a second at the shipped depth, so it breathes rather than steps. The smoothest movement of the three, paid for with the most band time after each warning. It never takes longer than a second and a half to come all the way back, however deep the dip."/>
+                            </StackPanel>
+                        </GroupBox>
                     </StackPanel>
 
                     <Separator Margin="0,4,0,8"/>
