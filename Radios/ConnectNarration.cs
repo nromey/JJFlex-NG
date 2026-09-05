@@ -143,11 +143,54 @@ namespace Radios
         /// </remarks>
         public const int WaitCeilingSlackMs = 2_000;
 
+        /// <summary>
+        /// How long a connect must still be running before its opening line
+        /// — the picker's "Connecting to X over Y" — is shown and spoken.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Measured 2026-09-05 (Sprint 45, #544):</b> the connecting window
+        /// lived 626 ms on a warm LAN connect and 1,327 ms on a cold one. Its
+        /// arrival is announced by the screen reader — the title, then the
+        /// dialog's text — and the word "Connecting" alone is roughly 800 ms
+        /// of speech. So on the same radio, from the same keypress, the
+        /// operator sometimes heard the word and sometimes heard it cut off,
+        /// and nothing could be learned from either. Holding the window open
+        /// to make room for the word was ruled out: that trades a wasted
+        /// utterance for real latency on every connect, and the operator is
+        /// waiting for the radio, not for us.
+        /// </para>
+        /// <para>
+        /// What the application CAN control is what it adds to the arrival.
+        /// The opening line used to be the dialog's body text from the first
+        /// frame, so the screen reader read title and sentence together —
+        /// three and a half seconds of speech on a window that lives one. Now
+        /// the window arrives with its title only, and the sentence is added
+        /// and spoken only once the connect has proven slow enough for the
+        /// sentence to matter and to survive. A connect that finishes inside
+        /// the threshold lets the outcome speak alone.
+        /// </para>
+        /// <para>
+        /// One second, the top of the discussed range (750 ms to 1 s), for two
+        /// reasons. It is above the warm-LAN figure, so the common fast case
+        /// never arms it; and it is about when the screen reader has finished
+        /// saying "Connecting dialog", so the sentence queues behind that
+        /// rather than piling onto it. It is NOT above the cold-LAN figure:
+        /// a connect of 1.3 s will still cut the sentence short, and no value
+        /// in the range avoids that — only the single-window redesign does,
+        /// by having no arrival to announce. For the operator this matters
+        /// most to — a SmartLink connect that takes ten seconds or thirty —
+        /// any value in the range fires every time.
+        /// </para>
+        /// </remarks>
+        public const int OpeningLineThresholdMs = 1_000;
+
         private readonly string _radioName;
         private readonly Func<long> _nowMs;
         private int _phase = 1;
         private long _phaseStartMs;
         private int _startCount;
+        private bool _statusIssued;
 
         public ConnectNarrator(string radioName, Func<long> nowMs = null)
         {
@@ -174,6 +217,31 @@ namespace Radios
         public ConnectWaitVoice OpeningVoice() => Reaching();
 
         /// <summary>
+        /// The threshold has passed (<see cref="OpeningLineThresholdMs"/>) and
+        /// the connect is still running: what to do about the opening line.
+        /// </summary>
+        /// <param name="openingLine">
+        /// The picker's finished sentence for this connect — "Connecting to X
+        /// over SmartLink" — or null/blank when there is none, in which case
+        /// there is nothing to say and the step is empty.
+        /// </param>
+        /// <returns>
+        /// A step that shows and speaks the line while the connect is still
+        /// REACHING the radio and nothing else has been said; otherwise
+        /// <see cref="ConnectNarrationStep.Nothing"/>. Once a phase event has
+        /// put its own text on the window, the opening line is history and
+        /// saying it would narrate backwards.
+        /// </returns>
+        public ConnectNarrationStep OpeningLineDue(string openingLine)
+        {
+            if (string.IsNullOrWhiteSpace(openingLine)) return ConnectNarrationStep.Nothing;
+            if (_phase != 1 || _statusIssued) return ConnectNarrationStep.Nothing;
+
+            _statusIssued = true;
+            return new ConnectNarrationStep { StatusText = openingLine.Trim(), Speak = true };
+        }
+
+        /// <summary>
         /// What to do about one connection event. Unknown events return
         /// <see cref="ConnectNarrationStep.Nothing"/>.
         /// </summary>
@@ -184,6 +252,16 @@ namespace Radios
         /// </param>
         public ConnectNarrationStep OnEvent(string eventName,
                                             IReadOnlyDictionary<string, object> data = null)
+        {
+            var step = Decide(eventName, data);
+            // Anything that put words on the window, or in the operator's ear,
+            // retires the opening line: see OpeningLineDue.
+            if (step.StatusText != null || step.SpeakExtra != null) _statusIssued = true;
+            return step;
+        }
+
+        private ConnectNarrationStep Decide(string eventName,
+                                            IReadOnlyDictionary<string, object> data)
         {
             switch (eventName)
             {
