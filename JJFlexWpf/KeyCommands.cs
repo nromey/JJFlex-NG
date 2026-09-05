@@ -4308,7 +4308,16 @@ public class KeyCommands
         var headphone = Level("headphone", "audio.audio_layer.name_headphone", Keys.H | Keys.Control,
             () => rig.HeadphoneGain, v => rig.HeadphoneGain = v, 0, 100, 5,
             "audio.audio_layer.headphone", "audio.audio_layer.headphone_selected");
-        var pcOutput = Level("pc-output", "audio.audio_layer.name_pc_output", Keys.P,
+        // #539 - O, not P. Noel's letter ruling of 2026-09-02 moved PC output to
+        // O so that plain P could go back to pan. The pan half of that ruling
+        // landed and this half did not, so BOTH targets carried Keys.P and
+        // ValueSubLayer selects with FirstOrDefault - first registration wins,
+        // and pcOutput is declared first. Pan was therefore unreachable by its
+        // own letter while the layer's prompt string, both help pages and the
+        // changelog all said O was PC output and P was pan. O did nothing at
+        // all. Found by Track C reading the shipped key map rather than the
+        // documentation.
+        var pcOutput = Level("pc-output", "audio.audio_layer.name_pc_output", Keys.O,
             () => rig.PcOutputVolumeDb, v => { rig.PcOutputVolumeDb = v; pcTouched = true; },
             FlexBase.PcOutputVolumeDbMin, FlexBase.PcOutputVolumeDbMax, 1,
             "audio.audio_layer.pc_output");
