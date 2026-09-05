@@ -24,6 +24,13 @@ namespace Radios
         /// The spoken words for a pan value, lowercase for mid-sentence use
         /// ("slightly left"). Speech-only — never displayed — so standalone
         /// utterances use it as-is.
+        ///
+        /// <para>In the pan sub-layer these words now follow the number rather
+        /// than replacing it ("Pan 40, slightly left"), because a band twenty
+        /// points wide cannot be stepped back to (#536). They are colour beside
+        /// the figure, not a substitute for it. The slice status summary still
+        /// uses them bare: that is a census of every slice, not a control being
+        /// moved, and a number per slice would bury the sentence.</para>
         /// </summary>
         public static string Words(int pan)
         {

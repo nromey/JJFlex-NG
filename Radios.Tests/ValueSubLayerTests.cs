@@ -139,13 +139,16 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Single_speaks_words_at_chatty_and_numbers_at_terse()
+        public void Single_speaks_the_number_at_every_tier_and_adds_the_word_at_chatty()
         {
+            // #536: Chatty is ADDITIVE here, as everywhere else. It used to
+            // replace the number with the word, which made the verbose tier
+            // the one that told you less.
             var (h, _) = OpenSingle(40, VerbosityLevel.Chatty);
             h.Layer.HandleKey(Keys.Up);
             h.Verbosity = VerbosityLevel.Terse;
             h.Layer.HandleKey(Keys.Up);
-            Assert.Equal("low", h.Moves[0].Text);
+            Assert.Equal("Power 45, low", h.Moves[0].Text);
             Assert.Equal("Power 50", h.Moves[1].Text);
         }
 
@@ -924,18 +927,39 @@ namespace Radios.Tests
         [Fact]
         public void Audio_pan_answers_both_arrow_pairs_and_zero_centres()
         {
+            // #536: the number rides at every tier, and Chatty adds the word
+            // after it. 45 and 49 are both "slightly left" — the word alone
+            // could not tell them apart, which is the whole complaint.
             var (h, rig) = OpenAudio(VerbosityLevel.Chatty);
             h.Layer.HandleKey(Keys.P);
-            Assert.Equal("Pan, slice A, slightly left", h.LastAnswer);
+            Assert.Equal("Pan, slice A, pan 40, slightly left", h.LastAnswer);
             h.Layer.HandleKey(Keys.Right);   // 45
             h.Layer.HandleKey(Keys.Up);      // 50
             h.Layer.HandleKey(Keys.Down | Keys.Shift); // 49
             Assert.Equal(49, rig.Pan["A"]);
-            Assert.Equal(new[] { "slightly left", "center", "slightly left" },
+            Assert.Equal(new[] { "Pan 45, slightly left", "Pan 50, center", "Pan 49, slightly left" },
                 h.Moves.Select(m => m.Text));
             h.Layer.HandleKey(Keys.D0);
             Assert.Equal(50, rig.Pan["A"]);
-            Assert.Equal("center", h.LastMove);
+            Assert.Equal("Pan 50, center", h.LastMove);
+        }
+
+        [Theory]
+        [InlineData(VerbosityLevel.Critical)]
+        [InlineData(VerbosityLevel.Terse)]
+        [InlineData(VerbosityLevel.Chatty)]
+        public void Audio_pan_never_speaks_a_position_without_the_number(VerbosityLevel level)
+        {
+            // #536's guard, pointed the way the defect came from. Chatty used
+            // to REPLACE the figure with a band name, so the tier that says
+            // more said less — and a band name is not a place you can come
+            // back to. Noel: "percent is always better." Whatever a tier adds
+            // on top, the number is in it, at every level.
+            var (h, _) = OpenAudio(level);
+            h.Layer.HandleKey(Keys.P);
+            Assert.Contains("40", h.LastAnswer);
+            h.Layer.HandleKey(Keys.Right);
+            Assert.Contains("45", h.LastMove);
         }
 
         [Fact]
@@ -950,15 +974,15 @@ namespace Radios.Tests
 
             h.Layer.HandleKey(Keys.Home);
             Assert.Equal(0, rig.Pan["A"]);
-            Assert.Equal("hard left", h.LastMove);
+            Assert.Equal("Pan 0, hard left", h.LastMove);
 
             h.Layer.HandleKey(Keys.End);
             Assert.Equal(100, rig.Pan["A"]);
-            Assert.Equal("hard right", h.LastMove);
+            Assert.Equal("Pan 100, hard right", h.LastMove);
 
             h.Layer.HandleKey(Keys.D0);
             Assert.Equal(50, rig.Pan["A"]);
-            Assert.Equal("center", h.LastMove);
+            Assert.Equal("Pan 50, center", h.LastMove);
         }
 
         [Fact]
@@ -1014,7 +1038,7 @@ namespace Radios.Tests
         public void Audio_the_alt_p_door_opens_on_pan()
         {
             var (h, _) = OpenAudio(VerbosityLevel.Chatty, onPan: true);
-            Assert.Equal("Audio layer. Pan, slice A, slightly left. Press H for a list of keys.",
+            Assert.Equal("Audio layer. Pan, slice A, pan 40, slightly left. Press H for a list of keys.",
                 Assert.Single(h.Said));
             var (t, _) = OpenAudio(VerbosityLevel.Terse, onPan: true);
             Assert.Equal("Audio layer. Pan, slice A, pan 40.", Assert.Single(t.Said));
@@ -1049,13 +1073,17 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Audio_escape_at_chatty_puts_pan_back_in_words()
+        public void Audio_escape_at_chatty_puts_pan_back_as_a_number_with_the_word_after_it()
         {
+            // #536: the restore list is comma-joined, so this item joins its
+            // own two halves with a SPACE — "Put back mic 30, pan 40 slightly
+            // left" has one comma per item, and a listener can still tell
+            // where one restored thing ends and the next begins.
             var (h, _) = OpenAudio(VerbosityLevel.Chatty);
             h.Layer.HandleKey(Keys.P);
             h.Layer.HandleKey(Keys.Right);
             h.Layer.HandleKey(Keys.Escape);
-            Assert.Equal("Put back pan slightly left. Audio layer closed", h.LastSaid);
+            Assert.Equal("Put back pan 40 slightly left. Audio layer closed", h.LastSaid);
         }
 
         [Fact]
@@ -1109,12 +1137,12 @@ namespace Radios.Tests
             Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.C | Keys.Shift));
             Assert.True(h.Layer.IsLive);
             Assert.Equal(new[] { "C" }, rig.Jumps);
-            Assert.Equal("Pan, slice C, center", h.LastAnswer);
+            Assert.Equal("Pan, slice C, pan 50, center", h.LastAnswer);
             h.Layer.HandleKey(Keys.Left);                        // C: 45
             h.Layer.HandleKey(Keys.Escape);
             Assert.Equal(45, rig.Pan["A"]);                      // kept — confirmed by leaving
             Assert.Equal(50, rig.Pan["C"]);                      // restored
-            Assert.Equal("Put back pan center. Audio layer closed", h.LastSaid);
+            Assert.Equal("Put back pan 50 center. Audio layer closed", h.LastSaid);
         }
 
         [Fact]

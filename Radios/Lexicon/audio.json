@@ -35,12 +35,12 @@
   "audio.audio_layer.pan_restore_item": {
     "critical": "pan {level}",
     "terse": "pan {level}",
-    "chatty": "pan {position}"
+    "chatty": "pan {level} {position}"
   },
   "audio.audio_layer.pan_selected": {
     "critical": "Pan, slice {letter}, pan {level}",
     "terse": "Pan, slice {letter}, pan {level}",
-    "chatty": "Pan, slice {letter}, {position}"
+    "chatty": "Pan, slice {letter}, pan {level}, {position}"
   },
   "audio.audio_layer.pc_output": "PC volume {value} dB",
   "audio.audio_layer.pick_target_first": "Pick a target first: V, Ctrl+H, O, M, L, C, S, or P.",

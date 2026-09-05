@@ -314,11 +314,13 @@ namespace Radios
         /// <summary>Extra bare keys that jump to the anchor, beside <c>0</c>.</summary>
         public Keys[] AnchorKeys = Array.Empty<Keys>();
 
-        /// <summary>The words form — interpretable, spoken at Chatty. Null =
-        /// the number form serves every verbosity.</summary>
+        /// <summary>The words form — interpretable, appended AFTER the number
+        /// at Chatty ("Pan 32, left"), never instead of it (#536). Null = the
+        /// number alone at every verbosity.</summary>
         public Func<int, string>? Words;
 
-        /// <summary>The number form — precise and repeatable, spoken at Terse.</summary>
+        /// <summary>The number form — precise and repeatable, spoken at every
+        /// verbosity.</summary>
         public Func<int, string>? Number;
 
         /// <summary>
@@ -426,10 +428,12 @@ namespace Radios
         /// <summary>Extra bare keys that jump to the anchor, beside <c>0</c>.</summary>
         public Keys[] AnchorKeys = Array.Empty<Keys>();
 
-        /// <summary>The words form of the single value (Chatty).</summary>
+        /// <summary>The single value's words form, appended after the number
+        /// at Chatty (#536).</summary>
         public Func<int, string>? Words;
 
-        /// <summary>The number form of the single value (Terse).</summary>
+        /// <summary>The single value's number form, spoken at every
+        /// verbosity.</summary>
         public Func<int, string>? Number;
 
         /// <summary>Single value: spoken once on entry, (current, entry) → sentence.</summary>
@@ -603,12 +607,19 @@ namespace Radios
     /// now. A rail is stated once and then dropped; a target with a rail
     /// sentence of its own says why it stopped.</para>
     ///
-    /// <para><b>Words or numbers, under verbosity.</b> Ruled by Noel
-    /// 2026-08-27 for pan, generalised here per target: at Chatty the words
-    /// form (interpretable — moving it by ear), at Terse the number form
-    /// (precise and repeatable — recreating a known arrangement). The form is
-    /// chosen at speak time, so cycling verbosity mid-layer switches forms
+    /// <para><b>The number always; the words as well, at Chatty.</b> A target
+    /// may carry a words form beside its number ("left" beside "Pan 32"). The
+    /// number is spoken at every tier — it is what lets an operator recreate a
+    /// known arrangement, or step back to where they were — and at Chatty the
+    /// words follow it, as colour for someone moving the control by ear. The
+    /// form is chosen at speak time, so cycling verbosity mid-layer switches
     /// immediately.</para>
+    ///
+    /// <para>Chatty used to REPLACE the number with the words, which inverted
+    /// the tiers: the verbose one conveyed less, because a word covers a
+    /// twenty-point band. Noel ruled it out on 2026-09-05 — "percent is always
+    /// better" — and the rule is now the ordinary additive one every other
+    /// tier in this app follows (#536).</para>
     ///
     /// <para><b>The operator is told they are in it.</b> Entry and every
     /// closing path announce themselves, entry and close carry earcons, and
@@ -1403,9 +1414,9 @@ namespace Radios
 
         /// <summary>
         /// The current target's value in the form the operator's verbosity
-        /// asks for: words at Chatty and above (interpretable), the number
-        /// at Terse (precise, repeatable). A target with no words form gets
-        /// numbers everywhere.
+        /// asks for: the number at every tier (precise, repeatable), with the
+        /// words after it at Chatty and above (interpretable). A target with
+        /// no words form gets the number everywhere.
         /// </summary>
         public string FormValue() => _current == null ? "" : FormOf(_current, _current.Shadow);
 
@@ -1590,11 +1601,21 @@ namespace Radios
             return core + (s.Def.Note?.Invoke() ?? "");
         }
 
+        /// <summary>
+        /// The number, always; the words after it at Chatty. #536: this used
+        /// to REPLACE the number with the words at Chatty, so the tier meant
+        /// to say more said less — "left" is a twenty-point band, and an
+        /// operator who heard it could not tell 15 from 34, nor step back to
+        /// where they had been. Noel's ruling, 2026-09-05: "percent is always
+        /// better." So the figure is never absent, and Chatty is additive
+        /// here as it is everywhere else.
+        /// </summary>
         private string FormOf(Slot s, int value)
         {
+            string number = s.Def.Number!(value);
             if (s.Def.Words != null && (int)VerbosityNow() >= (int)VerbosityLevel.Chatty)
-                return s.Def.Words(value);
-            return s.Def.Number!(value);
+                return number + ", " + s.Def.Words(value);
+            return number;
         }
     }
 }
