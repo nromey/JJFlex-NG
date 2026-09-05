@@ -447,5 +447,107 @@ namespace Radios.Tests
             Assert.InRange(StrandedFocusSentinel.MaxReclaimsPerIdleStretch, 1, 3);
             Assert.InRange(StrandedFocusSentinel.ReclaimAnnounceDelayMs, 300, 2_000);
         }
+
+        // ────────────────────────────────────────────────────────────────
+        //  The operator's off switch (Sprint 45 Track D2)
+        //
+        //  A note sent to a tester on 2026-09-05 promises "tell me and I will
+        //  switch it off". These pin the two halves of keeping that promise:
+        //  the switch actually withholds the act, and it withholds NOTHING
+        //  else — not the decision, not the gates, not the black-hole repair.
+        // ────────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void TheOffSwitchWithholdsTheReclaimAndNamesItAsSuppressed()
+        {
+            Assert.Equal(StrandedFocusSentinel.Verdict.ReclaimSuppressedByPreference,
+                StrandedFocusSentinel.WithOperatorPreference(
+                    StrandedFocusSentinel.Verdict.ReclaimFromForeignThief, reclaimEnabled: false));
+
+            // A distinct verdict rather than Nothing, so the caller can write
+            // down what it would have done. "Off" must not mean "invisible":
+            // the whole point is that a later diagnostic bundle can say this
+            // would have rescued you and you had it switched off.
+            Assert.NotEqual(StrandedFocusSentinel.Verdict.Nothing,
+                StrandedFocusSentinel.WithOperatorPreference(
+                    StrandedFocusSentinel.Verdict.ReclaimFromForeignThief, reclaimEnabled: false));
+        }
+
+        [Fact]
+        public void OnChangesNothingAtAll()
+        {
+            foreach (StrandedFocusSentinel.Verdict v in
+                     System.Enum.GetValues<StrandedFocusSentinel.Verdict>())
+            {
+                Assert.Equal(v, StrandedFocusSentinel.WithOperatorPreference(v, reclaimEnabled: true));
+            }
+        }
+
+        [Fact]
+        public void TheOffSwitchNeverTouchesTheBlackHoleRepair()
+        {
+            // The two provable black holes are not "you were doing something
+            // else": in one, nothing on the desktop has the keyboard; in the
+            // other, we already hold it. The 2026-08-30 rescue stays armed at
+            // every setting, and anyone widening this switch to cover it is
+            // answering a complaint that was never about it.
+            Assert.Equal(StrandedFocusSentinel.Verdict.ReactivateOverBlackHole,
+                StrandedFocusSentinel.WithOperatorPreference(
+                    StrandedFocusSentinel.Verdict.ReactivateOverBlackHole, reclaimEnabled: false));
+        }
+
+        [Fact]
+        public void TheStandDownStillComesThroughWhenSwitchedOff()
+        {
+            // It marks where a running watchdog would have given up, which
+            // belongs in the counterfactual record. The caller says in its own
+            // words that nothing was actually taken back.
+            Assert.Equal(StrandedFocusSentinel.Verdict.StandDownThiefPersists,
+                StrandedFocusSentinel.WithOperatorPreference(
+                    StrandedFocusSentinel.Verdict.StandDownThiefPersists, reclaimEnabled: false));
+        }
+
+        [Fact]
+        public void TheDecisionIsIdenticalAtEitherSetting()
+        {
+            // The gates were measured and one was verified at the radio on
+            // 2026-09-05. The switch is applied AFTER Decide, so the same
+            // evidence must reach the same verdict either way — that is what
+            // makes the suppressed trace worth reading. Two sentinels, the
+            // same 2026-09-02 sequence, compared verdict for verdict.
+            var armed = new StrandedFocusSentinel();
+            var disarmed = new StrandedFocusSentinel();
+
+            long now = 10_000, lastInput = 1_000;
+            armed.Decide(At(StrandedFocusSentinel.Observation.Healthy, now, lastInput));
+            disarmed.Decide(At(StrandedFocusSentinel.Observation.Healthy, now, lastInput));
+
+            for (int i = 0; i < 12; i++)
+            {
+                now += Tick;
+                var s = At(StrandedFocusSentinel.Observation.ForeignForeground, now, lastInput);
+                Assert.Equal(armed.Decide(s), disarmed.Decide(s));
+            }
+        }
+
+        [Fact]
+        public void TheSuppressedVerdictIsNeverReachedByDecideItself()
+        {
+            // Decide is the pure policy and knows nothing about preferences.
+            // If this ever fails, a preference has been folded into a gate.
+            var sentinel = new StrandedFocusSentinel();
+            long now = 10_000, lastInput = 1_000;
+            sentinel.Decide(At(StrandedFocusSentinel.Observation.Healthy, now, lastInput));
+
+            foreach (var observation in System.Enum.GetValues<StrandedFocusSentinel.Observation>())
+            {
+                for (int i = 0; i < 8; i++)
+                {
+                    now += Tick;
+                    Assert.NotEqual(StrandedFocusSentinel.Verdict.ReclaimSuppressedByPreference,
+                        sentinel.Decide(At(observation, now, lastInput)));
+                }
+            }
+        }
     }
 }

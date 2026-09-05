@@ -69,7 +69,21 @@ namespace Radios
     /// A record of the foreground being taken from an idle operator while a
     /// modal of ours was up, kept so the census can name the thief later.
     /// </summary>
-    public sealed record ForegroundTheft(DateTime When, DesktopWindowRecord Thief, string TakenFromTitle);
+    /// <param name="Reclaimed">
+    /// Whether the keyboard was actually taken back. False when every gate
+    /// passed but the operator has the watchdog switched off
+    /// (<c>AccessibilityConfig.ReclaimStolenForeground</c>) — the theft still
+    /// happened and the operator still wants to know who did it, so the record
+    /// is kept either way and only the closing sentence differs. Defaulted true
+    /// so the reclaim path, which is the older and commoner one, reads
+    /// unchanged. Added Sprint 45 Track D2 with the off switch, because a row
+    /// that says "It was taken back" when nothing was is worse than no row.
+    /// </param>
+    public sealed record ForegroundTheft(
+        DateTime When,
+        DesktopWindowRecord Thief,
+        string TakenFromTitle,
+        bool Reclaimed = true);
 
     /// <summary>What the screen held at one instant.</summary>
     public sealed class DesktopWindowSnapshot
@@ -407,8 +421,11 @@ namespace Radios
 
         private static ForegroundTheft? _lastTheft;
 
-        /// <summary>The most recent foreground theft the watchdog repaired
-        /// this session, or null.</summary>
+        /// <summary>The most recent foreground theft the watchdog SAW this
+        /// session, or null. Repaired or not — see
+        /// <see cref="ForegroundTheft.Reclaimed"/>. This said "repaired" until
+        /// Sprint 45 Track D2 gave the watchdog an off switch, at which point
+        /// a theft could be seen and recorded without being repaired.</summary>
         public static ForegroundTheft? LastTheft => System.Threading.Volatile.Read(ref _lastTheft);
 
         public static void NoteTheft(ForegroundTheft theft)
@@ -634,11 +651,21 @@ namespace Radios
         }
 
         /// <summary>
-        /// The census's closing row when the watchdog has repaired a theft
-        /// this session: who took the keyboard, from which dialog, and when.
+        /// The census's closing row when the foreground has been taken this
+        /// session: who took the keyboard, from which dialog, and when.
+        ///
+        /// <para>Two endings, because there are two outcomes. When the watchdog
+        /// took it back the row says so. When the operator has the watchdog
+        /// switched off the theft still gets its row — it is the only place
+        /// they can find out what happened — and the row says plainly that
+        /// nothing was taken back and where the switch is. Claiming a recovery
+        /// that did not happen would make this row worse than absent.</para>
         /// </summary>
         public static string LastTheftRow(ForegroundTheft theft)
-            => Lexicon.Get("leader.windows.last_theft",
+            => Lexicon.Get(
+                theft.Reclaimed
+                    ? "leader.windows.last_theft"
+                    : "leader.windows.last_theft_not_reclaimed",
                 ("time", theft.When.ToString("t", System.Globalization.CultureInfo.CurrentCulture)),
                 ("program", ProgramPhrase(theft.Thief)),
                 ("title", theft.TakenFromTitle));

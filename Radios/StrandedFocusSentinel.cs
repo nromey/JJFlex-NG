@@ -64,6 +64,17 @@ namespace Radios
     /// tug-of-war announced every four seconds. The cap resets the moment the
     /// operator provides any input.</para>
     ///
+    /// <para><b>The reclaim has an off switch, and the decision does not.</b>
+    /// <c>AccessibilityConfig.ReclaimStolenForeground</c> (Settings,
+    /// Accessibility) can stop the theft repair from acting, because a note
+    /// already sent to a tester promises exactly that. It is applied by
+    /// <see cref="WithOperatorPreference"/> to a verdict this class has already
+    /// reached — nothing below reads it, and the gates behave identically at
+    /// either setting. Switched off, an earned reclaim becomes
+    /// <see cref="Verdict.ReclaimSuppressedByPreference"/>, which the dialog
+    /// writes down and does not act on. The black-hole repairs are not
+    /// governed by it at all.</para>
+    ///
     /// <para><b>Debounced.</b> Window churn legitimately passes through
     /// no-foreground moments (one window closing into the next opening). Two
     /// consecutive bad observations — about four seconds — separate a
@@ -156,6 +167,56 @@ namespace Radios
             /// nothing since the last reclaim: stop fighting, record it, and
             /// wait for the operator. Returned once per idle stretch.</summary>
             StandDownThiefPersists,
+
+            /// <summary>A reclaim was earned on the evidence and the operator
+            /// has the watchdog switched off. Take nothing; say nothing to the
+            /// operator; write it down. NEVER returned by
+            /// <see cref="Decide"/> — only by
+            /// <see cref="WithOperatorPreference"/>.</summary>
+            ReclaimSuppressedByPreference,
+        }
+
+        /// <summary>
+        /// Apply the operator's off switch to a verdict <see cref="Decide"/>
+        /// has already reached.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>After the decision, never inside it.</b> The six gates, the
+        /// debounce and the reclaim cap were measured, and the idle-comparison
+        /// gate was verified at the radio on 2026-09-05. A preference read
+        /// inside <see cref="DecideForeign"/> would have changed what the
+        /// sentinel CONCLUDES; this changes only what the dialog DOES about it.
+        /// That is what makes the disabled trace worth reading: it is the same
+        /// conclusion, from the same evidence, with the action withheld.
+        /// </para>
+        /// <para>
+        /// <b>Only the reclaim is governed.</b> A black hole is not "you were
+        /// doing something else" — see
+        /// <c>AccessibilityConfig.ReclaimStolenForeground</c> — so
+        /// <see cref="Verdict.ReactivateOverBlackHole"/> passes through
+        /// untouched at any setting.
+        /// </para>
+        /// <para>
+        /// <b>The stand-down still comes through when it is off.</b> It marks
+        /// the point at which a watchdog that HAD been running would have given
+        /// up, so it belongs in the counterfactual record; the caller says in
+        /// its own words that nothing was actually reclaimed. Note the
+        /// counterfactual is exact for the first would-be reclaim and an
+        /// approximation after it: a reclaim that really fired would have moved
+        /// the foreground, so the following ticks would have seen a different
+        /// desktop. What the trace claims is "a reclaim was earned here", which
+        /// is true every time it is written.
+        /// </para>
+        /// </remarks>
+        /// <param name="verdict">What <see cref="Decide"/> concluded.</param>
+        /// <param name="reclaimEnabled">The operator's setting.</param>
+        public static Verdict WithOperatorPreference(Verdict verdict, bool reclaimEnabled)
+        {
+            if (reclaimEnabled) return verdict;
+            return verdict == Verdict.ReclaimFromForeignThief
+                ? Verdict.ReclaimSuppressedByPreference
+                : verdict;
         }
 
         /// <summary>

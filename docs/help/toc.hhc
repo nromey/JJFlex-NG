@@ -234,6 +234,10 @@
       <param name="Local" value="pages\settings-double-tap-tolerance.htm">
     </OBJECT>
     <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="When Another Program Takes Your Keyboard (Accessibility)">
+      <param name="Local" value="pages\settings-focus-watchdog.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
       <param name="Name" value="Messages You Have Silenced">
       <param name="Local" value="pages\settings-silenced-messages.htm">
     </OBJECT>

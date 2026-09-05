@@ -340,7 +340,17 @@ namespace JJFlexWpf
 
                 var fg = NativeFocusProbe.GetForegroundWindow();
                 var sample = SampleDesktop(fg);
-                switch (_strandedFocus.Decide(sample))
+
+                // The operator's off switch, applied to the verdict rather
+                // than folded into it: the sentinel reaches the same
+                // conclusion from the same evidence at either setting, and
+                // only the ACT is withheld. That is what lets the disabled
+                // trace below be worth reading.
+                bool reclaimEnabled =
+                    Radios.AccessibilityConfig.Current.ReclaimStolenForeground;
+
+                switch (Radios.StrandedFocusSentinel.WithOperatorPreference(
+                            _strandedFocus.Decide(sample), reclaimEnabled))
                 {
                     case Radios.StrandedFocusSentinel.Verdict.ReactivateOverBlackHole:
                         JJTrace.Tracing.TraceLine(
@@ -354,14 +364,26 @@ namespace JJFlexWpf
                         ReclaimFromThief(own, fg, sample);
                         break;
 
+                    case Radios.StrandedFocusSentinel.Verdict.ReclaimSuppressedByPreference:
+                        ReportSuppressedReclaim(fg, sample);
+                        break;
+
                     case Radios.StrandedFocusSentinel.Verdict.StandDownThiefPersists:
                         {
                             var thief = Radios.DesktopWindowCensus.Describe(fg);
+                            // When the watchdog is switched off nothing was
+                            // ever reclaimed, so the same line would otherwise
+                            // read as a fight that never happened. Say which
+                            // it was.
+                            string tail = reclaimEnabled
+                                ? "standing down until they do"
+                                : "this is where it would have given up - the watchdog is "
+                                  + "switched off, so nothing was ever taken back";
                             JJTrace.Tracing.TraceLine(
                                 $"JJFlexDialog: '{thief.ProcessName}' (class {thief.ClassName}, "
                                 + $"'{thief.Title}') keeps taking the foreground from '{Title}' and "
                                 + $"the operator has not touched anything since the last reclaim - "
-                                + $"standing down until they do (#529 watchdog, "
+                                + $"{tail} (#529 watchdog, "
                                 + $"cap {Radios.StrandedFocusSentinel.MaxReclaimsPerIdleStretch})",
                                 System.Diagnostics.TraceLevel.Warning);
                         }
@@ -405,6 +427,57 @@ namespace JJFlexWpf
 
             Reactivate(own);
             ScheduleReclaimAnnouncement(thief);
+        }
+
+        /// <summary>
+        /// The disabled state, told honestly. A reclaim was earned on the
+        /// evidence and the operator has the watchdog switched off, so nothing
+        /// is taken and nothing is said aloud — but the outage is written down
+        /// in the same detail a real reclaim would have been, so a later
+        /// diagnostic bundle can say "this would have rescued you and you had
+        /// it switched off" instead of showing a silent gap with no watchdog
+        /// line in it at all.
+        ///
+        /// <para>Info, not Warning: nothing went wrong and nobody needs
+        /// alerting. It is a record of a road not taken, and it belongs beside
+        /// the outage it explains. It is also bounded — the cap in the sentinel
+        /// still counts, so this appears at most
+        /// <see cref="Radios.StrandedFocusSentinel.MaxReclaimsPerIdleStretch"/>
+        /// times per idle stretch and then the stand-down line closes it
+        /// out.</para>
+        ///
+        /// <para>No announcement, deliberately. A spoken "I would have taken
+        /// the keyboard back" arrives in a window the operator did not ask for
+        /// and cannot act on, from an application they told to leave the
+        /// foreground alone. Switched off means switched off at the operator's
+        /// ears; the trace is for the person reading the bundle
+        /// afterwards.</para>
+        /// </summary>
+        private void ReportSuppressedReclaim(nint fg, in Radios.StrandedFocusSentinel.Sample sample)
+        {
+            var thief = Radios.DesktopWindowCensus.Describe(fg);
+            long idleMs = sample.NowMs - sample.LastInputMs;
+            long heldAgoMs = sample.NowMs - _strandedFocus.LastOursMs;
+            JJTrace.Tracing.TraceLine(
+                $"JJFlexDialog: the foreground was TAKEN from '{Title}' by pid {thief.ProcessId} "
+                + $"'{thief.ProcessName}' (class {thief.ClassName}, title '{thief.Title}') - "
+                + $"operator idle {idleMs / 1000}s, we last held it {heldAgoMs / 1000}s ago, "
+                + $"our modal is up - every condition for a reclaim was met and the keyboard "
+                + $"would have been taken back here, but the operator has 'Take the keyboard "
+                + $"back' switched off in Settings, Accessibility, so nothing was taken and "
+                + $"nothing was announced (#529 watchdog, disabled by preference)",
+                System.Diagnostics.TraceLevel.Info);
+
+            // Recorded in the census either way, with Reclaimed: false so the
+            // row tells the truth. Ctrl+J, Alt+W's last row — "who took it,
+            // from where, and when" — is the operator's own answer to the
+            // outage, and it must not go blank just because the repair was
+            // switched off: with the watchdog off, nothing spoke and nothing
+            // moved, so that row is the ONLY place they can find out what
+            // happened. The theft happened; only the repair did not.
+            Radios.DesktopWindowCensus.NoteTheft(
+                new Radios.ForegroundTheft(
+                    System.DateTime.Now, thief, Title ?? "", Reclaimed: false));
         }
 
         private System.Windows.Threading.DispatcherTimer? _reclaimAnnounce;

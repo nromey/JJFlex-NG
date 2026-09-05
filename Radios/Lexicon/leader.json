@@ -49,6 +49,7 @@
   "leader.windows.status.not_responding": "Its program is not responding",
   "leader.windows.status.program_gone": "Its program has exited, but the window is still on your screen",
   "leader.windows.last_theft": "Earlier, at {time}, {program} took the keyboard while you were in {title}. It was taken back.",
+  "leader.windows.last_theft_not_reclaimed": "Earlier, at {time}, {program} took the keyboard while you were in {title}. It was not taken back, because Take the keyboard back is switched off in Settings, Accessibility.",
   "leader.windows.none": "No windows found on your screen.",
   "leader.windows.refresh_button": "_Refresh",
   "leader.windows.refreshed": "{title}. Refreshed.",

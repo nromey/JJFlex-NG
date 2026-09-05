@@ -1818,6 +1818,36 @@
                             </RadioButton>
                         </StackPanel>
                     </GroupBox>
+
+                    <!-- Sprint 45 Track D2 — the #529 focus watchdog's off
+                         switch. It lives on THIS tab, not Diagnostics and not
+                         Notifications, because it is not a log setting and not
+                         a verbosity setting: it decides where the keyboard
+                         goes, which is what this tab is for ("input-timing and
+                         other accessibility-tuning preferences", above).
+
+                         Track C's recorded reasoning for declining the Audio
+                         tab (#537, SettingsDialog.Audio.cs) does not reach
+                         here, and it is worth saying why rather than assuming.
+                         Binaural was declined a third door because it stores
+                         nothing and already had two. This stores a preference,
+                         and has no other door at all — the note that went to
+                         Don on 2026-09-05 promises "tell me and I will switch
+                         it off", which without this control means a rebuild.
+
+                         Committed on OK like its neighbours. Arming or
+                         disarming a rescue belongs in the deliberate act, the
+                         same call ReflectedCutCheckbox makes on the PTT tab. -->
+                    <TextBlock Text="If another program takes your keyboard" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,8,0,4"/>
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Windows lets any program take the keyboard once you have been idle for a few minutes. When that happens while one of this program's dialogs is waiting on you, JJ Flexible Radio Access notices within a few seconds, takes the keyboard back, and tells you what happened. It only does this when you were idle — if you went somewhere on purpose, it leaves you there — and it never takes the keyboard from a password, security or permission prompt. Turn this off if a window ever comes to the front when you did not ask for it."/>
+
+                    <CheckBox x:Name="ReclaimForegroundCheckbox"
+                              Content="Take the keyboard back if another program takes it while you are idle"
+                              Margin="0,4,0,8"
+                              AutomationProperties.Name="Take the keyboard back if another program takes it while you are idle"
+                              local:JJFlexHelp.Text="On, which is the default, this program watches while one of its dialogs is waiting on you, and if another program takes the keyboard at a moment when you were not touching anything, it takes the keyboard back and says so. Off, it watches and does nothing: the keyboard stays where it went, nothing is announced, and the fact that it would have stepped in is written into the diagnostic log so it can be looked at afterwards. Switching this off does not affect the separate repair for a keyboard that has gone nowhere at all — if no window on your screen is taking input, a dialog of this program's will still bring itself back."/>
                 </StackPanel>
                 </ScrollViewer>
             </TabItem>
