@@ -53,6 +53,9 @@ Public Class ConnectingForm
     ''' which WinForms reports identically as CloseReason.UserClosing.</summary>
     Private _programmaticClose As Boolean = False
     Private _escalationActive As Boolean = False
+    ''' <summary>The Win32 owner - the shell's HWND - or Zero for none. See
+    ''' <see cref="AdoptOwner"/> for why this is a raw handle and not Owner.</summary>
+    Private _ownerHandle As IntPtr
 
     Private Const EscalationIntervalMs As Integer = 60_000      ' 60 s
     Private Const AutoCancelCeilingMs As Integer = 300_000       ' 5 min
@@ -71,8 +74,19 @@ Public Class ConnectingForm
     ''' across a window change and may have been flushed. Nothing to carry means
     ''' the plain form as before. Task #93.
     ''' </param>
+    ''' <param name="ownerHandle">
+    ''' The shell's window handle, when it has one, so this form is created
+    ''' OWNED by the shell in Windows' own terms. Zero when the shell has no
+    ''' handle yet (the launch route), in which case openTheRadio hands it over
+    ''' through <see cref="AdoptOwner"/> the moment the shell is shown. Why a
+    ''' raw handle and not Owner: this form runs on its own thread, and the
+    ''' managed Owner property refuses a form from another thread; the Win32
+    ''' relationship underneath has no such rule.
+    ''' </param>
     Public Sub New(radioName As String, cancelCallback As Action, profiler As Radios.ConnectionProfiler,
-                   Optional lead As String = Nothing)
+                   Optional lead As String = Nothing, Optional ownerHandle As IntPtr = Nothing)
+        ' Before anything can create the handle: CreateParams reads it.
+        _ownerHandle = ownerHandle
         _radioName = If(radioName, Radios.Lexicon.Get("connect.connecting.default_radio_name"))
         _cancelCallback = cancelCallback
         _profiler = profiler
@@ -296,6 +310,92 @@ Public Class ConnectingForm
         ' "Connected to FLEX-8600".
         _programmaticClose = True
         Close()
+    End Sub
+
+    ' ── Who owns this window, and why it matters when it closes ───────────
+    '
+    ' When the foreground window is destroyed, Windows hands activation to its
+    ' OWNER if the owner is visible and enabled, and otherwise to whatever is
+    ' next in the Z-order. This form had no owner - it cannot have a managed
+    ' one, being on its own thread - and a WinForms form with ShowInTaskbar =
+    ' False and no owner is given a HIDDEN owner window of its own, purely to
+    ' keep it off the taskbar. So when this form closed at the end of a
+    ' connect, Windows found an invisible owner, skipped it, and for 74 ms
+    ' GetForegroundWindow() returned 0 before the shell picked the foreground
+    ' up by other means (measured 2026-09-05, Sprint 45 Track A). That hidden
+    ' window is the unexplained owner handle in the trace - the one that was
+    ' "not the main window".
+    '
+    ' Owned by the shell instead, the close hands the foreground straight to
+    ' the shell: one transition, to a window of ours, which is what a screen
+    ' reader can announce cleanly. Cross-thread ownership is ordinary Win32 -
+    ' it is only the WinForms Owner property that objects - so the owner is
+    ' set at the handle level: through CreateParams when it is known at
+    ' construction (menu route), and through SetWindowLongPtr when the shell
+    ' only gains a handle after this form is already up (launch route).
+
+    Protected Overrides ReadOnly Property CreateParams As CreateParams
+        Get
+            Dim cp = MyBase.CreateParams
+            ' After the base class has had its say: this is exactly where
+            ' WinForms substitutes its hidden taskbar-owner window, and the
+            ' shell must win over that.
+            If _ownerHandle <> IntPtr.Zero Then cp.Parent = _ownerHandle
+            Return cp
+        End Get
+    End Property
+
+    ''' <summary>
+    ''' Make <paramref name="ownerHandle"/> this form's Win32 owner now, on a
+    ''' form that already exists. Thread-safe: marshals to the form's own pump.
+    ''' Used on the launch route, where the shell has no window until it is
+    ''' shown mid-connect, by which time this form has been up for a while.
+    ''' </summary>
+    Public Sub AdoptOwner(ownerHandle As IntPtr)
+        If ownerHandle = IntPtr.Zero OrElse IsDisposed Then Return
+        If InvokeRequired Then
+            Try
+                BeginInvoke(Sub() AdoptOwner(ownerHandle))
+            Catch
+                ' Closed mid-call - nothing left to own.
+            End Try
+            Return
+        End If
+        _ownerHandle = ownerHandle
+        If IsHandleCreated Then
+            SetWindowOwner(Handle, ownerHandle)
+            Tracing.TraceLine("ConnectingForm: now owned by the shell window", TraceLevel.Info)
+        End If
+    End Sub
+
+    Private Const GWLP_HWNDPARENT As Integer = -8
+
+    ' SetWindowLongPtr does not exist as an export on 32-bit user32; the
+    ' header maps it to SetWindowLong. Both arches ship, so both are declared
+    ' and the pointer size picks.
+    <System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint:="SetWindowLongPtrW", SetLastError:=True)>
+    Private Shared Function SetWindowLongPtr64(hWnd As IntPtr, nIndex As Integer, dwNewLong As IntPtr) As IntPtr
+    End Function
+
+    <System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint:="SetWindowLongW", SetLastError:=True)>
+    Private Shared Function SetWindowLong32(hWnd As IntPtr, nIndex As Integer, dwNewLong As Integer) As Integer
+    End Function
+
+    Private Shared Sub SetWindowOwner(hWnd As IntPtr, owner As IntPtr)
+        ' The return is the PREVIOUS owner, which nothing here needs; a zero
+        ' with a last-error set is the only failure signal and is traced.
+        Dim previous As IntPtr
+        If IntPtr.Size = 8 Then
+            previous = SetWindowLongPtr64(hWnd, GWLP_HWNDPARENT, owner)
+        Else
+            previous = New IntPtr(SetWindowLong32(hWnd, GWLP_HWNDPARENT, owner.ToInt32()))
+        End If
+        If previous = IntPtr.Zero Then
+            Dim err = System.Runtime.InteropServices.Marshal.GetLastWin32Error()
+            If err <> 0 Then
+                Tracing.TraceLine($"ConnectingForm: SetWindowLongPtr(GWLP_HWNDPARENT) failed, error {err}", TraceLevel.Warning)
+            End If
+        End If
     End Sub
 
     ' ── The progress heartbeat ────────────────────────────────────────────

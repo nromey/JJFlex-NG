@@ -20,6 +20,42 @@ namespace JJFlexWpf
         /// </summary>
         public static Action? FocusReturnCallback { get; set; }
 
+        /// <summary>
+        /// Where every dialog gets its owner window. Installed once by the host
+        /// at startup (the WinForms shell, in ApplicationEvents) and asked by
+        /// each dialog as it is constructed; returns <c>0</c> while the shell
+        /// has no window handle yet, and the dialog is then simply unowned.
+        ///
+        /// <para><b>This replaced a guess.</b> Until Sprint 45 Track A the
+        /// constructor used <c>Process.MainWindowHandle</c>, which means "the
+        /// first visible, unowned top-level window of the process". On the menu
+        /// route that happened to be the shell. On the launch route the shell
+        /// is not yet visible, and the front door now constructs the radio
+        /// picker while "Searching for radios" is still on screen - so the
+        /// heuristic would have returned the searching window, and Windows
+        /// destroys owned windows with their owner: closing the searching
+        /// window would have taken the picker down with it. Who owns a dialog
+        /// is a decision the host makes, not a property the dialog infers from
+        /// whatever happens to be visible.</para>
+        /// </summary>
+        public static Func<nint>? OwnerHandleProvider { get; set; }
+
+        private static nint ResolveOwnerHandle()
+        {
+            var provider = OwnerHandleProvider;
+            if (provider != null)
+            {
+                try { return provider(); }
+                catch { return nint.Zero; }
+            }
+
+            // No host installed a provider - the test harnesses realise dialogs
+            // without one. The old heuristic is kept for exactly that case, so
+            // their behaviour is unchanged.
+            try { return System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle; }
+            catch { return nint.Zero; }
+        }
+
         public JJFlexDialog()
         {
             // Load shared dialog styles
@@ -42,14 +78,16 @@ namespace JJFlexWpf
             // base. A dialog is a cycle, not a corridor.
             KeyboardNavigation.SetTabNavigation(this, KeyboardNavigationMode.Cycle);
 
-            // MainWindow is a UserControl hosted in ElementHost, so
-            // Application.Current.MainWindow is null. Use the process main
-            // window handle as Owner for proper modality and centering.
+            // Owned by the shell, for modality and centering. MainWindow is a
+            // UserControl hosted in an ElementHost, so Application.Current.
+            // MainWindow is null and WPF cannot find the owner itself; the host
+            // says who it is through OwnerHandleProvider (see its remarks for
+            // why this is no longer inferred from the process's window list).
             try
             {
-                var mainHandle = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
-                if (mainHandle != nint.Zero)
-                    new WindowInteropHelper(this).Owner = mainHandle;
+                nint owner = ResolveOwnerHandle();
+                if (owner != nint.Zero)
+                    new WindowInteropHelper(this).Owner = owner;
             }
             catch { /* non-critical — dialog still works, just without modality lock */ }
 

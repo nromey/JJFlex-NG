@@ -3687,13 +3687,23 @@ Module globals
             ' frozen solid for it.
             Dim startupRig = RigControl
             Dim connected = RunConnectPhaseOffUiThread("StartupAutoConnect", Function() startupRig.TryAutoConnect(_autoConnectConfig))
-            _connectingForm?.CloseForm()
-            _connectingForm = Nothing
 
             If connected Then
                 Tracing.TraceLine("TryAutoConnectOnStartup: success", TraceLevel.Info)
+                ' The Connecting window stays UP (Sprint 45 Track A). The auto
+                ' connect has brought the session up; the station-name wait and
+                ' the slice setup - where the time goes, and what this window
+                ' narrates on the manual route - run next in openTheRadio, whose
+                ' own comment has said "already up from TryAutoConnect" all
+                ' along. Closing it here left that stretch silent, AND put the
+                ' foreground on whatever was behind us for the moment before
+                ' the shell appeared. openTheRadio closes it once the open has
+                ' resolved, exactly as it does for the picker's.
                 Return AutoConnectStartupResult.Connected
             End If
+
+            _connectingForm?.CloseForm()
+            _connectingForm = Nothing
 
             Tracing.TraceLine("TryAutoConnectOnStartup: failed, showing dialog", TraceLevel.Info)
             ' QB Track L: hand the dialog the classified failure evidence
@@ -3710,11 +3720,12 @@ Module globals
                     ShowConnectingFormOnOwnThread(_autoConnectConfig.RadioName, Radios.ConnectionProfiler.Current)
                     Dim tryAgainRig = RigControl
                     connected = RunConnectPhaseOffUiThread("StartupAutoConnectRetry", Function() tryAgainRig.TryAutoConnect(_autoConnectConfig))
-                    _connectingForm?.CloseForm()
-                    _connectingForm = Nothing
                     If connected Then
+                        ' Stays up through the open, as above.
                         Return AutoConnectStartupResult.Connected
                     End If
+                    _connectingForm?.CloseForm()
+                    _connectingForm = Nothing
                     RigControl.Dispose()
                     RigControl = Nothing
                     Return AutoConnectStartupResult.Failed
@@ -3893,10 +3904,17 @@ Module globals
                                            End Try
                                        End Sub
 
+        ' Owned by the shell when the shell has a window to own it with. On the
+        ' menu route it does. On the launch route it has no handle yet - the
+        ' shell is not shown until mid-connect - and openTheRadio adopts the
+        ' form at that moment (ConnectingForm.AdoptOwner). Read here, on the UI
+        ' thread, and carried across to the form's thread as a value.
+        Dim ownerHandle = If(AppShellForm Is Nothing, IntPtr.Zero, AppShellForm.NativeHandle)
+
         _connectingFormThread = New Threading.Thread(
             Sub()
                 Try
-                    Dim form = New ConnectingForm(radioName, cancelCallback, profiler, lead)
+                    Dim form = New ConnectingForm(radioName, cancelCallback, profiler, lead, ownerHandle)
                     AddHandler form.Shown, Sub(sender, e) ready.Set()
                     _connectingForm = form
                     Application.Run(form)
@@ -4302,8 +4320,47 @@ Module globals
         ' removes it, because nothing changes after the operator arrives. The
         ' window holds for at most two seconds, ends early once radios have
         ' answered and gone quiet, and Escape skips it.
+        ' ══ THE FRONT DOOR, AND THE RULE FOR ITS SEAMS ═══════════════════════
+        '
+        ' Three windows in a row - Searching for radios, Select Radio, and
+        ' Connecting - and THE NEXT ONE IS UP BEFORE THE CURRENT ONE GOES.
+        '
+        ' Measured 2026-09-05 at 60 ms resolution (Sprint 45 Track A), watching
+        ' every top-level window of the process and every foreground change
+        ' through one connect: each window closed before the next opened, so
+        ' for 155 ms and then 75 ms the process owned no visible window and
+        ' Windows handed the foreground down the Z-order to File Explorer. The
+        ' shell then appeared mid-connect and took the foreground from
+        ' Connecting, which took it back 158 ms later. And when Connecting
+        ' closed, GetForegroundWindow returned 0 for 74 ms. Nine foreground
+        ' transitions in 4.1 seconds, three of them to nothing of ours.
+        '
+        ' A screen reader flushes its speech on EVERY one of those and reads
+        ' the new window's title, so "Connecting" was destroyed twice, File
+        ' Explorer got a word in twice, and the operator heard the main window
+        ' announced twice. Sprint 44 cut what this stretch SAYS from 711
+        ' characters to 159, and it could not help, because the windows
+        ' underneath were destroying the speech regardless. This is not fixed
+        ' with timing or shorter sentences; it is fixed with fewer and
+        ' better-ordered window transitions:
+        '
+        '   * The settling window is shown and pumped WITHOUT closing itself.
+        '     The picker is constructed and shown over it, and only once the
+        '     picker has rendered and holds the foreground is the settling
+        '     window closed behind it (WindowHandoff).
+        '   * The Connecting window is raised from the picker's Closing event,
+        '     while the picker is still on screen, so the foreground passes
+        '     directly from one to the other.
+        '   * The Connecting window is Win32-OWNED by the shell - created owned
+        '     on the menu route, adopted on the launch route the moment the
+        '     shell is shown (ShowConnectingFormOnOwnThread, openTheRadio) - so
+        '     that when it closes, Windows hands activation to the shell rather
+        '     than to nobody.
+        '   * And the shell, when it becomes visible mid-connect, does so
+        '     without taking the foreground (openTheRadio).
+        Dim settling As JJFlexWpf.Dialogs.DiscoveringRadiosWindow = Nothing
         Try
-            Dim settling As New JJFlexWpf.Dialogs.DiscoveringRadiosWindow(PendingDisconnectLead)
+            settling = New JJFlexWpf.Dialogs.DiscoveringRadiosWindow(PendingDisconnectLead)
             PendingDisconnectLead = Nothing
 
             ' THIS is where the wait actually is, and it is here on BOTH routes
@@ -4327,45 +4384,103 @@ Module globals
             ' Through the callback, NOT RigControl.LocalRadios() directly, so
             ' the picker's own start finds discovery already running.
             callbacks.StartLocalDiscovery.Invoke()
-            settling.ShowDialog()
+
+            ' Returns when discovery has settled or the operator skipped, WITH
+            ' THE WINDOW STILL OPEN. It goes only once the picker is up.
+            settling.ShowAndWaitForSettle()
         Catch ex As Exception
             ' Never let the waiting room stop the operator reaching the picker.
             Tracing.TraceLine("DiscoveringRadiosWindow failed: " & ex.Message, TraceLevel.Warning)
         End Try
 
-        ' Show the WPF selector dialog
+        ' The picker, constructed while the settling window is still on screen.
+        ' Its owner comes from JJFlexDialog.OwnerHandleProvider - the shell -
+        ' and never from "whatever window of ours is visible", which right now
+        ' would be the settling window; Windows destroys owned windows with
+        ' their owner, so a picker owned by it would go down with it.
         Dim dialog As New JJFlexWpf.Dialogs.RigSelectorDialog(callbacks)
-        Dim wpfResult = dialog.ShowDialog()
+        If settling IsNot Nothing Then
+            JJFlexWpf.WindowHandoff.CloseAfterSuccessorShown(settling, dialog)
+        End If
+
+        ' The Connecting window, raised while the picker is STILL VISIBLE.
+        '
+        ' Stuck-modal escape (2026-05-04): it runs on its own message-pump
+        ' thread so Escape and the X close button respond even while Start()
+        ' blocks the main UI thread in its station-name-wait loop.
+        '
+        ' Task #93: the picker names the radio and the leg it is about to try
+        ' one statement before it closes, into the exact window change that
+        ' flushes a screen reader's queue. The same sentence arrives WITH this
+        ' window instead, where it cannot be cut - the WHICH PATH half is what
+        ' tells the operator whether to expect three seconds or thirty, and it
+        ' was the half most reliably lost.
+        '
+        ' Idempotent, because it has two callers: the picker's Closing event
+        ' (the normal path - the picker is still up, so the foreground goes
+        ' straight from it to this window), and the line after ShowDialog
+        ' returns (the fallback if Closing could not, which is the old order:
+        ' a gap, but a connect).
+        Dim connectingRaised As Boolean = False
+        Dim raiseConnecting As Action =
+            Sub()
+                If connectingRaised Then Return
+                connectingRaised = True
+
+                ' Start profiling the manual connect path. The event keeps the
+                ' name it has always had; it now fires at Closing, a few
+                ' milliseconds before the window is actually gone.
+                Radios.ConnectionProfiler.Current = New Radios.ConnectionProfiler()
+                Radios.ConnectionProfiler.Current.RecordEvent("dialog_closed")
+
+                ' Set CurrentRig from the dialog's selected radio data
+                Dim rigData = TryCast(dialog.SelectedRigData, FlexBase.RigData)
+                If rigData IsNot Nothing Then
+                    CurrentRig = rigData
+                End If
+
+                Dim radioName = If(CurrentRig?.Name, "radio")
+                ShowConnectingFormOnOwnThread(radioName, Radios.ConnectionProfiler.Current,
+                                              dialog.SelectedConnectingLine)
+                Radios.ConnectionProfiler.Current?.RecordEvent("connecting_form_shown")
+            End Sub
+
+        AddHandler dialog.Closing,
+            Sub(s, e)
+                ' The picker assigns DialogResult BEFORE it calls Close() on the
+                ' connect path, so it is readable here. Cancel, Escape and the X
+                ' leave it False or Nothing, and raise nothing.
+                If dialog.DialogResult = True Then
+                    Try
+                        raiseConnecting()
+                    Catch ex As Exception
+                        connectingRaised = False
+                        Tracing.TraceLine("wpfSelectorProc: raising Connecting from the picker's Closing failed, will raise after it: " & ex.Message, TraceLevel.Warning)
+                    End Try
+                End If
+            End Sub
+
+        Dim wpfResult As Boolean?
+        Try
+            wpfResult = dialog.ShowDialog()
+        Finally
+            ' The hand-off normally closed the settling window long ago. If the
+            ' picker never rendered - it threw before showing - the settling
+            ' window must not be left standing over a flow that has moved on.
+            If settling IsNot Nothing AndAlso settling.IsLoaded Then
+                Try
+                    settling.Close()
+                Catch
+                End Try
+            End If
+        End Try
 
         If wpfResult = True Then
             radioSelected = DialogResult.OK
 
-            ' Start profiling the manual connect path
-            Radios.ConnectionProfiler.Current = New Radios.ConnectionProfiler()
-            Radios.ConnectionProfiler.Current.RecordEvent("dialog_closed")
-
-            ' Set CurrentRig from the dialog's selected radio data
-            Dim rigData = TryCast(dialog.SelectedRigData, FlexBase.RigData)
-            If rigData IsNot Nothing Then
-                CurrentRig = rigData
-            End If
-
-            ' Show connecting window IMMEDIATELY — the RigSelectorDialog just closed
-            ' and there's no JJFlex window visible. Without this, focus drops to Explorer
-            ' during Connect() which can take several seconds for SmartLink.
-            ' Stuck-modal escape (2026-05-04): the modal runs on its own message-pump
-            ' thread so Escape and the X close button respond even while Start()
-            ' blocks the main UI thread in its station-name-wait loop.
-            Dim radioName = If(CurrentRig?.Name, "radio")
-            ' Task #93: the picker names the radio and the leg it is about to try
-            ' one statement before it closes, into the exact window change that
-            ' flushes a screen reader's queue. The same sentence arrives WITH
-            ' this window instead, where it cannot be cut — the WHICH PATH half
-            ' is what tells the operator whether to expect three seconds or
-            ' thirty, and it was the half most reliably lost.
-            ShowConnectingFormOnOwnThread(radioName, Radios.ConnectionProfiler.Current,
-                                          dialog.SelectedConnectingLine)
-            Radios.ConnectionProfiler.Current?.RecordEvent("connecting_form_shown")
+            ' Normally a no-op - the Closing handler above already did it while
+            ' the picker was on screen. The fallback if it could not.
+            raiseConnecting()
 
             ' For remote radios: use ReconnectRemote which establishes a fresh SmartLink
             ' session before connecting. The existing session from RemoteRadios() has a
@@ -4772,7 +4887,16 @@ Module globals
 
             ' Run WPF RigSelector on T1 (main UI thread) directly.
             wpfSelectorProc(initialCall)
-            AppShellForm?.Activate()
+
+            ' Bring the shell forward ONLY when the connecting window is already
+            ' gone - a cancelled or failed connect. On a successful one it is
+            ' still up, holding the foreground and owned by the shell, and
+            ' Activate() here took the foreground from it on the menu route
+            ' (where the shell is visible) for Connecting's reclaim timer to
+            ' take back: one more pair of window announcements in the middle
+            ' of the connect narration. The shell gets the foreground when
+            ' Connecting closes, by ownership, without asking (Sprint 45 Track A).
+            If _connectingForm Is Nothing Then AppShellForm?.Activate()
 
             ' The connecting window is gone and the shell is in front again, so
             ' this is the first moment a verdict on a failed connect can survive
@@ -4826,17 +4950,35 @@ RadioConnected:
 
                 ' Ensure ShellForm is visible before Start() so error dialogs
                 ' have a parent window and screen readers can announce them.
+                '
+                ' WITHOUT TAKING THE FOREGROUND. This was Show() then Activate(),
+                ' and the 2026-09-05 trace shows what that did: the shell
+                ' appeared mid-connect, took the foreground from Connecting at
+                ' once, and Connecting's reclaim timer took it back 158 ms later
+                ' - two transitions, one "JJ Flexible window" the operator did
+                ' not ask for, and the connect narration flushed under it. The
+                ' shell becomes visible here by design; it must not grab.
                 If AppShellForm IsNot Nothing AndAlso Not AppShellForm.Visible Then
-                    AppShellForm.Show()
-                    AppShellForm.Activate()
+                    AppShellForm.ShowWithoutActivating()
                     Radios.ConnectionProfiler.Current?.RecordEvent("shellform_shown")
                     Threading.Thread.Sleep(500) ' Let window settle before any error dialogs
                 End If
 
-                ' ConnectingForm is already up from wpfSelectorProc or TryAutoConnect.
-                ' Stuck-modal escape (2026-05-04): the modal runs on its own thread,
-                ' so we no longer set Owner = AppShellForm (cross-thread Owner is not
-                ' allowed). TopMost on the form keeps it visible without an owner.
+                ' ConnectingForm is already up from wpfSelectorProc or TryAutoConnect,
+                ' on its own thread (stuck-modal escape, 2026-05-04), which is why
+                ' the managed Owner property cannot be used - WinForms refuses it
+                ' across threads. The Win32 owner relationship has no such rule,
+                ' and it is what decides where activation goes when the form
+                ' closes: to a visible, enabled owner, or else to whatever is next
+                ' in the Z-order - which, with the hidden owner WinForms gives an
+                ' unowned ShowInTaskbar=False form, was NOBODY: hwnd=0 for 74 ms
+                ' in the 2026-09-05 trace. Owned by the shell, closing it hands
+                ' the foreground straight to the shell. On the menu route the
+                ' form was created owned; on the launch route the shell had no
+                ' handle until the Show() just above, so it is adopted here.
+                If AppShellForm IsNot Nothing Then
+                    _connectingForm?.AdoptOwner(AppShellForm.NativeHandle)
+                End If
 
                 ' Create connection profiler if one doesn't already exist
                 ' (wpfSelectorProc creates one for manual connect; auto-connect may not)

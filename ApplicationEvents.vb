@@ -181,6 +181,14 @@ Namespace My
             WpfMainWindow = TheShellForm.WpfContent
             JJTrace.Tracing.TraceLine($"Startup phase: ShellForm + WPF content took {phaseClock.ElapsedMilliseconds} ms", TraceLevel.Info)
 
+            ' Every WPF dialog is owned by the shell - decided here, not guessed
+            ' from the process's window list (Sprint 45 Track A; the reasoning
+            ' is on JJFlexDialog.OwnerHandleProvider). Zero until the shell has
+            ' a window, and a dialog constructed before then is simply unowned,
+            ' which is what it was before too.
+            Dim shell = TheShellForm
+            JJFlexWpf.JJFlexDialog.OwnerHandleProvider = Function() shell.NativeHandle
+
             ' Wire WPF dispatcher exception capture. WPF runs inside ElementHost
             ' so there is no System.Windows.Application.Current to subscribe to;
             ' we attach to the WpfMainWindow's Dispatcher instead. Without this,
