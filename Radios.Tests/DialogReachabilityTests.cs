@@ -128,7 +128,19 @@ namespace Radios.Tests
                 + "FlexBase.ShowATUMemoriesDialog, the delegate that would reach this one, "
                 + "is assigned nowhere in the repository. The operator gets a plausible "
                 + "wrong dialog rather than nothing, so the error does not announce itself."),
-            ["PanListDialog"] = new("NEVER WIRED (#482). Two implementations of one idea; Radios/PanListForm.cs is the other and is also dead."),
+            ["PanListDialog"] = new(
+                "NEVER WIRED, and neither half ever was. #482 calls it two implementations of "
+                + "one idea; the lineage is that Radios/PanListForm.cs is Jim's original and "
+                + "its ONLY call site sat inside `#if zero` from this repository's first "
+                + "commit (e68dabc5) — live in JJ Radio, deliberately disabled here before "
+                + "the first commit, for a reason nobody recorded. This is its Sprint 9 port "
+                + "(8c7d7e6e) and has never been constructed. Do not revive it alone: it "
+                + "lists the ranges containing the current frequency, and the write half that "
+                + "would put a second range there — PanAdapterManager's SetUserSegment, "
+                + "SaveSegment and EraseSegment — has no callers either, so the list can only "
+                + "ever hold the one permanent band default. The operator's live "
+                + "PanRanges.xml holds 28 permanent ranges and zero saved ones, which is what "
+                + "that looks like from outside."),
             ["WattMeterConfigDialog"] = new(
                 "NEVER WIRED, and it should stay that way — this one is a door onto an empty "
                 + "room. #482 says \"the meter itself is live in globals.vb\"; what is live is "
