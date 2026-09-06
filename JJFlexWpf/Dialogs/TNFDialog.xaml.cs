@@ -138,7 +138,15 @@ public partial class TNFDialog : JJFlexDialog
             int count = GetTNFCount?.Invoke() ?? 0;
             for (int i = 0; i < count; i++)
             {
-                string display = GetTNFFrequencyDisplay?.Invoke(i) ?? $"TNF {i + 1}";
+                // Empty as well as null: the radio layer returns an empty
+                // string for a notch that vanished between the count and this
+                // read, and a blank row is a row a screen reader skips over
+                // silently — the operator would arrow past a notch that is
+                // really there. Name it by position instead. Spelled out
+                // rather than "TNF", which reads as three letters.
+                string display = GetTNFFrequencyDisplay?.Invoke(i) ?? "";
+                if (string.IsNullOrWhiteSpace(display))
+                    display = Radios.Lexicon.Get("audio.tnf.unnamed", ("n", (i + 1).ToString()));
                 TNFList.Items.Add(display);
             }
             if (selected >= 0 && selected < TNFList.Items.Count)

@@ -728,6 +728,7 @@
   "audio.tnf.remove_failed": "The radio did not remove the notch, so it is still on the air.",
   "audio.tnf.removed": "Notch removed",
   "audio.tnf.title": "Tracking Notch Filters",
+  "audio.tnf.unnamed": "Notch {n}",
   "audio.tune.atu_bypassed": "ATU bypassed",
   "audio.tune.atu_timed_out": "ATU tune timed out",
   "audio.tune.atu_tuning": "ATU tuning",
