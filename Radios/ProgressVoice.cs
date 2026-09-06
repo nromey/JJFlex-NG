@@ -29,8 +29,8 @@ namespace Radios
     /// <para>
     /// <b>The first line names the work; the repeats say "still".</b> A repeat
     /// identical to the opening line is ambiguous — it could be a fresh start
-    /// of a second operation. "Still looking" cannot be misheard that way, and
-    /// it is the word that carries the reassurance.
+    /// of a second operation. "Still searching" cannot be misheard that way,
+    /// and it is the word that carries the reassurance.
     /// </para>
     /// <para>
     /// <b>It cannot outlive its operation.</b> There is a hard ceiling as well
@@ -211,7 +211,7 @@ namespace Radios
                            && !string.IsNullOrEmpty(chatty)) ? chatty : terse;
             if (string.IsNullOrEmpty(text)) return;
             // Keyed as progress (#503): each line covers the one before it,
-            // and Stop covers the last. A stale "still looking" is worthless
+            // and Stop covers the last. A stale "still searching" is worthless
             // by construction and is never rescued past a newer one.
             ScreenReaderOutput.Speak(text, Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
                 subject: Speech.SpeechSubject.Progress);

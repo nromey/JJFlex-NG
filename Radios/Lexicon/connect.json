@@ -88,6 +88,8 @@
   },
   "connect.disconnected_from": "Disconnected from {radioName}",
   "connect.disconnected_plain": "Disconnected from radio",
+  "connect.discovery.searching": "Searching for radios.",
+  "connect.discovery.still_searching": "Still searching.",
   "connect.disconnecting_from": "Disconnecting from {radioName}",
   "connect.disconnecting_plain": "Disconnecting",
   "connect.failure.auth_summary": "SmartLink did not accept the saved sign-in for {email}. Connect from the radio list to sign in again.",
