@@ -685,6 +685,47 @@ Added 2026-08-06 after the index hit the warning threshold; rewritten
    516 MB each, and the `.zip` bundle beside them is what a support
    conversation actually reads.
 
+3e. **NVDA speech transcript: take it, then archive it.** Ruled by Noel
+   2026-09-05, after four exchanges were spent trying to characterise a doubled
+   announcement from memory and one transcript settled it, killed a plausible
+   wrong hypothesis, and surfaced two defects nobody was hunting (#521's first
+   captured reproduction, and #551).
+
+   **Before a session that will press keys, restart NVDA into IO level:**
+
+   ```
+   nvda -r -l 12
+   ```
+
+   - **`-r` is load-bearing.** `-l` alone does NOT replace a running instance:
+     the log carries on at the old level, with no error and no clue. Verified
+     2026-09-05 - same PID, same start time, nothing changed.
+   - **12, not 10.** Speech is logged at **IO (12)**. DEBUG (10) captures it too
+     and buries it under thousands of lines of internals. The ladder is DEBUG 10,
+     IO 12, DEBUGWARNING 15, INFO 20, WARNING 30, ERROR 40.
+   - **Verify with a positive control before spending a test on it.** Read the
+     last few `Speaking` lines back and confirm they are things the operator has
+     just heard. Do not assume the level took.
+   - **Mark the byte offset of `%TEMP%\nvda.log` before the test** and read only
+     what follows, or the session's own chatter swamps the capture.
+
+   **Why it is worth the noise:** it captures what NVDA says, including the
+   announcements NVDA generates ITSELF - window titles, focus changes, title
+   rewrites - which our own trace structurally cannot see, because we never said
+   them. It also removes the operator as the instrument: "was that the same
+   sentence twice, or two different ones?" is a question a transcript answers and
+   a person should not have to.
+
+   **At seal time, archive both logs, dated.** `%TEMP%\nvda.log` is the live
+   session and `nvda-old.log` the previous one, and **both are recycled every
+   time NVDA restarts** - so they are taken at the seal or they are lost. Plain
+   text, compresses hard.
+
+   **They go to JJFlex-private or the NAS, NEVER the repo.** The log holds
+   everything NVDA spoke in EVERY application - window titles, mail, whatever was
+   on screen - so it is personal data by construction rather than by accident,
+   and this repo is PUBLIC.
+
 4. **Agent.md update:** Record what happened today and what's next, so the resume path for the next session is clear.
 4a. **Rigmeter snapshot in the seal entry.** Rigmeter lives at
    `C:\dev\rigmeter` (extracted Sprint 30 Track G, 2026-08-18) and still
