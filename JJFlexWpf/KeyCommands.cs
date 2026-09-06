@@ -4011,25 +4011,27 @@ public class KeyCommands
                 // layer mixes bare, Shift and Ctrl tiers on the same letters
                 // (D vs Ctrl+D, Q vs Ctrl+Q), so a slipped modifier is the
                 // layer's own most predictable mistake — and the recovery
-                // information is already in the inventory. "Ctrl+G is not a
-                // command. G: arm or disarm the TX test tone" turns a
-                // re-enter-and-hunt into a one-chord retry, and teaches the
-                // layer while the operator is standing in it. One alternative
-                // at most, bare form first. The layer still disarms — this
-                // changes what is SAID, not what happens. The alternative is
-                // the Chatty tier; the fallback tiers say only that the chord
-                // is not a command, because naming what to press instead is a
-                // hint, and Terse is values and transitions, not hints.
+                // information is already in the inventory. One alternative at
+                // most, bare form first. The layer still disarms — this
+                // changes what is SAID, not what happens.
+                //
+                // #558, ruled by Noel 2026-09-06 after pressing B in the audio
+                // layer: say the RECOVERY, at every tier, and nothing else.
+                // This used to lead with "Ctrl+G is not a command" and gate the
+                // useful half behind Chatty, on the reasoning that naming what
+                // to press instead is a hint and Terse carries values, not
+                // hints. What that produced was a Terse operator hearing only
+                // the half they already knew — the refusal earcon had told them
+                // the key did nothing a moment earlier. The engine was
+                // describing itself, which is the same defect as "nothing
+                // picked" and the pan words scale.
                 if (KeyInventory.TryFindLeaderNearMiss(k, out string nearKey, out string nearWhat))
                 {
                     if (!toneStandsAlone)
                     {
                         Radios.ScreenReaderOutput.Speak(
                             Radios.Lexicon.Get("leader.near_miss",
-                                Radios.ScreenReaderOutput.CurrentVerbosity,
-                                ("pressed", KeyManifest.FormatKey(k)),
-                                ("alt", nearKey),
-                                ("what", nearWhat)),
+                                ("alt", nearKey), ("what", nearWhat)),
                             Radios.Speech.SpeechIntent.Interrupt,
                             Radios.VerbosityLevel.Critical,
                             subject: Radios.Speech.SpeechSubject.JjKeyHelp);
@@ -4961,12 +4963,11 @@ public class KeyCommands
         if (!KeyInventory.TryFindLayerNearMiss(context, pressed, out string alt, out string what))
             return null;
 
+        // #558: the recovery alone. The refusal earcon has already said the
+        // key did nothing; naming the layer the operator is standing in, and
+        // the key they just pressed, tells them only what they knew.
         return Radios.Lexicon.Get("audio.value_layer.near_miss",
-            Radios.ScreenReaderOutput.CurrentVerbosity,
-            ("pressed", KeyManifest.FormatKey(pressed)),
-            ("layer", KeyLayerHelp.LayerName(context)),
-            ("alt", alt),
-            ("what", what));
+            ("alt", alt), ("what", what));
     }
 
     /// <summary>

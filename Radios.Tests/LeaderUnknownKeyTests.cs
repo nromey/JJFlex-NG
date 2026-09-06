@@ -218,22 +218,28 @@ namespace Radios.Tests
         // ────────────────────────────────────────────────────────────────
 
         [Fact]
-        public void The_near_miss_is_a_ladder_and_only_chatty_names_the_alternative()
+        public void The_near_miss_names_the_alternative_at_every_level()
         {
-            // Naming what to press instead is a hint. Terse is values and
-            // transitions, not hints — so the fallback tiers say only that
-            // the chord is not a command, and the recovery lives at Chatty.
+            // #558, ruled by Noel 2026-09-06. This used to be a ladder: the
+            // fallback tiers said only "Ctrl+G is not a command" and the
+            // recovery lived at Chatty, on the reasoning that naming what to
+            // press instead is a hint and Terse carries values, not hints.
+            //
+            // What that produced was a Terse operator hearing ONLY the half
+            // they already knew — the refusal earcon had told them the chord
+            // did nothing a moment earlier. So the sentence is now the
+            // recovery and nothing else, at every level, and there is no
+            // ladder left to test.
             Lexicon.Forget();
             Lexicon.Load(Lexicon.Partitions);
 
-            var args = new (string, object?)[] { ("pressed", "Ctrl+G"), ("alt", "G"), ("what", "Arm or disarm the TX test tone") };
-            Assert.Equal("Ctrl+G is not a command. G: Arm or disarm the TX test tone",
-                Lexicon.Get("leader.near_miss", VerbosityLevel.Chatty, args));
-            Assert.Equal("Ctrl+G is not a command.",
-                Lexicon.Get("leader.near_miss", VerbosityLevel.Terse, args));
-            Assert.Equal(
-                Lexicon.Get("leader.near_miss", VerbosityLevel.Terse, args),
-                Lexicon.Get("leader.near_miss", VerbosityLevel.Critical, args));
+            var args = new (string, object?)[] { ("alt", "G"), ("what", "Arm or disarm the TX test tone") };
+            const string expected = "G: Arm or disarm the TX test tone";
+            foreach (var level in new[] { VerbosityLevel.Chatty, VerbosityLevel.Terse, VerbosityLevel.Critical })
+                Assert.Equal(expected, Lexicon.Get("leader.near_miss", level, args));
+
+            // The pressed key is deliberately absent: the operator pressed it.
+            Assert.DoesNotContain("Ctrl+G", Lexicon.Get("leader.near_miss", VerbosityLevel.Chatty, args));
         }
 
         [Fact]

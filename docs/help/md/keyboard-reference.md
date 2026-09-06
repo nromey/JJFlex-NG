@@ -68,9 +68,9 @@ The second key follows a grammar, and the grammar is the point: you work out a c
 
 ### Audio and transmit
 
-- **A** — Enter the audio layer — a letter picks what to adjust, the arrows adjust it, Home, End and `0` place it at once, Enter keeps it, Escape puts it back (see "The audio layer" below)
-- **V** — Enter the audio layer — a letter picks what to adjust, the arrows adjust it, Home, End and `0` place it at once, Enter keeps it, Escape puts it back (see "The audio layer" below)
-- **Alt+P** — Enter the audio layer with pan already picked — Left and Right, or Up and Down, place the slice you're on in the stereo field, Shift moves by one, 0 centers, Home and End are hard left and hard right, Enter keeps it, Escape puts it back. Speaks the number every time, on a 0-to-100 scale
+- **A** — Enter the audio layer — a letter picks what to adjust, the arrows adjust it, Home, End and `0` place it at once, Escape reverts changes, Enter accepts (see "The audio layer" below)
+- **V** — Enter the audio layer — a letter picks what to adjust, the arrows adjust it, Home, End and `0` place it at once, Escape reverts changes, Enter accepts (see "The audio layer" below)
+- **Alt+P** — Enter the audio layer with pan already picked — Left and Right, or Up and Down, place the slice you're on in the stereo field, Shift moves by one, 0 centers, Home and End are hard left and hard right, Escape reverts changes, Enter accepts. Speaks the number every time, on a 0-to-100 scale
 - **K** — Mic check — speak your mic-audio verdict and level, nothing else (see below)
 - **G** — Arm or disarm the TX test tone (it replaces your microphone while transmitting)
 - **C** — Toggle Compander

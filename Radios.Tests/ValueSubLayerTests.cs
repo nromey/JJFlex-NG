@@ -633,7 +633,7 @@ namespace Radios.Tests
             Assert.Null(t.Layer.CurrentTarget);
 
             var (h, _) = OpenAudio(VerbosityLevel.Chatty);
-            Assert.Equal("Audio layer. Press H for a list of keys.",
+            Assert.Equal("Audio layer. Press H for a list of keys, Escape to revert changes, Enter to accept.",
                 Assert.Single(h.Said));
             Assert.Null(h.Layer.CurrentTarget);
         }
@@ -1107,7 +1107,7 @@ namespace Radios.Tests
         public void Audio_the_alt_p_door_opens_on_pan()
         {
             var (h, _) = OpenAudio(VerbosityLevel.Chatty, onPan: true);
-            Assert.Equal("Audio layer. Pan, slice A, 40. Press H for a list of keys.",
+            Assert.Equal("Audio layer. Pan, slice A, 40. Press H for a list of keys, Escape to revert changes, Enter to accept.",
                 Assert.Single(h.Said));
             var (t, _) = OpenAudio(VerbosityLevel.Terse, onPan: true);
             Assert.Equal("Audio layer. Pan, slice A, 40.", Assert.Single(t.Said));
@@ -1251,7 +1251,7 @@ namespace Radios.Tests
 
             Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.B));
             Assert.True(h.Layer.IsLive);
-            Assert.Equal("B is not a key in the Audio layer. Ctrl+B: Binaural receive on or off",
+            Assert.Equal("Ctrl+B: Binaural receive on or off",
                 h.LastSaid);
 
             // Still the layer it was: the arrows still move what was picked.
@@ -1292,7 +1292,7 @@ namespace Radios.Tests
             var (h, _) = OpenAudio(VerbosityLevel.Chatty);
             Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.V | Keys.Control));
             Assert.True(h.Layer.IsLive);
-            Assert.Equal("Ctrl+V is not a key in the Audio layer. V: Slice volume", h.LastSaid);
+            Assert.Equal("V: Slice volume", h.LastSaid);
         }
 
         [Fact]
@@ -1348,12 +1348,18 @@ namespace Radios.Tests
             // Earcons off: the words are the only feedback there is, so they
             // are spoken at Terse too. A refusal is never silent, which is the
             // whole complaint this task started from.
+            //
+            // #558: and what they say is the RECOVERY, not the refusal. With
+            // the tone silenced this sentence is carrying both jobs, which is
+            // exactly when leading with "B is not a key in the Audio layer"
+            // was worst - it spent the only feedback available on the half the
+            // operator already knew.
             var tones = new ToneCounter { Audible = false };
             var (h, _) = OpenAudio(VerbosityLevel.Terse, cues: tones.Cues);
 
             h.Layer.HandleKey(Keys.B);
             Assert.True(h.Layer.IsLive);
-            Assert.Equal("B is not a key in the Audio layer.", h.LastSaid);
+            Assert.Equal("Ctrl+B: Binaural receive on or off", h.LastSaid);
         }
 
         // ════════════════════════════════════════════════════════════════
@@ -1576,7 +1582,7 @@ namespace Radios.Tests
             // different hat.
             var (h, _) = OpenFilter(VerbosityLevel.Chatty);
             Assert.Equal(
-                "Filter layer. RX filter 100 to 2800, 2.7 kilohertz. Press H for a list of keys.",
+                "Filter layer. RX filter 100 to 2800, 2.7 kilohertz. Press H for a list of keys, Escape to revert changes, Enter to accept.",
                 Assert.Single(h.Said));
             Assert.Equal("receive", h.Layer.CurrentGroup);
             Assert.Null(h.Layer.CurrentTarget);
@@ -2203,7 +2209,6 @@ namespace Radios.Tests
                 source, @"MeansSomethingOutside = MeansSomethingOutsideTheLayer").Count);
             Assert.Equal(2, Regex.Matches(source, @"DescribeNearMiss = key => LayerNearMiss\(").Count);
             Assert.Contains("KeyInventory.TryFindLayerNearMiss(context, pressed", source);
-            Assert.Contains("KeyLayerHelp.LayerName(context)", source);
             Assert.Contains("private bool MeansSomethingOutsideTheLayer(Keys k) => Lookup(k) != null;", source);
 
             foreach (string key in new[]

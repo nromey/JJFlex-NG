@@ -11,12 +11,12 @@
   "audio.audio_layer.entered": {
     "critical": "Audio layer.",
     "terse": "Audio layer.",
-    "chatty": "Audio layer. Press H for a list of keys."
+    "chatty": "Audio layer. Press H for a list of keys, Escape to revert changes, Enter to accept."
   },
   "audio.audio_layer.entered_on_pan": {
     "critical": "Audio layer. {target}.",
     "terse": "Audio layer. {target}.",
-    "chatty": "Audio layer. {target}. Press H for a list of keys."
+    "chatty": "Audio layer. {target}. Press H for a list of keys, Escape to revert changes, Enter to accept."
   },
   "audio.audio_layer.headphone": "Headphone {value}",
   "audio.audio_layer.headphone_selected": "On-radio headphone {value}",
@@ -365,7 +365,7 @@
   "audio.filter_layer.entered": {
     "critical": "Filter layer. {filter}.",
     "terse": "Filter layer. {filter}.",
-    "chatty": "Filter layer. {filter}. Press H for a list of keys."
+    "chatty": "Filter layer. {filter}. Press H for a list of keys, Escape to revert changes, Enter to accept."
   },
   "audio.filter_layer.name": "Filter layer",
   "audio.filter_layer.no_slice": "No slice for the receive filter",
@@ -755,11 +755,7 @@
   "audio.unit.watt": "watt",
   "audio.unit.watts": "watts",
   "audio.value.adjusted": "{label} {value}{suffix}",
-  "audio.value_layer.near_miss": {
-    "critical": "{pressed} is not a key in the {layer}.",
-    "terse": "{pressed} is not a key in the {layer}.",
-    "chatty": "{pressed} is not a key in the {layer}. {alt}: {what}"
-  },
+  "audio.value_layer.near_miss": "{alt}: {what}",
   "audio.workshop.section_nothing_to_adjust": "{section}, nothing to adjust here.",
   "audio.workshop.unnamed_section": "Section"
 }

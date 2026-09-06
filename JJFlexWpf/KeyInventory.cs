@@ -685,6 +685,29 @@ public static class KeyInventory
     }
 
     /// <summary>
+    /// The head of a row's description - the short name, without the clause
+    /// that explains it. Rows are written "Short NAME — the long explanation",
+    /// so the head is what a near-miss wants: the operator pressed the wrong
+    /// key and needs to hear which key is right, not a paragraph about it.
+    /// </summary>
+    /// <remarks>
+    /// #558. Both near-miss paths call this, deliberately. When the value
+    /// layer and the leader each rendered their own sentence they drifted into
+    /// two vocabularies for one idea, which is the same shape as the pan words
+    /// scale (#536) and the restore list's two renderers - so the shortening
+    /// lives in ONE place and both callers take it from here.
+    /// </remarks>
+    internal static string ShortDescription(string description)
+    {
+        if (string.IsNullOrWhiteSpace(description)) return "";
+        int dash = description.IndexOf(" — ", System.StringComparison.Ordinal);
+        if (dash > 0) return description.Substring(0, dash).Trim();
+        int semi = description.IndexOf(';');
+        if (semi > 0) return description.Substring(0, semi).Trim();
+        return description.Trim();
+    }
+
+    /// <summary>
     /// When an unbound leader chord is one modifier away from a bound one,
     /// name the bound neighbour so "Unknown command" becomes a recovery.
     /// </summary>
@@ -719,7 +742,7 @@ public static class KeyInventory
             if (table.TryGetValue(candidate, out var hit))
             {
                 altKeyName = hit.KeyName;
-                altDescription = hit.Description;
+                altDescription = ShortDescription(hit.Description);
                 return true;
             }
         }
@@ -821,7 +844,7 @@ public static class KeyInventory
             if (table.TryGetValue(candidate, out var hit))
             {
                 altKeyName = hit.KeyName;
-                altDescription = hit.Description;
+                altDescription = ShortDescription(hit.Description);
                 return true;
             }
         }
