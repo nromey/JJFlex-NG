@@ -89,6 +89,55 @@ namespace Radios.Speech
             _backend != IntPtr.Zero && _supportsIsSpeaking;
 
         /// <summary>
+        /// Ask the backend whether it is speaking right now. Null when it
+        /// cannot say (no is-speaking feature, no backend, or the call
+        /// failed) — never a guess. Consumed by the arbiter as a correction
+        /// to its estimate (#557), not as something to wait on: SAPI answers
+        /// today, NVDA from 2026.3 (NvdaController3), JAWS never.
+        /// </summary>
+        internal bool? IsSpeaking()
+        {
+            if (!CanReportSpeaking) return null;
+            try
+            {
+                var rc = PrismNative.prism_backend_is_speaking(_backend, out bool speaking);
+                return rc == PrismError.Ok ? speaking : (bool?)null;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"Prism: is_speaking threw: {ex.Message}", TraceLevel.Verbose);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// The channel through which the reader we hold can say what became
+        /// of an utterance (#521), or null when it cannot.
+        ///
+        /// <b>A capability, populated here and consulted above — never a
+        /// reader-name branch.</b> This is non-null exactly when the backend
+        /// Prism holds is NVDA's controller (by backend id, the table this
+        /// class already owns), that reader has not been flagged lost, and NV
+        /// Access's client DLL loaded from its absolute path with the entry
+        /// points it needs. The #291 shape — NVDA and JAWS both running,
+        /// Prism bound to JAWS — therefore never speaks through this channel
+        /// while Prism speaks through the other. When Prism grows a
+        /// completion-reporting speak upstream, this property is
+        /// reimplemented over Prism's feature bit and nothing that reads it
+        /// changes.
+        /// </summary>
+        internal ISpeechCompletionChannel? CompletionChannel
+        {
+            get
+            {
+                if (_backend == IntPtr.Zero || _readerLost) return null;
+                if (Tier != SpeechTier.ScreenReader || _activeReaderId != PrismNative.BackendNvda) return null;
+                var channel = NvdaCompletionChannel.Shared;
+                return channel.CanReportCompletion ? channel : null;
+            }
+        }
+
+        /// <summary>
         /// Never throws. Every failure path — no prism.dll, null context, no
         /// backend, init error — returns false so the caller can fall back.
         /// This runs before the app has drawn a window, on machines whose

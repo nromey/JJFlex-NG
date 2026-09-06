@@ -419,8 +419,8 @@ namespace Radios
             Tracing.TraceLine(
                 $"ConnectBriefing: settled — {emitted.Count} composed utterance(s)"
                 + (arrival != null ? " then the Home arrival" : "")
-                + $", {chars} characters, about {chars * SpeechArbiter.SalvageMsPerCharacter / 1000.0:F1} s "
-                + "at the arbiter's estimate. Home is settled.",
+                + $", {chars} characters, roughly {chars * SpeechArbiter.SalvageMsPerCharacter / 1000.0:F1} s "
+                + "at 80 ms per character (a yardstick; the ledger's own estimate is the rate model). Home is settled.",
                 System.Diagnostics.TraceLevel.Info);
 
             if (alarm) _alarm();

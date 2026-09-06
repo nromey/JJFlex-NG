@@ -322,6 +322,42 @@ namespace Radios
         }
 
         /// <summary>
+        /// Record what the reader said became of one utterance it was handed
+        /// (#521): heard to the end, cut at a known word, or unknown for a
+        /// stated reason. Written from the paced delivery's thread after the
+        /// reader answers, so it lands some time after the matching
+        /// <c>speech</c> event; the <paramref name="ticket"/> is what ties
+        /// them together, and the <c>speech</c> event's trace line names it
+        /// as <c>paced #N</c>.
+        ///
+        /// This is the field the transcript never had: every earlier reading
+        /// of a capture could see EMISSION and had to infer delivery. A
+        /// harness asserting "the operator heard X" can now assert it, and
+        /// one asserting "X was NOT re-spoken after being heard" can prove
+        /// the #521 repeat is gone rather than believe it.
+        /// </summary>
+        /// <param name="outcome">Completed, Cancelled or Unknown — <c>SpeechOutcomeKind</c>'s name.</param>
+        /// <param name="unknownReason">The <c>SpeechUnknownReason</c> name when Unknown, else null (written as an explicit null).</param>
+        public static void RecordSpeechOutcome(long ticket, string text, string outcome,
+            int marksReached, int markCount, int elapsedMs, string unknownReason, string detail)
+        {
+            Write("speech-outcome", w =>
+            {
+                w.WriteNumber("ticket", ticket);
+                w.WriteString("text", text);
+                w.WriteString("outcome", outcome);
+                w.WriteNumber("marksReached", marksReached);
+                w.WriteNumber("markCount", markCount);
+                w.WriteNumber("elapsedMs", elapsedMs);
+                // Same three-state rule as RecordSpeech: always emitted,
+                // explicitly null when not applicable, absent only in
+                // transcripts written before this event existed.
+                if (unknownReason != null) w.WriteString("unknownReason", unknownReason); else w.WriteNull("unknownReason");
+                if (detail != null) w.WriteString("detail", detail); else w.WriteNull("detail");
+            });
+        }
+
+        /// <summary>
         /// Record which speech backend and tier came up. Written from
         /// ScreenReaderOutput.Initialize, and again on every later channel
         /// change (#167) — the UIA upgrade after the window shows, or a screen

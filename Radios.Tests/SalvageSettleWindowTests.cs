@@ -114,7 +114,19 @@ namespace Radios.Tests
             // The field entry, 2,247 ms before the tune: its lead rescues
             // the receipt (its first rescue), the digit and the committed
             // value are queued inside that window and go straight through.
-            _clock.Advance(5353);
+            //
+            // On the day the lead came 5,353 ms after the receipt was
+            // queued, and the receipt was still unspoken — the reader had a
+            // backlog the ledger could not see. Under #557's fitted estimate
+            // a thirteen-word receipt is believed said inside about 2.8 s,
+            // so on the estimate path alone it would be gone by 5,353 and
+            // the day's ordering could not be replayed. The first offset is
+            // compressed inside the estimate; every offset after it is the
+            // capture's own. Seeing that backlog is precisely what the
+            // completion channel (#521) now does.
+            const int firstOffset = 2000;
+            Assert.True(firstOffset < SpeechArbiter.EstimateSpokenMs(Receipt), "the receipt must still be believed pending at the lead");
+            _clock.Advance(firstOffset);
             a.Emit("Enter Tune Power value", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "field");
             _clock.Advance(1);
             a.Emit("5", false, SpeechIntent.Queue, VerbosityLevel.Critical, "field",
@@ -493,6 +505,11 @@ namespace Radios.Tests
             + "nobody would hear you. Nothing you did caused it, and receive is unaffected. The "
             + "Audio Workshop has the details.";
 
+        /// <summary>The composed connect lead that goes ahead of the paragraph on every connect.</summary>
+        private const string ConnectSummary =
+            "Connected to FLEX-6300, SmartLink. 2 slices. Slice A, yours, transmit, "
+            + "14.100 megahertz, USB, pan center.";
+
         [Fact]
         public void ABurstThatCarriesAnEntryAcrossTheCeiling_RefusesItAtTheReJudge()
         {
@@ -503,7 +520,16 @@ namespace Radios.Tests
             // re-judge refuses it there: it never reaches the reader, and the
             // refusal is traced at the press that found it, not lost in the
             // hold.
+            //
+            // Under #557 the paragraph alone is about 11.5 s, not the 15 s
+            // cap 80 ms/char gave it, so the connect summary goes ahead of
+            // it — as on the day — to keep "PC audio on." believed pending
+            // to 14.4 s. Asserted, so a retune fails here with a reason.
+            Assert.True(SpeechArbiter.EstimateSpokenMs(ConnectSummary) + SpeechArbiter.EstimateSpokenMs(MicProfileHeadsUp)
+                > SpeechArbiter.SalvageCeilingMs - Settle);
+
             var alone = NewArbiter();
+            alone.Emit(ConnectSummary, false, SpeechIntent.Queue, VerbosityLevel.Terse, "connect");
             alone.Emit(MicProfileHeadsUp, false, SpeechIntent.Queue, VerbosityLevel.Terse, "connect");
             alone.Emit("PC audio on.", false, SpeechIntent.Queue, VerbosityLevel.Terse, "MainWindow",
                 subject: SpeechSubject.PcAudio);
@@ -514,6 +540,7 @@ namespace Radios.Tests
 
             _calls.Clear();
             var burst = NewArbiter();
+            burst.Emit(ConnectSummary, false, SpeechIntent.Queue, VerbosityLevel.Terse, "connect");
             burst.Emit(MicProfileHeadsUp, false, SpeechIntent.Queue, VerbosityLevel.Terse, "connect");
             burst.Emit("PC audio on.", false, SpeechIntent.Queue, VerbosityLevel.Terse, "MainWindow",
                 subject: SpeechSubject.PcAudio);

@@ -726,8 +726,18 @@ namespace Radios.Tests
         {
             // A suppressed interrupt never flushed the reader's queue, so
             // "salvaging" would emit duplicates of speech still safely queued.
+            //
+            // The queued line has to outlive the whole sequence on its own
+            // estimate — 100 ms, a settle window, 100 ms more. "Session
+            // closed" did under the 80 ms/char model and lands on the 800 ms
+            // floor under #557, exactly when the real interrupt arrives; a
+            // sentence-length line says the same thing and is still believed
+            // pending. The precondition is asserted so a retune says why.
+            const string closed = "Session closed, the radio has gone away";
+            Assert.True(SpeechArbiter.EstimateSpokenMs(closed) > 100 + Settle + 100);
+
             var a = NewArbiter();
-            a.Emit("Session closed", false, null, VerbosityLevel.Terse, "t");
+            a.Emit(closed, false, null, VerbosityLevel.Terse, "t");
             _clock.Advance(100);
 
             _sinkResult = false;   // SuppressSpeech / no backend
@@ -740,7 +750,7 @@ namespace Radios.Tests
             _clock.Advance(100);
             a.Emit("Real", true, SpeechIntent.Interrupt, null, "t");
             _clock.Advance(Settle);
-            Assert.Contains(_calls, c => c.Salvaged && c.Message == "Session closed");
+            Assert.Contains(_calls, c => c.Salvaged && c.Message == closed);
         }
 
         [Fact]
@@ -1060,8 +1070,19 @@ namespace Radios.Tests
             // The last "still looking" is covered by nothing that is itself a
             // progress line — the dialog that answers it does that. So the
             // voice says so explicitly when it stops, and the next interrupt
-            // rescues neither line. The greeting, unkeyed and unrelated, is
-            // still rescued: retiring one subject burns nothing else.
+            // rescues neither line. An unkeyed, unrelated line queued behind
+            // the narration IS still rescued: retiring one subject burns
+            // nothing else.
+            //
+            // Until #557 that unrelated line was the launch greeting itself,
+            // queued at zero: at 80 ms/char it was believed pending for well
+            // over five seconds. The fitted model says it was said inside
+            // 4.6 s — which is what the reader actually does with a sentence
+            // that long — so it is correctly gone by the interrupt, and the
+            // connection-list line from the same captures stands in.
+            const string listLoaded = "Local connection list loaded, still listening";
+            Assert.True(SpeechArbiter.EstimateSpokenMs(Greeting) < 5500, "the greeting is heard before the interrupt");
+
             var a = NewArbiter();
             a.Emit(Greeting, false, SpeechIntent.Queue, VerbosityLevel.Terse, "launch");
             a.Emit("Looking for radios on your network.", false, SpeechIntent.Queue,
@@ -1069,7 +1090,9 @@ namespace Radios.Tests
             _clock.Advance(4000);
             a.Emit("Still looking for radios.", false, SpeechIntent.Queue,
                 VerbosityLevel.Terse, "ProgressVoice", subject: SpeechSubject.Progress);
-            _clock.Advance(1000);
+            _clock.Advance(500);
+            a.Emit(listLoaded, false, SpeechIntent.Queue, VerbosityLevel.Terse, "RigSelectorDialog");
+            _clock.Advance(500);
             a.Supersede(SpeechSubject.Progress,
                 "the end of the wait for 'local discovery' (dialog announced: Discovering radios)",
                 "ProgressVoice");
@@ -1077,39 +1100,44 @@ namespace Radios.Tests
             a.Emit("Discovering radios", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "dialog");
             _clock.Advance(Settle);
 
-            Assert.Equal(new[] { Greeting },
+            Assert.Equal(new[] { listLoaded },
                 _calls.Where(c => c.Salvaged).Select(c => c.Message));
         }
 
         [Fact]
-        public void Salvage_ProgressLines_TheControl_UnkeyedBothAreRescuedByTheirOwnBounds()
+        public void Salvage_ProgressLines_TheControl_UnkeyedTheirOwnArithmeticDecides()
         {
-            // Same timings, no subject. "Looking…" is 35 characters, a
-            // 5,600 ms bound, and 5,000 ms old at the interrupt: rescued.
-            // "Still looking…" is 25, a 4,000 ms bound, and 1,000 ms old:
-            // rescued. Both are re-spoken behind the dialog that made them
-            // meaningless. The old policy dropped them on the day only
-            // because discovery happened to run past the arithmetic.
+            // Same timings, no subject: the control for the test above.
+            // Without a subject the arbiter has only arithmetic, and the
+            // arithmetic decides arbitrarily — which is the point. Under the
+            // 80 ms/char model both lines were rescued behind the dialog that
+            // had made them meaningless. Under #557's fit "Looking…" (six
+            // words, about 1.4 s) is 5,000 ms old against a bound of twice
+            // its own estimate and is dropped as stale, while "Still
+            // looking…" at 1,000 ms is inside its bound and IS re-spoken
+            // behind the dialog. Either outcome is wrong for a progress line;
+            // only a subject gets it right, and that is the test above.
             //
             // The word-count bound is judged at the interrupt, not again at
-            // the hand-over one settle window later (#507): "Looking…" is
-            // 5,600 ms old when it actually goes back to the reader, and
-            // that is not held against it, because the wait was the
-            // arbiter's own.
+            // the hand-over one settle window later (#507): the wait is the
+            // arbiter's own and is not held against the entry.
+            const string looking = "Looking for radios on your network.";
+            const string still = "Still looking for radios.";
+            Assert.True(SpeechArbiter.EstimateSpokenMs(looking) * SpeechArbiter.SalvageAgeMultiple < 5000);
+            Assert.True(SpeechArbiter.EstimateSpokenMs(still) * SpeechArbiter.SalvageAgeMultiple > 1000);
+
             var a = NewArbiter();
             a.Emit(Greeting, false, SpeechIntent.Queue, VerbosityLevel.Terse, "launch");
-            a.Emit("Looking for radios on your network.", false, SpeechIntent.Queue,
-                VerbosityLevel.Terse, "ProgressVoice");
+            a.Emit(looking, false, SpeechIntent.Queue, VerbosityLevel.Terse, "ProgressVoice");
             _clock.Advance(4000);
-            a.Emit("Still looking for radios.", false, SpeechIntent.Queue,
-                VerbosityLevel.Terse, "ProgressVoice");
+            a.Emit(still, false, SpeechIntent.Queue, VerbosityLevel.Terse, "ProgressVoice");
             _clock.Advance(1000);
             a.Emit("Discovering radios", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "dialog");
             _clock.Advance(Settle);
 
             var rescued = _calls.Where(c => c.Salvaged).Select(c => c.Message).ToList();
-            Assert.Contains("Looking for radios on your network.", rescued);
-            Assert.Contains("Still looking for radios.", rescued);
+            Assert.DoesNotContain(looking, rescued);
+            Assert.Contains(still, rescued);
         }
 
         [Fact]
@@ -1217,7 +1245,18 @@ namespace Radios.Tests
             // what the ceiling forbids.
             int lastRescuableInterrupt = SpeechArbiter.SalvageCeilingMs - Settle - 1;
 
+            // Under #557 no single utterance is believed to hold the reader
+            // for fifteen seconds — the paragraph is about 11.5 s at the
+            // fitted rate, where 80 ms/char made it the full 15 s cap. So
+            // the connect summary is queued ahead of it, as it was on the
+            // day, and the two together keep "PC audio on." believed pending
+            // past the ceiling. The precondition is asserted so a retune of
+            // the model fails here with a reason rather than silently.
+            Assert.True(SpeechArbiter.EstimateSpokenMs(ConnectSummary) + SpeechArbiter.EstimateSpokenMs(MicProfileHeadsUp)
+                > lastRescuableInterrupt, "the two long lines must keep the ledger busy past the last rescuable interrupt");
+
             var early = NewArbiter();
+            early.Emit(ConnectSummary, false, SpeechIntent.Queue, VerbosityLevel.Terse, "connect");
             early.Emit(MicProfileHeadsUp, false, SpeechIntent.Queue, VerbosityLevel.Terse, "connect");
             early.Emit("PC audio on.", false, SpeechIntent.Queue, VerbosityLevel.Terse, "MainWindow",
                 subject: SpeechSubject.PcAudio);
@@ -1234,6 +1273,7 @@ namespace Radios.Tests
             _calls.Clear();
             var crossing = NewArbiter();
             double t0 = _clock.ElapsedMs;
+            crossing.Emit(ConnectSummary, false, SpeechIntent.Queue, VerbosityLevel.Terse, "connect");
             crossing.Emit(MicProfileHeadsUp, false, SpeechIntent.Queue, VerbosityLevel.Terse, "connect");
             crossing.Emit("PC audio on.", false, SpeechIntent.Queue, VerbosityLevel.Terse, "MainWindow",
                 subject: SpeechSubject.PcAudio);
@@ -1248,6 +1288,7 @@ namespace Radios.Tests
             // as before, and nothing arrives later either.
             _calls.Clear();
             var late = NewArbiter();
+            late.Emit(ConnectSummary, false, SpeechIntent.Queue, VerbosityLevel.Terse, "connect");
             late.Emit(MicProfileHeadsUp, false, SpeechIntent.Queue, VerbosityLevel.Terse, "connect");
             late.Emit("PC audio on.", false, SpeechIntent.Queue, VerbosityLevel.Terse, "MainWindow",
                 subject: SpeechSubject.PcAudio);

@@ -216,19 +216,137 @@ namespace Radios
             () => CurrentVerbosity,
             EmitCore,
             SilenceBackendQuietly,
-            RecordGated);
+            RecordGated,
+            CreateRateModel(),
+            ProbeIsSpeaking);
+
+        /// <summary>
+        /// The speaking-rate model the estimate path uses (#557), persisted
+        /// under the settings root so what one session learns from real
+        /// deliveries reaches the next. Built in a static initializer, so it
+        /// must not throw: a failure here would be a TypeInitializationException
+        /// on the first Speak, which is the app vanishing on launch.
+        /// </summary>
+        private static Speech.SpeechRateModel CreateRateModel()
+        {
+            try { return Speech.SpeechRateModel.Persisted(RadioConfig.AppDataRoot); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"ScreenReaderOutput: rate model could not be persisted ({ex.Message}); using the reference rate.",
+                    TraceLevel.Warning);
+                return new Speech.SpeechRateModel();
+            }
+        }
+
+        /// <summary>
+        /// The backend's is-speaking bit for the arbiter's estimate
+        /// correction (#557). Null whenever the backend cannot say. Called
+        /// inside the arbiter's lock and takes the backend lock in turn —
+        /// the same order every ordinary utterance uses, so no inversion.
+        /// </summary>
+        private static bool? ProbeIsSpeaking()
+        {
+            if (!_available) return null;
+            lock (_backendLock)
+            {
+                return (_backend as Speech.PrismScreenReader)?.IsSpeaking();
+            }
+        }
 
         /// <summary>
         /// Test-only: drop the arbiter's transient state — pending coalesced
-        /// values, the believed-pending ledger, per-key dedup. The arbiter is
-        /// process-global, so tests that drive this static surface would
-        /// otherwise leak protection state into one another: the first
-        /// observed failure was a prior test's queued utterance being
-        /// salvaged into the next test's transcript. The arbiter's own
-        /// behaviour is tested against private instances (SpeechArbiterTests)
-        /// and never needs this.
+        /// values, the believed-pending ledger, per-key dedup — and anything
+        /// the paced delivery still holds. The arbiter is process-global, so
+        /// tests that drive this static surface would otherwise leak
+        /// protection state into one another: the first observed failure was
+        /// a prior test's queued utterance being salvaged into the next
+        /// test's transcript. The arbiter's own behaviour is tested against
+        /// private instances (SpeechArbiterTests) and never needs this.
         /// </summary>
-        internal static void ResetTransientSpeechStateForTest() => _arbiter.DiscardAll();
+        internal static void ResetTransientSpeechStateForTest()
+        {
+            _pump?.Discard("test reset");
+            _arbiter.DiscardAll();
+        }
+
+        // ── The paced delivery (#521) ─────────────────────────────────────
+        //
+        // Where the reader can say what became of an utterance, text no
+        // longer goes to the backend from the caller's thread. It goes to a
+        // dedicated delivery thread that hands the reader ONE utterance at a
+        // time, waits for the answer, and reports it to the arbiter by
+        // ticket. Everything else — the verbosity gate, suppression, the
+        // history, the transcript, the arbiter's interrupt semantics — is
+        // untouched; only the hand-off under EmitCore changed shape.
+        //
+        // The channel is a capability the backend exposes
+        // (PrismScreenReader.CompletionChannel), consulted per utterance
+        // under the backend lock. Where it is null, EmitCore does exactly
+        // what it did before this landed.
+
+        /// <summary>The delivery thread and its queue. Created on the first utterance a channel can carry; null until then.</summary>
+        private static Speech.PacedSpeechDelivery? _pump;
+
+        /// <summary>Caller holds <see cref="_backendLock"/>.</summary>
+        private static Speech.PacedSpeechDelivery PumpLocked()
+        {
+            return _pump ??= new Speech.PacedSpeechDelivery(SpeakThroughBackend, OnPacedOutcome);
+        }
+
+        /// <summary>
+        /// The plain path, for the pump: the backend's own speak under the
+        /// backend lock, with #277's delivery check run on the result. This
+        /// is what every utterance took before #521 and what any utterance
+        /// the channel cannot carry still takes. Runs on the delivery thread.
+        /// </summary>
+        private static Speech.SpeechDelivery SpeakThroughBackend(string message, bool interrupt)
+        {
+            Speech.SpeechDelivery delivery;
+            try
+            {
+                lock (_backendLock)
+                {
+                    delivery = _backend?.Speak(message, interrupt) ?? Speech.SpeechDelivery.NotAttempted;
+                }
+            }
+            catch (Exception ex)
+            {
+                delivery = Speech.SpeechDelivery.Failed($"backend speak threw on the delivery thread: {ex.Message}");
+            }
+            NoteDelivery(delivery, message);
+            return delivery;
+        }
+
+        /// <summary>
+        /// The reader's answer for one ticket, from the delivery thread with
+        /// no lock held. The arbiter does the accounting; the transcript gets
+        /// the outcome so a capture reading can see delivery, not just
+        /// emission. A refusal is also a #277 event: the backend said no to
+        /// words we handed it.
+        /// </summary>
+        private static void OnPacedOutcome(long ticket, string message, Speech.SpeechOutcome outcome)
+        {
+            try { _arbiter.OnOutcome(ticket, message, outcome); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"ScreenReaderOutput: OnOutcome threw for #{ticket}: {ex.Message}", TraceLevel.Warning);
+            }
+
+            if (outcome.Kind == Speech.SpeechOutcomeKind.Unknown
+                && outcome.UnknownReason == Speech.SpeechUnknownReason.Refused)
+            {
+                NoteDelivery(Speech.SpeechDelivery.Failed(
+                    $"the completion channel refused '{message}': {outcome.Detail}"), message);
+            }
+
+            if (OutputChannelRecorder.RecordEnabled)
+            {
+                OutputChannelRecorder.RecordSpeechOutcome(ticket, message, outcome.Kind.ToString(),
+                    outcome.MarksReached, outcome.MarkCount, outcome.ElapsedMs,
+                    outcome.Kind == Speech.SpeechOutcomeKind.Unknown ? outcome.UnknownReason.ToString() : null,
+                    outcome.Detail);
+            }
+        }
 
         /// <summary>
         /// Speak with an explicit intent. This is the form new code should use.
@@ -380,12 +498,13 @@ namespace Radios
         /// reader can tell one utterance re-queued from a call site that fired
         /// twice.
         /// </summary>
-        private static bool EmitCore(string message, bool interrupt,
+        private static Speech.SpeechHandoff EmitCore(string message, bool interrupt,
             Speech.SpeechIntent? intent, VerbosityLevel? level, string? origin, bool salvaged)
         {
             bool suppressed = SuppressSpeech;
             bool rendered = false;
             bool reachedBackend = false;
+            long ticket = 0;
             string? deliveryFailure = null;
 
             if (!suppressed)
@@ -398,8 +517,27 @@ namespace Radios
                         Speech.SpeechDelivery delivery;
                         lock (_backendLock)
                         {
-                            delivery = _backend?.Speak(message, interrupt)
-                                       ?? Speech.SpeechDelivery.NotAttempted;
+                            // #521: where the reader can say what became of
+                            // an utterance, it goes to the paced delivery,
+                            // which hands the reader one at a time and
+                            // reports back by ticket. The channel is a
+                            // capability the backend exposes; where it is
+                            // null this is the same synchronous hand-off it
+                            // has always been.
+                            var channel = (_backend as Speech.PrismScreenReader)?.CompletionChannel;
+                            if (channel != null)
+                            {
+                                var pump = PumpLocked();
+                                ticket = interrupt
+                                    ? pump.Interrupt(channel, message)
+                                    : pump.Enqueue(channel, message);
+                                delivery = Speech.SpeechDelivery.Accepted;
+                            }
+                            else
+                            {
+                                delivery = _backend?.Speak(message, interrupt)
+                                           ?? Speech.SpeechDelivery.NotAttempted;
+                            }
                         }
 
                         // #277: this used to be an unconditional
@@ -416,10 +554,15 @@ namespace Radios
                             // diverted backend accepted the text and discarded it,
                             // and the transcript must not claim otherwise.
                             rendered = OutputChannelRecorder.RenderEnabled;
+                            // "Spoke" is kept as the word, because every capture
+                            // reading since #503 greps for it; #521's own finding
+                            // is that it has only ever meant "handed to the
+                            // reader". The ticket says a real answer is coming.
                             Tracing.TraceLine(
                                 $"ScreenReaderOutput: Spoke '{message}' via "
                                 + $"{_screenReaderName ?? "no named reader"} (interrupt={interrupt}"
-                                + $"{(salvaged ? ", salvaged" : string.Empty)})",
+                                + $"{(salvaged ? ", salvaged" : string.Empty)}"
+                                + $"{(ticket != 0 ? $", paced #{ticket}" : string.Empty)})",
                                 TraceLevel.Verbose);
                         }
                         NoteDelivery(delivery, message);
@@ -444,7 +587,7 @@ namespace Radios
                     reader: _screenReaderName, deliveryFailure: deliveryFailure);
             }
 
-            return reachedBackend;
+            return new Speech.SpeechHandoff(reachedBackend, ticket);
         }
 
         /// <summary>
@@ -797,6 +940,12 @@ namespace Radios
             }
             catch { /* ignore */ }
 
+            // What waits in the paced delivery is the same backlog, one stage
+            // closer to us; silencing must withdraw it too, or it would be
+            // handed to the reader a moment after the operator asked for
+            // quiet (#521).
+            try { _pump?.Discard("the operator silenced speech"); } catch { /* best effort */ }
+
             // The operator (or a transition) asked for quiet: the arbiter must
             // forget its believed backlog, or the next interrupt would
             // "salvage" and re-speak the very utterances this call shut up.
@@ -823,6 +972,11 @@ namespace Radios
             // Stop the arbiter's timers next, so a coalesced settle cannot
             // fire into a backend that is mid-disposal.
             try { _arbiter.DiscardAll(); } catch { /* ignore */ }
+
+            // The delivery thread goes before the backend it speaks through.
+            // Dispose does not join it — it may be inside a hung RPC — but it
+            // retires the generation so nothing it returns is acted on.
+            try { _pump?.Dispose(); _pump = null; } catch { /* ignore */ }
 
             try
             {
@@ -1201,7 +1355,9 @@ namespace Radios
                 // per-key dedup (so the next value speaks rather than being
                 // suppressed as a duplicate of something spoken to a reader
                 // that has gone). Same call the watchdog's re-bind makes, and
-                // never given a second implementation.
+                // never given a second implementation. The paced delivery's
+                // queue is the same backlog one stage nearer and goes too.
+                try { _pump?.Discard("the speech channel changed"); } catch { /* best effort */ }
                 try { _arbiter.DiscardAll(); } catch { /* best effort */ }
 
                 // Announce ONLY the climb onto the operator's own reader, once
@@ -1422,7 +1578,9 @@ namespace Radios
                     + "is what is running. Flushing pending speech and re-binding.",
                     TraceLevel.Warning);
 
-                // 1. Nothing queued may survive into the new reader.
+                // 1. Nothing queued may survive into the new reader — in the
+                //    arbiter or in the paced delivery in front of it.
+                try { _pump?.Discard("re-binding to the running reader"); } catch { /* best effort */ }
                 try { _arbiter.DiscardAll(); } catch { /* best effort */ }
 
                 bool speaks;
