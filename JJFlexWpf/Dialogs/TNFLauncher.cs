@@ -82,10 +82,15 @@ public static class TNFLauncher
                     return null;
                 }
 
+                // "Notch added", not "Notch added at 14.235.00". The dialog
+                // selects the new notch and the screen reader reads the
+                // selected row, which IS the frequency — so naming it here
+                // says it twice. What the interface cannot convey is that the
+                // radio accepted it at all, and that is the whole sentence.
+                // NEEDS A SCREEN-READER PASS: if the selection change turns
+                // out not to be announced, the frequency belongs back in here.
                 string? display = rig.AddTNFAtReceiveFrequency();
-                Speak(display != null
-                    ? Lexicon.Get("audio.tnf.added", ("freq", display))
-                    : Lexicon.Get("audio.tnf.add_failed"));
+                Speak(Lexicon.Get(display != null ? "audio.tnf.added" : "audio.tnf.add_failed"));
                 return display;
             },
 
