@@ -512,6 +512,15 @@ public static class KeyInventory
             new[] { "anf", "auto", "notch", "carrier", "heterodyne", "tone", "leader", "toggle" }, "Radio", "DSP"),
         new("Leader", "JJ key", "Ctrl+J, P", "Toggle Audio Peak Filter (CW only)",
             new[] { "apf", "audio", "peak", "filter", "cw", "leader" }, "Radio", "DSP"),
+        // Sprint 46 Track D (#482): N for Notch on the Alt tier, because
+        // opening a manager is an action rather than a layer or a toggle
+        // (#515). Keywords carry "birdie" and "carrier" on purpose — an
+        // operator hunting the steady tone sitting on top of a signal will
+        // search for what they can hear, not for what the feature is called.
+        new("Leader", "JJ key", "Ctrl+J, Alt+N", "Tracking notch filters: place a deep narrow notch on a birdie and let the radio hold it there",
+            new[] { "tnf", "tracking", "notch", "filter", "birdie", "carrier", "heterodyne", "tone",
+                    "whistle", "interference", "qrm", "permanent", "deep", "narrow", "leader" },
+            "Radio", "DSP"),
         // JJ key A — the audio layer's door under the four-tier grammar (#515):
         // a plain letter opens a layer, and A is ruled for audio. Wired by the
         // Sprint 44 integration pass; Track I built the layer and Track J freed

@@ -174,6 +174,27 @@ namespace Radios.Speech
         public const string JjKeyHelp = "jj-key-help";
 
         /// <summary>
+        /// What just happened to the tracking notch list — a notch placed, a
+        /// notch removed, or the radio declining to do either (#482). One
+        /// subject because they are successive answers to one question, "is
+        /// the notch there or not?", and only the newest is true: an unheard
+        /// "Notch added at 14.235" is worthless once "Notch removed" is the
+        /// state of the radio.
+        ///
+        /// <para>The refusals share it deliberately. A tracking notch is
+        /// created by the RADIO, not by us, so Add can succeed, fail, or fail
+        /// slowly — and without sight those three are the same silence. The
+        /// refusal sentence is the only thing that distinguishes them, so it
+        /// must be as durable as the success it replaces, not expired by being
+        /// a few words longer.</para>
+        ///
+        /// <para>Nothing outside the notch list covers it: a band change, a
+        /// tune or a slice jump leaves a placed notch exactly as placed as it
+        /// was, and a permanent notch survives a power cycle.</para>
+        /// </summary>
+        public const string TrackingNotch = "tracking-notch";
+
+        /// <summary>
         /// The value of one field, named by its label — the committed value
         /// and the swept value share it, so a committed value still queued
         /// when the operator starts sweeping is covered by the sweep. This is

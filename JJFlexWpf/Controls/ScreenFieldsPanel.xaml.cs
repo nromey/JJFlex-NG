@@ -68,6 +68,7 @@ public partial class ScreenFieldsPanel : UserControl
     private Button _captureNoiseButton = null!;
     private Button _noiseProfilesButton = null!;
     private Button _rxEqButton = null!;
+    private Button _tnfButton = null!;
     private System.Windows.Controls.TextBlock _noiseProfileDisplay = null!;
     private CheckBox _meterToneCheck = null!;
     private CheckBox _peakWatcherCheck = null!;
@@ -572,6 +573,25 @@ public partial class ScreenFieldsPanel : UserControl
             _rxEqButton, Lexicon.Get("audio.eq.name_receive"));
         _rxEqButton.Click += (s, e) => Dialogs.EqualizerLauncher.ShowReceive(_rig);
         DspContent.Children.Add(_rxEqButton);
+
+        // The tracking notch filters (#482) — same defect, same panel, one
+        // sprint later. Their only other UI was the button on FiltersDspControl
+        // named in the comment above, which has never been on screen either, so
+        // notches read as missing for exactly the reason the equalizers did.
+        // Placed beside the receive equalizer because a tracking notch is a
+        // receive tool: it is what you reach for when something specific is
+        // sitting in the passband, rather than when the whole band is noisy.
+        _tnfButton = new Button
+        {
+            Content = Lexicon.Get("audio.tnf.button"),
+            Margin = new Thickness(0, 2, 0, 2),
+            Padding = new Thickness(8, 4, 8, 4),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Left
+        };
+        System.Windows.Automation.AutomationProperties.SetName(
+            _tnfButton, Lexicon.Get("audio.tnf.name"));
+        _tnfButton.Click += (s, e) => Dialogs.TNFLauncher.Show(_rig);
+        DspContent.Children.Add(_tnfButton);
 
         // Read-only profile readout — arrow to it, hear which profile is
         // loaded (name, band, antenna ride the name). Mic-verdict pattern:
