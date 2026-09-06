@@ -4454,14 +4454,20 @@ public class KeyCommands
             // the list through ListCommands below.
             DescribeLayerHelp = layer => KeyLayerHelp.SpokenList(KeyInventory.AudioLayerContext),
             DescribeClosed = () => Radios.Lexicon.Get("audio.audio_layer.closed"),
-            DescribeLayerRestored = (layer, restored) => restored.Count == 0
-                ? Radios.Lexicon.Get("audio.audio_layer.restored_nothing")
-                : Radios.Lexicon.Get("audio.audio_layer.restored", ("list", string.Join(", ",
-                    restored.Select(r => r.Target == pan
-                        ? Radios.Lexicon.Get("audio.audio_layer.pan_restore_item",
-                            Radios.ScreenReaderOutput.CurrentVerbosity,
-                            ("level", r.RestoredTo))
-                        : layer.FormOf(r.Target, r.RestoredTo))))),
+            // #536, ruled by Noel 2026-09-06: say that everything went back,
+            // not what each thing went back TO. Escape means abandon, and the
+            // operator is returning to the state they were in when they opened
+            // the layer — a state they already know. Reciting three values on
+            // the way out spends speech telling them where they just came from.
+            //
+            // This also deletes the per-item rendering, which had grown two
+            // renderers for one list: pan had its own lexicon string while every
+            // other target went through FormOf, and the casing had drifted
+            // between them ("Headphone 40, PC volume 12 dB, pan 40").
+            DescribeLayerRestored = (layer, restored) => Radios.Lexicon.Get(
+                restored.Count == 0
+                    ? "audio.audio_layer.restored_nothing"
+                    : "audio.audio_layer.restored"),
             PickTargetHint = () => Radios.Lexicon.Get("audio.audio_layer.pick_target_first"),
             // The verbosity cycle travels through the live layer, looked up
             // from the registry so a remapped chord is still honoured — an
@@ -4804,19 +4810,14 @@ public class KeyCommands
             // keyboard's H opens Track K's list through ListCommands.
             DescribeLayerHelp = layer => KeyLayerHelp.SpokenList(KeyInventory.FilterLayerContext),
             DescribeClosed = () => Radios.Lexicon.Get("audio.filter_layer.closed"),
-            DescribeLayerRestored = (layer, restored) =>
-            {
-                var parts = new List<string>();
-                if (rx.Bank.Touched)
-                    parts.Add(Radios.Lexicon.Get("audio.filter_layer.restored_receive",
-                        ("low", rx.Bank.EntryLow), ("high", rx.Bank.EntryHigh)));
-                if (tx.Bank.Touched)
-                    parts.Add(Radios.Lexicon.Get("audio.filter_layer.restored_transmit",
-                        ("low", tx.Bank.EntryLow), ("high", tx.Bank.EntryHigh)));
-                return parts.Count == 0
-                    ? Radios.Lexicon.Get("audio.filter_layer.restored_nothing")
-                    : Radios.Lexicon.Get("audio.filter_layer.restored", ("list", string.Join(", ", parts)));
-            },
+            // #536: the same summary the audio layer gives. The edges are read
+            // back from the banks rather than from `restored`, because a filter
+            // edge is a pair and the layer's restore list counts targets — so
+            // "touched" is the honest test of whether anything moved here.
+            DescribeLayerRestored = (layer, restored) => Radios.Lexicon.Get(
+                (rx.Bank.Touched || tx.Bank.Touched)
+                    ? "audio.filter_layer.restored"
+                    : "audio.filter_layer.restored_nothing"),
             WhichShiftHint = () => Radios.Lexicon.Get("audio.filter_layer.which_shift"),
             NoVerbHint = () => Radios.Lexicon.Get("audio.filter_layer.no_verb"),
             WrongAxisHint = () => Radios.Lexicon.Get("audio.filter_layer.no_verb"),

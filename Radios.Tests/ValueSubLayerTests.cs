@@ -587,13 +587,10 @@ namespace Radios.Tests
                 // which Radios.Tests cannot load; a stub stands in for it.
                 DescribeLayerHelp = layer => "HELP: " + Lexicon.Get("audio.audio_layer.name"),
                 DescribeClosed = () => Lexicon.Get("audio.audio_layer.closed"),
-                DescribeLayerRestored = (layer, restored) => restored.Count == 0
-                    ? Lexicon.Get("audio.audio_layer.restored_nothing")
-                    : Lexicon.Get("audio.audio_layer.restored", ("list", string.Join(", ",
-                        restored.Select(r => r.Target == pan
-                            ? Lexicon.Get("audio.audio_layer.pan_restore_item", h.Verbosity,
-                                ("level", r.RestoredTo))
-                            : layer.FormOf(r.Target, r.RestoredTo))))),
+                DescribeLayerRestored = (layer, restored) => Lexicon.Get(
+                    restored.Count == 0
+                        ? "audio.audio_layer.restored_nothing"
+                        : "audio.audio_layer.restored"),
                 PickTargetHint = () => Lexicon.Get("audio.audio_layer.pick_target_first"),
                 // #547. The shipped hooks read the live key registry and the
                 // layer's inventory rows, neither of which Radios.Tests can
@@ -706,7 +703,7 @@ namespace Radios.Tests
             h.Layer.HandleKey(Keys.Escape);
             Assert.Equal(65, rig.Volume["A"]);                                  // kept — confirmed by leaving
             Assert.Equal(70, rig.Volume["C"]);                                  // restored
-            Assert.Equal("Put back Volume 70. Audio layer closed", h.LastSaid);
+            Assert.Equal("All changes reverted. Audio layer closed", h.LastSaid);
         }
 
         [Fact]
@@ -749,7 +746,7 @@ namespace Radios.Tests
             Assert.False(rig.Muted["A"]);
             Assert.False(rig.Binaural);
             Assert.Equal(60, rig.Volume["A"]);
-            Assert.Equal("Put back Slice A unmuted, Binaural off, Volume 60. Audio layer closed", h.LastSaid);
+            Assert.Equal("All changes reverted. Audio layer closed", h.LastSaid);
         }
 
         [Fact]
@@ -794,7 +791,7 @@ namespace Radios.Tests
             Assert.True(okRig.PcAudio);
             ok.Layer.HandleKey(Keys.Escape);
             Assert.False(okRig.PcAudio);
-            Assert.Equal("Put back PC audio off. Audio layer closed", ok.LastSaid);
+            Assert.Equal("All changes reverted. Audio layer closed", ok.LastSaid);
         }
 
         [Fact]
@@ -1131,7 +1128,7 @@ namespace Radios.Tests
             Assert.Equal(12, rig.PcVolume);
             Assert.Equal(40, rig.Pan["A"]);
             Assert.Equal(new[] { "headphone 45", "pc 11", "pan A 45", "headphone 40", "pc 12", "pan A 40" }, rig.Writes);
-            Assert.Equal("Put back Headphone 40, PC volume 12 dB, pan 40. Audio layer closed", h.LastSaid);
+            Assert.Equal("All changes reverted. Audio layer closed", h.LastSaid);
         }
 
         [Fact]
@@ -1157,7 +1154,7 @@ namespace Radios.Tests
             h.Layer.HandleKey(Keys.P);
             h.Layer.HandleKey(Keys.Right);
             h.Layer.HandleKey(Keys.Escape);
-            Assert.Equal("Put back pan 40. Audio layer closed", h.LastSaid);
+            Assert.Equal("All changes reverted. Audio layer closed", h.LastSaid);
         }
 
         [Fact]
@@ -1216,7 +1213,7 @@ namespace Radios.Tests
             h.Layer.HandleKey(Keys.Escape);
             Assert.Equal(45, rig.Pan["A"]);                      // kept — confirmed by leaving
             Assert.Equal(50, rig.Pan["C"]);                      // restored
-            Assert.Equal("Put back pan 50. Audio layer closed", h.LastSaid);
+            Assert.Equal("All changes reverted. Audio layer closed", h.LastSaid);
         }
 
         [Fact]
@@ -1544,15 +1541,10 @@ namespace Radios.Tests
                 DescribeLayerHelp = layer => "HELP: " + Lexicon.Get("audio.filter_layer.name") + ", "
                     + (layer.CurrentGroup == "transmit" ? tx.Rep() : rx.Rep()),
                 DescribeClosed = () => Lexicon.Get("audio.filter_layer.closed"),
-                DescribeLayerRestored = (layer, restored) =>
-                {
-                    var parts = new List<string>();
-                    if (rx.Bank.Touched) parts.Add(Lexicon.Get("audio.filter_layer.restored_receive", ("low", rx.Bank.EntryLow), ("high", rx.Bank.EntryHigh)));
-                    if (tx.Bank.Touched) parts.Add(Lexicon.Get("audio.filter_layer.restored_transmit", ("low", tx.Bank.EntryLow), ("high", tx.Bank.EntryHigh)));
-                    return parts.Count == 0
-                        ? Lexicon.Get("audio.filter_layer.restored_nothing")
-                        : Lexicon.Get("audio.filter_layer.restored", ("list", string.Join(", ", parts)));
-                },
+                DescribeLayerRestored = (layer, restored) => Lexicon.Get(
+                    (rx.Bank.Touched || tx.Bank.Touched)
+                        ? "audio.filter_layer.restored"
+                        : "audio.filter_layer.restored_nothing"),
                 WhichShiftHint = () => Lexicon.Get("audio.filter_layer.which_shift"),
                 NoVerbHint = () => Lexicon.Get("audio.filter_layer.no_verb"),
                 WrongAxisHint = () => Lexicon.Get("audio.filter_layer.no_verb"),
@@ -1757,7 +1749,7 @@ namespace Radios.Tests
             Assert.Equal((300, 2700), (rig.TxLow, rig.TxHigh));
             Assert.Equal("rx 100 2800", rig.Writes[^2]);
             Assert.Equal("tx 300 2700", rig.Writes[^1]);
-            Assert.Equal("Put back receive filter 100 to 2800, transmit filter 300 to 2700. Filter layer closed", h.LastSaid);
+            Assert.Equal("All changes reverted. Filter layer closed", h.LastSaid);
         }
 
         [Fact]
@@ -2301,8 +2293,6 @@ namespace Radios.Tests
                 "audio.filter_layer.entered",
                 "audio.filter_layer.closed",
                 "audio.filter_layer.restored",
-                "audio.filter_layer.restored_receive",
-                "audio.filter_layer.restored_transmit",
                 "audio.filter_layer.which_shift",
                 "audio.filter_layer.no_verb",
                 "audio.filter_layer.at_limit",
