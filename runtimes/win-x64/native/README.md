@@ -1,7 +1,9 @@
 # x64 Native Libraries
 
 This folder holds the x64 native libraries: `libopus.dll` and `portaudio.dll`
-(audio), and `prism.dll` (speech and braille — the screen-reader backend).
+(audio), `prism.dll` (speech and braille — the screen-reader backend), and
+`nvdaControllerClient.dll` (NV Access's own controller client, used ONLY to
+ask NVDA whether an utterance was spoken to the end — see #521).
 The same recipes build the x86 set — substitute `Win32` for `x64` and target
 `runtimes/win-x86/native/`.
 
@@ -10,6 +12,8 @@ The same recipes build the x86 set — substitute `Win32` for `x64` and target
 - **Opus 1.6.1**
 - **PortAudio: master pinned at `a880212` (commit date 2026-08-07)**
 - **Prism v0.18.1, pinned at tag commit `d2998e9281806fe1efd3394971c6e44ac11b9e75`**
+- **NVDA controller client 2.0, from the NVDA 2026.2 release archive** (not
+  built here — downloaded; see its section below for the hashes)
 
 **Both DLLs embed a readable version string, so the binary is the authority.**
 `opus_get_version_string()` returns `libopus 1.6.1`, and `Pa_GetVersionText()`
@@ -120,6 +124,66 @@ struct layout, the `PrismError` enum members, and the backend id constants —
 all mirrored in `Radios/Speech/PrismNative.cs`, and all capable of failing at
 runtime rather than compile time. The struct doc comment there records the
 crash a layout mismatch produces.
+
+### NVDA controller client (nvdaControllerClient.dll) — downloaded, not built
+
+**This one is NOT compiled here and must not be.** NV Access ships it
+pre-built with every NVDA release, it is LGPL 2.1, and we use it unmodified —
+so the obligation is exactly the one PortAudio and Opus already carry: ship
+the licence text beside the binary (`nvdaControllerClient.LICENSE.txt`, in
+this folder), change nothing. Building it ourselves would need `midl.exe` and
+a C toolchain the build does not otherwise have, and would make one of our
+own binaries LGPL-derived. The route decision is recorded in
+`JJFlex-private/planning/active/speech-completion-route-recommendation.md`.
+
+**Why it exists at all.** Prism speaks to NVDA through `speakText`, which is
+fire-and-forget: the app hands NVDA twelve seconds of speech in one
+millisecond and never learns which of it was said. The ledger that rescues
+speech an interrupt destroyed therefore rescued speech the operator had
+already heard (#521, #554). NVDA's `nvdaController_speakSsml`, called
+synchronously, returns `0` when the utterance was spoken to the end and
+`1223` when something cancelled it, and calls back for every `<mark>` reached
+along the way. Prism as pinned reaches none of that, so this DLL is P/Invoked
+alongside Prism, behind a capability bit (`PrismScreenReader.CompletionChannel`),
+until Prism grows the feature upstream.
+
+**Record of what is shipped:**
+
+- Source: `https://download.nvaccess.org/releases/2026.2/nvda_2026.2_controllerClient.zip`
+- Archive SHA-256: `510736F021AEFA33378076FA342A4524B586BC1C6B096DB9479AF42B28AAC649` (4,795,290 bytes), downloaded and hashed 2026-09-06
+- `x64/nvdaControllerClient.dll`: SHA-256 `598B7EC3DC469814F571275929F676CE73834C469FBDB359A06FD4DB4E0FC866`, 263,832 bytes
+- `x86/nvdaControllerClient.dll`: SHA-256 `96295979A25AB1C8DDC9B6AAFFDD81ED72C9504880850D49E99F1DB96055A7D0`, 215,192 bytes
+- Client API version 2.0 (introduced in NVDA 2024.1). Interfaces: `NvdaController` v1.0 and `NvdaController2` v1.0. On NVDA older than 2024.1 the v2 calls return `1717` (RPC_S_UNKNOWN_IF), which the app treats as "channel absent" and falls back to Prism.
+
+**The byte-search recipe — run it on any copy before trusting it.** The DLL
+carries no version resource, but its export names are plain ASCII in the
+binary. `strings` is NOT installed on this machine; `grep -c -a` on the file
+works:
+
+- `nvdaController_speakText` — **must be present.** This is the POSITIVE
+  CONTROL: every genuine client since 2006 exports it. If a search finds
+  neither this nor `speakSsml`, the search is broken, not the DLL. That exact
+  false negative happened on 2026-09-05 and again on 2026-09-06.
+- `nvdaController_speakSsml` — must be present. Absent means the pre-2024.1
+  client, which cannot ask the question (#541: thirty such copies were swept
+  out of four build trees on 2026-09-05, last written 2026-02-22).
+- `nvdaController_isSpeaking` — must be ABSENT for 2026.2. It arrives with
+  `NvdaController3` in NVDA 2026.3. When the pin moves to a client that has
+  it, update this line, because its presence is how you tell the two apart.
+
+**The app loads this DLL by ABSOLUTE PATH, deliberately.** `Radios/Speech/NvdaControllerClient.cs`
+calls `NativeLibrary.Load` on the full path under this folder and binds every
+entry point by name from that handle. It is never resolved through
+`NativeLoader.vb`'s name mapping and never through the Windows search order,
+because search order is what would find a stray pre-2024.1 copy beside the
+exe and fail at runtime with a missing entry point while you were reasoning
+about RPC. Keeping the DLL out of `NativeLoader` is a decision, not an
+omission.
+
+**To bump it:** download the `*_controllerClient.zip` for the NVDA release
+you want, record the archive hash, copy `x64/` and `x86/nvdaControllerClient.dll`
+here and into `win-x86`, run the recipe above on both, and update the three
+lines that name what should be present and absent.
 
 ## Where the build trees live
 
