@@ -9,6 +9,160 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-09-05 — TEN TRACKS IN TWO FLIGHTS, AND AN INSTRUMENT THAT MADE THE OPERATOR STOP BEING ONE
+
+**Sealed 21:0x machine time (CENTRAL — Noel is in East Tennessee, an hour ahead;
+see #549). 30 commits in JJFlex-NG, 16 in jjf-private. +5,208 / −279, net
++4,929 across 58 files. C# +3,864/−204 in 37 files. 4.1 hours read aloud; 104
+printed pages. Ten tracks merged and contained across two flights: 2,738 Radios
+tests and 71 JJFlexWpf tests passing. Register 281 → 296 open, fourteen new
+entries. TWO builds to Don — 4.1.16.1894 this morning, 4.1.16.1921 tonight.**
+
+### The headline: a transcript replaced the operator as the instrument
+
+Every test in this project has run the same way — press this, tell me what you
+heard, characterise it well enough to separate two hypotheses. **Noel asked the
+obvious question nobody had: "Don't you have a way to get what NVDA says?"**
+
+There is. `nvda -r -l 12` restarts NVDA at **Input/Output** level, which logs
+every utterance, every braille write and every input gesture. One capture then
+did what four rounds of guessing could not:
+
+- **Settled the doubled announcement** and **killed my confident wrong
+  hypothesis** — I predicted the second title would be LONGER (gaining the slice
+  and frequency); it is SHORTER, losing the callsign. #550.
+- **Caught #521 red-handed**, in a transcript, for the first time: *"Connected to
+  FLEX-8600, SmartLink, 4 slices"* spoken **between two disconnect
+  announcements.**
+- **Found #551**, a ruling of Noel's from 2026-09-02 that reached the window
+  title and never reached the three spoken lines before it.
+- **Found #553**, a braille message we emitted that NVDA dropped — which
+  reframes #521 as a *reader* problem, not a speech problem, before the braille
+  work has even started.
+
+**Two traps cost measurements before it worked, both silent:** `-l` alone does
+NOT replace a running instance (the log carries on at the old level with no
+error), and a capture at the wrong level is indistinguishable from a working one
+until you look for speech that is not there. Both are now in seal step 3e, in
+`start-speech-capture.ps1`'s own remarks, and in #552.
+
+### #554 — the finding of the day, and it makes #521 urgent
+
+```
+20:32:42.393  Connected to FLEX-8600, SmartLink, 4 slices.
+20:32:42.394  This radio had no mic profile, so I loaded Default.
+20:32:42.396  PC audio on.
+20:32:42.397  JJ Flexible Home, Modern tuning mode      <- four lines in 4 ms
+20:32:45.865  (interrupt)
+20:32:46.476  Connected to FLEX-8600, SmartLink, 4 slices.   <- +611 ms
+20:32:47.154  (interrupt)
+20:32:47.760  Connected to FLEX-8600, SmartLink, 4 slices.   <- +606 ms
+```
+
+**611 ms and 606 ms. #503's salvage settle window is 600 ms.** Interrupt, wait,
+conclude it went unheard, re-speak — **and it can never stop, because nothing
+reports delivery.** The block is emitted in 4 ms and takes 13 seconds to say, so
+the operator only ever hears *"Connected to FLEX-8600, SmartLink, 4 sli—"*
+before it restarts, which reads as chatter rather than as a fault.
+
+**Noel's own hypothesis was right and he reached it first:** *"that kind of
+follows when I'd hear repeated stuff from previous things. I'm guessing in those
+cases, the values weren't being stepped on / cancelled out?"* Exactly — with
+nothing interrupting, the rescued block runs to completion and IS audible.
+
+It explains why Track B2's correct `"Shift A does nothing"` never reached his
+ears, why connect phase lines get cut, and why stale picker announcements land
+mid-connect. **It does NOT explain #550** (19 ms apart, not 600) **or #544**
+(a 626 ms window genuinely closing) — those stay separate on purpose.
+
+**There is an interim fix that needs none of #521's work: cap the rescues.**
+
+### Flight one (A–E) and flight two (A2–E2)
+
+**Flight one** rebuilt the connect front door's window handoffs (#545 verified
+at the radio tonight — no Explorer, handoff before close), made pan speak the
+number at every tier, gave binaural two visual doors, turned the duck's timing
+into a named ladder, and produced Track E's route recommendation for #521.
+
+**Flight two** finished the front door (#544 threshold rule, #545, #548), fixed
+the Home modifier collision (#546), gave value layers a near-miss instead of a
+silent exit (#547), built the watchdog's off switch, and cleaned house —
+including finding the CHM **21 pages behind since 2026-08-30**.
+
+### Corrections — and two of them were agents correcting me
+
+- **#539 was mine.** The 2026-09-02 letter ruling had three moves; two landed.
+  Both `pcOutput` and `pan` carried `Keys.P`, `FirstOrDefault` gave it to
+  pcOutput, and **pan was unreachable by its own letter on every build for three
+  days, including the one queued for Don.** Found by Track C reading the shipped
+  key map. Note the direction: the prompt string, both help pages and the
+  changelog were all CORRECT — reading the documentation confirmed the intended
+  design perfectly, which is why nobody caught it.
+- **#546's diagnosis was overstated, and Track B2 corrected it with evidence.**
+  I claimed `e.Handled` consumed keys before the registry saw them. The registry
+  runs FIRST — Preview tunnels root-first and `MainWindow_PreviewKeyDown` is at
+  window level. Backed by the #338 bench capture, not by reading.
+- **My CHM ruling was impractical** and I reversed it the same evening: I said
+  rebuild only at release from reviewed prose, then discovered every build
+  regenerates it. See #556 — the tracked artifact makes the publish loop
+  non-convergent.
+- **Three wrong letters in the published changelog**, found by Track C2: `P` for
+  PC output, `Ctrl+P` for pan, `Ctrl+A` for PC audio. Corrected; voice untouched.
+
+### Decisions Noel made
+
+**Ship from `78e8f6df`, not the Sprint 45 merge**, for Don's morning build — the
+framing that settled it was *which failures can a re-release rescue?* A watchdog
+misfiring is loud and reportable; a broken connect returns no information at all.
+**"Nothing picked" and "Nothing moved" are the engine describing itself** —
+entry is now "Audio layer." and exit "No audio changes made", applied to BOTH
+layers so one vocabulary cannot become two. **Run NVDA at IO level before a test
+session and archive the logs in the seal** (#552, now step 3e). **Nightlies are
+a normal channel** — *"There's nothing saying that we can't start dropping
+nightlys like we are supposed to. Don knows what nightly builds are."*
+**Don't pause mid-seal** — start and run to the end.
+
+### Cross-surface activity
+
+One memory file modified today: `reference_rim_remote_access.md`, narrowing a
+rule I had hardened past its evidence — **RIM is Noel's normal working
+environment, at home and away, not a compromised instrument.** `MEMORY.md` at
+**12,016 bytes**, at the seal threshold. rigmeter unchanged and still no remote.
+**Freight Fate holds 16 unpushed commits**, unchanged, still Noel's call; Civ VI
+clean. Dependency check: **no vulnerable packages**. Memory drift check ran with
+its positive control; no new candidates from today. **NVDA speech logs archived
+for the first time** — 1,258 utterances, verified on the NAS.
+
+### Setup for tomorrow
+
+**#554's interim fix first** — cap the rescues. It is small, it is measured, and
+Don is living with the defect now.
+
+**Then the presses nobody has done:** bare `B` in the audio layer, the watchdog
+switch, the three string changes, and `Ctrl+J, A` under the new near-miss.
+
+**Two rulings waiting:** whether `Shift+A`–`H` should jump slices from Home as a
+real binding (they did until today, by accident), and the prepared pan patch —
+**eight lines across three files**, not one.
+
+**Unreviewed prose from four tracks**, plus Track D2's new help page. Written,
+flagged, not approved.
+
+### Rigmeter snapshot — end of 2026-09-05
+
+Plus 5,208, minus 279, net **+4,929** across 58 files and 30 commits. Both
+figures agree. C# +3,864/−204 across 37 files; VB +676/−54; PowerShell +425 in
+4 files (three of them new instruments); markdown +138/−14. **4.1 hours read
+aloud**; 104 printed pages. Snapshot on the NAS at `2026-09-05-962115d6.json`.
+
+**Branch-scope caveat:** JJFlex-NG only. The **16 jjf-private commits** — every
+register entry and every ruling of the day — are not in that number, and the
+day's real product is arguably there rather than here: fourteen new entries,
+each carrying measured evidence rather than a description.
+
+**Against 2026-09-02's +17,501:** today produced about a quarter of the lines and
+found why several of Wednesday's sixteen tracks did not behave as designed.
+
 ## END-OF-DAY SEAL — 2026-09-02 — SIXTEEN TRACKS IN THREE FLIGHTS, AND THE THIRD FLIGHT'S SCOPE CAME ENTIRELY FROM PRESSING THE SECOND FLIGHT'S KEYS
 
 **Sealed 21:12. 51 commits in JJFlex-NG, 20 in jjf-private, 6 in rigmeter.
