@@ -525,9 +525,9 @@ namespace Radios.Tests
                 Apply = v => { rig.Pan[rig.Slice] = v; rig.Writes.Add("pan " + rig.Slice + " " + v); },
                 Min = 0, Max = 100, Step = 5, FineStep = 1, Axes = ValueLayerAxes.Both, Anchor = centre,
                 Number = v => Lexicon.Get("settings.pan.level", ("level", v)),
-                Words = PanPhrase.Words,
+                // No Words: #536 ruled the scale out entirely, 2026-09-06.
                 DescribeSelected = v => Lexicon.Get("audio.audio_layer.pan_selected", h.Verbosity,
-                    ("letter", rig.Slice), ("level", v), ("position", PanPhrase.Words(v))),
+                    ("letter", rig.Slice), ("level", v)),
             };
 
             // Sprint 44 Track N (#524): slice volume, and the three switches.
@@ -592,7 +592,7 @@ namespace Radios.Tests
                     : Lexicon.Get("audio.audio_layer.restored", ("list", string.Join(", ",
                         restored.Select(r => r.Target == pan
                             ? Lexicon.Get("audio.audio_layer.pan_restore_item", h.Verbosity,
-                                ("level", r.RestoredTo), ("position", PanPhrase.Words(r.RestoredTo)))
+                                ("level", r.RestoredTo))
                             : layer.FormOf(r.Target, r.RestoredTo))))),
                 PickTargetHint = () => Lexicon.Get("audio.audio_layer.pick_target_first"),
                 // #547. The shipped hooks read the live key registry and the
@@ -993,21 +993,25 @@ namespace Radios.Tests
         [Fact]
         public void Audio_pan_answers_both_arrow_pairs_and_zero_centres()
         {
-            // #536: the number rides at every tier, and Chatty adds the word
-            // after it. 45 and 49 are both "slightly left" — the word alone
-            // could not tell them apart, which is the whole complaint.
+            // #536: the number, at every tier, with nothing after it.
+            // 45 and 49 were both "slightly left" — the word could not tell
+            // them apart, which was the original complaint; the ruling of
+            // 2026-09-06 then dropped the word rather than pairing it with
+            // the figure, since pan is 0-100 like slice volume and neither
+            // announces a unit. This test still pins 45/50/49 because those
+            // are the values the old word collapsed together.
             var (h, rig) = OpenAudio(VerbosityLevel.Chatty);
             h.Layer.HandleKey(Keys.P);
-            Assert.Equal("Pan, slice A, pan 40, slightly left", h.LastAnswer);
+            Assert.Equal("Pan, slice A, pan 40", h.LastAnswer);
             h.Layer.HandleKey(Keys.Right);   // 45
             h.Layer.HandleKey(Keys.Up);      // 50
             h.Layer.HandleKey(Keys.Down | Keys.Shift); // 49
             Assert.Equal(49, rig.Pan["A"]);
-            Assert.Equal(new[] { "Pan 45, slightly left", "Pan 50, center", "Pan 49, slightly left" },
+            Assert.Equal(new[] { "Pan 45", "Pan 50", "Pan 49" },
                 h.Moves.Select(m => m.Text));
             h.Layer.HandleKey(Keys.D0);
             Assert.Equal(50, rig.Pan["A"]);
-            Assert.Equal("Pan 50, center", h.LastMove);
+            Assert.Equal("Pan 50", h.LastMove);
         }
 
         [Theory]
@@ -1029,26 +1033,28 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Audio_home_and_end_are_hard_left_and_hard_right_on_pan()
+        public void Audio_home_and_end_run_pan_to_both_extremes()
         {
             // #522. Pan is the target that made Home mean centre in the first
-            // place, back when pan was its own mode; it is now the target
-            // that shows the general rule, because it is the one where "hard
-            // left" and "hard right" are literally what the words say.
+            // place, back when pan was its own mode, and it still shows the
+            // general rule best: Home and End are the ENDS of the range, and
+            // zero is the anchor. It used to say "hard left" and "hard right"
+            // here; #536 dropped the words on 2026-09-06, so the extremes are
+            // now named by the only thing that was ever precise about them.
             var (h, rig) = OpenAudio(VerbosityLevel.Chatty);
             h.Layer.HandleKey(Keys.P);
 
             h.Layer.HandleKey(Keys.Home);
             Assert.Equal(0, rig.Pan["A"]);
-            Assert.Equal("Pan 0, hard left", h.LastMove);
+            Assert.Equal("Pan 0", h.LastMove);
 
             h.Layer.HandleKey(Keys.End);
             Assert.Equal(100, rig.Pan["A"]);
-            Assert.Equal("Pan 100, hard right", h.LastMove);
+            Assert.Equal("Pan 100", h.LastMove);
 
             h.Layer.HandleKey(Keys.D0);
             Assert.Equal(50, rig.Pan["A"]);
-            Assert.Equal("Pan 50, center", h.LastMove);
+            Assert.Equal("Pan 50", h.LastMove);
         }
 
         [Fact]
@@ -1104,7 +1110,7 @@ namespace Radios.Tests
         public void Audio_the_alt_p_door_opens_on_pan()
         {
             var (h, _) = OpenAudio(VerbosityLevel.Chatty, onPan: true);
-            Assert.Equal("Audio layer. Pan, slice A, pan 40, slightly left. Press H for a list of keys.",
+            Assert.Equal("Audio layer. Pan, slice A, pan 40. Press H for a list of keys.",
                 Assert.Single(h.Said));
             var (t, _) = OpenAudio(VerbosityLevel.Terse, onPan: true);
             Assert.Equal("Audio layer. Pan, slice A, pan 40.", Assert.Single(t.Said));
@@ -1139,17 +1145,19 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Audio_escape_at_chatty_puts_pan_back_as_a_number_with_the_word_after_it()
+        public void Audio_escape_at_chatty_puts_pan_back_as_a_bare_number()
         {
-            // #536: the restore list is comma-joined, so this item joins its
-            // own two halves with a SPACE — "Put back mic 30, pan 40 slightly
-            // left" has one comma per item, and a listener can still tell
-            // where one restored thing ends and the next begins.
+            // #536, ruled 2026-09-06: no word after the figure, at any tier,
+            // so Chatty reads exactly as Terse does here. This test kept its
+            // Chatty setting on purpose — it is the tier that USED to add
+            // "slightly left", and it is where a regression would show first.
+            // The restore list is comma-joined, and each item is now a single
+            // half, so one comma per item still separates them cleanly.
             var (h, _) = OpenAudio(VerbosityLevel.Chatty);
             h.Layer.HandleKey(Keys.P);
             h.Layer.HandleKey(Keys.Right);
             h.Layer.HandleKey(Keys.Escape);
-            Assert.Equal("Put back pan 40 slightly left. Audio layer closed", h.LastSaid);
+            Assert.Equal("Put back pan 40. Audio layer closed", h.LastSaid);
         }
 
         [Fact]
@@ -1203,12 +1211,12 @@ namespace Radios.Tests
             Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.C | Keys.Shift));
             Assert.True(h.Layer.IsLive);
             Assert.Equal(new[] { "C" }, rig.Jumps);
-            Assert.Equal("Pan, slice C, pan 50, center", h.LastAnswer);
+            Assert.Equal("Pan, slice C, pan 50", h.LastAnswer);
             h.Layer.HandleKey(Keys.Left);                        // C: 45
             h.Layer.HandleKey(Keys.Escape);
             Assert.Equal(45, rig.Pan["A"]);                      // kept — confirmed by leaving
             Assert.Equal(50, rig.Pan["C"]);                      // restored
-            Assert.Equal("Put back pan 50 center. Audio layer closed", h.LastSaid);
+            Assert.Equal("Put back pan 50. Audio layer closed", h.LastSaid);
         }
 
         [Fact]
@@ -2097,38 +2105,44 @@ namespace Radios.Tests
         }
 
         // ────────────────────────────────────────────────────────────────
-        //  The words scale — one home, shared with the slice status summary
+        //  Pan says the number and nothing else
         // ────────────────────────────────────────────────────────────────
 
-        [Theory]
-        [InlineData(0, "hard left")]
-        [InlineData(2, "hard left")]
-        [InlineData(3, "far left")]
-        [InlineData(14, "far left")]
-        [InlineData(15, "left")]
-        [InlineData(34, "left")]
-        [InlineData(35, "slightly left")]
-        [InlineData(49, "slightly left")]
-        [InlineData(50, "center")]
-        [InlineData(51, "slightly right")]
-        [InlineData(65, "slightly right")]
-        [InlineData(66, "right")]
-        [InlineData(85, "right")]
-        [InlineData(86, "far right")]
-        [InlineData(97, "far right")]
-        [InlineData(98, "hard right")]
-        [InlineData(100, "hard right")]
-        public void The_words_scale_names_every_band(int pan, string expected)
+        // #536, ruled by Noel 2026-09-06. The nine-band words scale
+        // (PanPhrase) is DELETED, not merely unused: pan is 0-100 like slice
+        // volume, neither announces a unit, and a word after the figure was
+        // paying a syllable on every step of the control for something the
+        // scale already implies. The tests below replace the ones that used
+        // to prove the scale had a single home.
+
+        [Fact]
+        public void The_slice_status_summary_speaks_pan_as_the_number()
         {
-            Assert.Equal(expected, PanPhrase.Words(pan));
+            string source = ReadSource("Radios/RadioStatusBuilder.cs");
+            Assert.Contains("pan {pan}", source);
+
+            // The failure this guards is a RETURN of the vocabulary, in any
+            // form — the shared call, or a fresh hardcoded copy of the bands,
+            // which is exactly what lived here before 2026-08-27.
+            Assert.DoesNotContain("PanPhrase", source);
+            foreach (string band in new[] { "hard left", "far left", "slightly left",
+                                            "slightly right", "far right", "hard right" })
+                Assert.DoesNotContain(band, source);
         }
 
         [Fact]
-        public void The_slice_status_summary_uses_the_same_scale()
+        public void No_pan_words_scale_survives_anywhere_in_the_product()
         {
-            string source = ReadSource("Radios/RadioStatusBuilder.cs");
-            Assert.Contains("PanPhrase.Words(", source);
-            Assert.DoesNotContain("\"pan slightly left\"", source);
+            // Positive control: the scan must find a file it is meant to
+            // read, or an empty result would look like a pass. Both of these
+            // legitimately contain the word "pan".
+            string layer  = ReadSource("JJFlexWpf/KeyCommands.cs");
+            string status = ReadSource("Radios/RadioStatusBuilder.cs");
+            Assert.Contains("pan", layer);
+            Assert.Contains("pan", status);
+
+            Assert.DoesNotContain("PanPhrase.Words(", layer);
+            Assert.DoesNotContain("PanPhrase.Words(", status);
         }
 
         // ────────────────────────────────────────────────────────────────

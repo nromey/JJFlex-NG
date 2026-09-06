@@ -10,8 +10,8 @@ namespace Radios
         /// <summary>
         /// Build a comprehensive multi-slice status for Ctrl+Shift+S.
         /// Returns something like:
-        ///   "2 slices. Slice A selected, transmit, 14.250 megahertz, USB, pan center.
-        ///    Slice B, 7.150 megahertz, LSB, muted, pan right."
+        ///   "2 slices. Slice A selected, transmit, 14.250 megahertz, USB, pan 50.
+        ///    Slice B, 7.150 megahertz, LSB, muted, pan 85."
         /// Falls back to single-slice BuildSpokenStatus if only one slice.
         /// </summary>
         public static string BuildFullSliceStatus(FlexBase radio)
@@ -60,11 +60,14 @@ namespace Radios
 
                 if (isMuted) sb.Append(", muted");
 
-                // Pan in words, from the one shared scale (PanPhrase) — this
-                // held its own hardcoded copy of the bands until 2026-08-27,
-                // and the pan sub-layer's arrival made that two vocabularies
-                // for one value.
-                sb.Append($", pan {PanPhrase.Words(pan)}");
+                // Pan as the number, same as the pan sub-layer says. #536,
+                // ruled 2026-09-06: the words scale is gone entirely. It used
+                // to live here as a hardcoded copy of the bands, then as a
+                // shared call on one scale from 2026-08-27 — one vocabulary
+                // instead of two. Now it is no vocabulary instead of one,
+                // which keeps this line and the control in agreement for the
+                // same reason the shared scale did.
+                sb.Append($", pan {pan}");
 
                 parts.Add(sb.ToString());
             }

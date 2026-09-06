@@ -32,16 +32,8 @@
   "audio.audio_layer.name_processor": "Processor",
   "audio.audio_layer.name_slice_volume": "Slice volume",
   "audio.audio_layer.pan_no_slice": "Pan, no slice",
-  "audio.audio_layer.pan_restore_item": {
-    "critical": "pan {level}",
-    "terse": "pan {level}",
-    "chatty": "pan {level} {position}"
-  },
-  "audio.audio_layer.pan_selected": {
-    "critical": "Pan, slice {letter}, pan {level}",
-    "terse": "Pan, slice {letter}, pan {level}",
-    "chatty": "Pan, slice {letter}, pan {level}, {position}"
-  },
+  "audio.audio_layer.pan_restore_item": "pan {level}",
+  "audio.audio_layer.pan_selected": "Pan, slice {letter}, pan {level}",
   "audio.audio_layer.pc_output": "PC volume {value} dB",
   "audio.audio_layer.pick_target_first": "Pick a target first: V, Ctrl+H, O, M, L, C, S, or P.",
   "audio.audio_layer.processor": "Processor {name}",

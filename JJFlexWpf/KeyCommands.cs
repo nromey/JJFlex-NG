@@ -4377,15 +4377,17 @@ public class KeyCommands
             Axes = Radios.ValueLayerAxes.Both,
             Anchor = centre,
             Number = v => Radios.Lexicon.Get("settings.pan.level", ("level", v)),
-            Words = Radios.PanPhrase.Words,
+            // No Words. #536, ruled by Noel 2026-09-06: the number alone, at
+            // every tier. Pan is 0-100 like slice volume, and neither says its
+            // unit — a word after the figure buys nothing you cannot already
+            // hear, and you hear this value on EVERY step of the control.
             DescribeSelected = v =>
             {
                 int vfo = rig.RXVFO;
                 if (!rig.ValidVFO(vfo)) return Radios.Lexicon.Get("audio.audio_layer.pan_no_slice");
                 return Radios.Lexicon.Get("audio.audio_layer.pan_selected",
                     Radios.ScreenReaderOutput.CurrentVerbosity,
-                    ("letter", rig.VFOToLetter(vfo)), ("level", v),
-                    ("position", Radios.PanPhrase.Words(v)));
+                    ("letter", rig.VFOToLetter(vfo)), ("level", v));
             },
         };
 
@@ -4458,7 +4460,7 @@ public class KeyCommands
                     restored.Select(r => r.Target == pan
                         ? Radios.Lexicon.Get("audio.audio_layer.pan_restore_item",
                             Radios.ScreenReaderOutput.CurrentVerbosity,
-                            ("level", r.RestoredTo), ("position", Radios.PanPhrase.Words(r.RestoredTo)))
+                            ("level", r.RestoredTo))
                         : layer.FormOf(r.Target, r.RestoredTo))))),
             PickTargetHint = () => Radios.Lexicon.Get("audio.audio_layer.pick_target_first"),
             // The verbosity cycle travels through the live layer, looked up
