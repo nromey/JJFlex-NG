@@ -44,17 +44,16 @@ public static class TNFLauncher
             return;
         }
 
-        // Not a model gate. Every 6000- and 8000-series radio has tracking
-        // notches and the connect path enables them on all of them, so there is
-        // no license or capability to check — what can be missing is a receive
-        // slice with a panadapter behind it, because RequestTNF needs a
-        // panadapter stream to hang the notch on. That is a not-yet, not a
-        // never, so it is worded as one.
-        if (!rig.CanAddTNF())
-        {
-            Speak(Lexicon.Get("audio.tnf.no_slice"));
-            return;
-        }
+        // No model or license gate. Every 6000- and 8000-series radio has
+        // tracking notches and the connect path enables them on all of them, so
+        // there is nothing to check.
+        //
+        // And no gate on the panadapter HERE, deliberately, though ADDING one
+        // needs it: a radio can hold notches already — kept ones survive a
+        // power cycle and belong to the radio rather than to us — so refusing
+        // to open would lock the operator out of listing, adjusting and
+        // removing notches that exist, over a condition that only stops them
+        // making a new one. Gate the action, not the door.
 
         var dialog = new TNFDialog
         {
@@ -72,6 +71,17 @@ public static class TNFLauncher
 
             AddTNF = () =>
             {
+                // Three outcomes, three sentences. "There is nowhere to put it
+                // yet" and "the radio would not place it" are different facts
+                // and need different answers — collapsing them into one
+                // failure message would tell an operator waiting on a slice to
+                // go and investigate their radio.
+                if (!rig.CanAddTNF())
+                {
+                    Speak(Lexicon.Get("audio.tnf.no_slice"));
+                    return null;
+                }
+
                 string? display = rig.AddTNFAtReceiveFrequency();
                 Speak(display != null
                     ? Lexicon.Get("audio.tnf.added", ("freq", display))
