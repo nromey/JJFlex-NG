@@ -66,7 +66,13 @@
                     AutomationProperties.AcceleratorKey="Alt+R"
                     local:JJFlexHelp.Text="Takes out the notch you are on and leaves you on the next one. A kept notch is removed from the radio too, so it will not come back after a restart."
                     Click="RemoveButton_Click"/>
-            <Button Content="_Done" MinWidth="75" IsCancel="True" IsDefault="True"
+            <!-- IsCancel gives Escape, which every dialog must answer. NOT
+                 IsDefault: Enter is not handled in the notch list, so a default
+                 button would make arrowing the list and pressing Enter close
+                 the window out from under an operator who was expecting the
+                 list to do something. There is nothing to commit here anyway —
+                 every change has already gone to the radio. -->
+            <Button Content="_Done" MinWidth="75" IsCancel="True"
                     AutomationProperties.Name="Done"
                     AutomationProperties.AcceleratorKey="Alt+D"
                     Click="DoneButton_Click"/>
