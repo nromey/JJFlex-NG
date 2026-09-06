@@ -313,6 +313,7 @@
   "connect.selector.account_status_one_who": "SmartLink account: {who}",
   "connect.selector.accounts_updated": "Saved accounts updated. {count} saved.",
   "connect.selector.arrived": "{who} is now available.",
+  "connect.selector.arrived_count": "{who} is now available. {live} radios online.",
   "connect.selector.autoconnect_cleared": "Auto-connect cleared for {radioName}",
   "connect.selector.autoconnect_other": "Another radio",
   "connect.selector.autoconnect_set": "Auto-connect set for {radioName}",
