@@ -489,7 +489,16 @@
     <!-- The CHM filename is deliberately NOT tied to the assembly name:
          JJFlexWpf\HelpLauncher.cs resolves it as a literal "JJFlexRadio.chm"
          next to the exe, and docs\help\jjflex-help.hhp compiles to that name.
-         Leave it alone when the exe gets renamed. -->
+         Leave it alone when the exe gets renamed.
+
+         The Condition stays, and it is deliberately NOT an error. The CHM is a
+         build artifact and stopped being committed in Sprint 46 (#556), so a
+         fresh clone genuinely has none until docs\help\build-help.bat runs -
+         and requiring pandoc plus HTML Help Workshop to compile the app, or to
+         run the tests, would be a heavy toll for a file only the packagers
+         need. What the Condition must not do is stay SILENT about it, so
+         WarnOnMissingHelpChm below says so on every build, and install.bat and
+         build-debug.bat refuse outright at package time. -->
     <None Include="docs\help\JJFlexRadio.chm" Condition="Exists('docs\help\JJFlexRadio.chm')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>JJFlexRadio.chm</Link>
@@ -559,6 +568,20 @@
   <PropertyGroup>
     <PostBuildEvent Condition="'$(Configuration)'=='Release' and ('$(Platform)'=='x64' or '$(Platform)'=='x86') and '$(TargetFramework)'=='net10.0-windows'">if not defined JJFLEX_SKIP_POSTBUILD_INSTALLER call "$(MSBuildProjectDirectory)\install.bat" "$(MSBuildProjectDirectory)" "$(ConfigurationName)" "$(TargetName)"</PostBuildEvent>
   </PropertyGroup>
+
+  <!-- Sprint 46 Track E (#556): the CHM is generated and untracked, so its
+       absence is now an ordinary state of a fresh clone rather than a sign
+       something is broken. A missing help file must still never be invisible -
+       that invisibility is exactly what let released builds carry help 21
+       pages out of date for six days (#543). A warning is the right weight
+       here: it is loud in a build log, it does not stop anyone compiling or
+       testing, and the hard refusal lives at package time where shipping
+       actually happens. -->
+  <Target Name="WarnOnMissingHelpChm"
+          AfterTargets="CopyFilesToOutputDirectory"
+          Condition="'$(DesignTimeBuild)' != 'true' and !Exists('$(MSBuildProjectDirectory)\docs\help\JJFlexRadio.chm')">
+    <Warning Text="Compiled help is missing: docs\help\JJFlexRadio.chm was not found, so this build has no in-app help in its output. It is a build artifact and is not committed - run docs\help\build-help.bat to compile it. Packaging will refuse until you do." />
+  </Target>
 
   <!-- QB Track M: known-good install manifest. Writes install-manifest.json
        into the build output — every file's relative path, size, and SHA-256,

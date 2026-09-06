@@ -4,6 +4,10 @@ REM Usage: install.bat <solution_or_project_dir> <Configuration> <TargetName> [x
 REM Creates architecture-specific installers with _x64 or _x86 suffix
 REM Optional 4th arg forces architecture (skips auto-detection)
 REM
+REM EXIT CODE 11 — the compiled help (JJFlexRadio.chm) is missing or stale, so
+REM   no installer was built. See the HELP GUARD block below; the fix is
+REM   always `docs\help\build-help.bat`, then rebuild, then package.
+REM
 REM NAMES — two of them, kept deliberately separate:
 REM   exe  (3rd arg, = MSBuild $(TargetName))  the built executable, "jjflexible".
 REM        This is the signed file identity and what shortcuts point at.
@@ -78,6 +82,44 @@ echo Detected architecture: %ARCH%
 if not exist "%OUTDIR%\*" (
     echo ERROR: Expected output folder "%OUTDIR%" not found. Please build the solution first.
     exit /b 6
+)
+
+REM ---------------------------------------------------------------------------
+REM HELP GUARD (#556, and #543 is why it is worth an exit code).
+REM
+REM The CHM is the in-app help and it reaches the installer the same way every
+REM other file does: NSIS `File /r` over the publish output. Until Sprint 46 a
+REM committed copy of it was always sitting in docs\help\, so it was always
+REM there to be copied. It is a build artifact and is no longer committed, so
+REM "it exists" and "this build produced it" have become different statements.
+REM
+REM Nothing downstream would notice the difference. JJFlexRadio.vbproj copies
+REM it under Condition="Exists(...)", NSIS `File /r` cannot miss what was never
+REM there, and generate-deletelist.ps1 walks the same output - so an installer
+REM with no help in it builds, packages, installs and runs, and the only
+REM symptom is a Help menu that opens nothing on a blind operator's machine.
+REM
+REM The same check also catches a CHM that exists but is STALE, which is #543:
+REM released builds carried help 21 pages behind from 2026-08-30 to 2026-09-05
+REM and nobody noticed for six days, because nothing complained.
+REM
+REM Called with the `||` form deliberately: `if errorlevel 1` is a
+REM greater-than-or-equal test and would sail straight past the negative exit
+REM code that `powershell -File` returns for a bad path. The existence check
+REM above it closes that case outright.
+REM ---------------------------------------------------------------------------
+if not exist "%~dp0docs\help\help-stamp.ps1" (
+    echo ERROR: %~dp0docs\help\help-stamp.ps1 is missing.
+    echo   It is the only thing that can tell whether the compiled help is
+    echo   current, and packaging without that answer is how stale help ships.
+    exit /b 11
+)
+echo Checking compiled help is present and current...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0docs\help\help-stamp.ps1" -Mode Check -HelpDir "%~dp0docs\help" -PackagedChm "!OUTDIR!\JJFlexRadio.chm" || (
+    echo.
+    echo REFUSING TO PACKAGE: the compiled help did not pass the check above.
+    echo   No installer was built. The in-app help is not optional.
+    exit /b 11
 )
 
 REM Determine Program Files path based on architecture

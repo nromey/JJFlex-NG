@@ -40,6 +40,8 @@ REM   7  NOTES generation failed or produced no file
 REM   8  Dropbox publish failed — NOTHING was deleted, testers keep their build
 REM   9  NAS archive incomplete — this version has no bisectable copy
 REM  10  a helper script under scripts\ is missing — see PREFLIGHT below
+REM  11  the compiled help (JJFlexRadio.chm) is missing or stale — nothing was
+REM      zipped, archived or published. Run docs\help\build-help.bat.
 REM
 REM NOTES FILE
 REM   If debug-notes.txt exists at the repo root, its contents are used as the
@@ -211,8 +213,10 @@ echo.
 echo [Help] Refreshing CHM from docs\help\md\*.md ...
 call "%~dp0docs\help\build-help.bat"
 if errorlevel 1 (
-    echo WARNING: CHM build failed or HTML Help Workshop missing - proceeding with stale/no CHM.
-    echo          Testers will see whatever JJFlexRadio.chm currently exists in docs\help\.
+    echo WARNING: the CHM build failed - normally pandoc or HTML Help Workshop
+    echo          is not installed. Carrying on for now, but the help check
+    echo          after the build will refuse to zip a stale or missing CHM,
+    echo          so this WILL stop the run before anything reaches a tester.
 )
 echo.
 
@@ -280,6 +284,33 @@ if "%BUILT%"=="" (
     exit /b 4
 )
 echo Built at          : %BUILT%
+echo.
+
+REM ---------------------------------------------------------------------------
+REM HELP GUARD (#556, #543) — before the zip, not after.
+REM
+REM A debug zip IS a package: it goes to the NAS and, with --publish, to
+REM testers. The CHM stopped being committed in Sprint 46, so it is now
+REM possible for a tree to have no compiled help at all, and every step
+REM downstream of here would happily ship that - the .vbproj copies the CHM
+REM under Condition="Exists(...)", so its absence produces no build error.
+REM
+REM The check also refuses a CHM that exists but no longer matches the help
+REM markdown, which is what testers had for six days in #543.
+REM ---------------------------------------------------------------------------
+if not exist "%~dp0docs\help\help-stamp.ps1" (
+    echo ERROR: %~dp0docs\help\help-stamp.ps1 is missing - the compiled help
+    echo   cannot be checked, and shipping unchecked help is what #543 was.
+    exit /b 11
+)
+echo Checking compiled help...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0docs\help\help-stamp.ps1" -Mode Check -HelpDir "%~dp0docs\help" -PackagedChm "%CD%\%BIN_DIR%\JJFlexRadio.chm" || (
+    echo.
+    echo REFUSING TO ZIP: the compiled help did not pass the check above.
+    echo   Nothing was archived and nothing was published. Testers keep the
+    echo   build they already have.
+    exit /b 11
+)
 echo.
 
 REM ---------------------------------------------------------------------------
