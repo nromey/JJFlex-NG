@@ -599,7 +599,7 @@ Here's the thing I decided along the way, and I want to say it out loud because 
 So the layers scale with it now:
 
 - **On Chatty**, nothing changes. Every layer still teaches you its keys on the way in, and a key the layer doesn't know still gets the full explanation.
-- **On Terse**, opening a layer tells you where you are and what's picked, and that's all. "Audio layer." "Filter layer. RX filter 100 to 2800, 2.7 kilohertz." Open it on pan and you hear "Audio layer. Pan, slice A, pan 40." The letters are one `H` away if you want them.
+- **On Terse**, opening a layer tells you where you are and what's picked, and that's all. "Audio layer." "Filter layer. RX filter 100 to 2800, 2.7 kilohertz." Open it on pan and you hear "Audio layer. Pan, slice A, 40." The letters are one `H` away if you want them.
 - **On Terse**, a key the layer doesn't understand — an arrow before you've picked a target, Left and Right on something that only goes up and down, a JJ key that isn't bound — answers with the thunk and nothing else. After a while you know what the thunk means, and you know `H` is where the list lives, so the app stops telling you. The sentence isn't gone; it's on Chatty, where it always was.
 - **On Off**, the same as Terse, only quieter — a level never says *more* than the one above it.
 

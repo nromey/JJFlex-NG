@@ -1002,7 +1002,7 @@ namespace Radios.Tests
             // are the values the old word collapsed together.
             var (h, rig) = OpenAudio(VerbosityLevel.Chatty);
             h.Layer.HandleKey(Keys.P);
-            Assert.Equal("Pan, slice A, pan 40", h.LastAnswer);
+            Assert.Equal("Pan, slice A, 40", h.LastAnswer);
             h.Layer.HandleKey(Keys.Right);   // 45
             h.Layer.HandleKey(Keys.Up);      // 50
             h.Layer.HandleKey(Keys.Down | Keys.Shift); // 49
@@ -1110,10 +1110,10 @@ namespace Radios.Tests
         public void Audio_the_alt_p_door_opens_on_pan()
         {
             var (h, _) = OpenAudio(VerbosityLevel.Chatty, onPan: true);
-            Assert.Equal("Audio layer. Pan, slice A, pan 40. Press H for a list of keys.",
+            Assert.Equal("Audio layer. Pan, slice A, 40. Press H for a list of keys.",
                 Assert.Single(h.Said));
             var (t, _) = OpenAudio(VerbosityLevel.Terse, onPan: true);
-            Assert.Equal("Audio layer. Pan, slice A, pan 40.", Assert.Single(t.Said));
+            Assert.Equal("Audio layer. Pan, slice A, 40.", Assert.Single(t.Said));
         }
 
         [Fact]
@@ -1211,7 +1211,7 @@ namespace Radios.Tests
             Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.C | Keys.Shift));
             Assert.True(h.Layer.IsLive);
             Assert.Equal(new[] { "C" }, rig.Jumps);
-            Assert.Equal("Pan, slice C, pan 50", h.LastAnswer);
+            Assert.Equal("Pan, slice C, 50", h.LastAnswer);
             h.Layer.HandleKey(Keys.Left);                        // C: 45
             h.Layer.HandleKey(Keys.Escape);
             Assert.Equal(45, rig.Pan["A"]);                      // kept — confirmed by leaving
