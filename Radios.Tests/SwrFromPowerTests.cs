@@ -315,6 +315,44 @@ namespace Radios.Tests
             Assert.Contains("SwrFromPower", body);
         }
 
+        [Fact]
+        public void TheSpokenAfterTuneSwrIsNotTheRadiosRawMeter()
+        {
+            // #570. Until 2026-09-07 this spoke RigControl.SWRValue — the meter
+            // that read 1.008 with 76 percent coming back off an open port — at
+            // the exact moment an operator asks whether their antenna is all
+            // right.
+            //
+            // It now speaks the coherent COMPUTED value latched during the
+            // carrier. The latch matters: by the time the announcement runs,
+            // forward power has collapsed and a live read would be NaN every
+            // time, so a naive swap would have silenced the announcement
+            // instead of correcting it.
+            string src = File.ReadAllText(
+                Path.Combine(RepoRoot(), "JJFlexWpf", "MainWindow.xaml.cs"));
+
+            int at = src.IndexOf("SpeakSwrAfterTune(", StringComparison.Ordinal);
+            Assert.True(at > 0, "SpeakSwrAfterTune was renamed; rewrite this guard, do not delete it");
+
+            // Every call site, not just the first: there are two paths in and
+            // they have been corrected one at a time before.
+            foreach (int idx in AllIndexesOf(src, "SpeakSwrAfterTune("))
+            {
+                string call = src.Substring(idx, Math.Min(120, src.Length - idx));
+                Assert.DoesNotContain("SWRValue", call);
+            }
+
+            // Positive control: the phrase we DO expect is present.
+            Assert.Contains("TuneCycleSettledComputedSwr", src);
+        }
+
+        private static System.Collections.Generic.IEnumerable<int> AllIndexesOf(string haystack, string needle)
+        {
+            for (int i = haystack.IndexOf(needle, StringComparison.Ordinal); i >= 0;
+                 i = haystack.IndexOf(needle, i + 1, StringComparison.Ordinal))
+                yield return i;
+        }
+
         private static string RepoRoot()
         {
             var dir = new DirectoryInfo(AppContext.BaseDirectory);

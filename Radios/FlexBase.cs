@@ -21036,6 +21036,34 @@ namespace Radios
         private float _tuneCycleLastValidSwr = float.NaN;
 
         /// <summary>
+        /// The last COMPUTED SWR seen during this cycle that came from a
+        /// coherent forward/reflected pair (#570).
+        /// </summary>
+        /// <remarks>
+        /// The raw latch above cannot be spoken: on 2026-08-22 the meter read
+        /// 1.008 while 76 percent of the power came back off an empty port, and
+        /// an after-tune announcement is exactly when an operator asks whether
+        /// their antenna is all right.
+        ///
+        /// It has to be latched DURING the carrier. ComputedSWR needs live
+        /// meters and the announcement happens after the tune finishes — by
+        /// then forward power has collapsed and the pair is stale, so reading it
+        /// at announce time would return NaN every time.
+        ///
+        /// NaN at the end of a cycle is a real answer, not a failure. Noel,
+        /// 2026-09-07: "we may need to report no swr if the tune is not too
+        /// much." A tune too short or too quiet to measure gets said so.
+        /// </remarks>
+        private float _tuneCycleLastCoherentComputed = float.NaN;
+
+        /// <summary>
+        /// The settled SWR for the cycle just ended, computed from a coherent
+        /// pair, or NaN when the tune never produced one. Speak this, not
+        /// <see cref="SWRValue"/>.
+        /// </summary>
+        public float TuneCycleSettledComputedSwr => _tuneCycleLastCoherentComputed;
+
+        /// <summary>
         /// True while a tune cycle is running — either the ATU sweeping or an
         /// operator-held carrier. Read by <see cref="traceTxMeters"/>, which
         /// otherwise samples nothing during the one state where reflected power
@@ -21055,8 +21083,13 @@ namespace Radios
         private void noteTuneSwr(float data)
         {
             if (!_tuneCycleActive) return;
-            if (data <= SWRNoReading) return;
-            _tuneCycleLastValidSwr = data;
+            if (data > SWRNoReading) _tuneCycleLastValidSwr = data;
+
+            // #570: latch the computed value too, while the carrier is still up.
+            // Coherence-gated by #453, so an incoherent pair never lands here and
+            // the latch keeps the last trustworthy one.
+            float computed = ComputedSWR;
+            if (!float.IsNaN(computed)) _tuneCycleLastCoherentComputed = computed;
         }
 
         /// <summary>
@@ -21107,6 +21140,7 @@ namespace Radios
             _tuneCycleStartTick = System.Environment.TickCount;
             _tuneCycleType = type;
             _tuneCycleLastValidSwr = float.NaN;
+            _tuneCycleLastCoherentComputed = float.NaN;
             Tracing.TraceLine("tuneStart: type=" + type
                 + " swrAtStart=" + _SWR.ToString("F2")
                 + " fwdW=" + ForwardPowerWatts.ToString("F2"),
@@ -21143,6 +21177,8 @@ namespace Radios
                 + " swrSettled=" + (float.IsNaN(settled) ? "n/a" : settled.ToString("F2"))
                 + " swrNow=" + _SWR.ToString("F2")
                 + " swrCalc=" + (float.IsNaN(ComputedSWR) ? "n/a" : ComputedSWR.ToString("F2"))
+                + " swrSpoken=" + (float.IsNaN(_tuneCycleLastCoherentComputed)
+                    ? "n/a" : _tuneCycleLastCoherentComputed.ToString("F2"))
                 + " fwdW=" + ForwardPowerWatts.ToString("F2")
                 + " reflW=" + ReflectedPowerWatts.ToString("F3")
                 + " back=" + (float.IsNaN(back) ? "n/a" : (back * 100f).ToString("F1") + "%")

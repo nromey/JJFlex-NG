@@ -736,6 +736,7 @@
   "audio.tune.swr": "SWR {swr}",
   "audio.tune.swr_failed": "Tune failed, SWR {swr}",
   "audio.tune.swr_no_reading": "SWR not measured",
+  "audio.tune.swr_failed_no_reading": "Tune failed. SWR not measured",
   "audio.tune.tune_off": "Tune off",
   "audio.tune.tune_on": "Tune on",
   "audio.tx.compander_level": "Compander level {value}",

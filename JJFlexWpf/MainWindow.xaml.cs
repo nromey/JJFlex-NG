@@ -4405,7 +4405,7 @@ public partial class MainWindow : UserControl
         {
             await Task.Delay(200).ConfigureAwait(true);
             if (RigControl == null) return;
-            SpeakSwrAfterTune(isFailure, RigControl.SWRValue);
+            SpeakSwrAfterTune(isFailure, RigControl.TuneCycleSettledComputedSwr);
         }
         catch (Exception ex)
         {
@@ -4436,9 +4436,27 @@ public partial class MainWindow : UserControl
     {
         // "SWR is X to 1" is technically accurate but verbose for a status
         // readout. Hams say the leading number and the ratio is implicit.
-        string text = Radios.Lexicon.Get(
-            isFailure ? "audio.tune.swr_failed" : "audio.tune.swr",
-            ("swr", $"{swr:F1}"));
+        // #570. This was RigControl.SWRValue — the radio's own meter, which on
+        // 2026-08-22 read 1.008 while 76 percent of the power came back off an
+        // empty port. An after-tune announcement is exactly when an operator
+        // asks whether their antenna is all right, so it is the worst surface in
+        // the app to be reassuring on.
+        //
+        // It is now the coherent COMPUTED value latched during the carrier
+        // (#453 gates coherence; FlexBase latches it because by the time this
+        // speaks, forward power has collapsed and a live read would be NaN).
+        //
+        // NaN is a real answer. Noel, 2026-09-07: "we may need to report no swr
+        // if the tune is not too much." A tune too short or too quiet to
+        // measure says so rather than borrowing a number from a meter we have
+        // measured lying.
+        string text = float.IsNaN(swr)
+            ? Radios.Lexicon.Get(isFailure
+                ? "audio.tune.swr_failed_no_reading"
+                : "audio.tune.swr_no_reading")
+            : Radios.Lexicon.Get(
+                isFailure ? "audio.tune.swr_failed" : "audio.tune.swr",
+                ("swr", $"{swr:F1}"));
         VerbosityLevel level = isFailure ? VerbosityLevel.Critical : VerbosityLevel.Terse;
 
         // Sprint 44 Track E — WRITE DOWN THE NUMBER WE SAY OUT LOUD.
@@ -5503,11 +5521,18 @@ public partial class MainWindow : UserControl
         _lastTuneToggleTicks = now;
 
         bool newState = !RigControl.TxTune;
-        // Capture SWR while TX is still active. Must happen BEFORE TxTune = false,
-        // because the meter snaps to ~1.0 the instant forward power drops to zero —
-        // reading any time after this line gives the idle rest value, not the
-        // final measured SWR (Don's "SWR 1.0 to 1 every time" bug).
-        float capturedSwr = newState ? 0f : RigControl.SWRValue;
+        // This used to read RigControl.SWRValue right here, and the timing was
+        // load-bearing: the raw meter snaps to ~1.0 the instant forward power
+        // drops to zero, so a read one line later gave the idle rest value
+        // rather than the tune's (Don's "SWR 1.0 to 1 every time" bug).
+        //
+        // #570: the latch removes the race entirely. FlexBase keeps the last
+        // COHERENT COMPUTED value seen during the cycle, so there is no instant
+        // to hit and nothing to snap — an idle rest reading is not coherent and
+        // never entered the latch. NaN when the tune never gave us one, which
+        // is spoken as "SWR not measured" rather than borrowed from a meter we
+        // have measured lying (1.008 off an open port, 2026-08-22).
+        float capturedSwr = newState ? float.NaN : RigControl.TuneCycleSettledComputedSwr;
         RigControl.TxTune = newState;
         TuneToggleButton.IsChecked = newState;
         if (newState)
