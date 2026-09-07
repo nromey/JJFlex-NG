@@ -9669,7 +9669,37 @@ namespace Radios
         /// invented good reading is the failure this replaces.
         /// </para>
         /// </remarks>
-        public float ComputedSWR => SwrFromPower(_PowerDBM, _ReflectedPower);
+        public float ComputedSWR
+        {
+            get
+            {
+                // #453. Measured 2026-09-07 on the bench, 100 W into a
+                // 400 W dummy load reading 1.01 on the radio's own meter:
+                //
+                //   fwdW = 44.67  reflW = 0.031  ->  ours said 1.05  (right)
+                //   fwdW =  0.48  reflW = 0.083  ->  ours said 2.43  (wrong)
+                //
+                // Reflected ROSE while forward fell ninetyfold. Reflected
+                // power cannot do that: it was a stale sample from the peak,
+                // divided by a forward reading that had already moved on.
+                // Across the run ours ranged 1.04 to 4.84 while the radio held
+                // 1.01 to 1.22. Don's alarm trips at 1.7.
+                //
+                // The rule was already written down, one screen up from here:
+                // "anything JUDGING the two together takes them from here
+                // instead" — and the safety paths obey it. This property, the
+                // one an OPERATOR sees, read the two fields raw.
+                //
+                // So it now asks the same question the kill switch asks. An
+                // incoherent pair is NaN, which every caller already renders as
+                // "no reading" — the honest answer, and the one this file
+                // already gives when reflected exceeds forward, which is the
+                // extreme case of exactly this.
+                TransmitPowerReading pair = ReadTransmitPower();
+                if (!pair.IsCoherent) return float.NaN;
+                return SwrFromPower(_PowerDBM, _ReflectedPower);
+            }
+        }
 
         /// <summary>
         /// SWR from a forward and a reflected power reading, both in dBm.

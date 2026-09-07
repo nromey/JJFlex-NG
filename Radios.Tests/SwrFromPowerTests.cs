@@ -241,6 +241,80 @@ namespace Radios.Tests
             Assert.DoesNotContain("-25", words);
         }
 
+        // ════════════════════════════════════════════════════════════
+        //  #453: the two meters must come from the SAME MOMENT
+        // ════════════════════════════════════════════════════════════
+        //
+        // Measured 2026-09-07, 100 W into the 400 W dummy load. The radio's own
+        // meter held 1.01-1.22 throughout; ours ranged 1.04 to 4.84. These two
+        // consecutive samples are the whole mechanism:
+        //
+        //   fwd 44.67 W, refl 0.031 W  ->  1.05   correct
+        //   fwd  0.48 W, refl 0.083 W  ->  2.43   wrong
+        //
+        // Reflected ROSE while forward fell ninetyfold. It is not a reading of
+        // that instant; it is the peak's reading, still sitting there.
+
+        // The same trough sample in dBm, as the meter stream carried it.
+        private const float TroughForwardDbm = 26.81f;    // 0.48 W
+        private const float TroughReflectedDbm = 19.20f;  // 0.083 W
+
+        [Fact]
+        public void ThePairFromOneMomentIsCoherent()
+        {
+            // Positive control: a well-formed pair must PASS, or the gate below
+            // proves nothing except that everything fails.
+            var fresh = new TransmitPowerReading(44.67f, 0.031f, skewMilliseconds: 4f,
+                                                 ageMilliseconds: 120f);
+
+            Assert.True(fresh.IsCoherent);
+            Assert.Equal("", fresh.WhyNotCoherent);
+        }
+
+        [Fact]
+        public void APairSampledAMeterPeriodApartIsNotCoherent()
+        {
+            // The meter stream ran at roughly one update per second on
+            // 2026-09-07, so a stale partner is ~1000 ms old against a 60 ms
+            // budget. This is the trough sample with the peak's reflected.
+            var stale = new TransmitPowerReading(0.48f, 0.083f,
+                                                 skewMilliseconds: 1030f,
+                                                 ageMilliseconds: 200f);
+
+            Assert.False(stale.IsCoherent);
+            Assert.Contains("apart", stale.WhyNotCoherent);
+
+            // And the arithmetic on that pair is exactly the number the
+            // operator should never have been shown.
+            float wrong = FlexBase.SwrFromPower(TroughForwardDbm, TroughReflectedDbm);
+            Assert.True(wrong > 2.0f,
+                "the measured trough pair produces a false high; if this stops being "
+                + "true the sample is wrong, not the gate");
+        }
+
+        [Fact]
+        public void TheOperatorFacingSwrJudgesThePairTogether()
+        {
+            // ComputedSWR needs a live radio, so the RULE is what is pinned.
+            //
+            // FlexBase says it one screen above the fields: "anything JUDGING
+            // the two together takes them from here instead". The kill switch
+            // and the PTT safety controller obey it. Until 2026-09-07 the
+            // property an OPERATOR sees did not — it read the two fields raw,
+            // which is how a stale partner reached the display.
+            string src = File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "FlexBase.cs"));
+
+            int at = src.IndexOf("public float ComputedSWR", StringComparison.Ordinal);
+            Assert.True(at > 0, "ComputedSWR was renamed; this guard needs rewriting, not deleting");
+
+            string body = src.Substring(at, Math.Min(2600, src.Length - at));
+            Assert.Contains("ReadTransmitPower()", body);
+            Assert.Contains("IsCoherent", body);
+
+            // Positive control on the scan itself: a phrase that IS in the body.
+            Assert.Contains("SwrFromPower", body);
+        }
+
         private static string RepoRoot()
         {
             var dir = new DirectoryInfo(AppContext.BaseDirectory);
