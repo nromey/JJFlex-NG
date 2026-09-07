@@ -116,7 +116,23 @@ namespace JJFlexWpf.Dialogs
                 : lead + ". Searching for radios";
             SizeToContent = SizeToContent.WidthAndHeight;
             ResizeMode = ResizeMode.NoResize;
-            ShowInTaskbar = false;
+            // #561. This was false, which is the house pattern for a transient
+            // dialog — and it is right for the Confirm* dialogs, because those
+            // are owned by a VISIBLE main window, so the owner sits in Alt+Tab
+            // and the operator always has a way back.
+            //
+            // This window is different on the STARTUP path: it is constructed
+            // before the main window shows, so with no taskbar entry there is
+            // NOTHING in the Alt+Tab list at all. Noel, 2026-09-07: "Alt+tab and
+            // it wasn't on the list." Discovery runs on every launch and takes
+            // about six seconds, and a blind operator navigates by Alt+Tab — so
+            // tabbing away during startup stranded him. Same family as #538.
+            //
+            // Unconditional rather than startup-only. On the switch-radios path
+            // the main window is already showing and this entry is merely
+            // redundant, and a condition that has to know which path it is on is
+            // one more thing to drift.
+            ShowInTaskbar = true;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
             // Visible for a sighted operator, silent to a screen reader: the
