@@ -89,8 +89,20 @@ namespace Radios.Tests
 
             long c = p.Interrupt(_ch, "The interrupter.");
 
-            // A came back cancelled BY US; B never reached the reader and
-            // has no outcome (the arbiter's ledger holds it); C is next.
+            // A came back cancelled BY US; B never reached the reader; C is
+            // next.
+            //
+            // This test asserted that B has NO outcome until 2026-09-07, on
+            // the reasoning that the arbiter's ledger holds it and judges it
+            // "exactly as before". The mechanism does not agree with that
+            // intent: a TRACKED entry is given EstFinishUtc = MaxValue
+            // precisely so the clock cannot retire it, and only OnOutcome
+            // does @ so an item withdrawn without an outcome is never spoken,
+            // never judged and never pruned. It accumulates.
+            //
+            // So B is now reported Cancelled with ZERO marks: not cut off
+            // part way, never begun. Unambiguously unheard, and #503's
+            // subject rules get to decide whether it earns another hearing.
             var oa = WaitForOutcome(a);
             Assert.Equal(SpeechOutcomeKind.Cancelled, oa.Outcome.Kind);
             Assert.True(oa.Outcome.CancelledByUs);
@@ -102,7 +114,10 @@ namespace Radios.Tests
             WaitForOutcome(c);
 
             Assert.DoesNotContain(_ch.Seen, s => s.Ticket == b);
-            lock (_outcomes) Assert.DoesNotContain(_outcomes, o => o.Ticket == b);
+            var ob = WaitForOutcome(b);
+            Assert.Equal(SpeechOutcomeKind.Cancelled, ob.Outcome.Kind);
+            Assert.Equal(0, ob.Outcome.MarksReached);
+            Assert.True(ob.Outcome.CancelledByUs, "an interrupt is OUR cancel");
             Assert.Equal(0, p.QueuedCount);
         }
 
@@ -169,6 +184,13 @@ namespace Radios.Tests
             // subject rules decide whether it earns another hearing.
             Assert.Throws<TimeoutException>(() => _ch.WaitForCall(400));
             Assert.Equal(0, p.QueuedCount);
+
+            // Withdrawn is REPORTED, not orphaned: zero marks, and not by
+            // us. Without this the ledger entry is never retired at all.
+            var ob = WaitForOutcome(b);
+            Assert.Equal(SpeechOutcomeKind.Cancelled, ob.Outcome.Kind);
+            Assert.Equal(0, ob.Outcome.MarksReached);
+            Assert.False(ob.Outcome.CancelledByUs);
             Assert.False(p.InFlight);
             Assert.DoesNotContain(_ch.Seen, c => c.Ticket == b);
         }

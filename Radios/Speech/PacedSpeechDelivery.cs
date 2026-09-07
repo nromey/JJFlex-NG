@@ -193,14 +193,29 @@ namespace Radios.Speech
         /// </summary>
         private void WithdrawForForeignCancel(long afterTicket)
         {
-            int withdrawn;
+            List<Item> withdrawnItems;
             lock (_lock)
             {
                 if (_disposed) return;
-                withdrawn = _queue.Count;
-                if (withdrawn == 0) return;
+                if (_queue.Count == 0) return;
+                withdrawnItems = new List<Item>(_queue);
                 _queue.Clear();
             }
+            int withdrawn = withdrawnItems.Count;
+
+            // Every withdrawn item gets an OUTCOME. Without one the arbiter
+            // never learns its fate: a tracked ledger entry carries
+            // EstFinishUtc = MaxValue and is retired by OnOutcome, so an item
+            // that is silently dropped here is never spoken, never judged and
+            // never pruned @ it simply accumulates.
+            //
+            // Zero marks reached is the honest report: it was not cut off part
+            // way, it was never begun. That is unambiguously unheard, so #503's
+            // subject rules get to decide whether it earns another hearing @
+            // which for a progress line means the newer one supersedes it, and
+            // for the connect lead means the salvage may offer it again.
+            foreach (var w in withdrawnItems)
+                ReportWithdrawn(w, byUs: false);
             Tracing.TraceLine(
                 $"PacedDelivery: #{afterTicket} was cancelled by something that is not us — "
                 + $"{withdrawn} queued withdrawn unspoken for the arbiter to judge. The "
@@ -208,15 +223,30 @@ namespace Radios.Speech
                 TraceLevel.Verbose);
         }
 
+        /// <summary>
+        /// An item that never reached the reader at all. Zero marks, and the
+        /// arbiter is told, so its ledger entry is retired rather than orphaned.
+        /// </summary>
+        private void ReportWithdrawn(Item item, bool byUs)
+        {
+            Report(item, SpeechOutcome.Cancelled(
+                marksReached: 0,
+                markCount: NvdaCompletionChannel.SplitWords(item.Text).Length,
+                byUs: byUs,
+                elapsedMs: 0));
+        }
+
         public long Interrupt(ISpeechCompletionChannel channel, string text)
         {
             var item = new Item(NextTicket(), channel, text, interrupt: true);
             int withdrawn;
+            List<Item> withdrawnByUs;
             Item? cut;
             lock (_lock)
             {
                 ThrowIfDisposed();
                 withdrawn = _queue.Count;
+                withdrawnByUs = new List<Item>(_queue);
                 _queue.Clear();
                 cut = _inFlight;
                 if (cut != null && !cut.CancelRequested)
@@ -246,6 +276,12 @@ namespace Radios.Speech
                     Monitor.PulseAll(_lock);
                 }
             }
+
+            // Same orphaning as the foreign-cancel path: an item withdrawn
+            // for an interrupt has to be reported too, or the arbiter's ledger
+            // keeps it forever. byUs, because we are the ones who did it.
+            foreach (var w in withdrawnByUs)
+                ReportWithdrawn(w, byUs: true);
 
             Tracing.TraceLine(
                 $"PacedDelivery: interrupt #{item.Ticket} '{Clip(text)}' — "
