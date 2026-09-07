@@ -85,18 +85,57 @@ if %ERRORLEVEL% equ 0 (
     powershell -ExecutionPolicy Bypass -File "%HELPDIR%convert-md.ps1" "%MDDIR%" "%PAGESDIR%"
 )
 
-REM Compile CHM
+REM ---------------------------------------------------------------------------
+REM Compile CHM.
+REM
+REM hhc.exe returns 1 on success and 0 on failure (yes, really), so its exit
+REM code is useless and this script has always checked for the file instead.
+REM That check had a hole: a CHM left over from a PREVIOUS build satisfies
+REM `if exist` perfectly, so a compile that failed outright still printed
+REM SUCCESS and left the stale file in place. Now that install.bat refuses to
+REM package a stale CHM (#556/#543), a false SUCCESS here would put a fresh
+REM stamp on stale help, which is worse than no check at all.
+REM
+REM So the previous CHM is moved aside before hhc runs. Afterwards, "the file
+REM is there" can only mean "hhc just wrote it". On failure the old one is put
+REM back, because destroying working help to prove a point helps nobody.
+REM ---------------------------------------------------------------------------
+if exist "%HELPDIR%JJFlexRadio.chm.prev" del /q "%HELPDIR%JJFlexRadio.chm.prev"
+if exist "%HELPDIR%JJFlexRadio.chm" move /y "%HELPDIR%JJFlexRadio.chm" "%HELPDIR%JJFlexRadio.chm.prev" >nul
+if exist "%HELPDIR%JJFlexRadio.chm.stamp" del /q "%HELPDIR%JJFlexRadio.chm.stamp"
+
 echo.
 echo Compiling CHM...
 "!HHC!" "%HELPDIR%jjflex-help.hhp"
 
-REM hhc.exe returns 1 on success, 0 on failure (yes, really)
-if exist "%HELPDIR%JJFlexRadio.chm" (
+if not exist "%HELPDIR%JJFlexRadio.chm" (
     echo.
-    echo SUCCESS: JJFlexRadio.chm built successfully.
-    dir "%HELPDIR%JJFlexRadio.chm"
-) else (
+    echo FAILED: CHM compilation failed - hhc.exe produced no output file.
+    if exist "%HELPDIR%JJFlexRadio.chm.prev" (
+        move /y "%HELPDIR%JJFlexRadio.chm.prev" "%HELPDIR%JJFlexRadio.chm" >nul
+        echo         The previous CHM has been restored. It is now STALE and
+        echo         unstamped, so packaging will refuse it until this succeeds.
+    )
+    exit /b 1
+)
+
+if exist "%HELPDIR%JJFlexRadio.chm.prev" del /q "%HELPDIR%JJFlexRadio.chm.prev"
+
+echo.
+echo SUCCESS: JJFlexRadio.chm built successfully.
+dir "%HELPDIR%JJFlexRadio.chm"
+
+REM Stamp it with a hash of the sources it was built from, so install.bat and
+REM build-debug.bat can tell later whether it is still current. See the header
+REM of help-stamp.ps1 for why a stamp, and not an mtime or a hash of the CHM.
+if not exist "%HELPDIR%help-stamp.ps1" (
     echo.
-    echo FAILED: CHM compilation failed.
+    echo ERROR: docs\help\help-stamp.ps1 is missing. The CHM was built but
+    echo        cannot be stamped, and an unstamped CHM will not package.
+    exit /b 1
+)
+powershell -NoProfile -ExecutionPolicy Bypass -File "%HELPDIR%help-stamp.ps1" -Mode Write -HelpDir "%HELPDIR%." || (
+    echo.
+    echo ERROR: the CHM was built but the freshness stamp could not be written.
     exit /b 1
 )

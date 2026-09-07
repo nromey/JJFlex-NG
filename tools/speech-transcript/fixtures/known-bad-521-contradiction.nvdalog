@@ -1,0 +1,30 @@
+INFO - __main__ (19:56:52.913) - MainThread (14660):
+Starting NVDA version 2026.2 AMD64
+IO - speech.speech.speak (20:04:11.402) - MainThread (14660):
+Speaking [LangChangeCommand ('en_US'), 'Connecting to N0CALL. Trying SmartLink.']
+IO - speech.speech.speak (20:04:11.918) - MainThread (14660):
+Speaking [LangChangeCommand ('en_US'), 'Connecting']
+IO - speech.speech.speak (20:04:12.437) - MainThread (14660):
+Speaking [LangChangeCommand ('en_US'), 'N0CALL selected. Press Enter to connect.']
+IO - speech.speech.speak (20:04:12.439) - MainThread (14660):
+Speaking [LangChangeCommand ('en_US'), 'Local connection list loaded, still listening']
+IO - speech.speech.speak (20:04:12.441) - MainThread (14660):
+Speaking [LangChangeCommand ('en_US'), 'benchradio is now available.']
+IO - speech.speech.speak (20:04:13.006) - MainThread (14660):
+Speaking [LangChangeCommand ('en_US'), 'Connected to N0CALL. Waiting for slice...']
+IO - inputCore.InputManager.executeGesture (20:05:40.771) - winInputHook (15872):
+Input: kb(laptop):alt+f4
+IO - speech.speech.speak (20:05:41.288) - MainThread (14660):
+Speaking [LangChangeCommand ('en_US'), 'Disconnecting from N0CALL, goodbye']
+IO - speech.speech.speak (20:05:41.802) - MainThread (14660):
+Speaking [LangChangeCommand ('en_US'), 'JJ Flexible Access disconnected from radio']
+IO - speech.speech.speak (20:05:42.319) - MainThread (14660):
+Speaking [LangChangeCommand ('en_US'), 'Connected to FLEX-8600, SmartLink, 4 slices.']
+IO - speech.speech.speak (20:05:42.320) - MainThread (14660):
+Speaking [LangChangeCommand ('en_US'), 'This radio had no mic profile, so I loaded Default.']
+IO - speech.speech.speak (20:05:42.322) - MainThread (14660):
+Speaking [LangChangeCommand ('en_US'), 'PC audio on.']
+IO - speech.speech.speak (20:05:42.323) - MainThread (14660):
+Speaking [LangChangeCommand ('en_US'), 'JJ Flexible Home, Modern tuning mode']
+IO - speech.speech.speak (20:05:43.140) - MainThread (14660):
+Speaking [LangChangeCommand ('en_US'), 'Disconnecting from N0CALL, goodbye']

@@ -1,0 +1,18 @@
+INFO - __main__ (20:31:04.912) - MainThread (24680):
+Starting NVDA version 2026.2 AMD64
+IO - speech.speech.speak (20:32:42.393) - MainThread (24680):
+Speaking [LangChangeCommand ('en_US'), 'Connected to FLEX-8600, SmartLink, 4 slices.']
+IO - speech.speech.speak (20:32:42.394) - MainThread (24680):
+Speaking [LangChangeCommand ('en_US'), 'This radio had no mic profile, so I loaded Default.']
+IO - speech.speech.speak (20:32:42.396) - MainThread (24680):
+Speaking [LangChangeCommand ('en_US'), 'PC audio on.']
+IO - speech.speech.speak (20:32:42.397) - MainThread (24680):
+Speaking [LangChangeCommand ('en_US'), 'JJ Flexible Home, Modern tuning mode']
+IO - inputCore.InputManager.executeGesture (20:32:45.865) - winInputHook (15872):
+Input: kb(laptop):downArrow
+IO - speech.speech.speak (20:32:46.476) - MainThread (24680):
+Speaking [LangChangeCommand ('en_US'), 'Connected to FLEX-8600, SmartLink, 4 slices.']
+IO - inputCore.InputManager.executeGesture (20:32:47.154) - winInputHook (15872):
+Input: kb(laptop):downArrow
+IO - speech.speech.speak (20:32:47.760) - MainThread (24680):
+Speaking [LangChangeCommand ('en_US'), 'Connected to FLEX-8600, SmartLink, 4 slices.']

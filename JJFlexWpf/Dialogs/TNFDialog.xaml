@@ -3,17 +3,24 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:JJFlexWpf"
         Title="Tracking Notch Filters"
-        Width="300" SizeToContent="Height"
+        Width="320" SizeToContent="Height"
         ResizeMode="NoResize">
 
     <StackPanel Margin="12">
-        <!-- TNF List -->
-        <TextBlock Text="Filters" Margin="0,0,0,4"/>
+        <!-- The notches themselves, named by frequency. First in the tab order
+             because everything below it acts on whichever one is selected, and
+             an operator who lands on Width without knowing which notch they are
+             widening has been told the wrong thing first. -->
+        <TextBlock Text="Notches" Margin="0,0,0,4"/>
         <ListBox x:Name="TNFList" Height="100" Margin="0,0,0,8"
-                 AutomationProperties.Name="Tracking notch filters"
+                 AutomationProperties.Name="Tracking notch filters, by frequency"
+                 local:JJFlexHelp.Text="The notches your radio is holding right now, named by the frequency each one sits on. Width, depth and Keep below all act on whichever one you are arrowed onto."
                  SelectionChanged="TNFList_SelectionChanged"/>
 
-        <!-- TNF Properties -->
+        <!-- Width, depth and permanence of the selected notch. All three go
+             flat when nothing is selected, which takes them out of the tab
+             order too — a control that cannot act should not be somewhere to
+             land. -->
         <Grid Margin="0,0,0,8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
@@ -27,33 +34,44 @@
 
             <TextBlock Grid.Row="0" Grid.Column="0" Text="Width:" VerticalAlignment="Center" Margin="0,0,8,4"/>
             <TextBox x:Name="WidthBox" Grid.Row="0" Grid.Column="1" Margin="0,0,0,4"
-                     AutomationProperties.Name="TNF width in Hz"
+                     AutomationProperties.Name="Notch width in hertz, up and down arrows to change"
+                     local:JJFlexHelp.Text="How wide the notch is, from 50 to 5000 hertz, in steps of 50. Up and down arrows change it and say the new number; you can also type one and press Enter. Narrow is what you want for a single carrier — a wide notch takes a piece of the band with it."
                      PreviewKeyDown="WidthBox_PreviewKeyDown" LostFocus="WidthBox_LostFocus"/>
 
             <TextBlock Grid.Row="1" Grid.Column="0" Text="Depth:" VerticalAlignment="Center" Margin="0,0,8,4"/>
             <TextBox x:Name="DepthBox" Grid.Row="1" Grid.Column="1" Margin="0,0,0,4"
-                     AutomationProperties.Name="TNF depth, 1 to 3"
+                     AutomationProperties.Name="Notch depth, 1 to 3, up and down arrows to change"
+                     local:JJFlexHelp.Text="How hard the notch bites, from 1 to 3. Deep is usually right for a steady carrier. Up and down arrows change it and say the new number."
                      PreviewKeyDown="DepthBox_PreviewKeyDown" LostFocus="DepthBox_LostFocus"/>
 
-            <TextBlock Grid.Row="2" Grid.Column="0" Text="Permanent:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Keep:" VerticalAlignment="Center" Margin="0,0,8,0"/>
             <ComboBox x:Name="PermanentCombo" Grid.Row="2" Grid.Column="1"
-                      AutomationProperties.Name="TNF permanent"
+                      AutomationProperties.Name="Keep this notch across band changes and restarts"
+                      local:JJFlexHelp.Text="No means the notch is a passing thing. Yes means the radio stores it and holds it through band changes and power cycles — right for a birdie that lives at one frequency forever, wrong for a station that will have moved by tomorrow. A kept notch belongs to the radio, so it is still there if you operate with something else."
                       SelectionChanged="PermanentCombo_SelectionChanged">
-                <ComboBoxItem Content="False"/>
-                <ComboBoxItem Content="True"/>
+                <ComboBoxItem Content="No"/>
+                <ComboBoxItem Content="Yes"/>
             </ComboBox>
         </Grid>
 
         <!-- Buttons -->
         <StackPanel Orientation="Horizontal">
             <Button Content="_Add" MinWidth="60" Margin="0,0,8,0"
-                    AutomationProperties.Name="Add"
+                    AutomationProperties.Name="Add a notch"
                     AutomationProperties.AcceleratorKey="Alt+A"
+                    local:JJFlexHelp.Text="Places a notch at the frequency you are receiving on, so tune onto the tone you want gone before pressing this. The radio is what creates it, so you are told when it is there — or told if the radio would not place it."
                     Click="AddButton_Click"/>
-            <Button Content="_Remove" MinWidth="60" Margin="0,0,8,0"
-                    AutomationProperties.Name="Remove"
+            <Button x:Name="RemoveButton" Content="_Remove" MinWidth="60" Margin="0,0,8,0"
+                    AutomationProperties.Name="Remove the selected notch"
                     AutomationProperties.AcceleratorKey="Alt+R"
+                    local:JJFlexHelp.Text="Takes out the notch you are on and leaves you on the next one. A kept notch is removed from the radio too, so it will not come back after a restart."
                     Click="RemoveButton_Click"/>
+            <!-- IsCancel gives Escape, which every dialog must answer. NOT
+                 IsDefault: Enter is not handled in the notch list, so a default
+                 button would make arrowing the list and pressing Enter close
+                 the window out from under an operator who was expecting the
+                 list to do something. There is nothing to commit here anyway —
+                 every change has already gone to the radio. -->
             <Button Content="_Done" MinWidth="75" IsCancel="True"
                     AutomationProperties.Name="Done"
                     AutomationProperties.AcceleratorKey="Alt+D"

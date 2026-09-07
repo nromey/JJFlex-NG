@@ -1,0 +1,16 @@
+INFO - __main__ (23:59:40.001) - MainThread (11223):
+Starting NVDA version 2026.2 AMD64
+IO - speech.speech.speak (23:59:50.100) - MainThread (11223):
+Speaking [LangChangeCommand ('en_US'), "That slice isn't yours."]
+IO - speech.speech.speak (23:59:51.200) - MainThread (11223):
+Speaking [CallbackCommand(name=<function nvdaController_speakSsml.<locals>.prefixCallback at 0x0000019B8245C720>), CallbackCommand(name=SsmlMark_w0), LangChangeCommand ('en_US'), 'Connected', CallbackCommand(name=SsmlMark_w1), 'to', CallbackCommand(name=SsmlMark_w2), 'the', CallbackCommand(name=SsmlMark_w3), 'radio']
+IO - speech.speech.speak (23:59:52.300) - MainThread (11223):
+Speaking [LangChangeCommand ('en_GB'), 'Slice A selected', CancellableSpeech (still valid, devInfo< isCanceledCache: False, isValidCallback: True, isValidCallbackDevInfo: isLast: True, previouslyHad: False, isAncestorOfCurrentFocus: True, is foreground obj False, isMenuItemOfCurrentFocus: False >)]
+IO - speech.speech.speak (23:59:53.400) - MainThread (11223):
+Speaking [PitchCommand (offset=30), CharacterModeCommand (True), 'A', CharacterModeCommand (False), EndUtteranceCommand]
+IO - speech.speech.speakTypedCharacters (23:59:54.500) - MainThread (11223):
+typed word: notasecret
+IO - inputCore.InputManager.executeGesture (23:59:55.600) - winInputHook (15872):
+Input: kb(laptop):control+j
+IO - speech.speech.speak (00:00:01.700) - MainThread (11223):
+Speaking [LangChangeCommand ('en_US'), 'Tuned to 14.100 megahertz on slice B, version 4.1.16.1917']

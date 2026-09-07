@@ -131,12 +131,28 @@ Namespace My
             ' by the auto-connect path, which are the two ways this wait ends.
             ' It also has its own ceiling, so neither of them failing to call
             ' Stop can leave it talking.
+            '
+            ' ONE wording at every verbosity, and it is the lexicon's (#551).
+            ' Noel, 2026-09-02: "rather than saying 'looking for radios on the
+            ' network' or 'discovering radios' say just something like
+            ' 'searching for radios' period, no need to say all the other
+            ' stuff." Sprint 44 applied that to connect.json and to the search
+            ' window's caption, and a grep for the fixed copies read as done.
+            ' These lines were literals in VB and kept the old words for four
+            ' more days - the transcript of 2026-09-05 had "Starting up,
+            ' looking for radios on your network" as the second thing said at
+            ' every launch. Reaching them through the store is what stops a
+            ' ruling landing in one language and not the other.
+            '
+            ' The Chatty slot is left empty on purpose: Chatty exists to say
+            ' MORE about what is being waited on, and the ruling is that there
+            ' is nothing more worth saying here.
             Radios.ProgressVoice.Start(
                 "startup discovery",
-                "Starting up.",
-                "Starting up, looking for radios on your network.",
-                "Still looking.",
-                "Still looking for radios.")
+                Radios.Lexicon.Get("connect.discovery.searching"),
+                Nothing,
+                Radios.Lexicon.Get("connect.discovery.still_searching"),
+                Nothing)
 
             ' Initialize NAudio-based earcon player for UI sound effects.
             ' Traced with elapsed time: this and the two after it sit inside

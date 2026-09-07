@@ -4454,14 +4454,26 @@ Module globals
             ' is the only cover the manual route gets, because on that route
             ' there is no launch to have started one.
             '
-            ' Start supersedes rather than stacks, so starting again when one
-            ' is already running is deliberate and harmless.
-            Radios.ProgressVoice.Start(
-                "local discovery",
-                "Looking for radios.",
-                "Looking for radios on your network.",
-                "Still looking.",
-                "Still looking for radios.")
+            ' ONLY when no voice is already running (#551). On the launch route
+            ' the one started in ApplicationEvents is still going, and starting
+            ' a second voice here superseded it - which meant speaking a fresh
+            ' opening line about the same search. The 2026-09-05 transcript had
+            ' both, 450 ms apart: "Starting up, looking for radios on your
+            ' network." and then "Looking for radios on your network." The
+            ' running voice's repeats cover this block just as well; a restart
+            ' bought one more sentence and nothing else. The menu route has no
+            ' launch voice, so there this Start is the only cover, as before.
+            '
+            ' Same words as the launch voice, from the same lexicon keys; the
+            ' reasoning is on the call in ApplicationEvents.
+            If Not Radios.ProgressVoice.Running Then
+                Radios.ProgressVoice.Start(
+                    "local discovery",
+                    Radios.Lexicon.Get("connect.discovery.searching"),
+                    Nothing,
+                    Radios.Lexicon.Get("connect.discovery.still_searching"),
+                    Nothing)
+            End If
 
             ' Through the callback, NOT RigControl.LocalRadios() directly, so
             ' the picker's own start finds discovery already running.

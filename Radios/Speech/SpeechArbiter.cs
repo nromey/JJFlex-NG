@@ -15,8 +15,14 @@ namespace Radios.Speech
     /// <paramref name="salvaged"/> marks a re-emission of a queued utterance
     /// an interrupt would otherwise have destroyed; the sink records it as
     /// such and keeps it out of the repeat-history it is already in.
+    ///
+    /// Returns a <see cref="SpeechHandoff"/> rather than the bool it once did
+    /// (#521): the same "reached" fact, plus the ticket under which a
+    /// completion channel will later report what the reader did with it. A
+    /// sink with no such channel returns a bare bool, which converts to an
+    /// untracked hand-off and behaves exactly as before.
     /// </summary>
-    internal delegate bool SpeechSink(
+    internal delegate SpeechHandoff SpeechSink(
         string message, bool interrupt, SpeechIntent? intent,
         VerbosityLevel? level, string? origin, bool salvaged);
 
@@ -101,6 +107,23 @@ namespace Radios.Speech
     /// errs long on purpose: over-protection at worst repeats something the
     /// operator already heard, under-protection silently destroys something
     /// they never did. Those costs are not symmetric.
+    ///
+    /// **And where the reader CAN tell the truth, the estimate is not used
+    /// (#521).** The ledger modelled EMISSION, not delivery: five utterances
+    /// handed to NVDA in one millisecond took twelve seconds to say, an
+    /// interrupt ten seconds in made the whole backlog look unheard, and the
+    /// rescue told an operator who had just disconnected that he was
+    /// connected. Nothing here could learn otherwise. Now the sink's
+    /// <see cref="SpeechHandoff"/> carries a ticket when a completion channel
+    /// is carrying the utterance, and a tracked entry is never pruned by the
+    /// clock: it leaves the ledger when <see cref="OnOutcome"/> says the
+    /// reader finished it, stays with its last mark recorded when the reader
+    /// says it was cut, and drops back to the estimate — traced as unknown —
+    /// when nobody can say. The channel only informs; nothing here waits on
+    /// it, so a reader without one gets exactly the arbiter it had. Where
+    /// the backend offers is-speaking, a "not speaking" answer while the
+    /// ledger believes the reader busy pulls the busy-until back to now — a
+    /// correction to the estimate, never the basis of a queue.
     ///
     /// Instance-based with an injected <see cref="ISpeechClock"/> so every
     /// timing constant here is testable exactly — advance a manual clock,
@@ -230,16 +253,30 @@ namespace Radios.Speech
         // ── Believed-pending ledger constants ──
 
         /// <summary>
-        /// Per-character speaking-time estimate for the ledger. Deliberately
-        /// GENEROUS where <c>ScreenReaderOutput</c>'s SpeakAndWait constant
-        /// (50 ms) is deliberately short: a wait that runs long holds the app,
-        /// but a protection window that runs short silently destroys speech.
-        /// 80 ms/char is a slow-but-real speaking rate; a fast-rate operator
-        /// finishes sooner, and the worst case for them is hearing a repeat of
-        /// something already heard — recoverable with the silence key, unlike
-        /// the silent loss this replaces.
+        /// The OLD per-character rate, kept only as a rough yardstick for the
+        /// connect briefing's settle trace and the queue-depth rule's
+        /// comparison. **The ledger has not estimated by character since
+        /// 2026-09-06 (#557).** Measured against NVDA speaking at the
+        /// operator's own rate, this constant was about 60% high on every
+        /// one of three utterances — 800 ms modelled against 551 actual, 6160
+        /// against 2587, 13120 against 8079 — and high is the direction that
+        /// hurts: it kept utterances in the ledger after the reader had
+        /// finished them, so the salvage believed they went unheard. The
+        /// estimate is now <see cref="SpeechRateModel"/>, an affine fit that
+        /// prices words, pauses and expansions rather than characters, and
+        /// learns the operator's actual rate from real deliveries.
         /// </summary>
         internal const int SalvageMsPerCharacter = 80;
+
+        /// <summary>
+        /// How far the ledger's estimate errs LONG over the rate model's best
+        /// guess, in percent. The model answers "how long will this take";
+        /// the ledger asks "how long must I protect this", and the costs of
+        /// being wrong are not symmetric — see the class doc. Fifteen percent
+        /// puts the three 2026-09-06 measurements 9 to 14 percent under the
+        /// estimate, where the old constant had them 45 to 138 percent under.
+        /// </summary>
+        internal const int SalvageMarginPercent = 15;
 
         /// <summary>
         /// Floor per utterance. Even one short word occupies the reader for a
@@ -420,8 +457,33 @@ namespace Radios.Speech
             public string? SupersededByOrigin;
             public DateTime SupersededAtUtc;
 
-            /// <summary>When the reader is estimated to have finished saying it.</summary>
+            /// <summary>
+            /// When the reader is estimated to have finished saying it.
+            /// <see cref="DateTime.MaxValue"/> for a TRACKED entry: the
+            /// clock never retires one of those, only the reader's own
+            /// answer does (#521).
+            /// </summary>
             public DateTime EstFinishUtc;
+
+            /// <summary>
+            /// The completion channel's ticket, or 0 when nobody will report
+            /// on this entry and the estimate governs it. Renewed on every
+            /// hand-over, because each hand-over is a new question to the
+            /// reader.
+            /// </summary>
+            public long Ticket;
+
+            /// <summary>
+            /// For an entry the reader reported CUT: how many words it got
+            /// through, of how many. Recorded so the salvage trace can say
+            /// "cut at word 3 of 12" rather than guess, and so a future rule
+            /// could resume from there. Zero until an outcome says otherwise.
+            /// </summary>
+            public int MarksReached;
+            public int MarkCount;
+
+            /// <summary>The last thing the channel said about this entry, for the trace; null when it has said nothing yet.</summary>
+            public SpeechOutcomeKind? LastOutcome;
 
             /// <summary>
             /// When this utterance FIRST reached the reader. Never moves, however
@@ -523,35 +585,63 @@ namespace Radios.Speech
         private readonly SpeechSink _sink;
         private readonly Action _silenceBackend;
         private readonly Action<string, VerbosityLevel, SpeechIntent?, string?> _recordGated;
+        private readonly SpeechRateModel _rate;
+        private readonly Func<bool?>? _isSpeaking;
 
         /// <param name="clock">Time source. Inject a manual clock to test.</param>
         /// <param name="verbosity">Read at flush time — the setting can move while a value is pending.</param>
         /// <param name="sink">Where decided utterances go. See <see cref="SpeechSink"/>.</param>
         /// <param name="silenceBackend">Cut current speech now. Used by Urgent only.</param>
         /// <param name="recordGated">Transcript record for "fired but the verbosity filter dropped it".</param>
+        /// <param name="rate">
+        /// The speaking-rate model the estimate path uses (#557). Null means
+        /// a fresh, uncalibrated model at the reference rate — what every
+        /// test wants and what production supplies a persisted one for.
+        /// </param>
+        /// <param name="isSpeaking">
+        /// The backend's is-speaking bit, or null when it cannot report one.
+        /// Returns null when unavailable at call time. Consulted only as a
+        /// CORRECTION to the estimate — a "no" while the ledger believes the
+        /// reader busy clamps the busy-until — never as the basis of a queue.
+        /// </param>
         public SpeechArbiter(
             ISpeechClock clock,
             Func<VerbosityLevel> verbosity,
             SpeechSink sink,
             Action silenceBackend,
-            Action<string, VerbosityLevel, SpeechIntent?, string?> recordGated)
+            Action<string, VerbosityLevel, SpeechIntent?, string?> recordGated,
+            SpeechRateModel? rate = null,
+            Func<bool?>? isSpeaking = null)
         {
             _clock = clock;
             _verbosity = verbosity;
             _sink = sink;
             _silenceBackend = silenceBackend;
             _recordGated = recordGated;
+            _rate = rate ?? new SpeechRateModel();
+            _isSpeaking = isSpeaking;
         }
 
         /// <summary>
         /// Estimated milliseconds the reader spends saying <paramref name="message"/>,
-        /// for ledger protection. Deliberately NOT shared with the #197
-        /// transcript queue-depth rule, whose estimate must err realistic
-        /// where this one must err generous — see SpeechQueueDepthRule's
-        /// class doc for the asymmetry argument.
+        /// for ledger protection, at the REFERENCE rate: the
+        /// <see cref="SpeechRateModel"/> fit plus <see cref="SalvageMarginPercent"/>,
+        /// floored and capped. The instance path (<see cref="EstimateLocked"/>)
+        /// applies the same shape to the calibrated model; with no
+        /// calibration the two agree exactly, which is what lets a test quote
+        /// this one. Deliberately NOT shared with the #197 transcript
+        /// queue-depth rule, whose estimate must err realistic where this
+        /// one must err generous — see SpeechQueueDepthRule's class doc for
+        /// the asymmetry argument.
         /// </summary>
         internal static int EstimateSpokenMs(string message) =>
-            Math.Min(SalvageCapMs, Math.Max(SalvageMinMs, message.Length * SalvageMsPerCharacter));
+            Bound(SpeechRateModel.Uncalibrated(message));
+
+        /// <summary>The estimate at the learned rate. Callers hold the lock only by convention; the model is thread-safe itself.</summary>
+        private int EstimateLocked(string message) => Bound(_rate.Estimate(message));
+
+        private static int Bound(int modelledMs) =>
+            Math.Min(SalvageCapMs, Math.Max(SalvageMinMs, modelledMs * (100 + SalvageMarginPercent) / 100));
 
         /// <summary>
         /// How long the next utterance for a key must wait after
@@ -801,8 +891,8 @@ namespace Radios.Speech
 
             if (!interrupt)
             {
-                bool reached = _sink(message, false, intent, level, origin, salvaged: false);
-                if (reached)
+                var handoff = _sink(message, false, intent, level, origin, salvaged: false);
+                if (handoff.Reached)
                 {
                     // A newer statement on the same subject reached the reader.
                     // Whatever earlier statement is still believed unheard is
@@ -813,7 +903,7 @@ namespace Radios.Speech
                     // marks nothing — it extends its subject, it does not
                     // restate it.
                     if (!additive) MarkSupersededLocked(subject, $"'{message}'", origin, now);
-                    LedgerAddLocked(message, intent, level, origin, subject, now);
+                    LedgerAddLocked(message, intent, level, origin, subject, now, handoff.Ticket);
 
                     // Given to the reader while a train is held: this is one
                     // of the follow-ups the hold exists to let through first,
@@ -823,8 +913,8 @@ namespace Radios.Speech
                 return;
             }
 
-            bool sounded = _sink(message, true, intent, level, origin, salvaged: false);
-            if (!sounded)
+            var sounding = _sink(message, true, intent, level, origin, salvaged: false);
+            if (!sounding.Reached)
             {
                 // Suppressed or no backend: the reader never saw the cancel,
                 // so its queue — and our ledger — stand untouched.
@@ -841,7 +931,12 @@ namespace Radios.Speech
             // (ledger and held set already cleared by DiscardAllLocked, but
             // the check keeps the policy explicit rather than an artifact of
             // call order).
-            _readerBusyUntilUtc = now.AddMilliseconds(EstimateSpokenMs(message));
+            //
+            // A TRACKED interrupter does not touch the busy-until: the
+            // channel will say when it finished, and the estimate path is
+            // for entries nobody will report on.
+            if (!sounding.Tracked)
+                _readerBusyUntilUtc = now.AddMilliseconds(EstimateLocked(message));
 
             if (intent == SpeechIntent.Urgent)
             {
@@ -1037,8 +1132,8 @@ namespace Radios.Speech
                         continue;
                     }
 
-                    bool requeued = _sink(s.Message, false, s.Intent, s.Level, s.Origin, salvaged: true);
-                    if (!requeued)
+                    var requeued = _sink(s.Message, false, s.Intent, s.Level, s.Origin, salvaged: true);
+                    if (!requeued.Reached)
                     {
                         // Suppressed, or the backend went away while the
                         // train waited. Not re-entered, because it occupies
@@ -1053,8 +1148,13 @@ namespace Radios.Speech
 
                     // Re-enter the ledger so a SECOND interrupt cannot destroy
                     // what the first one already had to salvage — bounded, now,
-                    // by the count it carries with it.
+                    // by the count it carries with it. A fresh ticket, because
+                    // this hand-over is a new question to the reader; the
+                    // marks it reached last time are history, not progress.
                     s.SalvageCount++;
+                    s.Ticket = requeued.Ticket;
+                    s.MarksReached = 0;
+                    s.LastOutcome = null;
                     LedgerEnterLocked(s, now);
                     handed++;
                 }
@@ -1198,7 +1298,7 @@ namespace Radios.Speech
 
             if (atRescue && entry.Subject == null)
             {
-                int boundMs = EstimateSpokenMs(entry.Message) * SalvageAgeMultiple;
+                int boundMs = EstimateLocked(entry.Message) * SalvageAgeMultiple;
                 if (ageMs > boundMs)
                     return $"stale: {ageMs} ms old against a {boundMs} ms bound; "
                         + "no subject declared, so only its word count could expire it";
@@ -1238,7 +1338,8 @@ namespace Radios.Speech
 
         /// <summary>A first entry into the ledger: this is emission number one.</summary>
         private void LedgerAddLocked(string message,
-            SpeechIntent? intent, VerbosityLevel? level, string? origin, string? subject, DateTime now)
+            SpeechIntent? intent, VerbosityLevel? level, string? origin, string? subject, DateTime now,
+            long ticket)
         {
             LedgerEnterLocked(new BelievedQueued
             {
@@ -1249,12 +1350,13 @@ namespace Radios.Speech
                 Subject = subject,
                 FirstEmittedUtc = now,
                 SalvageCount = 0,
+                Ticket = ticket,
             }, now);
         }
 
         /// <summary>
-        /// Put an entry into the ledger and stack its estimated speaking time
-        /// onto the reader's believed busy-until.
+        /// Put an entry into the ledger and — for an UNTRACKED entry — stack
+        /// its estimated speaking time onto the reader's believed busy-until.
         ///
         /// A re-entering salvage brings its own <c>FirstEmittedUtc</c> and
         /// <c>SalvageCount</c> with it. That is the fix for #273 in one line:
@@ -1262,13 +1364,27 @@ namespace Radios.Speech
         /// be busy that long again — but the entry's AGE and its rescue count
         /// are not, so the thing that justifies the next rescue is no longer
         /// manufactured by the last one.
+        ///
+        /// A TRACKED entry (ticket set) gets no estimate at all (#521). Its
+        /// finish is <see cref="DateTime.MaxValue"/> so the clock cannot
+        /// retire it, and it leaves nothing on the busy-until, because the
+        /// busy-until is the estimate path's stack and this entry is not on
+        /// that path. The reader's answer arrives through
+        /// <see cref="OnOutcome"/> and does the retiring.
         /// </summary>
         private void LedgerEnterLocked(BelievedQueued entry, DateTime now)
         {
-            var start = _readerBusyUntilUtc > now ? _readerBusyUntilUtc : now;
-            var finish = start.AddMilliseconds(EstimateSpokenMs(entry.Message));
-            _readerBusyUntilUtc = finish;
-            entry.EstFinishUtc = finish;
+            if (entry.Ticket != 0)
+            {
+                entry.EstFinishUtc = DateTime.MaxValue;
+            }
+            else
+            {
+                var start = _readerBusyUntilUtc > now ? _readerBusyUntilUtc : now;
+                var finish = start.AddMilliseconds(EstimateLocked(entry.Message));
+                _readerBusyUntilUtc = finish;
+                entry.EstFinishUtc = finish;
+            }
 
             if (_believedQueued.Count >= LedgerCap) _believedQueued.RemoveAt(0);
             _believedQueued.Add(entry);
@@ -1276,9 +1392,141 @@ namespace Radios.Speech
 
         private void PruneLedgerLocked(DateTime now)
         {
+            // The is-speaking correction (#557): if the backend can say it is
+            // NOT speaking while the estimate says it should be, the estimate
+            // is wrong in the direction that keeps stale entries alive, and
+            // every untracked entry is retired now. Asked only when there is
+            // something to correct — no RPC for an empty ledger — and never
+            // waited on: a null answer means "cannot say" and the estimate
+            // stands. Tracked entries are untouched; their reader is the one
+            // answering for them.
+            if (_isSpeaking != null && _readerBusyUntilUtc > now && _believedQueued.Exists(e => e.Ticket == 0))
+            {
+                bool? speaking = null;
+                try { speaking = _isSpeaking(); } catch { /* a probe that throws is a probe that cannot say */ }
+                if (speaking == false)
+                {
+                    int early = (int)(_readerBusyUntilUtc - now).TotalMilliseconds;
+                    int retired = 0;
+                    foreach (var e in _believedQueued)
+                    {
+                        if (e.Ticket == 0 && e.EstFinishUtc > now) { e.EstFinishUtc = now; retired++; }
+                    }
+                    _readerBusyUntilUtc = now;
+                    Tracing.TraceLine(
+                        $"SpeechArbiter: the reader says it is not speaking, {early} ms before the estimate "
+                        + $"said it would be; {retired} estimated entr{(retired == 1 ? "y" : "ies")} retired early.",
+                        TraceLevel.Info);
+                }
+            }
+
             // Estimated-finished utterances leave the ledger; salvaging them
-            // would repeat speech the operator (probably) heard.
+            // would repeat speech the operator (probably) heard. A tracked
+            // entry's finish is MaxValue and never passes.
             _believedQueued.RemoveAll(e => e.EstFinishUtc <= now);
+        }
+
+        /// <summary>
+        /// The reader's answer about one hand-over, by ticket (#521). Called
+        /// from the paced delivery's thread with no lock held; takes the
+        /// arbiter's lock and nothing else. Every Completed answer, ledgered
+        /// or not, teaches the rate model — an interrupter is never in the
+        /// ledger, and its duration is as real as anyone's.
+        ///
+        /// What each answer does to the entry, and why:
+        ///
+        /// - **Completed** — it leaves the ledger, wherever it is. The
+        ///   operator heard it; rescuing it would be the #521 repeat.
+        /// - **Cancelled** — it stays, with the last mark recorded. If the
+        ///   cut was ours, the interrupt path already moved it to the held
+        ///   set and will judge it; if it was not ours — the operator's key,
+        ///   a focus change — the entry waits for the NEXT interrupt to judge
+        ///   it under the same rules. The arbiter does NOT re-speak on a
+        ///   foreign cancel of its own accord: on a live desk the operator's
+        ///   keys cancel NVDA constantly, and a rescue per keystroke is #554's
+        ///   runaway with a better excuse.
+        /// - **Unknown, refused** — it leaves the ledger. The reader took
+        ///   nothing, so nothing is occupied and nothing is owed; the trace
+        ///   says so loudly because a refusal is a fault in the app or the
+        ///   reader's mode, not a normal outcome.
+        /// - **Unknown, anything else** — it becomes an UNTRACKED entry on
+        ///   the estimate path from now, exactly as if #521 had never landed
+        ///   for this one utterance, and the trace says the ledger is
+        ///   guessing about it. The type cannot express "spoken" here, and
+        ///   that is the point.
+        /// </summary>
+        public void OnOutcome(long ticket, string message, SpeechOutcome outcome)
+        {
+            lock (_lock)
+            {
+                var now = _clock.UtcNow;
+                if (outcome.WasHeard) _rate.Observe(message, outcome.ElapsedMs);
+
+                var inLedger = true;
+                var entry = _believedQueued.Find(e => e.Ticket == ticket && ticket != 0);
+                if (entry == null)
+                {
+                    entry = _held.Find(e => e.Ticket == ticket && ticket != 0);
+                    inLedger = false;
+                }
+
+                if (entry == null)
+                {
+                    // An interrupter (never ledgered), or an entry already
+                    // retired by supersession, the cap, the ceiling or a
+                    // Silence. Nothing to account for; the outcome is still
+                    // worth a line, because it is the truth about a delivery.
+                    Tracing.TraceLine(
+                        $"SpeechArbiter: delivery #{ticket} {outcome} — '{message}' (not in the ledger: an interrupter, or already retired)",
+                        TraceLevel.Verbose);
+                    return;
+                }
+
+                entry.LastOutcome = outcome.Kind;
+                switch (outcome.Kind)
+                {
+                    case SpeechOutcomeKind.Completed:
+                        if (inLedger) _believedQueued.Remove(entry); else _held.Remove(entry);
+                        Tracing.TraceLine(
+                            $"SpeechArbiter: delivery #{ticket} {outcome} — '{message}' left the ledger "
+                            + $"{(int)(now - entry.FirstEmittedUtc).TotalMilliseconds} ms after first emission"
+                            + (entry.SalvageCount > 0 ? $" ({entry.SalvageCount} rescue(s))" : string.Empty),
+                            TraceLevel.Verbose);
+                        return;
+
+                    case SpeechOutcomeKind.Cancelled:
+                        entry.MarksReached = outcome.MarksReached;
+                        entry.MarkCount = outcome.MarkCount;
+                        Tracing.TraceLine(
+                            $"SpeechArbiter: delivery #{ticket} {outcome} — '{message}' stays "
+                            + (inLedger ? "in the ledger for the next interrupt to judge" : "held; the settle window will judge it"),
+                            TraceLevel.Info);
+                        return;
+
+                    default:
+                        if (outcome.UnknownReason == SpeechUnknownReason.Refused)
+                        {
+                            if (inLedger) _believedQueued.Remove(entry); else _held.Remove(entry);
+                            Tracing.TraceLine(
+                                $"SpeechArbiter: delivery #{ticket} {outcome} — '{message}' left the ledger: "
+                                + "the reader took nothing, so nothing is owed",
+                                TraceLevel.Warning);
+                            return;
+                        }
+
+                        // Back to the estimate path, from now, as an untracked entry.
+                        entry.Ticket = 0;
+                        var start = _readerBusyUntilUtc > now ? _readerBusyUntilUtc : now;
+                        var finish = start.AddMilliseconds(EstimateLocked(message));
+                        _readerBusyUntilUtc = finish;
+                        entry.EstFinishUtc = finish;
+                        Tracing.TraceLine(
+                            $"SpeechArbiter: delivery #{ticket} {outcome} — '{message}' is back on the ESTIMATE: "
+                            + $"the ledger is guessing it finishes {(int)(finish - now).TotalMilliseconds} ms from now",
+                            TraceLevel.Warning);
+                        return;
+                }
+            }
         }
 
         private void FlushCoalesced(string key)

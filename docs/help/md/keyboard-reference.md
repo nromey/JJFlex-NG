@@ -65,6 +65,7 @@ The second key follows a grammar, and the grammar is the point: you work out a c
 - **Q** — Capture a noise profile for PC Spectral NR — press Q again while it runs to cancel (see "Noise capture" below)
 - **Ctrl+A** — Toggle Auto Notch. It was plain `A` until the grammar arrived; plain `A` is the audio layer's door now
 - **P** — Toggle Audio Peak Filter (APF, CW only)
+- **Alt+N** — Open the tracking notch filters, where you place a notch yourself instead of letting Auto Notch hunt for one (see "Tracking notch filters" below)
 
 ### Audio and transmit
 
@@ -194,6 +195,20 @@ Two things there are new. The 50 hertz rung used to stop at 2,000 wide, which so
 When an edge can't go any further it says so — "Low edge 2650, at the limit" — rather than going quiet, because a control that silently refuses to move sounds exactly like a broken one. The transmit edges are constrained against each other by the radio: the low edge stops 50 hertz short of the high edge, and narrowing hits that rail. If you hold a Shift and the app can't tell which one — both, or none — it asks rather than guessing, because walking the wrong edge without saying so is the one thing this layer must never do.
 
 The bracket keys you already know are untouched: `[` and `]` still widen, `Shift` slides, `Ctrl` squeezes and pulls, `Alt` cycles your presets, and a double-tap still grabs a single edge. The layer is a second door into the same filter, not a replacement.
+
+### Tracking notch filters — Ctrl+J, then Alt+N
+
+N for Notch, with Alt on it because it opens something rather than switching something on and off. Plain `N` is the old Noise Reduction toggle and isn't moving.
+
+A tracking notch is the tool for one specific misery: the steady carrier. A birdie from a switching supply, a heterodyne from a station a little off frequency, the whistle that appears on 40 at the same spot every evening. Auto Notch goes hunting for that on its own, and when it works it's lovely. When it doesn't — when it keeps grabbing the wrong tone, or lets go every time the signal fades — this is where you point at the thing yourself and tell the radio to leave it alone.
+
+Press `Ctrl+J` then `Alt+N` and you get a list of the notches your radio is currently holding, named by frequency. Arrow through them. For whichever one you're on you can set two things: the width, in hertz, from 50 up to 5000; and the depth, from 1 to 3. Both take up and down arrows, and both say the new number as you change it. Narrow and deep is usually what you want for a carrier — you're trying to remove one tone, not a slice of the band.
+
+Add drops a new notch at whatever frequency you're receiving on, so tune onto the offending tone first and then press Add. The radio is the one that actually creates it, so the app waits for the radio to say it's there and then tells you "Notch added" and drops you on the new one in the list, where your screen reader reads you the frequency it landed on. If the radio doesn't place it, you hear that instead, rather than getting a silence you have to interpret. Remove takes out the one you're on and leaves you on the next one, so clearing several in a row doesn't mean re-entering the list between each.
+
+The last setting is Keep, and it's the one worth understanding. Set it to No and the notch is a passing thing. Set it to Yes and the radio stores it — through band changes, through turning the radio off and on, and it belongs to the radio rather than to this program, so it's still there if you use something else to operate. That's exactly right for a birdie that lives at the same frequency forever, and exactly wrong for a station that will have moved on by tomorrow. If you ever find a notch you don't remember making, this is why: it's one you kept.
+
+Escape closes the list. Anything you changed is already on the radio — there's no OK to press and nothing to lose by leaving.
 
 ### Mic check — Ctrl+J, then K
 

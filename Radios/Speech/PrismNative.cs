@@ -220,12 +220,22 @@ namespace Radios.Speech
         // upgrade — they are opaque hashes, so a mismatch fails silently by
         // creating nothing rather than by failing to compile.
 
+        /// <summary>
+        /// NVDA's controller backend. Named separately because it is the one
+        /// backend whose identity decides something: the speech-completion
+        /// channel (#521) engages only while THIS is the backend Prism holds.
+        /// That is a check on a backend id inside the layer that already owns
+        /// the id table — not a reader-name string compare at a call site,
+        /// which <see cref="IScreenReader.DetectedReader"/> forbids.
+        /// </summary>
+        internal const ulong BackendNvda = 0x89CC19C5C4AC1A56UL;
+
         /// <summary>Readers with a real controller API. Best integration:
         /// they own the speech queue, the voice and the braille display, and
         /// our text joins their stream rather than competing with it.</summary>
         internal static readonly (ulong Id, string Name)[] ControllerReaders =
         {
-            (0x89CC19C5C4AC1A56UL, "NVDA"),
+            (BackendNvda, "NVDA"),
             (0xAC3D60E9BD84B53EUL, "JAWS"),
             (0x3D93C56C9E7F2A2EUL, "ZDSR"),
             (0xAE439D62DC7B1479UL, "ZoomText"),
