@@ -9,6 +9,171 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-09-06 — THE PROBE ANSWERED THE QUESTION, FIVE TRACKS BUILT ON THE ANSWER, AND THE OPERATOR FOUND THE HOLE IN IT
+
+**Sealed 2026-09-07 05:15 (the day ran past midnight; see the note on the clock
+below). 26 commits in JJFlex-NG, 5 in jjf-private. +9,577 / -514, net +9,063
+across 74 files. C# +5,986/-340 in 39 files. 6.0 hours read aloud; 169 printed
+pages. Sprint 46 planned, briefed, spawned, merged and verified in one day:
+Radios.Tests 2,722 -> 2,818, JJFlexWpf.Tests filtered 43. Register 288 open ->
+273, sixteen entries closed.**
+
+### The gate that had never been opened
+
+**#521 rested on an assumption nobody had tested: that NVDA reports COMPLETION.**
+Track M had measured `nvdaController_speakSsml` many times and got **1223
+cancelled every single time**, which proves cancellation is reported and says
+nothing about completion — the half the whole design stands on.
+
+Noel gave five quiet minutes. Measured 12:15, NVDA 2026.2:
+
+```
+short           10 chars    COMPLETED rc=0     551 ms   marks 2/2
+the 521 batch  164 chars    COMPLETED rc=0    8079 ms   marks 28/28
+medium          77 chars    COMPLETED rc=0    2587 ms   marks 13/13
+```
+
+**Every mark fired to the last word**, so the channel carries progress as well as
+a verdict. The transcript's own gaps agree with the probe's stopwatch to within
+**9 ms** on the long one — two instruments, one event, neither trusted.
+
+**Track M only ever saw 1223 because a live keyboard cancels NVDA constantly.**
+The probe refuses to start until `GetLastInputInfo` reports 8 seconds of silence,
+and stamps any run with input during it. A countdown would have raced the
+operator reading the instruction and stepping away.
+
+**#557 fell out of it:** the arbiter's 80 ms/character model is ~60 percent high,
+and that is the direction that keeps stale utterances alive — it pushes
+`_readerBusyUntilUtc` out, so pruning runs late, so entries survive after the
+reader has finished. Per-character cost is not even monotonic with length (55.1,
+33.6, 49.3), because sentence breaks and expansions like `FLEX-8600` cost far
+more than their character count.
+
+### Sprint 46 — five tracks, planned and landed the same day
+
+**Track A (#521, #541, #557).** The delivery ledger. Tri-state where `WasHeard`
+is `Completed` and nothing else and an `Unknown` without a reason THROWS; a
+capability bit, never a version check; a dedicated delivery thread with a real
+escape ladder. The client ships properly — official 2026.2 archive hashed, Track
+M's DLLs match byte for byte, **and there is no `DllImport` by name anywhere in
+the tree**, enforced by a test. Its own tests found two defects before it ever
+ran on a desk.
+
+**Track B (#550, #551, #555).** #551's old wording was in `ApplicationEvents.vb`
+and `globals.vb` — **VB, which is why Sprint 44's fix reached `connect.json` and
+the WPF caption and missed it.** The register named five literals; the sweep
+found eight. Startup went five utterances to four. **And Track B overturned
+#550's premise**: the second announcement carries no role and
+`is foreground obj False`, so it is a FOCUS event on the `ElementHost`, not a
+caption rewrite — and it happens on ordinary Alt+Tab with no connect in sight.
+
+**Track C.** The transcript harness — and its headline is that **my `——` repeat
+flag never fired on #554's own capture.** It measured utterance-to-utterance
+(4,083 ms and 1,284 ms); the 611 and 606 in the register are measured **from the
+interrupt**, which is what the salvage waits on. It also found the extractor
+matched single-quoted payloads only, while NVDA writes Python repr — **337 of
+1,545 utterances dropped or mangled**, and a dropped utterance is
+indistinguishable from one never spoken.
+
+**Track D (#482).** The Tracking Notch Filter is reachable — and four
+accessibility defects were found INSIDE the dialog being revived, including
+arrow keys that set text from code and so never reached a screen reader.
+Recommends NOT reviving the watt meter or the pan list, with reasons. New
+`DialogReachabilityTests` covers **27 dialog classes, not the six #482 named**,
+and an exemption must NAME its live WinForms original and assert it exists.
+
+**Track E (#556).** The CHM is untracked. **`build-installers.bat` never built
+the help at all** — only `build-debug.bat` did, so released builds packaged
+whatever copy happened to be committed. That is most of #543's mechanism. And
+`hhc.exe` output is **not reproducible** — three builds over an unchanged tree
+gave 547,362 / 547,266 / 547,264 bytes, so the tracked file could never have
+converged.
+
+### What the operator found that five agents could not
+
+**#559.** After the merge I told Noel #521 was fixed, on one clean run. He then
+connected while Alt+Tabbing through File Explorer, and the transcript showed:
+
+```
+19:40:47  Disconnecting from K5NER, goodbye
+19:40:48  JJ Flexible Access disconnected from radio
+19:40:49  <the connect lead>
+```
+
+**Every step was individually correct.** The Alt+Tab cut the lead; #521's channel
+correctly reported it unheard; the salvage correctly re-spoke it. Nothing had
+told the ledger it had stopped being TRUE — `ConnectLead`'s contract says only
+that "the next connect's lead replaces an unheard one", **and a disconnect is not
+a next connect.**
+
+Fixed in `RadioGone()`, which already existed and was already called on an
+ordinary disconnect — it just did nothing after settle. The subject list is built
+at the moment of SAYING, not hand-written at the call site, so it cannot drift
+when a briefing line is added. **Proved by disabling the supersession loop and
+watching the new test fail.**
+
+**My error is the lesson: one clean run is not evidence about a bug that only
+appears under interruption.** His first run had nothing cancelling anything, so
+it could not have reproduced it either way. I read a passing test as a passing
+test when it was a test that never ran the case.
+
+### Decisions Noel made
+
+**"I'd do the real fix over an interim stop gap"** — so #554's rescue cap was
+dropped and #521 was built instead. **Pan says the number and only the number**,
+with the words scale DELETED (#536) — and the deciding argument was consistency
+with slice volume, which is also 0-100 and also announces no unit. **Escape says
+"All changes reverted"** rather than reciting values, which deleted a defect
+rather than fixing one: the restore list had grown two renderers with drifted
+casing. **A near miss says the RECOVERY** (#558) — "Ctrl+B: Binaural receive on
+or off", at every tier, because the refusal earcon already said the key did
+nothing. **#549 NOT DOING** — the project has one clock, the dev machine's.
+**Route 3 declined** — no Prism contribution.
+
+### Cross-surface
+
+**No memory files modified on the 6th.** `MEMORY.md` at **12,016 bytes**, at the
+seal threshold. Freight Fate unchanged at **16 unpushed**, still Noel's call;
+Civ VI clean and idle. Dependency check: **no vulnerable packages**. Drift check
+ran with its positive control; no new candidates from the day's work.
+**Three NVDA transcripts archived**, including the one carrying #559's evidence.
+`C:\dev\prism` is now a tree the drift checker scans (503 files).
+
+### A note on the clock
+
+The day ran past midnight and was sealed on the morning of the 7th. Under #549's
+ruling the machine's clock is the project's clock, so this entry is dated for the
+work, not for the writing.
+
+### Setup for next
+
+**#559's fix is BUILT AND UNHEARD.** Relaunch, connect, Alt+Tab while it talks,
+disconnect: the connect lead must not follow the goodbye. **Don is still on
+1921 with the full runaway**, and the nightly was deliberately NOT published in
+this seal because the speech rewrite has not been heard by a person.
+
+**Then the presses nobody has done:** `Ctrl+J, Alt+N` for the notch filter, the
+near-miss and layer-contract wording, the pan wording, and Track B's #550 focus
+routing — which was written from a transcript without launching and is the one
+its own author is least sure of.
+
+**Still open and worth naming:** the pump-queue half of #559 (supersession
+reaches the ledger, not `PacedSpeechDelivery`'s queue); "Disconnecting, goodbye"
+spoken twice; the arrival count spoken twice; #550's window title still doubled
+8 ms apart. **And the content question underneath all of it** — the connect
+narration is fourteen seconds long and always was; the runaway was hiding it.
+
+### Rigmeter snapshot — end of 2026-09-06
+
+Plus 9,577, minus 514, net **+9,063** across 74 files and 26 commits. Both
+figures agree. C# +5,986/-340 across 39 files; PowerShell +718/-80; a 1,027-line
+`.psm1` that is Track C's harness; markdown +354/-21; VB +126/-12. **6.0 hours
+read aloud**; 169 printed pages; 4.3 braille volumes. Snapshot on the NAS at
+`2026-09-06-de94fe43.json`.
+
+**Branch-scope caveat:** JJFlex-NG only. The five jjf-private commits — sixteen
+register closures, two new entries and the sprint plan — are not in that number.
+
 ## END-OF-DAY SEAL — 2026-09-05 — TEN TRACKS IN TWO FLIGHTS, AND AN INSTRUMENT THAT MADE THE OPERATOR STOP BEING ONE
 
 **Sealed 21:0x machine time (CENTRAL — Noel is in East Tennessee, an hour ahead;
