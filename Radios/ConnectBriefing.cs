@@ -169,11 +169,13 @@ namespace Radios
             u => ScreenReaderOutput.Speak(
                 u.Text, SpeechIntent.Queue, u.Level, subject: u.Subject,
                 callerFile: u.OriginFile, callerLine: u.OriginLine, callerMember: u.OriginMember),
-            () => ScreenReaderOutput.PlayWarningAlarmEarcon?.Invoke());
+            () => ScreenReaderOutput.PlayWarningAlarmEarcon?.Invoke(),
+            (subject, by) => ScreenReaderOutput.Supersede(subject, by));
 
         private readonly object _gate = new();
         private readonly Action<BriefingUtterance> _emit;
         private readonly Action _alarm;
+        private readonly Action<string, string> _supersede;
 
         private bool _inFlight;
         private bool _radioChosen;
@@ -181,10 +183,32 @@ namespace Radios
         private readonly List<ConnectFact> _facts = new();
         private readonly List<string> _reference = new();
 
-        public ConnectBriefing(Action<BriefingUtterance> emit, Action alarm)
+        /// <summary>
+        /// Every subject this briefing has ASSERTED — that is, handed to the
+        /// sink — since the last invalidation. #559: a fact that has been
+        /// spoken is not thereby finished with. It may be sitting unheard in
+        /// the arbiter's ledger waiting for the salvage, and the salvage will
+        /// re-speak it into a world where it has stopped being true.
+        /// </summary>
+        private readonly HashSet<string> _asserted = new(StringComparer.Ordinal);
+
+        /// <param name="supersede">
+        /// Retires a subject the briefing asserted once it stops being true.
+        /// Optional so existing callers compile; a briefing without one simply
+        /// cannot invalidate, which is the behaviour before #559.
+        /// </param>
+        public ConnectBriefing(Action<BriefingUtterance> emit, Action alarm,
+            Action<string, string>? supersede = null)
         {
             _emit = emit ?? throw new ArgumentNullException(nameof(emit));
             _alarm = alarm ?? throw new ArgumentNullException(nameof(alarm));
+            _supersede = supersede ?? ((_, _) => { });
+        }
+
+        /// <summary>Every subject asserted and not yet invalidated.</summary>
+        internal IReadOnlyCollection<string> Asserted
+        {
+            get { lock (_gate) return _asserted.ToArray(); }
         }
 
         /// <summary>
@@ -253,13 +277,46 @@ namespace Radios
         /// </summary>
         public void RadioGone()
         {
+            string[] stale;
+            bool wasInFlight;
             lock (_gate)
             {
-                if (!_inFlight) return;
-                _radioChosen = false;
-                _facts.Clear();
+                stale = _asserted.ToArray();
+                _asserted.Clear();
+                wasInFlight = _inFlight;
+                if (_inFlight)
+                {
+                    _radioChosen = false;
+                    _facts.Clear();
+                }
             }
-            Tracing.TraceLine("ConnectBriefing: radio gone before settle — facts discarded", System.Diagnostics.TraceLevel.Info);
+
+            // #559, measured at the radio 2026-09-06 on build 4.1.16.1948:
+            // the connect lead was spoken TWO SECONDS AFTER the disconnect
+            // announcement that made it false. (The lead's own wording lives
+            // in SpeechSubject.ConnectLead and is deliberately not repeated
+            // here — the dedup gate is right that a sentence wants one home,
+            // and a comment quoting it is still a second place to correct.)
+            //
+            // Every step was individually correct. The utterance was cut by an
+            // Alt+Tab; #521's completion channel correctly reported it unheard;
+            // the salvage correctly decided to re-speak it. Nothing had told
+            // the ledger it had stopped being TRUE — ConnectLead's contract
+            // says only that "the next connect's lead replaces an unheard one",
+            // and a disconnect is not a next connect.
+            //
+            // So the arbiter now knows what was heard AND what is still true.
+            // Outside the lock: the sink speaks.
+            foreach (string subject in stale)
+                _supersede(subject, "the radio went away");
+
+            Tracing.TraceLine(
+                wasInFlight
+                    ? "ConnectBriefing: radio gone before settle — facts discarded, "
+                      + stale.Length + " asserted subject(s) retired"
+                    : "ConnectBriefing: radio gone after settle — " + stale.Length
+                      + " asserted subject(s) retired so the salvage cannot re-speak them",
+                System.Diagnostics.TraceLevel.Info);
         }
 
         /// <summary>
@@ -289,7 +346,7 @@ namespace Radios
                 _facts.Clear();
             }
             Tracing.TraceLine("ConnectBriefing: flow ended with no radio — Home is settled", System.Diagnostics.TraceLevel.Info);
-            if (arrival != null) _emit(arrival.Value);
+            if (arrival != null) EmitAsserting(arrival.Value);
         }
 
         // ── The facts ───────────────────────────────────────────────────
@@ -328,7 +385,7 @@ namespace Radios
                 $"ConnectBriefing: {fact.Kind} arrived with no connect in flight — spoken in full now",
                 System.Diagnostics.TraceLevel.Info);
             if (fact.Alarm) _alarm();
-            _emit(Utterance(fact.Full, fact));
+            EmitAsserting(Utterance(fact.Full, fact));
         }
 
         // ── Home ────────────────────────────────────────────────────────
@@ -358,7 +415,7 @@ namespace Radios
                     return;
                 }
             }
-            _emit(u);
+            EmitAsserting(u);
         }
 
         // ── Settle ──────────────────────────────────────────────────────
@@ -424,13 +481,25 @@ namespace Radios
                 System.Diagnostics.TraceLevel.Info);
 
             if (alarm) _alarm();
-            foreach (var u in emitted) _emit(u);
+            foreach (var u in emitted) EmitAsserting(u);
             if (arrival != null)
             {
-                _emit(arrival.Value);
+                EmitAsserting(arrival.Value);
                 emitted.Add(arrival.Value);
             }
             return emitted;
+        }
+
+        /// <summary>
+        /// Hand an utterance to the sink and remember the subject it asserted.
+        /// #559: everything spoken about a connection has to be retirable when
+        /// that connection ends, and the only list that cannot drift from what
+        /// was actually said is one built at the moment of saying it.
+        /// </summary>
+        private void EmitAsserting(BriefingUtterance u)
+        {
+            lock (_gate) { if (!string.IsNullOrEmpty(u.Subject)) _asserted.Add(u.Subject); }
+            _emit(u);
         }
 
         private static BriefingUtterance Utterance(string text, ConnectFact fact)

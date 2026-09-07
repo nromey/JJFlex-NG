@@ -35,6 +35,11 @@ namespace Radios.Tests
 
         private ConnectBriefing New() => new ConnectBriefing(u => _spoken.Add(u), () => _alarms++);
 
+        /// <summary>Subjects retired by the briefing, newest last (#559).</summary>
+        private readonly List<string> _retired = new();
+        private ConnectBriefing NewWithSupersede() => new ConnectBriefing(
+            u => _spoken.Add(u), () => _alarms++, (subject, by) => _retired.Add(subject));
+
         private IEnumerable<string> Texts => _spoken.Select(u => u.Text);
 
         /// <summary>The arbiter's estimate, and the number every figure below is measured against.</summary>
@@ -455,6 +460,63 @@ namespace Radios.Tests
 
             b.FlowEndedWithoutRadio();
             Assert.Equal(Arrival, Assert.Single(_spoken).Text);
+        }
+
+        [Fact]
+        public void A_radio_gone_AFTER_settle_retires_everything_the_briefing_asserted()
+        {
+            // #559, measured at the radio 2026-09-06 on 4.1.16.1948. Every
+            // step was individually correct: an Alt+Tab cut the lead, #521's
+            // completion channel correctly reported it unheard, and the
+            // salvage correctly decided to re-speak it. Nothing had told the
+            // ledger it had stopped being TRUE, so it was re-spoken two
+            // seconds AFTER the disconnect announcement.
+            //
+            // ConnectLead's contract says only that "the next connect's lead
+            // replaces an unheard one" — and a disconnect is not a next
+            // connect. So the disconnect has to retire it.
+            var b = NewWithSupersede();
+            b.FlowBegan();
+            b.RadioChosen();
+            b.Note(PcAudioOn());
+            b.Settle(Lead8600(), Census8600);
+
+            Assert.NotEmpty(_spoken);            // positive control: it spoke
+            Assert.False(b.InFlight);            // and settled, so this is the AFTER case
+            var asserted = b.Asserted.ToArray();
+            Assert.Contains(SpeechSubject.ConnectLead, asserted);
+
+            b.RadioGone();
+
+            // Everything it asserted, retired — not a hand-listed subset that
+            // goes stale the day someone adds a briefing line.
+            Assert.Equal(asserted.OrderBy(x => x), _retired.OrderBy(x => x));
+            Assert.Contains(SpeechSubject.ConnectLead, _retired);
+
+            // And it does not retire twice: a second disconnect has nothing
+            // left to say, so a retry cannot suppress its own fresh lead.
+            _retired.Clear();
+            b.RadioGone();
+            Assert.Empty(_retired);
+            Assert.Empty(b.Asserted);
+        }
+
+        [Fact]
+        public void A_radio_gone_BEFORE_settle_retires_nothing_because_nothing_was_asserted()
+        {
+            // The negative control the case above needs. Facts collected and
+            // never spoken are discarded, not superseded — superseding a
+            // subject nobody heard would retire the NEXT connect's lead too.
+            var b = NewWithSupersede();
+            b.FlowBegan();
+            b.RadioChosen();
+            b.Note(MicRepaired());
+
+            b.RadioGone();
+
+            Assert.Empty(_spoken);
+            Assert.Empty(_retired);
+            Assert.True(b.InFlight);
         }
 
         [Fact]
