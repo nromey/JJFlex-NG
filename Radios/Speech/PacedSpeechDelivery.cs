@@ -186,6 +186,28 @@ namespace Radios.Speech
         /// the head. Returns its ticket. The reader's own cancel runs outside
         /// the lock; it is an RPC.
         /// </summary>
+        /// <summary>
+        /// The reader was cancelled by something that is not us — the operator's
+        /// Ctrl, or any other key. Give the queue back to the arbiter unspoken.
+        /// #562.
+        /// </summary>
+        private void WithdrawForForeignCancel(long afterTicket)
+        {
+            int withdrawn;
+            lock (_lock)
+            {
+                if (_disposed) return;
+                withdrawn = _queue.Count;
+                if (withdrawn == 0) return;
+                _queue.Clear();
+            }
+            Tracing.TraceLine(
+                $"PacedDelivery: #{afterTicket} was cancelled by something that is not us — "
+                + $"{withdrawn} queued withdrawn unspoken for the arbiter to judge. The "
+                + "operator asked for quiet.",
+                TraceLevel.Verbose);
+        }
+
         public long Interrupt(ISpeechCompletionChannel channel, string text)
         {
             var item = new Item(NextTicket(), channel, text, interrupt: true);
@@ -363,6 +385,25 @@ namespace Radios.Speech
                             TraceLevel.Warning);
                         return;
                     }
+
+                    // #562, ruled by Noel 2026-09-07: "ctrl always means
+                    // silence when it comes to NVDA's shut up key."
+                    //
+                    // A cancel that was not OURS is the operator asking for
+                    // quiet. We cannot tell Ctrl from any other key — both come
+                    // back as 1223 with CancelledByUs false — and we should not
+                    // try: from the operator's side "I pressed a key, it stopped,
+                    // then it started talking again" is the same complaint
+                    // whichever key it was.
+                    //
+                    // Withdrawn, not dropped. The arbiter's ledger still holds
+                    // them and #503's subject rules decide what deserves saying
+                    // again — and since #521 those rules are working from real
+                    // delivery data instead of a guess, which is the difference
+                    // between this and the pre-#521 behaviour that lost 89
+                    // announcements in a day.
+                    if (outcome.Kind == SpeechOutcomeKind.Cancelled && !outcome.CancelledByUs)
+                        WithdrawForForeignCancel(item.Ticket);
 
                     Report(item, outcome);
                 }

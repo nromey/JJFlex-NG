@@ -136,8 +136,20 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void ForeignCancel_IsReportedAsNotOurs_AndTheQueueCarriesOn()
+        public void ForeignCancel_IsReportedAsNotOurs_AndWithdrawsTheWholeQueue()
         {
+            // #562, ruled by Noel 2026-09-07: "ctrl always means silence when
+            // it comes to NVDA's shut up key."
+            //
+            // This test asserted the opposite until that ruling — that the
+            // keystroke destroyed one utterance and the backlog carried on.
+            // What that produced at the radio was Ctrl silencing the sentence
+            // in flight and the app immediately starting the next one, which
+            // is not what the shut-up key means anywhere else in Windows.
+            //
+            // We cannot tell Ctrl from any other key: both come back 1223 with
+            // CancelledByUs false. We do not try. "I pressed a key, it stopped,
+            // then it started talking again" is one complaint, not two.
             var p = NewPump();
             long a = p.Enqueue(_ch, "Connected to FLEX-8600, SmartLink, 4 slices.");
             long b = p.Enqueue(_ch, "PC audio on.");
@@ -152,15 +164,42 @@ namespace Radios.Tests
             Assert.Equal(2, oa.Outcome.MarksReached);
             Assert.Equal(6, oa.Outcome.MarkCount);
 
-            // The operator's keystroke destroyed one utterance, not the
-            // whole backlog: B still goes.
+            // B is WITHDRAWN, not spoken. The channel never sees it, and the
+            // pump holds nothing — the arbiter's ledger still has it and #503's
+            // subject rules decide whether it earns another hearing.
+            Assert.Throws<TimeoutException>(() => _ch.WaitForCall(400));
+            Assert.Equal(0, p.QueuedCount);
+            Assert.False(p.InFlight);
+            Assert.DoesNotContain(_ch.Seen, c => c.Ticket == b);
+        }
+
+        [Fact]
+        public void Completion_Does_NOT_WithdrawTheQueue()
+        {
+            // The negative control #562 needs, and NOT the one I first wrote.
+            // My first attempt asserted that our OWN cancel keeps the queue —
+            // it does not, and never did: Interrupt withdraws by design, so
+            // that test was asserting something false and failed immediately.
+            //
+            // The real must-not-fire case is a clean completion. If the new
+            // rule were written a shade too wide, the queue would drain after
+            // every successful utterance and only the first thing said in any
+            // batch would ever be heard — which is the connect briefing broken
+            // in a way no single-utterance test would notice.
+            var p = NewPump();
+            long a = p.Enqueue(_ch, "Connected to FLEX-8600, SmartLink, 4 slices.");
+            long b = p.Enqueue(_ch, "PC audio on.");
+
+            var callA = _ch.WaitForCall();
+            _ch.Complete(callA);
+            var oa = WaitForOutcome(a);
+            Assert.Equal(SpeechOutcomeKind.Completed, oa.Outcome.Kind);
+
             var callB = _ch.WaitForCall();
             Assert.Equal(b, callB.Ticket);
             _ch.Complete(callB);
-            WaitForOutcome(b);
+            Assert.Equal(SpeechOutcomeKind.Completed, WaitForOutcome(b).Outcome.Kind);
         }
-
-        // ── Refusals ──
 
         [Fact]
         public void InvalidSsml_IsReSentThroughThePlainPath_AndReportedUnknown()
