@@ -1169,7 +1169,7 @@ As tracks complete, Claude Desktop handles merges and keeps the user informed:
    git history if needed" until 2026-09-02, and that was false from Sprint 34
    onward.
 
-   **Where the exclusion lives:** `.git/info/exclude` in the COMMON gitdir, added
+   **Where the exclusion lives:** `.gitignore`, line 484, verified 2026-09-06. It was `.git/info/exclude` in the COMMON gitdir when added
    in `9103cf16` because six tracks carry a different file at the same path and
    committing it collides at merge for no gain. (That commit also records the
    trap it hit first: an exclude placed in a *worktree's* gitdir is not read —
@@ -1177,7 +1177,7 @@ As tracks complete, Claude Desktop handles merges and keeps the user informed:
 
    **Two consequences that matter more than the deletion:**
 
-   - **The exclusion is LOCAL and UNCOMMITTED, so it does not travel.** A fresh
+   - **It TRAVELS now: the rule sits in the tracked `.gitignore`, so a fresh clone is covered.** Before that move it did not, and a fresh
      clone has no such rule, and a `git add -A` there would commit the briefs.
      They name testers, quote the operator, and cite private planning paths, and
      **this repo is PUBLIC** — so the standing "stage specific files, never
