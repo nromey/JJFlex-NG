@@ -41,6 +41,7 @@ Two of these come in on-radio and PC flavours, and the names now say so. "On-Rad
 - **Q** — Capture a noise profile for PC Spectral NR — Q for "quiet." Press Q again while it runs to cancel. See the PC-Side Noise Reduction help page.
 - **Ctrl+A** — Toggle Auto Notch Filter on or off. It was plain `A` until the grammar arrived; plain `A` is the audio layer's door now
 - **P** — Toggle Audio Peak Filter on or off (CW mode only)
+- **Alt+N** — Open the tracking notch filters. Auto Notch hunts a carrier for you; this is the one where you point at it yourself. Add drops a notch on your current receive frequency, and you set how wide and how deep it is. Set Keep to Yes and the radio holds that notch through band changes and power cycles, which is what you want for a birdie that lives in the same place forever. N for Notch, with Alt because it opens something rather than switching something
 
 ## Audio and Transmit
 

@@ -1203,6 +1203,23 @@ public class KeyCommands
         mw?.Dispatcher.Invoke(() => Dialogs.AudioWorkshopDialog.ShowOrFocusAndStartCheck(rig));
     }
 
+    /// <summary>
+    /// Open the tracking notch filters (#482).
+    ///
+    /// <para>No <c>LeaderNoRadio()</c> gate here, deliberately, though this is
+    /// a radio command. <see cref="Dialogs.TNFLauncher"/> already refuses a
+    /// null rig with a sentence that says what is missing, and refusing in two
+    /// places means two chances for the two sentences to drift apart. The
+    /// launcher's is the better one anyway: it also covers the case that has a
+    /// radio but no receive slice yet, which this gate cannot see.</para>
+    /// </summary>
+    private void OpenTrackingNotchesHandler()
+    {
+        var rig = _context.GetRigControl();
+        var mw = _context.GetMainWindow();
+        mw?.Dispatcher.Invoke(() => Dialogs.TNFLauncher.Show(rig));
+    }
+
     #endregion
 
     #region Tuning Handlers
@@ -3946,6 +3963,27 @@ public class KeyCommands
             // you need it is precisely when nothing is answering you.
             case Keys.W | Keys.Alt:
                 ShowWhatIsOnMyScreen();
+                break;
+
+            // Sprint 46 Track D (#482): N for Notch — the tracking notch
+            // filters, which have been wired to the radio and unreachable by a
+            // person since the WinForms dialog was deleted.
+            //
+            // Alt because opening a manager is an ACTION under the four-tier
+            // grammar (#515): it is not a layer, and it is not a toggle. The
+            // three letters that read as "notch" are all spoken for on their
+            // own tiers — plain N is legacy Noise Reduction, Shift+N is the NR
+            // Filter, Ctrl+A is Auto Notch — and the grammar is what keeps that
+            // from being a collision: a modifier changes the VERB, so Alt+N
+            // cannot be confused with any of them by an operator who knows the
+            // four tiers.
+            //
+            // This does NOT settle #516's open question about where the notch
+            // ADJUSTMENT verbs live once a noise layer exists. That is Noel's
+            // call and this is a door, not a home — "one idea, two doors" is
+            // the rule of threes the grammar is built on.
+            case Keys.N | Keys.Alt:
+                OpenTrackingNotchesHandler();
                 break;
 
             // The two help doors every layer has (#514, #519): H lists this
