@@ -1,0 +1,16 @@
+INFO - __main__ (19:08:31.004) - MainThread (30112):
+Starting NVDA version 2026.2 AMD64
+IO - inputCore.InputManager.executeGesture (19:10:01.880) - winInputHook (15872):
+Input: kb(laptop):enter
+IO - speech.speech.speak (19:10:02.100) - MainThread (30112):
+Speaking [LangChangeCommand ('en_US'), 'Connecting to N0CALL. Trying SmartLink.']
+IO - speech.speech.speak (19:10:04.310) - MainThread (30112):
+Speaking [LangChangeCommand ('en_US'), 'Connected to N0CALL. Waiting for slice...']
+IO - speech.speech.speak (19:10:06.980) - MainThread (30112):
+Speaking [LangChangeCommand ('en_US'), 'Connected to FLEX-8600, SmartLink, 4 slices.']
+IO - speech.speech.speak (19:10:09.640) - MainThread (30112):
+Speaking [LangChangeCommand ('en_US'), 'This radio had no mic profile, so I loaded Default.']
+IO - speech.speech.speak (19:10:11.220) - MainThread (30112):
+Speaking [LangChangeCommand ('en_US'), 'PC audio on.']
+IO - speech.speech.speak (19:10:13.050) - MainThread (30112):
+Speaking [LangChangeCommand ('en_US'), 'JJ Flexible Home, Modern tuning mode']

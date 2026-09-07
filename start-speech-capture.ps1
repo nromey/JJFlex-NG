@@ -116,13 +116,24 @@ if ($count -lt 1) {
 
 Write-Host "Capturing: $count utterances in the log so far."
 Write-Host "  Most recent, as a control - these should be things just heard:"
-Select-String -Path $Log -Pattern 'Speaking' -SimpleMatch |
-    Select-Object -Last 2 |
-    ForEach-Object {
-        $t = [regex]::Matches($_.Line, "'((?:[^'\\]|\\.)*)'") | ForEach-Object { $_.Groups[1].Value }
-        $said = ($t | Where-Object { $_ -notmatch '^en_US$|^en$' }) -join ' '
-        if ($said) { "    " + $said.Substring(0, [math]::Min(90, $said.Length)) }
-    }
+
+# Extract through the shared module rather than a local regex. The local one
+# matched single-quoted payloads only, and NVDA writes Python repr - which
+# switches to DOUBLE quotes whenever the string contains an apostrophe. On a
+# measured log that was 337 of 1,545 utterances. A positive control that cannot
+# render the last thing spoken is not a control.
+$modulePath = Join-Path $PSScriptRoot 'tools\speech-transcript\SpeechTranscript.psm1'
+if (Test-Path $modulePath) {
+    Import-Module $modulePath -Force
+    Select-String -Path $Log -Pattern 'Speaking' -SimpleMatch |
+        Select-Object -Last 2 |
+        ForEach-Object {
+            $said = Get-SpokenTextFromPayload $_.Line
+            if ($said) { "    " + $said.Substring(0, [math]::Min(90, $said.Length)) }
+        }
+} else {
+    Write-Host "    (the speech transcript module is missing, so the last lines are not shown)"
+}
 
 $mark = (Get-Item $Log).Length
 Set-Content $MarkFile $mark
