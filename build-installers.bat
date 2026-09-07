@@ -86,6 +86,36 @@ echo Architecture(s)   : %ARCH%
 echo.
 
 REM ---------------------------------------------------------------------------
+REM HELP CHM — build it BEFORE the project, every time (#556, #543).
+REM
+REM This step did not exist until Sprint 46, and its absence is most of why
+REM #543 happened. build-debug.bat has refreshed the CHM since Sprint 27, so
+REM tester nightlies got current help; the RELEASE path - the one that produces
+REM the installers real users install - never rebuilt it and simply packaged
+REM whatever copy was committed. Help therefore drifted from the code in
+REM exactly the builds where it mattered most, and stayed 21 pages behind from
+REM 2026-08-30 to 2026-09-05.
+REM
+REM It runs before dotnet build because JJFlexRadio.vbproj copies the CHM to
+REM the output as a PreserveNewest content item: built after, it would not be
+REM copied out, and install.bat's guard would then refuse the package.
+REM
+REM FATAL, not a warning. The alternative is an installer whose Help menu opens
+REM nothing, on the machines of users who cannot see that it opened nothing.
+REM ---------------------------------------------------------------------------
+echo [Help] Building CHM from docs\help\md\*.md ...
+call "%~dp0docs\help\build-help.bat"
+if errorlevel 1 (
+    echo.
+    echo ERROR: the help build failed. No installer was built.
+    echo   The reason is printed above - normally pandoc or HTML Help Workshop
+    echo   is not installed. Both are required to cut a release.
+    echo.
+    exit /b 3
+)
+echo.
+
+REM ---------------------------------------------------------------------------
 REM DISPATCH
 REM ---------------------------------------------------------------------------
 set "BUILD_X64=0"

@@ -3,8 +3,25 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/main/VisualStudio.gitignore
 
-# Compiled HTML Help
+# Compiled HTML Help. The CHM is generated from docs/help/md/*.md by
+# docs/help/build-help.bat; pages/ is the intermediate HTML.
+#
+# This rule was here from the start AND the CHM was tracked anyway, which is
+# the whole of #556: ignore rules do not apply to files git already tracks, so
+# it stayed tracked, every build regenerated it, and the tree went dirty every
+# time. build-debug.bat correctly refuses to publish from a dirty tree, so the
+# loop could not converge - on 2026-09-05 it produced two commits of the same
+# generated file in ten minutes. Untracked in Sprint 46; the rule finally does
+# its job. Do not re-add it: hhc.exe output is not even reproducible, so two
+# builds of identical sources differ in bytes and it could never have settled.
+#
+# .stamp is the source hash written beside the CHM at compile time, which is
+# how install.bat and build-debug.bat tell whether it is current. .prev is the
+# previous CHM parked during a compile so a failed hhc run cannot be mistaken
+# for a successful one; it exists only for the length of a help build.
 docs/help/JJFlexRadio.chm
+docs/help/JJFlexRadio.chm.stamp
+docs/help/JJFlexRadio.chm.prev
 docs/help/pages/
 
 # Investigation folder — traces and diagnostic artifacts that may contain
