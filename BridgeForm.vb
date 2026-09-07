@@ -160,6 +160,22 @@ Public Class ShellForm
     Private Const WA_INACTIVE As Integer = 0
     Private Const GW_ENABLEDPOPUP As UInteger = 6
 
+    ' #550 - the focus goes straight into WPF, never through the host. See
+    ' RouteFocusStraightToWpf below.
+    Private Const WM_SETFOCUS As Integer = &H7
+
+    <System.Runtime.InteropServices.DllImport("user32.dll")>
+    Private Shared Function GetFocus() As IntPtr
+    End Function
+
+    <System.Runtime.InteropServices.DllImport("user32.dll")>
+    Private Shared Function SetFocus(hWnd As IntPtr) As IntPtr
+    End Function
+
+    <System.Runtime.InteropServices.DllImport("user32.dll")>
+    Private Shared Function IsChild(hWndParent As IntPtr, hWnd As IntPtr) As <System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)> Boolean
+    End Function
+
     <System.Runtime.InteropServices.DllImport("user32.dll")>
     Private Shared Function GetWindow(hWnd As IntPtr, uCmd As UInteger) As IntPtr
     End Function
@@ -206,6 +222,60 @@ Public Class ShellForm
         Return MyBase.ProcessCmdKey(msg, keyData)
     End Function
 
+    ' ── The focus goes straight into WPF, never through the host ───────────
+    '
+    ' #550. Every time this window is activated - a connect finishing, Alt+Tab
+    ' back to it - the operator heard four things where two were due: the
+    ' window title, "Home, frequency and VFO", then "JJ Flexible Radio Access",
+    ' then "Home, frequency and VFO" again. The register read the second title
+    ' as the caption being rewritten with the callsign removed. The NVDA IO
+    ' transcript of 2026-09-05 says otherwise: that utterance carries no
+    ' 'window' role and 'is foreground obj False'. It is a FOCUS event, on an
+    ' object named "JJ Flexible Radio Access" - which is the ElementHost,
+    ' given that name in #349 so that focus RESTING on it would no longer be
+    ' announced as a bare "pane". The same extra line appears in the transcript
+    ' at 20:00:34 and 20:33:07, on plain activations with no connect anywhere
+    ' near them, so it is the shell's activation and nothing about connect.
+    '
+    ' The path is three HWNDs. Windows activates this form and gives it the
+    ' keyboard focus; WinForms hands the focus on to its ActiveControl, the
+    ' host; the host hands it into WPF, whose HwndSource restores it to the
+    ' field that last had it. Each hop is a focus event and the screen reader
+    ' reports each one it can name. The host is a hop, and a hop with a name
+    ' is a hop that gets read out. Unnaming it brings "pane" back (#349).
+    '
+    ' So the hop is removed rather than silenced: when this form is activated,
+    ' or receives the focus from outside itself, the focus is put DIRECTLY on
+    ' WPF's own HWND before WinForms acts. WinForms' hand-off
+    ' (ContainerControl.FocusActiveControlInternal) asks GetFocus first and
+    ' stands down when the focus is already inside the active control - and
+    ' WPF's HWND is a child of the host's, so it now is. WPF restores the
+    ' field on its own WM_SETFOCUS exactly as it did when the host forwarded
+    ' to it (HwndSource.RestoreFocusMode is Auto). What the reader has to
+    ' report is one window and one field.
+    '
+    ' Not while a modal has this window disabled: the #538 handler is passing
+    ' activation on to the popup, and the focus does not belong in here.
+    '
+    ' VERIFIED BY EAR, NOT BY BUILD. This was written from the transcript and
+    ' the WinForms source without a press, on a machine where launching the
+    ' app is forbidden mid-session. The check is: connect, Alt+Tab away and
+    ' back, Escape out of a menu - and count what is said each time.
+    Private Sub RouteFocusStraightToWpf()
+        If WpfContent Is Nothing OrElse Not Me.IsHandleCreated Then Return
+        If Not IsWindowEnabled(Me.Handle) Then Return
+
+        Dim source = TryCast(System.Windows.PresentationSource.FromVisual(WpfContent),
+                             System.Windows.Interop.HwndSource)
+        If source Is Nothing OrElse source.IsDisposed OrElse source.Handle = IntPtr.Zero Then Return
+
+        Dim current = GetFocus()
+        If current = source.Handle Then Return
+        If current <> IntPtr.Zero AndAlso IsChild(source.Handle, current) Then Return
+
+        SetFocus(source.Handle)
+    End Sub
+
     ''' <summary>
     ''' Handle WM_COMMAND from native Win32 menus, and return focus to WPF
     ''' content when the menu loop exits (Escape or item selected).
@@ -250,6 +320,22 @@ Public Class ShellForm
                     End If
                     Return
                 End If
+            End If
+
+            ' #550 - BEFORE the base handler, which is where WinForms would
+            ' otherwise hand the focus to the host. See RouteFocusStraightToWpf.
+            RouteFocusStraightToWpf()
+        End If
+
+        ' #550 - the other order Windows can use: activate first, then send
+        ' this form a WM_SETFOCUS because nothing inside it held the focus yet.
+        ' Only when the focus is arriving from OUTSIDE our content - WParam is
+        ' the window losing it - because a move from one of our own children
+        ' onto the form itself was somebody's deliberate act, not a hop.
+        If m.Msg = WM_SETFOCUS Then
+            Dim losing = m.WParam
+            If losing = IntPtr.Zero OrElse Not IsChild(Me.Handle, losing) Then
+                RouteFocusStraightToWpf()
             End If
         End If
 

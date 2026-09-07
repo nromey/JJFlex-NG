@@ -1514,8 +1514,28 @@ namespace JJFlexWpf.Dialogs
             }
             if (row == null) return;
 
+            // WITH THE NEW COUNT (#555). The list announced itself as
+            // "Available radios, 3 listed, 1 online" when it opened, and a
+            // SmartLink radio arrived 420 ms later - so the number the operator
+            // had just heard was wrong for the rest of the visit, and on a
+            // faster network the same launch said "2 online" instead. The
+            // list's UIA name is corrected on refresh, but a name change on a
+            // control that does not have focus is spoken by nobody; the
+            // operator decides whether to keep waiting on the number in their
+            // ear, and that number was a snapshot.
+            //
+            // The correction rides on the sentence that made it necessary, so
+            // the count is never revised silently and never restated when
+            // nothing changed. When this arrival is the ONLY radio online the
+            // count adds nothing the sentence does not already say, so the
+            // plain form stands.
+            string who = RowName(row);
+            int live = LiveCount();
             _callbacks.ScreenReaderSpeak?.Invoke(
-                Lexicon.Get("connect.selector.arrived", ("who", RowName(row))), false);
+                live > 1
+                    ? Lexicon.Get("connect.selector.arrived_count", ("who", who), ("live", live))
+                    : Lexicon.Get("connect.selector.arrived", ("who", who)),
+                false);
         }
 
         private void RecordSightingOnce(RadioListItem radio)

@@ -55,8 +55,8 @@ namespace Radios.Speech
     public static class SpeechSubject
     {
         /// <summary>
-        /// The narration of a slow operation — "Looking for radios", "Still
-        /// looking", "Connected to X. Waiting for slice...". Only the newest
+        /// The narration of a slow operation — "Searching for radios", "Still
+        /// searching", "Connected to X. Waiting for slice...". Only the newest
         /// line is ever worth hearing, and none of them once the operation has
         /// ended, which <see cref="ProgressVoice"/> declares through
         /// <see cref="ScreenReaderOutput.Supersede"/> when it stops.

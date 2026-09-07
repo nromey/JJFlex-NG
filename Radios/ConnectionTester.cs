@@ -271,7 +271,10 @@ namespace Radios
         private bool RunManualSimulation(FlexBase rig, int testNum)
         {
             // Phase 1: Discovery (same as clicking SmartLink button)
-            PhaseChanged?.Invoke(testNum, "Discovering radios (RemoteRadios)");
+            // "Searching", not "discovering": one word for one activity across
+            // the app, by the 2026-09-02 ruling (#551). The API call stays
+            // named because this is a diagnostic surface.
+            PhaseChanged?.Invoke(testNum, "Searching for radios (RemoteRadios)");
             ConnectionProfiler.Current?.RecordEvent("manual_discovery_begin");
             rig.RemoteRadios();
 
