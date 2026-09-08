@@ -4247,8 +4247,8 @@ public class KeyCommands
     /// <summary>
     /// Enter the audio layer. Levels: slice volume (V, per slice), on-radio
     /// headphone (Ctrl+H), PC output (P), mic level (M), on-radio line out
-    /// (L), compander level (C), speech processor mode (S), and pan
-    /// (Ctrl+P, per slice). Switches, one press each: slice mute (Ctrl+M,
+    /// (L), compander level (C), speech processor mode (S), VOX gain (X),
+    /// VOX delay (D), and pan (P, per slice). Switches, one press each: slice mute (Ctrl+M,
     /// per slice), PC audio on or off (Ctrl+A) and binaural receive
     /// (Ctrl+B). The per-slice targets follow a Shift+letter jump. Up and
     /// Down adjust the picked level (Shift by one); Left and Right also
@@ -4376,6 +4376,36 @@ public class KeyCommands
             note: () => rig.Compander == FlexBase.OffOnValues.on
                 ? "" : Radios.Lexicon.Get("audio.audio_layer.compander_is_off_suffix"));
 
+        // VOX gain and delay (#565) — the two numbers that make VOX work,
+        // beside mic, compander and processor because they are the same
+        // transmit chain. X for gain (V is slice volume), D for delay; both
+        // letters were free, and Noel vetoes by ear. The FlexBase property
+        // is the contract — two integers need no launcher. The note says
+        // when the number is not in play: VOX off in a voice mode, or CW,
+        // where rig.Vox reports break-in and these settings mean nothing,
+        // so the off/on check is NOT asked there — it would answer about
+        // break-in and call it VOX.
+        string VoxNote()
+        {
+            string mode = rig.Mode?.ToUpperInvariant() ?? "";
+            if (mode == "CW" || mode == "CWL" || mode == "CWU")
+                return Radios.Lexicon.Get("audio.audio_layer.vox_not_in_cw_suffix");
+            return rig.Vox == FlexBase.OffOnValues.on
+                ? "" : Radios.Lexicon.Get("audio.audio_layer.vox_is_off_suffix");
+        }
+        var voxGain = Level("vox-gain", "audio.audio_layer.name_vox_gain", Keys.X,
+            () => rig.VoxGain, v => rig.VoxGain = v,
+            FlexBase.VoxGainMin, FlexBase.VoxGainMax, FlexBase.VoxGainIncrement,
+            "audio.audio_layer.vox_gain", note: VoxNote);
+        var voxDelay = Level("vox-delay", "audio.audio_layer.name_vox_delay", Keys.D,
+            () => rig.VoxDelay, v => rig.VoxDelay = v,
+            FlexBase.VoxDelayMin, FlexBase.VoxDelayMax, FlexBase.VoxDelayIncrement,
+            "audio.audio_layer.vox_delay", note: VoxNote);
+        // The radio moves in whole VoxDelayMS steps. Level's fine step of one
+        // would speak a millisecond the radio rounds away; fine means one
+        // radio step here, so every number spoken is one the radio can hold.
+        voxDelay.FineStep = FlexBase.VoxDelayMS;
+
         // Up = stronger (Normal → DX → DX+), Down = gentler. Clamps at the
         // ends — wrapping on an arrow key is disorienting speech.
         string processorName = Radios.Lexicon.Get("audio.audio_layer.name_processor");
@@ -4471,7 +4501,7 @@ public class KeyCommands
 
         var targets = new List<Radios.ValueTarget>
         {
-            sliceVolume, headphone, pcOutput, mic, lineout, compander, processor, pan,
+            sliceVolume, headphone, pcOutput, mic, lineout, compander, processor, voxGain, voxDelay, pan,
             mute, pcAudio, binaural,
         };
 

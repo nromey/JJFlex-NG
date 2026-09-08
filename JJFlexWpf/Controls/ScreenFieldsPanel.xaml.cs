@@ -126,6 +126,8 @@ public partial class ScreenFieldsPanel : UserControl
     // personality (dBm, hundredths) because the TX antenna is the XVTR port.
     private bool _txPowerXvtrMode;
     private CheckBox _voxCheck = null!;
+    private ValueFieldControl _voxGainControl = null!;
+    private ValueFieldControl _voxDelayControl = null!;
     private ValueFieldControl _tunePowerControl = null!;
     private ValueFieldControl _micGainControl = null!;
     private CheckBox _micBoostCheck = null!;
@@ -954,6 +956,32 @@ public partial class ScreenFieldsPanel : UserControl
         _voxCheck.Unchecked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.vox"), v => { if (_rig != null) _rig.Vox = v; }, false);
         TxContent.Children.Add(_voxCheck);
 
+        // VOX gain and delay (#565) - where Jim had them, right after the
+        // switch. Gain is the threshold, how loud the mic must be before the
+        // radio decides it is hearing speech; delay is the hang time, how
+        // long it stays keyed after you stop. They are NOT hidden behind the
+        // VOX checkbox the way the compander level hides behind its switch:
+        // an operator sets the threshold BEFORE arming, and a VOX you can
+        // only configure once it is already live is Don's defect restated.
+        // PollTX collapses them in CW, where the VOX checkbox means break-in
+        // and these two numbers are not in play - the APF rule, in reverse.
+        // Limits and steps come from FlexBase, never literals, so
+        // VoxLimitAgreementTests' pin on the delay divisor covers this box.
+        _voxGainControl = MakeValue(Lexicon.Get("audio.fields.vox_gain"),
+            FlexBase.VoxGainMin, FlexBase.VoxGainMax, FlexBase.VoxGainIncrement);
+        _voxGainControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.VoxGain = v; };
+        TxContent.Children.Add(_voxGainControl);
+
+        _voxDelayControl = MakeValue(Lexicon.Get("audio.fields.vox_delay"),
+            FlexBase.VoxDelayMin, FlexBase.VoxDelayMax, FlexBase.VoxDelayIncrement);
+        _voxDelayControl.Unit = Lexicon.Get("audio.fields.unit_ms");
+        // The radio moves in whole VoxDelayMS steps; a Shift press of one
+        // millisecond would show a number the radio rounds away and the next
+        // poll would snap it back. Fine means one radio step here.
+        _voxDelayControl.FineStep = FlexBase.VoxDelayMS;
+        _voxDelayControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.VoxDelay = v; };
+        TxContent.Children.Add(_voxDelayControl);
+
         _tunePowerControl = MakeValue(Lexicon.Get("audio.fields.tune_power"), 0, 100, 1);
         _tunePowerControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.TunePower = v; };
         TxContent.Children.Add(_tunePowerControl);
@@ -1501,6 +1529,22 @@ public partial class ScreenFieldsPanel : UserControl
 
         _txPowerControl.Value = xvtrNow ? _rig.XvtrDrivePowerCentiDbm : _rig.XmitPower;
         _voxCheck.IsChecked = _rig.Vox == FlexBase.OffOnValues.on;
+
+        // VOX gain and delay: always shown in voice and digital modes whether
+        // or not VOX is armed (#565), collapsed in CW where the checkbox above
+        // means break-in. Collapsed, not hidden - a collapsed element is out
+        // of the tab order, and the panel's own Up/Down walk skips it too.
+        string txMode = _rig.Mode?.ToUpperInvariant() ?? "";
+        bool txIsCW = txMode == "CW" || txMode == "CWL" || txMode == "CWU";
+        var voxSettingsVisibility = txIsCW ? Visibility.Collapsed : Visibility.Visible;
+        _voxGainControl.Visibility = voxSettingsVisibility;
+        _voxDelayControl.Visibility = voxSettingsVisibility;
+        if (!txIsCW)
+        {
+            _voxGainControl.Value = _rig.VoxGain;
+            _voxDelayControl.Value = _rig.VoxDelay;
+        }
+
         _tunePowerControl.Value = _rig.TunePower;
 
         _micGainControl.Value = _rig.MicGain;

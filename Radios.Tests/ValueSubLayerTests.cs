@@ -673,7 +673,7 @@ namespace Radios.Tests
             Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.Up));
             Assert.True(h.Layer.IsLive);
             Assert.Empty(rig.Writes);
-            Assert.Equal("Pick a target first: V, Ctrl+H, O, M, L, C, S, or P.", h.LastSaid);
+            Assert.Equal("Pick a target first: V, Ctrl+H, O, M, L, C, S, X, D, or P.", h.LastSaid);
         }
 
         // ── Sprint 44 Track N (#524): slice volume and the switches ──
@@ -732,7 +732,7 @@ namespace Radios.Tests
             h.Layer.HandleKey(Keys.B | Keys.Control);
             Assert.Null(h.Layer.CurrentTarget);
             h.Layer.HandleKey(Keys.Up);
-            Assert.Equal("Pick a target first: V, Ctrl+H, O, M, L, C, S, or P.", h.LastSaid);
+            Assert.Equal("Pick a target first: V, Ctrl+H, O, M, L, C, S, X, D, or P.", h.LastSaid);
         }
 
         [Fact]
@@ -914,7 +914,7 @@ namespace Radios.Tests
             Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.Up));
 
             Assert.Equal(1, tones.Invalid);
-            Assert.Equal("Pick a target first: V, Ctrl+H, O, M, L, C, S, or P.", h.LastSaid);
+            Assert.Equal("Pick a target first: V, Ctrl+H, O, M, L, C, S, X, D, or P.", h.LastSaid);
             Assert.Equal(saidBefore + 1, h.Said.Count);
             Assert.True(h.Layer.IsLive);
             Assert.Empty(rig.Writes);
@@ -960,7 +960,7 @@ namespace Radios.Tests
             Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.Up));
 
             Assert.Equal(1, tones.Invalid);   // still invoked; the player itself is what is gated
-            Assert.Equal("Pick a target first: V, Ctrl+H, O, M, L, C, S, or P.", h.LastSaid);
+            Assert.Equal("Pick a target first: V, Ctrl+H, O, M, L, C, S, X, D, or P.", h.LastSaid);
             Assert.True(h.Layer.IsLive);
             Assert.Empty(rig.Writes);
         }
@@ -1084,7 +1084,7 @@ namespace Radios.Tests
             // asks for one and never ejects the operator.
             var (h, rig) = OpenAudio(VerbosityLevel.Terse);
             Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.End));
-            Assert.Equal("Pick a target first: V, Ctrl+H, O, M, L, C, S, or P.", h.LastSaid);
+            Assert.Equal("Pick a target first: V, Ctrl+H, O, M, L, C, S, X, D, or P.", h.LastSaid);
             Assert.True(h.Layer.IsLive);
             Assert.Empty(h.Moves);
         }
