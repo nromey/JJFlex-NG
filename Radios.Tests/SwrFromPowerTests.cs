@@ -178,19 +178,31 @@ namespace Radios.Tests
     [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class SwrDisplayTests
     {
-        private static string SwrTextBody()
+        /// <summary>
+        /// The full body of a member of <c>FlexBase</c>, matched by braces.
+        /// </summary>
+        /// <remarks>
+        /// <b>Brace-matched, never a fixed character window.</b> Two of these
+        /// sweeps read a 2,600-character slice instead, and on 2026-09-07 a
+        /// comment added ahead of a <c>return</c> pushed that return outside
+        /// the window — so the scan was reading half a method. It failed
+        /// loudly only because a positive control happened to sit on the part
+        /// that fell off the end. A window has a cliff and the cliff moves
+        /// every time somebody writes a sentence.
+        /// </remarks>
+        private static string FlexBaseMemberBody(string signature)
         {
             string path = Path.Combine(RepoRoot(), "Radios", "FlexBase.cs");
             Assert.True(File.Exists(path),
                 "The sweep cannot find FlexBase.cs — fix the path, do not delete the test.");
 
             string text = File.ReadAllText(path);
-            int at = text.IndexOf("private string SWRText()", StringComparison.Ordinal);
+            int at = text.IndexOf(signature, StringComparison.Ordinal);
 
             // POSITIVE CONTROL.
             Assert.True(at >= 0,
-                "SWRText was not found in FlexBase.cs. If the SWR display moved, move this "
-                + "test with it — do not let a missing method read as a passing check.");
+                $"'{signature}' was not found in FlexBase.cs. If it moved, move this test "
+                + "with it — do not let a missing member read as a passing check.");
 
             int open = text.IndexOf('{', at);
             int depth = 1;
@@ -201,8 +213,14 @@ namespace Radios.Tests
                 else if (text[i] == '}') depth--;
                 i++;
             }
+            Assert.True(depth == 0,
+                $"braces under '{signature}' never closed — the file is truncated or the "
+                + "signature matched inside a comment");
             return text.Substring(open, i - open);
         }
+
+        private static string SwrTextBody() =>
+            FlexBaseMemberBody("private string SWRText()");
 
         [Fact]
         public void The_display_does_not_read_the_raw_radio_meter()
@@ -302,12 +320,7 @@ namespace Radios.Tests
             // and the PTT safety controller obey it. Until 2026-09-07 the
             // property an OPERATOR sees did not — it read the two fields raw,
             // which is how a stale partner reached the display.
-            string src = File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "FlexBase.cs"));
-
-            int at = src.IndexOf("public float ComputedSWR", StringComparison.Ordinal);
-            Assert.True(at > 0, "ComputedSWR was renamed; this guard needs rewriting, not deleting");
-
-            string body = src.Substring(at, Math.Min(2600, src.Length - at));
+            string body = FlexBaseMemberBody("public float ComputedSWR");
             Assert.Contains("ReadTransmitPower()", body);
             Assert.Contains("IsCoherent", body);
 
@@ -344,6 +357,108 @@ namespace Radios.Tests
 
             // Positive control: the phrase we DO expect is present.
             Assert.Contains("TuneCycleSettledComputedSwr", src);
+        }
+
+        // ════════════════════════════════════════════════════════════
+        //  #453: the POWER FLOOR, which is what was actually wrong
+        // ════════════════════════════════════════════════════════════
+        //
+        // The coherence gate above was the first hypothesis and it is not the
+        // mechanism. Across the 194 samples of the 2026-09-07 bench run —
+        // 100 W commanded into the 400 W dummy load, Jim Dale reading aloud,
+        // speech processor and compander ON — the gate rejected exactly ONE.
+        // Every one of the seven false highs came from a sample whose FORWARD
+        // power had collapsed into the trough between words.
+        //
+        // The two numbers that bound the floor, both from that run:
+        //
+        //   1.40 W forward — the worst false high, our arithmetic said 4.84
+        //                    while the radio's own meter held 1.01
+        //   8.83 W forward — the LOWEST sample that produced a good reading
+        //
+        // Anything between those two separates the run perfectly. Five percent
+        // of commanded lands at 5 W, near the middle on a log scale, which is
+        // the right place to sit when the true boundary is unknown.
+
+        private const float WorstFalseHighForwardWatts = 1.40f;
+        private const float LowestGoodForwardWatts = 8.83f;
+        private const int RunCommandedWatts = 100;
+
+        [Fact]
+        public void TheFloorSeparatesTheMeasuredRun()
+        {
+            float floor = FlexBase.MinBelievableForwardWatts(RunCommandedWatts);
+
+            Assert.True(floor > WorstFalseHighForwardWatts,
+                $"the floor ({floor} W) must exclude the worst false high at "
+                + $"{WorstFalseHighForwardWatts} W, or #453 is not fixed");
+
+            Assert.True(floor < LowestGoodForwardWatts,
+                $"the floor ({floor} W) must keep the lowest GOOD sample at "
+                + $"{LowestGoodForwardWatts} W — a floor that silences correct "
+                + "readings trades one wrong answer for no answer");
+        }
+
+        [Fact]
+        public void TheFloorKeepsRoomOnBothSides()
+        {
+            // Sitting just above the worst false high would fit this one run
+            // and nothing else. #238 asks where the floor really is across
+            // models and powers; until it answers, margin is the honest
+            // substitute for evidence we do not have.
+            float floor = FlexBase.MinBelievableForwardWatts(RunCommandedWatts);
+
+            Assert.True(floor >= WorstFalseHighForwardWatts * 2f,
+                "less than a factor of two above the worst false high is fitted "
+                + "to one day's data, not chosen");
+            Assert.True(floor <= LowestGoodForwardWatts / 1.5f,
+                "the floor is creeping up on real readings");
+        }
+
+        [Fact]
+        public void TheFloorScalesWithCommandedPowerRatherThanBeingAFixedWattage()
+        {
+            // The reason this is a FRACTION. A fixed 5 W floor tuned to the
+            // 100 W run would silence SWR completely at tune power — and a
+            // tune is precisely when an operator asks the question. Don tunes
+            // at 10 W.
+            float atHundred = FlexBase.MinBelievableForwardWatts(100);
+            float atTen = FlexBase.MinBelievableForwardWatts(10);
+
+            Assert.True(atTen < atHundred,
+                "a floor that does not scale is a floor tuned to one power level");
+            Assert.True(atTen < 5f,
+                "at 10 W commanded the floor must not swallow the whole carrier");
+
+            // Commanded power is a SETTING, so unlike forward power it does not
+            // chase the operator's voice. That is the property being relied on.
+            Assert.Equal(atHundred, FlexBase.MinBelievableForwardWatts(100));
+        }
+
+        [Fact]
+        public void AVeryLowCommandedPowerStillHasAnAbsoluteFloor()
+        {
+            // Five percent of 1 W is 0.05 W, which is coupler noise. The
+            // absolute bound is what stops the percentage collapsing into it.
+            float atOne = FlexBase.MinBelievableForwardWatts(1);
+
+            Assert.Equal(FlexBase.MinForwardWattsAbsolute, atOne);
+            Assert.True(atOne > 1f * FlexBase.MinForwardFractionOfCommanded,
+                "the absolute bound is not being applied");
+        }
+
+        [Fact]
+        public void TheOperatorFacingSwrAppliesTheFloor()
+        {
+            // ComputedSWR needs a live radio, so as with the coherence gate the
+            // RULE is what gets pinned: the property an operator sees must go
+            // through the floor, not merely have one available nearby.
+            string body = FlexBaseMemberBody("public float ComputedSWR");
+            Assert.Contains("MinBelievableForwardWatts", body);
+            Assert.Contains("ForwardWatts", body);
+
+            // Positive control on the scan.
+            Assert.Contains("SwrFromPower", body);
         }
 
         private static System.Collections.Generic.IEnumerable<int> AllIndexesOf(string haystack, string needle)

@@ -9697,9 +9697,68 @@ namespace Radios
                 // extreme case of exactly this.
                 TransmitPowerReading pair = ReadTransmitPower();
                 if (!pair.IsCoherent) return float.NaN;
+
+                // And the floor, which is what was ACTUALLY wrong (#453,
+                // measured 2026-09-07 across 194 samples at the bench):
+                //
+                //   every false high — all seven, no exceptions — came from a
+                //   sample below 1.5 W forward, against a mean of 39 W and
+                //   peaks of 107 W with 100 W commanded.
+                //
+                // The coherence gate above rejected 1 of those 194. Skew was
+                // never the mechanism: the two meters arrive together, and the
+                // ratio of two numbers near the coupler's resolution is noise.
+                //
+                // A FRACTION OF COMMANDED POWER, not an absolute. Commanded
+                // power is a setting, so it does not chase the operator's voice
+                // the way forward power does, and a floor built from it scales
+                // with what was asked for instead of being tuned to one radio.
+                // The speech processor and compander were ON for that run,
+                // which REDUCES dynamic range — so those troughs are real
+                // silences between words, and the floor is safer than the
+                // numbers alone suggest.
+                if (pair.ForwardWatts < MinBelievableForwardWatts(XmitPower))
+                    return float.NaN;
+
                 return SwrFromPower(_PowerDBM, _ReflectedPower);
             }
         }
+
+        /// <summary>
+        /// The floor below which a forward/reflected pair cannot be believed,
+        /// as a fraction of COMMANDED power (#453).
+        /// </summary>
+        /// <remarks>
+        /// Five percent — 5 W at 100 W commanded — removes every false reading
+        /// in the 2026-09-07 bench run, whose worst offender sat at 1.40 W, and
+        /// keeps every good one, the lowest of which was 8.83 W.
+        ///
+        /// **This is one radio at one power on one day.** #238 is the entry that
+        /// asks where the floor really is, across models and power levels; this
+        /// number is the best evidence available, not a settled answer.
+        /// </remarks>
+        public const float MinForwardFractionOfCommanded = 0.05f;
+
+        /// <summary>
+        /// An absolute lower bound for the floor, so a very low commanded power
+        /// cannot produce a floor of nearly zero and let the noise back in.
+        /// </summary>
+        public const float MinForwardWattsAbsolute = 0.25f;
+
+        /// <summary>
+        /// The lowest forward power at which a forward/reflected pair means
+        /// anything, for a given COMMANDED power (#453).
+        /// </summary>
+        /// <remarks>
+        /// Pure, so it can be tested against the measured run without a radio
+        /// — the same reason <see cref="SwrFromPower"/> is pure.
+        ///
+        /// The absolute bound is not decoration. A tune at 5 W commanded would
+        /// otherwise floor at 0.25 W, and a 1 W carrier at 0.05 W — back inside
+        /// the coupler noise this exists to exclude.
+        /// </remarks>
+        public static float MinBelievableForwardWatts(int commandedWatts) =>
+            MathF.Max(MinForwardWattsAbsolute, commandedWatts * MinForwardFractionOfCommanded);
 
         /// <summary>
         /// SWR from a forward and a reflected power reading, both in dBm.
