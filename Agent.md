@@ -9,6 +9,138 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-09-07 — THE DAY A REGRESSION WE SHIPPED GOT FOUND, AND THE INSTRUMENTS STOPPED ARGUING WITH EACH OTHER
+
+**Sealed 2026-09-07 21:00. 16 commits in JJFlex-NG, 28 in jjf-private. Radios.Tests
+2,818 -> 2,860; JJFlexWpf.Tests filtered set 43 (KeyTreeTests, LayerHelpRowsTests,
+KeyLayerHelpTests, LeaderNearMissTests). Solution builds clean x64 Debug. Sprint 47
+scoped, briefed, spawned, merged and verified inside one evening. Nothing published
+to Dropbox — held deliberately, see below.**
+
+### The day in one line
+
+A bench test characterised #453 with 194 samples and killed my own explanation of
+it; three planning agents then read the register against the code, and one of them
+found that **the profile defect Don has been living with is a regression we
+shipped on 2026-09-01.**
+
+### #563 — root-caused, fixed, and it was never anecdotal
+
+`1f44cef4` (Sprint 43 Track B, #450/#451) replaced the connect's unconditional
+`SelectProfile(crnt[0])` with `ProfileStewardship.PlanConnect`. Every decision that
+commit makes about PROFILES is correct. What nobody accounted for is that **a global
+profile carries the STATION** — slices and panadapters — and the radio keeps the
+snapshot's NAME across a client teardown while dropping the station with it. So the
+plan sees the wanted name already selected, skips as `AlreadyLoaded`, writes nothing,
+and the app then allocates fresh slices at the radio's own defaults. That
+unconditional load was the only thing that had ever rebuilt an operator's station.
+
+**Verified two ways before a line was written:** the commit really did remove
+`SelectProfile(crnt[0])`, and five of Noel's own traces show
+`sliceAdded:mine 1:0` through `4:3` at `14.100000 USB [100,2800]` on every connect
+since. **It has been happening to him too, not only to Don.** Don's builds bracket
+the commit exactly — 1781 (`9c64ca3a`, 08-31) before, 1921 (`ece6a11e`, 09-05)
+after — so his report that older versions did not do this was never anecdotal, and
+I should not have needed five traces to stop treating it as such.
+
+Fixed by `StationPresent` on `ProfileSituation`, gating the `AlreadyLoaded` skip for
+the **global profile only**. Transmit and microphone profiles are settings — their
+name IS the whole of what they claim — so nothing about them changes. The field
+defaults to FALSE on purpose: not having established that the station is there must
+not read as having established that it is.
+
+**The test that covered this asserted the defect and called it "the best outcome
+there is."** New memory entry `feedback_a_test_can_pin_the_bug_as_desired_behaviour`.
+
+**It does NOT fix Don yet.** His 6300 is `NotAnswered`, and `PlanConnect`
+short-circuits every profile decision on an unanswered radio by design. He needs the
+opt-in question actually asked at connect (#574 item 2), or the manual menu route —
+and that route only works AFTER this fix, because opting in today produces
+`AlreadyLoaded` and the same empty station.
+
+### #453 — the mechanism was the power floor, and my first reading was wrong
+
+The morning capture showed reflected RISING while forward collapsed, and I read that
+as a stale sample. 194 samples at 100 W into the 400 W dummy load settled it: the
+coherence gate rejected **1 of 194**, and every one of the seven false highs came
+from a sample whose forward power had collapsed into a trough between words. Rising
+reflected is equally consistent with noise near the coupler's resolution, and I had
+picked the more interesting reading.
+
+### Sprint 47 — two tracks, both landed
+
+**Track B, VOX (#565).** `VoxDelayMS` was 50; FlexLib has said value-times-20 in
+every vendored copy this repository has ever held, and `ProfileReporter` was already
+printing the wrong figure into the #227 export. The arithmetic settles it without a
+bench test: the raw scale clamps at 100, so at 20 ms per step the true range is
+**0 to 2000 ms — exactly the range Jim wrote.** He knew the range and got the
+divisor wrong. Noel's objection is the proof: nobody would choose 5000 ms, and
+nobody has to, because 5000 is what our wrong divisor PRINTS at the genuine maximum.
+`VoxLimitAgreementTests` now reads FlexLib's own source for the clamp and the unit,
+so the two cannot drift again silently. Surface: two number boxes in the Transmission
+group where Jim had them, two audio-layer targets on X and D.
+
+**Track C, power (#571).** The two floors that contradicted each other in two files
+are one function now, EBU R128's two-gate shape, and it survived all three measured
+cases — both recorded faults warn at the **same tick** they warned at before. Three
+absolute floors collapsed to one, and it is the LARGEST of them, so nothing
+protective was lowered by a refactor. **Tier 1 exists**: an absolute reflected-watts
+rung beside the untouched share rung, firing where the share rung structurally cannot
+— 100 W at SWR 2.5 is 18 W coming back at 18 percent, #237's own case, under
+everything the warning listened for.
+
+Its own new discovery rule matched `EndsWith("Watts")` and therefore could not see
+`MinForwardWattsAbsolute`, the very constant that had hidden from the old sweep, so
+the break proof passed when it should have failed. Corrected to `Contains` and
+re-proved red. Twice in one day a guard was blind to the thing it existed to catch.
+
+### Held deliberately
+
+**No build went to Don.** Noel's call, and the right one: what Don most needs is the
+profile fix, and the profile fix changes what happens on every connect and has not
+been pressed by any person. It ships after he presses it in Memphis.
+
+### Cross-surface activity
+
+Five memory files modified today (all read, two written by earlier sessions: the
+NVDA 2026.2 target ruling and the no-transmit-on-Don's-radio rule); one new entry
+tonight. `MEMORY.md` 12,016 -> 12,208 bytes, at the seal threshold but well under
+the 19.5 KB warning. Dependency check clean. Drift check run — and it caught the
+new memory entry within minutes for naming a test renamed an hour earlier, which is
+the tool working. Both NVDA logs archived to JJFlex-private, one carrying 562
+utterances. Freight Fate 16 unpushed commits, unchanged and still Noel's call; Civ
+VI clean and idle. No other sibling repo active.
+
+### Setup for tomorrow, in Memphis
+
+**Press the profile fix first.** Connect and confirm the station comes back instead
+of four slices at 14.100. That is the one press that unblocks Don's build.
+
+**Then rule on the opt-in question** (#574 item 2), which is a design call — a
+prompt interrupting every connect on an unanswered radio — and deliberately not
+built without review.
+
+**Then listen, in one pass:** the VOX delay unit, spoken as "ms" (NVDA will most
+likely say "M S"; "milliseconds" is one lexicon value away); the audio layer's
+mis-press sentence, now ten letters long; the watts-cut sentence end to end with its
+earcon; and the SWR display saying "not measured" below 1 W forward, which at 5 W
+commanded is a fifth of commanded and will be met in ordinary QRP voice troughs.
+
+**Blocked on one measurement:** tier 3's gated integrator needs the meter callback
+cadence, which nobody has taken. The 194 samples were the 1000 ms trace throttle;
+`Meter.FPS` is never assigned. Record meter stream, transmit thirty seconds, read the
+per-second count.
+
+### Rigmeter snapshot — end of 2026-09-07
+
+**16 commits, +2,753 / -285, net +2,468 across 39 files.** An earlier reading taken
+before the two track merges said +979/-54 across 12 files, so roughly two thirds of
+the day arrived in the last hour.
+
+**Branch-scope caveat:** JJFlex-NG only. The 28 jjf-private commits — the register
+entries carrying today’s three research reports and every ruling in them — are not in
+that number, and on a day this research-heavy they are most of the writing.
+
 ## END-OF-DAY SEAL — 2026-09-06 — THE PROBE ANSWERED THE QUESTION, FIVE TRACKS BUILT ON THE ANSWER, AND THE OPERATOR FOUND THE HOLE IN IT
 
 **Sealed 2026-09-07 05:15 (the day ran past midnight; see the note on the clock
