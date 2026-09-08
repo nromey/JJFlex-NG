@@ -81,6 +81,16 @@ namespace Radios.Speech
         public const string SwrAfterTune = "swr-after-tune";
 
         /// <summary>
+        /// The reflected-power cut ended the transmission — which rung, how
+        /// much came back, and that the operator is no longer on the air
+        /// (#224, #571). A safety outcome the operator has no other way of
+        /// learning; covered only by the next cut, never by the ordinary
+        /// transmit and receive announcements, because "why did that stop"
+        /// stays a live question until it has been answered once.
+        /// </summary>
+        public const string ReflectedPowerCut = "reflected-power-cut";
+
+        /// <summary>
         /// The receipt that a change will not survive disconnect unless the
         /// profile is saved (#442). One reminder outstanding at a time: the
         /// newest change's receipt covers every earlier one.

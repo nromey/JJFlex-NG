@@ -72,36 +72,144 @@ namespace Radios
         /// </summary>
         public const int ReflectedWarnSeconds = 2;
 
-        /// <summary>
-        /// The ABSOLUTE floor below which a reflected fraction means nothing,
-        /// because a meter wandering around zero can produce any ratio at all.
-        /// </summary>
-        /// <remarks>
-        /// <b>This is the floor of a floor, not the floor (#453.)</b> It was
-        /// measured against a DEAD KEY — 0.22 W into an open port on
-        /// 2026-08-22 — which is a steady-state number that says nothing about
-        /// speech. On a hundred-watt voice envelope one watt excludes almost
-        /// nothing: the envelope crosses it constantly on its way down between
-        /// syllables, which is exactly where a mismatched pair of readings
-        /// produces a spike. The floor that actually acts is
-        /// <see cref="ReflectedWarnFloorWatts"/>, which scales with the
-        /// transmission; this remains as its lower bound, for the QRP and
-        /// transverter-drive case where a share of the peak would be a
-        /// fraction of a watt and the ratio really is noise.
-        /// </remarks>
-        public const float ReflectedWarnMinWatts = 1f;
+        // ==================================================================
+        // The forward-power floor: ONE floor, two gates (#571, #453, #238)
+        // ==================================================================
+        //
+        // Below some forward power a forward/reflected pair means nothing —
+        // the ratio of two numbers near the coupler's resolution is noise, and
+        // on 2026-09-07 that noise read 2.96 on a dummy load the radio itself
+        // measured at 1.01. Until Sprint 47 there were THREE answers to where
+        // that floor sits, in three files, two of them arguing against each
+        // other in their own remarks:
+        //
+        //   * the alarm floored at a tenth of the transmission's measured
+        //     PEAK, and argued that a floor built from the power SETTING
+        //     would sit above everything a badly folded-back station can
+        //     make (101.2 W into a load, 17.5 W into an open port, same
+        //     setting, 2026-08-22);
+        //   * the operator-facing SWR floored at a twentieth of COMMANDED
+        //     power, and argued that the setting does not chase the voice the
+        //     way the peak-relative floor's INPUT does;
+        //   * and underneath both, the share arithmetic refused to divide
+        //     below 0.05 W, a number measured against a dead key.
+        //
+        // Both arguments are right about different failure modes, and the
+        // 194-sample run of 2026-09-07 cannot referee: both remove all seven
+        // false highs on it. The resolution is EBU R128's, which faces the
+        // identical problem — a signal whose instantaneous value swings and
+        // whose quiet parts are not information — and solves it with two
+        // gates rather than one:
+        //
+        //   ABSOLUTE gate:  the instrument's own resolution floor. Ours is
+        //                   ForwardFloorWatts, and it is NOT yet measured —
+        //                   see its remarks.
+        //   RELATIVE gate:  signal-relative. Ours is the SMALLER of a
+        //                   twentieth of commanded and a tenth of peak:
+        //                   commanded caps it so a full-power voice envelope
+        //                   is judged from five watts up rather than ten,
+        //                   and peak lets it fall when the radio folds back
+        //                   so the alarm never goes quiet in the case it
+        //                   exists for.
+        //
+        // The floor is the larger of the two gates. Checked by arithmetic
+        // against all three measured cases — the numbers are in
+        // BelievableForwardFloorWatts's remarks and pinned in
+        // TransmitSafetyTests — and against both recorded faults, on which it
+        // lands on exactly the floor the alarm used before.
 
         /// <summary>
-        /// The share of a transmission's own forward-power PEAK below which a
-        /// reflected reading is not judged.
+        /// THE absolute forward-power floor, in watts: below it a
+        /// forward/reflected pair is not believed by anything, whatever was
+        /// commanded and whatever the peak was. R128's absolute gate.
         /// </summary>
         /// <remarks>
         /// <para>
-        /// A tenth — ten times the old absolute watt, and on a hundred-watt
-        /// transmission it lands on ten watts, the figure Noel independently
-        /// ruled as the boundary worth stopping for. It discards the deep
-        /// troughs between syllables, which is where the mismatched-pair
-        /// artefact lived, without discarding most of the transmission.
+        /// <b>One number, on purpose, and its value is a placeholder for a
+        /// measurement #238 still owes.</b> Three absolute floors answered
+        /// this one physical question until Sprint 47: 1 W here (the alarm's
+        /// lower bound, measured against a 0.22 W dead key), 0.25 W in
+        /// <c>FlexBase</c> (chosen so a one-watt tune carrier would still be
+        /// judged, not from any coupler data), and 0.05 W in the share
+        /// arithmetic (the dead key again). None of the three was a
+        /// measurement of the thing it floors. What IS measured: at 100 W
+        /// commanded, every sample at or below 1.40 W forward was noise and
+        /// every sample from 8.83 W up was good (2026-09-07); at 5 W
+        /// commanded a 4.1 W carrier resolved a 76-percent mismatch cleanly
+        /// (2026-09-01). Between 1.4 and 4 W there is no data at all, and
+        /// whether the coupler's floor is absolute or moves with the power
+        /// setting is exactly the question #238 asks.
+        /// </para>
+        /// <para>
+        /// <b>Why the three collapsed to the LARGEST, not the smallest.</b>
+        /// Lowering the alarm's absolute floor would let the alarm judge
+        /// samples between a quarter-watt and a watt on QRP and transverter
+        /// drive, where a share of the peak is a fraction of a watt and the
+        /// ratio genuinely is noise — a protective guard quietly retuned by a
+        /// refactor, which is the worst outcome available here. Raising the
+        /// other two moves nothing protective: the operator-facing SWR now
+        /// says "not measured" for a carrier under one watt where it used to
+        /// show a number of unknown worth, and the transmit-check probe says
+        /// in words that a sub-watt carrier is too little to judge the load
+        /// by (<c>TxTuneProbe.Verdict.MakesPowerLoadNotJudged</c>) instead of
+        /// judging it anyway.
+        /// </para>
+        /// <para>
+        /// <b>The discovery test is worth more than this constant.</b>
+        /// <c>IntegrationPassRuleTests.Every_forward_power_floor_is_the_same_number</c>
+        /// finds every <c>*Watts</c> constant in this assembly and requires
+        /// anything named as a floor to equal this; its sibling refuses a
+        /// forward-power floor written as a bare literal, which is how the
+        /// 0.05 hid for a month behind a comment claiming it was measured.
+        /// When #238 lands a number, change it HERE and nowhere else, and the
+        /// test says whether anywhere else still needs changing.
+        /// </para>
+        /// </remarks>
+        public const float ForwardFloorWatts = 1f;
+
+        /// <summary>
+        /// The relative gate's first term: the share of COMMANDED power below
+        /// which a forward reading is not believed. A twentieth.
+        /// </summary>
+        /// <remarks>
+        /// Measured 2026-09-07 across 194 samples, 100 W commanded into the
+        /// 400 W dummy load, speech processor and compander ON: every false
+        /// high came from a sample at or below 1.40 W forward, and the lowest
+        /// good sample was 8.83 W. Five percent lands on 5 W, near the middle
+        /// on a log scale, which is the honest place to sit when the true
+        /// boundary is unknown. The processor being on makes the case
+        /// stronger, not weaker: it REDUCES dynamic range, so those troughs
+        /// were genuine silences between words and forward goes lower still
+        /// without it.
+        /// <para>Commanded power is a SETTING, so unlike forward power it does
+        /// not chase the operator's voice; that is the property relied on.
+        /// One radio at one power on one day — #238 owns the curve.</para>
+        /// <para>Not named <c>...Fraction</c> or <c>...Percent</c>: those
+        /// suffixes on a <c>Reflected*</c> constant mean a share coming BACK,
+        /// and the reflected-threshold discovery test rightly judges them
+        /// against <see cref="ReflectedWarnFraction"/>. This is a share of
+        /// what was ASKED FOR.</para>
+        /// </remarks>
+        public const float ForwardFloorShareOfCommanded = 0.05f;
+
+        /// <summary>
+        /// The relative gate's second term: the share of a transmission's own
+        /// measured forward-power PEAK below which a reading is not believed.
+        /// A tenth.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This is the term that keeps the floor honest under FOLDBACK. A Flex
+        /// reduces its own power into a bad match: on 2026-08-22 the bench
+        /// 8600 made 101.2 W into a properly connected dummy load and 17.5 W
+        /// into an empty antenna port minutes earlier at the same setting. A
+        /// floor from the setting alone sits at 5 W there and still judges
+        /// 17.5 W — but a station folded back to 4 W on a hundred-watt setting
+        /// is a worse match than the one measured and entirely possible, and a
+        /// setting-only floor would go quiet on it. A tenth of a 4 W peak is
+        /// 0.4 W, so the floor falls to the absolute gate and the alarm keeps
+        /// judging. Taking the SMALLER of the two relative terms is what makes
+        /// that work: the peak term can only ever lower the floor.
         /// </para>
         /// <para>
         /// <b>Deliberately not a quarter, and the reasoning is the same
@@ -126,12 +234,6 @@ namespace Radios
         /// estimate standing in for it.
         /// </para>
         /// <para>
-        /// <b>A share of the PEAK, not of the operator's power setting</b>, and
-        /// the difference is not cosmetic — see
-        /// <see cref="ReflectedPowerRun"/> for the foldback measurement that
-        /// decides it.
-        /// </para>
-        /// <para>
         /// <b>Not named <c>...Fraction</c> or <c>...Percent</c> on purpose.</b>
         /// In this assembly those suffixes on a <c>Reflected*</c> constant mean
         /// a share of forward power that is coming BACK, and
@@ -142,7 +244,7 @@ namespace Radios
         /// wrong ruler, and rightly so, had it kept the wrong suffix.
         /// </para>
         /// </remarks>
-        public const float ReflectedWarnFloorShareOfPeak = 0.10f;
+        public const float ForwardFloorShareOfPeak = 0.10f;
 
         /// <summary>
         /// Judgeable samples in a row that must be bad before the warning
@@ -243,19 +345,77 @@ namespace Radios
         public const double ReflectedSettleBoundSeconds = 20.0;
 
         /// <summary>
-        /// The forward power below which a reflected share is not judged, given
-        /// how much power this transmission has actually managed to make.
+        /// THE forward-power floor: the lowest forward power at which a
+        /// forward/reflected pair means anything, given what the operator
+        /// asked for and what the transmission has actually made so far.
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The larger of the absolute gate (<see cref="ForwardFloorWatts"/>)
+        /// and the relative gate, where the relative gate is the SMALLER of
+        /// <paramref name="commandedWatts"/> times
+        /// <see cref="ForwardFloorShareOfCommanded"/> and
+        /// <paramref name="forwardPeakWatts"/> times
+        /// <see cref="ForwardFloorShareOfPeak"/>. A term that is not known
+        /// simply drops out: a caller with no peak gets the commanded term
+        /// alone, a caller with no commanded power gets the peak term alone,
+        /// and a caller with neither gets the absolute gate.
+        /// </para>
+        /// <para>
+        /// <b>Checked against every measured case, by arithmetic, before it
+        /// was adopted (#571):</b>
+        /// </para>
+        /// <list type="bullet">
+        /// <item>2026-08-22, open port, 100 W commanded, 17.5 W peak: the
+        /// relative gate is the smaller of 5 W and 1.75 W, so the floor is
+        /// 1.75 W and the 17.5 W fault is judged. That is the floor the alarm
+        /// used before this function existed, to the watt.</item>
+        /// <item>2026-09-07, dummy load, 100 W commanded, 107.27 W peak: the
+        /// smaller of 5 W and 10.73 W, so the floor is 5 W. All seven false
+        /// highs sat at or below 1.40 W and are rejected; the lowest good
+        /// sample, 8.83 W, is admitted. The old peak-only floor of 10.73 W
+        /// would have rejected that good sample too.</item>
+        /// <item>2026-09-01, open port, 5 W commanded, 4.1 W peak: the
+        /// smaller of 0.25 W and 0.41 W is 0.25 W, under the absolute gate,
+        /// so the floor is 1 W and the 4.1 W fault is judged — again the
+        /// alarm's floor from before, exactly.</item>
+        /// </list>
+        /// <para>
+        /// <b>Why the operator-facing SWR passes no peak.</b> The peak term is
+        /// weakest at the START of a transmission, when the peak is still
+        /// climbing and a tenth of it is under the absolute gate; the alarm
+        /// tolerates that because two seconds of settling and three judged
+        /// samples stand behind it, and the display has nothing of the kind.
+        /// On the 2026-09-07 run a commanded-only floor rejects every false
+        /// high and a peak-only one admits the 1.40 W offender for as long as
+        /// the peak stays under 14 W. So <c>FlexBase.ComputedSWR</c> asks for
+        /// the commanded term alone, and the gated integrator that #571
+        /// describes — which will hold a window and a peak — is where the
+        /// display gets its second gate.
+        /// </para>
+        /// </remarks>
+        /// <param name="commandedWatts">
+        /// What the operator asked for at the moment of the reading — tune
+        /// power during a tune carrier, RF power otherwise; normally
+        /// <see cref="TransmitPowerReading.CommandedWatts"/>. Zero or less
+        /// means unknown.
+        /// </param>
         /// <param name="forwardPeakWatts">
         /// The highest forward power seen this transmission — normally
-        /// <see cref="ReflectedPowerRun.ForwardPeakWatts"/>.
+        /// <see cref="ReflectedPowerRun.ForwardPeakWatts"/>. NaN, zero or
+        /// less means unknown.
         /// </param>
-        public static float ReflectedWarnFloorWatts(float forwardPeakWatts)
+        public static float BelievableForwardFloorWatts(int commandedWatts, float forwardPeakWatts)
         {
-            if (float.IsNaN(forwardPeakWatts) || forwardPeakWatts <= 0f)
-                return ReflectedWarnMinWatts;
-            return Math.Max(ReflectedWarnMinWatts,
-                            forwardPeakWatts * ReflectedWarnFloorShareOfPeak);
+            float relative = float.NaN;
+            if (commandedWatts > 0)
+                relative = commandedWatts * ForwardFloorShareOfCommanded;
+            if (!float.IsNaN(forwardPeakWatts) && forwardPeakWatts > 0f)
+            {
+                float fromPeak = forwardPeakWatts * ForwardFloorShareOfPeak;
+                relative = float.IsNaN(relative) ? fromPeak : Math.Min(relative, fromPeak);
+            }
+            return float.IsNaN(relative) ? ForwardFloorWatts : Math.Max(ForwardFloorWatts, relative);
         }
 
         /// <summary>
@@ -263,16 +423,26 @@ namespace Radios
         /// when the question cannot be answered.
         /// </summary>
         /// <remarks>
+        /// <para>
         /// NaN rather than 0 when there is too little power to judge. Returning
         /// a comfortable number for "no idea" is the exact defect this whole
         /// area exists to fix — the radio's own SWR meter answers 1.008 when it
         /// has nothing useful to say, and two bench sessions were measured
         /// through that reassurance.
+        /// </para>
+        /// <para>
+        /// The guard is the absolute gate, <see cref="ForwardFloorWatts"/>,
+        /// and it is defence in depth: every live judgement stands behind
+        /// <see cref="BelievableForwardFloorWatts"/> first. It floored at
+        /// 0.05 W until Sprint 47 — a dead-key number, thirty times below
+        /// where the bench found noise — which was the third of three
+        /// absolute floors for one question.
+        /// </para>
         /// </remarks>
         public static float ReflectedFractionOf(float forwardWatts, float reflectedWatts)
         {
             if (float.IsNaN(forwardWatts) || float.IsNaN(reflectedWatts)) return float.NaN;
-            if (forwardWatts < 0.05f) return float.NaN;
+            if (forwardWatts < ForwardFloorWatts) return float.NaN;
             if (reflectedWatts < 0f) return 0f;
             return Math.Min(reflectedWatts / forwardWatts, 1f);
         }
@@ -492,12 +662,15 @@ namespace Radios
         public const float ReflectedCutMinForwardWatts = 10f;
 
         /// <summary>
-        /// Whether the transmission should be CUT, not merely warned about
-        /// (#224). Only ever true when the operator turned the setting on: an
+        /// The SHARE rung of the cut (#224): whether the transmission should be
+        /// CUT, not merely warned about, because the warning has fired and a
+        /// further sample at real power still shows most of the power coming
+        /// back. Only ever true when the operator turned the setting on: an
         /// app that unilaterally unkeys a transmitter has taken the station
         /// away mid-transmission, and some operators — a reactive load, a
         /// tuner mid-cycle, an experimental antenna — would find that
-        /// intolerable.
+        /// intolerable. The WATTS rung is <see cref="ShouldCutReflectedWatts"/>;
+        /// live callers ask <see cref="JudgeReflectedCut"/>, which asks both.
         /// </summary>
         /// <param name="settingEnabled">The operator's own choice. Never
         /// defaulted to true by a caller.</param>
@@ -542,9 +715,9 @@ namespace Radios
         }
 
         /// <summary>
-        /// What is said when the cut fires. It must say what happened, why,
-        /// and above all that the operator is NO LONGER TRANSMITTING — they
-        /// have no visual cue that it happened and will keep talking.
+        /// What is said when the SHARE rung cuts. It must say what happened,
+        /// why, and above all that the operator is NO LONGER TRANSMITTING —
+        /// they have no visual cue that it happened and will keep talking.
         /// </summary>
         public static string ReflectedCutText(float fraction, string antennaName)
         {
@@ -554,6 +727,186 @@ namespace Radios
             return named
                 ? Lexicon.Get(key, ("percent", percent), ("antenna", antennaName))
                 : Lexicon.Get(key, ("percent", percent));
+        }
+
+        // ==================================================================
+        // Tier 1 (#571): the PROTECTIVE rung, in reflected WATTS
+        // ==================================================================
+        //
+        // #237 ruled two ladders with two jobs and two units: protective
+        // watts, diagnostic ratio, and neither may ever be stated in the
+        // other's unit. #224 described the cut as firing "above 10 watts" and
+        // #237 as "above 10 W reflected" — and the code did NEITHER. What
+        // shipped, ShouldCutReflected above, is a RATIO test with a forward
+        // floor: forward over ten watts AND forty percent or more coming
+        // back. So it inherited exactly the defect tier 1 was meant to be
+        // immune to. The 2026-09-07 run proved the point: reflected never
+        // exceeded 0.105 W across 194 samples while the display read 2.96.
+        //
+        // Reflected watts is the quantity that heats the finals. Ten watts
+        // back is ten watts of heat whatever forward is doing, and a voice
+        // trough cannot fake it — a trough makes forward SMALL, and a small
+        // forward cannot have ten watts of itself coming back. That is why it
+        // is the honest protective measure, and why it is an ADDITION beside
+        // the share rung rather than a replacement: two independent rungs
+        // that can disagree informatively (see #237's two cases) is the safer
+        // shape, and the share rung is the one that continues the story of
+        // the warning the operator just heard.
+
+        /// <summary>
+        /// Reflected power, in WATTS, at or above which the cut acts whatever
+        /// share of forward it is. Tier 1 of #571; the number is #237's.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Ten watts is a first number chosen from a register entry, not
+        /// from a measurement.</b> #237 ruled the protective ladder "above
+        /// 10 W reflected" on 2026-08-26, reasoning from what lands in the PA
+        /// as heat; nobody has yet watched this rung fire. The empty-port
+        /// bench test #571 still owes — key at real power into an EMPTY
+        /// antenna port, never a dummy load, which has nothing to reflect —
+        /// is what confirms or moves it. On the one recorded fault at real
+        /// power, 2026-08-22, the radio folded itself back to 17.5 W and
+        /// 13.4 W of that came back: over this rung. On 2026-09-01 at five
+        /// watts, 3.10 W came back: under it, correctly, because 3 W is not
+        /// hurting anything and the share warning already covers it.
+        /// </para>
+        /// <para>
+        /// <b>Watts, and never spoken as a ratio.</b> The sentence for this
+        /// rung (<see cref="ReflectedCutWattsText"/>) says watts; the share
+        /// rung's sentence says percent; neither borrows the other's unit,
+        /// and a test holds both to that. Ends in <c>Watts</c> so the
+        /// forward-floor discovery test lists it as a rung.
+        /// </para>
+        /// <para>
+        /// <b>Equal to <see cref="ReflectedCutMinForwardWatts"/> by
+        /// coincidence, not by design.</b> That one is the share rung's
+        /// FORWARD floor — the boundary between worth telling and worth
+        /// stopping for, #224. This is REFLECTED heat, #237. Two rulings,
+        /// two quantities; do not tie them.
+        /// </para>
+        /// </remarks>
+        public const float ReflectedCutWatts = 10f;
+
+        /// <summary>
+        /// Coherent samples in a row at or above <see cref="ReflectedCutWatts"/>
+        /// before the watts rung may cut. Two: #224's two-distinct-samples
+        /// rule, which applies to both rungs.
+        /// </summary>
+        /// <remarks>
+        /// The share rung gets its two samples by reuse — the warning latched
+        /// on an earlier tick, the cut reads this one. The watts rung cannot
+        /// borrow that, because it must fire when the share warning never
+        /// does: 100 W at a 2.5-to-1 match sends 18 W back at 18 percent,
+        /// which is under the 40-percent warning and over this rung, and
+        /// #237 says that cut is correct. So <see cref="ReflectedPowerRun"/>
+        /// counts the rung's own streak. Persistence, not smoothing: a single
+        /// key-down transient cannot cut, and a second hot sample a quarter
+        /// of a second later can. Tier 1 judges the momentary value and the
+        /// settling rule does not apply to it — latency is a feature of the
+        /// diagnostic tier only (#571).
+        /// </remarks>
+        public const int ReflectedCutSustainedSamples = 2;
+
+        /// <summary>
+        /// Whether the transmission should be cut on reflected WATTS alone:
+        /// the setting is on, no tune cycle is running, this reading is one
+        /// sample and shows at least <see cref="ReflectedCutWatts"/> coming
+        /// back, and so did the coherent sample before it.
+        /// </summary>
+        /// <param name="settingEnabled">The operator's own choice. Never
+        /// defaulted to true by a caller.</param>
+        /// <param name="reading">Forward and reflected as ONE reading. An
+        /// incoherent pair never cuts.</param>
+        /// <param name="run">This transmission's accumulated state;
+        /// <see cref="ReflectedPowerRun.Observe"/> must already have been
+        /// given this reading, so <see cref="ReflectedPowerRun.HotSamples"/>
+        /// counts it.</param>
+        /// <param name="tuning">True while the antenna tuner runs a cycle.</param>
+        /// <remarks>
+        /// <b>No forward floor, no share, no nonphysical check — on
+        /// purpose.</b> Ten watts back implies more than ten watts forward,
+        /// so the share rung's forward floor is satisfied by physics. And a
+        /// coherent pair reporting more back than forward is a meter artefact
+        /// in the direction of MORE heat; <see cref="ReflectedFractionOf"/>
+        /// already treats that as everything coming back rather than as
+        /// nothing, and a protective rung errs the same way.
+        /// </remarks>
+        public static bool ShouldCutReflectedWatts(bool settingEnabled,
+                                                   in TransmitPowerReading reading,
+                                                   ReflectedPowerRun run, bool tuning)
+        {
+            if (!settingEnabled || tuning || run == null) return false;
+            if (!reading.IsCoherent) return false;
+            if (float.IsNaN(reading.ReflectedWatts)
+                || reading.ReflectedWatts < ReflectedCutWatts) return false;
+            return run.HotSamples >= ReflectedCutSustainedSamples;
+        }
+
+        /// <summary>Which rung, if any, ended the transmission.</summary>
+        public enum ReflectedCut
+        {
+            /// <summary>Keep transmitting.</summary>
+            None,
+
+            /// <summary>The share rung: the warning had fired and a further
+            /// coherent sample above ten watts forward still had forty
+            /// percent or more coming back. Spoken in percent.</summary>
+            Share,
+
+            /// <summary>The watts rung: ten watts or more coming back, on two
+            /// coherent samples in a row, whatever the share. Spoken in
+            /// watts.</summary>
+            Watts,
+        }
+
+        /// <summary>
+        /// Both rungs of the cut, in one decision, so that a live caller
+        /// cannot consult one and forget the other.
+        /// </summary>
+        /// <remarks>
+        /// The share rung is asked first. When both would fire, the operator
+        /// has just heard "76 percent coming back" and the cut sentence
+        /// should continue that story in the same unit; the watts rung's
+        /// sentence is for the case the share warning never covered.
+        /// </remarks>
+        public static ReflectedCut JudgeReflectedCut(bool settingEnabled, bool alreadyWarned,
+                                                     in TransmitPowerReading reading,
+                                                     ReflectedPowerRun run, bool tuning)
+        {
+            if (ShouldCutReflected(settingEnabled, alreadyWarned, reading, tuning))
+                return ReflectedCut.Share;
+            if (ShouldCutReflectedWatts(settingEnabled, reading, run, tuning))
+                return ReflectedCut.Watts;
+            return ReflectedCut.None;
+        }
+
+        /// <summary>
+        /// What is said when the WATTS rung cuts. Watts, never a percentage
+        /// (#237), and it must say the operator is no longer on the air.
+        /// </summary>
+        public static string ReflectedCutWattsText(float reflectedWatts, string antennaName)
+        {
+            int watts = (int)Math.Round(reflectedWatts);
+            bool named = !string.IsNullOrWhiteSpace(antennaName);
+            string key = named ? "audio.ptt.reflected_cut_watts_on" : "audio.ptt.reflected_cut_watts";
+            return named
+                ? Lexicon.Get(key, ("watts", watts), ("antenna", antennaName))
+                : Lexicon.Get(key, ("watts", watts));
+        }
+
+        /// <summary>
+        /// The cut sentence for whichever rung fired, in that rung's own unit.
+        /// </summary>
+        public static string ReflectedCutTextFor(ReflectedCut rung, in TransmitPowerReading reading,
+                                                 string antennaName)
+        {
+            switch (rung)
+            {
+                case ReflectedCut.Share: return ReflectedCutText(reading.ReflectedShare, antennaName);
+                case ReflectedCut.Watts: return ReflectedCutWattsText(reading.ReflectedWatts, antennaName);
+                default: return "";
+            }
         }
 
         // ==================================================================

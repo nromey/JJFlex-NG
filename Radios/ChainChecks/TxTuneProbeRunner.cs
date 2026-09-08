@@ -341,10 +341,15 @@ namespace Radios.ChainChecks
         /// guard, which meant the early-stop fallback could count "bad" samples
         /// off a meter wandering around zero watts — the exact reading
         /// <see cref="TransmitSafety.ReflectedFractionOf"/> refuses to turn
-        /// into a ratio. Now NaN below the guard's forward-power floor, so a
-        /// ramping PA's first meaningless samples cannot walk the probe toward
-        /// an abort; genuinely bad loads still read far above every threshold
-        /// once real power flows.
+        /// into a ratio. Now NaN below the one forward-power floor
+        /// (<see cref="TransmitSafety.ForwardFloorWatts"/>), so a ramping PA's
+        /// first meaningless samples cannot walk the probe toward an abort;
+        /// genuinely bad loads still read far above every threshold once real
+        /// power flows. The consequence to know: a probe whose carrier never
+        /// reaches that floor cannot stop early on its share, and its SWR is
+        /// NaN for the same reason — which is a watt into whatever is on the
+        /// port, a power the register calls harmless, and the verdict then
+        /// says in words that the load was not judged.
         /// </remarks>
         private static double ReflectedPercent(IReadOnlyList<TxTuneProbe.Reading> meters)
         {

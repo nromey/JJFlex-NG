@@ -431,9 +431,15 @@ namespace Radios
 
             if (ConfirmDown(rig))
             {
+                // The reflected-power cut declares its subject so an unheard
+                // cut sentence is retired by the next cut and never by its own
+                // word count (#503); the other sources keep the default.
                 Say(string.IsNullOrWhiteSpace(spokenOverride)
                         ? Lexicon.Get("audio.ptt.kill_stopped")
-                        : spokenOverride);
+                        : spokenOverride,
+                    source == Source.ReflectedPower
+                        ? Speech.SpeechSubject.ReflectedPowerCut
+                        : null);
                 Tracing.TraceLine("TransmitKillSwitch: carrier confirmed down",
                                   TraceLevel.Info);
                 return;
@@ -458,7 +464,7 @@ namespace Radios
             return false;
         }
 
-        private static void Say(string message)
+        private static void Say(string message, string subject = null)
         {
             if (string.IsNullOrEmpty(message)) return;
             try
@@ -469,7 +475,7 @@ namespace Radios
                 // sentence. A kill that queues behind a meter readout is a kill
                 // the operator does not hear.
                 ScreenReaderOutput.Speak(message, Speech.SpeechIntent.Urgent,
-                                         VerbosityLevel.Critical);
+                                         VerbosityLevel.Critical, subject: subject);
             }
             catch (Exception ex)
             {
@@ -580,14 +586,17 @@ namespace Radios
         /// </para>
         /// <para>
         /// <b>Note what the cut can and cannot reach at check powers, and that
-        /// it is not this file's decision.</b> The cut's forward-power floor is
-        /// ten watts, strictly above (<see cref="TransmitSafety"/>), while
-        /// <c>FixerTransmitGate</c> holds a low-power ceiling of ten watts or
-        /// below for the loads it caps. Wherever the gate caps, the two meet
-        /// exactly and the cut is unreachable by construction — leaving the
-        /// WARNING as the guard that acts, which is right, since ten watts into
-        /// a bad match damages nothing. The cut can only ever fire where the
-        /// gate does NOT cap.
+        /// it is not this file's decision.</b> The cut's share rung has a
+        /// forward-power floor of ten watts, strictly above
+        /// (<see cref="TransmitSafety"/>), while <c>FixerTransmitGate</c> holds
+        /// a low-power ceiling of ten watts or below for the loads it caps.
+        /// Wherever the gate caps, the two meet exactly and that rung is
+        /// unreachable by construction. The watts rung (#571 tier 1) needs
+        /// ten watts COMING BACK, which cannot happen under a ten-watt forward
+        /// cap by physics, so it meets the same ceiling at the same place —
+        /// leaving the WARNING as the guard that acts, which is right, since
+        /// ten watts into a bad match damages nothing. Either rung can only
+        /// ever fire where the gate does NOT cap.
         /// </para>
         /// <para>
         /// <b>WHICH loads those are is the gate's ruling and it moves.</b> It
@@ -680,15 +689,29 @@ namespace Radios
                     + " — " + _run.LastRecovery + " — nothing said; that is what a tuner "
                     + "finding its match looks like", TraceLevel.Info);
 
-            if (TransmitSafety.ShouldCutReflected(CutEnabled(), warned, reading, tuning))
+            // Both rungs of the cut (#224, #571 tier 1): the share rung, which
+            // needs the warning to have fired, and the watts rung, which needs
+            // ten watts back on two coherent samples in a row and nothing
+            // else. One decision, so neither caller can consult one rung and
+            // forget the other.
+            TransmitSafety.ReflectedCut cut;
+            lock (Gate)
+            {
+                cut = TransmitSafety.JudgeReflectedCut(CutEnabled(), warned, reading, _run, tuning);
+            }
+            if (cut != TransmitSafety.ReflectedCut.None)
             {
                 float back = reading.ReflectedShare;
                 Tracing.TraceLine(
-                    "TransmitKillSwitch: reflected-power CUT during " + WhatIsArmed + " — "
-                    + (back * 100f).ToString("F0") + "% back at "
-                    + reading.ForwardWatts.ToString("F1")
+                    "TransmitKillSwitch: reflected-power CUT on the "
+                    + cut.ToString().ToLowerInvariant() + " rung during " + WhatIsArmed + " — "
+                    + reading.ReflectedWatts.ToString("F1") + " W back"
+                    + (float.IsNaN(back) ? "" : " (" + (back * 100f).ToString("F0") + "%)")
+                    + " at " + reading.ForwardWatts.ToString("F1")
                     + " W forward", TraceLevel.Warning);
-                Request(Source.ReflectedPower, TransmitSafety.ReflectedCutText(back, antenna));
+                // In the rung's own unit, never the other's (#237).
+                Request(Source.ReflectedPower,
+                        TransmitSafety.ReflectedCutTextFor(cut, reading, antenna));
                 return;
             }
 

@@ -93,6 +93,8 @@ namespace Radios.Tests
             internal const string CompetingVocabulary = "two-words-for-one-thing";
             internal const string SingleCallerHelper = "prose-helper-with-one-caller";
             internal const string ReflectedThreshold = "reflected-power-threshold-not-shared";
+            internal const string ForwardFloor = "forward-power-floor-not-shared";
+            internal const string LiteralForwardFloor = "forward-power-floor-written-as-a-literal";
             internal const string ShadowedNamespace = "radios-namespace-shadows-a-system-one";
             internal const string ClickOnlyCheckBox = "checkbox-wired-to-click-only";
             internal const string SilentKeying = "keying-path-that-cannot-announce-itself";
