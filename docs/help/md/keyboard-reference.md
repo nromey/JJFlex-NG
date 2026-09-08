@@ -137,6 +137,8 @@ The levels — pick one, then ride Up and Down:
 - **L** — on-radio line out volume. The line out jacks on the radio itself.
 - **C** — compander level. (Toggle the compander itself with `Ctrl+J`, `C`.)
 - **S** — speech processor mode: Up and Down step through Normal, DX, and DX plus. (Toggle the processor with `Ctrl+J`, `Shift+P`.)
+- **X** — VOX gain, 0 to 100: how loud your voice has to be before VOX keys the radio. Too low and room noise keys you up; too high and it never trips. X because `V` is already slice volume. If VOX is off it says so after the number, so you can set the threshold before you arm it — which is the right order. (Turn VOX itself on or off on the VOX field in Home, with the VOX checkbox in the Transmission group, or from the menu.)
+- **D** — VOX delay: how long the radio stays keyed after you stop talking, in milliseconds, up to two seconds. Up and Down move it 100 ms at a time; Shift moves it one radio step, 20 ms, which is the finest the radio can do. Too short and it drops between your words; too long and the other station waits on you. In CW both of these say "not used in CW" — the VOX switch means break-in there, and these two numbers are not in play.
 - **P** — pan, for the slice you're on. Pan mode lived on `P` before the layers, so this is the letter your hands already know. Left and Right move it too — for pan, direction means something real — and `0` snaps it back to center.
 
 The switches — one press flips it, and it tells you which way it went:
