@@ -133,9 +133,10 @@ namespace Radios.Tests
         // bare 0.05f behind a comment claiming it was measured (#571).
 
         /// <summary>
-        /// Every <c>*Watts</c> constant in the Radios assembly, sorted into
-        /// the physical question it answers by a word in its name; every one
-        /// that is a forward-power FLOOR must be the one floor.
+        /// Every constant in the Radios assembly with <c>Watts</c> anywhere in
+        /// its name, sorted into the physical question it answers by a word
+        /// in that name; every one that is a forward-power FLOOR must be the
+        /// one floor.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -168,7 +169,11 @@ namespace Radios.Tests
                                                     | BindingFlags.Static | BindingFlags.FlattenHierarchy))
                 {
                     if (!f.IsLiteral || f.IsInitOnly) continue;
-                    if (!f.Name.EndsWith("Watts", StringComparison.Ordinal)) continue;
+                    // Anywhere in the name, not only at the end. The first
+                    // draft of this rule matched EndsWith, and the break
+                    // proof that re-added FlexBase.MinForwardWattsAbsolute —
+                    // the very constant that had hidden — sailed through it.
+                    if (!f.Name.Contains("Watts", StringComparison.Ordinal)) continue;
 
                     object? raw = f.GetRawConstantValue();
                     if (raw == null) continue;
