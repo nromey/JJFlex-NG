@@ -178,6 +178,50 @@ namespace Radios.Tests
     [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class SwrDisplayTests
     {
+        [Fact]
+        public void TheFloorIsMeasuredAgainstTunePowerDuringATune()
+        {
+            // A tune transmits at TunePower, not RFPower, and the two are
+            // independent settings. TuneCycleSettledComputedSwr latches
+            // ComputedSWR *during* the carrier (#570), so a floor built from
+            // RF power silences the after-tune announcement for any operator
+            // whose tune power is under five percent of their RF power.
+            //
+            // 100 W RF with a 2 W tune is an ordinary setup, and the 2026-09-07
+            // bench could not have shown it: every trace reads TunePower:99.
+            string body = FlexBaseMemberBody("public float ComputedSWR");
+
+            Assert.Contains("CommandedPowerWatts", body);
+            Assert.DoesNotContain("XmitPower", body);
+
+            // And the selector itself must actually branch on the tune state,
+            // not merely be named as though it does.
+            string commanded = FlexBaseMemberBody("public int CommandedPowerWatts");
+            Assert.Contains("TXTune", commanded);
+            Assert.Contains("_TunePower", commanded);
+            Assert.Contains("_XmitPower", commanded);
+        }
+
+        [Fact]
+        public void TheFixerAlreadyDrewThisDistinctionAndStillDoes()
+        {
+            // The rule was not invented here. FixerTransmitBoundary has always
+            // picked TunePower for a tune carrier; the floor was written
+            // without it. If that helper ever stops making the distinction,
+            // these two have drifted apart and one of them is now wrong.
+            string src = File.ReadAllText(Path.Combine(
+                RepoRoot(), "Radios", "ChainChecks", "FixerTransmitBoundary.cs"));
+
+            int at = src.IndexOf("ReadTransmitPowerWatts(FlexBase", StringComparison.Ordinal);
+            Assert.True(at > 0,
+                "ReadTransmitPowerWatts moved; reconcile it with CommandedPowerWatts "
+                + "rather than deleting this guard");
+
+            string body = src.Substring(at, Math.Min(400, src.Length - at));
+            Assert.Contains("TunePower", body);
+            Assert.Contains("XmitPower", body);
+        }
+
         /// <summary>
         /// The full body of a member of <c>FlexBase</c>, matched by braces.
         /// </summary>
@@ -372,15 +416,22 @@ namespace Radios.Tests
         //
         // The two numbers that bound the floor, both from that run:
         //
-        //   1.40 W forward — the worst false high, our arithmetic said 4.84
-        //                    while the radio's own meter held 1.01
+        //   1.40 W forward — the HIGHEST forward power at which a false high
+        //                    still occurred (it read 1.76). Not the worst
+        //                    ratio: that was 0.12 W reading 2.96. The floor
+        //                    has to clear the highest-FORWARD one, because
+        //                    forward power is what it tests.
         //   8.83 W forward — the LOWEST sample that produced a good reading
         //
         // Anything between those two separates the run perfectly. Five percent
         // of commanded lands at 5 W, near the middle on a log scale, which is
         // the right place to sit when the true boundary is unknown.
+        //
+        // The radio's own meter held 1.01 to 1.31 throughout, on a load it was
+        // right about — which is why this is a defect in OUR arithmetic and not
+        // a disagreement between two instruments.
 
-        private const float WorstFalseHighForwardWatts = 1.40f;
+        private const float HighestForwardAmongFalseHighs = 1.40f;
         private const float LowestGoodForwardWatts = 8.83f;
         private const int RunCommandedWatts = 100;
 
@@ -389,9 +440,9 @@ namespace Radios.Tests
         {
             float floor = FlexBase.MinBelievableForwardWatts(RunCommandedWatts);
 
-            Assert.True(floor > WorstFalseHighForwardWatts,
-                $"the floor ({floor} W) must exclude the worst false high at "
-                + $"{WorstFalseHighForwardWatts} W, or #453 is not fixed");
+            Assert.True(floor > HighestForwardAmongFalseHighs,
+                $"the floor ({floor} W) must clear {HighestForwardAmongFalseHighs} W, the "
+                + "highest forward power that still produced a false high, or #453 is not fixed");
 
             Assert.True(floor < LowestGoodForwardWatts,
                 $"the floor ({floor} W) must keep the lowest GOOD sample at "
@@ -408,8 +459,8 @@ namespace Radios.Tests
             // substitute for evidence we do not have.
             float floor = FlexBase.MinBelievableForwardWatts(RunCommandedWatts);
 
-            Assert.True(floor >= WorstFalseHighForwardWatts * 2f,
-                "less than a factor of two above the worst false high is fitted "
+            Assert.True(floor >= HighestForwardAmongFalseHighs * 2f,
+                "less than a factor of two above the highest bad sample is fitted "
                 + "to one day's data, not chosen");
             Assert.True(floor <= LowestGoodForwardWatts / 1.5f,
                 "the floor is creeping up on real readings");

@@ -9717,7 +9717,7 @@ namespace Radios
                 // which REDUCES dynamic range — so those troughs are real
                 // silences between words, and the floor is safer than the
                 // numbers alone suggest.
-                if (pair.ForwardWatts < MinBelievableForwardWatts(XmitPower))
+                if (pair.ForwardWatts < MinBelievableForwardWatts(CommandedPowerWatts))
                     return float.NaN;
 
                 return SwrFromPower(_PowerDBM, _ReflectedPower);
@@ -9759,6 +9759,49 @@ namespace Radios
         /// </remarks>
         public static float MinBelievableForwardWatts(int commandedWatts) =>
             MathF.Max(MinForwardWattsAbsolute, commandedWatts * MinForwardFractionOfCommanded);
+
+        /// <summary>
+        /// The power the operator actually asked for RIGHT NOW — tune power
+        /// during a tune carrier, RF power otherwise.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>A tune does not transmit at <c>RFPower</c>.</b> It transmits at
+        /// <c>TunePower</c>, and the two are independent settings — 100 W RF
+        /// with a 2 W tune is an ordinary way to set a radio up.
+        /// <c>FixerTransmitBoundary.ReadTransmitPowerWatts</c> has always drawn
+        /// this distinction (<c>tuneCarrier ? rig.TunePower : rig.XmitPower</c>);
+        /// the #453 floor was written reading <c>XmitPower</c> unconditionally
+        /// and inherited the bug the same day it landed.
+        /// </para>
+        /// <para>
+        /// It matters because <see cref="TuneCycleSettledComputedSwr"/> latches
+        /// <see cref="ComputedSWR"/> DURING the carrier (#570). Against an
+        /// RF-power floor, an operator whose tune power is under five percent
+        /// of their RF power would hear "SWR not measured" after every single
+        /// tune — at the exact moment they asked the question. The bench could
+        /// not have shown it: every trace from 2026-09-07 reads
+        /// <c>RFPower:100 TunePower:99</c>.
+        /// </para>
+        /// <para>
+        /// <b>An ATU tune is deliberately NOT included.</b> Whether the ATU
+        /// runs its own internal level rather than <c>TunePower</c> is not
+        /// established, and guessing low would lower the floor exactly when the
+        /// match is sweeping. See #453.
+        /// </para>
+        /// </remarks>
+        public int CommandedPowerWatts
+        {
+            get
+            {
+                bool tuning;
+                // Same crash class as the TX getter family: the radio can tear
+                // down under a meter callback.
+                try { tuning = theRadio?.TXTune ?? false; }
+                catch { tuning = false; }
+                return tuning ? _TunePower : _XmitPower;
+            }
+        }
 
         /// <summary>
         /// SWR from a forward and a reflected power reading, both in dBm.
