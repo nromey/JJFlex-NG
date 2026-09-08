@@ -14272,31 +14272,46 @@ namespace Radios
             }
         }
 
-        // Vox delay is in MS, with 50 MS per step, see FlexLib.Radio.cs
-        internal const int VoxDelayMin = 0;
-        internal const int VoxDelayMax = 2000;
-        internal const int VoxDelayIncrement = 100;
-        internal const int VoxDelayMS = 50;
-        internal int VoxDelay
+        // VOX delay is the hang time in milliseconds. The radio takes it as a
+        // raw 0-100 step count and FlexLib says each step is 20 ms
+        // (Radio.SimpleVOXDelay: "The delay will be (value * 20)
+        // milliseconds"), so the radio's whole scale is 0-2000 ms — exactly
+        // the range Jim wrote below. His divisor was 50 from the first
+        // commit (#565): with it, 2000 ms reached only raw 40, the top 60
+        // percent of the radio's scale was unreachable from here, and a
+        // radio sitting at its genuine maximum read back as 5000 ms. The
+        // range, the 100 ms press and the milliseconds are his design and
+        // stay; only the constant was wrong. VoxLimitAgreementTests pins
+        // VoxDelayMax / VoxDelayMS to FlexLib's clamp so it cannot drift back.
+        public const int VoxDelayMin = 0;
+        public const int VoxDelayMax = 2000;
+        public const int VoxDelayIncrement = 100;
+        public const int VoxDelayMS = 20;
+        // Null guards match MicGain's, and for the same reason: this is the
+        // radio-level TX getter family, polled from the fields panel, and a
+        // poll racing radio teardown must read a default rather than throw.
+        public int VoxDelay
         {
-            get { return theRadio.SimpleVOXDelay * VoxDelayMS; }
+            get { return (theRadio?.SimpleVOXDelay ?? 0) * VoxDelayMS; }
             set
             {
                 NoteOperatorChangedRadioSetting("VoxDelay");
-                q.Enqueue((FunctionDel)(() => { theRadio.SimpleVOXDelay = value / VoxDelayMS; }));
+                q.Enqueue((FunctionDel)(() => { theRadio.SimpleVOXDelay = value / VoxDelayMS; }), "SimpleVOXDelay");
             }
         }
 
-        internal const int VoxGainMin = 0;
-        internal const int VoxGainMax = 100;
-        internal const int VoxGainIncrement = 5;
-        internal int VoxGain
+        // VOX gain is the threshold: how loud the mic must be before the
+        // radio decides it is hearing speech and keys. Raw 0-100, no scaling.
+        public const int VoxGainMin = 0;
+        public const int VoxGainMax = 100;
+        public const int VoxGainIncrement = 5;
+        public int VoxGain
         {
-            get { return theRadio.SimpleVOXLevel; }
+            get { return theRadio?.SimpleVOXLevel ?? 0; }
             set
             {
                 NoteOperatorChangedRadioSetting("VoxGain");
-                q.Enqueue((FunctionDel)(() => { theRadio.SimpleVOXLevel = value; }));
+                q.Enqueue((FunctionDel)(() => { theRadio.SimpleVOXLevel = value; }), "SimpleVOXLevel");
             }
         }
 

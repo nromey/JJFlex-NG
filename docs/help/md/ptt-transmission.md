@@ -6,6 +6,19 @@ JJ Flexible Radio Access includes safety features designed to help you stay in c
 
 PTT works through your radio's standard PTT input — a footswitch, a hand microphone's PTT button, or VOX (voice-operated transmit). The application monitors the PTT state and announces when you key up and when you unkey.
 
+## VOX (Voice-Operated Transmit)
+
+VOX keys the radio when it hears you talk and unkeys it when you stop. Whether it works for you comes down to two numbers, and both live in the Transmission group of Home's fields (`Ctrl+Shift+X`), right after the VOX checkbox:
+
+- **VOX Gain** (0 to 100) is the threshold — how loud your voice has to be before the radio decides it is hearing speech and keys up. Set it too low and the room keys you up: the fan, the dog, your own breathing. Set it too high and it never trips no matter how much audio you have. Start around the middle and walk it down until your normal speaking voice keys the radio reliably and silence does not.
+- **VOX Delay** is the hang time — how long the radio stays keyed after you stop talking, in milliseconds, up to two seconds. Too short and it drops out between your words; too long and the other station is left waiting on you. Up and Down move it 100 ms at a time; Shift moves it 20 ms, which is the finest step the radio can make. Somewhere between 300 and 800 ms suits most voices.
+
+Both settings are there whether VOX is switched on or not, on purpose: you set the threshold first and arm VOX second. They step out of the way in CW, where the VOX checkbox means break-in and these two numbers do not apply.
+
+The same two numbers are in the audio layer as well — `Ctrl+J`, `A`, then `X` for gain and `D` for delay — beside mic level, the compander, and the speech processor, so you can trim VOX from anywhere without leaving what you were doing. See the Keyboard Reference for the whole layer.
+
+Your radio remembers these settings, so once they are set they stay set across sessions and across this and any other software on the same radio.
+
 ## TX Status
 
 Press `Alt+Shift+S` to hear the current TX status spoken. This tells you whether you are transmitting, what your power level is, and other TX-related information in a single short announcement.

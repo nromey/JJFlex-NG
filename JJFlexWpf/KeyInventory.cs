@@ -900,6 +900,12 @@ public static class KeyInventory
             new[] { "compander", "level", "compression", "transmit" }, "Radio", "Transmit"),
         new(AudioLayerContext, "Audio layer", "S", "Speech processor mode: Normal, DX, DX plus; Up and Down step",
             new[] { "speech", "processor", "proc", "mode", "dx", "transmit" }, "Radio", "Transmit"),
+        // #565: the two numbers that make VOX work. X because V is slice
+        // volume; D for delay. Both were free letters; Noel vetoes by ear.
+        new(AudioLayerContext, "Audio layer", "X", "VOX gain — how loud your voice must be before VOX keys the radio; Up and Down adjust",
+            new[] { "vox", "gain", "threshold", "sensitivity", "level", "voice", "trip", "key", "transmit" }, "Radio", "Transmit"),
+        new(AudioLayerContext, "Audio layer", "D", "VOX delay — how long the radio stays keyed after you stop talking, in milliseconds; Up and Down adjust, Shift moves one radio step",
+            new[] { "vox", "delay", "hang", "hang time", "release", "drop", "milliseconds", "ms", "transmit" }, "Radio", "Transmit"),
         new(AudioLayerContext, "Audio layer", "P", "Pan for the slice you're on — Left and Right, or Up and Down, place it in the stereo field; Shift moves by one, 0 centers",
             new[] { "pan", "stereo", "balance", "left", "right", "center", "centre", "place",
                     "placement", "position", "field", "slice", "separate", "separation", "apart", "ear" }, "Radio", "Audio"),

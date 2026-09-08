@@ -97,6 +97,15 @@ public partial class ValueFieldControl : UserControl
     }
 
     /// <summary>
+    /// Step size for Shift+Up / Shift+Down. Defaults to 1, which every
+    /// field had hardcoded until #565. A field whose radio-side resolution
+    /// is coarser than 1 — VOX delay moves in 20 ms steps — sets this to
+    /// that resolution, so a fine press never shows a number the radio
+    /// rounds away and the next poll snaps back.
+    /// </summary>
+    public int FineStep { get; set; } = 1;
+
+    /// <summary>
     /// QB Track I — decimal display mode. 0 (default) keeps legacy integer
     /// behavior. N &gt; 0 means Value is carried in scaled integer units
     /// (e.g. 2 → hundredths: Value 550 displays and speaks as "5.50"). Typed
@@ -194,14 +203,14 @@ public partial class ValueFieldControl : UserControl
         switch (e.Key)
         {
             case Key.Up:
-                // Up = configured Step (default 5); Shift+Up = 1 as fine-grain escape hatch.
-                AdjustValue(shift ? 1 : _step);
+                // Up = configured Step (default 5); Shift+Up = FineStep (default 1) as fine-grain escape hatch.
+                AdjustValue(shift ? FineStep : _step);
                 e.Handled = true;
                 break;
 
             case Key.Down:
-                // Down = configured Step (default 5); Shift+Down = 1 as fine-grain escape hatch.
-                AdjustValue(shift ? -1 : -_step);
+                // Down = configured Step (default 5); Shift+Down = FineStep (default 1) as fine-grain escape hatch.
+                AdjustValue(shift ? -FineStep : -_step);
                 e.Handled = true;
                 break;
 
