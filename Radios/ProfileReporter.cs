@@ -1086,7 +1086,7 @@ namespace Radios
                 sb.AppendLine($"Transmit monitor: {OnOff(radio.TXMonitor)}"
                     + $", sideband level {radio.TXSBMonitorGain}, CW level {radio.TXCWMonitorGain}");
                 sb.AppendLine($"VOX: {OnOff(radio.SimpleVOXEnable)}"
-                    + $", gain {radio.SimpleVOXLevel}, delay {radio.SimpleVOXDelay * 50} milliseconds");
+                    + $", gain {radio.SimpleVOXLevel}, delay {radio.SimpleVOXDelay * FlexBase.VoxDelayMS} milliseconds");
             });
 
             Section(sb, "CW settings", () =>
@@ -1373,7 +1373,7 @@ namespace Radios
             Key("transmit monitor level, CW", () => radio.TXCWMonitorGain.ToString());
             Key("vox", () => OnOff(radio.SimpleVOXEnable));
             Key("vox gain", () => radio.SimpleVOXLevel.ToString());
-            Key("vox delay", () => (radio.SimpleVOXDelay * 50) + " milliseconds");
+            Key("vox delay", () => (radio.SimpleVOXDelay * FlexBase.VoxDelayMS) + " milliseconds");
 
             // CW.
             Key("cw speed", () => radio.CWSpeed + " words per minute");
