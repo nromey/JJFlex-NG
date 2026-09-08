@@ -181,9 +181,9 @@
                          (JJFlexHelp.Text is set from the Lexicon in code-behind,
                          where Lexicon strings live for the dialog's speech too). -->
                     <CheckBox x:Name="ReflectedCutCheckbox"
-                              Content="Cut transmit if the reflected-power alarm fires above 10 watts"
+                              Content="Cut transmit if the reflected-power alarm fires above 10 watts, or if 10 watts or more comes back"
                               Margin="0,8,0,0"
-                              AutomationProperties.Name="Cut transmit if the reflected-power alarm fires above 10 watts"
+                              AutomationProperties.Name="Cut transmit if the reflected-power alarm fires above 10 watts, or if 10 watts or more comes back"
                               Unchecked="ReflectedCutCheckbox_Unchecked"/>
                 </StackPanel>
             </TabItem>
