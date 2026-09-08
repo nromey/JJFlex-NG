@@ -317,6 +317,31 @@ namespace Radios
         /// </summary>
         public bool StrandedLiveTransmitAudioSnapshot;
 
+        /// <summary>
+        /// True when this client can see a live STATION on the radio — slices
+        /// and panadapters — as opposed to merely a profile NAME.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>The distinction #563 is made of.</b> A global profile is a
+        /// snapshot that carries the whole station. The radio remembers the
+        /// snapshot's NAME across a client teardown; it does not keep the
+        /// station. So on every reconnect the name still matches while the
+        /// slices are gone, and a decision made on the name alone concludes
+        /// "already loaded" about a radio that has nothing on it.
+        /// </para>
+        /// <para>
+        /// <b>False by default, deliberately.</b> Not having established that
+        /// the station is there must not read as having established that it
+        /// is — the same fail-safe direction as <see cref="OnlyStation"/>,
+        /// pointed the other way because the risk here is inaction, not
+        /// action. Re-loading the operator's own global profile on a radio
+        /// they opted in is what they asked for; skipping it leaves them
+        /// staring at a default station.
+        /// </para>
+        /// </remarks>
+        public bool StationPresent;
+
         public List<ProfileTypeState> Types = new List<ProfileTypeState>();
 
         public ProfileTypeState Type(ProfileTypes t) =>
@@ -637,8 +662,27 @@ namespace Radios
                 // The best outcome there is: what the operator wants is what is
                 // already loaded, so nothing is written and there is nothing to
                 // put back.
-                Skip(ProfileSkipReason.AlreadyLoaded);
-                return;
+                //
+                // EXCEPT for the global profile, which carries the STATION and
+                // not just a setting (#563). The radio keeps the name across a
+                // client teardown and drops the slices, so on every reconnect
+                // the name matches and the station is empty. A matching name
+                // with no station is a NAME, not a loaded profile — fall
+                // through and load it, which is what the connect did
+                // unconditionally before 1f44cef4 and is the only thing that
+                // ever rebuilt an operator's station.
+                //
+                // Transmit and microphone profiles are settings. Their name IS
+                // the whole of what they claim, so for them a match still ends
+                // the matter.
+                bool theNameIsTheWholeStory =
+                    type != ProfileTypes.global || s.StationPresent;
+
+                if (theNameIsTheWholeStory)
+                {
+                    Skip(ProfileSkipReason.AlreadyLoaded);
+                    return;
+                }
             }
 
             // The radio is telling us its owner has edits in flight. Loading

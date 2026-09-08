@@ -15824,6 +15824,14 @@ namespace Radios
                 RadioAutosave = (radio != null && _radioReportedAutosave)
                     ? (bool?)radio.ProfileAutoSave
                     : null,
+
+                // #563. A station, not a name. The radio keeps the global
+                // profile's NAME across a client teardown and drops the slices
+                // with it, so on a reconnect the name matches over an empty
+                // radio. Our own slice count is the honest test: this client
+                // sees what it has, and at connect time it has nothing until
+                // the profile load or the allocator puts something there.
+                StationPresent = radio != null && MyNumSlices > 0,
             };
 
             var serialForLocal = radio?.Serial;

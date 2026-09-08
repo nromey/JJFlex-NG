@@ -59,6 +59,7 @@ namespace Radios.Tests
             bool changeNothing = false,
             bool onlyStation = true,
             bool connected = true,
+            bool stationPresent = true,
             params ProfileTypeState[] types)
         {
             var s = new ProfileSituation
@@ -68,6 +69,7 @@ namespace Radios.Tests
                 ChangeNothingArmed = changeNothing,
                 OnlyStation = onlyStation,
                 Connected = connected,
+                StationPresent = stationPresent,
             };
             if (types.Length == 0)
             {
@@ -285,11 +287,15 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void WhatWeWantIsAlreadyLoaded_SoNothingIsWrittenAtAll()
+        public void WhatWeWantIsAlreadyLoaded_AndTheStationIsThere_SoNothingIsWritten()
         {
             // The best outcome there is: no write, no restore point, nothing
             // to put back, nothing to go wrong.
-            var s = Situation(types: new[]
+            //
+            // The station clause is load-bearing and was added 2026-09-07.
+            // Until then this test asserted the same thing with no station at
+            // all, which pinned #563's cause as the desired behaviour.
+            var s = Situation(stationPresent: true, types: new[]
             {
                 Type(ProfileTypes.global, selection: "K5NER", wanted: "K5NER"),
                 Type(ProfileTypes.tx, selection: "K5NER", wanted: "K5NER"),
@@ -304,6 +310,62 @@ namespace Radios.Tests
             {
                 Assert.True(plan.Skipped(t, ProfileSkipReason.AlreadyLoaded));
             }
+        }
+
+        [Fact]
+        public void AMatchingGlobalNameWithNoStationIsAName_NotALoadedProfile()
+        {
+            // #563. The radio keeps the global profile's NAME across a client
+            // teardown and drops the slices and panadapters with it. Every
+            // reconnect therefore presents a matching name over an empty
+            // radio, and reading that as "already loaded" is why an operator's
+            // station stopped coming back on 2026-09-01.
+            //
+            // Verified on Noel's own 8600 before this test was written: five
+            // traces, every connect showing four fresh slices at 14.100 USB
+            // with a 100-2800 filter, which is the radio's default and not his
+            // station.
+            var s = Situation(stationPresent: false, types: new[]
+            {
+                Type(ProfileTypes.global, selection: "K5NER", wanted: "K5NER"),
+                Type(ProfileTypes.tx, selection: "K5NER", wanted: "K5NER"),
+                Type(ProfileTypes.mic, selection: "K5NER", wanted: "K5NER"),
+            });
+
+            var plan = ProfileStewardship.PlanConnect(s);
+
+            // The global profile gets loaded, because loading it is the only
+            // thing that rebuilds the station.
+            Assert.Contains(plan.Actions, a =>
+                a.ProfileType == ProfileTypes.global
+                && a.Kind == ProfileActionKind.LoadOurs
+                && a.ProfileName == "K5NER");
+            Assert.False(plan.Skipped(ProfileTypes.global, ProfileSkipReason.AlreadyLoaded));
+
+            // A transmit or microphone profile is a SETTING. Its name is the
+            // whole of what it claims, so a match still ends the matter and
+            // nothing is written for either.
+            Assert.True(plan.Skipped(ProfileTypes.tx, ProfileSkipReason.AlreadyLoaded));
+            Assert.True(plan.Skipped(ProfileTypes.mic, ProfileSkipReason.AlreadyLoaded));
+            Assert.DoesNotContain(plan.Actions, a => a.ProfileType == ProfileTypes.tx);
+            Assert.DoesNotContain(plan.Actions, a => a.ProfileType == ProfileTypes.mic);
+        }
+
+        [Fact]
+        public void TheStationRuleDoesNotOverrideTheChangeNothingHold()
+        {
+            // The hold is checked before any of this and must stay that way:
+            // an empty station is not a reason to write to a radio the
+            // operator has told us to leave alone.
+            var s = Situation(changeNothing: true, stationPresent: false, types: new[]
+            {
+                Type(ProfileTypes.global, selection: "K5NER", wanted: "K5NER"),
+            });
+
+            var plan = ProfileStewardship.PlanConnect(s);
+
+            Assert.True(plan.ChangesNothing);
+            Assert.DoesNotContain(plan.Actions, a => a.Kind == ProfileActionKind.LoadOurs);
         }
 
         [Fact]
