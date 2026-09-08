@@ -583,7 +583,19 @@ public partial class AudioWorkshopDialog
         private bool _dummyEngaged;   // WE turned dummy load on; disable restores power
         private int _dummySavedPower; // pre-engage watts, for the spoken restore line
 
-        private const int CheckTimeoutSeconds = 180;   // 3-minute soft timeout
+        // Retired 2026-09-07. This was 180, imposed as a session override on
+        // top of the operator's own PTT timeout, and EffectiveTimeoutSeconds
+        // takes the MINIMUM of the two — so a check could never run longer than
+        // three minutes however the operator had set their timeout.
+        //
+        // That blocked work the bench needs: a fifteen-minute reference-audio
+        // run for a PA temperature curve, and the mic-profile comparison in
+        // #572, which needs enough material to hear a difference.
+        //
+        // PttConfig.TimeoutSeconds ALSO defaults to 180 and is clamped to
+        // [10, HardKillSeconds=900], so deferring to it changes nothing for
+        // anyone who has not moved it, and lets an operator who wants a long
+        // deliberate run have one. That clamp is what the 900 was written for.
         private const int RecordBufferSeconds = 120;   // verified live cap
 
         public bool Active { get; private set; }
@@ -687,9 +699,17 @@ public partial class AudioWorkshopDialog
                 }
             }
 
-            // 3-minute soft timeout for the check — the controller's ladder
-            // and hard kill continue to apply unchanged.
-            _ptt.SessionTimeoutOverrideSeconds = CheckTimeoutSeconds;
+            // No override: the operator's own PTT timeout governs, and the
+            // controller's ladder and hard kill apply unchanged. The controller
+            // documents SessionTimeoutOverrideSeconds as "deliberately the
+            // minimal hook — the session must NOT grow its own safety timer
+            // stack", and a second, stricter number that the operator cannot
+            // reach was exactly that stack in miniature.
+            //
+            // Explicitly null rather than left alone: the controller outlives a
+            // session, so a stale override from a previous one would silently
+            // cap this run.
+            _ptt.SessionTimeoutOverrideSeconds = null;
 
             // Key through the controller. Its own key-down announcement fires
             // first; the full safety line follows with interrupt so the
