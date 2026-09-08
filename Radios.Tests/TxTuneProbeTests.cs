@@ -63,6 +63,42 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void A_carrier_under_the_forward_power_floor_made_power_but_the_load_is_not_judged()
+        {
+            // Between "did anything" (NoPowerWatts) and the one forward-power
+            // floor (TransmitSafety.ForwardFloorWatts, #571) the transmitter
+            // works and the meters cannot say what it went into. That is a
+            // third fact, and it must not collapse into "fine": 0.8 W into an
+            // open port shows 76 percent back here and the probe says NOT
+            // JUDGED, not MakesPower.
+            var m = Meters(R("FWDPWR", 0.8), R("REFPWR", 0.6));
+
+            Assert.True(0.8 > NoPowerWatts && 0.8 < TransmitSafety.ForwardFloorWatts,
+                "the sample must sit between the two lines or this proves nothing");
+            Assert.Equal(Verdict.MakesPowerLoadNotJudged, Assess(m, computedSwr: double.NaN));
+
+            // The same share at a judgeable power IS a suspect load — the
+            // positive control that the verdict above is about power, not
+            // about the load being fine.
+            Assert.Equal(Verdict.MakesPowerLoadSuspect,
+                Assess(Meters(R("FWDPWR", 4.1), R("REFPWR", 3.1)), computedSwr: double.NaN));
+        }
+
+        [Fact]
+        public void The_not_judged_verdict_says_so_in_words_and_names_the_floor_from_the_constant()
+        {
+            var r = Result.Ran(Verdict.MakesPowerLoadNotJudged, DateTime.UtcNow,
+                               Meters(R("FWDPWR", 0.8), R("REFPWR", 0.6)),
+                               1, double.NaN, false, "14.200", "USB", "ANT1");
+            string text = Explain(r);
+
+            Assert.Contains("not judged", text);
+            Assert.Contains(TransmitSafety.ForwardFloorWatts.ToString("0.##") + " watt", text);
+            Assert.DoesNotContain("came back", text);   // it is not the suspect sentence
+            Assert.True(r.AudioTestingHasStanding, "the transmitter DID prove itself");
+        }
+
+        [Fact]
         public void A_missing_forward_meter_is_not_a_reading_of_zero()
         {
             // The distinction the whole diagnostic rests on: absence of a

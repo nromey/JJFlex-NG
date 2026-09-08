@@ -104,6 +104,9 @@ namespace Radios.Tests
             // nobody asked the provenance of.
             Assert.True(float.IsNaN(FlexBase.SwrFromPower(-150f, -150f)));
             Assert.True(float.IsNaN(FlexBase.SwrFromPower(10f, 5f)));   // 0.01 W, below the floor
+            Assert.True(float.IsNaN(FlexBase.SwrFromPower(27f, 7f)));   // 0.5 W: under the one
+                                                                        // absolute floor since
+                                                                        // Sprint 47, not 0.05 W
         }
 
         [Fact]
@@ -189,10 +192,17 @@ namespace Radios.Tests
             //
             // 100 W RF with a 2 W tune is an ordinary setup, and the 2026-09-07
             // bench could not have shown it: every trace reads TunePower:99.
+            // Since Sprint 47 the commanded power travels WITH the pair: the
+            // display floors against pair.CommandedWatts, and ReadTransmitPower
+            // fills that from CommandedPowerWatts. Both links are pinned, or a
+            // future edit could floor the display against a setting read at a
+            // different instant from the reading.
             string body = FlexBaseMemberBody("public float ComputedSWR");
-
-            Assert.Contains("CommandedPowerWatts", body);
+            Assert.Contains("pair.CommandedWatts", body);
             Assert.DoesNotContain("XmitPower", body);
+
+            string capture = FlexBaseMemberBody("public TransmitPowerReading ReadTransmitPower()");
+            Assert.Contains("commandedWatts: CommandedPowerWatts", capture);
 
             // And the selector itself must actually branch on the tune state,
             // not merely be named as though it does.
@@ -346,12 +356,20 @@ namespace Radios.Tests
             Assert.False(stale.IsCoherent);
             Assert.Contains("apart", stale.WhyNotCoherent);
 
-            // And the arithmetic on that pair is exactly the number the
-            // operator should never have been shown.
-            float wrong = FlexBase.SwrFromPower(TroughForwardDbm, TroughReflectedDbm);
-            Assert.True(wrong > 2.0f,
+            // And the arithmetic on that pair, taken raw, is exactly the
+            // number the operator should never have been shown. Computed by
+            // hand here because since Sprint 47 SwrFromPower itself refuses
+            // it — 0.48 W is under the one absolute floor — and a control
+            // that the SAMPLE is a false high must not depend on the guard it
+            // is a control for.
+            double gamma = Math.Sqrt(FlexBase.DBmToWatts(TroughReflectedDbm)
+                                     / FlexBase.DBmToWatts(TroughForwardDbm));
+            double wrong = (1.0 + gamma) / (1.0 - gamma);
+            Assert.True(wrong > 2.0,
                 "the measured trough pair produces a false high; if this stops being "
                 + "true the sample is wrong, not the gate");
+            Assert.True(float.IsNaN(FlexBase.SwrFromPower(TroughForwardDbm, TroughReflectedDbm)),
+                "the arithmetic refuses the trough pair outright now: it is under the floor");
         }
 
         [Fact]
@@ -490,11 +508,13 @@ namespace Radios.Tests
         public void AVeryLowCommandedPowerStillHasAnAbsoluteFloor()
         {
             // Five percent of 1 W is 0.05 W, which is coupler noise. The
-            // absolute bound is what stops the percentage collapsing into it.
+            // absolute bound is what stops the percentage collapsing into it —
+            // and since Sprint 47 it is THE absolute floor, the one the alarm
+            // and the share arithmetic stand on too, not a private 0.25 W.
             float atOne = FlexBase.MinBelievableForwardWatts(1);
 
-            Assert.Equal(FlexBase.MinForwardWattsAbsolute, atOne);
-            Assert.True(atOne > 1f * FlexBase.MinForwardFractionOfCommanded,
+            Assert.Equal(TransmitSafety.ForwardFloorWatts, atOne);
+            Assert.True(atOne > 1f * TransmitSafety.ForwardFloorShareOfCommanded,
                 "the absolute bound is not being applied");
         }
 

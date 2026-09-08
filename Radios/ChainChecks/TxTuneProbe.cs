@@ -77,6 +77,14 @@ namespace Radios.ChainChecks
         /// little power". Deliberately generous: the question here is binary —
         /// did the transmitter do ANYTHING — not whether it hit its target.
         /// </summary>
+        /// <remarks>
+        /// Not a forward-power FLOOR, and named so the discovery test can tell
+        /// (<c>IntegrationPassRuleTests.Every_forward_power_floor_is_the_same_number</c>):
+        /// a floor says where a reading stops meaning anything about the
+        /// LOAD, and that one lives in <see cref="TransmitSafety.ForwardFloorWatts"/>,
+        /// above this. This says whether the transmitter did anything at all.
+        /// A carrier between the two gets <see cref="Verdict.MakesPowerLoadNotJudged"/>.
+        /// </remarks>
         public const double NoPowerWatts = 0.5;
 
         /// <summary>
@@ -155,6 +163,13 @@ namespace Radios.ChainChecks
             /// <summary>Power appeared, but a large share came back. The
             /// transmitter is working into something it does not like.</summary>
             MakesPowerLoadSuspect,
+
+            /// <summary>Power appeared, but under the forward-power floor
+            /// (<see cref="TransmitSafety.ForwardFloorWatts"/>), so the
+            /// meters cannot say what it went into. The transmitter works;
+            /// the load is UNJUDGED, which is a different fact from fine
+            /// and must be said as one (#238, #571).</summary>
+            MakesPowerLoadNotJudged,
 
             /// <summary>The transmitter was keyed and no power appeared. This is
             /// NOT an audio fault and must not be reported as one.</summary>
@@ -280,7 +295,8 @@ namespace Radios.ChainChecks
             /// both cases an audio verdict downstream would be unfounded.
             /// </summary>
             public bool AudioTestingHasStanding
-                => Verdict == Verdict.MakesPower || Verdict == Verdict.MakesPowerLoadSuspect;
+                => Verdict == Verdict.MakesPower || Verdict == Verdict.MakesPowerLoadSuspect
+                   || Verdict == Verdict.MakesPowerLoadNotJudged;
         }
 
         /// <summary>
@@ -407,6 +423,16 @@ namespace Radios.ChainChecks
             // meaningless if nothing was transmitted into it.
             if (fwd.Value <= NoPowerWatts) return Verdict.NoPower;
 
+            // Did it make ENOUGH to judge the load by? Below the one
+            // forward-power floor the ratio of two readings near the coupler's
+            // resolution is noise (measured 2026-09-07: every false high sat
+            // at or under 1.40 W), so the share and SWR arithmetic both refuse
+            // to answer there. Say so, rather than let "no complaint" read as
+            // "fine" — a comfortable answer for "no idea" is the defect this
+            // whole area exists to fix.
+            if (fwd.Value < TransmitSafety.ForwardFloorWatts)
+                return Verdict.MakesPowerLoadNotJudged;
+
             // Load judgement. Computed SWR first: it is the number an operator
             // and a FlexRadio engineer both already think in, and the caller
             // derived it from forward and reflected power rather than reading
@@ -422,9 +448,10 @@ namespace Radios.ChainChecks
             // SAME arithmetic the live warning uses, low-forward guard and all
             // (#237 — it was derived independently here, and two computations
             // of one ratio is how thresholds stop being comparable). Its guard
-            // cannot fire on this path — fwd.Value already cleared NoPowerWatts
-            // above — but one home for the rule beats a private copy that
-            // happens to agree today.
+            // cannot fire on this path — fwd.Value already cleared the
+            // forward-power floor above, and the guard IS that floor — but one
+            // home for the rule beats a private copy that happens to agree
+            // today.
             //
             // ORDERING, decided rather than discovered: the chain rules report
             // power-coming-back BEFORE high-swr, naming a cause the operator
@@ -478,6 +505,17 @@ namespace Radios.ChainChecks
                            "of that power came back rather than going out, though, so check " +
                            "what is connected to the antenna port before reading anything " +
                            "into the audio measurements.";
+
+                case Verdict.MakesPowerLoadNotJudged:
+                    // The number comes from the constant, so this sentence
+                    // cannot drift from the floor it describes.
+                    return "The radio keyed a tune carrier and produced RF, so the " +
+                           "transmitter is working. It made under " +
+                           TransmitSafety.ForwardFloorWatts.ToString("0.##") +
+                           " watts, though, which is too little for the forward and " +
+                           "reflected power meters to say anything about what is connected " +
+                           "to the antenna port. Nothing here is wrong; the load was simply " +
+                           "not judged. Raise the tune power if you want it judged.";
 
                 case Verdict.NoPower:
                     // WHAT HAPPENED, and nothing else. The diagnosis and the

@@ -38,8 +38,8 @@ namespace Radios.Tests
         /// </summary>
         private static TransmitPowerReading Pair(
             float forwardWatts, float reflectedWatts,
-            float skewMs = 0f, float ageMs = 0f) =>
-            new TransmitPowerReading(forwardWatts, reflectedWatts, skewMs, ageMs);
+            float skewMs = 0f, float ageMs = 0f, int commandedWatts = 0) =>
+            new TransmitPowerReading(forwardWatts, reflectedWatts, skewMs, ageMs, commandedWatts);
 
         /// <summary>
         /// A transmission that has already seen this reading enough times for
@@ -219,61 +219,165 @@ namespace Radios.Tests
         {
             // One watt was measured against a DEAD KEY and excludes almost
             // nothing on a voice envelope, which crosses it constantly on the
-            // way down between syllables.
-            Assert.Equal(10f, TransmitSafety.ReflectedWarnFloorWatts(100f), 3);
-            Assert.Equal(TransmitSafety.ReflectedWarnMinWatts,
-                         TransmitSafety.ReflectedWarnFloorWatts(5f), 3);
-            Assert.Equal(TransmitSafety.ReflectedWarnFloorWatts(0f),
-                         TransmitSafety.ReflectedWarnMinWatts, 3);
+            // way down between syllables. With no commanded power known, the
+            // floor is the peak term alone — the alarm's behaviour before
+            // Sprint 47, exactly.
+            Assert.Equal(10f, TransmitSafety.BelievableForwardFloorWatts(0, 100f), 3);
+            Assert.Equal(TransmitSafety.ForwardFloorWatts,
+                         TransmitSafety.BelievableForwardFloorWatts(0, 5f), 3);
+            Assert.Equal(TransmitSafety.BelievableForwardFloorWatts(0, 0f),
+                         TransmitSafety.ForwardFloorWatts, 3);
+            Assert.Equal(TransmitSafety.BelievableForwardFloorWatts(0, float.NaN),
+                         TransmitSafety.ForwardFloorWatts, 3);
 
             // Ten times the dead-key watt it replaces, so a voice trough no
             // longer sails over it...
-            Assert.True(TransmitSafety.ReflectedWarnFloorWatts(100f)
-                        > TransmitSafety.ReflectedWarnMinWatts * 5f);
+            Assert.True(TransmitSafety.BelievableForwardFloorWatts(0, 100f)
+                        > TransmitSafety.ForwardFloorWatts * 5f);
 
             // ...but not so high that most of a transmission stops being
             // judgeable, because the persistence rule then multiplies the delay
             // before a REAL fault is announced. That is the same trade the
             // register rules out for smoothing.
-            Assert.True(TransmitSafety.ReflectedWarnFloorShareOfPeak <= 0.15f,
+            Assert.True(TransmitSafety.ForwardFloorShareOfPeak <= 0.15f,
                 "a floor much above a tenth of peak buys defence in depth with alarm latency");
         }
 
         [Fact]
         public void The_floor_follows_power_foldback_instead_of_the_power_setting()
         {
-            // Why the reference is the MEASURED peak and not the operator's set
-            // power. On 2026-08-22 the same radio at the same setting made
-            // 101.2 W into a good load and only 17.5 W into an empty port —
-            // that is the radio folding back because of the very fault we are
-            // trying to catch. A floor derived from a hundred-watt SETTING
-            // would sit above everything a badly mismatched station can produce
-            // and the alarm would go quiet in exactly the case it exists for.
-            // The measured foldback establishes that the mechanism is real: the
-            // same radio, the same setting, 101.2 W into a load and 17.5 W into
-            // an empty port.
+            // Why the SETTING cannot be the only reference. On 2026-08-22 the
+            // same radio at the same setting made 101.2 W into a good load and
+            // only 17.5 W into an empty port — that is the radio folding back
+            // because of the very fault we are trying to catch.
             Assert.True(OpenForward < LoadForward / 5f);
 
             // A floor pinned to what the operator ASKED for does not move when
             // the radio folds back, so a bad enough mismatch climbs under it —
-            // 8 W of forward power on a station set for a hundred is a worse
-            // match than the one measured, and entirely possible.
-            const float SeverelyFoldedBack = 8f;
-            Assert.True(TransmitSafety.ReflectedWarnFloorWatts(LoadForward) > SeverelyFoldedBack,
+            // 4 W of forward power on a station set for a hundred is a worse
+            // match than the one measured, and entirely possible. The
+            // commanded term alone (what the display uses) sits at 5 W there.
+            const float SeverelyFoldedBack = 4f;
+            float settingOnly = TransmitSafety.BelievableForwardFloorWatts(100, float.NaN);
+            Assert.True(settingOnly > SeverelyFoldedBack,
                 "a setting-derived floor climbs above a badly folded-back transmission "
                 + "and silences the alarm in the case it exists for");
 
-            // A floor pinned to what the radio is actually MAKING follows it
-            // down and keeps judging.
-            Assert.True(TransmitSafety.ReflectedWarnFloorWatts(SeverelyFoldedBack)
-                        < SeverelyFoldedBack);
-            Assert.True(TransmitSafety.ReflectedWarnFloorWatts(OpenForward) < OpenForward);
+            // With the measured peak in hand the floor follows it down and
+            // keeps judging: a tenth of 4 W is under the absolute gate, so the
+            // floor is the gate itself.
+            Assert.Equal(TransmitSafety.ForwardFloorWatts,
+                         TransmitSafety.BelievableForwardFloorWatts(100, SeverelyFoldedBack), 3);
+            Assert.True(TransmitSafety.BelievableForwardFloorWatts(100, OpenForward) < OpenForward);
 
-            var reading = Pair(OpenForward, OpenReflected);
+            var reading = Pair(OpenForward, OpenReflected, commandedWatts: 100);
             var run = RunOf(reading);
             Assert.True(run.ForwardPeakWatts >= OpenForward);
+            Assert.Equal(100, run.CommandedWatts);
             Assert.True(TransmitSafety.ShouldWarnReflected(
                 reading, run, Settled, tuning: false, alreadyWarned: false));
+        }
+
+        // ---- ONE floor, two gates (#571): checked against every measured case ----
+        //
+        // Two floors contradicted each other in two files until Sprint 47,
+        // each arguing against the other in its own remarks, and the
+        // 2026-09-07 run could not referee because both removed all seven
+        // false highs on it. The three measured cases below are what the
+        // brief said the unified floor MUST satisfy, and the numbers are
+        // reported here so a reader can check the arithmetic rather than
+        // trust a comment.
+
+        [Fact]
+        public void The_open_port_of_2026_08_22_is_still_judged_under_the_one_floor()
+        {
+            // 100 W commanded, radio folded back to a 17.5 W peak, 76 percent
+            // back. The smaller of 5 W (commanded) and 1.75 W (peak) is 1.75 W,
+            // over the absolute gate, so the floor is 1.75 W and 17.5 W is
+            // judged. That is the floor the alarm used before, to the watt.
+            float floor = TransmitSafety.BelievableForwardFloorWatts(100, OpenForward);
+
+            Assert.Equal(1.75f, floor, 3);
+            Assert.Equal(TransmitSafety.BelievableForwardFloorWatts(0, OpenForward), floor, 3);
+            Assert.True(OpenForward >= floor, "our instrument must not go quiet on a real fault");
+        }
+
+        [Fact]
+        public void The_dummy_load_run_of_2026_09_07_is_separated_by_the_one_floor()
+        {
+            // 100 W commanded, 107.27 W peak. The smaller of 5 W and 10.73 W is
+            // 5 W. Every false high sat at or under 1.40 W forward: rejected.
+            // The lowest good sample was 8.83 W: admitted. The peak-only floor
+            // the alarm used before, 10.73 W, would have thrown that good
+            // sample away too.
+            const float Peak = 107.27f;
+            const float HighestFalseHigh = 1.40f;
+            const float LowestGoodSample = 8.83f;
+
+            float floor = TransmitSafety.BelievableForwardFloorWatts(100, Peak);
+
+            Assert.Equal(5f, floor, 3);
+            Assert.True(HighestFalseHigh < floor, "the worst false high must be rejected");
+            Assert.True(LowestGoodSample >= floor, "the lowest good sample must be admitted");
+
+            float peakOnly = TransmitSafety.BelievableForwardFloorWatts(0, Peak);
+            Assert.True(LowestGoodSample < peakOnly,
+                "the old peak-only floor rejected a sample the bench proved good — "
+                + "that is why the commanded term caps it");
+        }
+
+        [Fact]
+        public void The_open_port_at_five_watts_of_2026_09_01_is_still_judged_under_the_one_floor()
+        {
+            // 5 W commanded, 4.1 W peak, 76 percent back. The smaller of 0.25 W
+            // and 0.41 W is under the absolute gate, so the floor is the gate,
+            // 1 W, and 4.1 W is judged. Again exactly the alarm's floor from
+            // before.
+            const float Forward0901 = 4.1f;
+            float floor = TransmitSafety.BelievableForwardFloorWatts(5, Forward0901);
+
+            Assert.Equal(TransmitSafety.ForwardFloorWatts, floor, 3);
+            Assert.Equal(TransmitSafety.BelievableForwardFloorWatts(0, Forward0901), floor, 3);
+            Assert.True(Forward0901 >= floor);
+        }
+
+        [Fact]
+        public void The_absolute_gate_is_one_number_and_every_arithmetic_path_stands_on_it()
+        {
+            // Three absolute floors answered this question until Sprint 47 —
+            // 1 W, 0.25 W and 0.05 W. This pins the survivors to the one: the
+            // share arithmetic, the SWR arithmetic and the display's floor all
+            // refuse just under it and answer at it.
+            float gate = TransmitSafety.ForwardFloorWatts;
+            float justUnder = gate - 0.01f;
+
+            Assert.True(float.IsNaN(TransmitSafety.ReflectedFractionOf(justUnder, 0.1f)));
+            Assert.False(float.IsNaN(TransmitSafety.ReflectedFractionOf(gate, 0.1f)));
+
+            float underDbm = (float)(10.0 * Math.Log10(justUnder * 1000.0));
+            float atDbm = (float)(10.0 * Math.Log10(gate * 1.001f * 1000.0));
+            Assert.True(float.IsNaN(FlexBase.SwrFromPower(underDbm, underDbm - 20f)));
+            Assert.False(float.IsNaN(FlexBase.SwrFromPower(atDbm, atDbm - 20f)));
+
+            Assert.Equal(gate, FlexBase.MinBelievableForwardWatts(1), 3);
+            Assert.Equal(gate, TransmitSafety.BelievableForwardFloorWatts(0, 0f), 3);
+        }
+
+        [Fact]
+        public void The_display_asks_for_the_commanded_term_alone_and_that_is_stricter_early_in_an_over()
+        {
+            // The peak term is weakest while the peak is still climbing. On
+            // the 2026-09-07 run a commanded-only floor rejects the 1.40 W
+            // offender from the first sample; a peak-only floor admits it for
+            // as long as the peak is under 14 W. The alarm can carry that
+            // because it settles and persists; the display cannot, so it
+            // passes no peak.
+            const float HighestFalseHigh = 1.40f;
+            const float EarlyPeak = 12f;
+
+            Assert.True(HighestFalseHigh < FlexBase.MinBelievableForwardWatts(100));
+            Assert.True(HighestFalseHigh >= TransmitSafety.BelievableForwardFloorWatts(0, EarlyPeak));
+            Assert.True(HighestFalseHigh < TransmitSafety.BelievableForwardFloorWatts(100, 107.27f));
         }
 
         [Fact]
@@ -490,6 +594,201 @@ namespace Radios.Tests
                 true, true, Pair(17.5f, float.NaN), false));
             Assert.False(TransmitSafety.ShouldCutReflected(
                 true, true, TransmitPowerReading.None, false));
+        }
+
+        // ---- tier 1 (#571): the WATTS rung, which did not exist ----
+        //
+        // #237 ruled the protective ladder in absolute reflected watts and
+        // #224 described the cut as firing above ten watts, and the shipped
+        // code did neither: ShouldCutReflected above is a RATIO test with a
+        // forward floor, so it inherited the very defect tier 1 was meant to
+        // be immune to. Reflected watts is what heats the finals and a voice
+        // trough cannot fake it. Ten watts is a first number from an entry,
+        // not a measurement; the empty-port bench test is what moves it.
+
+        /// <summary>
+        /// A run that has already seen this reading <paramref name="times"/>
+        /// times, as the live paths would have observed it, with no share
+        /// warning ever having fired.
+        /// </summary>
+        private static ReflectedPowerRun Hot(TransmitPowerReading reading, int times)
+        {
+            var run = new ReflectedPowerRun();
+            for (int i = 0; i < times; i++) run.Observe(reading, i + 1);
+            return run;
+        }
+
+        [Fact]
+        public void Ten_watts_back_cuts_without_the_share_warning_ever_having_fired()
+        {
+            // THE positive control for the rung, and #237's own case: 100 W at
+            // a 2.5-to-1 match sends 18 W back at 18 percent — under the
+            // 40-percent warning, so the share rung can never cut here, and
+            // over ten watts of heat, so this one must.
+            var mediocreMatchAtFullPower = Pair(100f, 18f);
+            var run = Hot(mediocreMatchAtFullPower, 2);
+
+            Assert.True(mediocreMatchAtFullPower.ReflectedShare < TransmitSafety.ReflectedWarnFraction,
+                "the case only proves independence if the share rung is silent on it");
+            Assert.False(TransmitSafety.ShouldCutReflected(
+                true, alreadyWarned: false, mediocreMatchAtFullPower, tuning: false));
+
+            Assert.True(TransmitSafety.ShouldCutReflectedWatts(
+                true, mediocreMatchAtFullPower, run, tuning: false));
+            Assert.Equal(TransmitSafety.ReflectedCut.Watts,
+                TransmitSafety.JudgeReflectedCut(
+                    true, alreadyWarned: false, mediocreMatchAtFullPower, run, tuning: false));
+        }
+
+        [Fact]
+        public void The_watts_rung_fires_on_the_recorded_fault_of_2026_08_22_and_not_on_2026_09_01()
+        {
+            // 13.4 W back is over the rung; 3.10 W back at five watts is
+            // under it, correctly — three watts is not hurting anything, and
+            // the share warning covers it. Watts measure heat; ratio measures
+            // match (#237). Both behaviours are right.
+            var open0822 = Pair(OpenForward, OpenReflected);
+            Assert.True(TransmitSafety.ShouldCutReflectedWatts(true, open0822, Hot(open0822, 2), false));
+
+            var open0901 = Pair(4.1f, 3.10f);
+            Assert.False(TransmitSafety.ShouldCutReflectedWatts(true, open0901, Hot(open0901, 5), false));
+            // ...while the share rung still warns on it, as ever.
+            Assert.True(TransmitSafety.ShouldWarnReflected(
+                open0901, Hot(open0901, 3), Settled, tuning: false, alreadyWarned: false));
+        }
+
+        [Fact]
+        public void The_watts_rung_needs_two_coherent_samples_in_a_row()
+        {
+            // #224's two-distinct-samples rule applies to both rungs: a single
+            // hot sample at key-down is a transient, not a load.
+            var hot = Pair(100f, 18f);
+            Assert.False(TransmitSafety.ShouldCutReflectedWatts(true, hot, Hot(hot, 1), false));
+            Assert.True(TransmitSafety.ShouldCutReflectedWatts(true, hot, Hot(hot, 2), false));
+            Assert.Equal(2, TransmitSafety.ReflectedCutSustainedSamples);
+
+            // A coherent sample under the rung ends the streak; an incoherent
+            // one neither ends nor extends it.
+            var run = new ReflectedPowerRun();
+            run.Observe(hot, 1);
+            run.Observe(Pair(100f, 2f), 2);
+            Assert.Equal(0, run.HotSamples);
+            run.Observe(hot, 3);
+            run.Observe(Pair(100f, 18f, skewMs: 80f), 4);
+            Assert.Equal(1, run.HotSamples);
+            run.Observe(hot, 5);
+            Assert.Equal(2, run.HotSamples);
+        }
+
+        [Fact]
+        public void The_watts_rung_is_immune_to_the_voice_trough_that_faked_the_ratio()
+        {
+            // The 2026-09-07 run: reflected never exceeded 0.105 W across 194
+            // samples while the display read 2.96. A watts-based rung stays
+            // silent through every one of those false highs, because a trough
+            // makes forward SMALL and a small forward cannot have ten watts of
+            // itself coming back.
+            var worstTrough = Pair(0.12f, 0.105f, commandedWatts: 100);
+            var run = Hot(worstTrough, 10);
+
+            Assert.Equal(0, run.HotSamples);
+            Assert.False(TransmitSafety.ShouldCutReflectedWatts(true, worstTrough, run, false));
+            Assert.Equal(TransmitSafety.ReflectedCut.None,
+                TransmitSafety.JudgeReflectedCut(true, true, worstTrough, run, false));
+        }
+
+        [Fact]
+        public void The_watts_rung_respects_the_setting_the_tuner_and_coherence()
+        {
+            var hot = Pair(100f, 18f);
+            var run = Hot(hot, 3);
+
+            Assert.False(TransmitSafety.ShouldCutReflectedWatts(false, hot, run, false),
+                "the setting is the operator's, not ours");
+            Assert.False(TransmitSafety.ShouldCutReflectedWatts(true, hot, run, tuning: true),
+                "high reflected power during a tune cycle is the tuner working");
+            Assert.False(TransmitSafety.ShouldCutReflectedWatts(true, Pair(100f, 18f, skewMs: 80f), run, false),
+                "an incoherent pair never ends a transmission");
+            Assert.False(TransmitSafety.ShouldCutReflectedWatts(true, TransmitPowerReading.None, run, false));
+            Assert.False(TransmitSafety.ShouldCutReflectedWatts(true, hot, null, false));
+        }
+
+        [Fact]
+        public void Nine_watts_back_at_full_power_cuts_on_neither_rung()
+        {
+            // The negative control for the rung's number: just under ten
+            // watts back, on a share the warning would never fire on.
+            var justUnder = Pair(100f, 9.9f);
+            var run = Hot(justUnder, 5);
+
+            Assert.Equal(0, run.HotSamples);
+            Assert.Equal(TransmitSafety.ReflectedCut.None,
+                TransmitSafety.JudgeReflectedCut(true, alreadyWarned: false, justUnder, run, false));
+        }
+
+        [Fact]
+        public void When_both_rungs_would_fire_the_share_rung_names_the_cut()
+        {
+            // The operator has just heard "76 percent coming back"; the cut
+            // sentence continues that story in the same unit.
+            var open = Pair(OpenForward, OpenReflected);
+            var run = Hot(open, 4);
+
+            Assert.True(TransmitSafety.ShouldCutReflected(true, true, open, false));
+            Assert.True(TransmitSafety.ShouldCutReflectedWatts(true, open, run, false));
+            Assert.Equal(TransmitSafety.ReflectedCut.Share,
+                TransmitSafety.JudgeReflectedCut(true, alreadyWarned: true, open, run, false));
+            Assert.Equal(TransmitSafety.ReflectedCut.Watts,
+                TransmitSafety.JudgeReflectedCut(true, alreadyWarned: false, open, run, false));
+        }
+
+        [Fact]
+        public void Each_rung_speaks_in_its_own_unit_and_never_the_others()
+        {
+            // #237's standing rule: protective watts and diagnostic SWR may
+            // never be stated in each other's units. Read as sentences.
+            string watts = TransmitSafety.ReflectedCutWattsText(13.4f, "ANT1");
+            string share = TransmitSafety.ReflectedCutText(0.76f, "ANT1");
+
+            Assert.Contains("13 watts", watts);
+            Assert.DoesNotContain("percent", watts);
+            Assert.DoesNotContain("%", watts);
+            Assert.Contains("no longer on the air", watts);
+            Assert.Contains("ANT1", watts);
+            Assert.DoesNotContain("{", watts);
+
+            Assert.Contains("76 percent", share);
+            Assert.DoesNotContain("watt", share);
+            Assert.Contains("no longer on the air", share);
+
+            string plain = TransmitSafety.ReflectedCutWattsText(13.4f, "");
+            Assert.Contains("13 watts", plain);
+            Assert.DoesNotContain("{", plain);
+            Assert.DoesNotContain("  ", plain);
+        }
+
+        [Fact]
+        public void The_cut_sentence_for_a_rung_is_that_rungs_sentence()
+        {
+            var open = Pair(OpenForward, OpenReflected);
+            Assert.Equal(TransmitSafety.ReflectedCutText(open.ReflectedShare, "ANT1"),
+                TransmitSafety.ReflectedCutTextFor(TransmitSafety.ReflectedCut.Share, open, "ANT1"));
+            Assert.Equal(TransmitSafety.ReflectedCutWattsText(open.ReflectedWatts, "ANT1"),
+                TransmitSafety.ReflectedCutTextFor(TransmitSafety.ReflectedCut.Watts, open, "ANT1"));
+            Assert.Equal("",
+                TransmitSafety.ReflectedCutTextFor(TransmitSafety.ReflectedCut.None, open, "ANT1"));
+        }
+
+        [Fact]
+        public void The_two_ten_watt_numbers_are_two_rulings_and_the_test_says_so()
+        {
+            // ReflectedCutMinForwardWatts is the share rung's FORWARD floor
+            // (#224); ReflectedCutWatts is REFLECTED heat (#237). They are
+            // equal today by coincidence. This is not an equality test — it
+            // records that the coincidence is known, so nobody "fixes" one by
+            // deriving it from the other.
+            Assert.Equal(10f, TransmitSafety.ReflectedCutWatts);
+            Assert.Equal(10f, TransmitSafety.ReflectedCutMinForwardWatts);
         }
 
         // ---- the disarmed reminder (#224, ruled defeatable 2026-08-30) ----
@@ -952,6 +1251,45 @@ namespace Radios.Tests
             // the check watch off for every tune probe.
             string ptt = File.ReadAllText(Path.Combine(root, "JJFlexWpf", "PttSafetyController.cs"));
             Assert.Contains("rig.TxTune", ptt);
+        }
+
+        /// <summary>
+        /// Both live paths ask BOTH rungs of the cut (#571 tier 1), through the
+        /// one combined judge, and speak the rung's own sentence.
+        /// </summary>
+        /// <remarks>
+        /// The watts rung is an addition beside the share rung. An addition a
+        /// caller can forget is not a safety rung, and each of these two
+        /// files compiles perfectly well calling only the share rung — which
+        /// is exactly what both did until Sprint 47. Source-read for the same
+        /// reason as the sibling above: neither site is reachable without a
+        /// FlexBase.
+        /// </remarks>
+        [Fact]
+        public void Every_live_alarm_path_judges_both_rungs_of_the_cut()
+        {
+            string root = RepoRoot();
+            foreach (string rel in LiveAlarmFiles)
+            {
+                string path = Path.Combine(root, rel.Replace('/', Path.DirectorySeparatorChar));
+                Assert.True(File.Exists(path),
+                    "The sweep cannot find " + rel + " — fix the path, do not delete the test.");
+                string text = File.ReadAllText(path);
+
+                // Positive control: the cut is still decided in this file.
+                Assert.True(text.Contains("JudgeReflectedCut("),
+                    rel + " no longer calls JudgeReflectedCut; if the cut moved, move this sweep with it.");
+                Assert.True(text.Contains("ReflectedCutTextFor("),
+                    rel + " does not speak the rung's own sentence through ReflectedCutTextFor.");
+
+                // Neither rung may be consulted on its own by a live path.
+                Assert.False(text.Contains("ShouldCutReflected("),
+                    rel + " calls the share rung directly, which is how the watts rung gets forgotten.");
+                Assert.False(text.Contains("ShouldCutReflectedWatts("),
+                    rel + " calls the watts rung directly, which is how the share rung gets forgotten.");
+                Assert.False(text.Contains("ReflectedCutText("),
+                    rel + " speaks the share sentence directly, so a watts cut would be announced in percent (#237).");
+            }
         }
 
         /// <summary>The argument text of each call, to the matching close paren.</summary>

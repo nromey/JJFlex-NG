@@ -82,12 +82,14 @@ namespace Radios
         private readonly bool _hasBothMeters;
 
         public TransmitPowerReading(float forwardWatts, float reflectedWatts,
-                                    float skewMilliseconds, float ageMilliseconds)
+                                    float skewMilliseconds, float ageMilliseconds,
+                                    int commandedWatts = 0)
         {
             ForwardWatts = forwardWatts;
             ReflectedWatts = reflectedWatts;
             SkewMilliseconds = skewMilliseconds;
             AgeMilliseconds = ageMilliseconds;
+            CommandedWatts = commandedWatts > 0 ? commandedWatts : 0;
             _hasBothMeters = true;
         }
 
@@ -99,6 +101,25 @@ namespace Radios
 
         /// <summary>Reflected power in WATTS, not dBm.</summary>
         public float ReflectedWatts { get; }
+
+        /// <summary>
+        /// The power the operator had asked for when this pair was taken —
+        /// tune power during a tune carrier, RF power otherwise — or zero
+        /// when the caller did not know.
+        /// </summary>
+        /// <remarks>
+        /// Travels with the pair because the forward-power floor is built
+        /// from it (<see cref="TransmitSafety.BelievableForwardFloorWatts"/>)
+        /// and a floor should be judged against what was asked for at the
+        /// instant of the reading, not against a setting read later. It is a
+        /// SETTING, so it does not follow the voice the way forward power
+        /// does; that is the whole reason it is useful as a gate. Zero means
+        /// unknown and costs nothing: the floor then falls back on the
+        /// measured peak and the absolute gate, which is the alarm's old
+        /// behaviour exactly. Not part of <see cref="IsCoherent"/>: a pair
+        /// without it is still a pair.
+        /// </remarks>
+        public int CommandedWatts { get; }
 
         /// <summary>
         /// Milliseconds between the two meter samples this reading was built
@@ -170,6 +191,7 @@ namespace Radios
                 ? "no reading"
                 : ForwardWatts.ToString("F1") + " W fwd, " + ReflectedWatts.ToString("F2")
                   + " W refl, skew " + SkewMilliseconds.ToString("F0") + " ms, age "
-                  + AgeMilliseconds.ToString("F0") + " ms";
+                  + AgeMilliseconds.ToString("F0") + " ms"
+                  + (CommandedWatts > 0 ? ", " + CommandedWatts + " W asked" : "");
     }
 }

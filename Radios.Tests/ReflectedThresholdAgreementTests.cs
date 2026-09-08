@@ -90,12 +90,16 @@ namespace Radios.Tests
             // reflected share now goes through TransmitSafety.ReflectedFractionOf,
             // whose low-forward guard refuses to divide by a meter wandering
             // around zero. Below the floor: no answer, rather than any answer.
-            Assert.True(float.IsNaN(TransmitSafety.ReflectedFractionOf(0.04f, 0.02f)));
+            // The floor is THE absolute forward-power floor since Sprint 47
+            // (#571) — this asserted a bare 0.04 against 0.05 until then, a
+            // dead-key number the bench found thirty times too low.
+            float floor = TransmitSafety.ForwardFloorWatts;
+            Assert.True(float.IsNaN(TransmitSafety.ReflectedFractionOf(floor - 0.01f, 0.02f)));
 
             // At and above the floor the ratio is real, and it is clamped to 1
             // — a share of more than everything is a meter artefact, not a fact.
-            Assert.False(float.IsNaN(TransmitSafety.ReflectedFractionOf(0.05f, 0.02f)));
-            Assert.Equal(1f, TransmitSafety.ReflectedFractionOf(1f, 3f));
+            Assert.False(float.IsNaN(TransmitSafety.ReflectedFractionOf(floor, 0.02f)));
+            Assert.Equal(1f, TransmitSafety.ReflectedFractionOf(floor, floor * 3f));
         }
     }
 }

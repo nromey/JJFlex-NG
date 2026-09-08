@@ -610,7 +610,15 @@ namespace JJFlexWpf
             StartAlcTimer();
         }
 
-        private void GoIdle(string speechMessage, bool forceSpeech = false)
+        /// <param name="subject">
+        /// What the unkey sentence is ABOUT, for the speech arbiter's
+        /// supersession — a <c>SpeechSubject</c> constant, or null for the
+        /// ordinary unkey, which declares nothing and keeps the word-count
+        /// bound. The reflected-power cut passes its own, so an unheard cut
+        /// sentence is never binned by its length while the operator is still
+        /// wondering why the transmission ended (#503, #571).
+        /// </param>
+        private void GoIdle(string speechMessage, bool forceSpeech = false, string subject = null)
         {
             var wasState = State;
             State = PttState.Idle;
@@ -653,7 +661,8 @@ namespace JJFlexWpf
                     forceSpeech
                         ? Radios.Speech.SpeechIntent.Urgent
                         : Radios.Speech.SpeechIntent.Interrupt,
-                    VerbosityLevel.Critical);
+                    VerbosityLevel.Critical,
+                    subject: subject);
 
             Tracing.TraceLine($"PTT: Idle (was {wasState})", TraceLevel.Info);
         }
@@ -1133,33 +1142,42 @@ namespace JJFlexWpf
                     + " — nothing said; that is what a tuner finding its match looks like",
                     TraceLevel.Info);
 
-            // The CUT (#224): after the alarm has fired, a further bad sample
-            // at real power ends the transmission — when, and only when, the
-            // operator turned the setting on. Two distinct bad samples by
-            // construction: the warning latched on an earlier tick, this
-            // reads the current one, so a key-down transient can never cut.
-            // Only for transmissions THIS CONTROLLER owns: during an external
-            // watch (a transmit-check probe) the state is Idle. That is no
-            // longer a decision not to protect the probe — since #236 the
-            // checks carry the same cut, through the same TransmitSafety rule,
-            // on TransmitKillSwitch's own thread, where it can actually run
-            // while the stage blocks this one.
-            if (State != PttState.Idle
-                && TransmitSafety.ShouldCutReflected(
+            // The CUT (#224), on either of two rungs (#571 tier 1). The SHARE
+            // rung: after the alarm has fired, a further bad sample at real
+            // power ends the transmission — two distinct bad samples by
+            // construction, since the warning latched on an earlier tick and
+            // this reads the current one, so a key-down transient can never
+            // cut. The WATTS rung: ten watts or more coming back on two
+            // coherent samples in a row, whatever the share, because
+            // reflected watts is what heats the finals and a voice trough
+            // cannot fake it. Both only when the operator turned the setting
+            // on. Only for transmissions THIS CONTROLLER owns: during an
+            // external watch (a transmit-check probe) the state is Idle. That
+            // is no longer a decision not to protect the probe — since #236
+            // the checks carry the same cut, through the same TransmitSafety
+            // rule, on TransmitKillSwitch's own thread, where it can actually
+            // run while the stage blocks this one.
+            TransmitSafety.ReflectedCut cut = State == PttState.Idle
+                ? TransmitSafety.ReflectedCut.None
+                : TransmitSafety.JudgeReflectedCut(
                     _config.CutTransmitOnReflectedAlarm, _healthReflectedWarned,
-                    reading, tuning))
+                    reading, _reflectedRun, tuning);
+            if (cut != TransmitSafety.ReflectedCut.None)
             {
-                float cutBack = reading.ReflectedShare;
                 Tracing.TraceLine(
-                    $"PTT: reflected-power CUT — {cutBack * 100f:F0}% back at "
-                    + $"{reading.ForwardWatts:F1} W forward, setting is on", TraceLevel.Warning);
+                    $"PTT: reflected-power CUT on the {cut.ToString().ToLowerInvariant()} rung — "
+                    + $"{reading.ReflectedWatts:F1} W back"
+                    + (float.IsNaN(reading.ReflectedShare) ? "" : $" ({reading.ReflectedShare * 100f:F0}%)")
+                    + $" at {reading.ForwardWatts:F1} W forward, setting is on", TraceLevel.Warning);
                 // A blind operator has no visual cue their transmit ended and
                 // will keep talking: warning earcon first, then GoIdle's
                 // Urgent speech says what happened, why, and that they are no
-                // longer on the air.
+                // longer on the air — in the rung's own unit, never the
+                // other's (#237).
                 EarconPlayer.WarningAlarmTone();
-                GoIdle(TransmitSafety.ReflectedCutText(cutBack, rig.TXAntennaName ?? ""),
-                       forceSpeech: true);
+                GoIdle(TransmitSafety.ReflectedCutTextFor(cut, reading, rig.TXAntennaName ?? ""),
+                       forceSpeech: true,
+                       subject: Radios.Speech.SpeechSubject.ReflectedPowerCut);
                 return;
             }
 

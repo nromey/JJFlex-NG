@@ -121,6 +121,207 @@ namespace Radios.Tests
                  findings);
         }
 
+        // ═══════════════════════════════════════════════════════════════
+        //  Forward power: one floor in watts, discovered, never a literal
+        // ═══════════════════════════════════════════════════════════════
+        //
+        // The sibling rule above polices reflected THRESHOLDS by matching
+        // names ending in Fraction or Percent. It could not see the three
+        // absolute forward-power FLOORS that contradicted each other for a
+        // month — 0.05 W, 0.25 W and 1 W for one physical question — because
+        // those are named in watts, and one of them was not named at all: a
+        // bare 0.05f behind a comment claiming it was measured (#571).
+
+        /// <summary>
+        /// Every constant in the Radios assembly with <c>Watts</c> anywhere in
+        /// its name, sorted into the physical question it answers by a word
+        /// in that name; every one that is a forward-power FLOOR must be the
+        /// one floor.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The families, by name: <c>Floor</c> or <c>Min</c> is a floor and
+        /// must equal <c>TransmitSafety.ForwardFloorWatts</c>; <c>Cut</c> is a
+        /// protective rung, each its own ruling, listed and not equated;
+        /// <c>Ceiling</c> is a cap on what may be transmitted;
+        /// <c>NoPower</c> is "did the transmitter do anything". A watts
+        /// constant that fits none of these is a FINDING, not a skip: the
+        /// author has to name it into a family or declare a new one here,
+        /// which is the visible decision a fourth silent floor never got.
+        /// </para>
+        /// </remarks>
+        [Fact]
+        public void Every_forward_power_floor_is_the_same_number()
+        {
+            float canonical = TransmitSafety.ForwardFloorWatts;
+            var floors = new List<(string Where, double Watts)>();
+            var rungs = new List<string>();
+            var others = new List<string>();
+            var findings = new List<Finding>();
+
+            foreach (Type t in typeof(TransmitSafety).Assembly.GetTypes())
+            {
+                // An enum's members are literal static fields too, and
+                // ReflectedCut.Watts is a rung's NAME, not a number of watts.
+                if (t.IsEnum) continue;
+
+                foreach (FieldInfo f in t.GetFields(BindingFlags.Public | BindingFlags.NonPublic
+                                                    | BindingFlags.Static | BindingFlags.FlattenHierarchy))
+                {
+                    if (!f.IsLiteral || f.IsInitOnly) continue;
+                    // Anywhere in the name, not only at the end. The first
+                    // draft of this rule matched EndsWith, and the break
+                    // proof that re-added FlexBase.MinForwardWattsAbsolute —
+                    // the very constant that had hidden — sailed through it.
+                    if (!f.Name.Contains("Watts", StringComparison.Ordinal)) continue;
+
+                    object? raw = f.GetRawConstantValue();
+                    if (raw == null) continue;
+                    double v = Convert.ToDouble(raw, CultureInfo.InvariantCulture);
+                    string where = t.Name + "." + f.Name;
+
+                    // Cut before Min: the share rung's forward floor is named
+                    // with both, and it is the rung's reach, not the coupler's.
+                    if (f.Name.Contains("Cut", StringComparison.Ordinal)) rungs.Add(where);
+                    else if (f.Name.Contains("Floor", StringComparison.Ordinal)
+                             || f.Name.Contains("Min", StringComparison.Ordinal)) floors.Add((where, v));
+                    else if (f.Name.Contains("Ceiling", StringComparison.Ordinal)
+                             || f.Name.Contains("NoPower", StringComparison.Ordinal)) others.Add(where);
+                    else
+                        findings.Add(new Finding(Rules.ForwardFloor, where,
+                            where + " is a watts constant that names no physical question — not a "
+                            + "Floor, a Cut, a Ceiling or NoPower. If it is the power below which a "
+                            + "reading is not believed, it is a floor and there is already one: "
+                            + "TransmitSafety.ForwardFloorWatts. Name it into a family, or declare "
+                            + "the new family in this rule so the decision is visible."));
+                }
+            }
+
+            // POSITIVE CONTROLS. The sweep must find the one floor, both
+            // rungs, and enough of the population to be describing the tree.
+            Assert.Contains(floors, x => x.Where == "TransmitSafety.ForwardFloorWatts");
+            Assert.Contains("TransmitSafety.ReflectedCutWatts", rungs);
+            Assert.Contains("TransmitSafety.ReflectedCutMinForwardWatts", rungs);
+            Assert.Contains("TxTuneProbe.NoPowerWatts", others);
+            Assert.True(floors.Count + rungs.Count + others.Count + findings.Count >= 5,
+                "only " + (floors.Count + rungs.Count + others.Count + findings.Count)
+                + " watts constants were discovered, so this rule is no longer describing the tree.");
+
+            foreach (var (where, watts) in floors)
+                if (Math.Abs(watts - canonical) >= 0.0001)
+                    findings.Add(new Finding(Rules.ForwardFloor, where,
+                        where + " floors at " + watts.ToString("0.###", CultureInfo.InvariantCulture)
+                        + " W while TransmitSafety.ForwardFloorWatts is "
+                        + canonical.ToString("0.###", CultureInfo.InvariantCulture)
+                        + " W. The coupler has one resolution floor, and #238 will measure it once; "
+                        + "a second number is a second answer nobody will notice diverging."));
+
+            Gate(Rules.ForwardFloor,
+                 "The forward power below which a reading is not believed is one physical fact "
+                 + "about the coupler. Every constant that floors on it must be the one floor, and "
+                 + "every watts constant must say which question it answers.",
+                 findings);
+        }
+
+        /// <summary>
+        /// No authored source compares a forward-power quantity against a
+        /// bare numeric literal. A floor written as a literal is invisible
+        /// to the rule above — which is exactly how 0.05 W hid.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Matches an identifier that reads as a forward-power quantity —
+        /// anything containing <c>watts</c> or <c>forward</c>, or the
+        /// <c>fwd</c>, <c>pf</c> and <c>pr</c> spellings the SWR arithmetic
+        /// uses — compared with <c>&lt;</c>, <c>&lt;=</c>, <c>&gt;</c> or
+        /// <c>&gt;=</c> against a number. Zero is allowed: comparing against
+        /// zero asks whether a value is KNOWN, not whether it is enough. A
+        /// line that also contains a string literal is allowed: a comparison
+        /// that chooses how to RENDER a number is formatting, not a
+        /// judgement, and <c>FlexBase</c> renders under half a milliwatt as
+        /// "0".
+        /// </para>
+        /// <para>
+        /// The two-letter spellings count only in a file that mentions
+        /// watts at all: <c>pf</c> is a partial frequency in the tone
+        /// generator and a forward power in the SWR arithmetic, and the file
+        /// is what tells them apart. Only one direction of comparison is
+        /// matched, identifier first. That is the shape every offender has
+        /// taken; a reversed literal would slip through, and the positive
+        /// control below is what says whether the matcher still sees the
+        /// shape that hid.
+        /// </para>
+        /// </remarks>
+        [Fact]
+        public void No_forward_power_floor_is_written_as_a_literal()
+        {
+            var literalFloor = new Regex(
+                @"\b(?<id>(?:\w*[Ww]atts\w*|\w*[Ff]orward\w*|fwd\w*|pf|pr)(?:\.Value)?)\s*(?:<=?|>=?)\s*(?<num>\d+(?:\.\d+)?)[fFdD]?\b",
+                RegexOptions.Compiled);
+
+            // POSITIVE CONTROLS on the matcher itself, before the tree means
+            // anything. The first is the exact line that hid until 2026-09-07.
+            Assert.True(IsLiteralFloor(literalFloor, "            if (pf < 0.05f) return float.NaN;"));
+            Assert.True(IsLiteralFloor(literalFloor, "if (forwardWatts < 0.05f) return float.NaN;"));
+            Assert.True(IsLiteralFloor(literalFloor, "if (fwd.Value <= 0.5) return Verdict.NoPower;"));
+            Assert.False(IsLiteralFloor(literalFloor, "if (forwardPeakWatts <= 0f) return x;"),
+                "zero asks whether a value is known, not whether it is enough");
+            Assert.False(IsLiteralFloor(literalFloor, "if (watts < 0.0005f) return \"0\";"),
+                "a comparison that picks a rendering is formatting");
+            Assert.False(IsLiteralFloor(literalFloor, "if (problems > 0) parts.Add(x);"),
+                "pr must match only as a whole word");
+            Assert.False(IsLiteralFloor(literalFloor, "if (fwd.Value < TransmitSafety.ForwardFloorWatts)"),
+                "a named constant is the point");
+
+            var findings = new List<Finding>();
+            int examined = 0;
+            foreach (string file in IntegrationPassTree.AuthoredSource)
+            {
+                if (IntegrationPassTree.IsTest(file)) continue;
+                if (IntegrationPassTree.IsVendor(file)) continue;
+                if (!file.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)) continue;
+                examined++;
+
+                string text = IntegrationPassTree.Read(file);
+                bool mentionsWatts = text.Contains("Watts", StringComparison.Ordinal);
+                string[] lines = text.Split('\n');
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    string line = lines[i];
+                    string code = line.TrimStart();
+                    if (code.StartsWith("//", StringComparison.Ordinal)) continue;
+                    if (!IsLiteralFloor(literalFloor, line)) continue;
+
+                    string id = literalFloor.Match(line).Groups["id"].Value;
+                    if ((id == "pf" || id == "pr") && !mentionsWatts) continue;
+
+                    findings.Add(new Finding(Rules.LiteralForwardFloor,
+                        Path.GetFileName(file) + "/" + id,
+                        "in " + IntegrationPassTree.Relative(file) + " line " + (i + 1) + ": "
+                        + code.Trim() + " — a forward-power floor as a bare number. Name it: "
+                        + "TransmitSafety.ForwardFloorWatts if it is the believability floor, "
+                        + "or a constant whose name says which question it answers."));
+                }
+            }
+
+            Assert.True(examined > 100,
+                "only " + examined + " authored source files were examined, so this rule looked at "
+                + "a fraction of the tree and its silence means nothing.");
+
+            Gate(Rules.LiteralForwardFloor,
+                 "A forward-power floor written as a number is invisible to the rule that keeps "
+                 + "the floors in step. Every one must be a named constant.",
+                 findings);
+        }
+
+        private static bool IsLiteralFloor(Regex literalFloor, string line)
+        {
+            if (line.IndexOf('"') >= 0) return false;
+            Match m = literalFloor.Match(line);
+            if (!m.Success) return false;
+            return double.Parse(m.Groups["num"].Value, CultureInfo.InvariantCulture) != 0.0;
+        }
+
         private static double PowerComingBackThresholdPercent()
         {
             DiagnosticRuleSet set = RuleSetLoader.TxChain();

@@ -29,21 +29,26 @@ namespace Radios
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Why the peak is measured rather than taken from the power setting
-    /// (#453).</b> The floor below which a reflected share means nothing has to
-    /// scale with the transmission, because an absolute one watt excludes
-    /// almost nothing on a hundred-watt voice envelope — the envelope crosses
-    /// one watt constantly on its way down between syllables.
-    /// </para>
-    /// <para>
-    /// The obvious reference is the operator's SET power, and it is the wrong
-    /// one. A Flex folds its power back when it sees a bad match: on 2026-08-22
-    /// the bench 8600 made <b>101.2 W</b> into a properly connected dummy load
-    /// and only <b>17.5 W</b> minutes earlier into an empty antenna port at the
-    /// same setting. A floor derived from a hundred-watt SETTING would sit
-    /// above everything a severely mismatched station can produce, and the
-    /// alarm would go quiet in precisely the case it exists for. The share of a
-    /// measured peak scales down with the foldback and keeps working.
+    /// <b>Why the floor is built from BOTH the measured peak and the power
+    /// setting (#453, #571).</b> The floor below which a reflected share means
+    /// nothing has to scale with the transmission, because an absolute one
+    /// watt excludes almost nothing on a hundred-watt voice envelope — the
+    /// envelope crosses one watt constantly on its way down between syllables.
+    /// Two references offer themselves and each is right about a failure the
+    /// other has. The operator's SET power does not chase the voice, and on
+    /// the 2026-09-07 run a twentieth of it separates every false high from
+    /// every good sample; but a Flex folds its power back into a bad match —
+    /// <b>101.2 W</b> into a properly connected dummy load and <b>17.5 W</b>
+    /// into an empty antenna port at the same setting, 2026-08-22 — and a
+    /// floor from the setting alone would sit above everything a badly enough
+    /// folded-back station can make, so the alarm would go quiet in precisely
+    /// the case it exists for. A tenth of the measured PEAK follows the
+    /// foldback down and keeps working; on its own it is too high on a
+    /// healthy full-power transmission, where a tenth of a 107 W peak rejects
+    /// the 8.83 W sample the bench proved good. So
+    /// <see cref="TransmitSafety.BelievableForwardFloorWatts"/> takes the
+    /// SMALLER of the two and never lets either go under the absolute gate.
+    /// On both recorded faults it lands on the floor the peak alone gave.
     /// </para>
     /// <para>
     /// <b>Why the streak counts JUDGEABLE samples rather than ticks.</b> A
@@ -100,6 +105,25 @@ namespace Radios
         /// The highest forward power seen this transmission, in watts.
         /// </summary>
         public float ForwardPeakWatts { get; private set; }
+
+        /// <summary>
+        /// The power the operator was asking for on the most recent coherent
+        /// reading, in watts, or zero when no reading has said. Feeds the
+        /// floor's commanded term; an operator who turns the power knob
+        /// mid-transmission moves the floor with the next reading.
+        /// </summary>
+        public int CommandedWatts { get; private set; }
+
+        /// <summary>
+        /// Coherent samples in a row, including the latest, with at least
+        /// <see cref="TransmitSafety.ReflectedCutWatts"/> coming back — the
+        /// watts rung's own persistence (#571 tier 1). Counted before the
+        /// forward-power floor, because the rung has none: ten watts back
+        /// cannot come out of a syllable trough. An incoherent sample neither
+        /// advances nor resets it, for the same reason the bad streak skips
+        /// them; a coherent sample under the rung resets it.
+        /// </summary>
+        public int HotSamples { get; private set; }
 
         /// <summary>
         /// Judgeable samples in a row whose reflected share was over the
@@ -164,9 +188,11 @@ namespace Radios
 
         /// <summary>
         /// The power below which a reflected share means nothing on THIS
-        /// transmission.
+        /// transmission: the one floor, given what was asked for and what has
+        /// been made so far.
         /// </summary>
-        public float FloorWatts => TransmitSafety.ReflectedWarnFloorWatts(ForwardPeakWatts);
+        public float FloorWatts =>
+            TransmitSafety.BelievableForwardFloorWatts(CommandedWatts, ForwardPeakWatts);
 
         /// <summary>
         /// Whether enough judgeable samples in a row have been bad to believe
@@ -261,6 +287,8 @@ namespace Radios
         public void Reset()
         {
             ForwardPeakWatts = 0f;
+            CommandedWatts = 0;
+            HotSamples = 0;
             BadSamples = 0;
             JudgedSamples = 0;
             IncoherentSamples = 0;
@@ -305,6 +333,14 @@ namespace Radios
             // second on speech.
             if (reading.ForwardWatts > ForwardPeakWatts)
                 ForwardPeakWatts = reading.ForwardWatts;
+            if (reading.CommandedWatts > 0)
+                CommandedWatts = reading.CommandedWatts;
+
+            // The watts rung's streak, ahead of the floor: it has no floor.
+            HotSamples = !float.IsNaN(reading.ReflectedWatts)
+                         && reading.ReflectedWatts >= TransmitSafety.ReflectedCutWatts
+                ? HotSamples + 1
+                : 0;
 
             if (reading.ForwardWatts < FloorWatts) return false;
 
@@ -381,9 +417,13 @@ namespace Radios
 
         public override string ToString()
         {
-            string s = "peak " + ForwardPeakWatts.ToString("F1") + " W, floor "
-                + FloorWatts.ToString("F1") + " W, " + JudgedSamples + " judged, "
+            string s = "peak " + ForwardPeakWatts.ToString("F1") + " W, "
+                + (CommandedWatts > 0 ? CommandedWatts + " W asked, " : "")
+                + "floor " + FloorWatts.ToString("F1") + " W, " + JudgedSamples + " judged, "
                 + BadSamples + " bad in a row, " + IncoherentSamples + " not one sample";
+            if (HotSamples > 0)
+                s += ", " + HotSamples + " in a row at or over "
+                  + TransmitSafety.ReflectedCutWatts.ToString("F0") + " W back";
 
             if (_streak.Count > 0)
             {

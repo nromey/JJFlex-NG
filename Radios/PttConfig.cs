@@ -102,9 +102,16 @@ namespace Radios
         /// exactly the people least able to do without it.
         ///
         /// The decision itself lives in
-        /// <c>TransmitSafety.ShouldCutReflected</c>, pure and tested; the ATU
-        /// stand-down, the &gt;10 W floor, the NaN refusal and the two-sample
-        /// rule live there too.
+        /// <c>TransmitSafety.JudgeReflectedCut</c>, pure and tested, and it
+        /// has TWO rungs since Sprint 47 (#571 tier 1). The share rung,
+        /// <c>ShouldCutReflected</c>: the warning has fired and a further
+        /// sample above 10 W forward still has forty percent or more coming
+        /// back. The watts rung, <c>ShouldCutReflectedWatts</c>: ten watts or
+        /// more coming back on two coherent samples in a row, whatever the
+        /// share — reflected watts is what heats the finals, and a voice
+        /// trough cannot fake it the way it faked the ratio (#453). The ATU
+        /// stand-down, the NaN refusal and the two-sample rule apply to both.
+        /// Each rung speaks in its own unit and never the other's (#237).
         ///
         /// STILL OWED, and it is a release gate rather than a nicety: NOBODY
         /// HAS WATCHED THIS FIRE. A guard nobody has seen work is a guess

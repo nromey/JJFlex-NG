@@ -140,6 +140,68 @@ namespace Radios.Tests
             Assert.Equal(0, tx.Deferrals);
         }
 
+        // ---- the one floor (#571): commanded power supplied, same tick ----
+        //
+        // Since Sprint 47 the reading carries the power that was commanded
+        // and the run builds its floor from both that and the peak. On both
+        // recorded faults that floor is the floor the peak alone gave, so
+        // the alarm fires at the tick it fired at before. If either of these
+        // ever moves, the floor has moved on a real fault — a finding, not
+        // a detail.
+
+        private static TransmitPowerReading Commanded(float forwardWatts, float reflectedWatts,
+                                                      int commandedWatts) =>
+            new TransmitPowerReading(forwardWatts, reflectedWatts,
+                                     skewMilliseconds: 0f, ageMilliseconds: 15f,
+                                     commandedWatts: commandedWatts);
+
+        [Fact]
+        public void The_open_port_of_2026_09_01_alarms_at_the_third_sample_with_its_five_watts_commanded()
+        {
+            var tx = new Transmission();
+            var reading = Commanded(OpenForward0901, OpenReflected0901, commandedWatts: 5);
+
+            Assert.Equal(TransmitSafety.ReflectedVerdict.Quiet, tx.Tick(1, reading));
+            Assert.Equal(TransmitSafety.ReflectedVerdict.Quiet, tx.Tick(2, reading));
+            Assert.Equal(TransmitSafety.ReflectedVerdict.Warn, tx.Tick(3, reading));
+
+            Assert.Equal(5, tx.Run.CommandedWatts);
+            Assert.Equal(TransmitSafety.ForwardFloorWatts, tx.Run.FloorWatts, 3);
+            Assert.Equal(TransmitSafety.BelievableForwardFloorWatts(0, OpenForward0901),
+                         tx.Run.FloorWatts, 3);
+        }
+
+        [Fact]
+        public void The_bench_open_port_of_2026_08_22_alarms_at_the_third_sample_with_its_hundred_watts_commanded()
+        {
+            var tx = new Transmission();
+            var reading = Commanded(OpenForward0822, OpenReflected0822, commandedWatts: 100);
+            tx.Tick(1, reading);
+            tx.Tick(2, reading);
+
+            Assert.Equal(TransmitSafety.ReflectedVerdict.Warn, tx.Tick(3, reading));
+            Assert.Equal(1.75f, tx.Run.FloorWatts, 3);
+            Assert.Equal(TransmitSafety.BelievableForwardFloorWatts(0, OpenForward0822),
+                         tx.Run.FloorWatts, 3);
+        }
+
+        [Fact]
+        public void On_a_healthy_full_power_transmission_the_commanded_term_caps_the_floor_at_five_watts()
+        {
+            // The 2026-09-07 shape: a 107 W peak on 100 W commanded. The
+            // peak-only floor was 10.7 W and rejected the 8.83 W sample the
+            // bench proved good; the one floor admits it.
+            var run = new ReflectedPowerRun();
+            run.Observe(Commanded(107.27f, 0.05f, 100), 1);
+
+            Assert.Equal(5f, run.FloorWatts, 3);
+            Assert.True(run.Observe(Commanded(8.83f, 0.03f, 100), 2),
+                "the lowest good sample of the bench run must be judgeable");
+            Assert.False(run.Observe(Commanded(1.40f, 0.02f, 100), 3),
+                "the highest false high of the bench run must not be");
+            Assert.Equal(2, run.JudgedSamples);
+        }
+
         [Fact]
         public void A_high_and_stable_share_alarms_exactly_as_before()
         {

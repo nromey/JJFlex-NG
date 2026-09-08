@@ -9717,7 +9717,12 @@ namespace Radios
                 // which REDUCES dynamic range — so those troughs are real
                 // silences between words, and the floor is safer than the
                 // numbers alone suggest.
-                if (pair.ForwardWatts < MinBelievableForwardWatts(CommandedPowerWatts))
+                //
+                // The pair carries the commanded power it was taken against
+                // (CommandedWatts, filled by ReadTransmitPower from
+                // CommandedPowerWatts), so the floor and the reading are from
+                // one instant.
+                if (pair.ForwardWatts < MinBelievableForwardWatts(pair.CommandedWatts))
                     return float.NaN;
 
                 return SwrFromPower(_PowerDBM, _ReflectedPower);
@@ -9725,40 +9730,33 @@ namespace Radios
         }
 
         /// <summary>
-        /// The floor below which a forward/reflected pair cannot be believed,
-        /// as a fraction of COMMANDED power (#453).
-        /// </summary>
-        /// <remarks>
-        /// Five percent — 5 W at 100 W commanded — removes every false reading
-        /// in the 2026-09-07 bench run, whose worst offender sat at 1.40 W, and
-        /// keeps every good one, the lowest of which was 8.83 W.
-        ///
-        /// **This is one radio at one power on one day.** #238 is the entry that
-        /// asks where the floor really is, across models and power levels; this
-        /// number is the best evidence available, not a settled answer.
-        /// </remarks>
-        public const float MinForwardFractionOfCommanded = 0.05f;
-
-        /// <summary>
-        /// An absolute lower bound for the floor, so a very low commanded power
-        /// cannot produce a floor of nearly zero and let the noise back in.
-        /// </summary>
-        public const float MinForwardWattsAbsolute = 0.25f;
-
-        /// <summary>
         /// The lowest forward power at which a forward/reflected pair means
-        /// anything, for a given COMMANDED power (#453).
+        /// anything to the DISPLAY, for a given COMMANDED power (#453).
         /// </summary>
         /// <remarks>
-        /// Pure, so it can be tested against the measured run without a radio
-        /// — the same reason <see cref="SwrFromPower"/> is pure.
-        ///
-        /// The absolute bound is not decoration. A tune at 5 W commanded would
-        /// otherwise floor at 0.25 W, and a 1 W carrier at 0.05 W — back inside
-        /// the coupler noise this exists to exclude.
+        /// <para>
+        /// This is the one floor — <see cref="TransmitSafety.BelievableForwardFloorWatts"/>,
+        /// with its one absolute gate — asked with no peak. Until Sprint 47 it
+        /// had its own fraction (a twentieth of commanded, which moved to
+        /// <see cref="TransmitSafety.ForwardFloorShareOfCommanded"/> unchanged)
+        /// and its own absolute floor (0.25 W, chosen so a one-watt carrier
+        /// would still be judged, not from any coupler data), which was one of
+        /// three absolute floors for one physical question. It is 1 W now,
+        /// with the other two; a carrier under a watt reads "not measured",
+        /// which is honest, where it used to read a number of unknown worth.
+        /// </para>
+        /// <para>
+        /// <b>No peak, on purpose.</b> The peak term exists for foldback and
+        /// is weakest at the start of a transmission, while the peak is still
+        /// climbing; the alarm can afford that because a settle time and a
+        /// three-sample persistence rule stand behind it, and the display has
+        /// neither. On the 2026-09-07 run the commanded term alone rejects
+        /// every false high. #571's gated integrator, which will hold a window
+        /// and a peak, is where the display gets its second gate.
+        /// </para>
         /// </remarks>
         public static float MinBelievableForwardWatts(int commandedWatts) =>
-            MathF.Max(MinForwardWattsAbsolute, commandedWatts * MinForwardFractionOfCommanded);
+            TransmitSafety.BelievableForwardFloorWatts(commandedWatts, float.NaN);
 
         /// <summary>
         /// The power the operator actually asked for RIGHT NOW — tune power
@@ -9818,10 +9816,13 @@ namespace Radios
             float pf = DBmToWatts(forwardDBm);
             float pr = DBmToWatts(reflectedDBm);
 
-            // Below this there is no transmit worth judging, and the ratio of
-            // two tiny numbers is noise. A dead key measured 0.22 W on
-            // 2026-08-22, so this sits well under any real keying.
-            if (pf < 0.05f) return float.NaN;
+            // Below the absolute forward-power floor there is no transmit
+            // worth judging, and the ratio of two tiny numbers is noise. This
+            // was a bare 0.05 W until Sprint 47 — measured against a dead key,
+            // thirty times under where the bench found noise — and one of
+            // three absolute floors for one question. Defence in depth only:
+            // ComputedSWR stands behind the full floor first.
+            if (pf < TransmitSafety.ForwardFloorWatts) return float.NaN;
 
             // Reflected above forward is not physical: it means one meter is
             // lying or they were sampled at different instants. Say "unknown"
@@ -9896,8 +9897,11 @@ namespace Radios
             double perMs = Stopwatch.Frequency / 1000.0;
             double skew = Math.Abs(fwdAt - refAt) / perMs;
             double age = (Stopwatch.GetTimestamp() - Math.Max(fwdAt, refAt)) / perMs;
+            // What was asked for travels with the pair, so the forward-power
+            // floor is judged against the setting in force at this instant.
             return new TransmitPowerReading(
-                DBmToWatts(fwdDbm), DBmToWatts(refDbm), (float)skew, (float)age);
+                DBmToWatts(fwdDbm), DBmToWatts(refDbm), (float)skew, (float)age,
+                commandedWatts: CommandedPowerWatts);
         }
 
         /// <summary>
