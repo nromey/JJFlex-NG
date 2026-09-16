@@ -480,6 +480,11 @@ When Noel says "done developing" or equivalent, that's the seal-the-day trigger.
 - **External infrastructure activity.** Look for today-dated changes on rarbox/roarbox/Cloudflare/R2/NAS. Memory entries are the primary record of on-box-Claude work; NAS folder mtimes also reveal activity beyond just the seal backup itself; Dropbox top level + debug/ may have publishes from earlier in the day. Cloudflare dashboard activity (R2 bucket creates, custom-domain hookups, cache rules) is captured indirectly via memory entries authored by the session that did the work — see the all-memory-read rule above.
 - **Active planning docs modified today.** `find JJFlex-private/planning/active/ -newermt today` — walkthroughs, runbooks, briefings, agendas. The session that authored these may not be the session sealing the day; their mtimes reveal what work happened. Specifically the 2026-05-08 `phase-0-bcde-walkthrough.md` was sitting in active/ with a same-day mtime explicitly stating what got done; not opening it was part of why the second-pass also missed B-E.
 - **For-claude / for-noel deltas.** New pull-docs landed today? Existing ones processed today? Each round-trip reflects decisions that need durable absorption.
+- **Codex activity.** Codex works under Claude's lead (see "Working with Codex" under Workflow), so its day is part of this sweep, not a separate one:
+  - **Commits carrying the Codex trailer**, in every repo and worktree: `git log --since=midnight --all --grep="Co-Authored-By: Codex"`. Attribute them by system in Agent.md and the AAR.
+  - **Codex reports in `JJFlex-private/planning/for-claude/`** (file names containing `codex`). Process each before sealing — memory, register, evaluation log — or list it as carried over.
+  - **Briefs still in `for-codex/`** rather than `for-codex/done/`. Each is either in progress or was cut off at the usage limit, which gives no warning. List them.
+  - **Every Codex run today has an entry in `JJFlex-private/planning/codex-evaluation.md`**, and its running tally is updated. That log is the evidence for whether the plan is worth upgrading, so an unlogged run is a hole in the decision.
 
 **The anchoring failure mode that motivated the "read all" rule:** the reflexive search-for-topic-relevant-artifact pattern finds ONE file and treats it as the answer. The right starting prompt is "show me everything modified today, then synthesize," not "find the artifact about X." See `feedback_anchoring_on_first_relevant_artifact.md` for the lesson + corrective.
 
@@ -539,6 +544,8 @@ Added 2026-08-06 after the index hit the warning threshold; rewritten
 2026-08-19 when the flat index reached 18.5KB and was split into a 9.8KB core.
 2. **Memory backup — ALL projects, not just JJFlex:** `backup-memory-to-nas.ps1` snapshots **every** per-project Claude memory tree found under `C:\Users\nrome\.claude\projects\`. JJFlex keeps its legacy flat path (`historical\memory\memory-<ts>.zip`) so its dated series stays unbroken; every other project lands at `historical\memory\projects\<slug>\memory-<ts>.zip`. As of 2026-08-01 this picks up **Freight Fate** (`C--dev-Freight-Fate`, ~118 files) and **Civ VI Access** (`c--dev-Civ-vi-access`, ~175 files), neither of which had ever been backed up. Pass `-PrimaryOnly` for the old JJFlex-only behaviour. **Critical:** these trees live under the user profile, so the `C:\dev` mirror in step 3a does NOT cover them — this script and step 2a are their only backup paths. Keep running it even though 2a also sweeps up `memory\`: this one produces the per-project dated series that `memory-<ts>.zip` history depends on.
 2a. **Claude Code state backup:** `backup-claude-state-to-nas.ps1` snapshots the whole `C:\Users\nrome\.claude` tree plus `~\.claude.json` to NAS `historical\claude-state\claude-state-<ts>.zip`. Keeps the last 12, prunes older. This is the **session transcripts** — the `.jsonl` files under `.claude\projects\<slug>\` that hold every conversation Claude Code has had, and the only thing `claude --resume` can read. Nothing else backs them up: step 3a mirrors `C:\dev` and these live under the user profile; step 2 takes `memory\` only; git covers none of it. They are also on a retention timer — Claude Code sweeps transcripts older than `cleanupPeriodDays` at startup, and on 2026-08-01 that removed nine June sessions across Civ VI Access and the flashdrive project. `cleanupPeriodDays` is now pinned to **365** in `~\.claude\settings.json`, but retention only widens the window; it is not a backup. Excludes regenerable state (`cache`, `plugins`, `shell-snapshots`) and `.credentials.json` — that is a live OAuth token, and re-auth is one `claude` launch. `file-history\` (the ~150 MB `/rewind` snapshot tree) is opt-in via `-IncludeFileHistory`. Expect ~180 MB compressed from ~415 MB raw.
+
+   **Codex's home folder, `%USERPROFILE%\.codex`, is NOT covered by this or any other script yet (#575).** It holds `config.toml`, written by hand with its reasoning in the comments, and Codex's session history. Whatever eventually backs it up must leave out `auth.json` — a live ChatGPT sign-in token, excluded for the same reason as `.credentials.json` above — and must not copy the SQLite files while Codex is running.
 3. **Private docs backup:** `backup-private-to-nas.ps1` snapshots `C:\Users\nrome\JJFlex-private\` to NAS `historical\private\<date>\`. Captures easter eggs, unlock codes, and other private-docs state.
 3a. **Dev directory mirror:** `backup-dev-to-nas.ps1` mirrors `C:\dev` to NAS `historical\dev-mirror\` (single rolling snapshot, overwrites previous). Captures non-git-recoverable material: vendor research clones (smartsdr-extracted, Dot Pad SDK, AetherSDR), per-project `.claude\` state, uncommitted worktree work. Excludes build artifacts (bin/obj/.vs) and dependency caches (node_modules/packages/target). Recovery window is "today only" — git is the time machine for source repos, dated history for memory and private already exists.
 
@@ -726,6 +733,24 @@ Added 2026-08-06 after the index hit the warning threshold; rewritten
    on screen - so it is personal data by construction rather than by accident,
    and this repo is PUBLIC.
 
+3f. **Codex can still read what Claude writes.** No model call, seconds each.
+
+   ```
+   dotnet test Radios.Tests/Radios.Tests.csproj -c Debug -p:Platform=x64 --filter "FullyQualifiedName~CodexInstructionFileTests|FullyQualifiedName~IntegrationPassInstructionTests"
+   ```
+
+   That fails if `AGENTS.md` grows past three quarters of Codex's 32 KiB read limit (Codex truncates silently), if a rule it restates stops appearing in this file, or if it sends Codex to a memory folder this file does not name. **Whenever this file's wording of a rule changes, change `AGENTS.md` in the same commit** — this test is what notices when that was forgotten.
+
+   Then the positive control that Codex really loads it, from the repo root:
+
+   ```
+   codex debug prompt-input | findstr /c:"Claude Code leads this"
+   ```
+
+   No output means every Codex session is starting without the rules. (`codex` only resolves in a terminal opened after the install; otherwise call it by full path under `%USERPROFILE%\.codex\packages\standalone\releases\`.)
+
+   **Sandbox health: `%USERPROFILE%\.codex\.sandbox\setup_error.json` must not exist.** Do not use `codex doctor` for this — its "sandbox backend" line reports the CONFIGURED mode, and on 2026-09-16 it said `elevated` the whole time every command was failing (#576, upstream openai/codex#36475). A Codex update can bring that failure back; the recovery recipe is in the evaluation log.
+
 4. **Agent.md update:** Record what happened today and what's next, so the resume path for the next session is clear.
 4a. **Rigmeter snapshot in the seal entry.** Rigmeter lives at
    `C:\dev\rigmeter` (extracted Sprint 30 Track G, 2026-08-18) and still
@@ -815,6 +840,7 @@ Added 2026-08-06 after the index hit the warning threshold; rewritten
    only reason the discovery cost minutes rather than a day's work is that all
    eleven branches had just been pushed.
 6. **CLAUDE.md drift check:** If the day's work exposed stale guidance in CLAUDE.md (e.g. referenced a retired script, missed a new workflow), flag for update.
+   `AGENTS.md` belongs to this check too: it restates a handful of this file's rules, and step 3f's test fails the day the two disagree.
 
 **When a second seal runs on the same calendar date.** Late-night sessions that
 cross midnight get sealed under the new date, so a day that starts with a
@@ -1308,6 +1334,20 @@ When a track instruction names a symbol to reuse, add: **"reuse X; if you
 conclude X should move or change signature, report it instead of doing it."**
 And after any multi-track merge, **build before declaring the merge clean** — a
 clean `git merge` is not evidence that the result compiles.
+
+### Working with Codex
+
+**Codex (OpenAI) works on this project under Claude's lead**, since 2026-09-16. Claude owns the task register, the memory tree, this file, `AGENTS.md`, the seal, and every merge into a shared branch. Codex works the briefs Claude writes, and checks Claude's work when asked. Full reasoning and the facts verified on this machine: `memory/project_codex_interop.md`.
+
+- **`AGENTS.md` is Codex's entry point, and it is a pointer, not a copy.** Codex reads at most 32 KiB of instruction files and says nothing when it truncates, and this file is about three times that. So `AGENTS.md` sends Codex here, to the memory core and to the register, and restates only the rules that must never be missed. Codex does not read this file on its own — measured, not assumed.
+- **Claude is the only writer for the memory tree and the register.** Codex's Windows sandbox can read both, and a write into the memory folder is refused by the operating system — verified with a real Codex session. Codex puts what it learned under "For the memory" and "For the register" in its report, and Claude files it.
+- **The mailbox is files, not messages.** Briefs go in `JJFlex-private/planning/for-codex/`; Codex moves a finished one into `for-codex/done/` and reports into `for-claude/` with `codex` in the file name. As with for-noel, the folder name says who acts next. What a brief must contain: `for-codex/README.md`.
+- **Brief Codex the way this file says to brief any agent: write the prohibitions, not just the goal** — plus the model, the worktree, the register entry, and how to survive being cut off.
+- **Model tiers, ruled by Noel 2026-09-16:** `gpt-5.6-sol` is the default, the Opus of the pair. `gpt-6-astra` is named explicitly for hard implementation, or for verifying something troubled or stuck. No other model without a ruling.
+- **A Codex run can stop at the account's usage limit, with no warning and no resume.** Bulk use is fine; design for interruption. A non-interactive `codex exec` run cannot commit at all — its sandbox keeps `.git` read-only and it never stops to ask — so the progress notes it writes into its report are what survive.
+- **Every Codex run gets an entry in `JJFlex-private/planning/codex-evaluation.md`**: what it was for, the model, tokens, the outcome, and whether it earned its cost. That log is the evidence for any decision to upgrade.
+- **Codex commits end with `Co-Authored-By: Codex (model) <noreply@openai.com>`**, so the seal can say which system did what.
+- **Start Codex from an ordinary terminal, never an administrator one.** Its sandbox needed administrator approval once, for setup; Codex itself never should.
 
 ### Commits
 - Commit and push after completing each phase or significant chunk of work

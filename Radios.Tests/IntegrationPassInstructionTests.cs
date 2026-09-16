@@ -61,6 +61,9 @@ namespace Radios.Tests
         {
             "CLAUDE.md",
             "MIGRATION.md",
+            // Codex reads this one before anything else, so a phantom here sends
+            // a second model looking for something that is not there (2026-09-16).
+            "AGENTS.md",
         };
 
         /// <summary>
