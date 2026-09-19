@@ -155,19 +155,23 @@ no clean stop you can choose. Do not write as though there were.
   finished, what is next, and anything you worked out that would be expensive to
   work out again. `codex resume` keeps your context, so a stopped run costs
   little — but only if it said where it stopped.
-- **You may ASK for the number, and in an unattended run nobody will answer.**
-  Noel can run `/status`, which reports the five-hour usage and its reset time;
-  you cannot invoke it. In an interactive session, raising an `ASK` for it is
-  legitimate before a long stretch of work. In a non-interactive run there is
-  nobody there, so do not make your plan depend on getting an answer.
-- **If Noel volunteers a usage figure mid-run, believe him and checkpoint.** He
-  can see it; you cannot.
+- **You may ASK for the number, and someone can now answer it.** Noel can run
+  `/status`; Claude can run `codex-usage.ps1`, which reads the same state
+  without spending any of it. So an `ASK` before a long stretch of work is
+  legitimate, and in an orchestrated run it may well come back. **Do not stall
+  waiting for it** — carry on under a stated assumption, exactly as the ASK rule
+  above requires.
+- **If a usage figure reaches you mid-run, believe it and checkpoint.** Whoever
+  sent it can see the number; you cannot. Note also that the API reports percent
+  **used** while `/status` reports percent **left** — if a figure arrives without
+  saying which, ask, rather than assuming the reassuring reading.
 
-**Enforcement, when it exists, will live outside you.** The Codex app server
-exposes the rate-limit state — used percentage, window length, reset time — so a
-wrapper can stop handing you work before the limit lands. That is the right
-place for it. A prompt instruction to watch your own usage is a safeguard that
-cannot fire, which is worse than none, because it reads like protection.
+**Enforcement lives outside you.** `codex-usage.ps1` reads the app server's
+rate-limit state — used percentage, window length, reset time, and whether the
+backend is refusing work outright — so a wrapper can stop handing you work
+before the limit lands. That is the right place for it. A prompt instruction to
+watch your own usage is a safeguard that cannot fire, which is worse than none,
+because it reads like protection.
 
 ## Git
 
