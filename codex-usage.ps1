@@ -14,7 +14,8 @@
 
   Verified 2026-09-19 against Codex 0.154.0 by reproducing a reading Noel had
   just taken with `/status` in the TUI: 5-hour 75% used resetting 17:46, weekly
-  13% used resetting Wed 06:48. Both matched exactly.
+  13% used resetting Wed 06:48. Both matched exactly. Re-checked the same day on
+  0.155.1, which the version glob below picked up on its own.
 
 .PARAMETER Json
   Emit the raw response object as JSON instead of prose. For a wrapper that
