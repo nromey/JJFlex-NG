@@ -140,6 +140,35 @@ what your sandbox allows. If an action needs a permission you do not have, that
 is an `ASK` explaining what you would have done, never an attempt to work
 around the boundary.
 
+## The usage window will end your run without warning
+
+**You cannot see your own remaining usage.** The quota state belongs to the
+client, `/status` is a client command rather than something you can invoke, and
+no instruction here can change that. So there is no threshold you can watch and
+no clean stop you can choose. Do not write as though there were.
+
+**What follows is the only defence: write as you go.**
+
+- **Put findings into your report as each one lands**, not at the end. A run
+  that ends at the limit takes its unwritten thoughts with it.
+- **Make the last line of your report useful to your future self.** What is
+  finished, what is next, and anything you worked out that would be expensive to
+  work out again. `codex resume` keeps your context, so a stopped run costs
+  little — but only if it said where it stopped.
+- **You may ASK for the number, and in an unattended run nobody will answer.**
+  Noel can run `/status`, which reports the five-hour usage and its reset time;
+  you cannot invoke it. In an interactive session, raising an `ASK` for it is
+  legitimate before a long stretch of work. In a non-interactive run there is
+  nobody there, so do not make your plan depend on getting an answer.
+- **If Noel volunteers a usage figure mid-run, believe him and checkpoint.** He
+  can see it; you cannot.
+
+**Enforcement, when it exists, will live outside you.** The Codex app server
+exposes the rate-limit state — used percentage, window length, reset time — so a
+wrapper can stop handing you work before the limit lands. That is the right
+place for it. A prompt instruction to watch your own usage is a safeguard that
+cannot fire, which is worse than none, because it reads like protection.
+
 ## Git
 
 - **Work only in the worktree or branch your brief names.** Never work in a
