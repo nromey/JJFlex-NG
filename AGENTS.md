@@ -108,6 +108,38 @@ exactly like a clean result.
 Reports go to JJFlex-private, never into this repository, because they may name
 testers or private context.
 
+## If you need something mid-run: raise a flag, do not stall
+
+You often run non-interactively, where nothing can answer you: a request for
+approval is refused rather than queued, and the run carries on without it. So
+there is a standing way to reach Claude without waiting.
+
+**Write a file into `for-claude`, named for what it is:**
+
+- **`ASK-<your brief's slug>.md`** — you need something, and you have carried on
+  regardless. Say what you need, why, **the assumption you proceeded under**, and
+  what would change if the answer differs. Keep working.
+- **`BLOCKED-<your brief's slug>.md`** — you genuinely cannot continue. Say what
+  stopped you, what you tried, and exactly what would unblock you. Then stop,
+  and leave everything you have already established in your report.
+
+**The difference is the whole point.** One is a note to read later; the other
+means work has halted. Do not use `BLOCKED` for something you could reasonably
+assume your way past, and do not bury a real stoppage in an `ASK`.
+
+Write the flag the moment you know, not at the end. A run that ends at a usage
+limit takes its unwritten thoughts with it.
+
+**Claude answers by writing `ANSWER-<same slug>.md` into `for-codex`.** If your
+session is still alive it may also send you a short queued message telling you to
+read it. The file is the message; the queued line is only the doorbell, because
+a file can be read afterwards by a person and a queued line cannot.
+
+**This is for things Claude decides, not for permissions.** Nothing here changes
+what your sandbox allows. If an action needs a permission you do not have, that
+is an `ASK` explaining what you would have done, never an attempt to work
+around the boundary.
+
 ## Git
 
 - **Work only in the worktree or branch your brief names.** Never work in a
