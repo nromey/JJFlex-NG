@@ -17,7 +17,7 @@ When you pick an antenna, you will hear a confirmation — for example, "RX ante
 
 You can also switch antennas from the ScreenFields panel:
 
-1. Press `Ctrl+Shift+5` to jump to the Antenna category.
+1. Press `Ctrl+Shift+A` to jump to the Antenna category.
 2. Use the `Up` and `Down` arrow keys to cycle through the available antennas.
 
 Switching from ScreenFields is often the fastest way to change antennas if you are already working with other ScreenFields settings.

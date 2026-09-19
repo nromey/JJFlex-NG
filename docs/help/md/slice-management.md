@@ -8,7 +8,7 @@ FlexRadio slices are like independent receivers — each one has its own frequen
 - **Release Active Slice** — removes the slice you are currently on, not the one you added last. You will hear which one went: "Slice D released, 3 active."
 - You cannot release your last remaining slice. If you try, you will hear: "Cannot release last slice."
 
-These commands live on the **Slice** menu, in the **Selection** submenu, and are also on the ScreenFields panel under the Audio and Slice category (`Ctrl+Shift+2`). The menu structure is the same whether you are in Classic tuning mode or Modern tuning mode.
+These commands live on the **Slice** menu, in the **Selection** submenu, and are also on the ScreenFields panel under the Audio category (`Ctrl+Shift+U`). The menu structure is the same whether you are in Classic tuning mode or Modern tuning mode.
 
 If other operators are sharing the radio with you, the Selection submenu also tells you how many slices they are using. You can only release your own.
 

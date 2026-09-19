@@ -40,7 +40,7 @@ Collapsed panels are skipped in the tab order, so if you do not have ScreenField
 ## Common Tips for Both Screen Readers
 
 - **Menus** — press Alt to activate the menu bar. Arrow keys move through the menus, and Enter selects.
-- **ScreenFields** — use `Ctrl+Shift+1` through `Ctrl+Shift+5` to jump directly to a ScreenFields category (Receiver, DSP, Audio, Transmission, Antenna).
+- **ScreenFields** — jump straight to a category with `Ctrl+Shift+R` for Receiver, `Ctrl+Shift+N` for Noise Reduction and DSP, `Ctrl+Shift+U` for Audio, `Ctrl+Shift+X` for Transmission, and `Ctrl+Shift+A` for Antenna.
 - **Command Finder** — press `Ctrl+/` to search for any command by name. This is often faster than memorising every hotkey.
 - **Status announcements** — press `Ctrl+Shift+S` to hear the current radio status spoken at any time. The status report is multi-slice aware — it tells you about every active slice, not just the selected one.
 - **Earcons** — JJ Flexible Radio Access uses short audio tones (earcons) to confirm actions such as toggling DSP features. The earcons play through your default audio device alongside screen-reader speech.

@@ -13,7 +13,7 @@ Recent releases have added a range of new features:
 - **The JJ Key (`Ctrl+J`)** — quick access to DSP toggles, meter controls, and status commands. Press `Ctrl+J` and then a single letter.
 - **TX sculpting** — shape your transmitted audio by adjusting the TX filter edges from the keyboard, using `Ctrl+Shift+[` / `]` for the low edge and `Ctrl+Alt+[` / `]` for the high edge.
 - **60 meter channels** — navigate the US 60 meter channels with `Alt+Shift+Up` / `Down`. The application speaks each channel name and frequency as you land on it.
-- **Antenna switching** — an Antenna ScreenFields category (`Ctrl+Shift+5`) for quick antenna selection and ATU control.
+- **Antenna switching** — an Antenna ScreenFields category (`Ctrl+Shift+A`) for quick antenna selection and ATU control.
 - **Tune Carrier and ATU** — `Ctrl+Shift+T` toggles the tune carrier, and `Ctrl+T` starts an ATU tune cycle, each with its own audio feedback.
 - **Slice management** — multi-slice-aware status announcements, and improved slice switching.
 - **Command Finder** — press `Ctrl+/` to search for any command by name.
