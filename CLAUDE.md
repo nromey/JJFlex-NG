@@ -178,6 +178,35 @@ tells an agent what to achieve; only a prohibition tells it which paths are
 closed, and an agent takes the shortest route to the goal. That route is
 frequently the one nobody thought to forbid.
 
+**AND A PROHIBITION MUST CARRY EVIDENCE YOU OPENED. This is the other half of
+the rule above, not a retraction of it.** An agent can TEST a goal — run it, see
+whether it passed. **There is no experiment that returns "actually you may do
+that,"** so a prohibition is accepted on authority alone and must arrive
+carrying its source.
+
+**Never write a task number into a brief without opening the task. A citation is
+a promise that you read it.** Added 2026-09-20, after a design brief told Codex
+*"do not solve it by unbinding things — per-slice volume on the arrows is
+deliberate Jim-parity vocabulary (#345)."* **#345 is "Delete the Slice Operations
+*sound* key"**: same field, same theme, different key. It was written from memory
+of a neighbouring fact. Codex reasoned impeccably from the false premise and put
+TUNING behind an explicitly entered layer — making the most frequent action on a
+radio cost a declaration of intent — and Noel reversed it in one sentence once he
+saw it. An xhigh run spent most of a five-hour window on it.
+
+**Note which direction the citation pushed.** "Gain on the arrows is deliberate"
+reads as an opinion and invites challenge; **"(#345)" reads as already-verified
+and suppresses it.** The number made the error more durable, which is the
+opposite of what a citation is for. When it is your judgement, say so in a form
+that invites the check — *"I believe X; verify before relying on it."*
+
+**Give every brief a sanctioned way to disagree**, because that is the only
+thing that caught this. The brief asked for *"what evidence would settle each
+open question"* and for *"speculation marked as speculation"*, so the doubt had
+somewhere to go: Codex opened #345, found the mismatch and raised an ASK instead
+of building on it. An agent with no route to object either obeys silently or
+ignores silently, and both are invisible.
+
 ### WARNING: `--no-incremental` Does NOT Guarantee Fresh Builds
 
 **Do NOT rely on `--no-incremental` to produce fresh binaries.** It only disables incremental *compilation* but the build system can still skip projects entirely if it believes outputs are up-to-date. This means:
