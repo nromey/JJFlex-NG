@@ -659,6 +659,29 @@ Added 2026-08-06 after the index hit the warning threshold; rewritten
    "Not yet in the task store" was 11 of 15 already done. **A stale list
    understates progress as readily as it overstates it.**
 
+   **There IS still one mirror, and it is generated: regenerate it at every
+   seal.** `open-tasks-summary.md` is the one-line-each list of OPEN tasks Noel
+   prioritises from, built from `tasks.md` by `regen-open-tasks-summary.py`
+   beside it. One command, about a second:
+
+   ```
+   python "C:\Users\nrome\JJFlex-private\planning\active\regen-open-tasks-summary.py"
+   ```
+
+   **Check it by mtime, not by memory** — if the summary is older than
+   `tasks.md`, it is stale, and no judgement is required to see that.
+
+   **Added 2026-09-20 after it drifted for 18 days.** A memory already said to
+   regenerate it after any turn that touched the register, and that memory's
+   stated defence was that regenerating is "one command rather than a
+   discipline" — which is false, because **running a command at the right moment
+   IS a discipline.** It was last built 2026-09-02, the same day that memory was
+   written. It claimed 264 open tasks, highest #533; the truth was 303, highest
+   #591, so everything from #534 up was invisible, including #590 (harm-others)
+   and #589 (the gate on Don's test script). **The stale list was SHORTER**, so
+   it understated the work by 39 tasks while reading as complete. A turn can be
+   forgotten; the seal is a place someone always stands.
+
    **A hand-edited file cannot drift from itself**, which is why the mirror
    check is gone rather than repointed. If a checker is ever wanted here, the
    one with ongoing value validates `tasks.md`'s own invariants — unique status
