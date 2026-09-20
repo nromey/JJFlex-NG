@@ -1162,11 +1162,25 @@ As tracks complete, Claude Desktop handles merges and keeps the user informed:
    Filtering to classes that construct no window is safe on a live desk:
 
    ```bash
-   dotnet test JJFlexWpf.Tests/JJFlexWpf.Tests.csproj -c Debug -p:Platform=x64      --filter "FullyQualifiedName~KeyTreeTests|FullyQualifiedName~LayerHelpRowsTests|FullyQualifiedName~KeyLayerHelpTests|FullyQualifiedName~LeaderNearMissTests"
+   dotnet test JJFlexWpf.Tests/JJFlexWpf.Tests.csproj -c Debug -p:Platform=x64      --filter "FullyQualifiedName~KeyTreeTests|FullyQualifiedName~LayerHelpRowsTests|FullyQualifiedName~KeyLayerHelpTests|FullyQualifiedName~LeaderNearMissTests|FullyQualifiedName~HomeFieldChordTests|FullyQualifiedName~DelegateSurfaceTests"
    ```
 
    **Say which classes the run covered**, because the set grows and a class
    nobody names silently drops out of coverage the day it is added. See #531.
+
+   **`HomeFieldChordTests` and `DelegateSurfaceTests` were added 2026-09-20**,
+   both verified to construct zero windows. **Do not check that by grepping for
+   `new SomethingDialog`** — the harness in `JJFlexWpf.Tests/Infrastructure/`
+   already owns this question (`DeskGuard`, `DialogCatalog`, `RealizedDialog`,
+   `DelegateSurfaceScan`), and starting from a grep is starting from zero next
+   to a tool that was built for it.
+
+   **`DelegateSurfaceTests` is RED as of 2026-09-20, with 100 findings, and
+   that is why it is named here** — it had never been run, because a project a
+   guard refuses is a project nobody watches. Triage is #591; some of the 100
+   are genuine dead hooks of the #109 and #483 class and some are name
+   collisions in the scan. **Do not drop it from this filter to get a green
+   run.**
 
    **And a merge note with two clauses needs two ticks.** Sprint 44's Track J
    wrote "take K's `LeaderKeyHelp` body, AND replace `OpenKeyExplorer()`'s body
