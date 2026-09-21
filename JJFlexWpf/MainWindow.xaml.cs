@@ -2555,6 +2555,11 @@ public partial class MainWindow : UserControl
         // ExecuteActionToolbarItem code retained in this file for the future
         // redesign to build on.
         var rawKey = e.Key == Key.System ? e.SystemKey : e.Key;
+        // #583 evidence, diagnostic only. Same KEYROUTE tag as the shell's
+        // ProcessCmdKey, so a capture shows which of the two saw the key first.
+        // Key.System is reported separately because it is how WPF marks a key
+        // pressed while Alt owns the keyboard.
+        Tracing.TraceLine($"KEYROUTE wpf.MainWindow_PreviewKeyDown key={rawKey} viaSystem={e.Key == Key.System} mods={Keyboard.Modifiers} handled={e.Handled} focus={Keyboard.FocusedElement?.GetType().Name}", TraceLevel.Info);
         // Let regular Tab (and Ctrl+Tab / Ctrl+Shift+Tab) pass through to
         // WPF default handling / child-panel PreviewKeyDown handlers.
         if (rawKey == Key.Tab)
@@ -3803,6 +3808,9 @@ public partial class MainWindow : UserControl
     private void FreqOut_FieldKeyDown(FrequencyDisplay.DisplayField field, System.Windows.Input.KeyEventArgs e)
     {
         if (_freqOutHandlers == null) return;
+
+        // #583 evidence, diagnostic only: which Home field was handed the key.
+        Tracing.TraceLine($"KEYROUTE wpf.FreqOut_FieldKeyDown field={field?.Key} key={(e.Key == Key.System ? e.SystemKey : e.Key)} viaSystem={e.Key == Key.System} mods={Keyboard.Modifiers}", TraceLevel.Info);
 
         // '?' on any Home field speaks the keys that work right here —
         // field-specific keys first, then the universal Home keys. Generated

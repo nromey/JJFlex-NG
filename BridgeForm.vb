@@ -195,9 +195,18 @@ Public Class ShellForm
     ''' the native Win32 menu via WM_SYSCOMMAND (ElementHost eats WM_SYSCHAR).
     ''' </summary>
     Protected Overrides Function ProcessCmdKey(ByRef msg As Message, keyData As Keys) As Boolean
+        ' #583 evidence, diagnostic only. The key-ownership design (2026-09-20)
+        ' needs the ORDER in which the shell, the native menu and the WPF field
+        ' see Alt-then-Down, and nothing on this route was traced. One tag,
+        ' KEYROUTE, across all five sites so a capture greps to the sequence.
+        JJTrace.Tracing.TraceLine("KEYROUTE shell.ProcessCmdKey key=" & keyData.ToString() &
+                          " msg=0x" & msg.Msg.ToString("X") &
+                          " inMenuLoop=" & _inNativeMenuLoop.ToString())
+
         ' Let DoCommandHandler try first (scope-aware key routing)
         If WpfContent?.DoCommandHandler IsNot Nothing Then
             If WpfContent.DoCommandHandler(keyData) Then
+                JJTrace.Tracing.TraceLine("KEYROUTE shell.ProcessCmdKey key=" & keyData.ToString() & " CLAIMED by DoCommandHandler")
                 Return True
             End If
         End If
@@ -339,12 +348,26 @@ Public Class ShellForm
             End If
         End If
 
+        ' #583 evidence, diagnostic only: WM_MENUSELECT (0x11F) says which item
+        ' is highlighted and whether a popup is open, and WM_SYSCOMMAND with
+        ' SC_KEYMENU is Alt actually asking for the menu. Together with the
+        ' enter/exit lines below they bracket the "bar selected, popup not yet
+        ' open" interval the design suspects.
+        If m.Msg = &H11F Then
+            JJTrace.Tracing.TraceLine("KEYROUTE shell.WM_MENUSELECT wParam=0x" & m.WParam.ToInt64().ToString("X") &
+                              " hMenu=0x" & m.LParam.ToInt64().ToString("X"))
+        ElseIf m.Msg = WM_SYSCOMMAND AndAlso (m.WParam.ToInt64() And &HFFF0) = SC_KEYMENU Then
+            JJTrace.Tracing.TraceLine("KEYROUTE shell.WM_SYSCOMMAND SC_KEYMENU char=" & m.LParam.ToInt64().ToString())
+        End If
+
         ' Track native menu loop entry/exit for safe focus return.
         If m.Msg = WM_ENTERMENULOOP Then
             _inNativeMenuLoop = True
+            JJTrace.Tracing.TraceLine("KEYROUTE shell.WM_ENTERMENULOOP")
         End If
 
         If m.Msg = WM_EXITMENULOOP AndAlso _inNativeMenuLoop Then
+            JJTrace.Tracing.TraceLine("KEYROUTE shell.WM_EXITMENULOOP")
             _inNativeMenuLoop = False
             MyBase.WndProc(m)
             ' Defer focus restore so it doesn't re-enter during WndProc processing

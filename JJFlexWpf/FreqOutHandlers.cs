@@ -1525,6 +1525,11 @@ public class FreqOutHandlers
         char ch = KeyToChar(e);
         int vfo = Rig.RXVFO;
 
+        // #583 evidence, diagnostic only. This is where Down becomes a gain
+        // change; viaSystem=true here means the key arrived while Alt owned the
+        // keyboard, i.e. the menu bar was selected and the field got it anyway.
+        Tracing.TraceLine($"KEYROUTE wpf.AdjustSliceOps key={key} viaSystem={e.Key == Key.System} mods={Keyboard.Modifiers} handledOnEntry={e.Handled}", TraceLevel.Info);
+
         // Shift+M and Shift+Comma used to be claimed here too; see the note
         // at the top of AdjustSlice. The universal fall-through below binds
         // both, and nothing in this switch can see a shifted character.
