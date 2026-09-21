@@ -1,4 +1,4 @@
-﻿# Keyboard Reference
+# Keyboard Reference
 
 Welcome to your one-stop reference for every keyboard shortcut in JJ Flexible Radio Access. You can also press `Ctrl+/` at any time to open the Command Finder, which lets you search for commands by name. And here's the newest trick: while you're in the JJ Flexible Home, press `?` on any field and the app speaks the keys that work right there.
 
@@ -437,8 +437,7 @@ When focused on the Slice Operations field (per-slice audio controls):
 
 - **Up / Down** — Adjust volume up/down
 - **Page Up / Page Down** — Pan right / left
-- **Space** — Toggle mute
-- **M** — Mute
+- **Space** or **M** — Mute or unmute this slice
 - **A-H** — Jump directly to that slice
 - **T** — Set the currently selected slice to transmit (TX)
 - **=** — Transceive the currently selected slice

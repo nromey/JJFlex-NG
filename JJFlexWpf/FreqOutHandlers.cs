@@ -1501,21 +1501,24 @@ public class FreqOutHandlers
     ///
     /// <para>
     /// Sprint 26 Phase 8 Jim-parity: letter shortcuts match Jim's original
-    /// slice-status-row vocabulary. <c>M</c> sets mute (explicit, idempotent
-    /// — pressing it when already muted re-announces the state), <c>Space</c>
-    /// toggles.
+    /// slice-status-row vocabulary. <c>M</c> and <c>Space</c> both toggle
+    /// mute.
     /// </para>
     /// <para>
-    /// <b>There is deliberately no explicit-unmute key, and the asymmetry is
-    /// the point (#345, ruled by Noel 2026-08-28).</b> Jim's triple had a
-    /// third leg — <c>S</c> for "sound", the explicit unmute — and on a slice
-    /// that is already unmuted, which is the normal state, setting the flag
-    /// false was a no-op and the announcement was the whole effect, so the
-    /// key read as dead. Silencing a slice fast, without having to know its
-    /// current state, is a real operating need during a pileup; unmuting is
-    /// not urgent in the same way, and Space covers it. Anyone tempted to
-    /// restore the symmetry should know it was removed on purpose, symptom
-    /// and ruling recorded in #345.
+    /// <b>Until 2026-09-21 <c>M</c> here only ever muted, and this comment
+    /// said that was "the point (#345, ruled by Noel 2026-08-28)". It was
+    /// not his ruling.</b> What he said that day, in full: <i>"what's slice
+    /// sounding anyway, it doesn't do anything"</i> and <i>"I'd just delete
+    /// slice sounding, makes no damn sense to me. We already have mute."</i>
+    /// He ruled <c>S</c> deleted and nothing else; the pileup rationale for
+    /// an idempotent <c>M</c> was written by whoever recorded the task and
+    /// signed with his name. Meanwhile <c>M</c> TOGGLED on the Frequency
+    /// field, the Slice field, the Mute field and the universal Home key —
+    /// five sites to this one — so the same key meant two things depending
+    /// on where focus was, and the attribution is what kept a sweep from
+    /// fixing it. Noel found it at the radio: <i>"pressing m says slice a
+    /// muted and then doesn't toggle."</i> There is still no <c>S</c>, and
+    /// that part of #345 stands.
     /// </para>
     /// </summary>
     public void AdjustSliceOps(FrequencyDisplay.DisplayField field, KeyEventArgs e)
@@ -1568,13 +1571,10 @@ public class FreqOutHandlers
                 }
                 else if (ch == 'M')
                 {
-                    // Jim parity: explicit mute (idempotent — re-announces if already muted).
-                    Rig.SliceMute = true;
-                    EarconPlayer.FeatureOnTone();
-                    string letter = Rig.VFOToLetter(vfo);
-                    Radios.ScreenReaderOutput.Speak(
-                        Lexicon.Get("settings.slice.muted_named", ("letter", letter)),
-                        VerbosityLevel.Terse, true);
+                    // M mutes AND unmutes, the same as Space just above and the
+                    // same as M on every other Home surface. See the summary
+                    // on this method for why it did not until 2026-09-21.
+                    ToggleSliceMuteAndAnnounce(interrupt: true);
                     e.Handled = true;
                 }
                 else if (ch >= 'A' && ch <= 'H')

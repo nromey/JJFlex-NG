@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -200,8 +200,8 @@ public static class KeyInventory
             new[] { "pan", "stereo", "balance" }),
         new("SliceOps", "Slice operations field", "Space", "Toggle mute",
             new[] { "mute", "unmute", "toggle" }),
-        new("SliceOps", "Slice operations field", "M", "Mute (explicit)",
-            new[] { "mute", "silence" }),
+        new("SliceOps", "Slice operations field", "M", "Mute or unmute",
+            new[] { "mute", "unmute", "silence" }),
         // No explicit-unmute row. Jim's "S — sound" leg was deleted on
         // Noel's ruling (#345): on an already-unmuted slice it did nothing
         // but announce, so it read as a dead key. Space toggles; the
