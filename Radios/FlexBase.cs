@@ -15470,17 +15470,37 @@ namespace Radios
                 return;
             }
 
-            // A selection arriving at any point inside the window means the
-            // radio is healthy; only a window that expires still empty is the
-            // failure.
-            if (await(() => theRadio == null
-                            || !string.IsNullOrEmpty(theRadio.ProfileMICSelection), 1500))
+            // OBSERVED, not cached (Track G2; review step 10). Until
+            // 2026-09-22 this waited on theRadio.ProfileMICSelection being
+            // non-empty and treated the window expiring on "" as the failure
+            // — but FlexLib's cached selection reads "" before the radio has
+            // said anything at all. Only a RADIO-REPORTED selection this
+            // connection counts: a report of "" is the failure; no report is
+            // "unreported", which is traced and never announced.
+            await(() =>
             {
-                return;
-            }
+                var obs = ProfileEvidence.Snapshot().ReportedSelectionOf(ProfileTypes.mic);
+                return theRadio == null || (obs != null && obs.Name.Length > 0);
+            }, 1500);
 
             var radio = theRadio;
             if (radio == null) return;
+
+            var reported = ProfileEvidence.Snapshot().ReportedSelectionOf(ProfileTypes.mic);
+            var verdict = SilentMicrophoneAssessment.Decide(new SilentMicrophoneFacts
+            {
+                Connected = IsConnected,
+                ProfilesReported = radio.ProfileMICList != null && radio.ProfileMICList.Count > 0,
+                ReportedSelection = reported?.Name,
+            });
+            if (verdict == SilentMicrophoneVerdict.Healthy) return;
+            if (verdict != SilentMicrophoneVerdict.SilentEmpty)
+            {
+                Tracing.TraceLine("SilentTxCheck: " + verdict + " — the radio has not reported a microphone selection this "
+                    + "connection (cached value '" + (radio.ProfileMICSelection ?? "") + "' is not an observation); not announcing.",
+                    TraceLevel.Warning);
+                return;
+            }
 
             // Ownership decides whether we repair it or only report it.
             //
@@ -15514,28 +15534,29 @@ namespace Radios
             else if (ownership == RadioOwnership.Mine && !mayRepair)
             {
                 Tracing.TraceLine(
-                    "SilentTxCheck: radio is marked MINE but the station phase did not authorise an "
-                    + "automatic shared write (station not established, not opted in, or the roster "
-                    + "verdict is not only-us) — warning without repairing (design step 10).",
+                    "SilentTxCheck: radio is marked MINE but the post-station phase did not authorise an "
+                    + "automatic shared write (station not established, not opted in, a step ended uncertain, "
+                    + "or the roster verdict is not only-us) — warning without repairing (design step 10).",
                     TraceLevel.Warning);
             }
 
             if (ownership == RadioOwnership.Mine && !ChangeNothingActive && mayRepair
                 && !string.IsNullOrEmpty(candidate))
             {
-                // SelectMicProfileIfPresent refuses to CREATE a profile — it
-                // only selects one the radio already lists — so the worst case
-                // here is that nothing happens and the warning still stands.
-                bool applied = SelectMicProfileIfPresent(candidate);
+                // The repair is a checked dispatch: every condition is read
+                // again inside the delegate immediately before the write, and
+                // "repaired" is said only when the radio REPORTS the candidate
+                // selected afterwards. Queueing is not applying.
+                bool repaired = RepairSilentMicrophoneChecked(radio, candidate, mayRepair);
 
                 Tracing.TraceLine(
-                    "SilentTxCheck: mic profile selection is EMPTY on a radio marked MINE. "
+                    "SilentTxCheck: mic profile selection is EMPTY (reported) on a radio marked MINE. "
                     + $"Loading '{candidate}' without asking (Noel's ruling 2026-08-19). "
-                    + $"applied={applied}. Radio offers: "
+                    + $"confirmed={repaired}. Radio offers: "
                     + string.Join(", ", radio.ProfileMICList),
                     TraceLevel.Warning);
 
-                if (applied)
+                if (repaired)
                 {
                     if (SuppressSpeech) return;
                     // Handed to the connect briefing rather than spoken here
@@ -15553,17 +15574,18 @@ namespace Radios
                     return;
                 }
 
-                // The write did not take. Fall through and warn — an operator
-                // told "I fixed it" when nothing changed is worse off than one
-                // simply told it is broken.
+                // The write was refused, or went out and was not reported
+                // back. Fall through and warn — an operator told "I fixed it"
+                // when nothing changed is worse off than one simply told it
+                // is broken.
                 Tracing.TraceLine(
-                    "SilentTxCheck: the repair did not apply — falling back to the warning.",
+                    "SilentTxCheck: the repair was not confirmed — falling back to the warning.",
                     TraceLevel.Error);
             }
             else
             {
                 Tracing.TraceLine(
-                    "SilentTxCheck: mic profile selection is EMPTY. Transmit audio from this "
+                    "SilentTxCheck: mic profile selection is EMPTY (reported). Transmit audio from this "
                     + "computer will not modulate. Radio offers: "
                     + string.Join(", ", radio.ProfileMICList)
                     + $". Ownership={ownership} — ANNOUNCING ONLY, nothing is written to the "
@@ -15596,6 +15618,66 @@ namespace Radios
                 VerbosityLevel.Critical,
                 Speech.SpeechSubject.MicProfileOnRadio,
                 alarm: true));
+        }
+
+        /// <summary>
+        /// The automatic repair as a checked dispatch: the pure
+        /// <see cref="SilentMicrophoneAssessment.RepairRefusal"/> is read
+        /// inside the delegate immediately before the write, and the result
+        /// is true only when the radio REPORTS the candidate selected within
+        /// the effect bound (Track G2; review step 10).
+        /// </summary>
+        private bool RepairSilentMicrophoneChecked(Radio radio, string candidate, bool phasePermits)
+        {
+            var attempt = StationAttempt;
+            var op = attempt.CurrentOperation;
+            bool sent = false;
+            string refusal = null;
+            long seq = ProfileEvidence.Sequence;
+            DispatchStationWork("silent-microphone repair '" + candidate + "'", () =>
+            {
+                var serial = radio.Serial ?? "";
+                refusal = SilentMicrophoneAssessment.RepairRefusal(new SilentMicrophoneRepairFacts
+                {
+                    OperationLive = attempt.IsLive && (op == null || op.IsLive),
+                    Connected = theRadio == radio && IsConnected,
+                    HoldArmed = ChangeNothingActive,
+                    RadioIsOurs = !string.IsNullOrEmpty(serial) && RadioConfig.OwnershipOf(serial) == RadioOwnership.Mine,
+                    Intent = string.IsNullOrEmpty(serial) ? ProfileGuestIntent.NotAnswered : RadioConfig.ProfileIntentOf(serial),
+                    StrictRoster = RosterJudgementForAutomaticWrite().Verdict,
+                    PhasePermitsRepair = phasePermits,
+                    ReportedSelectionNow = ProfileEvidence.Snapshot().ReportedSelectionOf(ProfileTypes.mic)?.Name,
+                    Candidate = candidate,
+                    CandidateListed = radio.ProfileMICList != null && radio.ProfileMICList.Contains(candidate),
+                });
+                if (refusal != null) return;
+                seq = ProfileEvidence.Sequence;
+                using (OwnProfileWrite()) radio.ProfileMICSelection = candidate;
+                sent = true;
+            });
+            if (!sent && refusal == null)
+            {
+                await(() => sent || refusal != null, StationDeadlines.Default().TxMicEffectMs);
+            }
+            if (refusal != null)
+            {
+                Tracing.TraceLine("SilentTxCheck: the repair was NOT sent — " + refusal, TraceLevel.Warning);
+                return false;
+            }
+            if (!sent) return false;
+
+            bool confirmed = await(() =>
+            {
+                var obs = ProfileEvidence.Snapshot().ReportedSelectionOf(ProfileTypes.mic);
+                return obs != null && obs.Sequence > seq && string.Equals(obs.Name, candidate, StringComparison.Ordinal);
+            }, StationDeadlines.Default().TxMicEffectMs);
+            if (!confirmed)
+            {
+                Tracing.TraceLine("SilentTxCheck: the repair went out but the radio did not report '" + candidate
+                    + "' selected within " + StationDeadlines.Default().TxMicEffectMs + " ms — not claimed repaired.",
+                    TraceLevel.Warning);
+            }
+            return confirmed;
         }
 
         // ── The radio's own save-on-change concept (Sprint 32 Track H, #117) ──

@@ -373,7 +373,7 @@ namespace Radios.Tests
             // wait and the WARNING must still fire, because saying a failure
             // out loud needs no permission from anyone.
             AssertGuardInside(FlexBase, "private void CheckMicProfileForSilentTx(",
-                "ownership == RadioOwnership.Mine && !ChangeNothingActive", 4200);
+                "ownership == RadioOwnership.Mine && !ChangeNothingActive", 6500);
         }
 
         [Fact]
