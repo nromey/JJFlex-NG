@@ -233,6 +233,7 @@
   "settings.flexdb.import_failed": "import didn't complete",
   "settings.flexdb.import_file_title": "Import File",
   "settings.flexdb.imported": "Import complete",
+  "settings.flexdb.imported_station_unconfirmed": "Import complete. Your station could not be confirmed afterwards; whatever the radio set up is kept, and nothing was changed on top of it.",
   "settings.flexdb.no_import_file": "no import file found.",
   "settings.flexdb.status_header": "Status",
   "settings.guard.action.callsign": "change its callsign",

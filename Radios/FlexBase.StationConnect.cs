@@ -599,8 +599,14 @@ namespace Radios
 
             if (postImport && theRadio != null)
             {
-                bool ok = result.StationEstablished;
-                Tracing.TraceLine("flex import operation complete:" + ok + " (" + result.Outcome + ")", TraceLevel.Info);
+                // Two facts, kept apart (review section 8): the IMPORT
+                // completed — that is what brought us here, DatabaseImportComplete
+                // — and the STATION may or may not have been confirmed after
+                // it. Until Track G2 the second chose "import failed".
+                var report = ImportReport.For(importCompleted: true, station: result);
+                bool ok = report.StationEstablished;
+                Tracing.TraceLine("flex import operation complete: import=" + report.ImportCompleted
+                    + ", station established=" + ok + " (" + result.Outcome + ")", TraceLevel.Info);
                 PCAudio = wasPCAudio;
                 if (theRadio.ActiveSlice != null)
                 {
@@ -609,8 +615,7 @@ namespace Radios
                 raisePowerEvent(true);
                 try { if (System.IO.Directory.Exists(importDir)) System.IO.Directory.Delete(importDir, true); }
                 catch (Exception ex) { Tracing.TraceLine("post-import cleanup: " + ex.Message, TraceLevel.Warning); }
-                string msg = ok ? importedMsg : importFailMsg;
-                System.Windows.Forms.MessageBox.Show(msg, statusHdr, System.Windows.Forms.MessageBoxButtons.OK);
+                System.Windows.Forms.MessageBox.Show(report.Message, statusHdr, System.Windows.Forms.MessageBoxButtons.OK);
             }
             return result;
         }
