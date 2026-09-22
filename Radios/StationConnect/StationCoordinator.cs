@@ -333,6 +333,30 @@ namespace Radios.StationConnect
                     return Finish(result, StationOutcome.Failed, GlobalRoute.LoadExisting,
                         "the radio rejected the global load: " + evidence.RejectionText);
                 }
+
+                // Cancellation and permission BEFORE success is accepted.
+                // Completion evidence and a cancellation, or a join, can land
+                // in the same delivery; a confirmed station on a cancelled or
+                // no-longer-permitted operation is not a confirmed station.
+                // Once a sent load is invalidated the uncertainty is kept:
+                // the command may still act, so nothing rolls back and
+                // nothing further is written (review step 6).
+                if (_op.IsEnded)
+                {
+                    result.LoadOutstanding = true;
+                    return Finish(result, StationOutcome.Cancelled, GlobalRoute.LoadExisting,
+                        _op.WhyNotLive + "; the load was sent and its effect is unknown");
+                }
+                string invalidation = InvalidationSinceSend(factsAtPlan);
+                if (invalidation != null)
+                {
+                    result.LoadOutstanding = true;
+                    result.Allocation.Stop = AllocationStop.LoadOutstanding;
+                    return Finish(result, StationOutcome.Unconfirmed, GlobalRoute.LoadExisting,
+                        "permission changed after the load was sent (" + invalidation
+                        + "); the command may still act, so nothing further is written");
+                }
+
                 if (completion == LoadCompletion.Confirmed)
                 {
                     // No top-up. A saved one-slice layout stays one slice.
@@ -341,12 +365,6 @@ namespace Radios.StationConnect
                     return Finish(result, StationOutcome.RestoredConfirmed, GlobalRoute.LoadExisting,
                         "the load's completion evidence was observed (policy: " + _policies.LoadCompletion.Name + ")");
                 }
-                if (_op.IsEnded)
-                {
-                    result.LoadOutstanding = true;
-                    return Finish(result, StationOutcome.Cancelled, GlobalRoute.LoadExisting,
-                        _op.WhyNotLive + "; the load was sent and its effect is unknown");
-                }
                 if (completion == LoadCompletion.NotProvable)
                 {
                     result.LoadOutstanding = true;
@@ -354,19 +372,6 @@ namespace Radios.StationConnect
                     return Finish(result, StationOutcome.Unconfirmed, GlobalRoute.LoadExisting,
                         "the load was sent; completion is not provable under policy '" + _policies.LoadCompletion.Name
                         + "'. Retaining whatever arrives; no default fill; no dependent writes");
-                }
-
-                // Invalidation after send: the command may still act. Stop
-                // dependent work, keep the uncertainty, never roll back.
-                var factsNow = _port.ReadPolicyFacts();
-                var rosterNow = RosterGuard.ForAutomaticWrite(_roster.Snapshot(), _policies.RosterAuthority);
-                if (factsNow.HoldArmed || rosterNow.Verdict == RosterVerdict.OthersPresent)
-                {
-                    result.LoadOutstanding = true;
-                    result.Allocation.Stop = AllocationStop.LoadOutstanding;
-                    return Finish(result, StationOutcome.Unconfirmed, GlobalRoute.LoadExisting,
-                        "permission changed after the load was sent (" + (factsNow.HoldArmed ? "hold armed" : rosterNow.ToString())
-                        + "); the command may still act, so nothing further is written");
                 }
                 if (phase.Passed(_clock))
                 {
@@ -378,6 +383,25 @@ namespace Radios.StationConnect
                 }
                 _waiter.Wait(Math.Min(25, phase.RemainingMs(_clock)));
             }
+        }
+
+        /// <summary>
+        /// Everything that withdraws permission for a load already sent, as
+        /// one sentence or null: the hold; a changed intent, ownership,
+        /// wanted name or connection; and a roster that is no longer only us
+        /// — OthersPresent AND Unknown, because an Unknown roster cannot
+        /// authorise the dependent writes either.
+        /// </summary>
+        private string InvalidationSinceSend(StationPolicyFacts factsAtPlan)
+        {
+            var factsNow = _port.ReadPolicyFacts();
+            if (factsNow.HoldArmed) return "hold armed";
+            if (!factsNow.SameAutomaticPermissionAs(factsAtPlan)) return "policy facts changed: " + factsNow;
+            string refusal = AutomaticStewardshipRefusal(factsNow);
+            if (refusal != null) return refusal;
+            var rosterNow = RosterGuard.ForAutomaticWrite(_roster.Snapshot(), _policies.RosterAuthority);
+            if (rosterNow.Verdict != RosterVerdict.OnlyUs) return rosterNow.ToString();
+            return null;
         }
 
         // ------------------------------------------------------------------

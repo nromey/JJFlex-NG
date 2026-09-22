@@ -633,6 +633,84 @@ namespace Radios.Tests.StationConnect
             h.AssertExactlyOneLoadAndNothingElse("K5NER");
         }
 
+        // ── completion versus cancellation and invalidation (Track G2; review step 6) ──
+
+        [Fact]
+        public void CompletionAndCancellationInTheSameDelivery_NeverReportsRestoredConfirmed()
+        {
+            // The evidence and the cancellation arrive in one delivery, before
+            // the coordinator's next check. A cancelled operation has no
+            // confirmed station, whatever the radio managed to do.
+            var h = new StationHarness();
+            h.ArrangeOwnerReconnect();
+            h.Port.OnGlobalLoadSent = _ => { h.DeliverGenuineCompletion(); h.Attempt.Cancel("connection dropped"); };
+
+            var r = h.Run();
+
+            Assert.Equal(StationOutcome.Cancelled, r.Outcome);
+            Assert.True(r.LoadOutstanding);
+            h.AssertExactlyOneLoadAndNothingElse("K5NER");
+        }
+
+        [Fact]
+        public void CompletionAndAJoinInTheSameDelivery_IsUnconfirmed_NotRestored()
+        {
+            var h = new StationHarness();
+            h.ArrangeOwnerReconnect();
+            h.Port.OnGlobalLoadSent = _ => { h.DeliverGenuineCompletion(); h.OtherClientAdded(); };
+
+            var r = h.Run();
+
+            Assert.Equal(StationOutcome.Unconfirmed, r.Outcome);
+            Assert.Contains("permission changed after the load was sent", r.Reason);
+            Assert.True(r.LoadOutstanding);
+            h.AssertExactlyOneLoadAndNothingElse("K5NER");
+        }
+
+        [Theory]
+        [InlineData("intent", ProfileGuestIntent.LeaveAlone, RadioOwnership.Mine, "K5NER")]
+        [InlineData("ownership", ProfileGuestIntent.LoadMineAndPutBack, RadioOwnership.SomeoneElses, "K5NER")]
+        [InlineData("name", ProfileGuestIntent.LoadMineAndPutBack, RadioOwnership.Mine, "SO2R")]
+        public void InvalidationAfterSend_ByIntentOwnershipOrName_EndsUnconfirmedAtOnce(
+            string what, ProfileGuestIntent intent, RadioOwnership ownership, string wanted)
+        {
+            var h = new StationHarness();
+            h.ArrangeOwnerReconnect();
+            long before = h.Clock.NowMs;
+            h.Waiter.Then(() =>
+            {
+                h.Port.Facts.Intent = intent;
+                h.Port.Facts.Ownership = ownership;
+                h.Port.Facts.WantedGlobal = wanted;
+            });
+
+            var r = h.Run();
+
+            Assert.Equal(StationOutcome.Unconfirmed, r.Outcome);
+            Assert.Contains("permission changed after the load was sent", r.Reason);
+            Assert.True(h.Clock.NowMs - before < h.Deadlines.StationPhaseMs,
+                "a changed " + what + " should end the wait at once, not at the phase deadline");
+            h.AssertExactlyOneLoadAndNothingElse("K5NER");
+        }
+
+        [Fact]
+        public void InvalidationAfterSend_RosterBecomesUnknown_EndsUnconfirmedAtOnce()
+        {
+            // Our own record leaves the roster: the verdict is Unknown, not
+            // OthersPresent, and Unknown is an invalidation too.
+            var h = new StationHarness();
+            h.ArrangeOwnerReconnect();
+            long before = h.Clock.NowMs;
+            h.Waiter.Then(() => h.ClientRemoved(StationHarness.OurHandle));
+
+            var r = h.Run();
+
+            Assert.Equal(StationOutcome.Unconfirmed, r.Outcome);
+            Assert.Contains("permission changed after the load was sent", r.Reason);
+            Assert.True(h.Clock.NowMs - before < h.Deadlines.StationPhaseMs);
+            h.AssertExactlyOneLoadAndNothingElse("K5NER");
+        }
+
         [Fact]
         public void InvalidationAfterSend_HoldArmed_EndsUnconfirmed_NoRollbackNoSecondLoad()
         {
