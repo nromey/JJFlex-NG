@@ -1,0 +1,442 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace Radios.StationConnect
+{
+    /// <summary>What actually happened to one planned step.</summary>
+    public enum ProfileActionOutcome
+    {
+        /// <summary>The recheck inside the dispatched delegate refused it.</summary>
+        Refused,
+        /// <summary>Queued to a loop that has not run it yet.</summary>
+        Queued,
+        /// <summary>The command went out; the effect is not independently observed.</summary>
+        Sent,
+        /// <summary>The effect was confirmed by radio-origin evidence or readback.</summary>
+        Confirmed,
+        /// <summary>Deferred to the command loop (the live-audio apply).</summary>
+        Deferred,
+        Failed,
+    }
+
+    /// <summary>How the post-station phase ended.</summary>
+    public enum PostStationOutcome
+    {
+        /// <summary>Every permitted step ran and every sent selection was confirmed.</summary>
+        Completed,
+        /// <summary>No established station: nothing dependent was run; the
+        /// assessment was read-only.</summary>
+        NotEstablished,
+        /// <summary>A step was refused or failed; nothing after it ran.</summary>
+        Stopped,
+        /// <summary>A sent selection was not confirmed within its bound, or
+        /// the phase ended; nothing after it ran and the repair is withheld.</summary>
+        Unconfirmed,
+        Cancelled,
+    }
+
+    /// <summary>The result of one post-station run: what was read, planned,
+    /// sent, confirmed, and what the assessment may do.</summary>
+    public sealed class PostStationResult
+    {
+        public PostStationOutcome Outcome = PostStationOutcome.Unconfirmed;
+        public string Reason = "";
+
+        /// <summary>The situation as read for this run: connection facts,
+        /// plus each type's state as it was read at ITS turn.</summary>
+        public ProfileSituation Situation;
+
+        /// <summary>The plans of every type phase, merged for the
+        /// announcement. Never used to decide anything after the fact.</summary>
+        public ProfilePlan Plan = new ProfilePlan();
+
+        /// <summary>Types whose selection was sent and confirmed by a
+        /// radio-reported selection after the send.</summary>
+        public List<ProfileTypes> ConfirmedSelections = new List<ProfileTypes>();
+
+        public bool OwnerInitialisationRan;
+        public bool LiveAudioApplied;
+        public bool LiveAudioDeferred;
+        public bool LiveAudioAborted;
+
+        /// <summary>The repair the final assessment may make: only when every
+        /// automatic write was permitted and nothing ended uncertain.</summary>
+        public bool MayRepairMicrophone;
+
+        public override string ToString() =>
+            Outcome + (string.IsNullOrEmpty(Reason) ? "" : " — " + Reason)
+            + " confirmed=[" + string.Join(",", ConfirmedSelections) + "]"
+            + (OwnerInitialisationRan ? " owner-init" : "")
+            + (LiveAudioApplied ? " live-audio-applied" : LiveAudioDeferred ? " live-audio-deferred" : LiveAudioAborted ? " live-audio-aborted" : "")
+            + (MayRepairMicrophone ? " may-repair" : " no-repair");
+    }
+
+    /// <summary>
+    /// What the post-station orchestration needs from the radio side, and
+    /// nothing else. The production implementation is a thin translation
+    /// onto FlexLib inside FlexBase; a test's fake holds a radio's profile
+    /// state and can change it in response to a send, which is how the
+    /// tx-changes-mic dependency is exercised without a radio.
+    /// </summary>
+    public interface IPostStationPort
+    {
+        StationPolicyFacts ReadPolicyFacts();
+
+        /// <summary>The verdict an automatic shared write must obtain.</summary>
+        RosterJudgement RosterForAutomaticWrite();
+
+        /// <summary>The connection-level facts of a situation with NO type
+        /// states: connected, hold, ownership, intent, reported autosave, the
+        /// local transmit-audio choice and stranded snapshot, station present.</summary>
+        ProfileSituation ReadBaseSituation();
+
+        /// <summary>ONE fresh, bounded, radio-origin read of one type.</summary>
+        ProfileTypeState ReadType(ProfileTypes type, int timeoutMs);
+
+        /// <summary>
+        /// Dispatch a selection. The delegate MUST call
+        /// <paramref name="refusalAtSend"/> immediately before writing and
+        /// refuse on a non-null answer; it adds its own radio-side checks.
+        /// Returns Refused, Queued (the loop has not run it inside the bound)
+        /// or Sent.
+        /// </summary>
+        ProfileActionOutcome SendSelection(ProfileAction action, Func<string> refusalAtSend);
+
+        /// <summary>The latest RADIO-REPORTED selection for a type, or null.</summary>
+        SelectionObservation LatestReportedSelection(ProfileTypes type);
+
+        /// <summary>The profile-evidence sequence now, for "after the send".</summary>
+        long ProfileSequence { get; }
+
+        /// <summary>The owner's generic initialisation: MicInput, VOX, CW
+        /// break-in, TX1, the keyer restore. Called only under the full gate.</summary>
+        void RunOwnerInitialization();
+
+        /// <summary>One live-audio step (autosave off, capture, apply).</summary>
+        ProfileActionOutcome RunLiveAudioAction(ProfileAction action);
+
+        /// <summary>The live-audio sequence aborted on a safety step.</summary>
+        void AbortLiveAudio(bool autosaveWasTurnedOff);
+
+        /// <summary>Session records for what was actually done.</summary>
+        void RecordSession(IEnumerable<ProfileSessionRecord> records);
+
+        /// <summary>The LAST call of the phase: say what happened, then the
+        /// silent-microphone assessment, repairing only when permitted and
+        /// only after any deferred work has completed or ended uncertain.</summary>
+        void Conclude(PostStationResult result);
+
+        void Trace(string line, bool warn = false);
+    }
+
+    /// <summary>
+    /// Steps 8 to 10 of the station-first design, in their real order:
+    /// owner initialisation under the full gate; then transmit — read fresh,
+    /// plan, send, CONFIRM; then microphone, read fresh only after the
+    /// transmit effect is confirmed; then the live transmit-audio path; then
+    /// the assessment, last. Stops on Refused, Failed or Unconfirmed and runs
+    /// nothing after the stop.
+    /// </summary>
+    /// <remarks>
+    /// <para>Until Track G2, RunPostStationPhase read both types together,
+    /// built one plan, reported every selection as Sent with no
+    /// applied-state boundary, kept looping past a refusal, ran the owner's
+    /// MicInput/VOX/CWBreakIn/TX1/keyer writes after the whole phase and its
+    /// assessment (even after an Unconfirmed station), and its only test was
+    /// a source-order pin (review section 1 step 8; section 6). This is the
+    /// algorithm behind a port narrow enough for a fake to drive with the
+    /// fake clock, so the ordering is a behavioural test.</para>
+    /// <para>A selection is CONFIRMED by a radio-reported selection for that
+    /// type, with the wanted name, at a sequence after the send. The radio
+    /// reports <c>profile tx current=</c> from its own status when a load
+    /// takes; a local echo of our setter is not that. Whether that report
+    /// also proves the profile's VALUES were applied is bench question C;
+    /// until it answers, this is the strongest evidence available and it is
+    /// named as a selection confirmation, not an applied-state one.</para>
+    /// </remarks>
+    public sealed class PostStationOrchestrator
+    {
+        private readonly IPostStationPort _port;
+        private readonly IStationClock _clock;
+        private readonly IStationWaiter _waiter;
+        private readonly StationDeadlines _deadlines;
+
+        public PostStationOrchestrator(IPostStationPort port, IStationClock clock, IStationWaiter waiter, StationDeadlines deadlines)
+        {
+            _port = port ?? throw new ArgumentNullException(nameof(port));
+            _clock = clock ?? MonotonicStationClock.Instance;
+            _waiter = waiter ?? new NoWaiter();
+            _deadlines = deadlines ?? StationDeadlines.Default();
+        }
+
+        public PostStationResult Run(StationResult station, StationOperation operation)
+        {
+            if (station == null) throw new ArgumentNullException(nameof(station));
+            if (operation == null) throw new ArgumentNullException(nameof(operation));
+
+            var result = new PostStationResult();
+            var phase = StationDeadline.In(_clock, _deadlines.PostStationPhaseMs);
+            var factsAtPlan = _port.ReadPolicyFacts();
+            var rosterAuto = _port.RosterForAutomaticWrite();
+            var baseSituation = _port.ReadBaseSituation() ?? new ProfileSituation { Connected = false };
+            result.Situation = baseSituation;
+            baseSituation.StationPresent = station.OwnSlicesAtEnd > 0 || baseSituation.StationPresent;
+            baseSituation.OnlyStation = rosterAuto.Verdict == RosterVerdict.OnlyUs;
+            baseSituation.OnlyStationUnknown = rosterAuto.Verdict == RosterVerdict.Unknown;
+
+            _port.Trace("post-station phase — station " + station.Outcome + ", established=" + station.StationEstablished
+                + ", facts " + factsAtPlan + ", roster(auto) " + rosterAuto);
+
+            if (!station.StationEstablished)
+            {
+                result.Outcome = PostStationOutcome.NotEstablished;
+                result.Reason = "no established station (" + station.Outcome + "); transmit, microphone, owner initialisation and live audio are NOT run; the assessment is read-only";
+                _port.Trace(result.Reason, warn: true);
+                // The situation still carries what the radio holds for the
+                // types, read fresh, so the announcement can name a stranded
+                // restore point; nothing is planned or sent from it.
+                foreach (var type in ProfileStewardship.TransmitAudioTypes)
+                {
+                    var st = _port.ReadType(type, ReadBudget(phase));
+                    if (st != null) baseSituation.Types.Add(st);
+                }
+                result.Plan = ProfileStewardship.PlanConnectRuled(baseSituation, ProfileStewardship.TransmitAudioTypes);
+                result.Plan.Actions.Clear();
+                result.MayRepairMicrophone = false;
+                _port.Conclude(result);
+                return result;
+            }
+
+            // The gates. Automatic shared writes: connected, hold off, Mine,
+            // opted in, and the roster authoritative-only-us. The live-audio
+            // route: the STRICT roster test, the same as every other shared
+            // write (ruled 2026-09-22), plus the intent and the hold.
+            bool mayWriteShared = ProfileStewardship.MayWriteSharedStateAutomatically(baseSituation)
+                                  && rosterAuto.Verdict == RosterVerdict.OnlyUs;
+            bool liveAudioRoute = baseSituation.Intent == ProfileGuestIntent.UseMyTransmitAudio
+                                  && baseSituation.Connected && !baseSituation.ChangeNothingArmed
+                                  && rosterAuto.Verdict == RosterVerdict.OnlyUs;
+
+            // ── owner initialisation, before the final profile choices ──
+            if (mayWriteShared)
+            {
+                _port.RunOwnerInitialization();
+                result.OwnerInitialisationRan = true;
+            }
+            else
+            {
+                _port.Trace("owner initialisation (MicInput, VOX, CW break-in, TX1, keyer) NOT run — "
+                    + (baseSituation.ChangeNothingArmed ? "the hold is armed"
+                        : baseSituation.Ownership != RadioOwnership.Mine ? "not the declared owner"
+                        : baseSituation.Intent != ProfileGuestIntent.LoadMineAndPutBack ? "intent is " + baseSituation.Intent
+                        : "roster: " + rosterAuto));
+            }
+
+            // ── transmit, then microphone: each read fresh after the previous confirmed effect ──
+            var liveAudioActions = new List<ProfileAction>();
+            bool stopped = false;
+            foreach (var type in ProfileStewardship.TransmitAudioTypes)
+            {
+                if (operation.IsEnded)
+                {
+                    result.Outcome = PostStationOutcome.Cancelled;
+                    result.Reason = "operation ended before the " + ProfileStewardship.Label(type) + " decision: " + operation.WhyNotLive;
+                    stopped = true;
+                    break;
+                }
+                if (phase.Passed(_clock))
+                {
+                    result.Outcome = PostStationOutcome.Unconfirmed;
+                    result.Reason = "the post-station phase ended before the " + ProfileStewardship.Label(type) + " decision";
+                    stopped = true;
+                    break;
+                }
+
+                var state = _port.ReadType(type, ReadBudget(phase));
+                var situation = CloneBase(baseSituation);
+                if (state != null) situation.Types.Add(state);
+                if (state != null) baseSituation.Types.Add(state);
+
+                var plan = ProfileStewardship.PlanConnectRuled(situation, new[] { type });
+                Merge(result.Plan, plan);
+
+                foreach (var action in plan.Actions)
+                {
+                    if (action.Kind != ProfileActionKind.LoadOurs)
+                    {
+                        liveAudioActions.Add(action);
+                        continue;
+                    }
+                    if (!mayWriteShared)
+                    {
+                        _port.Trace("NOT sending " + action + " — automatic shared writes are not authorised on this connection");
+                        continue;
+                    }
+
+                    long seqBefore = _port.ProfileSequence;
+                    var send = _port.SendSelection(action, () => RefusalAtSend(operation, phase, factsAtPlan));
+                    if (send != ProfileActionOutcome.Sent)
+                    {
+                        result.Outcome = send == ProfileActionOutcome.Refused || send == ProfileActionOutcome.Failed
+                            ? PostStationOutcome.Stopped : PostStationOutcome.Unconfirmed;
+                        result.Reason = ProfileStewardship.Label(type) + " selection '" + action.ProfileName + "' was " + send + "; nothing after it runs";
+                        _port.Trace(result.Reason, warn: true);
+                        stopped = true;
+                        break;
+                    }
+
+                    if (!WaitForSelectionConfirmed(type, action.ProfileName, seqBefore, phase, operation))
+                    {
+                        result.Outcome = operation.IsEnded ? PostStationOutcome.Cancelled : PostStationOutcome.Unconfirmed;
+                        result.Reason = ProfileStewardship.Label(type) + " selection '" + action.ProfileName
+                            + "' was sent but the radio did not report it selected within " + _deadlines.TxMicEffectMs
+                            + " ms; nothing after it runs and the assessment does not repair";
+                        _port.Trace(result.Reason, warn: true);
+                        stopped = true;
+                        break;
+                    }
+                    result.ConfirmedSelections.Add(type);
+                }
+                if (stopped) break;
+            }
+
+            // ── the live transmit-audio path (design step 9's tx/mic half) ──
+            var records = new List<ProfileSessionRecord>();
+            if (!stopped && liveAudioActions.Count > 0)
+            {
+                if (!liveAudioRoute)
+                {
+                    foreach (var a in liveAudioActions)
+                        _port.Trace("NOT running " + a + " — the live transmit-audio route is not open on this connection (roster: " + rosterAuto + ")");
+                }
+                else
+                {
+                    bool autosaveOff = false;
+                    foreach (var action in liveAudioActions)
+                    {
+                        if (operation.IsEnded || phase.Passed(_clock)) { result.LiveAudioAborted = true; break; }
+                        var outcome = _port.RunLiveAudioAction(action);
+                        switch (action.Kind)
+                        {
+                            case ProfileActionKind.TurnAutosaveOff:
+                                if (outcome == ProfileActionOutcome.Confirmed) autosaveOff = true;
+                                else
+                                {
+                                    _port.Trace("the radio did not CONFIRM autosave off from its own status, so the operator's transmit audio "
+                                        + "was NOT applied — a live change under autosave could land in the owner's profile.", warn: true);
+                                    result.LiveAudioAborted = true;
+                                }
+                                break;
+                            case ProfileActionKind.CaptureLiveTransmitAudio:
+                                if (outcome != ProfileActionOutcome.Confirmed)
+                                {
+                                    _port.Trace("could not capture the radio's live transmit audio within its bound, so nothing was applied "
+                                        + "— expiry prevents application rather than accepting defaults.", warn: true);
+                                    result.LiveAudioAborted = true;
+                                }
+                                break;
+                            case ProfileActionKind.ApplyLocalTransmitAudio:
+                                if (outcome == ProfileActionOutcome.Confirmed) result.LiveAudioApplied = true;
+                                else if (outcome == ProfileActionOutcome.Deferred) result.LiveAudioDeferred = true;
+                                else result.LiveAudioAborted = true;
+                                break;
+                        }
+                        if (result.LiveAudioAborted) break;
+                    }
+                    if (result.LiveAudioAborted)
+                    {
+                        _port.AbortLiveAudio(autosaveOff);
+                    }
+                    else if (result.LiveAudioApplied)
+                    {
+                        // A CONFIRMED apply owes a put-back. A deferred one
+                        // records itself when its own delegates have run.
+                        records.AddRange(result.Plan.Record.Where(r => r.LiveTransmitAudio));
+                    }
+                }
+            }
+
+            // Records from what was CONFIRMED, never from membership in a plan.
+            foreach (var rec in result.Plan.Record.Where(r => !r.LiveTransmitAudio))
+            {
+                if (result.ConfirmedSelections.Contains(rec.ProfileType)) records.Add(rec);
+            }
+            if (records.Count > 0) _port.RecordSession(records);
+
+            if (!stopped)
+            {
+                result.Outcome = PostStationOutcome.Completed;
+                result.Reason = "every permitted step ran and every sent selection was confirmed";
+            }
+            result.MayRepairMicrophone = mayWriteShared && result.Outcome == PostStationOutcome.Completed;
+            _port.Conclude(result);
+            return result;
+        }
+
+        /// <summary>The recheck inside the dispatched selection: the
+        /// operation, the phase, the facts at planning, the stewardship
+        /// refusal, and the strict roster verdict.</summary>
+        private string RefusalAtSend(StationOperation operation, StationDeadline phase, StationPolicyFacts factsAtPlan)
+        {
+            if (operation.IsEnded) return "operation ended: " + operation.WhyNotLive;
+            if (phase.Passed(_clock)) return "the queued selection ran after the post-station phase had ended";
+            var now = _port.ReadPolicyFacts();
+            if (!now.SameAutomaticPermissionAs(factsAtPlan)) return "policy changed before dispatch (" + now + ")";
+            string refusal = StationCoordinator.AutomaticStewardshipRefusal(now);
+            if (refusal != null) return refusal;
+            var roster = _port.RosterForAutomaticWrite();
+            if (roster.Verdict != RosterVerdict.OnlyUs) return "roster at dispatch: " + roster;
+            return null;
+        }
+
+        private bool WaitForSelectionConfirmed(ProfileTypes type, string name, long seqBefore, StationDeadline phase, StationOperation operation)
+        {
+            var bound = phase.Clip(_clock, _deadlines.TxMicEffectMs);
+            while (true)
+            {
+                var obs = _port.LatestReportedSelection(type);
+                if (obs != null && obs.Provenance == ObservationProvenance.RadioReported
+                    && obs.Sequence > seqBefore && string.Equals(obs.Name, name, StringComparison.Ordinal))
+                    return true;
+                if (operation.IsEnded) return false;
+                if (bound.Passed(_clock)) return false;
+                _waiter.Wait(Math.Min(25, bound.RemainingMs(_clock)));
+            }
+        }
+
+        private int ReadBudget(StationDeadline phase) =>
+            Math.Min(_deadlines.ProfileReadMs, phase.RemainingMs(_clock));
+
+        private static ProfileSituation CloneBase(ProfileSituation b) => new ProfileSituation
+        {
+            Connected = b.Connected,
+            Ownership = b.Ownership,
+            Intent = b.Intent,
+            ChangeNothingArmed = b.ChangeNothingArmed,
+            OnlyStation = b.OnlyStation,
+            OnlyStationUnknown = b.OnlyStationUnknown,
+            RadioAutosave = b.RadioAutosave,
+            LocalTransmitAudioProfile = b.LocalTransmitAudioProfile,
+            LocalTransmitAudioProfileExists = b.LocalTransmitAudioProfileExists,
+            StrandedLiveTransmitAudioSnapshot = b.StrandedLiveTransmitAudioSnapshot,
+            StationPresent = b.StationPresent,
+        };
+
+        private static void Merge(ProfilePlan into, ProfilePlan from)
+        {
+            into.Actions.AddRange(from.Actions);
+            into.Skips.AddRange(from.Skips);
+            into.Record.AddRange(from.Record);
+            foreach (var p in from.StrandedRestorePoints)
+                if (!into.StrandedRestorePoints.Contains(p)) into.StrandedRestorePoints.Add(p);
+            into.AskWhoseRadioThisIs |= from.AskWhoseRadioThisIs;
+            if (from.Suggestion != ProfileGuestIntent.NotAnswered) into.Suggestion = from.Suggestion;
+        }
+
+        private sealed class NoWaiter : IStationWaiter
+        {
+            public void Wait(int maxMs) { }
+        }
+    }
+}

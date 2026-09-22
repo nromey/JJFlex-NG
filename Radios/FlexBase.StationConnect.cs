@@ -134,6 +134,9 @@ namespace Radios
             SeedRosterFrom(radio, fresh.Generation);
             _pendingGlobalCreation = null;
             LastStationResult = null;
+            LastPostStationResult = null;
+            _ownerKeyerRestorePermitted = false;
+            _pendingAssessmentOwed = false;
 
             // Anything the trackers publish wakes whoever is waiting.
             RosterTracker.Changed -= StationEvidenceChanged;
@@ -279,6 +282,12 @@ namespace Radios
                     break;
                 case "ProfileGlobalSelection":
                     ProfileEvidence.GlobalSelectionObserved(r.ProfileGlobalSelection, provenance, gen);
+                    break;
+                case "ProfileTXSelection":
+                    ProfileEvidence.SelectionObserved(ProfileTypes.tx, r.ProfileTXSelection, provenance, gen);
+                    break;
+                case "ProfileMICSelection":
+                    ProfileEvidence.SelectionObserved(ProfileTypes.mic, r.ProfileMICSelection, provenance, gen);
                     break;
                 case "ProfileAutoSave":
                     ProfileEvidence.AutosaveObserved(r.ProfileAutoSave, provenance, gen);
@@ -568,160 +577,122 @@ namespace Radios
         }
 
         /// <summary>
-        /// Steps 8 to 10: after station establishment, discard every pre-load
-        /// transmit and microphone reading, read them fresh, plan and execute
-        /// only what the ruling permits, run the live transmit-audio path for
-        /// UseMyTransmitAudio, then the silent-microphone assessment last.
+        /// Steps 8 to 10, run by <see cref="PostStationOrchestrator"/> over
+        /// this adapter: owner initialisation under the full gate; transmit
+        /// read fresh, planned, sent and CONFIRMED; then microphone read fresh
+        /// after that confirmed effect; the live transmit-audio path; the
+        /// assessment last. Everything here is wire; the order and the stop
+        /// rules are the orchestrator's and are tested against a fake port.
         /// </summary>
-        private void RunPostStationPhase(StationResult station, StationOperation operation)
+        private PostStationResult RunPostStationPhase(StationResult station, StationOperation operation)
         {
-            var attempt = operation.Attempt;
-            var phase = StationDeadline.In(_stationClock, StationDeadlines.Default().PostStationPhaseMs);
-            var facts = ReadStationPolicyFacts();
-            var rosterAuto = RosterJudgementForAutomaticWrite();
-            var rosterLive = RosterJudgementNow();
-
-            Tracing.TraceLine("StationConnect: post-station phase — station " + station.Outcome
-                + ", established=" + station.StationEstablished + ", facts " + facts
-                + ", roster(auto) " + rosterAuto + ", roster(live) " + rosterLive, TraceLevel.Info);
-
-            // Fresh transmit and microphone facts. The global type comes from
-            // the session's held evidence, not a second ask: no second global
-            // decision is made here.
-            int readMs = Math.Min(StationDeadlines.Default().ProfileReadMs, phase.RemainingMs(_stationClock));
-            var situation = ReadProfileSituation(
-                WantedProfilesForThisRadio(), freshAsk: true,
-                freshTypes: ProfileStewardship.TransmitAudioTypes, timeoutMs: readMs);
-            if (situation == null || !operation.IsLive) return;
-            situation.StationPresent = StationTracker.Snapshot().StationPresent;
-
-            bool mayWriteShared = ProfileStewardship.MayWriteSharedStateAutomatically(situation)
-                                  && station.StationEstablished
-                                  && rosterAuto.Verdict == RosterVerdict.OnlyUs;
-            bool liveAudioRoute = situation.Intent == ProfileGuestIntent.UseMyTransmitAudio
-                                  && !situation.ChangeNothingArmed
-                                  && station.StationEstablished
-                                  && rosterLive.Verdict == RosterVerdict.OnlyUs;
-
-            // The planner's OnlyStation input is the verdict the ROUTE needs:
-            // the live membership verdict for the preserved guest live-audio
-            // path (the brief keeps that path unchanged), the authority-policy
-            // verdict for owner writes. Unknown is passed as Unknown so the
-            // planner's refusal names uncertainty, not a person.
-            var routeVerdict = situation.Intent == ProfileGuestIntent.UseMyTransmitAudio ? rosterLive : rosterAuto;
-            situation.OnlyStation = routeVerdict.Verdict == RosterVerdict.OnlyUs;
-            situation.OnlyStationUnknown = routeVerdict.Verdict == RosterVerdict.Unknown;
-
-            var plan = ProfileStewardship.PlanConnectRuled(situation, ProfileStewardship.TransmitAudioTypes);
-            StrandedProfileRestorePoints = ProfileStewardship.StrandedRestorePoints(situation).ToArray();
-
-            foreach (var skip in plan.Skips)
+            using (var waiter = new EventStationWaiter(operation.Attempt))
             {
-                Tracing.TraceLine(
-                    "ProfileStewardship: left the " + ProfileStewardship.Label(skip.ProfileType)
-                    + " " + (skip.ProfileType == ProfileTypes.none ? "" : "profile ")
-                    + "alone — " + skip.Reason
-                    + (string.IsNullOrEmpty(skip.ProfileName) ? "" : " (would have used '" + skip.ProfileName + "')"),
-                    TraceLevel.Info);
+                var orchestrator = new PostStationOrchestrator(
+                    new FlexPostStationPort(this, operation), _stationClock, waiter, StationDeadlines.Default());
+                var result = orchestrator.Run(station, operation);
+                LastPostStationResult = result;
+                return result;
             }
+        }
 
-            if (!station.StationEstablished)
+        /// <summary>The result of the last post-station phase on this
+        /// connection, or null. Read by the deferred live-audio continuation
+        /// and the connect briefing.</summary>
+        public PostStationResult LastPostStationResult { get; private set; }
+
+        /// <summary>The production <see cref="IPostStationPort"/>: FlexBase's
+        /// existing helpers behind the orchestrator's narrow interface.</summary>
+        private sealed class FlexPostStationPort : IPostStationPort
+        {
+            private readonly FlexBase _rig;
+            private readonly StationOperation _op;
+            public FlexPostStationPort(FlexBase rig, StationOperation op) { _rig = rig; _op = op; }
+
+            public StationPolicyFacts ReadPolicyFacts() => _rig.ReadStationPolicyFacts();
+            public RosterJudgement RosterForAutomaticWrite() => _rig.RosterJudgementForAutomaticWrite();
+            public ProfileSituation ReadBaseSituation() => _rig.ReadBaseProfileSituation();
+            public ProfileTypeState ReadType(ProfileTypes type, int timeoutMs) =>
+                _rig.ReadProfileTypeState(type, _rig.WantedProfilesForThisRadio(), freshAsk: true, timeoutMs: timeoutMs);
+            public ProfileActionOutcome SendSelection(ProfileAction action, Func<string> refusalAtSend) =>
+                _rig.DispatchSelectionChecked(action, _op, refusalAtSend);
+            public SelectionObservation LatestReportedSelection(ProfileTypes type) =>
+                _rig.ProfileEvidence.Snapshot().ReportedSelectionOf(type);
+            public long ProfileSequence => _rig.ProfileEvidence.Sequence;
+            public void RunOwnerInitialization() => _rig.RunOwnerInitialization();
+            public ProfileActionOutcome RunLiveAudioAction(ProfileAction action) => _rig.RunLiveAudioActionChecked(action, _op);
+            public void AbortLiveAudio(bool autosaveWasTurnedOff) => _rig.AbortLiveAudio(autosaveWasTurnedOff);
+            public void RecordSession(IEnumerable<ProfileSessionRecord> records)
             {
-                Tracing.TraceLine("StationConnect: no established station (" + station.Outcome
-                    + "); transmit and microphone actions are NOT run. Read-only assessment continues.",
-                    TraceLevel.Warning);
-                NoteStationOutcome(station);
-                AnnounceConnectStewardship(situation, plan, _stewardshipPreAnswered, liveAudioApplied: false);
-                CheckMicProfileForSilentTx(mayRepair: false);
+                lock (_rig._profileRecordLock) _rig._profileSessionRecord.AddRange(records);
+            }
+            public void Conclude(PostStationResult result) => _rig.ConcludePostStationPhase(result);
+            public void Trace(string line, bool warn) =>
+                Tracing.TraceLine("StationConnect: " + line, warn ? TraceLevel.Warning : TraceLevel.Info);
+        }
+
+        /// <summary>
+        /// The owner's generic connect-time writes — MicInput, VOX, CW
+        /// break-in, TX1, and the CW keyer restore — run INSIDE the
+        /// established-station phase under the full gate (hold, intent,
+        /// ownership, roster, station established), before the final profile
+        /// choices. Until Track G2 they ran from mainThreadProc after the
+        /// whole phase and its assessment, on any outcome (review step 8).
+        /// The keyer restore's setters enqueue through the command loop,
+        /// which is not up yet, so that one is permitted here and applied by
+        /// issue7620 once the loop starts.
+        /// </summary>
+        private void RunOwnerInitialization()
+        {
+            var radio = theRadio;
+            if (radio == null) return;
+            if (!RemoteRig)
+            {
+                // mic_input is station-global and outlives the session (audit 1.7).
+                radio.MicInput = "mic";
+            }
+            // Radio-persistent: an owner who deliberately set either gets it
+            // reset every time we connect (audit 1.4).
+            radio.SimpleVOXEnable = false;
+            radio.CWBreakIn = false;
+            // TX1 RCA by default for compatibility: an interlock write,
+            // radio-persistent, on every open.
+            radio.TX1Enabled = true;
+            _ownerKeyerRestorePermitted = true;
+            Tracing.TraceLine("StationConnect: owner initialisation written (MicInput, VOX off, CW break-in off, TX1 on); "
+                + "keyer restore permitted for the command loop", TraceLevel.Info);
+        }
+
+        /// <summary>Set by <see cref="RunOwnerInitialization"/> for this
+        /// attempt; read by issue7620 when the command loop is up.</summary>
+        private bool _ownerKeyerRestorePermitted;
+
+        /// <summary>Everything is said, then the assessment, last. Repair only
+        /// when the orchestrator says so, and only after any deferred
+        /// live-audio work has completed or ended uncertain.</summary>
+        private void ConcludePostStationPhase(PostStationResult result)
+        {
+            NoteStationOutcome(LastStationResult);
+            if (result.Situation != null)
+            {
+                StrandedProfileRestorePoints = ProfileStewardship.StrandedRestorePoints(result.Situation).ToArray();
+                AnnounceConnectStewardship(result.Situation, result.Plan, _stewardshipPreAnswered, result.LiveAudioApplied);
+            }
+            if (result.LiveAudioDeferred)
+            {
+                // The deferred apply runs on the command loop after this
+                // phase returns; the assessment follows IT, not this call.
+                _pendingAssessmentMayRepair = result.MayRepairMicrophone;
+                _pendingAssessmentOwed = true;
+                Tracing.TraceLine("StationConnect: the silent-microphone assessment is deferred until the live "
+                    + "transmit-audio apply has completed or ended uncertain", TraceLevel.Info);
                 return;
             }
-
-            bool liveAudioApplied = false;
-            var executed = new List<ProfileAction>();
-            bool abort = false;
-            foreach (var action in plan.Actions)
-            {
-                if (abort || !operation.IsLive || phase.Passed(_stationClock)) break;
-
-                bool isLoad = action.Kind == ProfileActionKind.LoadOurs;
-                if (isLoad && !mayWriteShared)
-                {
-                    Tracing.TraceLine("ProfileStewardship: NOT sending " + action
-                        + " — automatic shared writes are not authorised on this connection", TraceLevel.Info);
-                    continue;
-                }
-                if (!isLoad && !liveAudioRoute)
-                {
-                    Tracing.TraceLine("ProfileStewardship: NOT running " + action
-                        + " — the live transmit-audio route is not open on this connection", TraceLevel.Info);
-                    continue;
-                }
-
-                var outcome = RunProfileActionChecked(action, operation, phase);
-                switch (action.Kind)
-                {
-                    case ProfileActionKind.TurnAutosaveOff:
-                        if (outcome == ProfileActionOutcome.Confirmed) _autosaveTurnedOffThisSession = true;
-                        else
-                        {
-                            Tracing.TraceLine(
-                                "ProfileStewardship: the radio did not CONFIRM autosave off from its own status, so "
-                                + "the operator's transmit audio was NOT applied — a live change under autosave could "
-                                + "land in the owner's profile.", TraceLevel.Error);
-                            abort = true;
-                        }
-                        break;
-                    case ProfileActionKind.CaptureLiveTransmitAudio:
-                        if (outcome != ProfileActionOutcome.Confirmed)
-                        {
-                            Tracing.TraceLine(
-                                "ProfileStewardship: could not capture the radio's live transmit audio within its "
-                                + "bound, so nothing was applied — expiry prevents application rather than accepting defaults.",
-                                TraceLevel.Error);
-                            abort = true;
-                        }
-                        break;
-                    case ProfileActionKind.ApplyLocalTransmitAudio:
-                        if (outcome == ProfileActionOutcome.Confirmed) liveAudioApplied = true;
-                        break;
-                }
-                if (outcome == ProfileActionOutcome.Sent || outcome == ProfileActionOutcome.Confirmed
-                    || outcome == ProfileActionOutcome.Deferred)
-                {
-                    executed.Add(action);
-                }
-            }
-
-            if (abort)
-            {
-                if (_autosaveTurnedOffThisSession) RestoreRadioAutosaveAfterAbort();
-                lock (_profileRecordLock) _profileSessionRecord.Clear();
-                _pendingLiveTxApplyPreset = null;
-            }
-            else
-            {
-                // Record from what was actually SENT, not from membership in
-                // plan.Actions. A sent-but-unconfirmed selection is still owed
-                // a put-back: the command may have acted.
-                lock (_profileRecordLock)
-                {
-                    foreach (var rec in plan.Record)
-                    {
-                        bool owed = rec.LiveTransmitAudio
-                            ? _liveTxSnapshot != null && executed.Any(a => a.Kind == ProfileActionKind.ApplyLocalTransmitAudio)
-                            : executed.Any(a => a.ProfileType == rec.ProfileType && a.Kind == ProfileActionKind.LoadOurs);
-                        if (owed) _profileSessionRecord.Add(rec);
-                    }
-                }
-            }
-
-            NoteStationOutcome(station);
-            AnnounceConnectStewardship(situation, plan, _stewardshipPreAnswered, liveAudioApplied);
-
-            // Step 10, last: the assessment. Repair only under the same
-            // authority as every other automatic shared write.
-            CheckMicProfileForSilentTx(mayRepair: mayWriteShared);
+            CheckMicProfileForSilentTx(mayRepair: result.MayRepairMicrophone);
         }
+
+        private bool _pendingAssessmentOwed;
+        private bool _pendingAssessmentMayRepair;
 
         /// <summary>Tell the operator, once, when the station could not be
         /// confirmed or failed — retained resources, no default fill, retry
@@ -787,34 +758,14 @@ namespace Radios
             }
         }
 
+
         // ------------------------------------------------------------------
         // Executing one action with the recheck inside the dispatched work
         // ------------------------------------------------------------------
 
-        /// <summary>What actually happened to one planned step.</summary>
-        internal enum ProfileActionOutcome
+        /// <summary>One live-audio step (autosave off, capture, apply).</summary>
+        private ProfileActionOutcome RunLiveAudioActionChecked(ProfileAction action, StationOperation operation)
         {
-            /// <summary>The recheck inside the dispatched delegate refused it.</summary>
-            Refused,
-            /// <summary>Queued to a loop that has not run it yet.</summary>
-            Queued,
-            /// <summary>The command went out; the effect is not independently observed.</summary>
-            Sent,
-            /// <summary>The effect was confirmed by radio-origin evidence or readback.</summary>
-            Confirmed,
-            /// <summary>Deferred to the command loop (the live-audio apply).</summary>
-            Deferred,
-            Failed,
-        }
-
-        /// <summary>
-        /// Run a planned action with every permission re-read INSIDE the
-        /// dispatched delegate, not before it. A guard around the caller
-        /// misses queue delay and later callbacks (design section 4).
-        /// </summary>
-        private ProfileActionOutcome RunProfileActionChecked(ProfileAction action, StationOperation operation, StationDeadline phase)
-        {
-            var attempt = operation.Attempt;
             var radio = theRadio;
             if (radio == null || action == null) return ProfileActionOutcome.Failed;
 
@@ -824,9 +775,6 @@ namespace Radios
 
             switch (action.Kind)
             {
-                case ProfileActionKind.LoadOurs:
-                    return DispatchSelectionChecked(radio, action, operation, phase);
-
                 case ProfileActionKind.TurnAutosaveOff:
                     return SetRadioProfileAutosaveGuest(false) ? ProfileActionOutcome.Confirmed : ProfileActionOutcome.Failed;
 
@@ -837,7 +785,7 @@ namespace Radios
                     if (q != null && !q.MainLoop)
                     {
                         _pendingLiveTxApplyPreset = action.ProfileName;
-                        _pendingLiveTxApplyAttempt = attempt.Generation;
+                        _pendingLiveTxApplyAttempt = operation.Attempt.Generation;
                         Tracing.TraceLine(
                             "ProfileStewardship: deferring the live transmit-audio apply until the command loop is running; "
                             + "permission and the captured chain generation are revalidated there.", TraceLevel.Info);
@@ -850,25 +798,33 @@ namespace Radios
             }
         }
 
-        private ProfileActionOutcome DispatchSelectionChecked(Radio radio, ProfileAction action, StationOperation operation, StationDeadline phase)
+        /// <summary>The live-audio sequence aborted on its safety step.
+        /// Nothing else was changed by then, so the radio gets its autosave
+        /// straight back; the durable notice clears only when that is
+        /// confirmed (see RestoreRadioAutosaveAfterAbort).</summary>
+        private void AbortLiveAudio(bool autosaveWasTurnedOff)
         {
-            var factsAtPlan = ReadStationPolicyFacts();
+            if (autosaveWasTurnedOff || _autosaveTurnedOffThisSession) RestoreRadioAutosaveAfterAbort();
+            lock (_profileRecordLock) _profileSessionRecord.RemoveAll(r => r.LiveTransmitAudio);
+            _pendingLiveTxApplyPreset = null;
+        }
+
+        /// <summary>
+        /// Dispatch a transmit or microphone selection with every permission
+        /// re-read INSIDE the dispatched delegate: the orchestrator's refusal
+        /// (operation, phase, facts, stewardship, strict roster) first, then
+        /// the radio-side checks (list membership, MayCreate).
+        /// </summary>
+        private ProfileActionOutcome DispatchSelectionChecked(ProfileAction action, StationOperation operation, Func<string> refusalAtSend)
+        {
+            var radio = theRadio;
+            if (radio == null || action == null) return ProfileActionOutcome.Failed;
             bool sent = false;
             string refusal = null;
             DispatchStationWork("stewardship " + ProfileStewardship.Label(action.ProfileType) + " selection", () =>
             {
-                if (operation.IsEnded) { refusal = "operation ended: " + operation.WhyNotLive; return; }
-                if (phase.Passed(_stationClock)) { refusal = "the queued selection ran after the post-station phase had ended"; return; }
-                var now = ReadStationPolicyFacts();
-                if (!now.SameAutomaticPermissionAs(factsAtPlan) || now.HoldArmed
-                    || now.Ownership != RadioOwnership.Mine || now.Intent != ProfileGuestIntent.LoadMineAndPutBack)
-                {
-                    refusal = "policy changed before dispatch (" + now + ")";
-                    return;
-                }
-                var roster = RosterJudgementForAutomaticWrite();
-                if (roster.Verdict != RosterVerdict.OnlyUs) { refusal = "roster at dispatch: " + roster; return; }
-
+                refusal = refusalAtSend?.Invoke();
+                if (refusal != null) return;
                 using (OwnProfileWrite())
                 {
                     switch (action.ProfileType)
@@ -900,9 +856,8 @@ namespace Radios
             if (!sent && refusal == null)
             {
                 // Queued to the command loop from another thread: report only
-                // after the delegate really ran, within the phase.
-                var bound = phase.Clip(_stationClock, 3000);
-                await(() => sent || refusal != null, bound.RemainingMs(_stationClock));
+                // after the delegate really ran, within a bound.
+                await(() => sent || refusal != null || operation.IsEnded, StationDeadlines.Default().TxMicEffectMs);
             }
             if (refusal != null)
             {
@@ -932,6 +887,24 @@ namespace Radios
             if (ownership == RadioOwnership.Mine) return false;
             Tracing.TraceLine("StationConnect: skipped '" + what + "' — this radio is not declared ours ("
                 + ownership + "); a guest writes nothing shared (#590)", TraceLevel.Info);
+            return true;
+        }
+
+        /// <summary>
+        /// The keyer restore's gate: permitted by RunOwnerInitialization in
+        /// the established-station phase (which already checked the hold,
+        /// intent, ownership, roster and the station), and the hold checked
+        /// again at the moment of applying because it is a separate moment.
+        /// </summary>
+        private bool OwnerKeyerRestorePermitted(string what)
+        {
+            if (!_ownerKeyerRestorePermitted)
+            {
+                Tracing.TraceLine("StationConnect: skipped '" + what + "' — owner initialisation did not run on this "
+                    + "connection (not established, not the owner, not opted in, the hold, or company)", TraceLevel.Info);
+                return false;
+            }
+            if (GuardSkips(what)) return false;
             return true;
         }
 

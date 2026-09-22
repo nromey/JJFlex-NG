@@ -1,0 +1,511 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Radios;
+using Radios.StationConnect;
+using Xunit;
+
+namespace Radios.Tests.StationConnect
+{
+    /// <summary>
+    /// A radio's transmit and microphone profile state behind the
+    /// orchestrator's narrow port. The test changes it in response to a send,
+    /// which is how "applying the transmit profile changes the microphone
+    /// selection" is exercised without a radio. Every command and every read
+    /// is recorded in ORDER, so sequencing is an assertion, not a source pin.
+    /// </summary>
+    internal sealed class FakePostStationPort : IPostStationPort
+    {
+        public sealed class TypeState
+        {
+            public List<string> Names = new List<string>();
+            /// <summary>null = unreadable; "" = the radio reported none loaded.</summary>
+            public string Selection = "";
+            public bool Reported = true;
+            public bool Unsaved;
+        }
+
+        public readonly FakeStationClock Clock;
+        public readonly ProfileEvidenceLog Evidence;
+        public readonly int Gen;
+
+        public StationPolicyFacts Facts = new StationPolicyFacts
+        {
+            Connected = true, Ownership = RadioOwnership.Mine, Intent = ProfileGuestIntent.LoadMineAndPutBack,
+            WantedGlobal = "K5NER", Serial = "1234-5678-9012-3456",
+        };
+        public RosterVerdict Roster = RosterVerdict.OnlyUs;
+        public bool? RadioAutosave = false;
+        public string LocalTxProfile = "";
+        public bool LocalTxProfileExists;
+
+        public readonly Dictionary<ProfileTypes, TypeState> State = new Dictionary<ProfileTypes, TypeState>
+        {
+            { ProfileTypes.tx, new TypeState { Names = { "Default", "K5NER-TX" }, Selection = "Default" } },
+            { ProfileTypes.mic, new TypeState { Names = { "Default", "K5NER-MIC" }, Selection = "Default" } },
+        };
+        public readonly Dictionary<ProfileTypes, string> Wanted = new Dictionary<ProfileTypes, string>
+        {
+            { ProfileTypes.global, "K5NER" }, { ProfileTypes.tx, "K5NER-TX" }, { ProfileTypes.mic, "K5NER-MIC" },
+        };
+
+        /// <summary>Everything, in order: "read tx", "send tx K5NER-TX", "owner-init", "live TurnAutosaveOff", "conclude repair=True".</summary>
+        public readonly List<string> Log = new List<string>();
+        public readonly List<(ProfileTypes type, string name)> Sent = new List<(ProfileTypes, string)>();
+        public readonly List<ProfileActionKind> LiveAudioRun = new List<ProfileActionKind>();
+        public readonly List<ProfileSessionRecord> Recorded = new List<ProfileSessionRecord>();
+        public PostStationResult Concluded;
+
+        /// <summary>Called when a selection is actually sent. The default
+        /// makes the radio report that selection at once; a test replaces it
+        /// to withhold the report or to change the other type's state.</summary>
+        public Action<ProfileTypes, string> OnSelectionSent;
+
+        /// <summary>Outcome for each live-audio kind; Confirmed by default.</summary>
+        public readonly Dictionary<ProfileActionKind, ProfileActionOutcome> LiveAudioOutcomes = new Dictionary<ProfileActionKind, ProfileActionOutcome>();
+
+        public bool HoldDispatch;
+        public readonly List<Action> Held = new List<Action>();
+
+        public FakePostStationPort(FakeStationClock clock)
+        {
+            Clock = clock;
+            Evidence = new ProfileEvidenceLog(clock);
+            Gen = 42;
+            Evidence.Reset(Gen);
+            OnSelectionSent = (type, name) => RadioReportsSelection(type, name);
+        }
+
+        public void RadioReportsSelection(ProfileTypes type, string name)
+        {
+            State[type].Selection = name;
+            Evidence.SelectionObserved(type, name, ObservationProvenance.RadioReported, Gen);
+        }
+
+        public int ReadsOf(ProfileTypes type) => Log.Count(l => l == "read " + type);
+        public int IndexOfFirst(string entry) => Log.IndexOf(entry);
+
+        public StationPolicyFacts ReadPolicyFacts() => new StationPolicyFacts
+        {
+            Connected = Facts.Connected, HoldArmed = Facts.HoldArmed, Ownership = Facts.Ownership,
+            Intent = Facts.Intent, WantedGlobal = Facts.WantedGlobal, Serial = Facts.Serial,
+        };
+
+        public RosterJudgement RosterForAutomaticWrite() => new RosterJudgement(Roster, "fake roster", 1);
+
+        public ProfileSituation ReadBaseSituation() => new ProfileSituation
+        {
+            Connected = Facts.Connected, ChangeNothingArmed = Facts.HoldArmed, Ownership = Facts.Ownership,
+            Intent = Facts.Intent, RadioAutosave = RadioAutosave,
+            LocalTransmitAudioProfile = LocalTxProfile, LocalTransmitAudioProfileExists = LocalTxProfileExists,
+        };
+
+        public ProfileTypeState ReadType(ProfileTypes type, int timeoutMs)
+        {
+            Log.Add("read " + type);
+            var st = State[type];
+            return new ProfileTypeState
+            {
+                ProfileType = type, Reported = st.Reported, Names = st.Names.ToList(),
+                Selection = st.Selection, UnsavedChanges = st.Unsaved,
+                Wanted = Wanted.TryGetValue(type, out var w) ? w : "",
+            };
+        }
+
+        public ProfileActionOutcome SendSelection(ProfileAction action, Func<string> refusalAtSend)
+        {
+            ProfileActionOutcome outcome = ProfileActionOutcome.Queued;
+            Action work = () =>
+            {
+                string refusal = refusalAtSend();
+                if (refusal != null) { Log.Add("refused " + action.ProfileType + " " + refusal); outcome = ProfileActionOutcome.Refused; return; }
+                Log.Add("send " + action.ProfileType + " " + action.ProfileName);
+                Sent.Add((action.ProfileType, action.ProfileName));
+                outcome = ProfileActionOutcome.Sent;
+                OnSelectionSent?.Invoke(action.ProfileType, action.ProfileName);
+            };
+            if (HoldDispatch)
+            {
+                // The production port waits, bounded, for a queued delegate
+                // to run; this models that wait through the scripted waiter
+                // so a test can change the world before releasing it.
+                Held.Add(work);
+                int spins = 0;
+                while (Held.Contains(work) && spins++ < 200) WhileHeld?.Invoke();
+                return Held.Contains(work) ? ProfileActionOutcome.Queued : outcome;
+            }
+            work();
+            return outcome;
+        }
+
+        /// <summary>Runs while a held delegate has not been released; a test
+        /// wires it to the scripted waiter.</summary>
+        public Action WhileHeld;
+
+        public void ReleaseHeld()
+        {
+            HoldDispatch = false;
+            var items = Held.ToList();
+            Held.Clear();
+            foreach (var w in items) w();
+        }
+
+        public SelectionObservation LatestReportedSelection(ProfileTypes type) => Evidence.Snapshot().ReportedSelectionOf(type);
+        public long ProfileSequence => Evidence.Sequence;
+
+        public void RunOwnerInitialization() => Log.Add("owner-init");
+
+        public ProfileActionOutcome RunLiveAudioAction(ProfileAction action)
+        {
+            Log.Add("live " + action.Kind);
+            LiveAudioRun.Add(action.Kind);
+            return LiveAudioOutcomes.TryGetValue(action.Kind, out var o) ? o : ProfileActionOutcome.Confirmed;
+        }
+
+        public void AbortLiveAudio(bool autosaveWasTurnedOff) => Log.Add("abort-live-audio autosave=" + autosaveWasTurnedOff);
+        public void RecordSession(IEnumerable<ProfileSessionRecord> records) => Recorded.AddRange(records);
+        public void Conclude(PostStationResult result) { Concluded = result; Log.Add("conclude repair=" + result.MayRepairMicrophone); }
+        public void Trace(string line, bool warn) { }
+    }
+
+    /// <summary>
+    /// The review's stronger third mutation test: the production post-station
+    /// ORDERING, driven through a fake port with the fake clock. Group 5 of
+    /// the design's tests. The named mutation — read both types up front and
+    /// plan once — must fail the two dependency tests.
+    /// </summary>
+    public sealed class PostStationOrchestratorTests
+    {
+        private static StationResult Established(int slices = 2) => new StationResult
+        {
+            Outcome = StationOutcome.RestoredConfirmed, Route = GlobalRoute.LoadExisting, OwnSlicesAtEnd = slices,
+        };
+
+        private static StationResult Unconfirmed() => new StationResult
+        {
+            Outcome = StationOutcome.Unconfirmed, Route = GlobalRoute.LoadExisting, LoadSent = true, LoadOutstanding = true, OwnSlicesAtEnd = 1,
+        };
+
+        private sealed class Rig
+        {
+            public readonly FakeStationClock Clock = new FakeStationClock();
+            public readonly FakePostStationPort Port;
+            public readonly ScriptedWaiter Waiter;
+            public readonly ConnectionAttempt Attempt = new ConnectionAttempt("1234-5678-9012-3456");
+            public readonly StationOperation Operation;
+            public Rig()
+            {
+                Port = new FakePostStationPort(Clock);
+                Waiter = new ScriptedWaiter(Clock);
+                Port.WhileHeld = () => Waiter.Wait(25);
+                Operation = Attempt.BeginOperation("connect");
+            }
+            public PostStationResult Run(StationResult station) =>
+                new PostStationOrchestrator(Port, Clock, Waiter, StationDeadlines.Default()).Run(station, Operation);
+        }
+
+        // ── the positive control ──
+
+        [Fact]
+        public void BothTypesNeedLoading_EachIsSentAndConfirmedInTurn_OwnerInitFirst_AssessmentLast()
+        {
+            var r = new Rig();
+
+            var result = r.Run(Established());
+
+            Assert.Equal(PostStationOutcome.Completed, result.Outcome);
+            Assert.Equal(new[] { (ProfileTypes.tx, "K5NER-TX"), (ProfileTypes.mic, "K5NER-MIC") }, r.Port.Sent);
+            Assert.Equal(new[] { ProfileTypes.tx, ProfileTypes.mic }, result.ConfirmedSelections);
+            Assert.True(result.OwnerInitialisationRan);
+            Assert.True(result.MayRepairMicrophone);
+            // Order: owner-init, read tx, send tx, read mic, send mic, conclude.
+            Assert.Equal(new[] { "owner-init", "read tx", "send tx K5NER-TX", "read mic", "send mic K5NER-MIC", "conclude repair=True" }, r.Port.Log);
+            Assert.Empty(r.Port.Recorded);                     // the owner's radio: nothing to put back
+        }
+
+        // ── the dependency: microphone is decided AFTER the confirmed transmit effect ──
+
+        [Fact]
+        public void TransmitApplicationChangesTheMicrophone_TheMicrophoneIsDecidedFromAFreshReadAfterThatEffect()
+        {
+            // Before the phase the microphone already matches. Loading the
+            // transmit profile carries a microphone with it, and the radio
+            // reports the microphone changed. A plan made from a pre-read
+            // would say "already loaded" and leave the wrong microphone.
+            var r = new Rig();
+            r.Port.State[ProfileTypes.mic].Selection = "K5NER-MIC";
+            r.Port.OnSelectionSent = (type, name) =>
+            {
+                r.Port.RadioReportsSelection(type, name);
+                if (type == ProfileTypes.tx) r.Port.RadioReportsSelection(ProfileTypes.mic, "Default");
+            };
+
+            var result = r.Run(Established());
+
+            Assert.Equal(PostStationOutcome.Completed, result.Outcome);
+            Assert.Equal(new[] { (ProfileTypes.tx, "K5NER-TX"), (ProfileTypes.mic, "K5NER-MIC") }, r.Port.Sent);
+            Assert.True(r.Port.IndexOfFirst("read mic") > r.Port.IndexOfFirst("send tx K5NER-TX"),
+                "the microphone must be read after the transmit effect, not before it");
+        }
+
+        [Fact]
+        public void TransmitApplicationSetsTheMicrophoneRight_NoObsoleteMicrophoneWrite()
+        {
+            // The inverse: both need loading by a pre-read, but the transmit
+            // load's effect leaves the microphone already right. Exactly one
+            // load.
+            var r = new Rig();
+            r.Port.OnSelectionSent = (type, name) =>
+            {
+                r.Port.RadioReportsSelection(type, name);
+                if (type == ProfileTypes.tx) r.Port.RadioReportsSelection(ProfileTypes.mic, "K5NER-MIC");
+            };
+
+            var result = r.Run(Established());
+
+            Assert.Equal(PostStationOutcome.Completed, result.Outcome);
+            Assert.Equal(new[] { (ProfileTypes.tx, "K5NER-TX") }, r.Port.Sent);
+            Assert.Equal(1, r.Port.ReadsOf(ProfileTypes.mic));
+            Assert.True(result.Plan.Skipped(ProfileTypes.mic, ProfileSkipReason.AlreadyLoaded));
+        }
+
+        // ── stop rules ──
+
+        [Fact]
+        public void AnUnconfirmedTransmitSelection_StopsBeforeTheMicrophone_AndWithholdsTheRepair()
+        {
+            var r = new Rig();
+            r.Port.OnSelectionSent = (type, name) => { }; // the radio never reports it
+            long before = r.Clock.NowMs;
+
+            var result = r.Run(Established());
+
+            Assert.Equal(PostStationOutcome.Unconfirmed, result.Outcome);
+            Assert.Equal(new[] { (ProfileTypes.tx, "K5NER-TX") }, r.Port.Sent);
+            Assert.Equal(0, r.Port.ReadsOf(ProfileTypes.mic));
+            Assert.Empty(result.ConfirmedSelections);
+            Assert.False(result.MayRepairMicrophone);
+            Assert.True(r.Clock.NowMs - before >= StationDeadlines.Default().TxMicEffectMs);
+            Assert.True(r.Clock.NowMs - before < StationDeadlines.Default().PostStationPhaseMs);
+            Assert.Equal("conclude repair=False", r.Port.Log.Last());
+        }
+
+        [Fact]
+        public void ALocalEchoOfOurOwnSetter_DoesNotConfirmTheSelection()
+        {
+            var r = new Rig();
+            r.Port.OnSelectionSent = (type, name) =>
+                r.Port.Evidence.SelectionObserved(type, name, ObservationProvenance.LocalEcho, r.Port.Gen);
+
+            var result = r.Run(Established());
+
+            Assert.Equal(PostStationOutcome.Unconfirmed, result.Outcome);
+            Assert.Empty(result.ConfirmedSelections);
+        }
+
+        [Fact]
+        public void ARefusedTransmitSelection_StopsBeforeTheMicrophone()
+        {
+            var r = new Rig();
+            r.Port.HoldDispatch = true;
+            r.Waiter.Then(() => { r.Port.Facts.HoldArmed = true; r.Port.ReleaseHeld(); });
+
+            var result = r.Run(Established());
+
+            Assert.Equal(PostStationOutcome.Stopped, result.Outcome);
+            Assert.Empty(r.Port.Sent);
+            Assert.Equal(0, r.Port.ReadsOf(ProfileTypes.mic));
+            Assert.False(result.MayRepairMicrophone);
+        }
+
+        [Fact]
+        public void AHeldSelection_ReleasedAfterAnotherClientJoins_IsRefused()
+        {
+            var r = new Rig();
+            r.Port.HoldDispatch = true;
+            r.Waiter.Then(() => { r.Port.Roster = RosterVerdict.OthersPresent; r.Port.ReleaseHeld(); });
+
+            var result = r.Run(Established());
+
+            Assert.Equal(PostStationOutcome.Stopped, result.Outcome);
+            Assert.Empty(r.Port.Sent);
+            Assert.Contains(r.Port.Log, l => l.StartsWith("refused tx", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void AHeldSelection_ReleasedUnchanged_IsSent()
+        {
+            // The positive control for the two held cases.
+            var r = new Rig();
+            r.Port.HoldDispatch = true;
+            r.Waiter.Then(() => r.Port.ReleaseHeld());
+
+            var result = r.Run(Established());
+
+            Assert.Equal(PostStationOutcome.Completed, result.Outcome);
+            Assert.Equal(2, r.Port.Sent.Count);
+        }
+
+        [Theory]
+        [InlineData(StationOutcome.Unconfirmed)]
+        [InlineData(StationOutcome.Failed)]
+        [InlineData(StationOutcome.Cancelled)]
+        public void AnUncertainStation_RunsNoDependentCommand_NoOwnerInit_NoCapture_NoRepair(StationOutcome outcome)
+        {
+            var r = new Rig();
+            r.Port.Facts.Intent = ProfileGuestIntent.UseMyTransmitAudio;
+            r.Port.LocalTxProfile = "Contest"; r.Port.LocalTxProfileExists = true;
+            var station = Unconfirmed(); station.Outcome = outcome;
+
+            var result = r.Run(station);
+
+            Assert.Equal(PostStationOutcome.NotEstablished, result.Outcome);
+            Assert.Empty(r.Port.Sent);
+            Assert.Empty(r.Port.LiveAudioRun);
+            Assert.DoesNotContain("owner-init", r.Port.Log);
+            Assert.False(result.MayRepairMicrophone);
+            Assert.Equal("conclude repair=False", r.Port.Log.Last());
+        }
+
+        // ── reported-empty is not unreported ──
+
+        [Fact]
+        public void AReportedEmptyMicrophoneSelection_IsLoaded_AnUnreadableOneIsNot()
+        {
+            var reported = new Rig();
+            reported.Port.State[ProfileTypes.mic].Selection = "";
+            var a = reported.Run(Established());
+            Assert.Contains((ProfileTypes.mic, "K5NER-MIC"), reported.Port.Sent);
+            Assert.Equal(PostStationOutcome.Completed, a.Outcome);
+
+            var unreadable = new Rig();
+            unreadable.Port.State[ProfileTypes.mic].Selection = null;
+            var b = unreadable.Run(Established());
+            Assert.DoesNotContain(unreadable.Port.Sent, s => s.type == ProfileTypes.mic);
+            Assert.True(b.Plan.Skipped(ProfileTypes.mic, ProfileSkipReason.SelectionUnreadable));
+        }
+
+        // ── the owner initialisation gate ──
+
+        [Theory]
+        [InlineData("guest", RadioOwnership.SomeoneElses, ProfileGuestIntent.LoadMineAndPutBack, false, RosterVerdict.OnlyUs)]
+        [InlineData("company", RadioOwnership.Mine, ProfileGuestIntent.LoadMineAndPutBack, false, RosterVerdict.OthersPresent)]
+        [InlineData("roster unknown", RadioOwnership.Mine, ProfileGuestIntent.LoadMineAndPutBack, false, RosterVerdict.Unknown)]
+        [InlineData("hold", RadioOwnership.Mine, ProfileGuestIntent.LoadMineAndPutBack, true, RosterVerdict.OnlyUs)]
+        [InlineData("not answered", RadioOwnership.Mine, ProfileGuestIntent.NotAnswered, false, RosterVerdict.OnlyUs)]
+        public void OwnerInitialisation_RunsOnlyUnderTheFullGate(
+            string what, RadioOwnership ownership, ProfileGuestIntent intent, bool hold, RosterVerdict roster)
+        {
+            var r = new Rig();
+            r.Port.Facts.Ownership = ownership;
+            r.Port.Facts.Intent = intent;
+            r.Port.Facts.HoldArmed = hold;
+            r.Port.Roster = roster;
+            var station = Established();
+            station.Outcome = StationOutcome.PolicySkipped;
+            station.Allocation.Stop = AllocationStop.TargetReached;
+            station.Allocation.OwnSlicesAtEnd = 2;
+
+            var result = r.Run(station);
+
+            Assert.False(result.OwnerInitialisationRan, what);
+            Assert.DoesNotContain("owner-init", r.Port.Log);
+            Assert.Empty(r.Port.Sent);
+        }
+
+        // ── the live transmit-audio path, under the STRICT roster test (part three) ──
+
+        [Fact]
+        public void TheLiveAudioRoute_RunsUnderTheStrictRoster_AutosaveThenCaptureThenApply()
+        {
+            var r = new Rig();
+            r.Port.Facts.Ownership = RadioOwnership.SomeoneElses;
+            r.Port.Facts.Intent = ProfileGuestIntent.UseMyTransmitAudio;
+            r.Port.LocalTxProfile = "Contest"; r.Port.LocalTxProfileExists = true;
+            r.Port.RadioAutosave = true;
+            r.Port.LiveAudioOutcomes[ProfileActionKind.ApplyLocalTransmitAudio] = ProfileActionOutcome.Deferred;
+            var station = Established(); station.Outcome = StationOutcome.PolicySkipped;
+            station.Allocation.Stop = AllocationStop.TargetReached; station.Allocation.OwnSlicesAtEnd = 2;
+
+            var result = r.Run(station);
+
+            Assert.Equal(new[] { ProfileActionKind.TurnAutosaveOff, ProfileActionKind.CaptureLiveTransmitAudio, ProfileActionKind.ApplyLocalTransmitAudio },
+                r.Port.LiveAudioRun);
+            Assert.True(result.LiveAudioDeferred);
+            Assert.Empty(r.Port.Sent);                        // a guest sends no named selection
+            Assert.Empty(r.Port.Recorded);                    // deferred: the record is made when it really runs
+            Assert.False(result.MayRepairMicrophone);
+        }
+
+        [Theory]
+        [InlineData(RosterVerdict.OthersPresent)]
+        [InlineData(RosterVerdict.Unknown)]
+        public void TheLiveAudioRoute_IsClosedUnlessTheStrictRosterSaysOnlyUs(RosterVerdict roster)
+        {
+            var r = new Rig();
+            r.Port.Facts.Ownership = RadioOwnership.SomeoneElses;
+            r.Port.Facts.Intent = ProfileGuestIntent.UseMyTransmitAudio;
+            r.Port.LocalTxProfile = "Contest"; r.Port.LocalTxProfileExists = true;
+            r.Port.RadioAutosave = true;
+            r.Port.Roster = roster;
+            var station = Established(); station.Outcome = StationOutcome.PolicySkipped;
+            station.Allocation.Stop = AllocationStop.TargetReached; station.Allocation.OwnSlicesAtEnd = 2;
+
+            var result = r.Run(station);
+
+            Assert.Empty(r.Port.LiveAudioRun);
+            Assert.False(result.LiveAudioDeferred);
+            Assert.False(result.LiveAudioApplied);
+        }
+
+        [Fact]
+        public void AutosaveNotConfirmedOff_AbortsBeforeCapture()
+        {
+            var r = new Rig();
+            r.Port.Facts.Ownership = RadioOwnership.SomeoneElses;
+            r.Port.Facts.Intent = ProfileGuestIntent.UseMyTransmitAudio;
+            r.Port.LocalTxProfile = "Contest"; r.Port.LocalTxProfileExists = true;
+            r.Port.RadioAutosave = true;
+            r.Port.LiveAudioOutcomes[ProfileActionKind.TurnAutosaveOff] = ProfileActionOutcome.Failed;
+            var station = Established(); station.Outcome = StationOutcome.PolicySkipped;
+            station.Allocation.Stop = AllocationStop.TargetReached; station.Allocation.OwnSlicesAtEnd = 2;
+
+            var result = r.Run(station);
+
+            Assert.Equal(new[] { ProfileActionKind.TurnAutosaveOff }, r.Port.LiveAudioRun);
+            Assert.True(result.LiveAudioAborted);
+            Assert.Contains("abort-live-audio autosave=False", r.Port.Log);
+        }
+
+        [Fact]
+        public void ACaptureThatExpires_AbortsBeforeApply_AndGivesAutosaveBack()
+        {
+            var r = new Rig();
+            r.Port.Facts.Ownership = RadioOwnership.SomeoneElses;
+            r.Port.Facts.Intent = ProfileGuestIntent.UseMyTransmitAudio;
+            r.Port.LocalTxProfile = "Contest"; r.Port.LocalTxProfileExists = true;
+            r.Port.RadioAutosave = true;
+            r.Port.LiveAudioOutcomes[ProfileActionKind.CaptureLiveTransmitAudio] = ProfileActionOutcome.Failed;
+            var station = Established(); station.Outcome = StationOutcome.PolicySkipped;
+            station.Allocation.Stop = AllocationStop.TargetReached; station.Allocation.OwnSlicesAtEnd = 2;
+
+            var result = r.Run(station);
+
+            Assert.Equal(new[] { ProfileActionKind.TurnAutosaveOff, ProfileActionKind.CaptureLiveTransmitAudio }, r.Port.LiveAudioRun);
+            Assert.True(result.LiveAudioAborted);
+            Assert.Contains("abort-live-audio autosave=True", r.Port.Log);
+        }
+
+        [Fact]
+        public void TheAssessmentIsAlwaysTheLastCall()
+        {
+            foreach (var station in new[] { Established(), Unconfirmed() })
+            {
+                var r = new Rig();
+                r.Run(station);
+                Assert.StartsWith("conclude", r.Port.Log.Last());
+                Assert.Equal(1, r.Port.Log.Count(l => l.StartsWith("conclude", StringComparison.Ordinal)));
+            }
+        }
+    }
+}

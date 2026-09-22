@@ -81,10 +81,13 @@ namespace Radios.StationConnect
             InventoryObservation globalList, SelectionObservation globalSelection,
             AutosaveObservation autosave, long persistenceLoadedAtSequence,
             long radioEndBoundaryAtSequence, string radioEndBoundaryToken,
-            long sequence, int attemptGeneration, long txChainGeneration)
+            long sequence, int attemptGeneration, long txChainGeneration,
+            SelectionObservation txSelection = null, SelectionObservation micSelection = null)
         {
             GlobalList = globalList;
             GlobalSelection = globalSelection;
+            TxSelection = txSelection;
+            MicSelection = micSelection;
             Autosave = autosave;
             PersistenceLoadedAtSequence = persistenceLoadedAtSequence;
             RadioEndBoundaryAtSequence = radioEndBoundaryAtSequence;
@@ -99,6 +102,32 @@ namespace Radios.StationConnect
 
         /// <summary>The latest global selection, or null.</summary>
         public SelectionObservation GlobalSelection { get; }
+
+        /// <summary>The latest transmit-profile selection, or null.</summary>
+        public SelectionObservation TxSelection { get; }
+
+        /// <summary>The latest microphone-profile selection, or null.</summary>
+        public SelectionObservation MicSelection { get; }
+
+        /// <summary>The latest selection observation for a type, or null.</summary>
+        public SelectionObservation SelectionOf(ProfileTypes type)
+        {
+            switch (type)
+            {
+                case ProfileTypes.global: return GlobalSelection;
+                case ProfileTypes.tx: return TxSelection;
+                case ProfileTypes.mic: return MicSelection;
+                default: return null;
+            }
+        }
+
+        /// <summary>The latest RADIO-REPORTED selection for a type, or null
+        /// when none has been reported (a local echo is not a report).</summary>
+        public SelectionObservation ReportedSelectionOf(ProfileTypes type)
+        {
+            var s = SelectionOf(type);
+            return s != null && s.Provenance == ObservationProvenance.RadioReported ? s : null;
+        }
 
         /// <summary>The latest autosave observation, or null when the radio has
         /// said nothing and we have set nothing.</summary>
@@ -143,6 +172,8 @@ namespace Radios.StationConnect
         private readonly IStationClock _clock;
         private InventoryObservation _globalList;
         private SelectionObservation _globalSelection;
+        private SelectionObservation _txSelection;
+        private SelectionObservation _micSelection;
         private AutosaveObservation _autosave;
         private long _persistenceLoadedAt;
         private long _endBoundaryAt;
@@ -164,6 +195,8 @@ namespace Radios.StationConnect
             {
                 _globalList = null;
                 _globalSelection = null;
+                _txSelection = null;
+                _micSelection = null;
                 _autosave = null;
                 _persistenceLoadedAt = 0;
                 _endBoundaryAt = 0;
@@ -185,13 +218,26 @@ namespace Radios.StationConnect
             Changed?.Invoke();
         }
 
-        public void GlobalSelectionObserved(string name, ObservationProvenance provenance, int attemptGeneration)
+        public void GlobalSelectionObserved(string name, ObservationProvenance provenance, int attemptGeneration) =>
+            SelectionObserved(ProfileTypes.global, name, provenance, attemptGeneration);
+
+        /// <summary>A selection observation for one type (global, tx or mic),
+        /// with provenance. The post-station phase confirms a sent selection
+        /// by a RADIO-REPORTED observation after the send.</summary>
+        public void SelectionObserved(ProfileTypes type, string name, ObservationProvenance provenance, int attemptGeneration)
         {
             lock (_lock)
             {
                 if (attemptGeneration != _attemptGeneration) return;
                 _sequence++;
-                _globalSelection = new SelectionObservation(name, provenance, _sequence, attemptGeneration, _clock.NowMs);
+                var obs = new SelectionObservation(name, provenance, _sequence, attemptGeneration, _clock.NowMs);
+                switch (type)
+                {
+                    case ProfileTypes.global: _globalSelection = obs; break;
+                    case ProfileTypes.tx: _txSelection = obs; break;
+                    case ProfileTypes.mic: _micSelection = obs; break;
+                    default: return;
+                }
             }
             Changed?.Invoke();
         }
@@ -251,7 +297,8 @@ namespace Radios.StationConnect
             {
                 return new ProfileEvidenceSnapshot(
                     _globalList, _globalSelection, _autosave, _persistenceLoadedAt,
-                    _endBoundaryAt, _endBoundaryToken, _sequence, _attemptGeneration, _txChainGeneration);
+                    _endBoundaryAt, _endBoundaryToken, _sequence, _attemptGeneration, _txChainGeneration,
+                    _txSelection, _micSelection);
             }
         }
 

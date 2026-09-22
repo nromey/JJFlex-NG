@@ -154,6 +154,11 @@ namespace Radios.Tests.StationConnect
         [Fact]
         public void TransmitAndMicrophoneAreReadAfterTheStationPhase_NotBefore()
         {
+            // The order INSIDE the post-station phase (transmit confirmed,
+            // then microphone read fresh) is a behavioural test now:
+            // PostStationOrchestratorTests. This pins only that the phase
+            // follows the coordinator's run and reads through the port's
+            // one-type read, never the all-types situation.
             var text = Read(FlexBaseStation);
             int method = IndexOf(text, "internal StationResult EstablishStationOnConnect(bool postImport)");
             int run = text.IndexOf("result = coordinator.Run();", method, StringComparison.Ordinal);
@@ -161,9 +166,10 @@ namespace Radios.Tests.StationConnect
             Assert.True(run > 0 && post > run,
                 "the post-station phase (fresh tx/mic reads) must follow the coordinator's run, never precede it");
 
-            int postMethod = IndexOf(text, "private void RunPostStationPhase(StationResult station, StationOperation operation)");
-            Assert.Contains("freshTypes: ProfileStewardship.TransmitAudioTypes",
-                text.Substring(postMethod, Math.Min(3000, text.Length - postMethod)), StringComparison.Ordinal);
+            int port = IndexOf(text, "private sealed class FlexPostStationPort : IPostStationPort");
+            string portBody = text.Substring(port, Math.Min(2500, text.Length - port));
+            Assert.Contains("_rig.ReadProfileTypeState(type, _rig.WantedProfilesForThisRadio(), freshAsk: true, timeoutMs: timeoutMs)", portBody, StringComparison.Ordinal);
+            Assert.DoesNotContain("ReadProfileSituation(", portBody, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -178,16 +184,23 @@ namespace Radios.Tests.StationConnect
         [Fact]
         public void TheSilentMicAssessmentRunsLast_AndRepairsOnlyUnderTheSharedWriteAuthority()
         {
+            // "Last" is behavioural now (PostStationOrchestratorTests,
+            // TheAssessmentIsAlwaysTheLastCall); this pins the adapter's
+            // Conclude: announce, then assess with the orchestrator's
+            // MayRepairMicrophone, deferred behind the live-audio apply when
+            // one is pending.
             var text = Read(FlexBaseStation);
-            int post = IndexOf(text, "private void RunPostStationPhase(StationResult station, StationOperation operation)");
-            int loop = text.IndexOf("foreach (var action in plan.Actions)", post, StringComparison.Ordinal);
-            int check = text.IndexOf("CheckMicProfileForSilentTx(mayRepair: mayWriteShared);", post, StringComparison.Ordinal);
-            Assert.True(loop > 0 && check > loop, "the assessment must run after the tx/mic actions");
-            Assert.Contains("CheckMicProfileForSilentTx(mayRepair: false);", text, StringComparison.Ordinal);
+            int conclude = IndexOf(text, "private void ConcludePostStationPhase(PostStationResult result)");
+            string body = text.Substring(conclude, Math.Min(1600, text.Length - conclude));
+            int announce = body.IndexOf("AnnounceConnectStewardship(", StringComparison.Ordinal);
+            int deferred = body.IndexOf("_pendingAssessmentMayRepair = result.MayRepairMicrophone;", StringComparison.Ordinal);
+            int check = body.IndexOf("CheckMicProfileForSilentTx(mayRepair: result.MayRepairMicrophone);", StringComparison.Ordinal);
+            Assert.True(announce > 0 && deferred > announce && check > deferred, "conclude must announce, then defer or assess");
 
             var flex = Read(FlexBase);
             Assert.Contains("private void CheckMicProfileForSilentTx(bool mayRepair)", flex, StringComparison.Ordinal);
             Assert.Contains("&& !ChangeNothingActive && mayRepair", flex, StringComparison.Ordinal);
+            Assert.Contains("q.Enqueue((FunctionDel)(() => RunPendingSilentMicAssessment(\"after the deferred apply's setters\")),", flex, StringComparison.Ordinal);
         }
 
         // ── the recheck lives INSIDE the dispatched delegate (mutation check two) ──
@@ -207,15 +220,24 @@ namespace Radios.Tests.StationConnect
         [Fact]
         public void TheTransmitAndMicrophoneSelectionsRecheckInsideTheirDelegate()
         {
+            // The recheck's CONTENT (operation, phase, facts, stewardship,
+            // strict roster) is the orchestrator's RefusalAtSend, exercised by
+            // the held-dispatch tests in PostStationOrchestratorTests. This
+            // pins that the production delegate calls it before writing.
             var text = Read(FlexBaseStation);
             int method = IndexOf(text, "private ProfileActionOutcome DispatchSelectionChecked(");
             int dispatch = text.IndexOf("DispatchStationWork(", method, StringComparison.Ordinal);
             int select = text.IndexOf("radio.ProfileTXSelection = action.ProfileName;", method, StringComparison.Ordinal);
             string inside = text.Substring(dispatch, select - dispatch);
-            Assert.Contains("RosterJudgementForAutomaticWrite()", inside, StringComparison.Ordinal);
-            Assert.Contains("ReadStationPolicyFacts()", inside, StringComparison.Ordinal);
-            Assert.Contains("operation.IsEnded", inside, StringComparison.Ordinal);
-            Assert.Contains("phase.Passed(_stationClock)", inside, StringComparison.Ordinal);
+            Assert.Contains("refusal = refusalAtSend?.Invoke();", inside, StringComparison.Ordinal);
+            Assert.Contains("if (refusal != null) return;", inside, StringComparison.Ordinal);
+
+            var orchestrator = Read("Radios/StationConnect/PostStationOrchestrator.cs");
+            int refusal = IndexOf(orchestrator, "private string RefusalAtSend(");
+            string body = orchestrator.Substring(refusal, 1200);
+            Assert.Contains("operation.IsEnded", body, StringComparison.Ordinal);
+            Assert.Contains("phase.Passed(_clock)", body, StringComparison.Ordinal);
+            Assert.Contains("_port.RosterForAutomaticWrite()", body, StringComparison.Ordinal);
         }
 
         // ── mainThreadProc: no scratch setup, no wait-on-self (design section 4; #582) ──
@@ -292,26 +314,30 @@ namespace Radios.Tests.StationConnect
         }
 
         [Fact]
-        public void TheGenericTransmitChainWritesAreOwnerOnly()
+        public void TheGenericTransmitChainWritesAreOwnerOnly_AndInsideTheEstablishedStationPhase()
         {
+            // MicInput, VOX, CW break-in and TX1 are RunOwnerInitialization,
+            // called by the orchestrator only under the full gate; the keyer
+            // restore is permitted there and applied by issue7620 once the
+            // loop is up. Nothing in mainThreadProc writes them any more.
             var text = Read(FlexBase);
-            foreach (var literal in new[]
-            {
-                "OwnerOnlyWriteSkips(\"MicInput=mic on local open\")",
-                "OwnerOnlyWriteSkips(\"SimpleVOXEnable=false / CWBreakIn=false on open\")",
-                "OwnerOnlyWriteSkips(\"TX1Enabled=true on open\")",
-                "OwnerOnlyWriteSkips(\"issue7620 CW keyer restore on open\")",
-            })
-            {
-                Assert.Contains(literal, text, StringComparison.Ordinal);
-            }
+            Assert.Contains("OwnerKeyerRestorePermitted(\"issue7620 CW keyer restore on open\")", text, StringComparison.Ordinal);
+            int main = IndexOf(text, "private void mainThreadProc()");
+            int end = text.IndexOf("public class cfg7620", main, StringComparison.Ordinal);
+            string body = text.Substring(main, end - main);
+            Assert.DoesNotContain("MicInput = \"mic\"", body, StringComparison.Ordinal);
+            Assert.DoesNotContain("TX1Enabled = true", body, StringComparison.Ordinal);
+            Assert.DoesNotContain("SimpleVOXEnable = false", body, StringComparison.Ordinal);
         }
 
         [Fact]
-        public void RecordsComeFromWhatWasExecuted_NotFromMembershipInThePlan()
+        public void RecordsComeFromWhatWasConfirmed_NotFromMembershipInThePlan()
         {
-            var text = Read(FlexBaseStation);
-            Assert.Contains("executed.Any(a => a.ProfileType == rec.ProfileType && a.Kind == ProfileActionKind.LoadOurs)", text, StringComparison.Ordinal);
+            // Behavioural in PostStationOrchestratorTests (the owner's
+            // confirmed loads record nothing; a deferred live apply records
+            // nothing until it runs). This pins the rule's home.
+            var text = Read("Radios/StationConnect/PostStationOrchestrator.cs");
+            Assert.Contains("if (result.ConfirmedSelections.Contains(rec.ProfileType)) records.Add(rec);", text, StringComparison.Ordinal);
             Assert.DoesNotContain("plan.Actions.Any(a => a.ProfileType == rec.ProfileType", text, StringComparison.Ordinal);
         }
 

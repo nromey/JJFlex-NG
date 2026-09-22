@@ -103,8 +103,10 @@ namespace Radios.Tests
             // decides on — which sliceAdded feeds only inside its myClient
             // branch (StationFirstWiringTests pins that). MyNumSlices and the
             // tracker count the same filtered set.
+            // The connection-level facts moved to ReadBaseProfileSituation on
+            // 2026-09-22 (Track G2); ReadProfileSituation composes it.
             var method = BracedBlock(Read(FlexBase),
-                "IReadOnlyCollection<ProfileTypes> freshTypes, int timeoutMs)");
+                "internal ProfileSituation ReadBaseProfileSituation()");
 
             Assert.Contains("StationPresent = radio != null && StationTracker.Snapshot().StationPresent,",
                 method, StringComparison.Ordinal);

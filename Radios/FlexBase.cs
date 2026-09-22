@@ -15917,6 +15917,25 @@ namespace Radios
             Dictionary<ProfileTypes, string> wanted, bool freshAsk,
             IReadOnlyCollection<ProfileTypes> freshTypes, int timeoutMs)
         {
+            var situation = ReadBaseProfileSituation();
+            foreach (var type in ProfileStewardship.GovernedTypes)
+            {
+                bool askThisType = freshAsk && (freshTypes == null || freshTypes.Contains(type));
+                situation.Types.Add(ReadProfileTypeState(type, wanted, askThisType, timeoutMs));
+            }
+            return situation;
+        }
+
+        /// <summary>
+        /// The connection-level facts of a situation with NO type states:
+        /// connected, hold, the roster verdicts, ownership, intent, reported
+        /// autosave, the local transmit-audio choice, a stranded snapshot,
+        /// and station presence from the own-station evidence. The
+        /// post-station orchestrator reads this once and then each type at
+        /// its own turn (Track G2).
+        /// </summary>
+        internal ProfileSituation ReadBaseProfileSituation()
+        {
             var radio = theRadio;
             var situation = new ProfileSituation
             {
@@ -15964,42 +15983,56 @@ namespace Radios
                 !string.IsNullOrEmpty(serialForLocal)
                 && LiveTxSnapshotFileExists(serialForLocal);
 
-            foreach (var type in ProfileStewardship.GovernedTypes)
+            return situation;
+        }
+
+        /// <summary>
+        /// ONE type's state: a fresh bounded <c>profile ... info</c> when
+        /// <paramref name="freshAsk"/>, else the lists the session already
+        /// holds. A fresh ask whose radio-reported selection has NOT arrived
+        /// since the ask reports the selection as unreadable (null) rather
+        /// than repeating the cached value as if it were observed: an
+        /// inventory answer is not a selection report (review step 4).
+        /// </summary>
+        internal ProfileTypeState ReadProfileTypeState(
+            ProfileTypes type, Dictionary<ProfileTypes, string> wanted, bool freshAsk, int timeoutMs)
+        {
+            IReadOnlyList<string> names;
+            string selection;
+            bool reported;
+
+            if (freshAsk)
             {
-                IReadOnlyList<string> names;
-                string selection;
-                bool reported;
-
-                bool askThisType = freshAsk && (freshTypes == null || freshTypes.Contains(type));
-                if (askThisType)
-                {
-                    var reading = ReadRadioProfileList(type, Math.Max(0, timeoutMs));
-                    names = reading.Names;
-                    reported = reading.Reported && !reading.CouldNotAsk;
-                    // CouldNotAsk is the only case that is genuinely
-                    // unreadable. A radio that answers "" is telling us none
-                    // is loaded, which is a fact we can record and put back.
-                    selection = reading.CouldNotAsk ? null : (reading.Selection ?? "");
-                }
-                else
-                {
-                    names = ProfileNamesOnRadio(type);
-                    reported = names.Count > 0;
-                    selection = SelectionOnRadio(type);
-                }
-
-                situation.Types.Add(new ProfileTypeState
-                {
-                    ProfileType = type,
-                    Reported = reported,
-                    Names = names,
-                    Selection = selection,
-                    UnsavedChanges = UnsavedProfileChangesFor(type),
-                    Wanted = wanted != null && wanted.TryGetValue(type, out var w) ? (w ?? "") : "",
-                });
+                var reading = ReadRadioProfileList(type, Math.Max(0, timeoutMs));
+                names = reading.Names;
+                reported = reading.Reported && !reading.CouldNotAsk;
+                // CouldNotAsk is the only case that is genuinely unreadable.
+                // A radio that answers "" is telling us none is loaded, which
+                // is a fact we can record and put back — but only if the
+                // radio has actually REPORTED a selection for this type this
+                // connection. Otherwise the vendor's cached default is not an
+                // observation, and the selection is unreadable.
+                var reportedSelection = type == ProfileTypes.display ? null : ProfileEvidence.Snapshot().ReportedSelectionOf(type);
+                if (reading.CouldNotAsk) selection = null;
+                else if (type != ProfileTypes.display && reportedSelection == null) selection = null;
+                else selection = reading.Selection ?? "";
+            }
+            else
+            {
+                names = ProfileNamesOnRadio(type);
+                reported = names.Count > 0;
+                selection = SelectionOnRadio(type);
             }
 
-            return situation;
+            return new ProfileTypeState
+            {
+                ProfileType = type,
+                Reported = reported,
+                Names = names,
+                Selection = selection,
+                UnsavedChanges = UnsavedProfileChangesFor(type),
+                Wanted = wanted != null && wanted.TryGetValue(type, out var w) ? (w ?? "") : "",
+            };
         }
 
         /// <summary>
@@ -16669,6 +16702,7 @@ namespace Radios
                         ("why", Lexicon.Get("settings.profile_guest.why.chain_changed"))),
                         VerbosityLevel.Terse, volunteered: true);
                 }
+                RunPendingSilentMicAssessment("deferred apply refused");
                 return;
             }
 
@@ -16677,6 +16711,22 @@ namespace Radios
                 NoteProfileVerdict(Lexicon.Get("settings.profile_guest.live_audio_applied",
                     ("preset", pending)), VerbosityLevel.Terse, volunteered: true);
             }
+            // The preset's setters are queue work behind this delegate; the
+            // assessment is queued behind THEM, so it runs after the deferred
+            // work has completed (design step 10; Track G2).
+            q.Enqueue((FunctionDel)(() => RunPendingSilentMicAssessment("after the deferred apply's setters")),
+                "silent-microphone assessment after deferred apply");
+        }
+
+        /// <summary>The assessment the post-station phase deferred behind the
+        /// live-audio apply. Runs once; read-only unless the phase permitted
+        /// a repair.</summary>
+        private void RunPendingSilentMicAssessment(string when)
+        {
+            if (!_pendingAssessmentOwed) return;
+            _pendingAssessmentOwed = false;
+            Tracing.TraceLine("StationConnect: silent-microphone assessment " + when, TraceLevel.Info);
+            CheckMicProfileForSilentTx(mayRepair: _pendingAssessmentMayRepair);
         }
 
         /// <summary>Why the deferred apply must not run now, or null.</summary>
@@ -20622,17 +20672,14 @@ namespace Radios
                 // Null-guard: theRadio can be nulled by Disconnect() during test cycles
                 if (theRadio == null || stopMainThread) return;
 
-                if (!RemoteRig)
-                {
-                    // mic_input is station-global and outlives the session
-                    // (audit 1.7): on a guarded radio the owner's own choice
-                    // stands. On a radio that is not ours it is the OWNER'S
-                    // chain (#590, design step 8) and is not written either.
-                    if (!OwnerOnlyWriteSkips("MicInput=mic on local open"))
-                    {
-                        theRadio.MicInput = "mic";
-                    }
-                }
+                // The owner's generic writes — MicInput, VOX, CW break-in,
+                // TX1 — no longer run here. They are RunOwnerInitialization,
+                // inside the established-station phase under the full gate
+                // (hold, intent, ownership, roster, station established),
+                // before the final profile choices (design step 8; Track G2).
+                // Until 2026-09-22 they ran here on every outcome, after the
+                // phase and its assessment, guarded by the hold and
+                // ownership alone.
                 if (!await(() =>
                 {
                     return theRadio == null || !theRadio.RemoteTxOn;
@@ -20642,16 +20689,6 @@ namespace Radios
                 }
 
                 if (theRadio == null || stopMainThread) return;
-
-                // Turn the Vox off. Radio-persistent, and an owner who
-                // deliberately set either gets it reset every time we connect
-                // (audit 1.4) — so a guarded radio keeps its own answers, and
-                // so does a radio that is not ours (#590, design step 8).
-                if (!OwnerOnlyWriteSkips("SimpleVOXEnable=false / CWBreakIn=false on open"))
-                {
-                    theRadio.SimpleVOXEnable = false;
-                    theRadio.CWBreakIn = false;
-                }
 
                 // Ok to queue commands now.
                 q.MainLoop = true;
@@ -20692,16 +20729,6 @@ namespace Radios
                 FilterObj.RXFreqChange(theRadio.ActiveSlice);
 
                 raisePowerEvent(true);
-
-                // Enable TX1 RCA by default for compatibility. An interlock
-                // write, radio-persistent, on every open — the audit's 1.4
-                // family in all but its list (it enumerated three; this is
-                // the fourth). Held on a guarded radio like the others, and
-                // left to the owner on a radio that is not ours (#590).
-                if (!OwnerOnlyWriteSkips("TX1Enabled=true on open"))
-                {
-                    theRadio.TX1Enabled = true;
-                }
 
 #if KeepAlive
                 keepAlive_t keepAlive = new keepAlive_t(this);
@@ -20831,10 +20858,12 @@ namespace Radios
                         // The i_* setters each enqueue a radio write — this
                         // is the operator's saved CW keyer setup being pushed
                         // to whatever radio connected (audit 2.15's automatic
-                        // half). On a guarded radio the file is still read,
-                        // so the local mirror stays whole, and the radio's
-                        // own keyer settings stand.
-                        if (!OwnerOnlyWriteSkips("issue7620 CW keyer restore on open"))
+                        // half). The file is always read so the local mirror
+                        // stays whole; the WRITES are permitted only by
+                        // RunOwnerInitialization, inside the established-
+                        // station phase under the full gate (Track G2), and
+                        // applied here because the setters need the loop.
+                        if (OwnerKeyerRestorePermitted("issue7620 CW keyer restore on open"))
                         {
                             i_BreakinDelay = cfgData.BreakinDelay;
                             i_SidetoneGain = cfgData.SidetoneGain;

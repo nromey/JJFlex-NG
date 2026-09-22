@@ -232,9 +232,12 @@ namespace Radios.Tests
         [InlineData("private bool saveNewGlobalProfile(", "GuardSkips(\"saveNewGlobalProfile", 1200)]
         [InlineData("private void ApplyAccountUPnPPreferenceIfAny(", "GuardSkips(\"UPnP router mapping", 900)]
         [InlineData("private bool startOpusOutputChannel(", "GuardSkips(\"MicInput=PC", 900)]
-        // The CW keyer restore and the scratch setup consult the hold through
-        // OwnerOnlyWriteSkips, whose first line IS GuardSkips (pinned below).
-        [InlineData("private void issue7620(", "OwnerOnlyWriteSkips(\"issue7620 CW keyer restore", 3200)]
+        // The CW keyer restore is permitted by RunOwnerInitialization in the
+        // established-station phase (whose gate includes the hold) and checks
+        // the hold AGAIN at the moment of applying, through
+        // OwnerKeyerRestorePermitted, whose second line is GuardSkips (pinned
+        // below). The scratch setup consults the hold directly.
+        [InlineData("private void issue7620(", "OwnerKeyerRestorePermitted(\"issue7620 CW keyer restore", 3200)]
         [InlineData("private bool setupFromScratch(", "GuardSkips(\"scratch-setup", 7000)]
         public void TheAutomaticWriterSkipsUnderTheHold(string signature, string guard, int window)
         {
@@ -267,6 +270,44 @@ namespace Radios.Tests
         {
             AssertGuardInside(FlexBaseStation, "private bool OwnerOnlyWriteSkips(string what)",
                 "if (GuardSkips(what)) return true;", 300);
+            AssertGuardInside(FlexBaseStation, "private bool OwnerKeyerRestorePermitted(string what)",
+                "if (GuardSkips(what)) return false;", 700);
+        }
+
+        /// <summary>
+        /// The owner's generic connect-time writes (MicInput, VOX, CW
+        /// break-in, TX1) moved on 2026-09-22 (Track G2) from mainThreadProc
+        /// into RunOwnerInitialization, which the post-station orchestrator
+        /// calls only under MayWriteSharedStateAutomatically — whose first
+        /// clause after Connected is the hold. The hold on these four is a
+        /// BEHAVIOURAL test now (PostStationOrchestratorTests, the "hold"
+        /// case of OwnerInitialisation_RunsOnlyUnderTheFullGate); this pins
+        /// that the writes live there and nowhere else.
+        /// </summary>
+        [Fact]
+        public void TheOwnerInitialisationWritesLiveBehindTheOrchestratorsGate()
+        {
+            var station = Read(FlexBaseStation);
+            int method = station.IndexOf("private void RunOwnerInitialization()", StringComparison.Ordinal);
+            Assert.True(method >= 0, "RunOwnerInitialization is gone");
+            string body = station.Substring(method, 1800);
+            foreach (var write in new[] { "radio.MicInput = \"mic\";", "radio.SimpleVOXEnable = false;", "radio.CWBreakIn = false;", "radio.TX1Enabled = true;" })
+            {
+                Assert.Contains(write, body, StringComparison.Ordinal);
+            }
+            var flex = Read(FlexBase);
+            int main = flex.IndexOf("private void mainThreadProc()", StringComparison.Ordinal);
+            int end = flex.IndexOf("public class cfg7620", main, StringComparison.Ordinal);
+            string mainBody = flex.Substring(main, end - main);
+            foreach (var gone in new[] { "theRadio.MicInput = \"mic\";", "theRadio.SimpleVOXEnable = false;", "theRadio.CWBreakIn = false;", "theRadio.TX1Enabled = true;" })
+            {
+                Assert.DoesNotContain(gone, mainBody, StringComparison.Ordinal);
+            }
+
+            var orchestrator = Read("Radios/StationConnect/PostStationOrchestrator.cs");
+            int gate = orchestrator.IndexOf("bool mayWriteShared = ProfileStewardship.MayWriteSharedStateAutomatically(baseSituation)", StringComparison.Ordinal);
+            int call = orchestrator.IndexOf("_port.RunOwnerInitialization();", StringComparison.Ordinal);
+            Assert.True(gate >= 0 && call > gate, "owner initialisation must be behind the shared-write gate");
         }
 
         /// <summary>
@@ -277,10 +318,8 @@ namespace Radios.Tests
         [InlineData("if (!GuardSkips(\"TNFEnabled=true on connect\")) theRadio.TNFEnabled = true;")]
         [InlineData("GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=false on local connect\")")]
         [InlineData("GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=true on remote audio start\")")]
-        // Owner-only since 2026-09-21 (#590): hold first, then ownership.
-        [InlineData("OwnerOnlyWriteSkips(\"MicInput=mic on local open\")")]
-        [InlineData("OwnerOnlyWriteSkips(\"SimpleVOXEnable=false / CWBreakIn=false on open\")")]
-        [InlineData("OwnerOnlyWriteSkips(\"TX1Enabled=true on open\")")]
+        // MicInput, VOX/CWBreakIn and TX1 are RunOwnerInitialization since
+        // 2026-09-22 (Track G2); see TheOwnerInitialisationWritesLiveBehindTheOrchestratorsGate.
         public void TheConnectPathLiteralIsGuarded(string guardedForm)
         {
             Assert.Contains(guardedForm, Read(FlexBase), StringComparison.Ordinal);

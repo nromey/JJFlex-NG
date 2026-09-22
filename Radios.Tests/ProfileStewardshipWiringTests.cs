@@ -83,8 +83,11 @@ namespace Radios.Tests
             // in the post-station phase. Both consult ProfileStewardship.
             var text = Read(FlexBase);
             Assert.Contains("var station = EstablishStationOnConnect(false);", text, StringComparison.Ordinal);
-            Assert.Contains("ProfileStewardship.PlanConnectRuled(situation, ProfileStewardship.TransmitAudioTypes)",
-                text, StringComparison.Ordinal);
+            // The transmit and microphone decisions are the orchestrator's,
+            // one type at a time (Track G2); the adapter only lends it the port.
+            Assert.Contains("new PostStationOrchestrator(", text, StringComparison.Ordinal);
+            var orchestrator = File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "StationConnect", "PostStationOrchestrator.cs"));
+            Assert.Contains("ProfileStewardship.PlanConnectRuled(situation, new[] { type })", orchestrator, StringComparison.Ordinal);
             Assert.DoesNotContain("ApplyProfileStewardshipOnConnect()", text, StringComparison.Ordinal);
         }
 
@@ -126,8 +129,13 @@ namespace Radios.Tests
             // A half-applied guest change is worse than none: if autosave will
             // not turn off, or the live capture fails, nothing is applied. And
             // if we already turned autosave off, we give it straight back.
+            // The abort rule is the orchestrator's (PostStationOrchestratorTests:
+            // AutosaveNotConfirmedOff_AbortsBeforeCapture, ACaptureThatExpires_
+            // AbortsBeforeApply_AndGivesAutosaveBack); the adapter gives
+            // autosave back.
+            var orchestrator = File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "StationConnect", "PostStationOrchestrator.cs"));
+            Assert.Contains("result.LiveAudioAborted = true", orchestrator, StringComparison.Ordinal);
             var text = Read(FlexBase);
-            Assert.Contains("abort = true", text, StringComparison.Ordinal);
             Assert.Contains("RestoreRadioAutosaveAfterAbort()", text, StringComparison.Ordinal);
         }
 
