@@ -14,6 +14,12 @@ namespace Radios.StationConnect
     public sealed class OwnSlice
     {
         public OwnSlice(int index, string letter, uint handle, uint panadapterStreamId, long sequence, int attemptGeneration)
+            : this(index, letter, handle, panadapterStreamId, sequence, attemptGeneration, 0, "", 0)
+        {
+        }
+
+        private OwnSlice(int index, string letter, uint handle, uint panadapterStreamId, long sequence, int attemptGeneration,
+            long freqHz, string mode, long tunedSequence)
         {
             Index = index;
             Letter = letter ?? "";
@@ -21,7 +27,25 @@ namespace Radios.StationConnect
             PanadapterStreamId = panadapterStreamId;
             Sequence = sequence;
             AttemptGeneration = attemptGeneration;
+            FreqHz = freqHz;
+            Mode = mode ?? "";
+            TunedSequence = tunedSequence;
         }
+
+        /// <summary>The slice's frequency as the RADIO last reported it, or 0
+        /// when it has not reported one this attempt.</summary>
+        public long FreqHz { get; }
+
+        /// <summary>The mode as the radio last reported it, or empty.</summary>
+        public string Mode { get; }
+
+        /// <summary>The observation sequence of the last radio-reported tune,
+        /// or 0. A placement sent at sequence N is confirmed by a tune
+        /// reported after N with the wanted frequency.</summary>
+        public long TunedSequence { get; }
+
+        internal OwnSlice WithTune(long freqHz, string mode, long tunedSequence) =>
+            new OwnSlice(Index, Letter, Handle, PanadapterStreamId, Sequence, AttemptGeneration, freqHz, mode, tunedSequence);
 
         /// <summary>The radio's slice index: the identity, stable for the slice's life.</summary>
         public int Index { get; }
@@ -84,6 +108,15 @@ namespace Radios.StationConnect
         public IEnumerable<OwnSlice> NewSince(long sequence, StationSnapshot before) =>
             Slices.Where(s => s.Sequence > sequence && (before == null || !before.HasSlice(s.Index)));
 
+        /// <summary>True when the slice at <paramref name="index"/> has a
+        /// radio-reported tune after <paramref name="sequence"/> within one
+        /// hertz of <paramref name="freqHz"/>.</summary>
+        public bool TunedSince(long sequence, int index, long freqHz)
+        {
+            var s = Slices.FirstOrDefault(x => x.Index == index);
+            return s != null && s.TunedSequence > sequence && Math.Abs(s.FreqHz - freqHz) <= 1;
+        }
+
         public override string ToString() =>
             "station gen " + Generation + " seq " + Sequence + " [" + string.Join(", ", Slices.Select(s => s.ToString())) + "]";
     }
@@ -133,6 +166,22 @@ namespace Radios.StationConnect
                 _sequence++;
                 _slices[index] = new OwnSlice(index, letter, handle, panadapterStreamId, _sequence, attemptGeneration);
                 _generation++;
+                _lastObservedAtMs = _clock.NowMs;
+            }
+            Changed?.Invoke();
+        }
+
+        /// <summary>The radio reported an own slice's frequency or mode. Only
+        /// radio-reported values are fed here; a local setter's echo is not
+        /// an observation.</summary>
+        public void OwnSliceTuned(int index, long freqHz, string mode, int attemptGeneration)
+        {
+            lock (_lock)
+            {
+                if (attemptGeneration != _attemptGeneration) return;
+                if (!_slices.TryGetValue(index, out var existing)) return;
+                _sequence++;
+                _slices[index] = existing.WithTune(freqHz, mode, _sequence);
                 _lastObservedAtMs = _clock.NowMs;
             }
             Changed?.Invoke();

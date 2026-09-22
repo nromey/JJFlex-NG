@@ -9170,6 +9170,10 @@ namespace Radios
             {
                 mySliceAdded = true;
                 slc.PropertyChanged += new PropertyChangedEventHandler(slicePropertyChangedHandler);
+                slc.PropertyChanged += new PropertyChangedEventHandler((s2, e2) =>
+                {
+                    if (e2.PropertyName == "Freq" || e2.PropertyName == "DemodMode") ObserveOwnSliceTuned(binding, (Slice)s2);
+                });
                 slc.MeterAdded += new Slice.MeterAddedEventHandler(meterAdded);
                 sMeter_t sMeter = new sMeter_t(this, slc);
                 slc.SMeterDataReady += sMeter.sMeterData;
@@ -18654,6 +18658,9 @@ namespace Radios
             }
             if (freqHz == 0 || string.IsNullOrEmpty(mode) || string.IsNullOrEmpty(id)) return;
             RadioConfig.RecordLastPlace(id, freqHz, mode, letter);
+            // The whole layout rides on the same debounce (Track G2, case 2).
+            try { RecordOwnStationLayout("place flush"); }
+            catch (Exception ex) { Tracing.TraceLine("RecordOwnStationLayout: " + ex.Message, TraceLevel.Warning); }
         }
 
         /// <summary>

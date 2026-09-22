@@ -79,6 +79,16 @@ namespace Radios.StationConnect
         /// <summary>Ask for one new panadapter-and-slice. Inside dispatched work only.</summary>
         void RequestPanafall();
 
+        /// <summary>The owner's station layout as THIS MACHINE last recorded
+        /// it for the connected radio, or null when none is known. The radio
+        /// cannot be asked for a saved profile's contents (see
+        /// <see cref="StationLayout"/>).</summary>
+        StationLayout ReadOwnerSavedLayout();
+
+        /// <summary>Tune one of OUR slices: a per-client write, confirmable
+        /// by the slice's own status. Inside dispatched work only.</summary>
+        void SetSliceFrequencyAndMode(int sliceIndex, long freqHz, string mode);
+
         /// <summary>A client-local allocation is about to begin: the port may
         /// capture the operator's current receive and transmit slice OBJECTS,
         /// because the allocation can insert slices ahead of them.</summary>

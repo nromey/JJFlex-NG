@@ -149,6 +149,19 @@ namespace Radios.Speech
         public const string ProfileStationSlices = "profile-station-slices";
 
         /// <summary>
+        /// The owner connected and found another operator on their radio
+        /// (ruled 2026-09-22, #590 case 2): the profile was NOT loaded over
+        /// them, the owner's frequencies were put on whatever slices were
+        /// free (or could not be, and why), and the operator may change the
+        /// transmit slice or remove the other client themselves. Its own
+        /// subject because it is a different fact from the restore verdict —
+        /// nothing failed; a choice was made on the operator's behalf and
+        /// must be heard as one. Covered only by the next connect's answer
+        /// to the same question.
+        /// </summary>
+        public const string ProfileStationCompany = "profile-station-company";
+
+        /// <summary>
         /// The radio the operator is on, as stated by the connect briefing's
         /// lead — "Connected to FLEX-8600, SmartLink, 4 slices." One
         /// connection at a time, so the next connect's lead replaces an

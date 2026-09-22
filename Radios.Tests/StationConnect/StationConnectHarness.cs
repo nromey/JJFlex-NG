@@ -154,6 +154,17 @@ namespace Radios.Tests.StationConnect
             OnGlobalSaved?.Invoke(name);
         }
 
+        public StationLayout OwnerLayout;
+        public readonly List<(int index, long hz, string mode)> TunesSent = new List<(int, long, string)>();
+        /// <summary>Called on each tune; the default has the radio report it at once.</summary>
+        public Action<int, long, string> OnTuneSent;
+        public StationLayout ReadOwnerSavedLayout() => OwnerLayout;
+        public void SetSliceFrequencyAndMode(int sliceIndex, long freqHz, string mode)
+        {
+            TunesSent.Add((sliceIndex, freqHz, mode));
+            OnTuneSent?.Invoke(sliceIndex, freqHz, mode);
+        }
+
         public int AllocationScopesBegun;
         public int AllocationScopesEnded;
         public AllocationResult LastAllocationEnded;
@@ -235,8 +246,12 @@ namespace Radios.Tests.StationConnect
             Waiter = new ScriptedWaiter(Clock);
             Port.DeliverFreshInventory = names => Profiles.GlobalListObserved(names, ObservationProvenance.RadioReported, Gen);
             Port.LatestInventory = () => Profiles.Snapshot().GlobalList;
+            Port.OnTuneSent = (index, hz, mode) => Station.OwnSliceTuned(index, hz, mode, Gen);
             NewAttempt();
         }
+
+        /// <summary>The radio reports an own slice tuned.</summary>
+        public void RadioReportsTune(int index, long hz, string mode) => Station.OwnSliceTuned(index, hz, mode, Gen);
 
         /// <summary>The disconnect-time create under a fresh teardown operation.</summary>
         public CreationResult RunCreation(PendingGlobalCreation pending, StationResult lastStation)

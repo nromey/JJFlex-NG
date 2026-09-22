@@ -74,6 +74,10 @@ namespace Radios.StationConnect
         /// <summary>Readback after the deferred disconnect-time create.</summary>
         public int DisconnectCreateConfirmMs = 3000;
 
+        /// <summary>One per-client frequency placement: the slice reporting
+        /// the tune after our write.</summary>
+        public int FrequencyPlacementMs = 2000;
+
         /// <summary>How long to wait for the roster to become knowable before
         /// the automatic load is refused as unknown. Inside the station phase.</summary>
         public int RosterSettleMs = 5000;

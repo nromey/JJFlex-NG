@@ -150,7 +150,78 @@ namespace Radios
                 TraceLevel.Info);
         }
 
-        private void StationEvidenceChanged() => StationAttempt.Signal();
+        private void StationEvidenceChanged()
+        {
+            StationAttempt.Signal();
+            ConsiderOwnerProfileLoadOffer();
+        }
+
+        // ------------------------------------------------------------------
+        // Case 3 of the 2026-09-22 ruling: offer the load when they leave
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Raised, at most once per connection, when the other operator whose
+        /// presence stopped the owner's profile load has left according to
+        /// the radio's own status, and the owner's load could now be sent.
+        /// The UI shows a dialog; nothing loads without a yes.
+        /// </summary>
+        public event Action OwnerProfileLoadOffered;
+
+        private int _ownerLoadOfferedForAttempt = -1;
+
+        private void ConsiderOwnerProfileLoadOffer()
+        {
+            var last = LastStationResult;
+            if (last == null || !last.OwnerRefusedForCompany || last.LoadSent) return;
+            var attempt = StationAttempt;
+            if (!attempt.IsLive || attempt.Generation != last.AttemptGeneration) return;
+            if (_ownerLoadOfferedForAttempt == attempt.Generation) return;
+            if (RosterJudgementForAutomaticWrite().Verdict != RosterVerdict.OnlyUs) return;
+            var facts = ReadStationPolicyFacts();
+            if (StationCoordinator.AutomaticStewardshipRefusal(facts) != null) return;
+            _ownerLoadOfferedForAttempt = attempt.Generation;
+            Tracing.TraceLine("StationConnect: the other operator has left (radio status); offering the owner's profile load. "
+                + "Never automatic (ruled 2026-09-22).", TraceLevel.Info);
+            try { OwnerProfileLoadOffered?.Invoke(); }
+            catch (Exception ex) { Tracing.TraceLine("StationConnect: the load offer handler threw: " + ex.Message, TraceLevel.Error); }
+        }
+
+        /// <summary>
+        /// The operator answered yes to the offer. Runs the global load as its
+        /// own operation, with the connect's recheck inside the dispatched
+        /// delegate, judged by the completion policy and never topped up.
+        /// Blocks for up to the station phase; call it off the UI thread.
+        /// Returns the outcome and speaks it.
+        /// </summary>
+        public StationResult LoadOwnerGlobalProfileOnRequest()
+        {
+            var attempt = StationAttempt;
+            if (!attempt.IsLive || theRadio == null) return null;
+            var previous = LastStationResult;
+            var operation = attempt.BeginOperation("operator-requested global load");
+            StationResult result;
+            using (var waiter = new EventStationWaiter(attempt))
+            {
+                var coordinator = new StationCoordinator(
+                    new FlexStationPort(this), RosterTracker, StationTracker, ProfileEvidence,
+                    StationPolicies.Current, _stationClock, operation, StationDeadlines.Default(), waiter, previous);
+                result = coordinator.RunOperatorRequestedLoad();
+            }
+            LastStationResult = result;
+            if (!SuppressSpeech)
+            {
+                // FOR NOEL'S PROSE REVIEW: settings.profile_station.requested.*
+                string key = result.Outcome == StationOutcome.RestoredConfirmed ? "settings.profile_station.requested.loaded"
+                    : result.LoadSent ? "settings.profile_station.requested.sent_unconfirmed"
+                    : "settings.profile_station.requested.not_sent";
+                ConnectBriefing.Current.Note(new ConnectFact(
+                    ConnectFactKind.ProfileStewardship, Lexicon.Get(key), Lexicon.Get(key),
+                    VerbosityLevel.Terse, Speech.SpeechSubject.ProfileStationOutcome, alarm: false));
+            }
+            if (result.StationEstablished) RecordOwnStationLayout("operator-requested load");
+            return result;
+        }
 
         /// <summary>
         /// Begin the teardown operation on the current attempt, if one is
@@ -248,6 +319,41 @@ namespace Radios
 
         private void ObserveOwnSliceRemoved(ObservationBinding binding, Slice slc) =>
             StationTracker.OwnSliceRemoved(slc.Index, binding.Generation);
+
+        /// <summary>A radio-reported frequency or mode on one of our slices.
+        /// A local setter's echo (inside an OwnProfileWrite scope) is not fed.</summary>
+        private void ObserveOwnSliceTuned(ObservationBinding binding, Slice slc)
+        {
+            if (ProvenanceNow() != ObservationProvenance.RadioReported) return;
+            StationTracker.OwnSliceTuned(slc.Index, (long)LibFreqtoLong(slc.Freq), slc.DemodMode, binding.Generation);
+        }
+
+        /// <summary>
+        /// Record the owner's station — every own slice's frequency and mode,
+        /// in slice order — beside the radio's config, when the radio is
+        /// declared ours. Read back by case 2 of the 2026-09-22 ruling on a
+        /// later connect that finds company. Skips the write when unchanged.
+        /// </summary>
+        private void RecordOwnStationLayout(string why)
+        {
+            var radio = theRadio;
+            var serial = radio?.Serial;
+            if (string.IsNullOrEmpty(serial)) return;
+            if (RadioConfig.OwnershipOf(serial) != RadioOwnership.Mine) return;
+            var layout = new StationLayout { ProfileName = radio.ProfileGlobalSelection ?? "" };
+            lock (mySlices)
+            {
+                foreach (var s in mySlices.OrderBy(x => x.Index))
+                {
+                    long hz = (long)LibFreqtoLong(s.Freq);
+                    if (hz <= 0) continue;
+                    layout.Slices.Add(new SliceLayoutEntry(hz, s.DemodMode ?? ""));
+                }
+            }
+            if (layout.IsEmpty) return;
+            RadioConfig.RecordStationLayout(serial, layout);
+            Tracing.TraceLine("StationConnect: own station layout recorded (" + why + "): " + layout, TraceLevel.Info);
+        }
 
         private void ObserveOwnPanadapterAdded(ObservationBinding binding, Panadapter pan) =>
             StationTracker.OwnPanadapterAdded(pan.StreamID, binding.Generation);
@@ -415,6 +521,27 @@ namespace Radios
                 {
                     _rig._TXVFO = d.TxPosition;
                     tx.IsTransmitSlice = true;
+                }
+            }
+
+            public StationLayout ReadOwnerSavedLayout()
+            {
+                var serial = _rig.theRadio?.Serial;
+                return string.IsNullOrEmpty(serial) ? null : RadioConfig.StationLayoutOf(serial);
+            }
+
+            public void SetSliceFrequencyAndMode(int sliceIndex, long freqHz, string mode)
+            {
+                Slice target = null;
+                lock (_rig.mySlices) target = _rig.mySlices.FirstOrDefault(x => x.Index == sliceIndex);
+                if (target == null) return;
+                // Our own slice, our own write; the echo the setter raises on
+                // this thread is a local echo, and the radio's status report
+                // is what confirms the placement.
+                using (OwnProfileWrite())
+                {
+                    if (!string.IsNullOrEmpty(mode)) target.DemodMode = mode;
+                    target.Freq = _rig.LongFreqToLibFreq((ulong)Math.Max(0, freqHz));
                 }
             }
 
@@ -604,6 +731,10 @@ namespace Radios
             {
                 RunPostStationPhase(result, operation);
             }
+
+            // The owner's layout, as it stands once the station is settled,
+            // for a later connect that finds company (case 2).
+            if (result.StationEstablished) RecordOwnStationLayout("station established");
 
             Tracing.TraceLine(
                 "GetProfileInfo:radio profile autosave="
@@ -802,6 +933,33 @@ namespace Radios
                 ConnectBriefing.Current.Note(new ConnectFact(
                     ConnectFactKind.ProfileStewardship, full, brief,
                     VerbosityLevel.Terse, Speech.SpeechSubject.ProfileStationOutcome, alarm: false));
+            }
+
+            // Case 2 of the 2026-09-22 ruling: the owner found company. Say
+            // the profile was not loaded over them, what was put on the free
+            // slices instead, and what the operator may do themselves.
+            // FOR NOEL'S PROSE REVIEW: settings.profile_station.company.*
+            if (station.OwnerRefusedForCompany)
+            {
+                var p = station.Placement;
+                string sentence;
+                if (p.Placed > 0)
+                {
+                    sentence = Lexicon.Get("settings.profile_station.company.frequencies_placed",
+                        ("placed", p.Placed.ToString()), ("wanted", p.Wanted.ToString()));
+                }
+                else if (p.Stop == PlacementStop.NoLayoutKnown)
+                {
+                    sentence = Lexicon.Get("settings.profile_station.company.no_layout_known");
+                }
+                else
+                {
+                    sentence = Lexicon.Get("settings.profile_station.company.nothing_placed");
+                }
+                ConnectBriefing.Current.Note(new ConnectFact(
+                    ConnectFactKind.ProfileStewardship, sentence,
+                    Lexicon.Get("settings.profile_station.company.brief"),
+                    VerbosityLevel.Terse, Speech.SpeechSubject.ProfileStationCompany, alarm: false));
             }
 
             // No station at all, and the reason is the open bench question:

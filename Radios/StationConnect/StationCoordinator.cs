@@ -122,7 +122,14 @@ namespace Radios.StationConnect
             if (_op.IsEnded) return Finish(result, StationOutcome.Cancelled, GlobalRoute.None, _op.WhyNotLive);
             if (rosterJudgement.Verdict != RosterVerdict.OnlyUs)
             {
+                // Case 2 of the 2026-09-22 ruling: the owner, with someone
+                // else on. The profile is NOT loaded over them. Free slices
+                // are allocated client-locally (under D) and the owner's saved
+                // frequencies are placed on them, per-client, touching
+                // nothing of the other operator's. Case 3 (offer the full
+                // load when they leave) is the adapter's, from this flag.
                 result.Route = GlobalRoute.Refused;
+                result.OwnerRefusedForCompany = rosterJudgement.Verdict == RosterVerdict.OthersPresent;
                 return FreshStationRoute(result, phase, StationOutcome.PolicySkipped,
                     "the roster does not authorise an automatic shared write: " + rosterJudgement);
             }
@@ -430,6 +437,11 @@ namespace Radios.StationConnect
             {
                 result.Allocation.Stop = AllocationStop.MaterializationUnknown;
                 result.Allocation.Note = "policy: " + _policies.InitialMaterialization.Name;
+                if (result.OwnerRefusedForCompany)
+                {
+                    result.Placement.Stop = PlacementStop.NoSlices;
+                    result.Placement.Note = "no free slice was allocated (materialization unknown), so nothing to place on";
+                }
                 if (result.Route == GlobalRoute.MissingOwnedGlobal)
                 {
                     // An ambiguous station must not arm a save under the wanted name.
@@ -462,6 +474,7 @@ namespace Radios.StationConnect
             // of them; the port restores by identity when it ends. A restored
             // profile is never bracketed this way: nothing pre-restore is
             // replayed over a restored layout.
+            long seqBeforeAllocation = _station.Sequence;
             _port.BeginClientLocalAllocation();
             var allocation = Allocate(phase);
             _port.EndClientLocalAllocation(allocation);
@@ -491,7 +504,156 @@ namespace Radios.StationConnect
                 return Finish(result, StationOutcome.Failed, result.Route,
                     why + "; fresh allocation produced nothing: " + allocation);
             }
-            return Finish(result, StationOutcome.PolicySkipped, result.Route, why + "; fresh allocation: " + allocation);
+
+            // Case 2: the owner's saved frequencies on the free slices just
+            // obtained. Small, per-client, confirmable actions where the big
+            // unconfirmable one is refused.
+            if (result.OwnerRefusedForCompany && allocation.Obtained > 0)
+            {
+                result.Placement = PlaceOwnerFrequencies(phase, seqBeforeAllocation, allocation);
+            }
+            else if (result.OwnerRefusedForCompany)
+            {
+                result.Placement.Stop = PlacementStop.NoSlices;
+                result.Placement.Note = "no free slice was obtained to place a frequency on";
+            }
+            return Finish(result, StationOutcome.PolicySkipped, result.Route,
+                why + "; fresh allocation: " + allocation
+                + (result.OwnerRefusedForCompany ? "; frequency placement: " + result.Placement : ""));
+        }
+
+        // ------------------------------------------------------------------
+        // Case 2 of the 2026-09-22 ruling: the owner's frequencies on free slices
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Put the owner's saved frequencies and modes on the slices the
+        /// allocation just obtained, one at a time, each confirmed by the
+        /// slice's own radio-reported tune within a bound. Stops on the first
+        /// unconfirmed placement. The layout comes from this machine's record
+        /// of the owner's last station; see <see cref="StationLayout"/>.
+        /// </summary>
+        private PlacementResult PlaceOwnerFrequencies(StationDeadline phase, long seqBeforeAllocation, AllocationResult allocation)
+        {
+            var placement = new PlacementResult();
+            var layout = _port.ReadOwnerSavedLayout();
+            if (layout == null || layout.IsEmpty)
+            {
+                placement.Stop = PlacementStop.NoLayoutKnown;
+                placement.Note = "this machine holds no station layout for this radio";
+                Trace("frequency placement: " + placement);
+                return placement;
+            }
+            // The slices the allocation obtained, in index order: the new
+            // ones, never anything that was already there.
+            var obtained = _station.Snapshot().Slices.Where(x => x.Sequence > seqBeforeAllocation).OrderBy(x => x.Sequence).ToList();
+            placement.Wanted = Math.Min(layout.Slices.Count, obtained.Count);
+            if (placement.Wanted == 0)
+            {
+                placement.Stop = PlacementStop.NoSlices;
+                return placement;
+            }
+
+            for (int i = 0; i < placement.Wanted; i++)
+            {
+                var entry = layout.Slices[i];
+                var slice = obtained[i];
+                if (_op.IsEnded) { placement.Stop = PlacementStop.Cancelled; break; }
+                if (phase.Passed(_clock)) { placement.Stop = PlacementStop.Unconfirmed; placement.Note = "station phase ended"; break; }
+
+                long armedSeq = -1;
+                bool sent = false;
+                string refusal = null;
+                _port.Dispatch("place " + entry + " on slice " + slice.Index, () =>
+                {
+                    if (_op.IsEnded) { refusal = "operation ended"; return; }
+                    if (phase.Passed(_clock)) { refusal = "phase ended before the placement was sent"; return; }
+                    if (_port.ReadPolicyFacts().HoldArmed) { refusal = "the hold was armed"; return; }
+                    if (!_station.Snapshot().HasSlice(slice.Index)) { refusal = "slice " + slice.Index + " is no longer ours"; return; }
+                    armedSeq = _station.Sequence;
+                    _port.SetSliceFrequencyAndMode(slice.Index, entry.FreqHz, entry.Mode);
+                    sent = true;
+                    _attempt.Signal();
+                });
+                var bound = phase.Clip(_clock, _deadlines.FrequencyPlacementMs);
+                while (!sent && refusal == null && !_op.IsEnded && !bound.Passed(_clock))
+                {
+                    _waiter.Wait(Math.Min(25, bound.RemainingMs(_clock)));
+                }
+                if (refusal != null) { placement.Stop = PlacementStop.Refused; placement.Note = refusal; break; }
+                if (!sent) { placement.Stop = _op.IsEnded ? PlacementStop.Cancelled : PlacementStop.Unconfirmed; placement.Note = "the placement was never dispatched"; break; }
+                placement.Sent++;
+
+                bool confirmed = false;
+                while (true)
+                {
+                    if (_station.Snapshot().TunedSince(armedSeq, slice.Index, entry.FreqHz)) { confirmed = true; break; }
+                    if (_op.IsEnded || bound.Passed(_clock)) break;
+                    _waiter.Wait(Math.Min(25, bound.RemainingMs(_clock)));
+                }
+                if (!confirmed)
+                {
+                    placement.Stop = _op.IsEnded ? PlacementStop.Cancelled : PlacementStop.Unconfirmed;
+                    placement.Note = "slice " + slice.Index + " did not report " + entry.FreqHz + " Hz within " + _deadlines.FrequencyPlacementMs + " ms";
+                    break;
+                }
+                placement.Placed++;
+            }
+            if (placement.Stop == PlacementStop.NotAttempted) placement.Stop = PlacementStop.Completed;
+            Trace("frequency placement: " + placement);
+            return placement;
+        }
+
+        // ------------------------------------------------------------------
+        // Case 3 of the 2026-09-22 ruling: the operator asked for the load
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// The full global load at the OPERATOR'S request, after the other
+        /// operator has left and a dialog was answered yes. Never automatic.
+        /// The same recheck inside the dispatched delegate as the connect's
+        /// load (hold, ownership, intent, strict roster, inventory), the same
+        /// completion judgement, and never a top-up. It does not take the
+        /// existing-station shortcut: an explicit request is a request.
+        /// </summary>
+        public StationResult RunOperatorRequestedLoad()
+        {
+            var result = new StationResult
+            {
+                AttemptGeneration = _attempt.Generation,
+                OperationGeneration = _op.Generation,
+                Policies = _policies.Describe(),
+            };
+            Result = result;
+            var phase = StationDeadline.In(_clock, _deadlines.StationPhaseMs);
+            Trace("operator-requested global load begins for " + _op);
+
+            var facts = _port.ReadPolicyFacts();
+            result.WantedGlobal = facts.WantedGlobal ?? "";
+            if (_op.IsEnded) return Finish(result, StationOutcome.Cancelled, GlobalRoute.None, _op.WhyNotLive);
+            if (!facts.Connected) return Finish(result, StationOutcome.Failed, GlobalRoute.None, "not connected");
+            string skip = AutomaticStewardshipRefusal(facts);
+            if (skip != null) return Finish(result, StationOutcome.PolicySkipped, GlobalRoute.Refused, skip);
+            if (_previous != null && _previous.LoadOutstanding && _previous.AttemptGeneration == _attempt.Generation)
+            {
+                result.LoadOutstanding = true;
+                return Finish(result, StationOutcome.Unconfirmed, GlobalRoute.LoadExisting,
+                    "a global load sent earlier on this connection is still outstanding; no second load");
+            }
+            var roster = RosterGuard.ForAutomaticWrite(_roster.Snapshot(), _policies.RosterAuthority);
+            result.RosterAtDecision = roster;
+            if (roster.Verdict != RosterVerdict.OnlyUs)
+            {
+                return Finish(result, StationOutcome.PolicySkipped, GlobalRoute.Refused, "roster: " + roster);
+            }
+            var inventory = _profiles.Snapshot().GlobalList;
+            if (inventory == null || inventory.Provenance != ObservationProvenance.RadioReported || !inventory.Contains(facts.WantedGlobal))
+            {
+                return Finish(result, StationOutcome.PolicySkipped, GlobalRoute.Refused,
+                    "the wanted global '" + facts.WantedGlobal + "' is not in the radio's reported inventory");
+            }
+            result.Route = GlobalRoute.LoadExisting;
+            return LoadExistingRoute(result, phase, facts.WantedGlobal, facts);
         }
 
         private AllocationResult Allocate(StationDeadline phase)

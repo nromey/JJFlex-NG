@@ -134,6 +134,15 @@ namespace Radios.StationConnect
         public int OwnSlicesAtEnd;
         public string Policies = "";
 
+        /// <summary>The per-client frequency placement on the owner-with-
+        /// company route (ruled 2026-09-22, case 2), or NotAttempted.</summary>
+        public PlacementResult Placement = new PlacementResult();
+
+        /// <summary>The owner's connection was refused its load because
+        /// another operator is on: the route the ruling's second and third
+        /// cases apply to.</summary>
+        public bool OwnerRefusedForCompany;
+
         /// <summary>The three confirmed outcomes: a station whose shape is
         /// known. Downstream station-dependent writes may consult this.</summary>
         public bool StationConfirmed =>

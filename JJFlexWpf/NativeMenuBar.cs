@@ -247,13 +247,58 @@ public class NativeMenuBar : IDisposable
         {
             _subscribedRig.SliceCountChanged -= OnSliceCountChanged;
             _subscribedRig.ConnectionStateChanged -= OnConnectionStateChanged;
+            _subscribedRig.OwnerProfileLoadOffered -= OnOwnerProfileLoadOffered;
         }
         if (rig != null)
         {
             rig.SliceCountChanged += OnSliceCountChanged;
             rig.ConnectionStateChanged += OnConnectionStateChanged;
+            rig.OwnerProfileLoadOffered += OnOwnerProfileLoadOffered;
         }
         _subscribedRig = rig;
+    }
+
+    /// <summary>
+    /// Case 3 of the 2026-09-22 ruling (#590): the owner connected to find
+    /// another operator on their radio, so the profile was not loaded; that
+    /// operator has now left. The load is OFFERED, in a dialog, never sent
+    /// automatically — a global load rebuilds the whole station and the
+    /// radio does not say when it has finished. Raised from the radio's
+    /// receive thread; the dialog goes through the dispatcher. It is a
+    /// JJFlexDialog (ConfirmActionDialog), so Escape is No.
+    /// </summary>
+    private void OnOwnerProfileLoadOffered()
+    {
+        if (_disposed) return;
+        var rig = _subscribedRig;
+        if (rig == null) return;
+        _window.Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (_disposed || rig != _subscribedRig || !rig.IsConnected) return;
+            var confirm = new Dialogs.ConfirmActionDialog(
+                Radios.Lexicon.Get("settings.profile_station.offer.title"),
+                Radios.Lexicon.Get("settings.profile_station.offer.message"),
+                warnings: new[] { Radios.Lexicon.Get("settings.profile_station.offer.warning") },
+                question: Radios.Lexicon.Get("settings.profile_station.offer.question"),
+                yesLabel: Radios.Lexicon.Get("settings.profile_station.offer.yes"),
+                noLabel: Radios.Lexicon.Get("settings.profile_station.offer.no"))
+            {
+                Owner = System.Windows.Window.GetWindow(_window),
+            };
+            if (confirm.ShowDialog() != true)
+            {
+                Tracing.TraceLine("Owner profile load offer: declined (or Escape); nothing loaded", TraceLevel.Info);
+                return;
+            }
+            Tracing.TraceLine("Owner profile load offer: accepted; running the requested load off the UI thread", TraceLevel.Info);
+            // The load waits up to the station phase for its evidence; never
+            // on the UI thread.
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                try { rig.LoadOwnerGlobalProfileOnRequest(); }
+                catch (Exception ex) { Tracing.TraceLine("Owner profile load on request threw: " + ex.Message, TraceLevel.Error); }
+            });
+        }));
     }
 
     private void OnSliceCountChanged()
