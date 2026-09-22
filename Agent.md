@@ -1,4 +1,4 @@
-﻿# Agent Summary
+# Agent Summary
 
 This document captures the current state of JJ-Flex repository and active work.
 
@@ -20,8 +20,10 @@ window (1 / 7 / 7 / 4 by day). jjf-private: 13 commits today alone. Radios.Tests
 KeyLayerHelpTests, LeaderNearMissTests, HomeFieldChordTests, DelegateSurfaceTests
 — 52 pass, 1 fails, and the failure is #591, known, unchanged. Solution builds
 clean x64 Debug. 21 unpushed commits; pushing is Noel's call. Nothing published
-to Dropbox. **Track G is NOT merged; Astra's review of it is the gate and was
-still running at seal time — see "Codex" below.**
+to Dropbox. **Track G is NOT merged. Astra's review of it is the gate, and the
+gate is CLOSED: five of eight sections landed before a usage cutoff at 22:20,
+and they find real errors dormant only behind the fail-closed defaults. Read
+`SESSION-STATE-2026-09-20.md` first thing; the review resumes at 03:11.**
 
 ### The window in one line
 
@@ -154,9 +156,10 @@ recurrence.
 Four Astra runs in the window, all logged in `codex-evaluation.md`: the
 station-first design (09-19), Don's test-script hardening (09-20 04:37, xhigh),
 the key-ownership design across a usage cutoff (09-20 07:52 xhigh, resumed
-09:43 high, 595,818 tokens), and **the Track G verification (09-21 22:10, high)
-— RUNNING AT SEAL TIME**; its brief is the one file in `for-codex/` not in
-`done/`. Zero Codex-trailer commits (Astra writes documents, not code). Weekly
+09:43 high, 595,818 tokens), and **the Track G verification (09-21 22:10, high,
+282,244 tokens, CUT OFF at section 5 of 8 — the day's second limit hit,
+logged)**; its brief is the one file in `for-codex/` not in `done/`, on purpose,
+because the run resumes. Zero Codex-trailer commits (Astra writes documents, not code). Weekly
 meter 46% at seal, resets Wed 06:48. Two reset credits held, none spent. Codex
 instruction-file tests green, `AGENTS.md` still loads, sandbox healthy.
 
@@ -175,9 +178,9 @@ branch and the 14 commits of the 19th and 20th.** Snapshot written:
 
 ### Setup for tomorrow
 
-1. **Read Astra's verdict on Track G** (`for-claude/2026-09-21-codex-verify-track-g.md`)
-   and decide the merge. If it says do-not-merge, the note is at the top of
-   `SESSION-STATE-2026-09-20.md`.
+1. **Read the top of `SESSION-STATE-2026-09-20.md`.** Astra's review says do not
+   merge Track G, and lists why. Then decide whether a Track G2 brief from its
+   findings goes to Fable tonight or after you have read the review yourself.
 2. **Accept or push back on the SmartLink product**: restore-what-arrives,
    never pad, allocate nothing, speak the uncertainty.
 3. **Press `M` twice on Slice Operations** on the 14:38 build. That closes the
