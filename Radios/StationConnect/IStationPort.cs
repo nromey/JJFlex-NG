@@ -79,6 +79,17 @@ namespace Radios.StationConnect
         /// <summary>Ask for one new panadapter-and-slice. Inside dispatched work only.</summary>
         void RequestPanafall();
 
+        /// <summary>A client-local allocation is about to begin: the port may
+        /// capture the operator's current receive and transmit slice OBJECTS,
+        /// because the allocation can insert slices ahead of them.</summary>
+        void BeginClientLocalAllocation();
+
+        /// <summary>The allocation ended. The port restores the captured
+        /// selections only if those objects are still members of the current
+        /// list (see <see cref="SliceIdentityRestore"/>), and never after a
+        /// cancelled allocation. Never called around a restore.</summary>
+        void EndClientLocalAllocation(AllocationResult allocation);
+
         /// <summary>A FRESH, bounded <c>profile global info</c>: returns the
         /// radio-reported inventory observation that answered it, or the
         /// latest one held when nothing answered inside the bound (which the

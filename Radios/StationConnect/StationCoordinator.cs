@@ -457,7 +457,14 @@ namespace Radios.StationConnect
                     why + "; " + ownNow + " own slice(s) already present, preserved; nothing requested");
             }
 
+            // The operator's current receive and transmit slices are captured
+            // around THIS allocation only, because it can insert slices ahead
+            // of them; the port restores by identity when it ends. A restored
+            // profile is never bracketed this way: nothing pre-restore is
+            // replayed over a restored layout.
+            _port.BeginClientLocalAllocation();
             var allocation = Allocate(phase);
+            _port.EndClientLocalAllocation(allocation);
             result.Allocation = allocation;
             if (allocation.Stop == AllocationStop.Cancelled)
                 return Finish(result, StationOutcome.Cancelled, result.Route, _op.WhyNotLive);

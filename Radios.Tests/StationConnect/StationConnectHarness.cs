@@ -154,6 +154,12 @@ namespace Radios.Tests.StationConnect
             OnGlobalSaved?.Invoke(name);
         }
 
+        public int AllocationScopesBegun;
+        public int AllocationScopesEnded;
+        public AllocationResult LastAllocationEnded;
+        public void BeginClientLocalAllocation() => AllocationScopesBegun++;
+        public void EndClientLocalAllocation(AllocationResult allocation) { AllocationScopesEnded++; LastAllocationEnded = allocation; }
+
         void IStationPort.Trace(string line, bool isError) => Trace.Add((isError ? "ERROR " : "") + line);
     }
 

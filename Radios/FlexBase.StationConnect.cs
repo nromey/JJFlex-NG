@@ -363,6 +363,45 @@ namespace Radios
 
             public void RequestPanafall() => _rig.theRadio?.RequestPanafall();
 
+            // The RX/TX capture around the client-local allocation ONLY (QB
+            // Track J's identity rule, scoped as the review's section 8 asks):
+            // captured when the allocation begins, restored when it ends,
+            // only if the same objects are still members of the client's
+            // list, never after a cancelled allocation, and never around a
+            // restore — a restored layout is not something to replay a
+            // pre-restore selection over.
+            private Slice _capturedRx;
+            private Slice _capturedTx;
+
+            public void BeginClientLocalAllocation()
+            {
+                _capturedRx = _rig.VFOToSlice(_rig.RXVFO);
+                _capturedTx = _rig.VFOToSlice(_rig.TXVFO);
+            }
+
+            public void EndClientLocalAllocation(AllocationResult allocation)
+            {
+                var rx = _capturedRx;
+                var tx = _capturedTx;
+                _capturedRx = null;
+                _capturedTx = null;
+                if (rx == null && tx == null) return;
+                List<object> current;
+                lock (_rig.mySlices) current = _rig.mySlices.Cast<object>().ToList();
+                var d = SliceIdentityRestore.Decide(rx, tx, current, allocation?.Stop == AllocationStop.Cancelled);
+                Tracing.TraceLine("StationConnect: RX/TX identity after allocation — " + d.Reason, TraceLevel.Info);
+                if (d.RestoreRx)
+                {
+                    _rig._RXVFO = d.RxPosition;
+                    rx.Active = true;
+                }
+                if (d.RestoreTx)
+                {
+                    _rig._TXVFO = d.TxPosition;
+                    tx.IsTransmitSlice = true;
+                }
+            }
+
             public InventoryObservation RequestGlobalInventory(int timeoutMs)
             {
                 // The answer arrives as a status message the property handler
@@ -526,11 +565,6 @@ namespace Radios
             else Tracing.TraceLine("EstablishStationOnConnect: post-import entry as " + operation
                 + " — records and obligations retained; previous result: " + (previous?.ToString() ?? "none"), TraceLevel.Info);
 
-            // Capture the RX/TX slices by identity before anything can add
-            // slices ahead of them (QB Track J).
-            Slice oldRXSlice = VFOToSlice(RXVFO);
-            Slice oldTXSlice = VFOToSlice(TXVFO);
-
             StationResult result;
             using (var waiter = new EventStationWaiter(attempt))
             {
@@ -548,18 +582,6 @@ namespace Radios
                     "the wanted global was absent from the radio's reported inventory at connect");
                 Tracing.TraceLine("StationConnect: armed " + _pendingGlobalCreation
                     + " — created at clean disconnect only if every step-11 condition still holds", TraceLevel.Info);
-            }
-
-            // Restore RX/TX by identity after any allocation.
-            if (oldRXSlice != null)
-            {
-                _RXVFO = SliceToVFO(oldRXSlice);
-                oldRXSlice.Active = true;
-            }
-            if (oldTXSlice != null)
-            {
-                _TXVFO = SliceToVFO(oldTXSlice);
-                oldTXSlice.IsTransmitSlice = true;
             }
 
             if (theRadio != null && operation.IsLive)
