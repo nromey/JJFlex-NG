@@ -9,6 +9,184 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-09-21 — THE CONNECT GETS A COORDINATOR, THE BENCH CATCHES THE PADDING LIVE, AND TWO WRONG ATTRIBUTIONS COME OUT OF THE CODE
+
+**Sealed 2026-09-21 late evening, on `sprint45/integration`. This seal covers
+2026-09-16 through 2026-09-21 — nothing was sealed between the 07 seal and now,
+and the 19th and 20th were heavy days.** Integration branch: 19 commits in the
+window (1 / 7 / 7 / 4 by day). jjf-private: 13 commits today alone. Radios.Tests
+2,867 -> 3,051 on integration (Track F merged), 3,205 on `sprint45/track-g`
+(unmerged). JJFlexWpf.Tests filtered set 53: KeyTreeTests, LayerHelpRowsTests,
+KeyLayerHelpTests, LeaderNearMissTests, HomeFieldChordTests, DelegateSurfaceTests
+— 52 pass, 1 fails, and the failure is #591, known, unchanged. Solution builds
+clean x64 Debug. 21 unpushed commits; pushing is Noel's call. Nothing published
+to Dropbox. **Track G is NOT merged; Astra's review of it is the gate and was
+still running at seal time — see "Codex" below.**
+
+### The window in one line
+
+Astra designed key ownership and station-first connect; Noel ruled the arrows,
+the owner-only restore, the verbosity dial and the release order; Track F built
+the key-ownership engine and Track G the connect coordinator; the bench caught
+the slice-padding line in the act over SmartLink; and two things the code said
+Noel had ruled turned out to be things nobody had asked him.
+
+### Rulings this window, all in `tasks.md` in Noel's words
+
+- **#517 — bare arrows on Home TUNE**, everywhere. Gain and pan move to the
+  audio layer (`JJ key A`, then `V` / `P`), slice selection to `Shift`+letter in
+  the JJ key tier and to the future slice layer. **The arrows become derivable
+  the way #515 made the letters derivable**: an arrow acts on wherever you are
+  standing. Freed PageUp/PageDown SPEAK where pan went. Cross-referenced from
+  #515.
+- **#517 — a release that ends a transmit ALWAYS runs** before any "where does
+  this key belong" refusal. Refusing a key that starts a transmit fails safe;
+  refusing one that ends it fails dangerous.
+- **#590 — only the DECLARED OWNER's connection restores a station.** Anyone
+  else writes nothing shared, regardless of the roster. This removes the
+  design's guest global-load route and, with it, the check-to-firmware race
+  Astra called its most important limit — a guest never sends a load, so there
+  is nothing to race. `UseMyTransmitAudio` unchanged.
+- **#322 / #592 — speech the operator ASKED FOR is never silenced by
+  verbosity.** The dial governs what the app volunteers, nothing else.
+- **#518 — the slice layer speaks in three levels** (count, short roster, full
+  line on request) — Noel's proposal, recorded, not yet ruled. **#592 new**:
+  status utterances per layer, and a PROPOSAL in #515 that the JJ key's `Alt`
+  tier means "speak it".
+- **Don readiness order**: profiles first (#587/#588/#590 reach his radio the
+  moment we connect), alarms second, meters third. No upgrade to ChatGPT Pro
+  until building starts in earnest; every limit hit gets logged.
+
+### Track F — the key-ownership decision engine (merged `cbe19a76`)
+
+`Radios.KeyOwnership`: twelve new files, nothing the running app loads. The
+eight-step precedence from Astra's design as one pure function; the ruled Home
+map as declarations; 184 tests that assert the exact action AND zero of each
+competitor. The agent distrusted its own first-run green and broke the engine
+three ways to prove the tests notice: 4, 30 and 1 failures. **Astra's design
+absorbed Noel's arrow ruling as a declaration change with the machinery
+untouched** — its own last line had anticipated exactly that.
+
+### Track G — station-first connect (`sprint45/track-g`, three commits, UNMERGED)
+
+The complete fix in the design's own integration order, 5,900 insertions:
+#577's roster guard becomes a live, generation-stamped observation; #578's
+missing global gets an honest outcome and a correctly-named deferred create;
+`Radios.StationConnect` holds a seven-outcome `StationCoordinator` with three
+pluggable policies (roster authority, load completion, initial
+materialization), each defaulting fail-closed; the allocator is bounded, one
+request in flight, and **never tops up a restored profile** (#587, #588);
+`GetProfileInfo`'s body is replaced and `setupFromScratch` is reachable from no
+outcome (#582 confirmed dead). 154 tests added, mutation checks 12 / 2 / 1.
+**The agent flagged the consequence the brief had not traced: with all three
+policies at fail-closed, an OWNER connects to zero slices on a radio that sends
+nothing.** The bench then answered two of the three (below); the third is
+honestly unanswerable.
+
+### The bench, 2026-09-21 21:23–21:29, Noel's 8600 over SmartLink
+
+Throwaway config under `JJFLEX_CONFIG_DIR`, SmartSDR 4.2.20 driven by UI
+Automation as the second client, **0 of 943 live files changed**. Findings in
+`JJFlex-private/planning/active/bench-2026-09-21-station-first/FINDINGS.md`:
+
+- **B, does anything prove a load finished: NO.** Inventory and selection land
+  1.2 s before the first slice; `PersistenceLoaded` before any slice; the app
+  declared the load done 51 ms after the last saved slice, by luck. #579 seen
+  live. **Load completion stays `NotProvable`** and the coordinator's
+  short-circuit is correct.
+- **The padding, caught in the act**: `GetProfileInfo: allocating free slices
+  1` one line after declaring the restore complete, autosave on. Noel's saved
+  profile is THREE slices, not two (#587 corrected). Same over SmartLink as on
+  the bench, so Don's connect does it.
+- **D, initial materialization: no boundary.** The implementer's positive-
+  control policy would declare it ended a second before the saved slices land.
+  Rejected. Stays `Unknown`.
+- **A, "only us": knowable enough.** FlexLib client add/update/remove are
+  discrete with stable handles both ways and lead discovery by 0.5–1 s. That is
+  what the owner's defence-in-depth guard needs.
+
+**So the honest product on SmartLink is: restore what the radio sends, never
+pad, allocate nothing, say so when completion cannot be confirmed.** That is a
+real change in what an operator experiences and it is Noel's to accept in the
+morning.
+
+### Two attributions that were not his, and what caught them
+
+- **`M` on Slice Operations only ever muted.** The method's comment said the
+  asymmetry was "the point (#345, ruled by Noel 2026-08-28)". The transcript
+  has his words: he ruled `S` deleted and nothing else; the idempotent-`M`
+  rationale was written by whoever recorded the task. Fixed (`354aada1`), the
+  comment now QUOTES him, help and key inventory updated, **built but not yet
+  pressed — the keyboard audit is open until it is.** Memory:
+  `feedback_a_comment_attributing_a_ruling_is_not_the_ruling`.
+- **The key-ownership brief cited #345 for a gain-arrow constraint #345 does
+  not contain**, cited #19 as live (closed 08-11), and named `AdjustVFO` as a
+  method to read (deleted). Astra caught all three unprompted. It also found
+  the brief contradicted #514, which Noel HAD ruled and nobody cited.
+  `check-brief-citations.ps1` now prints every cited task's real heading and
+  flags closed ones and phantom symbols; it caught two of the three, and says
+  plainly it cannot catch the missing citation. CLAUDE.md carries the rule: a
+  prohibition needs evidence you opened.
+
+### #583 is an armed trap, not a hunt
+
+Did not reproduce remotely OR at the physical keyboard on the instrumented
+build (`1a8bad9a`, five `KEYROUTE` trace sites). Two guessed mechanisms ruled
+out by trace. What survives: the disturbed app state that night (#584, #587) or
+an unremembered key sequence. The trace sites stay in; `Ctrl+J`, `Ctrl+D` on
+recurrence.
+
+### Also this window
+
+- `open-tasks-summary.md` had drifted 18 days (264 claimed, 303 true); now a
+  seal step and checked by mtime. **The stale list was SHORTER.**
+- Codex resume does NOT restore the session's model — both dials every time
+  (`project_codex_interop`). Fable at `high`, Opus at `xhigh` in settings.
+- Justin's CTR2-MIDI: MIDI over USB/BLE, plus a direct Flex WiFi mode since
+  v2.00.00. MIDI learn discussed, deliberately NOT registered.
+- New memories: `feedback_prohibitions_in_briefs_need_opened_evidence`,
+  `feedback_a_comment_attributing_a_ruling_is_not_the_ruling`,
+  `project_bench_instance_launch_recipe`. MEMORY.md 12,637 bytes, over the
+  ~12 KB threshold; the archive sweep found nothing stamped — carried.
+
+### Codex
+
+Four Astra runs in the window, all logged in `codex-evaluation.md`: the
+station-first design (09-19), Don's test-script hardening (09-20 04:37, xhigh),
+the key-ownership design across a usage cutoff (09-20 07:52 xhigh, resumed
+09:43 high, 595,818 tokens), and **the Track G verification (09-21 22:10, high)
+— RUNNING AT SEAL TIME**; its brief is the one file in `for-codex/` not in
+`done/`. Zero Codex-trailer commits (Astra writes documents, not code). Weekly
+meter 46% at seal, resets Wed 06:48. Two reset credits held, none spent. Codex
+instruction-file tests green, `AGENTS.md` still loads, sandbox healthy.
+
+### Cross-surface activity
+
+Integration branch, `jjflex-45f` (merged), `jjflex-45g` (unmerged), jjf-private
+(13 commits). `jjflex-codex` worktree idle. Freight Fate and Civ VI not checked
+this seal — carried. No rarbox/roarbox/Cloudflare activity observed.
+
+### Rigmeter snapshot — end of 2026-09-21
+
+`today` on the integration branch: 4 commits, +3,630 / -27, 15 C# files.
+**Branch-scope caveat: this misses Track G's 5,900 insertions on its own
+branch and the 14 commits of the 19th and 20th.** Snapshot written:
+`historical/stats/2026-09-21-cbe19a76.json`.
+
+### Setup for tomorrow
+
+1. **Read Astra's verdict on Track G** (`for-claude/2026-09-21-codex-verify-track-g.md`)
+   and decide the merge. If it says do-not-merge, the note is at the top of
+   `SESSION-STATE-2026-09-20.md`.
+2. **Accept or push back on the SmartLink product**: restore-what-arrives,
+   never pad, allocate nothing, speak the uncertainty.
+3. **Press `M` twice on Slice Operations** on the 14:38 build. That closes the
+   keyboard audit for `354aada1`.
+4. Wire the bench answers: roster policy to live membership; completion and
+   materialization stay at their defaults, by evidence.
+5. Then alarms (#566, #571/#224), then meters (#270), then the Don script
+   rehearsal on the 8600.
+
 ## END-OF-DAY SEAL — 2026-09-07 — THE DAY A REGRESSION WE SHIPPED GOT FOUND, AND THE INSTRUMENTS STOPPED ARGUING WITH EACH OTHER
 
 **Sealed 2026-09-07 21:00. 16 commits in JJFlex-NG, 28 in jjf-private. Radios.Tests
