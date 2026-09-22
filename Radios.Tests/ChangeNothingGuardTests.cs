@@ -49,6 +49,10 @@ namespace Radios.Tests
         public void Dispose() => _scope.Dispose();
 
         private const string FlexBase = "Radios/FlexBase.cs";
+        /// <summary>The station-first connect half of FlexBase (Sprint 45
+        /// Track G). The connect-time profile writers moved here on
+        /// 2026-09-21; the hold is consulted in the same shapes.</summary>
+        private const string FlexBaseStation = "Radios/FlexBase.StationConnect.cs";
         private const string Reporter = "Radios/ProfileReporter.cs";
         private const string MainWindow = "JJFlexWpf/MainWindow.xaml.cs";
         private const string SettingsJson = "Radios/Lexicon/settings.json";
@@ -226,14 +230,43 @@ namespace Radios.Tests
         /// </summary>
         [Theory]
         [InlineData("private bool saveNewGlobalProfile(", "GuardSkips(\"saveNewGlobalProfile", 1200)]
-        [InlineData("internal bool GetProfileInfo(", "GuardSkips(\"default profile selection", 2200)]
         [InlineData("private void ApplyAccountUPnPPreferenceIfAny(", "GuardSkips(\"UPnP router mapping", 900)]
         [InlineData("private bool startOpusOutputChannel(", "GuardSkips(\"MicInput=PC", 900)]
-        [InlineData("private void issue7620(", "GuardSkips(\"issue7620 CW keyer restore", 3200)]
+        // The CW keyer restore and the scratch setup consult the hold through
+        // OwnerOnlyWriteSkips, whose first line IS GuardSkips (pinned below).
+        [InlineData("private void issue7620(", "OwnerOnlyWriteSkips(\"issue7620 CW keyer restore", 3200)]
         [InlineData("private bool setupFromScratch(", "GuardSkips(\"scratch-setup", 7000)]
         public void TheAutomaticWriterSkipsUnderTheHold(string signature, string guard, int window)
         {
             AssertGuardInside(FlexBase, signature, guard, window);
+        }
+
+        /// <summary>
+        /// The connect-time profile selection moved to
+        /// EstablishStationOnConnect on 2026-09-21 (Sprint 45 Track G). The
+        /// hold is still the first thing it consults, and GetProfileInfo is a
+        /// wrapper that reaches it.
+        /// </summary>
+        [Fact]
+        public void TheConnectTimeProfileSelectionStillConsultsTheHoldFirst()
+        {
+            AssertGuardInside(FlexBaseStation, "internal StationResult EstablishStationOnConnect(",
+                "GuardSkips(\"default profile selection", 1200);
+            AssertGuardInside(FlexBase, "internal bool GetProfileInfo(",
+                "EstablishStationOnConnect(postImport)", 2400);
+        }
+
+        /// <summary>
+        /// OwnerOnlyWriteSkips is the hold PLUS the ownership ruling (#590): a
+        /// radio-persistent connect-time write is the owner's to make. Its
+        /// first line must be the hold, or the writers routed through it have
+        /// lost the hold while appearing to keep it.
+        /// </summary>
+        [Fact]
+        public void TheOwnerOnlyWriterConsultsTheHoldFirst()
+        {
+            AssertGuardInside(FlexBaseStation, "private bool OwnerOnlyWriteSkips(string what)",
+                "if (GuardSkips(what)) return true;", 300);
         }
 
         /// <summary>
@@ -244,9 +277,10 @@ namespace Radios.Tests
         [InlineData("if (!GuardSkips(\"TNFEnabled=true on connect\")) theRadio.TNFEnabled = true;")]
         [InlineData("GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=false on local connect\")")]
         [InlineData("GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=true on remote audio start\")")]
-        [InlineData("GuardSkips(\"MicInput=mic on local open\")")]
-        [InlineData("GuardSkips(\"SimpleVOXEnable=false / CWBreakIn=false on open\")")]
-        [InlineData("GuardSkips(\"TX1Enabled=true on open\")")]
+        // Owner-only since 2026-09-21 (#590): hold first, then ownership.
+        [InlineData("OwnerOnlyWriteSkips(\"MicInput=mic on local open\")")]
+        [InlineData("OwnerOnlyWriteSkips(\"SimpleVOXEnable=false / CWBreakIn=false on open\")")]
+        [InlineData("OwnerOnlyWriteSkips(\"TX1Enabled=true on open\")")]
         public void TheConnectPathLiteralIsGuarded(string guardedForm)
         {
             Assert.Contains(guardedForm, Read(FlexBase), StringComparison.Ordinal);

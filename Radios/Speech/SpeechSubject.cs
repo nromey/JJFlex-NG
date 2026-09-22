@@ -126,6 +126,29 @@ namespace Radios.Speech
         public const string ProfileGuestOutcome = "profile-guest-outcome";
 
         /// <summary>
+        /// The station-first connect's verdict when it is NOT healthy: the
+        /// restore could not be confirmed, or the station came up incomplete
+        /// (Sprint 45 Track G; #563, #579, #588). Says what is kept, that
+        /// nothing was layered on top, and how to retry. One sentence per
+        /// connect; a healthy outcome says nothing under this subject.
+        /// Distinct from <see cref="ProfileGuestOutcome"/> because it is about
+        /// the operator's OWN station, not a guest's stewardship, and the two
+        /// can both be true of one connect.
+        /// </summary>
+        public const string ProfileStationOutcome = "profile-station-outcome";
+
+        /// <summary>
+        /// That the connect added NO slices, and why: the end of the radio's
+        /// own initial setup is not yet knowable (bench question D), so no
+        /// fresh allocation ran. Its own subject because it is true
+        /// independently of the restore verdict, and because it is the one
+        /// sentence that turns "every slice key is silent" from a broken
+        /// application into a described state. Covered only by the next
+        /// connect.
+        /// </summary>
+        public const string ProfileStationSlices = "profile-station-slices";
+
+        /// <summary>
         /// The radio the operator is on, as stated by the connect briefing's
         /// lead — "Connected to FLEX-8600, SmartLink, 4 slices." One
         /// connection at a time, so the next connect's lead replaces an

@@ -1,0 +1,319 @@
+using System;
+using System.IO;
+using Xunit;
+
+namespace Radios.Tests.StationConnect
+{
+    /// <summary>
+    /// The half of the station-first connect that needs a FlexLib Radio to
+    /// run — the handler feeds, the phase order in EstablishStationOnConnect,
+    /// the deferred apply's revalidation, the readback-confirmed create — is
+    /// pinned as SOURCE, in the ChangeNothingGuardTests shape and for the same
+    /// reason: nothing else fails when one of these stops, and the radio it
+    /// protects may belong to somebody else. Each pin names the design step
+    /// it holds. A positive control first.
+    /// </summary>
+    public sealed class StationFirstWiringTests
+    {
+        private const string FlexBase = "Radios/FlexBase.cs";
+        private const string FlexBaseStation = "Radios/FlexBase.StationConnect.cs";
+        private const string Coordinator = "Radios/StationConnect/StationCoordinator.cs";
+
+        private static string RepoRoot()
+        {
+            var dir = new DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null && !File.Exists(Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
+            Assert.NotNull(dir);
+            return dir!.FullName;
+        }
+
+        private static string Read(string relative) =>
+            File.ReadAllText(Path.Combine(RepoRoot(), relative.Replace('/', Path.DirectorySeparatorChar)));
+
+        private static int IndexOf(string text, string needle)
+        {
+            int at = text.IndexOf(needle, StringComparison.Ordinal);
+            Assert.True(at >= 0, "expected to find '" + needle + "'");
+            return at;
+        }
+
+        [Fact]
+        public void TheReaderDiscriminates()
+        {
+            var text = Read(FlexBaseStation);
+            Assert.Contains("EstablishStationOnConnect", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("ThisStringIsNotInTheFileAnywhere", text, StringComparison.Ordinal);
+        }
+
+        // ── the handlers FEED the trackers (design step 1, section 3) ──
+
+        [Theory]
+        [InlineData("private void guiClientAdded(GUIClient client)", "ObserveClientAdded(client, isMine);")]
+        [InlineData("private void guiClientUpdated(GUIClient client)", "ObserveClientUpdated(client);")]
+        [InlineData("private void guiClientRemoved(GUIClient client)", "ObserveClientRemoved(client);")]
+        [InlineData("private void sliceAdded(Slice slc)", "ObserveOwnSliceAdded(slc);")]
+        [InlineData("private void sliceRemoved(Slice slc)", "ObserveOwnSliceRemoved(slc);")]
+        [InlineData("private void panadapterAdded(Panadapter pan, Waterfall fall)", "ObserveOwnPanadapterAdded(pan);")]
+        [InlineData("private void panAdapterRemoved(Panadapter pan)", "ObserveOwnPanadapterRemoved(pan);")]
+        [InlineData("private void radioPropertyChangedHandler(object sender, PropertyChangedEventArgs e)", "ObserveRadioProfileProperty(r, e.PropertyName);")]
+        public void TheProductionHandlerFeedsTheObservation(string signature, string feed)
+        {
+            var text = Read(FlexBase);
+            int at = IndexOf(text, signature);
+            Assert.Contains(feed, text.Substring(at, Math.Min(6000, text.Length - at)), StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void TheOwnSliceFeedIsInsideTheOwnershipFilter()
+        {
+            // sliceAdded's myClient(slc.ClientHandle) branch is the production
+            // ownership rule; the feed must sit inside it, so other clients'
+            // slices never become our station.
+            var text = Read(FlexBase);
+            int sig = IndexOf(text, "private void sliceAdded(Slice slc)");
+            int filter = text.IndexOf("if (myClient(slc.ClientHandle))", sig, StringComparison.Ordinal);
+            int feed = text.IndexOf("ObserveOwnSliceAdded(slc);", sig, StringComparison.Ordinal);
+            int notMine = text.IndexOf("else Tracing.TraceLine(\"sliceAdded:not mine", sig, StringComparison.Ordinal);
+            Assert.True(filter > 0 && feed > filter && notMine > feed,
+                "ObserveOwnSliceAdded must be inside the myClient branch of sliceAdded");
+        }
+
+        [Fact]
+        public void TheOnceAtOwnAddSnapshotIsGone_AndOnlyStationIsLive()
+        {
+            var text = Read(FlexBase);
+            Assert.DoesNotContain("OnlyStation = (theRadio.GuiClients.Count == 1);", text, StringComparison.Ordinal);
+            Assert.Contains("public bool OnlyStation => OtherOperatorPresence == RosterVerdict.OnlyUs;", text, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void TheInventoryMembershipCompletionIsGone()
+        {
+            // #579: ProfileGlobalList.Contains(desired) no longer stands in for
+            // station completion anywhere.
+            var text = Read(FlexBase);
+            Assert.DoesNotContain("globalProfileLoaded = r.ProfileGlobalList.Contains(globalProfileDesired);", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("await(() => globalProfileLoaded, 20000)", text, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void TheAttemptBeginsBeforeTheHandlersAreWired_AndBeforeConnect()
+        {
+            var text = Read(FlexBase);
+            int begin = IndexOf(text, "BeginStationAttempt(theRadio.Serial, \"Connect\");");
+            int wired = IndexOf(text, "theRadio.GUIClientAdded += new Radio.GUIClientAddedEventHandler(guiClientAdded);");
+            int connect = text.IndexOf("rv = theRadio.Connect();", begin, StringComparison.Ordinal);
+            Assert.True(begin < wired && wired < connect, "observation must be subscribed before any command is sent");
+        }
+
+        // ── the order of phases (design steps 4 to 8; mutation check three) ──
+
+        [Fact]
+        public void TransmitAndMicrophoneAreReadAfterTheStationPhase_NotBefore()
+        {
+            var text = Read(FlexBaseStation);
+            int method = IndexOf(text, "internal StationResult EstablishStationOnConnect(bool postImport)");
+            int run = text.IndexOf("result = coordinator.Run();", method, StringComparison.Ordinal);
+            int post = text.IndexOf("RunPostStationPhase(result, attempt);", method, StringComparison.Ordinal);
+            Assert.True(run > 0 && post > run,
+                "the post-station phase (fresh tx/mic reads) must follow the coordinator's run, never precede it");
+
+            int postMethod = IndexOf(text, "private void RunPostStationPhase(StationResult station, ConnectionAttempt attempt)");
+            Assert.Contains("freshTypes: ProfileStewardship.TransmitAudioTypes",
+                text.Substring(postMethod, Math.Min(3000, text.Length - postMethod)), StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void TheGlobalDecisionReadsOnlyTheGlobalType()
+        {
+            var text = Read(FlexBaseStation);
+            int port = IndexOf(text, "public ProfileSituation ReadGlobalSituation(int timeoutMs)");
+            Assert.Contains("freshTypes: new[] { ProfileTypes.global }",
+                text.Substring(port, Math.Min(800, text.Length - port)), StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void TheSilentMicAssessmentRunsLast_AndRepairsOnlyUnderTheSharedWriteAuthority()
+        {
+            var text = Read(FlexBaseStation);
+            int post = IndexOf(text, "private void RunPostStationPhase(StationResult station, ConnectionAttempt attempt)");
+            int loop = text.IndexOf("foreach (var action in plan.Actions)", post, StringComparison.Ordinal);
+            int check = text.IndexOf("CheckMicProfileForSilentTx(mayRepair: mayWriteShared);", post, StringComparison.Ordinal);
+            Assert.True(loop > 0 && check > loop, "the assessment must run after the tx/mic actions");
+            Assert.Contains("CheckMicProfileForSilentTx(mayRepair: false);", text, StringComparison.Ordinal);
+
+            var flex = Read(FlexBase);
+            Assert.Contains("private void CheckMicProfileForSilentTx(bool mayRepair)", flex, StringComparison.Ordinal);
+            Assert.Contains("&& !ChangeNothingActive && mayRepair", flex, StringComparison.Ordinal);
+        }
+
+        // ── the recheck lives INSIDE the dispatched delegate (mutation check two) ──
+
+        [Fact]
+        public void TheCoordinatorRechecksRosterAndPolicyInsideTheDispatchedDelegate()
+        {
+            var text = Read(Coordinator);
+            int dispatch = IndexOf(text, "_port.Dispatch(\"stewardship global load '\" + name + \"'\", () =>");
+            int send = text.IndexOf("_port.SendGlobalLoad(name,", dispatch, StringComparison.Ordinal);
+            string inside = text.Substring(dispatch, send - dispatch);
+            Assert.Contains("RosterGuard.ForAutomaticWrite(_roster.Snapshot(), _policies.RosterAuthority)", inside, StringComparison.Ordinal);
+            Assert.Contains("_port.ReadPolicyFacts()", inside, StringComparison.Ordinal);
+            Assert.Contains("inventory.Contains(name)", inside, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void TheTransmitAndMicrophoneSelectionsRecheckInsideTheirDelegate()
+        {
+            var text = Read(FlexBaseStation);
+            int method = IndexOf(text, "private ProfileActionOutcome DispatchSelectionChecked(");
+            int dispatch = text.IndexOf("DispatchStationWork(", method, StringComparison.Ordinal);
+            int select = text.IndexOf("radio.ProfileTXSelection = action.ProfileName;", method, StringComparison.Ordinal);
+            string inside = text.Substring(dispatch, select - dispatch);
+            Assert.Contains("RosterJudgementForAutomaticWrite()", inside, StringComparison.Ordinal);
+            Assert.Contains("ReadStationPolicyFacts()", inside, StringComparison.Ordinal);
+            Assert.Contains("attempt.IsLive", inside, StringComparison.Ordinal);
+        }
+
+        // ── mainThreadProc: no scratch setup, no wait-on-self (design section 4; #582) ──
+
+        [Fact]
+        public void MainThreadProcNeverReachesSetupFromScratch()
+        {
+            var text = Read(FlexBase);
+            int main = IndexOf(text, "private void mainThreadProc()");
+            int end = text.IndexOf("public class cfg7620", main, StringComparison.Ordinal);
+            string body = text.Substring(main, end - main);
+            Assert.DoesNotContain("setupFromScratch();", body, StringComparison.Ordinal);
+            Assert.Contains("var station = EstablishStationOnConnect(false);", body, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void TheDeferredGuestApplyIsQueueWork_NotABlockingCallBeforeTheDequeueLoop()
+        {
+            var text = Read(FlexBase);
+            int main = IndexOf(text, "private void mainThreadProc()");
+            int end = text.IndexOf("public class cfg7620", main, StringComparison.Ordinal);
+            string body = text.Substring(main, end - main);
+            Assert.Contains("q.Enqueue((FunctionDel)ApplyDeferredGuestTransmitAudio, \"deferred guest transmit audio\");", body, StringComparison.Ordinal);
+            Assert.DoesNotContain("                ApplyDeferredGuestTransmitAudio();", body, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void DispatchRunsInlineOnTheCommandThread_SoThePostImportEntryCannotWaitOnItself()
+        {
+            var text = Read(FlexBaseStation);
+            int method = IndexOf(text, "private void DispatchStationWork(string name, Action work)");
+            Assert.Contains("Thread.CurrentThread == mainThread", text.Substring(method, 600), StringComparison.Ordinal);
+        }
+
+        // ── the guest live-audio path (design step 9; group 7) ──
+
+        [Fact]
+        public void TheDeferredApplyRevalidatesPermissionAndChainGeneration()
+        {
+            var text = Read(FlexBase);
+            int method = IndexOf(text, "internal void ApplyDeferredGuestTransmitAudio()");
+            int apply = text.IndexOf("ApplyLocalTransmitAudioNow(pending)", method, StringComparison.Ordinal);
+            string before = text.Substring(method, apply - method);
+            Assert.Contains("DeferredLiveAudioRefusal(pending)", before, StringComparison.Ordinal);
+
+            int refusal = IndexOf(text, "private string DeferredLiveAudioRefusal(string presetName)");
+            string body = text.Substring(refusal, Math.Min(2500, text.Length - refusal));
+            Assert.Contains("TxChainGeneration != _liveTxSnapshotChainGeneration", body, StringComparison.Ordinal);
+            Assert.Contains("ChangeNothingActive", body, StringComparison.Ordinal);
+            Assert.Contains("RosterJudgementNow()", body, StringComparison.Ordinal);
+            Assert.Contains("attempt.Generation", body, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void AutosaveConfirmationRequiresRadioProvenanceAfterTheSend()
+        {
+            var text = Read(FlexBase);
+            int method = IndexOf(text, "private bool SetRadioProfileAutosaveInternal(bool on, string why)");
+            string body = text.Substring(method, Math.Min(4000, text.Length - method));
+            Assert.Contains("Provenance == ObservationProvenance.RadioReported", body, StringComparison.Ordinal);
+            Assert.Contains("Sequence > seq", body, StringComparison.Ordinal);
+            Assert.DoesNotContain("await(() => theRadio == null || theRadio.ProfileAutoSave == on, 3000)", body, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void AnExpiredCaptureBoundFails_RatherThanCapturingDefaults()
+        {
+            var text = Read(FlexBase);
+            int method = IndexOf(text, "private bool CaptureLiveTransmitAudio()");
+            string body = text.Substring(method, Math.Min(3000, text.Length - method));
+            Assert.Contains("NOT capturing", body, StringComparison.Ordinal);
+            Assert.DoesNotContain("Capturing anyway", body, StringComparison.Ordinal);
+            Assert.Contains("_liveTxSnapshotChainGeneration = evidence.TxChainGeneration;", body, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void TheGenericTransmitChainWritesAreOwnerOnly()
+        {
+            var text = Read(FlexBase);
+            foreach (var literal in new[]
+            {
+                "OwnerOnlyWriteSkips(\"MicInput=mic on local open\")",
+                "OwnerOnlyWriteSkips(\"SimpleVOXEnable=false / CWBreakIn=false on open\")",
+                "OwnerOnlyWriteSkips(\"TX1Enabled=true on open\")",
+                "OwnerOnlyWriteSkips(\"issue7620 CW keyer restore on open\")",
+            })
+            {
+                Assert.Contains(literal, text, StringComparison.Ordinal);
+            }
+        }
+
+        [Fact]
+        public void RecordsComeFromWhatWasExecuted_NotFromMembershipInThePlan()
+        {
+            var text = Read(FlexBaseStation);
+            Assert.Contains("executed.Any(a => a.ProfileType == rec.ProfileType && a.Kind == ProfileActionKind.LoadOurs)", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("plan.Actions.Any(a => a.ProfileType == rec.ProfileType", text, StringComparison.Ordinal);
+        }
+
+        // ── the deferred create (design step 11; group 10's readback half) ──
+
+        [Fact]
+        public void TheDeferredCreateIsConfirmedByRadioReportedInventoryReadback()
+        {
+            var text = Read(FlexBaseStation);
+            int method = IndexOf(text, "private bool CreatePendingGlobalAtDisconnect()");
+            string body = text.Substring(method, Math.Min(4000, text.Length - method));
+            Assert.Contains("DeferredGlobalCreation.Decide(", body, StringComparison.Ordinal);
+            Assert.Contains("radio.SaveGlobalProfile(pending.Name)", body, StringComparison.Ordinal);
+            Assert.Contains("inv.Provenance == ObservationProvenance.RadioReported", body, StringComparison.Ordinal);
+            Assert.Contains("inv.Sequence > seq && inv.Contains(pending.Name)", body, StringComparison.Ordinal);
+            Assert.Contains("UNCONFIRMED, not claimed saved", body, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void TheDeferredCreateRunsFromTheCleanDisconnectAndFromDispose()
+        {
+            var text = Read(FlexBase);
+            int count = text.Split(new[] { "saveNewGlobalProfile();" }, StringSplitOptions.None).Length - 1;
+            Assert.True(count >= 2, "expected calls from Disconnect and from Dispose, found " + count);
+        }
+
+        [Fact]
+        public void TheOperatorDefaultLookupIsGoneFromTheCreatePath()
+        {
+            // #578: saveNewGlobalProfile searched GetDefaultProfiles() and
+            // missed a per-radio-only name.
+            var text = Read(FlexBase);
+            int method = IndexOf(text, "private bool saveNewGlobalProfile()");
+            string body = text.Substring(method, Math.Min(1500, text.Length - method));
+            Assert.DoesNotContain("GetDefaultProfiles()", body, StringComparison.Ordinal);
+            Assert.Contains("CreatePendingGlobalAtDisconnect()", body, StringComparison.Ordinal);
+        }
+
+        // ── the policies are read from one place the bench can set ──
+
+        [Fact]
+        public void ProductionReadsThePoliciesFromStationPoliciesCurrent()
+        {
+            var text = Read(FlexBaseStation);
+            Assert.Contains("StationPolicies.Current, _stationClock, attempt, StationDeadlines.Default(), waiter", text, StringComparison.Ordinal);
+            Assert.Contains("StationPolicies.Current.RosterAuthority", text, StringComparison.Ordinal);
+        }
+    }
+}

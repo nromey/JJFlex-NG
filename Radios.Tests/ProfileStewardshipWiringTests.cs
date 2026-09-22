@@ -43,8 +43,18 @@ namespace Radios.Tests
             return dir!.FullName;
         }
 
-        private static string Read(string relative) =>
-            File.ReadAllText(Path.Combine(RepoRoot(), relative.Replace('/', Path.DirectorySeparatorChar)));
+        private static string Read(string relative)
+        {
+            string text = File.ReadAllText(Path.Combine(RepoRoot(), relative.Replace('/', Path.DirectorySeparatorChar)));
+            // FlexBase is a partial class; the station-first connect half
+            // (Sprint 45 Track G, 2026-09-21) lives beside it. The wiring
+            // under test spans both files.
+            if (relative == FlexBase)
+            {
+                text += File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "FlexBase.StationConnect.cs"));
+            }
+            return text;
+        }
 
         // ------------------------------------------------------------------
         // The positive control, first. Everything below asserts that a string
@@ -67,8 +77,15 @@ namespace Radios.Tests
         [Fact]
         public void TheConnectPathAsksTheStewardshipRatherThanSelectingDirectly()
         {
-            Assert.Contains("ApplyProfileStewardshipOnConnect()", Read(FlexBase),
-                StringComparison.Ordinal);
+            // Since 2026-09-21 the connect path is EstablishStationOnConnect:
+            // the global decision goes through the station coordinator, and
+            // the transmit and microphone decisions through the ruled planner
+            // in the post-station phase. Both consult ProfileStewardship.
+            var text = Read(FlexBase);
+            Assert.Contains("var station = EstablishStationOnConnect(false);", text, StringComparison.Ordinal);
+            Assert.Contains("ProfileStewardship.PlanConnectRuled(situation, ProfileStewardship.TransmitAudioTypes)",
+                text, StringComparison.Ordinal);
+            Assert.DoesNotContain("ApplyProfileStewardshipOnConnect()", text, StringComparison.Ordinal);
         }
 
         [Fact]

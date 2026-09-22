@@ -92,20 +92,27 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void ReadProfileSituationWiresStationPresenceToThisClientsSliceCount()
+        public void ReadProfileSituationWiresStationPresenceToThisClientsOwnStationEvidence()
         {
             // Pin the production handoff, not merely the planner. A radio-wide
             // slice count would let somebody else's station suppress our own
             // profile load; omitting the assignment would silently use false.
+            //
+            // Since 2026-09-21 (Sprint 45 Track G) the fact comes from the
+            // own-station tracker — the same evidence the station coordinator
+            // decides on — which sliceAdded feeds only inside its myClient
+            // branch (StationFirstWiringTests pins that). MyNumSlices and the
+            // tracker count the same filtered set.
             var method = BracedBlock(Read(FlexBase),
-                "internal ProfileSituation ReadProfileSituation(");
+                "IReadOnlyCollection<ProfileTypes> freshTypes, int timeoutMs)");
 
-            Assert.Contains("StationPresent = radio != null && MyNumSlices > 0,",
+            Assert.Contains("StationPresent = radio != null && StationTracker.Snapshot().StationPresent,",
                 method, StringComparison.Ordinal);
             Assert.DoesNotContain("StationPresent = radio != null && OtherNumSlices > 0,",
                 method, StringComparison.Ordinal);
             Assert.DoesNotContain("StationPresent = radio != null && radio.SliceList.Count > 0,",
                 method, StringComparison.Ordinal);
+            Assert.DoesNotContain("StationPresent = true", method, StringComparison.Ordinal);
         }
     }
 }

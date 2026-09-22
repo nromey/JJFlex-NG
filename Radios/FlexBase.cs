@@ -27,6 +27,7 @@ using JJPortaudio;
 using JJTrace;
 using Radios.DiscoveryChain;
 using Radios.SmartLink;
+using Radios.StationConnect;
 
 namespace Radios
 {
@@ -709,6 +710,7 @@ namespace Radios
         private void teardownDisconnect(string reason)
         {
             Tracing.TraceLine($"teardownDisconnect ({reason})", TraceLevel.Info);
+            CancelStationAttempt("teardown: " + reason);
             System.Threading.Interlocked.Increment(ref _selfDisconnects);
             try { theRadio?.Disconnect(); }
             catch (Exception ex)
@@ -1933,6 +1935,12 @@ namespace Radios
             // and a guard loaded after the writes it governs is scenery (#403).
             SetChangeNothingActive(knownRadioProfile.ChangeNothingOnThisRadio);
 
+            // Begin the station-connect attempt BEFORE the handlers are wired
+            // and before Connect(): observation is subscribed before any
+            // command is sent, and every callback from here is stamped with
+            // this attempt's generation (design step 1).
+            BeginStationAttempt(theRadio.Serial, "Connect");
+
             // add the handlers.
             theRadio.PropertyChanged += new PropertyChangedEventHandler(radioPropertyChangedHandler);
             theRadio.MessageReceived += new Radio.MessageReceivedEventHandler(messageReceivedHandler);
@@ -2499,6 +2507,11 @@ namespace Radios
                 _clientRemovedDuringStart = false;
                 _clientAddedDuringStart = false;
 
+                // A retry is a new connection: new attempt generation, so a
+                // late callback from the failed one cannot complete a wait on
+                // this one even though the serial is identical.
+                BeginStationAttempt(theRadio.Serial, "RetryConnect");
+
                 bool rv = true;
 
                 if (RemoteRig)
@@ -2991,6 +3004,18 @@ namespace Radios
             Tracing.TraceLine("Disconnect:" + (string)((theRadio == null) ? "null" : theRadio.Serial), TraceLevel.Info);
             if (theRadio == null) return;
 
+            // The deferred create of a global that was definitely missing at
+            // connect (#578, design step 11), on the CLEAN disconnect and
+            // before the put-back so the two cannot fight over the global
+            // selection. Every condition is revalidated inside; a refusal
+            // traces its reason. Idempotent: the pending intent is cleared
+            // once decided, so the Dispose path reaching here later is a no-op.
+            try { saveNewGlobalProfile(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("Disconnect: the deferred global create threw: " + ex.Message, TraceLevel.Error);
+            }
+
             // Put this radio's own profiles back, FIRST, while the link is
             // certainly still up and before the cancel flag below starts
             // shortening waits (#450). Idempotent: the record is cleared once
@@ -3006,6 +3031,11 @@ namespace Radios
                     "Disconnect: putting profiles back threw: " + ex.Message
                     + ". The restore points stay on the radio.", TraceLevel.Error);
             }
+
+            // The connection attempt ends here: every wait in the station
+            // coordinator sees the cancellation, pending queue work is
+            // invalidated by generation, and the next connection starts clean.
+            CancelStationAttempt("Disconnect");
 
             // Signal the cancel flag too — if Start() is in-flight on another thread
             // (UI thread blocked in the station-name wait), it sees this and exits fast.
@@ -7544,8 +7574,6 @@ namespace Radios
 
         private ATUTuneStatus originalATUStatus = ATUTuneStatus.None;
         private bool oldATUEnable = false; // false is the default, see Flex6300.
-        private bool globalProfileLoaded; // see GetProfileInfo().
-        private string globalProfileDesired; // see GetProfileInfo().
         internal bool ExportComplete;
         internal string ExportException;
         private void HookFeatureLicense(Radio radio)
@@ -7583,6 +7611,14 @@ namespace Radios
             {
                 Tracing.TraceLine("propertyChanged:Radio:NotMine:" + e.PropertyName);
             }
+
+            // Station-first connect: every profile-related notification is
+            // logged with its PROVENANCE (radio-reported, or our own setter's
+            // synchronous echo) and the attempt generation, before the
+            // per-property handling below. Collects facts and wakes the
+            // coordinator; never blocks this receive thread.
+            ObserveRadioProfileProperty(r, e.PropertyName);
+
             switch (e.PropertyName)
             {
                 case "FeatureLicense":
@@ -7595,7 +7631,12 @@ namespace Radios
                     // only positive proof the value is real, which the guest
                     // path needs before it turns autosave off on a radio that
                     // is not ours (#499).
-                    _radioReportedAutosave = true;
+                    //
+                    // Provenance matters here (design section 3): our OWN
+                    // setter raises this same notification synchronously. Only
+                    // a radio-reported observation counts, which is what the
+                    // evidence log records and ReadProfileSituation reads.
+                    if (ProvenanceNow() == ObservationProvenance.RadioReported) _radioReportedAutosave = true;
                     break;
                 case "ActiveSlice":
                     {
@@ -7711,6 +7752,10 @@ namespace Radios
                     {
                         Tracing.TraceLine("Connected:" + r.Connected.ToString(), TraceLevel.Error);
                         _IsConnected = r.Connected;
+                        // A drop invalidates the station attempt at once: a
+                        // coordinator blocked in a wait ends Cancelled rather
+                        // than running out its deadline against a dead link.
+                        if (!r.Connected) CancelStationAttempt("connection dropped");
                         ConnectionStateChanged?.Invoke(r.Connected);
 #if zero
                         bool justReconnected = false;
@@ -7847,8 +7892,12 @@ namespace Radios
                     break;
                 case "ProfileGlobalList":
                     {
-                        // See if desired global profile is loaded.
-                        globalProfileLoaded = r.ProfileGlobalList.Contains(globalProfileDesired);
+                        // #579: this used to set globalProfileLoaded from
+                        // ProfileGlobalList.Contains(desired) — an INVENTORY
+                        // membership test standing in for station completion.
+                        // The list is now an observation in the evidence log
+                        // (above), and completion is the completion policy's
+                        // to judge from evidence, not this handler's.
                         string line = "";
                         foreach (string str in r.ProfileGlobalList)
                         {
@@ -8418,12 +8467,20 @@ namespace Radios
                 // Never let a fabricated record blank the real client id.
                 if (!string.IsNullOrEmpty(client.ClientID)) clientID = client.ClientID;
                 clientHandle = client.ClientHandle;
-                lock (theRadio.GuiClientsLockObj)
-                {
-                    OnlyStation = (theRadio.GuiClients.Count == 1);
-                }
                 //CanTransmit = PrimaryStation;
                 CanTransmit = true;
+            }
+
+            // #577. This used to assign OnlyStation = (GuiClients.Count == 1)
+            // here, once, when OUR client was added, and nothing ever
+            // recomputed it. The roster tracker is the live input now: every
+            // add, update, remove and own-handle establishment recomputes,
+            // and OnlyStation reads the current verdict. Fed BEFORE the
+            // duplicate-name check below, which reads it.
+            ObserveClientAdded(client, isMine);
+
+            if (isMine)
+            {
 
                 if (string.IsNullOrEmpty(client.Station))
                 {
@@ -8952,6 +9009,8 @@ namespace Radios
                 _lastAuthoritativeLocalPtt = client.IsLocalPtt;
             }
 
+            ObserveClientUpdated(client);
+
             Tracing.TraceLine("guiClientUpdated:" +
                 "id:" + client.ClientID +
                 " my client:" + client.IsThisClient.ToString() +
@@ -8983,6 +9042,11 @@ namespace Radios
                 _clientRemovedTickCount = Environment.TickCount64;
                 Tracing.TraceLine("guiClientRemoved:my client", TraceLevel.Info);
             }
+
+            // #577: a removal recomputes the roster. FlexLib raises the
+            // discovery-driven removal while holding its roster lock, so this
+            // publishes and returns; the tracker never blocks.
+            ObserveClientRemoved(client);
 
             // Notify when another client disconnects.
             //
@@ -9112,6 +9176,11 @@ namespace Radios
                     if (txSlice != null) _TXVFO = mySlices.IndexOf(txSlice);
                 }
                 Tracing.TraceLine("sliceAdded:mine " + ct.ToString() + ':' + slc.ToString(), TraceLevel.Info);
+                // Own-station evidence for the station coordinator. FlexLib
+                // fires this only once the slice is READY (CheckReady: full
+                // status and a ready panadapter, or explicitly headless), so
+                // the observation carries a resolved association.
+                ObserveOwnSliceAdded(slc);
                 SliceCountChanged?.Invoke();
                 // #58: opens the bulk window and restarts the settle timer, so
                 // a connect that delivers four slices produces ONE census
@@ -9178,6 +9247,7 @@ namespace Radios
                     }
                     mySliceRemoved = true;
                     Tracing.TraceLine("sliceRemoved:mine, new count:" + ct.ToString() + ':' + slc.ToString(), TraceLevel.Info);
+                    ObserveOwnSliceRemoved(slc);
                     SliceCountChanged?.Invoke();
                     // #58 and #117: one census after the set settles, and — when
                     // the operator asked for it — the receipt saying the change
@@ -9241,6 +9311,7 @@ namespace Radios
                     myPanAdapters.Add(pan);
                     ct = myPanAdapters.Count;
                 }
+                ObserveOwnPanadapterAdded(pan);
                 Tracing.TraceLine("panadapterAdded:mine " + ct.ToString() + ':' + pan.ToString(), TraceLevel.Info);
             }
             else Tracing.TraceLine("panadapterAdded:not mine " + pan.ToString(), TraceLevel.Info);
@@ -9267,6 +9338,7 @@ namespace Radios
                     myPanAdapters.Remove(pan);
                     ct = myPanAdapters.Count;
                 }
+                ObserveOwnPanadapterRemoved(pan);
                 Tracing.TraceLine("panadapterRemoved:new count:" + ct.ToString() + ':' + pan.ToString(), TraceLevel.Info);
             }
             else Tracing.TraceLine("panadapterRemoved:not mine", TraceLevel.Info);
@@ -15366,7 +15438,13 @@ namespace Radios
         /// instant a selection is seen. Only the genuine failure case waits out
         /// the full settle window, and on that radio the wait is worth it.
         /// </remarks>
-        private void CheckMicProfileForSilentTx()
+        /// <param name="mayRepair">True only when the post-station phase has
+        /// established that an automatic shared write is authorised right now:
+        /// station established, declared Mine, opted in, hold off, and the
+        /// roster verdict for automatic writes is only-us. The WARNING fires
+        /// regardless; the REPAIR needs this (design step 10). Unknown is not
+        /// "no microphone selected".</param>
+        private void CheckMicProfileForSilentTx(bool mayRepair)
         {
             if (theRadio == null) return;
 
@@ -15425,8 +15503,16 @@ namespace Radios
                     "SilentTxCheck: radio is marked MINE but change-nothing is armed — "
                     + "warning without repairing.", TraceLevel.Warning);
             }
+            else if (ownership == RadioOwnership.Mine && !mayRepair)
+            {
+                Tracing.TraceLine(
+                    "SilentTxCheck: radio is marked MINE but the station phase did not authorise an "
+                    + "automatic shared write (station not established, not opted in, or the roster "
+                    + "verdict is not only-us) — warning without repairing (design step 10).",
+                    TraceLevel.Warning);
+            }
 
-            if (ownership == RadioOwnership.Mine && !ChangeNothingActive
+            if (ownership == RadioOwnership.Mine && !ChangeNothingActive && mayRepair
                 && !string.IsNullOrEmpty(candidate))
             {
                 // SelectMicProfileIfPresent refuses to CREATE a profile — it
@@ -15566,72 +15652,57 @@ namespace Radios
                     }, 3000);
                 }
                 rv = true;
-                // no need to save the newGlobalProfile.
-                if (p.Name == newGlobalProfile) newGlobalProfile = null;
+                // An operator save under the pending name satisfies the
+                // deferred create: nothing is left to create.
+                var pending = _pendingGlobalCreation;
+                if (pending != null && p.Name == pending.Name) _pendingGlobalCreation = null;
             }
             return rv;
         }
 
-        // ── The one automatic write that already existed, and its one gap ──
+        // ── The one automatic write that already existed, and its gaps ──
         //
-        // Sprint 33 Track K found this while auditing #117 and it is worth
-        // stating plainly, because it is the only path in the application that
-        // writes a global profile without anybody pressing anything.
+        // Sprint 33 Track K found this while auditing #117: the only path in
+        // the application that writes a global profile without anybody
+        // pressing anything. Create-on-first-use of a name the radio did not
+        // have, at teardown.
         //
-        // What arms it: GetProfileInfo, on connect, looks for the operator's
-        // DEFAULT global profile on the radio. If the radio has it, it is
-        // loaded. If the radio does NOT have it, the operator has named a
-        // profile that does not exist yet, so newGlobalProfile records the name
-        // and Dispose creates it on the way out. That is create-on-first-use,
-        // it only ever writes a name the radio did not already have, and it
-        // therefore cannot overwrite an existing profile. Good.
+        // What it got wrong, fixed 2026-09-21 (#578, design step 11):
         //
-        // THE GAP IS THE CONTENTS, NOT THE NAME. The profile is created from
-        // whatever the station looks like at teardown, and under MultiFlex that
-        // includes slices belonging to another operator who is still connected.
-        // Nothing is overwritten today — but the operator's default profile is
-        // now a snapshot of somebody else's station, and it gets loaded on every
-        // subsequent connect. The damage is silent, permanent until noticed, and
-        // arrives disguised as the feature working.
+        //   - It was armed from GetDefaultProfiles()[0], the OPERATOR default,
+        //     and searched the same list here — so a per-radio-only wanted
+        //     name was never created. The pending intent now carries the
+        //     EFFECTIVE per-radio name from WantedProfilesForThisRadio.
+        //   - It was never armed at all when the load had been "sent" for the
+        //     absent name, because RunProfileAction returned true. The
+        //     coordinator's MissingOwnedGlobal route arms it instead, and only
+        //     on a confirmed fresh station.
+        //   - It ran only from Dispose. It runs from the clean Disconnect too.
+        //   - It trusted the cached OnlyStation and remembered permission from
+        //     connect. Every step-11 condition is revalidated at the save.
+        //   - SaveProfile(immediately) confirmed only that the command was
+        //     ISSUED. The save is confirmed by radio-reported inventory
+        //     readback within a bound, else reported unconfirmed.
         //
-        // So it takes the same refusal the operator-facing save takes. On a
-        // single-operator station — the normal case, and the case this was
-        // written for — behaviour is unchanged. The feature is not removed; it
-        // is prevented from capturing a station it cannot describe correctly.
+        // THE GAP IN THE CONTENTS remains and is why the roster condition is
+        // load-bearing: the profile is created from whatever the station looks
+        // like at teardown, and under MultiFlex that includes another
+        // operator's slices. Only-us, from the live roster, or nothing.
         private bool saveNewGlobalProfile()
         {
             Tracing.TraceLine("saveNewGlobalProfile", TraceLevel.Info);
-            bool rv = false;
 
-            // The hold, ahead of the MultiFlex refusal below — OnlyStation
-            // asks "am I the only client", which is true in exactly the
-            // foreign-remote-base case (audit 1.3). Silent because this runs
-            // at teardown, where speech may already be gone; the guard also
-            // stops newGlobalProfile being armed in the first place, so this
-            // is the second lock on a door that should already be shut.
-            if (GuardSkips("saveNewGlobalProfile at disconnect")) return false;
-
-            if (!string.IsNullOrEmpty(newGlobalProfile) && !OnlyStation)
+            // The hold first. Silent because this runs at teardown, where
+            // speech may already be gone; the coordinator also never arms the
+            // create under the hold, so this is the second lock on a door that
+            // should already be shut.
+            if (GuardSkips("saveNewGlobalProfile at disconnect"))
             {
-                Tracing.TraceLine(
-                    "saveNewGlobalProfile:skipped, another operator is connected; "
-                    + "would have created " + newGlobalProfile
-                    + " from a station that is not solely ours", TraceLevel.Warning);
+                _pendingGlobalCreation = null;
                 return false;
             }
-
-            List<Profile_t> crnt = GetProfilesByType(ProfileTypes.global, GetDefaultProfiles());
-            foreach (Profile_t p in crnt)
-            {
-                if (!string.IsNullOrEmpty(newGlobalProfile) && (p.Name == newGlobalProfile))
-                {
-                    SaveProfile(p, true);
-                    rv = true;
-                    break;
-                }
-            }
-            // Don't save other profiles.
-            return rv;
+            if (_pendingGlobalCreation == null) return false;
+            return CreatePendingGlobalAtDisconnect();
         }
 
         #region Profile stewardship — not our radio (#450, #451, #403)
@@ -15823,7 +15894,20 @@ namespace Radios
         /// messages.</para>
         /// </param>
         internal ProfileSituation ReadProfileSituation(
-            Dictionary<ProfileTypes, string> wanted, bool freshAsk)
+            Dictionary<ProfileTypes, string> wanted, bool freshAsk) =>
+            ReadProfileSituation(wanted, freshAsk, freshTypes: null, timeoutMs: 2500);
+
+        /// <summary>
+        /// The phase-limited read the station-first connect uses (design
+        /// section 4): only <paramref name="freshTypes"/> get a fresh
+        /// <c>profile ... info</c> ask; the other types are filled from the
+        /// lists the session already holds, so a global decision does not
+        /// freeze later transmit and microphone selections, and the
+        /// post-station phase does not make a second global decision.
+        /// </summary>
+        internal ProfileSituation ReadProfileSituation(
+            Dictionary<ProfileTypes, string> wanted, bool freshAsk,
+            IReadOnlyCollection<ProfileTypes> freshTypes, int timeoutMs)
         {
             var radio = theRadio;
             var situation = new ProfileSituation
@@ -15831,6 +15915,7 @@ namespace Radios
                 Connected = radio != null && IsConnected,
                 ChangeNothingArmed = ChangeNothingActive,
                 OnlyStation = OnlyStation,
+                OnlyStationUnknown = OtherOperatorPresence == RosterVerdict.Unknown,
                 Ownership = radio == null
                     ? RadioOwnership.Unset
                     : RadioConfig.OwnershipOf(radio.Serial),
@@ -15850,7 +15935,13 @@ namespace Radios
                 // radio. Our own slice count is the honest test: this client
                 // sees what it has, and at connect time it has nothing until
                 // the profile load or the allocator puts something there.
-                StationPresent = radio != null && MyNumSlices > 0,
+                //
+                // Fed from the own-station EVIDENCE (the tracker the slice
+                // handlers write) rather than the mySlices list, so it is the
+                // same fact the coordinator decides on. Still a minimum-
+                // presence fact with an event-limited lifetime, never
+                // completion — the richer state lives in StationResult.
+                StationPresent = radio != null && StationTracker.Snapshot().StationPresent,
             };
 
             var serialForLocal = radio?.Serial;
@@ -15871,9 +15962,10 @@ namespace Radios
                 string selection;
                 bool reported;
 
-                if (freshAsk)
+                bool askThisType = freshAsk && (freshTypes == null || freshTypes.Contains(type));
+                if (askThisType)
                 {
-                    var reading = ReadRadioProfileList(type, 2500);
+                    var reading = ReadRadioProfileList(type, Math.Max(0, timeoutMs));
                     names = reading.Names;
                     reported = reading.Reported && !reading.CouldNotAsk;
                     // CouldNotAsk is the only case that is genuinely
@@ -15954,128 +16046,14 @@ namespace Radios
             return wanted;
         }
 
-        /// <summary>
-        /// The connect-time profile decision and its execution. Returns true
-        /// when the operator's global profile was loaded, which is the answer
-        /// the connect sequence has always used to decide between "we have a
-        /// station layout" and "set up from scratch".
-        /// </summary>
-        private bool ApplyProfileStewardshipOnConnect()
-        {
-            lock (_profileRecordLock) _profileSessionRecord.Clear();
-            StrandedProfileRestorePoints = Array.Empty<ProfileTypes>();
-            _autosaveTurnedOffThisSession = false;
-            _liveTxSnapshot = null;
-            _pendingLiveTxApplyPreset = null;
-
-            // #495: a radio we already know is not a stranger. Before this,
-            // the change-nothing-until-answered default — right for a radio we
-            // have never seen — was applied to Noel's own 8600, which has an
-            // ownership declaration, months of connections and profiles that
-            // loaded on every one. Pre-answer for a radio marked ours with a
-            // connection history, once, and persist it so the question stops.
-            bool preAnswered = MigrateProfileIntentForKnownRadio();
-
-            var situation = ReadProfileSituation(WantedProfilesForThisRadio(), freshAsk: true);
-            var plan = ProfileStewardship.PlanConnect(situation);
-
-            StrandedProfileRestorePoints = plan.StrandedRestorePoints.ToArray();
-
-            foreach (var skip in plan.Skips)
-            {
-                Tracing.TraceLine(
-                    "ProfileStewardship: left the " + ProfileStewardship.Label(skip.ProfileType)
-                    + " " + (skip.ProfileType == ProfileTypes.none ? "" : "profile ")
-                    + "alone — " + skip.Reason
-                    + (string.IsNullOrEmpty(skip.ProfileName)
-                        ? "" : " (would have used '" + skip.ProfileName + "')"),
-                    TraceLevel.Info);
-            }
-
-            // The spoken tail of the connect series. Everything below is Queued
-            // at Terse/Critical exactly as the shipped stranded/silent-tx
-            // sentences are, so a healthy connect stays quiet and only a real
-            // change or a real hazard speaks.
-            AnnounceConnectStewardship(situation, plan, preAnswered);
-
-            bool globalLoaded = false;
-            CurrentDesiredGlobalProfileName = null;
-
-            // Execute the plan IN ORDER. Two ordering guarantees are load
-            // bearing: TurnAutosaveOff comes before any live edit, and
-            // CaptureLiveTransmitAudio comes before ApplyLocalTransmitAudio.
-            // A failure of either safety step abandons the rest, because a
-            // half-applied guest change is worse than none.
-            bool abort = false;
-            foreach (var action in plan.Actions)
-            {
-                if (abort) break;
-                bool ok = RunProfileAction(action);
-
-                switch (action.Kind)
-                {
-                    case ProfileActionKind.TurnAutosaveOff:
-                        if (ok) _autosaveTurnedOffThisSession = true;
-                        else
-                        {
-                            // Without autosave off we cannot promise the
-                            // owner's profile stays unwritten, so nothing is
-                            // applied. The record stays empty; nothing to put
-                            // back.
-                            Tracing.TraceLine(
-                                "ProfileStewardship: could not turn the radio's autosave off, so "
-                                + "the operator's transmit audio was NOT applied — a live change "
-                                + "under autosave could land in the owner's profile.",
-                                TraceLevel.Error);
-                            abort = true;
-                        }
-                        break;
-
-                    case ProfileActionKind.CaptureLiveTransmitAudio:
-                        if (!ok)
-                        {
-                            Tracing.TraceLine(
-                                "ProfileStewardship: could not capture the radio's live transmit "
-                                + "audio, so nothing was applied — with no way back, applying ours "
-                                + "would be a one-way door.",
-                                TraceLevel.Error);
-                            abort = true;
-                        }
-                        break;
-
-                    case ProfileActionKind.LoadOurs:
-                        if (ok && action.ProfileType == ProfileTypes.global)
-                        {
-                            globalLoaded = true;
-                            CurrentDesiredGlobalProfileName = action.ProfileName;
-                        }
-                        break;
-                }
-            }
-
-            if (abort)
-            {
-                // Undo the one thing that could be left changed: if we turned
-                // autosave off and then abandoned, give it straight back.
-                if (_autosaveTurnedOffThisSession) RestoreRadioAutosaveAfterAbort();
-                lock (_profileRecordLock) _profileSessionRecord.Clear();
-                return globalLoaded;
-            }
-
-            lock (_profileRecordLock)
-            {
-                foreach (var rec in plan.Record)
-                {
-                    bool applied = rec.LiveTransmitAudio
-                        ? _liveTxSnapshot != null
-                        : plan.Actions.Any(a => a.ProfileType == rec.ProfileType
-                                                && a.Kind == ProfileActionKind.LoadOurs);
-                    if (applied) _profileSessionRecord.Add(rec);
-                }
-            }
-
-            return globalLoaded;
-        }
+        // ApplyProfileStewardshipOnConnect used to live here: one method that
+        // reset the session records, migrated, read every profile type,
+        // planned everything and executed everything, and returned "global
+        // loaded" the moment the command was queued. It is gone (2026-09-21).
+        // Initialisation is InitializeStewardshipSession, once per attempt;
+        // the global decision is the StationCoordinator's, before station
+        // establishment; transmit and microphone are read FRESH and decided
+        // in RunPostStationPhase, after it. See FlexBase.StationConnect.cs.
 
         /// <summary>
         /// #495 migration: pre-answer the profile question for a radio the
@@ -16111,8 +16089,12 @@ namespace Radios
         /// (we applied your audio) which outranks a question (whose radio is
         /// this).
         /// </summary>
+        /// <param name="liveAudioApplied">True only when the live
+        /// transmit-audio apply actually RAN in this phase. Planning an apply
+        /// is not evidence it happened; the deferred apply speaks for itself
+        /// when it runs.</param>
         private void AnnounceConnectStewardship(
-            ProfileSituation situation, ProfilePlan plan, bool preAnswered)
+            ProfileSituation situation, ProfilePlan plan, bool preAnswered, bool liveAudioApplied)
         {
             if (SuppressSpeech) return;
             var serial = theRadio?.Serial;
@@ -16164,9 +16146,10 @@ namespace Radios
                 return;
             }
 
-            // A live transmit-audio apply that DID run.
-            if (situation.Intent == ProfileGuestIntent.UseMyTransmitAudio
-                && plan.Actions.Any(a => a.Kind == ProfileActionKind.ApplyLocalTransmitAudio))
+            // A live transmit-audio apply that DID run — the executed fact,
+            // not membership in plan.Actions. A deferred apply announces
+            // itself from ApplyDeferredGuestTransmitAudio once it has run.
+            if (situation.Intent == ProfileGuestIntent.UseMyTransmitAudio && liveAudioApplied)
             {
                 NoteProfileVerdict(Lexicon.Get("settings.profile_guest.live_audio_applied",
                         ("preset", situation.LocalTransmitAudioProfile)), VerbosityLevel.Terse, volunteered: true);
@@ -16216,6 +16199,7 @@ namespace Radios
             r == ProfileSkipReason.NoLocalTransmitAudioChosen
             || r == ProfileSkipReason.LocalTransmitAudioProfileNotFound
             || r == ProfileSkipReason.AnotherOperatorIsConnected
+            || r == ProfileSkipReason.RosterUnknown
             || r == ProfileSkipReason.OwnerHasUnsavedWork
             || r == ProfileSkipReason.RadioDidNotReportAutosave
             || r == ProfileSkipReason.AutosaveCouldNotBeTurnedOff;
@@ -16227,6 +16211,7 @@ namespace Radios
                 case ProfileSkipReason.NoLocalTransmitAudioChosen: return "settings.profile_guest.why.no_local_profile";
                 case ProfileSkipReason.LocalTransmitAudioProfileNotFound: return "settings.profile_guest.why.local_profile_missing";
                 case ProfileSkipReason.AnotherOperatorIsConnected: return "settings.profile_guest.why.another_operator";
+                case ProfileSkipReason.RosterUnknown: return "settings.profile_guest.why.roster_unknown";
                 case ProfileSkipReason.OwnerHasUnsavedWork: return "settings.profile_guest.why.unsaved_work";
                 case ProfileSkipReason.RadioDidNotReportAutosave: return "settings.profile_guest.why.autosave_unknown";
                 case ProfileSkipReason.AutosaveCouldNotBeTurnedOff: return "settings.profile_guest.why.autosave_off_failed";
@@ -16462,10 +16447,44 @@ namespace Radios
             if (radio == null) return false;
             Tracing.TraceLine("ProfileStewardship: profile autosave -> " + (on ? "ON" : "OFF")
                 + " — " + why, TraceLevel.Warning);
+
+            // Radio-origin confirmation, armed BEFORE the write (design step
+            // 9). Until 2026-09-21 this waited for theRadio.ProfileAutoSave ==
+            // on — a value OUR OWN setter had just assigned, whose
+            // PropertyChanged had just set _radioReportedAutosave. The wait
+            // was satisfied by the echo of the command, not by the radio. Now
+            // only an observation with RadioReported provenance, at a sequence
+            // after this send, with the wanted value, confirms it.
+            int gen = AttemptGen;
+            var before = ProfileEvidence.Snapshot();
+            if (before.RadioReportedAutosave == on)
+            {
+                Tracing.TraceLine("ProfileStewardship: the radio already reports autosave "
+                    + (on ? "on" : "off") + "; nothing to send.", TraceLevel.Info);
+                return true;
+            }
+            long seq = ProfileEvidence.Sequence;
+
             try
             {
+                using (OwnProfileWrite())
                 using (AppInitiatedSettingChanges())
-                    radio.ProfileAutoSave = on;
+                {
+                    // The FlexLib setter early-returns when its cached value
+                    // already equals the request and sends nothing. The cache
+                    // is not the radio; when it agrees but the radio has not
+                    // said so, send the command directly so a report can come.
+                    if (radio.ProfileAutoSave == on)
+                    {
+                        var reply = radio.SendCommandAsync("profile autosave " + (on ? "on" : "off"));
+                        _ = reply.ContinueWith(
+                            t => Tracing.TraceLine("ProfileStewardship: autosave command refused: "
+                                + t.Exception?.GetBaseException().Message, TraceLevel.Warning),
+                            TaskContinuationOptions.OnlyOnFaulted);
+                    }
+                    else
+                        radio.ProfileAutoSave = on;
+                }
             }
             catch (Exception ex)
             {
@@ -16474,17 +16493,30 @@ namespace Radios
                 return false;
             }
 
-            // Confirm by readback: the radio must report the value we asked
-            // for. Without this we could apply live audio believing autosave
-            // is off when it is not, which is the exact harm this prevents.
-            bool ok = await(() => theRadio == null || theRadio.ProfileAutoSave == on, 3000);
-            if (!ok)
+            int bound = StationDeadlines.Default().AutosaveAndCaptureMs;
+            bool ok = await(() =>
+            {
+                if (theRadio == null || AttemptGen != gen) return true; // stop waiting; fails below
+                var s = ProfileEvidence.Snapshot();
+                return s.Autosave != null
+                       && s.Autosave.Provenance == ObservationProvenance.RadioReported
+                       && s.Autosave.Sequence > seq
+                       && s.Autosave.On == on;
+            }, bound);
+            var after = ProfileEvidence.Snapshot();
+            bool confirmed = theRadio != null && AttemptGen == gen
+                             && after.Autosave != null
+                             && after.Autosave.Provenance == ObservationProvenance.RadioReported
+                             && after.Autosave.Sequence > seq
+                             && after.Autosave.On == on;
+            if (!confirmed)
             {
                 Tracing.TraceLine(
-                    "ProfileStewardship: the radio did not confirm autosave " + (on ? "on" : "off")
-                    + " within three seconds.", TraceLevel.Error);
+                    "ProfileStewardship: the radio did not REPORT autosave " + (on ? "on" : "off")
+                    + " within " + bound + " ms. A locally assigned value is not evidence; treating as unconfirmed."
+                    + (ok ? "" : " (bench question F: does the radio echo auto_save after the command?)"), TraceLevel.Error);
             }
-            return ok && theRadio != null && theRadio.ProfileAutoSave == on;
+            return confirmed;
         }
 
         /// <summary>
@@ -16493,30 +16525,47 @@ namespace Radios
         /// the radio; nothing on it changes. The on-disk copy is what lets a
         /// session that ends badly be OFFERED the put-back next time.
         /// </summary>
+        /// <summary>The transmit-chain generation and attempt the in-memory
+        /// snapshot was captured at. The deferred apply refuses when either
+        /// has moved: a snapshot of a chain that has since changed is a stale
+        /// restore point, and applying over it would put back the wrong
+        /// settings.</summary>
+        private long _liveTxSnapshotChainGeneration = -1;
+        private int _liveTxSnapshotAttempt = -1;
+        private int _pendingLiveTxApplyAttempt = -1;
+
         private bool CaptureLiveTransmitAudio()
         {
             var radio = theRadio;
             if (radio == null) return false;
             var serial = radio.Serial;
 
-            // A best-effort settle: capturing before the radio has reported its
-            // own transmit chain would snapshot defaults, and putting defaults
-            // back later is worse than nothing. MicSource reporting is a decent
-            // proxy for "the radio has answered its TX-chain status". Proceed
-            // either way (the capture is best-effort by construction) but say
-            // so — this is one of the things a second radio must confirm.
-            if (!await(() => !string.IsNullOrEmpty(MicSource), 3000))
+            // Capturing before the radio has reported its own transmit chain
+            // would snapshot defaults, and putting defaults back later is
+            // worse than nothing. MicSource reporting is the proxy for "the
+            // radio has answered its TX-chain status". Until 2026-09-21 this
+            // proceeded anyway on expiry ("best-effort"); the design (step 9)
+            // rules that expiry PREVENTS application rather than accepting a
+            // snapshot of defaults, so an expired bound is a failed capture.
+            int bound = StationDeadlines.Default().AutosaveAndCaptureMs;
+            if (!await(() => theRadio == null || !string.IsNullOrEmpty(MicSource), bound) || theRadio == null
+                || string.IsNullOrEmpty(MicSource))
             {
                 Tracing.TraceLine(
-                    "ProfileStewardship: the radio had not reported its transmit chain before the "
-                    + "live-audio capture. Capturing anyway (best-effort); verify on a real radio.",
-                    TraceLevel.Warning);
+                    "ProfileStewardship: the radio had not reported its transmit chain within " + bound
+                    + " ms. NOT capturing — a snapshot of defaults is not a restore point.",
+                    TraceLevel.Error);
+                _liveTxSnapshot = null;
+                return false;
             }
 
             try
             {
+                var evidence = ProfileEvidence.Snapshot();
                 _liveTxSnapshot = AudioChainPreset.CaptureFrom(
                     this, "live transmit audio " + (serial ?? ""));
+                _liveTxSnapshotChainGeneration = evidence.TxChainGeneration;
+                _liveTxSnapshotAttempt = AttemptGen;
             }
             catch (Exception ex)
             {
@@ -16589,7 +16638,50 @@ namespace Radios
             string pending = _pendingLiveTxApplyPreset;
             if (string.IsNullOrEmpty(pending)) return;
             _pendingLiveTxApplyPreset = null;
-            ApplyLocalTransmitAudioNow(pending);
+
+            // Revalidate at the deferred delegate (design step 9): the
+            // permission and the snapshot are as old as the plan, and the
+            // queue delay is exactly where they go stale.
+            string refusal = DeferredLiveAudioRefusal(pending);
+            if (refusal != null)
+            {
+                Tracing.TraceLine("ProfileStewardship: the deferred live transmit-audio apply did NOT run — "
+                    + refusal + ". The captured snapshot stays as the owed put-back.", TraceLevel.Warning);
+                if (!SuppressSpeech)
+                {
+                    NoteProfileVerdict(Lexicon.Get("settings.profile_guest.live_audio_not_applied",
+                        ("why", Lexicon.Get("settings.profile_guest.why.chain_changed"))),
+                        VerbosityLevel.Terse, volunteered: true);
+                }
+                return;
+            }
+
+            if (ApplyLocalTransmitAudioNow(pending) && !SuppressSpeech)
+            {
+                NoteProfileVerdict(Lexicon.Get("settings.profile_guest.live_audio_applied",
+                    ("preset", pending)), VerbosityLevel.Terse, volunteered: true);
+            }
+        }
+
+        /// <summary>Why the deferred apply must not run now, or null.</summary>
+        private string DeferredLiveAudioRefusal(string presetName)
+        {
+            var attempt = StationAttempt;
+            if (!attempt.IsLive) return "the connection attempt was cancelled";
+            if (_pendingLiveTxApplyAttempt != attempt.Generation) return "the apply belongs to a different connection attempt";
+            if (theRadio == null || !IsConnected) return "not connected";
+            if (ChangeNothingActive) return "the change-nothing hold is armed";
+            var roster = RosterJudgementNow();
+            if (roster.Verdict != RosterVerdict.OnlyUs) return "roster: " + roster;
+            if (_liveTxSnapshot == null) return "no live snapshot is held";
+            if (_liveTxSnapshotAttempt != attempt.Generation) return "the snapshot belongs to a different connection attempt";
+            var evidence = ProfileEvidence.Snapshot();
+            if (evidence.TxChainGeneration != _liveTxSnapshotChainGeneration)
+                return "the radio's transmit chain changed after the snapshot was taken (generation "
+                       + _liveTxSnapshotChainGeneration + " -> " + evidence.TxChainGeneration
+                       + "); cancelling rather than applying over a stale restore point";
+            if (FindLocalTransmitAudioProfile(presetName) == null) return "the local profile '" + presetName + "' is gone";
+            return null;
         }
 
         /// <summary>
@@ -17006,13 +17098,18 @@ namespace Radios
             // layout to be written into the owner's profile. There is no way to
             // save "only my part", because the radio has no such concept.
             //
-            // Note the fail-safe direction: OnlyStation is false until the GUI
-            // client list has been parsed at least once, so an early call
+            // Note the fail-safe direction: the roster verdict is Unknown
+            // until our own handle is in the live roster, so an early call
             // refuses rather than guesses. Refusing costs the operator one
-            // retry; guessing wrong costs somebody their layout.
-            if (!OnlyStation)
+            // retry; guessing wrong costs somebody their layout. Unknown is
+            // NAMED as uncertainty (design section 5), never announced as a
+            // person being connected.
+            var presence = OtherOperatorPresence;
+            if (presence == RosterVerdict.OthersPresent)
                 return "Another operator is connected to this radio. "
                      + "Saving now would store their setup as well as yours.";
+            if (presence == RosterVerdict.Unknown)
+                return Lexicon.Get("settings.guard.layout_save_roster_unknown");
 
             if (CurrentGlobalProfileName == null)
                 return "This radio has no global profile loaded, so there is "
@@ -18278,9 +18375,23 @@ namespace Radios
         public bool CanTransmit { get; internal set; }
 
         /// <summary>
-        /// True if the only station.
+        /// True when the LIVE roster shows our handle and no other (#577).
         /// </summary>
-        public bool OnlyStation { get; internal set; }
+        /// <remarks>
+        /// <para>Until 2026-09-21 this was an auto-property assigned once, in
+        /// <c>guiClientAdded</c>, from <c>GuiClients.Count == 1</c> at the
+        /// instant our own client was added, and nothing recomputed it: another
+        /// client joining or leaving never touched it. It is now computed from
+        /// the roster tracker on every read — membership and identity, never
+        /// count alone.</para>
+        /// <para>False when the verdict is Unknown as well as when others are
+        /// present; callers that speak should use
+        /// <see cref="OtherOperatorPresence"/> so uncertainty is named rather
+        /// than announced as a person. This Boolean does NOT consult the
+        /// bench-supplied authority policy; automatic shared writes go through
+        /// <see cref="RosterJudgementForAutomaticWrite"/>, which does.</para>
+        /// </remarks>
+        public bool OnlyStation => OtherOperatorPresence == RosterVerdict.OnlyUs;
 
         public delegate void NoSliceErrorDel(object sender, string msg);
         /// <summary>
@@ -20476,15 +20587,18 @@ namespace Radios
                         Speech.SpeechIntent.Queue, VerbosityLevel.Critical);
                 }
 
-                // If a default global profile, select it and await the pan and slices.
-                if (GetProfileInfo(false))
-                {
-                    Tracing.TraceLine("flex open:got profile", TraceLevel.Info);
-                }
-                else
-                {
-                    setupFromScratch();
-                }
+                // Station first, then read, then decide (#563, #574, #577,
+                // #578, #579, #587, #588, #590). The coordinator returns one
+                // of seven outcomes. NONE of them leads to setupFromScratch:
+                // its old Boolean caller was `true` on every path and never
+                // assigned (#582), so that route was already dead, and the
+                // design forbids false/unconfirmed ever reaching a scratch
+                // setup that layers defaults over an unknown restore. The
+                // bounded allocator inside the coordinator is the only fresh
+                // allocation now.
+                var station = EstablishStationOnConnect(false);
+                Tracing.TraceLine("flex open:station " + station.Outcome + " via " + station.Route
+                    + " — " + station.Reason, TraceLevel.Info);
 
                 // Set these on every open.
                 Tracing.TraceLine("flex open:#VFOs " + MyNumSlices, TraceLevel.Info);
@@ -20496,8 +20610,9 @@ namespace Radios
                 {
                     // mic_input is station-global and outlives the session
                     // (audit 1.7): on a guarded radio the owner's own choice
-                    // stands.
-                    if (!GuardSkips("MicInput=mic on local open"))
+                    // stands. On a radio that is not ours it is the OWNER'S
+                    // chain (#590, design step 8) and is not written either.
+                    if (!OwnerOnlyWriteSkips("MicInput=mic on local open"))
                     {
                         theRadio.MicInput = "mic";
                     }
@@ -20514,8 +20629,9 @@ namespace Radios
 
                 // Turn the Vox off. Radio-persistent, and an owner who
                 // deliberately set either gets it reset every time we connect
-                // (audit 1.4) — so a guarded radio keeps its own answers.
-                if (!GuardSkips("SimpleVOXEnable=false / CWBreakIn=false on open"))
+                // (audit 1.4) — so a guarded radio keeps its own answers, and
+                // so does a radio that is not ours (#590, design step 8).
+                if (!OwnerOnlyWriteSkips("SimpleVOXEnable=false / CWBreakIn=false on open"))
                 {
                     theRadio.SimpleVOXEnable = false;
                     theRadio.CWBreakIn = false;
@@ -20527,12 +20643,18 @@ namespace Radios
 
                 if (theRadio == null || stopMainThread) return;
 
-                // The guest transmit-audio apply (#499) is deferred to here on
-                // purpose: its setters enqueue through the command loop, which
-                // is only now running. The capture and autosave-off ran during
-                // GetProfileInfo above (a read and a direct command), so the
-                // snapshot is already safely taken before this applies ours.
-                ApplyDeferredGuestTransmitAudio();
+                // The guest transmit-audio apply (#499) is deferred to the
+                // command loop on purpose: its setters enqueue through it. It
+                // is QUEUE WORK now, not a direct call before the dequeue loop
+                // (design section 4): the loop below runs it, and it
+                // revalidates permission and the captured chain generation at
+                // that moment. The capture and autosave-off already ran in the
+                // post-station phase, so the snapshot is taken before ours is
+                // applied.
+                if (!string.IsNullOrEmpty(_pendingLiveTxApplyPreset))
+                {
+                    q.Enqueue((FunctionDel)ApplyDeferredGuestTransmitAudio, "deferred guest transmit audio");
+                }
 
                 cwx = theRadio.GetCWX();
                 cwx.Delay = theRadio.CWDelay;
@@ -20558,8 +20680,9 @@ namespace Radios
                 // Enable TX1 RCA by default for compatibility. An interlock
                 // write, radio-persistent, on every open — the audit's 1.4
                 // family in all but its list (it enumerated three; this is
-                // the fourth). Held on a guarded radio like the others.
-                if (!GuardSkips("TX1Enabled=true on open"))
+                // the fourth). Held on a guarded radio like the others, and
+                // left to the owner on a radio that is not ours (#590).
+                if (!OwnerOnlyWriteSkips("TX1Enabled=true on open"))
                 {
                     theRadio.TX1Enabled = true;
                 }
@@ -20695,7 +20818,7 @@ namespace Radios
                         // half). On a guarded radio the file is still read,
                         // so the local mirror stays whole, and the radio's
                         // own keyer settings stand.
-                        if (!GuardSkips("issue7620 CW keyer restore on open"))
+                        if (!OwnerOnlyWriteSkips("issue7620 CW keyer restore on open"))
                         {
                             i_BreakinDelay = cfgData.BreakinDelay;
                             i_SidetoneGain = cfgData.SidetoneGain;
@@ -20719,186 +20842,33 @@ namespace Radios
             }
         }
 
-        private string newGlobalProfile;
         /// <summary>
-        /// Select the default profile if loaded.
-        /// Before calling, call RaisePowerOff(), and PowerOn() when ready afterwards.
+        /// The connect-time profile entry, kept for the post-import caller
+        /// and for the guard tests that pin it. The body moved to
+        /// <see cref="EstablishStationOnConnect"/>, which returns one of seven
+        /// outcomes; this returns the honest Boolean — true only when a
+        /// station was established — and the connect path itself reads the
+        /// outcome, not this.
         /// </summary>
-        /// <returns>true if selected and the info is loaded.</returns>
         /// <remarks>
-        /// On an import, we'll wait for radio status of In_Use, then select the profile.
+        /// <para>What was here until 2026-09-21, for the record: `rv` was
+        /// initialised true and never assigned (#582), so every caller saw
+        /// "got profile"; the global load was followed by a twenty-second
+        /// wait on ProfileGlobalList CONTAINING the name — inventory
+        /// membership standing in for station completion (#579); a missing
+        /// global was sent as a load anyway and never created (#578); and
+        /// the allocator padded every station to initialFreeSlices in a loop
+        /// with no exit on failure (#587, #588). The ownership gate on all of
+        /// it was the hold alone (#590).</para>
+        /// <para>The change-nothing hold still skips all selection: the guard
+        /// trace fires inside EstablishStationOnConnect, and the coordinator
+        /// refuses on the same fact before anything is sent.</para>
         /// </remarks>
         internal bool GetProfileInfo(bool postImport)
         {
             Tracing.TraceLine("getProfileInfo:" + postImport.ToString(), TraceLevel.Info);
-            bool rv = true;
-
-            // See if any default profiles.
-            //
-            // The change-nothing hold skips ALL of the selection below — the
-            // global load, the arming of newGlobalProfile for the
-            // disconnect-time save, and the tx and mic selections, which
-            // CREATE their profile on the radio when it is absent (#403).
-            // This is the write that would have performed a factory-reset
-            // test's deferred import step invisibly: the names come from the
-            // OPERATOR'S list and land on whatever radio connects. The rest
-            // of this method — the silent-transmit check, slice allocation —
-            // reads or touches only session state and runs either way.
-            if (!GuardSkips("default profile selection on connect (global, tx, mic)"))
-            {
-                // ── The connect-time profile decision now lives in
-                //    ProfileStewardship, and this is what changed (#450, #451).
-                //
-                // What used to be here applied the OPERATOR's default global,
-                // transmit and microphone profiles to whatever radio had just
-                // connected, creating the transmit and microphone ones on the
-                // radio when they were absent, and nothing put anything back
-                // at disconnect. The names came from a list with no radio in
-                // it and no account either — one scope COARSER than the
-                // account-keyed port write that took a tester's radio off the
-                // air for five hours.
-                //
-                // What is here now: a per-radio opt-in whose default is to
-                // change nothing, a restore point captured on the radio BEFORE
-                // anything is applied, and the radio's own report of unsaved
-                // work consulted first. The decisions are all in
-                // ProfileStewardship.PlanConnect, where a test reaches them
-                // without a radio.
-                bool loadedOurGlobal = ApplyProfileStewardshipOnConnect();
-
-                if (loadedOurGlobal)
-                {
-                    // Wait for the load to land, exactly as before — a global
-                    // profile carries the whole station and the connect
-                    // sequence downstream reads slices that do not exist yet.
-                    globalProfileDesired = CurrentDesiredGlobalProfileName;
-                    globalProfileLoaded = false;
-                    if (await(() => globalProfileLoaded, 20000))
-                    {
-                        Tracing.TraceLine(
-                            "getProfileInfo:global profile loaded " + globalProfileDesired,
-                            TraceLevel.Info);
-                    }
-                }
-                else
-                {
-                    // ARMING THE DISCONNECT-TIME CREATE IS ITSELF A WRITE, and
-                    // it used to happen whenever the operator's default global
-                    // profile was merely ABSENT from the radio — which is the
-                    // normal state of somebody else's radio. Now it needs the
-                    // same opt-in as everything else here, plus ownership,
-                    // because it CREATES a profile rather than loading one.
-                    var serial = theRadio?.Serial;
-                    bool mayCreateHere =
-                        !string.IsNullOrEmpty(serial)
-                        && RadioConfig.ProfileIntentOf(serial) == ProfileGuestIntent.LoadMineAndPutBack
-                        && RadioConfig.OwnershipOf(serial) == RadioOwnership.Mine;
-
-                    List<Profile_t> crnt = GetProfilesByType(ProfileTypes.global, GetDefaultProfiles());
-                    if (crnt.Count > 0 && mayCreateHere
-                        && !theRadio.ProfileGlobalList.Contains(crnt[0].Name))
-                    {
-                        // new profile, will get saved.
-                        Tracing.TraceLine("GetProfileInfo:new profile" + crnt[0].Name, TraceLevel.Info);
-                        newGlobalProfile = crnt[0].Name;
-                    }
-                    else if (crnt.Count > 0)
-                    {
-                        Tracing.TraceLine(
-                            "GetProfileInfo: NOT arming the disconnect-time create of '"
-                            + crnt[0].Name + "' — creating a profile is only for a radio the "
-                            + "operator has opted in AND declared theirs.", TraceLevel.Info);
-                    }
-                }
-            }
-
-            // The silent-transmit check (#99). This is where branch
-            // diag/don-audio-708 SELECTED a profile when the selection came up
-            // empty. That write is correct on your own radio and is an
-            // unauthorised change to shared state on anyone else's, so what
-            // ships here is the half that needs nobody's permission: say the
-            // failure out loud. See CheckMicProfileForSilentTx.
-            CheckMicProfileForSilentTx();
-
-            // Record the radio's own autosave setting once per connect (Sprint 32
-            // Track H, #117). Reading only — this is here so the question "does
-            // this radio already save its own profiles?" can be answered from a
-            // trace file the operator can send, instead of by turning the
-            // feature on to find out. Cheap, and it is the observation the
-            // autosave decision is waiting on.
-            Tracing.TraceLine(
-                "GetProfileInfo:radio profile autosave="
-                + (RadioProfileAutoSave.HasValue
-                    ? RadioProfileAutoSave.Value.ToString()
-                    : "unknown")
-                + ", global selection="
-                + (theRadio?.ProfileGlobalSelection ?? "none"),
-                TraceLevel.Info);
-
-            // Allocate any free slices.
-            if (MyNumSlices < initialFreeSlices)
-            {
-                Tracing.TraceLine("GetProfileInfo:allocating free slices " + theRadio.PanadaptersRemaining, TraceLevel.Info);
-                // Capture the RX/TX slices by identity — the allocation below
-                // may insert slices ahead of them, shifting positions.
-                // (QB Track J)
-                Slice oldRXSlice = VFOToSlice(RXVFO);
-                Slice oldTXSlice = VFOToSlice(TXVFO);
-                int oldNumSlices = MyNumSlices;
-                while (MyNumSlices < initialFreeSlices)
-                {
-                    int n = MyNumSlices;
-                    theRadio.RequestPanafall();
-                    if (await(() =>
-                    {
-                        return (MyNumSlices > n);
-                    }, 2000))
-                    {
-                        //Thread.Sleep(20); // wait a bit
-                        //VFOToSlice(n).Mute = true;
-                    }
-                    else
-                    {
-                        // It might be there now.
-                        if (MyNumSlices == n)
-                        {
-                            Tracing.TraceLine("GetProfileInfo:free slice not allocated", TraceLevel.Error);
-                        }
-                    }
-                }
-
-                // Restore by identity: follow the captured slice objects to
-                // their current positions instead of replaying stored ints.
-                // If there was no valid RX/TX slice before allocation, keep
-                // whatever the slice-added handlers derived for the new ones.
-                if (oldRXSlice != null)
-                {
-                    _RXVFO = SliceToVFO(oldRXSlice);
-                    oldRXSlice.Active = true;
-                }
-                if (oldTXSlice != null)
-                {
-                    _TXVFO = SliceToVFO(oldTXSlice);
-                    oldTXSlice.IsTransmitSlice = true;
-                }
-            }
-
-            _TotalNumSlices = theRadio.SliceList.Count;
-
-            if (postImport)
-            {
-                Tracing.TraceLine("flex import operation complete:" + rv.ToString(), TraceLevel.Info);
-                PCAudio = wasPCAudio;
-                if (theRadio.ActiveSlice != null)
-                {
-                    FilterObj.RXFreqChange(theRadio.ActiveSlice);
-                }
-                raisePowerEvent(true);
-                Directory.Delete(importDir, true);
-                string msg = (rv) ? importedMsg : importFailMsg;
-                MessageBox.Show(msg, statusHdr, MessageBoxButtons.OK);
-            }
-            return rv;
+            var result = EstablishStationOnConnect(postImport);
+            return result.StationEstablished;
         }
 
         /// <summary>
