@@ -463,6 +463,7 @@ namespace Radios
             _liveTxSnapshotChainGeneration = -1;
             _liveTxSnapshotAttempt = -1;
             _pendingLiveTxApplyPreset = null;
+            _pendingLiveTxApplyPayload = null;
 
             // Hold before migration (design step 2; Track G review, step 2).
             // The record initialisation above is once per attempt whatever
@@ -784,11 +785,22 @@ namespace Radios
                 case ProfileActionKind.ApplyLocalTransmitAudio:
                     if (q != null && !q.MainLoop)
                     {
+                        // The payload is captured NOW and applied as captured:
+                        // a fresh lookup by name at apply time could find a
+                        // preset the operator edited meanwhile.
+                        var payload = FindLocalTransmitAudioProfile(action.ProfileName);
+                        if (payload == null)
+                        {
+                            Tracing.TraceLine("ProfileStewardship: the local profile '" + action.ProfileName
+                                + "' is gone at deferral; nothing will be applied.", TraceLevel.Error);
+                            return ProfileActionOutcome.Failed;
+                        }
                         _pendingLiveTxApplyPreset = action.ProfileName;
+                        _pendingLiveTxApplyPayload = payload;
                         _pendingLiveTxApplyAttempt = operation.Attempt.Generation;
                         Tracing.TraceLine(
                             "ProfileStewardship: deferring the live transmit-audio apply until the command loop is running; "
-                            + "permission and the captured chain generation are revalidated there.", TraceLevel.Info);
+                            + "permission, the held payload and the captured chain generation are revalidated there and inside every setter.", TraceLevel.Info);
                         return ProfileActionOutcome.Deferred;
                     }
                     return ApplyLocalTransmitAudioNow(action.ProfileName) ? ProfileActionOutcome.Confirmed : ProfileActionOutcome.Failed;
@@ -807,6 +819,7 @@ namespace Radios
             if (autosaveWasTurnedOff || _autosaveTurnedOffThisSession) RestoreRadioAutosaveAfterAbort();
             lock (_profileRecordLock) _profileSessionRecord.RemoveAll(r => r.LiveTransmitAudio);
             _pendingLiveTxApplyPreset = null;
+            _pendingLiveTxApplyPayload = null;
         }
 
         /// <summary>

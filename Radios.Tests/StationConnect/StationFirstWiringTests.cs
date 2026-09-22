@@ -200,7 +200,13 @@ namespace Radios.Tests.StationConnect
             var flex = Read(FlexBase);
             Assert.Contains("private void CheckMicProfileForSilentTx(bool mayRepair)", flex, StringComparison.Ordinal);
             Assert.Contains("&& !ChangeNothingActive && mayRepair", flex, StringComparison.Ordinal);
-            Assert.Contains("q.Enqueue((FunctionDel)(() => RunPendingSilentMicAssessment(\"after the deferred apply's setters\")),", flex, StringComparison.Ordinal);
+            // The deferred assessment runs from the continuation queued behind
+            // the apply's setters, never before them.
+            int apply = IndexOf(flex, "internal void ApplyDeferredGuestTransmitAudio()");
+            string applyBody = flex.Substring(apply, Math.Min(6000, flex.Length - apply));
+            int continuation = applyBody.IndexOf("\"live transmit audio continuation\"", StringComparison.Ordinal);
+            int assess = applyBody.IndexOf("RunPendingSilentMicAssessment(\"after the deferred apply's setters\")", StringComparison.Ordinal);
+            Assert.True(assess > 0 && continuation > assess, "the assessment must be inside the continuation queued behind the setters");
         }
 
         // ── the recheck lives INSIDE the dispatched delegate (mutation check two) ──
@@ -275,20 +281,45 @@ namespace Radios.Tests.StationConnect
         // ── the guest live-audio path (design step 9; group 7) ──
 
         [Fact]
-        public void TheDeferredApplyRevalidatesPermissionAndChainGeneration()
+        public void TheDeferredApplyRevalidatesAtTheDelegate_AndInsideEverySetter_UnderTheStrictRoster()
         {
+            // The rule's CONTENT is DeferredLiveAudioGate, tested condition by
+            // condition in LiveTransmitAudioGateTests; the queue's honouring
+            // of the ambient gate is tested there too. This pins the wiring:
+            // the payload applied is the one held at deferral, the gate is
+            // consulted before the apply and is the ambient gate around it,
+            // and the roster it reads is the strict one.
             var text = Read(FlexBase);
             int method = IndexOf(text, "internal void ApplyDeferredGuestTransmitAudio()");
-            int apply = text.IndexOf("ApplyLocalTransmitAudioNow(pending)", method, StringComparison.Ordinal);
+            int apply = text.IndexOf("ApplyLocalTransmitAudioPayloadNow(payload, pending)", method, StringComparison.Ordinal);
+            Assert.True(apply > method, "the deferred apply must apply the HELD payload");
             string before = text.Substring(method, apply - method);
-            Assert.Contains("DeferredLiveAudioRefusal(pending)", before, StringComparison.Ordinal);
+            Assert.Contains("DeferredLiveAudioRefusal(pending, payload)", before, StringComparison.Ordinal);
+            Assert.Contains("QueuedWriteGate.Open(() => DeferredLiveAudioRefusal(pending, payload))", before, StringComparison.Ordinal);
+            Assert.DoesNotContain("FindLocalTransmitAudioProfile(pending)", text.Substring(method, 6000), StringComparison.Ordinal);
 
-            int refusal = IndexOf(text, "private string DeferredLiveAudioRefusal(string presetName)");
+            int refusal = IndexOf(text, "private string DeferredLiveAudioRefusal(string presetName, AudioChainPreset payload)");
             string body = text.Substring(refusal, Math.Min(2500, text.Length - refusal));
-            Assert.Contains("TxChainGeneration != _liveTxSnapshotChainGeneration", body, StringComparison.Ordinal);
-            Assert.Contains("ChangeNothingActive", body, StringComparison.Ordinal);
-            Assert.Contains("RosterJudgementNow()", body, StringComparison.Ordinal);
-            Assert.Contains("attempt.Generation", body, StringComparison.Ordinal);
+            Assert.Contains("DeferredLiveAudioGate.Refusal(", body, StringComparison.Ordinal);
+            Assert.Contains("StrictRoster = RosterJudgementForAutomaticWrite().Verdict", body, StringComparison.Ordinal);
+            Assert.DoesNotContain("RosterJudgementNow()", body, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void TheCaptureIsDurableOnlyWhenTheSnapshotReadsBack_AndTheAbortKeepsAnUnconfirmedNotice()
+        {
+            var text = Read(FlexBase);
+            int capture = IndexOf(text, "private bool CaptureLiveTransmitAudio()");
+            string body = text.Substring(capture, Math.Min(3500, text.Length - capture));
+            Assert.Contains("if (!SaveLiveTxSnapshot(serial, _liveTxSnapshot))", body, StringComparison.Ordinal);
+            Assert.Contains("LiveTxSnapshotStore.Persist(path, snapshot)", text, StringComparison.Ordinal);
+
+            int abort = IndexOf(text, "private void RestoreRadioAutosaveAfterAbort()");
+            string abortBody = text.Substring(abort, 1200);
+            int confirmed = abortBody.IndexOf("bool confirmed = SetRadioProfileAutosaveInternal(true,", StringComparison.Ordinal);
+            int clear = abortBody.IndexOf("RadioConfig.RecordAutosaveTurnedOffByUs(serial, false);", StringComparison.Ordinal);
+            int guard = abortBody.IndexOf("if (!confirmed)", StringComparison.Ordinal);
+            Assert.True(confirmed > 0 && guard > confirmed && clear > guard, "the durable notice must clear only after a confirmed restore");
         }
 
         [Fact]

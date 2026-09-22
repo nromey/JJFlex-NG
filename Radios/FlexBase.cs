@@ -16347,7 +16347,16 @@ namespace Radios
         private void RestoreRadioAutosaveAfterAbort()
         {
             var serial = theRadio?.Serial;
-            SetRadioProfileAutosaveInternal(true, "restoring autosave after a connect-time abort");
+            bool confirmed = SetRadioProfileAutosaveInternal(true, "restoring autosave after a connect-time abort");
+            if (!confirmed)
+            {
+                // The durable "we owe it back" notice stays until the radio
+                // REPORTS autosave on: clearing it on an unconfirmed restore
+                // would strand the owner silently (review step 9).
+                Tracing.TraceLine("ProfileStewardship: autosave was not confirmed back on after the abort; the "
+                    + "durable notice stays and the next connect offers the one-press restore.", TraceLevel.Warning);
+                return;
+            }
             if (!string.IsNullOrEmpty(serial))
                 RadioConfig.RecordAutosaveTurnedOffByUs(serial, false);
             _autosaveTurnedOffThisSession = false;
@@ -16583,6 +16592,10 @@ namespace Radios
         private int _liveTxSnapshotAttempt = -1;
         private int _pendingLiveTxApplyAttempt = -1;
 
+        /// <summary>The preset as it was when the apply was deferred. Applied
+        /// as held; never re-read by name at apply time.</summary>
+        private AudioChainPreset _pendingLiveTxApplyPayload;
+
         private bool CaptureLiveTransmitAudio()
         {
             var radio = theRadio;
@@ -16624,10 +16637,20 @@ namespace Radios
                 return false;
             }
 
-            SaveLiveTxSnapshot(serial, _liveTxSnapshot);
+            // Durable only when the file landed and reads back. A restore
+            // point that is not on disk cannot rescue a session that ends
+            // badly, so nothing is applied over it (review section 2).
+            if (!SaveLiveTxSnapshot(serial, _liveTxSnapshot))
+            {
+                Tracing.TraceLine(
+                    "ProfileStewardship: the live transmit-audio snapshot could not be persisted beside the radio's "
+                    + "config, so it is NOT a restore point and nothing will be applied.", TraceLevel.Error);
+                _liveTxSnapshot = null;
+                return false;
+            }
             Tracing.TraceLine(
                 "ProfileStewardship: captured this radio's live transmit audio ("
-                + _liveTxSnapshot.FormatForSpeech() + ").", TraceLevel.Info);
+                + _liveTxSnapshot.FormatForSpeech() + ") and persisted it.", TraceLevel.Info);
             return true;
         }
 
@@ -16682,20 +16705,35 @@ namespace Radios
         /// Called once the command loop is up (see the connect sequence), to
         /// run any live transmit-audio apply that was deferred at connect.
         /// </summary>
+        /// <remarks>
+        /// <para>The apply is the IMMUTABLE payload captured when it was
+        /// deferred, never a fresh lookup by name; the gate is
+        /// <see cref="DeferredLiveAudioGate"/>, checked here and again inside
+        /// EVERY setter the preset enqueues, through the ambient
+        /// <see cref="QueuedWriteGate"/>; and the session record — the
+        /// put-back obligation — is written by the continuation queued behind
+        /// the setters, only when all of them ran. A refusal here applies
+        /// nothing, so it owes nothing: the snapshot file is removed and the
+        /// radio's autosave is given back (Track G2; review step 9).</para>
+        /// </remarks>
         internal void ApplyDeferredGuestTransmitAudio()
         {
             string pending = _pendingLiveTxApplyPreset;
+            var payload = _pendingLiveTxApplyPayload;
             if (string.IsNullOrEmpty(pending)) return;
             _pendingLiveTxApplyPreset = null;
+            _pendingLiveTxApplyPayload = null;
 
             // Revalidate at the deferred delegate (design step 9): the
             // permission and the snapshot are as old as the plan, and the
             // queue delay is exactly where they go stale.
-            string refusal = DeferredLiveAudioRefusal(pending);
+            string refusal = DeferredLiveAudioRefusal(pending, payload);
             if (refusal != null)
             {
                 Tracing.TraceLine("ProfileStewardship: the deferred live transmit-audio apply did NOT run — "
-                    + refusal + ". The captured snapshot stays as the owed put-back.", TraceLevel.Warning);
+                    + refusal + ". Nothing was applied, so nothing is owed: the snapshot is discarded and "
+                    + "autosave is given back.", TraceLevel.Warning);
+                AbandonUnappliedLiveAudio();
                 if (!SuppressSpeech)
                 {
                     NoteProfileVerdict(Lexicon.Get("settings.profile_guest.live_audio_not_applied",
@@ -16706,16 +16744,117 @@ namespace Radios
                 return;
             }
 
-            if (ApplyLocalTransmitAudioNow(pending) && !SuppressSpeech)
+            // Every setter the preset enqueues is asked again at its run.
+            var gate = QueuedWriteGate.Open(() => DeferredLiveAudioRefusal(pending, payload));
+            bool enqueued;
+            try
             {
-                NoteProfileVerdict(Lexicon.Get("settings.profile_guest.live_audio_applied",
-                    ("preset", pending)), VerbosityLevel.Terse, volunteered: true);
+                enqueued = ApplyLocalTransmitAudioPayloadNow(payload, pending);
             }
-            // The preset's setters are queue work behind this delegate; the
-            // assessment is queued behind THEM, so it runs after the deferred
-            // work has completed (design step 10; Track G2).
-            q.Enqueue((FunctionDel)(() => RunPendingSilentMicAssessment("after the deferred apply's setters")),
-                "silent-microphone assessment after deferred apply");
+            finally
+            {
+                gate.Dispose();
+            }
+            if (!enqueued)
+            {
+                AbandonUnappliedLiveAudio();
+                RunPendingSilentMicAssessment("deferred apply failed to enqueue");
+                return;
+            }
+
+            // The continuation runs after the setters (same queue, FIFO). It
+            // is the only place the obligation is recorded and the only place
+            // "applied" is said.
+            q.Enqueue((FunctionDel)(() =>
+            {
+                if (gate.Complete)
+                {
+                    lock (_profileRecordLock)
+                    {
+                        _profileSessionRecord.RemoveAll(r => r.LiveTransmitAudio);
+                        _profileSessionRecord.Add(new ProfileSessionRecord
+                        {
+                            ProfileType = ProfileTypes.tx,
+                            LiveTransmitAudio = true,
+                            TheirSelection = SelectionOnRadio(ProfileTypes.tx) ?? "",
+                            WeLoaded = pending,
+                        });
+                    }
+                    Tracing.TraceLine("ProfileStewardship: applied the operator's '" + pending
+                        + "' transmit audio to the radio's live state: " + gate.Ran + " setter(s) ran, none refused. "
+                        + "Nothing was saved on the radio; the put-back is owed.", TraceLevel.Info);
+                    if (!SuppressSpeech)
+                    {
+                        NoteProfileVerdict(Lexicon.Get("settings.profile_guest.live_audio_applied",
+                            ("preset", pending)), VerbosityLevel.Terse, volunteered: true);
+                    }
+                }
+                else
+                {
+                    // Some setters ran and some were refused: the radio is
+                    // partly changed. The put-back IS owed (the snapshot holds
+                    // the owner's chain) and the operator is told it was not
+                    // applied in full.
+                    lock (_profileRecordLock)
+                    {
+                        _profileSessionRecord.RemoveAll(r => r.LiveTransmitAudio);
+                        if (gate.Ran > 0)
+                        {
+                            _profileSessionRecord.Add(new ProfileSessionRecord
+                            {
+                                ProfileType = ProfileTypes.tx,
+                                LiveTransmitAudio = true,
+                                TheirSelection = SelectionOnRadio(ProfileTypes.tx) ?? "",
+                                WeLoaded = pending,
+                            });
+                        }
+                    }
+                    Tracing.TraceLine("ProfileStewardship: the live transmit-audio apply was " + (gate.Ran > 0 ? "PARTIAL" : "refused in full")
+                        + ": " + gate.Ran + " setter(s) ran, " + gate.Refused + " refused (" + gate.FirstRefusal + "). "
+                        + (gate.Ran > 0 ? "The put-back is owed." : "Nothing is owed."), TraceLevel.Warning);
+                    if (gate.Ran == 0) AbandonUnappliedLiveAudio();
+                    if (!SuppressSpeech)
+                    {
+                        NoteProfileVerdict(Lexicon.Get("settings.profile_guest.live_audio_not_applied",
+                            ("why", Lexicon.Get("settings.profile_guest.why.chain_changed"))),
+                            VerbosityLevel.Terse, volunteered: true);
+                    }
+                }
+                RunPendingSilentMicAssessment("after the deferred apply's setters");
+            }), "live transmit audio continuation");
+        }
+
+        /// <summary>An apply that never happened owes nothing: discard the
+        /// snapshot, give autosave back (confirmed or the notice stays).</summary>
+        private void AbandonUnappliedLiveAudio()
+        {
+            var serial = theRadio?.Serial;
+            _liveTxSnapshot = null;
+            if (!string.IsNullOrEmpty(serial)) DeleteLiveTxSnapshot(serial);
+            lock (_profileRecordLock) _profileSessionRecord.RemoveAll(r => r.LiveTransmitAudio);
+            if (_autosaveTurnedOffThisSession) RestoreRadioAutosaveAfterAbort();
+        }
+
+        /// <summary>Apply a held payload to the live state: the setters are
+        /// enqueued through the command loop, under whatever gate is ambient.</summary>
+        private bool ApplyLocalTransmitAudioPayloadNow(AudioChainPreset payload, string presetName)
+        {
+            if (payload == null)
+            {
+                Tracing.TraceLine("ProfileStewardship: no held payload for '" + presetName + "'; nothing applied.", TraceLevel.Error);
+                return false;
+            }
+            try
+            {
+                using (AppInitiatedSettingChanges())
+                    payload.ApplyTo(this);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("ProfileStewardship: applying live transmit audio threw: " + ex.Message, TraceLevel.Error);
+                return false;
+            }
+            return true;
         }
 
         /// <summary>The assessment the post-station phase deferred behind the
@@ -16729,25 +16868,37 @@ namespace Radios
             CheckMicProfileForSilentTx(mayRepair: _pendingAssessmentMayRepair);
         }
 
-        /// <summary>Why the deferred apply must not run now, or null.</summary>
-        private string DeferredLiveAudioRefusal(string presetName)
+        /// <summary>Why the deferred apply must not run now, or null: the
+        /// pure <see cref="DeferredLiveAudioGate"/> over the facts as they
+        /// are at this instant. Called at the delegate and inside every
+        /// setter it queues.</summary>
+        private string DeferredLiveAudioRefusal(string presetName, AudioChainPreset payload)
         {
             var attempt = StationAttempt;
-            if (!attempt.IsLive) return "the connection attempt was cancelled";
-            if (_pendingLiveTxApplyAttempt != attempt.Generation) return "the apply belongs to a different connection attempt";
-            if (theRadio == null || !IsConnected) return "not connected";
-            if (ChangeNothingActive) return "the change-nothing hold is armed";
-            var roster = RosterJudgementNow();
-            if (roster.Verdict != RosterVerdict.OnlyUs) return "roster: " + roster;
-            if (_liveTxSnapshot == null) return "no live snapshot is held";
-            if (_liveTxSnapshotAttempt != attempt.Generation) return "the snapshot belongs to a different connection attempt";
+            var op = attempt.CurrentOperation;
+            var radio = theRadio;
+            var serial = radio?.Serial ?? "";
             var evidence = ProfileEvidence.Snapshot();
-            if (evidence.TxChainGeneration != _liveTxSnapshotChainGeneration)
-                return "the radio's transmit chain changed after the snapshot was taken (generation "
-                       + _liveTxSnapshotChainGeneration + " -> " + evidence.TxChainGeneration
-                       + "); cancelling rather than applying over a stale restore point";
-            if (FindLocalTransmitAudioProfile(presetName) == null) return "the local profile '" + presetName + "' is gone";
-            return null;
+            return DeferredLiveAudioGate.Refusal(new DeferredLiveAudioFacts
+            {
+                OperationLive = attempt.IsLive && (op == null || op.IsLive),
+                OperationEndReason = op?.WhyNotLive ?? attempt.CancelReason,
+                ApplyAttemptMatches = _pendingLiveTxApplyAttempt == attempt.Generation,
+                Connected = radio != null && IsConnected,
+                HoldArmed = ChangeNothingActive,
+                StrictRoster = RosterJudgementForAutomaticWrite().Verdict,
+                Intent = string.IsNullOrEmpty(serial) ? ProfileGuestIntent.NotAnswered : RadioConfig.ProfileIntentOf(serial),
+                ChosenLocalPreset = string.IsNullOrEmpty(serial) ? "" : RadioConfig.LocalTransmitAudioChoiceOf(serial),
+                PendingPreset = presetName,
+                PendingPayloadHeld = payload != null,
+                SnapshotHeld = _liveTxSnapshot != null,
+                SnapshotAttemptMatches = _liveTxSnapshotAttempt == attempt.Generation,
+                SnapshotChainGeneration = _liveTxSnapshotChainGeneration,
+                ChainGenerationNow = evidence.TxChainGeneration,
+                OwnerHasUnsavedWork = UnsavedProfileChangesFor(ProfileTypes.tx) || UnsavedProfileChangesFor(ProfileTypes.mic),
+                RadioIsOurs = !string.IsNullOrEmpty(serial) && RadioConfig.OwnershipOf(serial) == RadioOwnership.Mine,
+                ReportedAutosave = evidence.RadioReportedAutosave,
+            });
         }
 
         /// <summary>
@@ -16904,22 +17055,11 @@ namespace Radios
             return path != null && System.IO.File.Exists(path);
         }
 
-        private static void SaveLiveTxSnapshot(string serial, AudioChainPreset snapshot)
+        private static bool SaveLiveTxSnapshot(string serial, AudioChainPreset snapshot)
         {
             var path = LiveTxSnapshotPath(serial);
-            if (path == null || snapshot == null) return;
-            try
-            {
-                var dir = System.IO.Path.GetDirectoryName(path);
-                if (!string.IsNullOrEmpty(dir) && !System.IO.Directory.Exists(dir))
-                    System.IO.Directory.CreateDirectory(dir);
-                snapshot.Save(path);
-            }
-            catch (Exception ex)
-            {
-                Tracing.TraceLine("ProfileStewardship: could not save the live-audio snapshot: "
-                    + ex.Message, TraceLevel.Warning);
-            }
+            if (path == null || snapshot == null) return false;
+            return LiveTxSnapshotStore.Persist(path, snapshot);
         }
 
         private static AudioChainPreset LoadLiveTxSnapshot(string serial)
@@ -20529,6 +20669,16 @@ namespace Radios
 
             public void Enqueue(object o, string name = null, bool beforeMainLoop = false)
             {
+                // A write queued under an ambient QueuedWriteGate is asked
+                // again at its RUN whether it may still go out (Track G2,
+                // review step 9: validation inside every queued setter).
+                var gate = Radios.StationConnect.QueuedWriteGate.Ambient;
+                if (gate != null && o is FunctionDel gated)
+                {
+                    var wrapped = gate.Wrap(() => gated(), name ?? "unnamed",
+                        (n, why) => Tracing.TraceLine("q: refused '" + n + "' at its run — " + why, TraceLevel.Warning));
+                    o = (FunctionDel)(() => wrapped());
+                }
                 QItem_t item = new QItem_t(name, o);
 
                 if (!MainLoop)
