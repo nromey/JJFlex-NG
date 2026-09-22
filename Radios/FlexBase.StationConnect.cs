@@ -39,6 +39,16 @@ namespace Radios
         private ConnectionAttempt _stationAttempt;
         private readonly object _stationAttemptLock = new object();
 
+        /// <summary>
+        /// The binding the CURRENT radio object's handlers were wired with.
+        /// Every feed below stamps its observation with the binding's
+        /// generation, captured at wiring, never with whatever attempt is
+        /// current when the callback runs. A previous radio object keeps its
+        /// own binding on its own, dead attempt; discovery may go on raising
+        /// events on it forever and every tracker rejects them.
+        /// </summary>
+        private ObservationBinding _stationBinding;
+
         /// <summary>The result of the last station establishment on this
         /// connection, or null before one has run. Read by the post-station
         /// phase, the deferred create and the connect briefing.</summary>
@@ -72,6 +82,20 @@ namespace Radios
         private int AttemptGen => StationAttempt.Generation;
 
         /// <summary>
+        /// The binding for <paramref name="radio"/>: the current one when it
+        /// is for that object, else a fresh one on the current attempt. Used
+        /// at handler wiring; the wired closures hold the binding.
+        /// </summary>
+        internal ObservationBinding BindingFor(Radio radio)
+        {
+            var b = _stationBinding;
+            if (b != null && b.IsFor(radio)) return b;
+            b = new ObservationBinding(radio, StationAttempt);
+            _stationBinding = b;
+            return b;
+        }
+
+        /// <summary>
         /// Begin a connection attempt: mint the generation every observation
         /// of this connection is stamped with, and empty the trackers so the
         /// previous connection's roster, slices and profile facts cannot
@@ -79,16 +103,30 @@ namespace Radios
         /// wired and before Connect(), so observation is subscribed before any
         /// command is sent (design step 1).
         /// </summary>
-        private void BeginStationAttempt(string serial, string why)
+        /// <remarks>
+        /// The handlers are wired ONCE per radio object (RetryConnect wires
+        /// nothing). So the binding is rebound when the attempt is for the
+        /// same radio object, and replaced when it is for a different one —
+        /// leaving the old object's handlers bound to the old attempt, whose
+        /// generation the trackers reject. That is the whole of the
+        /// generation-isolation guarantee: by radio object, never by the
+        /// moment a callback happens to run.
+        /// </remarks>
+        internal void BeginStationAttempt(Radio radio, string why)
         {
+            string serial = radio?.Serial ?? "";
             ConnectionAttempt previous;
-            ConnectionAttempt fresh = new ConnectionAttempt(serial ?? "");
+            ConnectionAttempt fresh = new ConnectionAttempt(serial);
             lock (_stationAttemptLock)
             {
                 previous = _stationAttempt;
                 _stationAttempt = fresh;
             }
             previous?.Cancel("superseded by " + fresh + " (" + why + ")");
+
+            var binding = _stationBinding;
+            if (binding != null && binding.IsFor(radio)) binding.Rebind(fresh);
+            else _stationBinding = new ObservationBinding(radio, fresh);
 
             RosterTracker.Reset(fresh.Generation);
             StationTracker.Reset(fresh.Generation);
@@ -129,30 +167,35 @@ namespace Radios
         private static RosterEntry RosterEntryFrom(GUIClient c) =>
             new RosterEntry(c.ClientHandle, c.ClientID, c.IsThisClient, c.Station, c.Program);
 
-        private void ObserveClientAdded(GUIClient client, bool isMine)
+        // Every feed takes the BINDING its handler was wired with and stamps
+        // the observation with that binding's generation. None of them reads
+        // the current attempt: a callback from a radio object we have left is
+        // stamped with the attempt it was wired for, and rejected.
+
+        private void ObserveClientAdded(ObservationBinding binding, GUIClient client, bool isMine)
         {
-            int gen = AttemptGen;
+            int gen = binding.Generation;
             RosterTracker.ClientAdded(RosterEntryFrom(client), gen);
             if (isMine) RosterTracker.OwnHandleEstablished(client.ClientHandle, gen);
         }
 
-        private void ObserveClientUpdated(GUIClient client) =>
-            RosterTracker.ClientUpdated(RosterEntryFrom(client), AttemptGen);
+        private void ObserveClientUpdated(ObservationBinding binding, GUIClient client) =>
+            RosterTracker.ClientUpdated(RosterEntryFrom(client), binding.Generation);
 
-        private void ObserveClientRemoved(GUIClient client) =>
-            RosterTracker.ClientRemoved(client.ClientHandle, AttemptGen);
+        private void ObserveClientRemoved(ObservationBinding binding, GUIClient client) =>
+            RosterTracker.ClientRemoved(client.ClientHandle, binding.Generation);
 
-        private void ObserveOwnSliceAdded(Slice slc) =>
-            StationTracker.OwnSliceAdded(slc.Index, slc.Letter, slc.ClientHandle, slc.PanadapterStreamID, AttemptGen);
+        private void ObserveOwnSliceAdded(ObservationBinding binding, Slice slc) =>
+            StationTracker.OwnSliceAdded(slc.Index, slc.Letter, slc.ClientHandle, slc.PanadapterStreamID, binding.Generation);
 
-        private void ObserveOwnSliceRemoved(Slice slc) =>
-            StationTracker.OwnSliceRemoved(slc.Index, AttemptGen);
+        private void ObserveOwnSliceRemoved(ObservationBinding binding, Slice slc) =>
+            StationTracker.OwnSliceRemoved(slc.Index, binding.Generation);
 
-        private void ObserveOwnPanadapterAdded(Panadapter pan) =>
-            StationTracker.OwnPanadapterAdded(pan.StreamID, AttemptGen);
+        private void ObserveOwnPanadapterAdded(ObservationBinding binding, Panadapter pan) =>
+            StationTracker.OwnPanadapterAdded(pan.StreamID, binding.Generation);
 
-        private void ObserveOwnPanadapterRemoved(Panadapter pan) =>
-            StationTracker.OwnPanadapterRemoved(pan.StreamID, AttemptGen);
+        private void ObserveOwnPanadapterRemoved(ObservationBinding binding, Panadapter pan) =>
+            StationTracker.OwnPanadapterRemoved(pan.StreamID, binding.Generation);
 
         /// <summary>
         /// Set on the thread that is inside one of OUR profile writes, so a
@@ -185,9 +228,10 @@ namespace Radios
 
         /// <summary>Called from the radio property handler for the properties
         /// the station phase observes. Returns quickly; never blocks.</summary>
-        private void ObserveRadioProfileProperty(Radio r, string propertyName)
+        private void ObserveRadioProfileProperty(ObservationBinding binding, Radio r, string propertyName)
         {
-            int gen = AttemptGen;
+            if (!binding.IsFor(r)) return; // a radio object this binding was not wired on
+            int gen = binding.Generation;
             var provenance = ProvenanceNow();
             switch (propertyName)
             {
@@ -383,14 +427,23 @@ namespace Radios
             Tracing.TraceLine("EstablishStationOnConnect:" + postImport, TraceLevel.Info);
             var attempt = StationAttempt;
 
+            // One OPERATION per entry. The connect is operation 1; the
+            // post-import re-entry is a later one on the same connection, so
+            // anything the earlier operation queued refuses when it runs, and
+            // the earlier operation's result travels along as "previous" so a
+            // load it sent and never confirmed is still a barrier here. The
+            // connection-level records and obligations are untouched.
+            var previous = postImport ? LastStationResult : null;
+            var operation = attempt.BeginOperation(postImport ? "post-import station re-establishment" : "station establishment on connect");
+
             // The hold announcement path: GuardSkips traces the skip once, and
             // the coordinator refuses on the same fact. The trace is the
             // operator-facing record that a protection was active.
             GuardSkips("default profile selection on connect (global, tx, mic)");
 
             if (!postImport) InitializeStewardshipSession();
-            else Tracing.TraceLine("EstablishStationOnConnect: post-import entry on " + attempt
-                + " — new operation generation, records and obligations retained", TraceLevel.Info);
+            else Tracing.TraceLine("EstablishStationOnConnect: post-import entry as " + operation
+                + " — records and obligations retained; previous result: " + (previous?.ToString() ?? "none"), TraceLevel.Info);
 
             // Capture the RX/TX slices by identity before anything can add
             // slices ahead of them (QB Track J).
@@ -402,7 +455,7 @@ namespace Radios
             {
                 var coordinator = new StationCoordinator(
                     new FlexStationPort(this), RosterTracker, StationTracker, ProfileEvidence,
-                    StationPolicies.Current, _stationClock, attempt, StationDeadlines.Default(), waiter);
+                    StationPolicies.Current, _stationClock, operation, StationDeadlines.Default(), waiter, previous);
                 result = coordinator.Run();
             }
             LastStationResult = result;
@@ -428,9 +481,9 @@ namespace Radios
                 oldTXSlice.IsTransmitSlice = true;
             }
 
-            if (theRadio != null && attempt.IsLive)
+            if (theRadio != null && operation.IsLive)
             {
-                RunPostStationPhase(result, attempt);
+                RunPostStationPhase(result, operation);
             }
 
             Tracing.TraceLine(
@@ -465,8 +518,9 @@ namespace Radios
         /// only what the ruling permits, run the live transmit-audio path for
         /// UseMyTransmitAudio, then the silent-microphone assessment last.
         /// </summary>
-        private void RunPostStationPhase(StationResult station, ConnectionAttempt attempt)
+        private void RunPostStationPhase(StationResult station, StationOperation operation)
         {
+            var attempt = operation.Attempt;
             var phase = StationDeadline.In(_stationClock, StationDeadlines.Default().PostStationPhaseMs);
             var facts = ReadStationPolicyFacts();
             var rosterAuto = RosterJudgementForAutomaticWrite();
@@ -483,7 +537,7 @@ namespace Radios
             var situation = ReadProfileSituation(
                 WantedProfilesForThisRadio(), freshAsk: true,
                 freshTypes: ProfileStewardship.TransmitAudioTypes, timeoutMs: readMs);
-            if (situation == null || !attempt.IsLive) return;
+            if (situation == null || !operation.IsLive) return;
             situation.StationPresent = StationTracker.Snapshot().StationPresent;
 
             bool mayWriteShared = ProfileStewardship.MayWriteSharedStateAutomatically(situation)
@@ -532,7 +586,7 @@ namespace Radios
             bool abort = false;
             foreach (var action in plan.Actions)
             {
-                if (abort || !attempt.IsLive || phase.Passed(_stationClock)) break;
+                if (abort || !operation.IsLive || phase.Passed(_stationClock)) break;
 
                 bool isLoad = action.Kind == ProfileActionKind.LoadOurs;
                 if (isLoad && !mayWriteShared)
@@ -548,7 +602,7 @@ namespace Radios
                     continue;
                 }
 
-                var outcome = RunProfileActionChecked(action, attempt, phase);
+                var outcome = RunProfileActionChecked(action, operation, phase);
                 switch (action.Kind)
                 {
                     case ProfileActionKind.TurnAutosaveOff:
@@ -703,8 +757,9 @@ namespace Radios
         /// dispatched delegate, not before it. A guard around the caller
         /// misses queue delay and later callbacks (design section 4).
         /// </summary>
-        private ProfileActionOutcome RunProfileActionChecked(ProfileAction action, ConnectionAttempt attempt, StationDeadline phase)
+        private ProfileActionOutcome RunProfileActionChecked(ProfileAction action, StationOperation operation, StationDeadline phase)
         {
+            var attempt = operation.Attempt;
             var radio = theRadio;
             if (radio == null || action == null) return ProfileActionOutcome.Failed;
 
@@ -715,7 +770,7 @@ namespace Radios
             switch (action.Kind)
             {
                 case ProfileActionKind.LoadOurs:
-                    return DispatchSelectionChecked(radio, action, attempt, phase);
+                    return DispatchSelectionChecked(radio, action, operation, phase);
 
                 case ProfileActionKind.TurnAutosaveOff:
                     return SetRadioProfileAutosaveGuest(false) ? ProfileActionOutcome.Confirmed : ProfileActionOutcome.Failed;
@@ -740,14 +795,15 @@ namespace Radios
             }
         }
 
-        private ProfileActionOutcome DispatchSelectionChecked(Radio radio, ProfileAction action, ConnectionAttempt attempt, StationDeadline phase)
+        private ProfileActionOutcome DispatchSelectionChecked(Radio radio, ProfileAction action, StationOperation operation, StationDeadline phase)
         {
             var factsAtPlan = ReadStationPolicyFacts();
             bool sent = false;
             string refusal = null;
             DispatchStationWork("stewardship " + ProfileStewardship.Label(action.ProfileType) + " selection", () =>
             {
-                if (!attempt.IsLive) { refusal = "attempt cancelled"; return; }
+                if (operation.IsEnded) { refusal = "operation ended: " + operation.WhyNotLive; return; }
+                if (phase.Passed(_stationClock)) { refusal = "the queued selection ran after the post-station phase had ended"; return; }
                 var now = ReadStationPolicyFacts();
                 if (!now.SameAutomaticPermissionAs(factsAtPlan) || now.HoldArmed
                     || now.Ownership != RadioOwnership.Mine || now.Intent != ProfileGuestIntent.LoadMineAndPutBack)

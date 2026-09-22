@@ -222,8 +222,18 @@ namespace Radios.Tests.StationConnect
             Profiles.Changed += attempt.Signal;
         }
 
-        public StationCoordinator Coordinator() => new StationCoordinator(
-            Port, Roster, Station, Profiles, Policies, Clock, Attempt, Deadlines, Waiter);
+        /// <summary>The operation the most recent coordinator was built for.</summary>
+        public StationOperation Operation { get; private set; }
+
+        /// <summary>A coordinator on a NEW operation of the current attempt,
+        /// carrying <paramref name="previous"/> forward as the previous
+        /// operation's result on this connection.</summary>
+        public StationCoordinator Coordinator(StationResult previous = null)
+        {
+            Operation = Attempt.BeginOperation("test run");
+            return new StationCoordinator(
+                Port, Roster, Station, Profiles, Policies, Clock, Operation, Deadlines, Waiter, previous);
+        }
 
         public StationResult Run() => Coordinator().Run();
 

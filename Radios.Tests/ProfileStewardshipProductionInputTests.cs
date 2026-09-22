@@ -70,7 +70,7 @@ namespace Radios.Tests
             // the reader stops finding real members rather than pass vacuously.
             var text = Read(FlexBase);
 
-            Assert.Contains("private void sliceAdded(Slice slc)", text, StringComparison.Ordinal);
+            Assert.Contains("private void sliceAdded(Slice slc, ObservationBinding binding)", text, StringComparison.Ordinal);
             Assert.Contains("internal ProfileSituation ReadProfileSituation(", text, StringComparison.Ordinal);
             Assert.DoesNotContain("ThisMemberDoesNotExistInFlexBase", text, StringComparison.Ordinal);
         }
@@ -82,7 +82,7 @@ namespace Radios.Tests
             // but sliceAdded must reject them before mutating mySlices, and
             // MyNumSlices must remain a count of that filtered list.
             var text = Read(FlexBase);
-            var sliceAdded = BracedBlock(text, "private void sliceAdded(Slice slc)");
+            var sliceAdded = BracedBlock(text, "private void sliceAdded(Slice slc, ObservationBinding binding)");
             var mineOnly = BracedBlock(sliceAdded, "if (myClient(slc.ClientHandle))");
             var myNumSlices = BracedBlock(text, "public int MyNumSlices");
 

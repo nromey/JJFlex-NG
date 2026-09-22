@@ -36,14 +36,23 @@ namespace Radios.StationConnect
         private readonly StationPolicies _policies;
         private readonly IStationClock _clock;
         private readonly ConnectionAttempt _attempt;
+        private readonly StationOperation _op;
+        private readonly StationResult _previous;
         private readonly StationDeadlines _deadlines;
         private readonly IStationWaiter _waiter;
         private long _ownHandleSeenAtMs = -1;
 
+        /// <param name="operation">The operation this run belongs to. Every
+        /// command and wait checks it is still live; a later operation on the
+        /// same connection ends it, and a delegate it queued then refuses.</param>
+        /// <param name="previousOnThisConnection">The result of the previous
+        /// operation on the SAME connection, or null. A load it sent whose
+        /// completion was never established is still outstanding: this run
+        /// sends no second load and allocates nothing over it.</param>
         public StationCoordinator(
             IStationPort port, RosterTracker roster, StationTracker station, ProfileEvidenceLog profiles,
-            StationPolicies policies, IStationClock clock, ConnectionAttempt attempt,
-            StationDeadlines deadlines, IStationWaiter waiter)
+            StationPolicies policies, IStationClock clock, StationOperation operation,
+            StationDeadlines deadlines, IStationWaiter waiter, StationResult previousOnThisConnection = null)
         {
             _port = port ?? throw new ArgumentNullException(nameof(port));
             _roster = roster ?? throw new ArgumentNullException(nameof(roster));
@@ -51,7 +60,9 @@ namespace Radios.StationConnect
             _profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
             _policies = policies ?? StationPolicies.Defaults();
             _clock = clock ?? MonotonicStationClock.Instance;
-            _attempt = attempt ?? throw new ArgumentNullException(nameof(attempt));
+            _op = operation ?? throw new ArgumentNullException(nameof(operation));
+            _attempt = _op.Attempt;
+            _previous = previousOnThisConnection;
             _deadlines = deadlines ?? StationDeadlines.Default();
             _waiter = waiter ?? new NoWaiter();
         }
@@ -69,18 +80,34 @@ namespace Radios.StationConnect
             var result = new StationResult
             {
                 AttemptGeneration = _attempt.Generation,
+                OperationGeneration = _op.Generation,
                 Policies = _policies.Describe(),
             };
             Result = result;
             var phase = StationDeadline.In(_clock, _deadlines.StationPhaseMs);
 
-            Trace("station phase begins for " + _attempt + " with policies: " + _policies.Describe());
+            Trace("station phase begins for " + _op + " with policies: " + _policies.Describe());
 
             // ── Step 2: hold before intent, ownership before anything shared ──
             var facts = _port.ReadPolicyFacts();
             result.WantedGlobal = facts.WantedGlobal ?? "";
-            if (_attempt.IsCancelled) return Finish(result, StationOutcome.Cancelled, GlobalRoute.None, _attempt.CancelReason);
+            if (_op.IsEnded) return Finish(result, StationOutcome.Cancelled, GlobalRoute.None, _op.WhyNotLive);
             if (!facts.Connected) return Finish(result, StationOutcome.Failed, GlobalRoute.None, "not connected at entry");
+
+            // A load sent by an earlier operation on THIS connection whose
+            // effect was never established is still acting, for all anybody
+            // can tell. Re-entering (the post-import path) must not send a
+            // second load over it or fill around it. The barrier persists
+            // until the connection ends; a new connection starts clean.
+            if (_previous != null && _previous.LoadOutstanding && _previous.AttemptGeneration == _attempt.Generation)
+            {
+                result.LoadOutstanding = true;
+                result.Allocation.Stop = AllocationStop.LoadOutstanding;
+                result.Allocation.Note = "a load from operation " + _previous.OperationGeneration + " is outstanding";
+                return Finish(result, StationOutcome.Unconfirmed, GlobalRoute.LoadExisting,
+                    "a global load sent earlier on this connection (operation " + _previous.OperationGeneration
+                    + ") is still outstanding; no second load, no allocation, nothing layered over it");
+            }
 
             string skip = AutomaticStewardshipRefusal(facts);
             if (skip != null)
@@ -92,7 +119,7 @@ namespace Radios.StationConnect
             // ── Step 3: the live roster, for the OWNER'S automatic load ──
             var rosterJudgement = WaitForRoster(phase.Clip(_clock, _deadlines.RosterSettleMs));
             result.RosterAtDecision = rosterJudgement;
-            if (_attempt.IsCancelled) return Finish(result, StationOutcome.Cancelled, GlobalRoute.None, _attempt.CancelReason);
+            if (_op.IsEnded) return Finish(result, StationOutcome.Cancelled, GlobalRoute.None, _op.WhyNotLive);
             if (rosterJudgement.Verdict != RosterVerdict.OnlyUs)
             {
                 result.Route = GlobalRoute.Refused;
@@ -102,7 +129,7 @@ namespace Radios.StationConnect
 
             // ── Step 4: the facts needed to choose the global route ──
             var situation = _port.ReadGlobalSituation(phase.Clip(_clock, _deadlines.ProfileReadMs).RemainingMs(_clock));
-            if (_attempt.IsCancelled) return Finish(result, StationOutcome.Cancelled, GlobalRoute.None, _attempt.CancelReason);
+            if (_op.IsEnded) return Finish(result, StationOutcome.Cancelled, GlobalRoute.None, _op.WhyNotLive);
             if (situation == null)
             {
                 result.Route = GlobalRoute.Refused;
@@ -130,7 +157,7 @@ namespace Radios.StationConnect
                     return Finish(result, StationOutcome.ExistingStationConfirmed, GlobalRoute.ExistingStation,
                         "the wanted global is selected, our station is present and initial materialization has ended");
                 }
-                if (_attempt.IsCancelled) return Finish(result, StationOutcome.Cancelled, GlobalRoute.ExistingStation, _attempt.CancelReason);
+                if (_op.IsEnded) return Finish(result, StationOutcome.Cancelled, GlobalRoute.ExistingStation, _op.WhyNotLive);
                 return Finish(result, StationOutcome.Unconfirmed, GlobalRoute.ExistingStation,
                     "the wanted global is selected and " + stationNow.OwnSliceCount
                     + " own slice(s) are present, but the end of initial materialization is not established (policy: "
@@ -189,7 +216,7 @@ namespace Radios.StationConnect
                 var judgement = RosterGuard.ForAutomaticWrite(snapshot, _policies.RosterAuthority);
                 if (judgement.Verdict != RosterVerdict.Unknown) return judgement;
                 if (!judgement.MayChange) return judgement;
-                if (_attempt.IsCancelled) return judgement;
+                if (_op.IsEnded) return judgement;
                 if (bound.Passed(_clock))
                 {
                     return new RosterJudgement(RosterVerdict.Unknown,
@@ -219,7 +246,11 @@ namespace Radios.StationConnect
             {
                 // The recheck. Read on the UI side and assume the queued
                 // command is still authorised is exactly the gap this closes.
-                if (_attempt.IsCancelled) { refusal = "the attempt was cancelled before the load was sent"; return; }
+                // The operation and the phase deadline are part of it: a
+                // delegate that finally runs after either has ended is stale
+                // work, not a late success.
+                if (_op.IsEnded) { refusal = "the operation ended before the load was sent: " + _op.WhyNotLive; return; }
+                if (phase.Passed(_clock)) { refusal = "the queued load ran after the station phase had ended"; return; }
                 var now = _port.ReadPolicyFacts();
                 if (!now.SameAutomaticPermissionAs(factsAtPlan) || AutomaticStewardshipRefusal(now) != null)
                 {
@@ -238,6 +269,15 @@ namespace Radios.StationConnect
                     refusal = "the wanted global '" + name + "' is not in the radio's reported inventory at dispatch";
                     return;
                 }
+                // An earlier build's restore point appearing since planning
+                // means what is loaded right now is that session's profile,
+                // not the owner's state. The planner refuses on it; so does
+                // the send.
+                if (inventory.Contains(ProfileRestorePoints.NameFor(ProfileTypes.global)))
+                {
+                    refusal = "a global restore point appeared in the inventory after planning; leaving it for the offered restore";
+                    return;
+                }
 
                 profileSeqAtSend = _profiles.Sequence;
                 stationSeqAtSend = _station.Sequence;
@@ -250,7 +290,7 @@ namespace Radios.StationConnect
 
             // Wait for the delegate itself to have run — a paused queue in a
             // test, or a queued item on the command loop.
-            while (!sent && refusal == null && !_attempt.IsCancelled && !phase.Passed(_clock))
+            while (!sent && refusal == null && !_op.IsEnded && !phase.Passed(_clock))
             {
                 _waiter.Wait(Math.Min(25, phase.RemainingMs(_clock)));
             }
@@ -263,7 +303,7 @@ namespace Radios.StationConnect
             }
             if (!sent)
             {
-                if (_attempt.IsCancelled) return Finish(result, StationOutcome.Cancelled, GlobalRoute.LoadExisting, _attempt.CancelReason);
+                if (_op.IsEnded) return Finish(result, StationOutcome.Cancelled, GlobalRoute.LoadExisting, _op.WhyNotLive);
                 return Finish(result, StationOutcome.Failed, GlobalRoute.LoadExisting, "the queued load never ran within the station phase");
             }
 
@@ -301,11 +341,11 @@ namespace Radios.StationConnect
                     return Finish(result, StationOutcome.RestoredConfirmed, GlobalRoute.LoadExisting,
                         "the load's completion evidence was observed (policy: " + _policies.LoadCompletion.Name + ")");
                 }
-                if (_attempt.IsCancelled)
+                if (_op.IsEnded)
                 {
                     result.LoadOutstanding = true;
                     return Finish(result, StationOutcome.Cancelled, GlobalRoute.LoadExisting,
-                        _attempt.CancelReason + "; the load was sent and its effect is unknown");
+                        _op.WhyNotLive + "; the load was sent and its effect is unknown");
                 }
                 if (completion == LoadCompletion.NotProvable)
                 {
@@ -356,11 +396,11 @@ namespace Radios.StationConnect
         {
             if (outcomeIfEstablished == StationOutcome.FreshStationConfirmed && result.Route != GlobalRoute.MissingOwnedGlobal)
                 throw new InvalidOperationException("FreshStationConfirmed is only earned on the missing-owned route");
-            if (_attempt.IsCancelled) return Finish(result, StationOutcome.Cancelled, result.Route, _attempt.CancelReason);
+            if (_op.IsEnded) return Finish(result, StationOutcome.Cancelled, result.Route, _op.WhyNotLive);
 
             var boundary = _policies.InitialMaterialization.Judge(MaterializationEvidenceNow());
             if (boundary == MaterializationBoundary.Pending) boundary = WaitForMaterialization(phase);
-            if (_attempt.IsCancelled) return Finish(result, StationOutcome.Cancelled, result.Route, _attempt.CancelReason);
+            if (_op.IsEnded) return Finish(result, StationOutcome.Cancelled, result.Route, _op.WhyNotLive);
 
             if (boundary != MaterializationBoundary.Ended)
             {
@@ -380,7 +420,7 @@ namespace Radios.StationConnect
             var allocation = Allocate(phase);
             result.Allocation = allocation;
             if (allocation.Stop == AllocationStop.Cancelled)
-                return Finish(result, StationOutcome.Cancelled, result.Route, _attempt.CancelReason);
+                return Finish(result, StationOutcome.Cancelled, result.Route, _op.WhyNotLive);
 
             if (result.Route == GlobalRoute.MissingOwnedGlobal)
             {
@@ -435,7 +475,7 @@ namespace Radios.StationConnect
             {
                 own = _station.Snapshot().OwnSliceCount;
                 if (own >= target) { alloc.Stop = AllocationStop.TargetReached; break; }
-                if (_attempt.IsCancelled) { alloc.Stop = AllocationStop.Cancelled; break; }
+                if (_op.IsEnded) { alloc.Stop = AllocationStop.Cancelled; break; }
                 if (phase.Passed(_clock)) { alloc.Stop = AllocationStop.Timeout; alloc.Note = "station phase ended"; break; }
                 capacity = _port.CapacityRemaining();
                 if (capacity == 0) { alloc.Stop = AllocationStop.CapacityExhausted; break; }
@@ -448,7 +488,7 @@ namespace Radios.StationConnect
                 bool requested = false;
                 _port.Dispatch("request panafall " + (alloc.Requests + 1), () =>
                 {
-                    if (_attempt.IsCancelled) return;
+                    if (_op.IsEnded) return;
                     _port.RequestPanafall();
                     requested = true;
                     _attempt.Signal();
@@ -461,12 +501,12 @@ namespace Radios.StationConnect
                 {
                     var now = _station.Snapshot();
                     if (requested && now.NewSince(armedSeq, before).Any()) { gotOne = true; break; }
-                    if (_attempt.IsCancelled) break;
+                    if (_op.IsEnded) break;
                     if (requestBound.Passed(_clock)) break;
                     _waiter.Wait(Math.Min(25, requestBound.RemainingMs(_clock)));
                 }
 
-                if (_attempt.IsCancelled) { alloc.Stop = AllocationStop.Cancelled; break; }
+                if (_op.IsEnded) { alloc.Stop = AllocationStop.Cancelled; break; }
                 if (!gotOne)
                 {
                     // Timeout or denial: stop. There is no loop retrying a
@@ -509,7 +549,7 @@ namespace Radios.StationConnect
             {
                 var b = _policies.InitialMaterialization.Judge(MaterializationEvidenceNow());
                 if (b != MaterializationBoundary.Pending) return b;
-                if (_attempt.IsCancelled || phase.Passed(_clock)) return MaterializationBoundary.Unknown;
+                if (_op.IsEnded || phase.Passed(_clock)) return MaterializationBoundary.Unknown;
                 _waiter.Wait(Math.Min(25, phase.RemainingMs(_clock)));
             }
         }

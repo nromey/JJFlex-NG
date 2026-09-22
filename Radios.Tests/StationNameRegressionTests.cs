@@ -278,7 +278,10 @@ namespace Radios.Tests
                 radio.GuiClients.Add(mine);
             }
 
-            GuiClientAddedMethod!.Invoke(rig, new object[] { mine });
+            // The handler is wired through the attempt's binding since Track
+            // G2 (generation isolation); the test hands it the binding the
+            // production wiring would have captured for this radio object.
+            GuiClientAddedMethod!.Invoke(rig, new object[] { mine, rig.BindingFor(radio) });
 
             // Unplant the fake radio before teardown: it was never FlexBase's
             // to disconnect, and a Dispose that throws over it leaves the

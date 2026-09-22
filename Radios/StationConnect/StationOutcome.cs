@@ -108,6 +108,11 @@ namespace Radios.StationConnect
         public string WantedGlobal = "";
         public int AttemptGeneration;
 
+        /// <summary>Which operation on the connection produced this: 1 for
+        /// the connect itself, later numbers for a post-import re-entry or an
+        /// operator-requested load.</summary>
+        public int OperationGeneration;
+
         /// <summary>A global load command went out this run.</summary>
         public bool LoadSent;
 

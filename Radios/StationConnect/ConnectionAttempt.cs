@@ -69,6 +69,44 @@ namespace Radios.StationConnect
         /// <paramref name="generation"/> belongs to this attempt.</summary>
         public bool Owns(int generation) => generation == Generation;
 
+        // ------------------------------------------------------------------
+        // Operations: commands and waits are scoped one level below the
+        // connection. See StationOperation.
+        // ------------------------------------------------------------------
+
+        private readonly object _opLock = new object();
+        private StationOperation _currentOperation;
+        private int _nextOperation;
+
+        /// <summary>The operation most recently begun on this attempt, or
+        /// null before any. A post-import entry, an operator-requested load
+        /// and the teardown each begin their own.</summary>
+        public StationOperation CurrentOperation
+        {
+            get { lock (_opLock) return _currentOperation; }
+        }
+
+        /// <summary>
+        /// Begin a new operation on this connection and END the previous one,
+        /// so anything it queued refuses when it eventually runs. The
+        /// connection-level observations and obligations are untouched: a
+        /// load the previous operation sent is still outstanding, and the
+        /// caller carries that fact forward through the previous result.
+        /// </summary>
+        public StationOperation BeginOperation(string why)
+        {
+            StationOperation previous;
+            StationOperation fresh;
+            lock (_opLock)
+            {
+                previous = _currentOperation;
+                fresh = new StationOperation(this, ++_nextOperation, why);
+                _currentOperation = fresh;
+            }
+            previous?.End("superseded by " + fresh);
+            return fresh;
+        }
+
         public override string ToString() =>
             "attempt " + Generation + " on " + Serial + (IsLive ? "" : " (cancelled: " + CancelReason + ")");
     }

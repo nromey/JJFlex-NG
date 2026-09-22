@@ -1939,18 +1939,26 @@ namespace Radios
             // and before Connect(): observation is subscribed before any
             // command is sent, and every callback from here is stamped with
             // this attempt's generation (design step 1).
-            BeginStationAttempt(theRadio.Serial, "Connect");
+            BeginStationAttempt(theRadio, "Connect");
 
-            // add the handlers.
-            theRadio.PropertyChanged += new PropertyChangedEventHandler(radioPropertyChangedHandler);
+            // add the handlers. The station-observation handlers are wired
+            // through the BINDING minted for this radio object just above:
+            // each closure carries it, so a callback raised by this object is
+            // stamped with the attempt the object was wired for — never with
+            // whatever attempt is current when the callback runs. FlexLib
+            // never unwires these and discovery keeps updating every radio
+            // object it ever built, so an object we have left goes on raising
+            // events on its own dead attempt, which every tracker rejects.
+            var binding = BindingFor(theRadio);
+            theRadio.PropertyChanged += new PropertyChangedEventHandler((s, e) => radioPropertyChangedHandler(s, e, binding));
             theRadio.MessageReceived += new Radio.MessageReceivedEventHandler(messageReceivedHandler);
-            theRadio.GUIClientAdded += new Radio.GUIClientAddedEventHandler(guiClientAdded);
-            theRadio.GUIClientUpdated += new Radio.GUIClientUpdatedEventHandler(guiClientUpdated);
-            theRadio.GUIClientRemoved += new Radio.GUIClientRemovedEventHandler(guiClientRemoved);
-            theRadio.SliceAdded += new Radio.SliceAddedEventHandler(sliceAdded);
-            theRadio.SliceRemoved += new Radio.SliceRemovedEventHandler(sliceRemoved);
-            theRadio.PanadapterAdded += new Radio.PanadapterAddedEventHandler(panadapterAdded);
-            theRadio.PanadapterRemoved += new Radio.PanadapterRemovedEventHandler(panAdapterRemoved);
+            theRadio.GUIClientAdded += new Radio.GUIClientAddedEventHandler(c => guiClientAdded(c, binding));
+            theRadio.GUIClientUpdated += new Radio.GUIClientUpdatedEventHandler(c => guiClientUpdated(c, binding));
+            theRadio.GUIClientRemoved += new Radio.GUIClientRemovedEventHandler(c => guiClientRemoved(c, binding));
+            theRadio.SliceAdded += new Radio.SliceAddedEventHandler(slc => sliceAdded(slc, binding));
+            theRadio.SliceRemoved += new Radio.SliceRemovedEventHandler(slc => sliceRemoved(slc, binding));
+            theRadio.PanadapterAdded += new Radio.PanadapterAddedEventHandler((pan, fall) => panadapterAdded(pan, fall, binding));
+            theRadio.PanadapterRemoved += new Radio.PanadapterRemovedEventHandler(pan => panAdapterRemoved(pan, binding));
             theRadio.WaterfallRemoved += new Radio.WaterfallRemovedEventHandler(waterfallRemoved);
             theRadio.TNFAdded += new Radio.TNFAddedEventHandler(tnfAdded);
             theRadio.TNFRemoved += new Radio.TNFRemovedEventHandler(tnfRemoved);
@@ -2510,7 +2518,7 @@ namespace Radios
                 // A retry is a new connection: new attempt generation, so a
                 // late callback from the failed one cannot complete a wait on
                 // this one even though the serial is identical.
-                BeginStationAttempt(theRadio.Serial, "RetryConnect");
+                BeginStationAttempt(theRadio, "RetryConnect");
 
                 bool rv = true;
 
@@ -7603,7 +7611,7 @@ namespace Radios
         {
             FeatureLicenseChanged?.Invoke(this, EventArgs.Empty);
         }
-        private void radioPropertyChangedHandler(object sender, PropertyChangedEventArgs e)
+        private void radioPropertyChangedHandler(object sender, PropertyChangedEventArgs e, ObservationBinding binding)
         {
             Tracing.TraceLine("propertyChanged:Radio:" + e.PropertyName, TraceLevel.Verbose);
             Radio r = (Radio)sender;
@@ -7617,7 +7625,7 @@ namespace Radios
             // synchronous echo) and the attempt generation, before the
             // per-property handling below. Collects facts and wakes the
             // coordinator; never blocks this receive thread.
-            ObserveRadioProfileProperty(r, e.PropertyName);
+            ObserveRadioProfileProperty(binding, r, e.PropertyName);
 
             switch (e.PropertyName)
             {
@@ -8432,7 +8440,7 @@ namespace Radios
         /// </summary>
         private readonly System.Collections.Concurrent.ConcurrentDictionary<uint, (string Station, string Program)> _clientIdentitySnapshots = new();
 
-        private void guiClientAdded(GUIClient client)
+        private void guiClientAdded(GUIClient client, ObservationBinding binding)
         {
             if (client == null) return;
 
@@ -8477,7 +8485,7 @@ namespace Radios
             // add, update, remove and own-handle establishment recomputes,
             // and OnlyStation reads the current verdict. Fed BEFORE the
             // duplicate-name check below, which reads it.
-            ObserveClientAdded(client, isMine);
+            ObserveClientAdded(binding, client, isMine);
 
             if (isMine)
             {
@@ -8985,7 +8993,7 @@ namespace Radios
 
         #endregion
 
-        private void guiClientUpdated(GUIClient client)
+        private void guiClientUpdated(GUIClient client, ObservationBinding binding)
         {
             if (client == null) return;
 
@@ -9009,7 +9017,7 @@ namespace Radios
                 _lastAuthoritativeLocalPtt = client.IsLocalPtt;
             }
 
-            ObserveClientUpdated(client);
+            ObserveClientUpdated(binding, client);
 
             Tracing.TraceLine("guiClientUpdated:" +
                 "id:" + client.ClientID +
@@ -9032,7 +9040,7 @@ namespace Radios
             GuiClientChanged?.Invoke();
         }
 
-        private void guiClientRemoved(GUIClient client)
+        private void guiClientRemoved(GUIClient client, ObservationBinding binding)
         {
             if (client == null) return;
 
@@ -9046,7 +9054,7 @@ namespace Radios
             // #577: a removal recomputes the roster. FlexLib raises the
             // discovery-driven removal while holding its roster lock, so this
             // publishes and returns; the tracker never blocks.
-            ObserveClientRemoved(client);
+            ObserveClientRemoved(binding, client);
 
             // Notify when another client disconnects.
             //
@@ -9144,7 +9152,7 @@ namespace Radios
         /// </summary>
         public event Action<bool> ConnectionStateChanged;
 
-        private void sliceAdded(Slice slc)
+        private void sliceAdded(Slice slc, ObservationBinding binding)
         {
             if (myClient(slc.ClientHandle))
             {
@@ -9180,7 +9188,7 @@ namespace Radios
                 // fires this only once the slice is READY (CheckReady: full
                 // status and a ready panadapter, or explicitly headless), so
                 // the observation carries a resolved association.
-                ObserveOwnSliceAdded(slc);
+                ObserveOwnSliceAdded(binding, slc);
                 SliceCountChanged?.Invoke();
                 // #58: opens the bulk window and restarts the settle timer, so
                 // a connect that delivers four slices produces ONE census
@@ -9200,7 +9208,7 @@ namespace Radios
             else Tracing.TraceLine("sliceAdded:not mine " + slc.ToString(), TraceLevel.Info);
         }
 
-        private void sliceRemoved(Slice slc)
+        private void sliceRemoved(Slice slc, ObservationBinding binding)
         {
             if (myClient(slc.ClientHandle))
             {
@@ -9247,7 +9255,7 @@ namespace Radios
                     }
                     mySliceRemoved = true;
                     Tracing.TraceLine("sliceRemoved:mine, new count:" + ct.ToString() + ':' + slc.ToString(), TraceLevel.Info);
-                    ObserveOwnSliceRemoved(slc);
+                    ObserveOwnSliceRemoved(binding, slc);
                     SliceCountChanged?.Invoke();
                     // #58 and #117: one census after the set settles, and — when
                     // the operator asked for it — the receipt saying the change
@@ -9294,7 +9302,7 @@ namespace Radios
             return rv;
         }
         private List<Panadapter> myPanAdapters = new List<Panadapter>();
-        private void panadapterAdded(Panadapter pan, Waterfall fall)
+        private void panadapterAdded(Panadapter pan, Waterfall fall, ObservationBinding binding)
         {
             if (myClient(pan.ClientHandle))
             {
@@ -9311,7 +9319,7 @@ namespace Radios
                     myPanAdapters.Add(pan);
                     ct = myPanAdapters.Count;
                 }
-                ObserveOwnPanadapterAdded(pan);
+                ObserveOwnPanadapterAdded(binding, pan);
                 Tracing.TraceLine("panadapterAdded:mine " + ct.ToString() + ':' + pan.ToString(), TraceLevel.Info);
             }
             else Tracing.TraceLine("panadapterAdded:not mine " + pan.ToString(), TraceLevel.Info);
@@ -9328,7 +9336,7 @@ namespace Radios
             }
         }
 
-        private void panAdapterRemoved(Panadapter pan)
+        private void panAdapterRemoved(Panadapter pan, ObservationBinding binding)
         {
             if (myClient(pan.ClientHandle))
             {
@@ -9338,7 +9346,7 @@ namespace Radios
                     myPanAdapters.Remove(pan);
                     ct = myPanAdapters.Count;
                 }
-                ObserveOwnPanadapterRemoved(pan);
+                ObserveOwnPanadapterRemoved(binding, pan);
                 Tracing.TraceLine("panadapterRemoved:new count:" + ct.ToString() + ':' + pan.ToString(), TraceLevel.Info);
             }
             else Tracing.TraceLine("panadapterRemoved:not mine", TraceLevel.Info);

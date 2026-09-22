@@ -48,14 +48,14 @@ namespace Radios.Tests.StationConnect
         // ── the handlers FEED the trackers (design step 1, section 3) ──
 
         [Theory]
-        [InlineData("private void guiClientAdded(GUIClient client)", "ObserveClientAdded(client, isMine);")]
-        [InlineData("private void guiClientUpdated(GUIClient client)", "ObserveClientUpdated(client);")]
-        [InlineData("private void guiClientRemoved(GUIClient client)", "ObserveClientRemoved(client);")]
-        [InlineData("private void sliceAdded(Slice slc)", "ObserveOwnSliceAdded(slc);")]
-        [InlineData("private void sliceRemoved(Slice slc)", "ObserveOwnSliceRemoved(slc);")]
-        [InlineData("private void panadapterAdded(Panadapter pan, Waterfall fall)", "ObserveOwnPanadapterAdded(pan);")]
-        [InlineData("private void panAdapterRemoved(Panadapter pan)", "ObserveOwnPanadapterRemoved(pan);")]
-        [InlineData("private void radioPropertyChangedHandler(object sender, PropertyChangedEventArgs e)", "ObserveRadioProfileProperty(r, e.PropertyName);")]
+        [InlineData("private void guiClientAdded(GUIClient client, ObservationBinding binding)", "ObserveClientAdded(binding, client, isMine);")]
+        [InlineData("private void guiClientUpdated(GUIClient client, ObservationBinding binding)", "ObserveClientUpdated(binding, client);")]
+        [InlineData("private void guiClientRemoved(GUIClient client, ObservationBinding binding)", "ObserveClientRemoved(binding, client);")]
+        [InlineData("private void sliceAdded(Slice slc, ObservationBinding binding)", "ObserveOwnSliceAdded(binding, slc);")]
+        [InlineData("private void sliceRemoved(Slice slc, ObservationBinding binding)", "ObserveOwnSliceRemoved(binding, slc);")]
+        [InlineData("private void panadapterAdded(Panadapter pan, Waterfall fall, ObservationBinding binding)", "ObserveOwnPanadapterAdded(binding, pan);")]
+        [InlineData("private void panAdapterRemoved(Panadapter pan, ObservationBinding binding)", "ObserveOwnPanadapterRemoved(binding, pan);")]
+        [InlineData("private void radioPropertyChangedHandler(object sender, PropertyChangedEventArgs e, ObservationBinding binding)", "ObserveRadioProfileProperty(binding, r, e.PropertyName);")]
         public void TheProductionHandlerFeedsTheObservation(string signature, string feed)
         {
             var text = Read(FlexBase);
@@ -70,9 +70,9 @@ namespace Radios.Tests.StationConnect
             // ownership rule; the feed must sit inside it, so other clients'
             // slices never become our station.
             var text = Read(FlexBase);
-            int sig = IndexOf(text, "private void sliceAdded(Slice slc)");
+            int sig = IndexOf(text, "private void sliceAdded(Slice slc, ObservationBinding binding)");
             int filter = text.IndexOf("if (myClient(slc.ClientHandle))", sig, StringComparison.Ordinal);
-            int feed = text.IndexOf("ObserveOwnSliceAdded(slc);", sig, StringComparison.Ordinal);
+            int feed = text.IndexOf("ObserveOwnSliceAdded(binding, slc);", sig, StringComparison.Ordinal);
             int notMine = text.IndexOf("else Tracing.TraceLine(\"sliceAdded:not mine", sig, StringComparison.Ordinal);
             Assert.True(filter > 0 && feed > filter && notMine > feed,
                 "ObserveOwnSliceAdded must be inside the myClient branch of sliceAdded");
@@ -100,10 +100,53 @@ namespace Radios.Tests.StationConnect
         public void TheAttemptBeginsBeforeTheHandlersAreWired_AndBeforeConnect()
         {
             var text = Read(FlexBase);
-            int begin = IndexOf(text, "BeginStationAttempt(theRadio.Serial, \"Connect\");");
-            int wired = IndexOf(text, "theRadio.GUIClientAdded += new Radio.GUIClientAddedEventHandler(guiClientAdded);");
+            int begin = IndexOf(text, "BeginStationAttempt(theRadio, \"Connect\");");
+            int bound = IndexOf(text, "var binding = BindingFor(theRadio);");
+            int wired = IndexOf(text, "theRadio.GUIClientAdded += new Radio.GUIClientAddedEventHandler(c => guiClientAdded(c, binding));");
             int connect = text.IndexOf("rv = theRadio.Connect();", begin, StringComparison.Ordinal);
-            Assert.True(begin < wired && wired < connect, "observation must be subscribed before any command is sent");
+            Assert.True(begin < bound && bound < wired && wired < connect,
+                "observation must be subscribed, through the attempt's binding, before any command is sent");
+        }
+
+        [Fact]
+        public void EveryStationHandlerIsWiredThroughTheBinding_AndNoFeedReadsTheCurrentAttempt()
+        {
+            // The generation-isolation guarantee lives in the wiring: each
+            // closure holds the binding minted for this radio object. A feed
+            // that read AttemptGen would stamp a stale object's callback with
+            // the current attempt — the review's step-1 defect.
+            var text = Read(FlexBase);
+            foreach (var wire in new[]
+            {
+                "(s, e) => radioPropertyChangedHandler(s, e, binding)",
+                "c => guiClientUpdated(c, binding)",
+                "c => guiClientRemoved(c, binding)",
+                "slc => sliceAdded(slc, binding)",
+                "slc => sliceRemoved(slc, binding)",
+                "(pan, fall) => panadapterAdded(pan, fall, binding)",
+                "pan => panAdapterRemoved(pan, binding)",
+            })
+            {
+                Assert.Contains(wire, text, StringComparison.Ordinal);
+            }
+
+            var station = Read(FlexBaseStation);
+            int feeds = IndexOf(station, "private void ObserveClientAdded(ObservationBinding binding");
+            int end = IndexOf(station, "// The live roster verdict (#577)");
+            string feedRegion = station.Substring(feeds, end - feeds);
+            Assert.DoesNotContain("AttemptGen", feedRegion, StringComparison.Ordinal);
+            Assert.Contains("binding.Generation", feedRegion, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void ThePostImportEntryBeginsItsOwnOperation_AndCarriesThePreviousResult()
+        {
+            var text = Read(FlexBaseStation);
+            int method = IndexOf(text, "internal StationResult EstablishStationOnConnect(bool postImport)");
+            string body = text.Substring(method, Math.Min(3000, text.Length - method));
+            Assert.Contains("var previous = postImport ? LastStationResult : null;", body, StringComparison.Ordinal);
+            Assert.Contains("attempt.BeginOperation(postImport ?", body, StringComparison.Ordinal);
+            Assert.Contains("StationDeadlines.Default(), waiter, previous);", body, StringComparison.Ordinal);
         }
 
         // ── the order of phases (design steps 4 to 8; mutation check three) ──
@@ -114,11 +157,11 @@ namespace Radios.Tests.StationConnect
             var text = Read(FlexBaseStation);
             int method = IndexOf(text, "internal StationResult EstablishStationOnConnect(bool postImport)");
             int run = text.IndexOf("result = coordinator.Run();", method, StringComparison.Ordinal);
-            int post = text.IndexOf("RunPostStationPhase(result, attempt);", method, StringComparison.Ordinal);
+            int post = text.IndexOf("RunPostStationPhase(result, operation);", method, StringComparison.Ordinal);
             Assert.True(run > 0 && post > run,
                 "the post-station phase (fresh tx/mic reads) must follow the coordinator's run, never precede it");
 
-            int postMethod = IndexOf(text, "private void RunPostStationPhase(StationResult station, ConnectionAttempt attempt)");
+            int postMethod = IndexOf(text, "private void RunPostStationPhase(StationResult station, StationOperation operation)");
             Assert.Contains("freshTypes: ProfileStewardship.TransmitAudioTypes",
                 text.Substring(postMethod, Math.Min(3000, text.Length - postMethod)), StringComparison.Ordinal);
         }
@@ -136,7 +179,7 @@ namespace Radios.Tests.StationConnect
         public void TheSilentMicAssessmentRunsLast_AndRepairsOnlyUnderTheSharedWriteAuthority()
         {
             var text = Read(FlexBaseStation);
-            int post = IndexOf(text, "private void RunPostStationPhase(StationResult station, ConnectionAttempt attempt)");
+            int post = IndexOf(text, "private void RunPostStationPhase(StationResult station, StationOperation operation)");
             int loop = text.IndexOf("foreach (var action in plan.Actions)", post, StringComparison.Ordinal);
             int check = text.IndexOf("CheckMicProfileForSilentTx(mayRepair: mayWriteShared);", post, StringComparison.Ordinal);
             Assert.True(loop > 0 && check > loop, "the assessment must run after the tx/mic actions");
@@ -171,7 +214,8 @@ namespace Radios.Tests.StationConnect
             string inside = text.Substring(dispatch, select - dispatch);
             Assert.Contains("RosterJudgementForAutomaticWrite()", inside, StringComparison.Ordinal);
             Assert.Contains("ReadStationPolicyFacts()", inside, StringComparison.Ordinal);
-            Assert.Contains("attempt.IsLive", inside, StringComparison.Ordinal);
+            Assert.Contains("operation.IsEnded", inside, StringComparison.Ordinal);
+            Assert.Contains("phase.Passed(_stationClock)", inside, StringComparison.Ordinal);
         }
 
         // ── mainThreadProc: no scratch setup, no wait-on-self (design section 4; #582) ──
@@ -312,7 +356,7 @@ namespace Radios.Tests.StationConnect
         public void ProductionReadsThePoliciesFromStationPoliciesCurrent()
         {
             var text = Read(FlexBaseStation);
-            Assert.Contains("StationPolicies.Current, _stationClock, attempt, StationDeadlines.Default(), waiter", text, StringComparison.Ordinal);
+            Assert.Contains("StationPolicies.Current, _stationClock, operation, StationDeadlines.Default(), waiter, previous", text, StringComparison.Ordinal);
             Assert.Contains("StationPolicies.Current.RosterAuthority", text, StringComparison.Ordinal);
         }
     }
