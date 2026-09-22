@@ -80,6 +80,10 @@ namespace Radios.StationConnect
         Cancelled,
         /// <summary>No target could be computed (capacity and legacy target both unknown or zero).</summary>
         NoTarget,
+        /// <summary>Own slices already existed on a refused or no-wanted route;
+        /// the layout is kept as it is and nothing is requested. Spare
+        /// capacity is a startup observation, never a request for more.</summary>
+        ExistingLayoutPreserved,
     }
 
     public sealed class AllocationResult
@@ -92,7 +96,8 @@ namespace Radios.StationConnect
         public string Note = "";
 
         public bool ReachedTargetOrCapacity =>
-            Stop == AllocationStop.TargetReached || Stop == AllocationStop.CapacityExhausted;
+            Stop == AllocationStop.TargetReached || Stop == AllocationStop.CapacityExhausted
+            || Stop == AllocationStop.ExistingLayoutPreserved;
 
         public override string ToString() =>
             Stop + " target=" + Target + " requests=" + Requests + " obtained=" + Obtained + " own=" + OwnSlicesAtEnd

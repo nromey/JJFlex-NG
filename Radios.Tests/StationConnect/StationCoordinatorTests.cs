@@ -868,10 +868,13 @@ namespace Radios.Tests.StationConnect
         }
 
         [Fact]
-        public void ALateRestorationSlice_CannotBeMisattributedToANewAllocation()
+        public void ASliceAlreadyPresentOnAGuestRoute_IsNeitherMisattributedNorToppedUp()
         {
-            // A slice already present before the request was armed is not the
-            // requested one. The request's own slice must arrive.
+            // Until Track G2 this asserted one request that timed out, on the
+            // reasoning that the pre-existing slice was not the requested one.
+            // That is still true, and now the request is not even made: a
+            // guest whose radio has delivered a slice keeps that layout, and
+            // the attribution rule is pinned by the arm-at-send tests above.
             var h = new StationHarness();
             h.Port.Facts.Ownership = RadioOwnership.SomeoneElses;
             h.Port.Capacity = 1;
@@ -882,9 +885,116 @@ namespace Radios.Tests.StationConnect
 
             var r = h.Run();
 
-            Assert.Equal(1, h.Port.PanafallRequests);
-            Assert.Equal(AllocationStop.Timeout, r.Allocation.Stop);
+            Assert.Equal(0, h.Port.PanafallRequests);
+            Assert.Equal(AllocationStop.ExistingLayoutPreserved, r.Allocation.Stop);
             Assert.Equal(1, r.OwnSlicesAtEnd);
+        }
+
+        // ── attribution is armed at the SEND, and an existing layout is preserved (Track G2; review step 7) ──
+
+        [Fact]
+        public void ASliceArrivingBetweenQueueingAndTheActualRequest_IsNotAttributedToIt()
+        {
+            // The request is queued to a command loop that has not run it
+            // yet; a slice arrives meanwhile (persistence, another client's
+            // action, anything); then the request is actually sent and the
+            // radio never answers it. That slice is not the request's.
+            var h = new StationHarness();
+            h.Port.Facts.Ownership = RadioOwnership.SomeoneElses;
+            h.Port.Capacity = 2;
+            h.Port.LegacyTarget = 2;
+            h.OurClientAdded();
+            h.Port.HoldDispatch = true;
+            h.Waiter.Then(() => { h.OwnSliceArrives(); h.Port.ReleaseHeld(); });
+
+            var r = h.Run();
+
+            Assert.Equal(1, h.Port.PanafallRequests);
+            Assert.Equal(0, r.Allocation.Obtained);
+            Assert.Equal(AllocationStop.Timeout, r.Allocation.Stop);
+            Assert.Equal(1, r.OwnSlicesAtEnd);               // kept, not claimed
+        }
+
+        [Fact]
+        public void ASliceArrivingAfterTheActualRequest_IsAttributedToIt()
+        {
+            // The positive control for the test above: the same held
+            // request, answered after it was actually sent.
+            var h = new StationHarness();
+            h.Port.Facts.Ownership = RadioOwnership.SomeoneElses;
+            h.Port.Capacity = 1;
+            h.Port.LegacyTarget = 1;
+            h.OurClientAdded();
+            h.Port.HoldDispatch = true;
+            h.RadioHonoursPanafallRequests();
+            h.Waiter.Then(() => h.Port.ReleaseHeld());
+
+            var r = h.Run();
+
+            Assert.Equal(1, h.Port.PanafallRequests);
+            Assert.Equal(1, r.Allocation.Obtained);
+            Assert.Equal(AllocationStop.TargetReached, r.Allocation.Stop);
+        }
+
+        [Fact]
+        public void AnExistingOneSliceLayoutOnTheRefusedRoute_IsPreserved_NotFilledToCapacity()
+        {
+            // Another operator is on the owner's radio, and the radio has
+            // already delivered one slice of ours. Spare capacity is not a
+            // request for more: a one-slice layout stays one slice.
+            var h = new StationHarness();
+            h.ArrangeOwnerReconnect();
+            h.OtherClientAdded();
+            h.OwnSliceArrives();
+            h.Port.Capacity = 3;
+            h.Port.LegacyTarget = 4;
+            h.RadioHonoursPanafallRequests();
+
+            var r = h.Run();
+
+            Assert.Equal(StationOutcome.PolicySkipped, r.Outcome);
+            Assert.Equal(GlobalRoute.Refused, r.Route);
+            Assert.Equal(0, h.Port.PanafallRequests);
+            Assert.Equal(1, r.OwnSlicesAtEnd);
+            Assert.Equal(AllocationStop.ExistingLayoutPreserved, r.Allocation.Stop);
+            Assert.True(r.StationEstablished);
+            Assert.Empty(h.Port.GlobalLoadsSent);
+        }
+
+        [Fact]
+        public void ANoWantedGlobalRoute_WithAnExistingLayout_IsPreservedToo()
+        {
+            var h = new StationHarness();
+            h.Port.Facts.WantedGlobal = "";
+            h.OurClientAdded();
+            h.OwnSliceArrives();
+            h.OwnSliceArrives();
+            h.Port.Capacity = 2;
+            h.RadioHonoursPanafallRequests();
+
+            var r = h.Run();
+
+            Assert.Equal(0, h.Port.PanafallRequests);
+            Assert.Equal(2, r.OwnSlicesAtEnd);
+            Assert.Equal(AllocationStop.ExistingLayoutPreserved, r.Allocation.Stop);
+        }
+
+        [Fact]
+        public void HeldRequest_CapacityGoneBeforeRelease_IsNotSent()
+        {
+            var h = new StationHarness();
+            h.Port.Facts.Ownership = RadioOwnership.SomeoneElses;
+            h.Port.Capacity = 1;
+            h.Port.LegacyTarget = 1;
+            h.OurClientAdded();
+            h.Port.HoldDispatch = true;
+            h.RadioHonoursPanafallRequests();
+            h.Waiter.Then(() => { h.Port.Capacity = 0; h.Port.ReleaseHeld(); });
+
+            var r = h.Run();
+
+            Assert.Equal(0, h.Port.PanafallRequests);
+            Assert.Equal(0, r.Allocation.Obtained);
         }
 
         [Fact]

@@ -441,6 +441,22 @@ namespace Radios.StationConnect
                     why + "; no fresh allocation because the end of initial materialization is not established");
             }
 
+            // The refused and no-wanted routes preserve a layout that is
+            // already there. A completed initial boundary says the radio has
+            // finished delivering; it does not turn spare capacity into a
+            // request for more slices over what it delivered (review step
+            // 7). Only a route with NO own slices allocates client-locally.
+            int ownNow = _station.Snapshot().OwnSliceCount;
+            if (result.Route != GlobalRoute.MissingOwnedGlobal && ownNow > 0)
+            {
+                result.Allocation.Stop = AllocationStop.ExistingLayoutPreserved;
+                result.Allocation.OwnSlicesAtEnd = ownNow;
+                result.Allocation.Target = ownNow;
+                result.Allocation.Note = "own slices already present on a route that does not restore; kept as they are";
+                return Finish(result, StationOutcome.PolicySkipped, result.Route,
+                    why + "; " + ownNow + " own slice(s) already present, preserved; nothing requested");
+            }
+
             var allocation = Allocate(phase);
             result.Allocation = allocation;
             if (allocation.Stop == AllocationStop.Cancelled)
@@ -504,15 +520,23 @@ namespace Radios.StationConnect
                 capacity = _port.CapacityRemaining();
                 if (capacity == 0) { alloc.Stop = AllocationStop.CapacityExhausted; break; }
 
-                // One request in flight. Arm before sending: the identity test
-                // is "an own slice reported after this sequence whose index
-                // was not present before", never a count.
-                var before = _station.Snapshot();
-                long armedSeq = _station.Sequence;
+                // One request in flight. The observation is armed INSIDE the
+                // dispatched delegate, immediately before the send — not at
+                // queue time. A slice reported between queueing and the actual
+                // request predates the request and cannot be attributed to
+                // it (review step 7). The delegate also rechecks the operation,
+                // the phase deadline and the capacity at the moment it runs.
+                StationSnapshot before = null;
+                long armedSeq = -1;
                 bool requested = false;
+                string refusal = null;
                 _port.Dispatch("request panafall " + (alloc.Requests + 1), () =>
                 {
-                    if (_op.IsEnded) return;
+                    if (_op.IsEnded) { refusal = "operation ended: " + _op.WhyNotLive; return; }
+                    if (phase.Passed(_clock)) { refusal = "the queued request ran after the station phase had ended"; return; }
+                    if (_port.CapacityRemaining() == 0) { refusal = "no capacity remained when the request was about to be sent"; return; }
+                    before = _station.Snapshot();
+                    armedSeq = _station.Sequence;
                     _port.RequestPanafall();
                     requested = true;
                     _attempt.Signal();
@@ -523,6 +547,7 @@ namespace Radios.StationConnect
                 bool gotOne = false;
                 while (true)
                 {
+                    if (refusal != null) break;
                     var now = _station.Snapshot();
                     if (requested && now.NewSince(armedSeq, before).Any()) { gotOne = true; break; }
                     if (_op.IsEnded) break;
@@ -531,6 +556,15 @@ namespace Radios.StationConnect
                 }
 
                 if (_op.IsEnded) { alloc.Stop = AllocationStop.Cancelled; break; }
+                if (refusal != null)
+                {
+                    // Never actually sent: the count of requests the radio saw
+                    // goes back down, and the stop says why.
+                    alloc.Requests--;
+                    alloc.Stop = refusal.Contains("capacity") ? AllocationStop.CapacityExhausted : AllocationStop.Timeout;
+                    alloc.Note = "request not sent: " + refusal;
+                    break;
+                }
                 if (!gotOne)
                 {
                     // Timeout or denial: stop. There is no loop retrying a
