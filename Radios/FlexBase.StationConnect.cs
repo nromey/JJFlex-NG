@@ -430,6 +430,10 @@ namespace Radios
         private int _stewardshipSessionAttempt = -1;
         private bool _stewardshipPreAnswered;
 
+        /// <summary>For the production-entry tests: the once-per-attempt
+        /// initialisation has run for the current attempt.</summary>
+        internal bool StewardshipSessionInitialisedForCurrentAttempt => _stewardshipSessionAttempt == AttemptGen;
+
         /// <summary>
         /// Initialise the stewardship session ONCE per connection attempt:
         /// clear the records, run the #495 pre-answer migration. Later phases
@@ -437,7 +441,7 @@ namespace Radios
         /// whole-connect routine twice cleared records and could plan a
         /// second global load; this is the smaller correct seam.
         /// </summary>
-        private void InitializeStewardshipSession()
+        internal void InitializeStewardshipSession()
         {
             int gen = AttemptGen;
             if (_stewardshipSessionAttempt == gen) return;
@@ -451,6 +455,18 @@ namespace Radios
             _liveTxSnapshotAttempt = -1;
             _pendingLiveTxApplyPreset = null;
 
+            // Hold before migration (design step 2; Track G review, step 2).
+            // The record initialisation above is once per attempt whatever
+            // the hold says; the #495 pre-answer is a persisted change and
+            // is skipped under it. It is not consumed: the question stays
+            // unanswered and the next attempt with the hold lifted migrates.
+            if (ChangeNothingActive)
+            {
+                Tracing.TraceLine("ProfileStewardship: the change-nothing hold is armed — the #495 pre-answer "
+                    + "migration is skipped for this attempt; the profile question stays as it was.", TraceLevel.Info);
+                _stewardshipPreAnswered = false;
+                return;
+            }
             _stewardshipPreAnswered = MigrateProfileIntentForKnownRadio();
         }
 

@@ -16078,9 +16078,17 @@ namespace Radios
             var current = RadioConfig.ProfileIntentOf(serial);
             bool connectedBefore = ConnectionHistory.Load(serial).Count > 0;
 
-            var pre = ProfileStewardship.PreAnswerForKnownRadio(ownership, connectedBefore, current);
+            var pre = ProfileStewardship.PreAnswerForKnownRadio(ownership, connectedBefore, current, ChangeNothingActive);
             if (pre == null) return false;
 
+            // Recheck at the moment of persisting, not only at the decision:
+            // the hold can be armed between the two (Track G review, step 2).
+            if (ChangeNothingActive)
+            {
+                Tracing.TraceLine("ProfileStewardship: the change-nothing hold was armed before the pre-answer "
+                    + "could be recorded; the profile question stays unanswered.", TraceLevel.Info);
+                return false;
+            }
             RadioConfig.RecordProfileIntent(serial, pre.Value);
             Tracing.TraceLine(
                 "ProfileStewardship: this radio is marked yours and has a connection history, "

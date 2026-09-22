@@ -1245,8 +1245,14 @@ namespace Radios
         /// </para>
         /// </remarks>
         public static ProfileGuestIntent? PreAnswerForKnownRadio(
-            RadioOwnership ownership, bool hasConnectedBefore, ProfileGuestIntent current)
+            RadioOwnership ownership, bool hasConnectedBefore, ProfileGuestIntent current, bool holdArmed = false)
         {
+            // The hold outranks the migration as it outranks everything else:
+            // a pre-answer is a persisted change to what this radio's records
+            // say, made on the operator's behalf, and the hold says make
+            // none. The question stays unanswered; it is asked again when the
+            // hold is lifted (Track G review, step 2).
+            if (holdArmed) return null;
             if (current != ProfileGuestIntent.NotAnswered) return null;
             if (ownership != RadioOwnership.Mine) return null;
             if (!hasConnectedBefore) return null;
