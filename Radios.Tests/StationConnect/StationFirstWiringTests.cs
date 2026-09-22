@@ -375,16 +375,26 @@ namespace Radios.Tests.StationConnect
         // ── the deferred create (design step 11; group 10's readback half) ──
 
         [Fact]
-        public void TheDeferredCreateIsConfirmedByRadioReportedInventoryReadback()
+        public void TheDeferredCreateRunsThroughTheDecideInsideTheDelegateRun()
         {
+            // The behaviour (decision inside the delegate, fresh inventory,
+            // deadline, readback, uncertain retained) is DeferredCreationRunTests.
+            // This pins that production reaches it under the teardown
+            // operation and keeps an unconfirmed send as uncertain.
             var text = Read(FlexBaseStation);
             int method = IndexOf(text, "private bool CreatePendingGlobalAtDisconnect()");
-            string body = text.Substring(method, Math.Min(4000, text.Length - method));
-            Assert.Contains("DeferredGlobalCreation.Decide(", body, StringComparison.Ordinal);
-            Assert.Contains("radio.SaveGlobalProfile(pending.Name)", body, StringComparison.Ordinal);
-            Assert.Contains("inv.Provenance == ObservationProvenance.RadioReported", body, StringComparison.Ordinal);
-            Assert.Contains("inv.Sequence > seq && inv.Contains(pending.Name)", body, StringComparison.Ordinal);
-            Assert.Contains("UNCONFIRMED, not claimed saved", body, StringComparison.Ordinal);
+            string body = text.Substring(method, Math.Min(3000, text.Length - method));
+            Assert.Contains("new DeferredCreationRun(", body, StringComparison.Ordinal);
+            Assert.Contains("attempt.BeginOperation(\"teardown: disconnect-time create\")", body, StringComparison.Ordinal);
+            Assert.Contains("if (result.Outcome == CreationOutcome.Unconfirmed)", body, StringComparison.Ordinal);
+            Assert.DoesNotContain("DeferredGlobalCreation.Decide(", body, StringComparison.Ordinal);
+
+            var run = Read("Radios/StationConnect/DeferredCreationRun.cs");
+            int dispatch = IndexOf(run, "_port.Dispatch(\"save new global '\"");
+            int fresh = run.IndexOf("_port.RequestGlobalInventory(", dispatch, StringComparison.Ordinal);
+            int decide = run.IndexOf("DeferredGlobalCreation.Decide(", dispatch, StringComparison.Ordinal);
+            int save = run.IndexOf("_port.SaveGlobalProfile(pending.Name);", dispatch, StringComparison.Ordinal);
+            Assert.True(fresh > dispatch && decide > fresh && save > decide, "fresh ask, then decide, then save, all inside the delegate");
         }
 
         [Fact]

@@ -79,6 +79,17 @@ namespace Radios.StationConnect
         /// <summary>Ask for one new panadapter-and-slice. Inside dispatched work only.</summary>
         void RequestPanafall();
 
+        /// <summary>A FRESH, bounded <c>profile global info</c>: returns the
+        /// radio-reported inventory observation that answered it, or the
+        /// latest one held when nothing answered inside the bound (which the
+        /// caller distinguishes by sequence and provenance). Inside dispatched
+        /// work only.</summary>
+        InventoryObservation RequestGlobalInventory(int timeoutMs);
+
+        /// <summary>Send the global save. Inside dispatched work only, after
+        /// the decision.</summary>
+        void SaveGlobalProfile(string name);
+
         void Trace(string line, bool isError = false);
     }
 

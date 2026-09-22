@@ -218,6 +218,8 @@ namespace Radios.StationConnect
             if (f == null || f.Pending == null) return CreationDecision.No("nothing pending");
             if (f.Attempt == null || !f.Attempt.Owns(f.Pending.AttemptGeneration))
                 return CreationDecision.No("the pending create belongs to a different connection attempt");
+            if (f.Attempt.IsCancelled)
+                return CreationDecision.No("the connection attempt was cancelled (" + f.Attempt.CancelReason + ")");
             if (!f.Connected) return CreationDecision.No("not connected");
             if (f.HoldArmed) return CreationDecision.No("the change-nothing hold is armed");
             if (f.Ownership != RadioOwnership.Mine) return CreationDecision.No("the radio is not declared ours");

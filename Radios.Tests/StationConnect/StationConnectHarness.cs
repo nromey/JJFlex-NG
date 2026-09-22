@@ -131,6 +131,29 @@ namespace Radios.Tests.StationConnect
             OnPanafallRequested?.Invoke();
         }
 
+        /// <summary>What a FRESH inventory request answers with, when it
+        /// answers; null means the radio does not answer inside the bound.</summary>
+        public List<string> FreshInventoryNames;
+        public int InventoryRequests;
+        public readonly List<string> GlobalSavesSent = new List<string>();
+        public Action<string> OnGlobalSaved;
+        /// <summary>Set by the harness so the fake can feed the evidence log.</summary>
+        public Action<IReadOnlyList<string>> DeliverFreshInventory;
+        public Func<InventoryObservation> LatestInventory;
+
+        public InventoryObservation RequestGlobalInventory(int timeoutMs)
+        {
+            InventoryRequests++;
+            if (FreshInventoryNames != null) DeliverFreshInventory?.Invoke(FreshInventoryNames.ToList());
+            return LatestInventory?.Invoke();
+        }
+
+        public void SaveGlobalProfile(string name)
+        {
+            GlobalSavesSent.Add(name);
+            OnGlobalSaved?.Invoke(name);
+        }
+
         void IStationPort.Trace(string line, bool isError) => Trace.Add((isError ? "ERROR " : "") + line);
     }
 
@@ -204,7 +227,17 @@ namespace Radios.Tests.StationConnect
             Station = new StationTracker(Clock);
             Profiles = new ProfileEvidenceLog(Clock);
             Waiter = new ScriptedWaiter(Clock);
+            Port.DeliverFreshInventory = names => Profiles.GlobalListObserved(names, ObservationProvenance.RadioReported, Gen);
+            Port.LatestInventory = () => Profiles.Snapshot().GlobalList;
             NewAttempt();
+        }
+
+        /// <summary>The disconnect-time create under a fresh teardown operation.</summary>
+        public CreationResult RunCreation(PendingGlobalCreation pending, StationResult lastStation)
+        {
+            Operation = Attempt.BeginOperation("teardown");
+            return new DeferredCreationRun(Port, Profiles, Roster, Policies, Clock, Waiter, Deadlines)
+                .Run(pending, Operation, lastStation);
         }
 
         public int Gen => Attempt.Generation;

@@ -363,6 +363,22 @@ namespace Radios
 
             public void RequestPanafall() => _rig.theRadio?.RequestPanafall();
 
+            public InventoryObservation RequestGlobalInventory(int timeoutMs)
+            {
+                // The answer arrives as a status message the property handler
+                // feeds into the evidence log; the read waits for it, and the
+                // caller judges the observation's sequence and provenance.
+                _rig.ReadRadioProfileList(ProfileTypes.global, Math.Max(0, timeoutMs));
+                return _rig.ProfileEvidence.Snapshot().GlobalList;
+            }
+
+            public void SaveGlobalProfile(string name)
+            {
+                var radio = _rig.theRadio;
+                if (radio == null) return;
+                using (OwnProfileWrite()) radio.SaveGlobalProfile(name);
+            }
+
             public void Trace(string line, bool isError = false) =>
                 Tracing.TraceLine(line, isError ? TraceLevel.Error : TraceLevel.Info);
         }
@@ -944,59 +960,38 @@ namespace Radios
                 _pendingGlobalCreation = null;
                 return false;
             }
-            var facts = ReadStationPolicyFacts();
-            var decision = DeferredGlobalCreation.Decide(new CreationFacts
-            {
-                Pending = pending,
-                Attempt = StationAttempt,
-                Connected = facts.Connected,
-                HoldArmed = facts.HoldArmed,
-                Ownership = facts.Ownership,
-                Intent = facts.Intent,
-                WantedGlobalNow = facts.WantedGlobal,
-                Serial = facts.Serial,
-                Roster = RosterJudgementForAutomaticWrite(),
-                Inventory = ProfileEvidence.Snapshot().GlobalList,
-                StationOutcome = LastStationResult?.Outcome ?? StationOutcome.Unconfirmed,
-                LoadOutstanding = LastStationResult?.LoadOutstanding ?? true,
-            });
 
-            if (!decision.Create)
+            // Under the teardown operation (begun by Disconnect, so every
+            // earlier operation's queued work refuses), the decision is
+            // made INSIDE the dispatched delegate against a fresh inventory
+            // request; see DeferredCreationRun. A save that went out without
+            // readback is retained as uncertain and never sent again.
+            var attempt = StationAttempt;
+            var operation = attempt.CurrentOperation is StationOperation live && live.IsLive && live.Why.StartsWith("teardown", StringComparison.Ordinal)
+                ? live
+                : attempt.BeginOperation("teardown: disconnect-time create");
+            CreationResult result;
+            using (var waiter = new EventStationWaiter(attempt))
             {
-                Tracing.TraceLine("saveNewGlobalProfile: NOT creating " + pending + " — " + decision.Reason, TraceLevel.Warning);
-                _pendingGlobalCreation = null;
-                return false;
+                result = new DeferredCreationRun(
+                    new FlexStationPort(this), ProfileEvidence, RosterTracker, StationPolicies.Current,
+                    _stationClock, waiter, StationDeadlines.Default()).Run(pending, operation, LastStationResult);
             }
-
-            Tracing.TraceLine("saveNewGlobalProfile: creating " + pending + " — " + decision.Reason, TraceLevel.Info);
-            long seq = ProfileEvidence.Sequence;
-            bool commandOut = false;
-            DispatchStationWork("save new global '" + pending.Name + "'", () =>
+            LastCreationResult = result;
+            if (result.Outcome == CreationOutcome.Unconfirmed)
             {
-                using (OwnProfileWrite()) radio.SaveGlobalProfile(pending.Name);
-                commandOut = true;
-            });
-            int bound = StationDeadlines.Default().DisconnectCreateConfirmMs;
-            bool confirmed = await(() =>
-            {
-                if (!commandOut) return false;
-                var inv = ProfileEvidence.Snapshot().GlobalList;
-                return inv != null && inv.Provenance == ObservationProvenance.RadioReported
-                       && inv.Sequence > seq && inv.Contains(pending.Name);
-            }, bound);
-
-            if (confirmed)
-            {
-                Tracing.TraceLine("saveNewGlobalProfile: the radio's inventory now lists '" + pending.Name + "'", TraceLevel.Info);
-            }
-            else
-            {
-                Tracing.TraceLine("saveNewGlobalProfile: the save command " + (commandOut ? "went out" : "did not go out")
-                    + " but the radio did not report '" + pending.Name + "' within " + bound
-                    + " ms — UNCONFIRMED, not claimed saved", TraceLevel.Warning);
+                _uncertainGlobalCreation = pending;
             }
             _pendingGlobalCreation = null;
-            return confirmed;
+            return result.Outcome == CreationOutcome.Confirmed;
         }
+
+        /// <summary>The last disconnect-time create's outcome, or null.</summary>
+        public CreationResult LastCreationResult { get; private set; }
+
+        /// <summary>A create whose save went out and was never confirmed. Not
+        /// claimed saved, not sent again; a later explicit save of the same
+        /// name is the operator's own act.</summary>
+        private PendingGlobalCreation _uncertainGlobalCreation;
     }
 }
