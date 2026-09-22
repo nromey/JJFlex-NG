@@ -216,11 +216,16 @@ namespace Radios.StationConnect
     /// </summary>
     public sealed class StationPolicies
     {
-        public IRosterAuthorityPolicy RosterAuthority = RosterAuthorityUnknownPolicy.Instance;
+        /// <summary>Roster authority is RULED (Noel, 2026-09-22): live
+        /// membership from the radio's own status, with discovery-only
+        /// removals treated as present. The other two stay fail-closed
+        /// until the bench answers them.</summary>
+        public IRosterAuthorityPolicy RosterAuthority = RosterAuthorityByLiveMembershipPolicy.Instance;
         public ILoadCompletionPolicy LoadCompletion = LoadCompletionUnconfirmedPolicy.Instance;
         public IInitialMaterializationPolicy InitialMaterialization = MaterializationUnknownPolicy.Instance;
 
-        /// <summary>All three at their fail-closed defaults.</summary>
+        /// <summary>The production defaults: the ruled roster authority, and
+        /// completion and materialization fail-closed.</summary>
         public static StationPolicies Defaults() => new StationPolicies();
 
         private static StationPolicies _current = Defaults();

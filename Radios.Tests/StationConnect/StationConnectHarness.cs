@@ -192,7 +192,7 @@ namespace Radios.Tests.StationConnect
         /// </summary>
         public static StationPolicies PositiveControlPolicies() => new StationPolicies
         {
-            RosterAuthority = RosterAuthorityFromRadioStatusPolicy.Instance,
+            RosterAuthority = RosterAuthorityByLiveMembershipPolicy.Instance,
             LoadCompletion = LoadCompletionByRadioEndBoundaryPolicy.Instance,
             InitialMaterialization = MaterializationEndsAtOwnHandlePolicy.Instance,
         };
@@ -251,7 +251,11 @@ namespace Radios.Tests.StationConnect
         public void OtherClientUpdated(uint handle = OtherHandle, string clientId = "other-client-id", string station = "W1AW")
             => Roster.ClientUpdated(new RosterEntry(handle, clientId, false, station, "SmartSDR"), Gen);
 
-        public void ClientRemoved(uint handle) => Roster.ClientRemoved(handle, Gen);
+        /// <summary>The radio's own status reports the client disconnected.</summary>
+        public void ClientRemoved(uint handle) => Roster.ClientRemoved(handle, Gen, RosterRemovalOrigin.RadioStatus);
+
+        /// <summary>A discovery packet did not list the client.</summary>
+        public void ClientRemovedByDiscovery(uint handle) => Roster.ClientRemoved(handle, Gen, RosterRemovalOrigin.Discovery);
 
         /// <summary>A radio-reported global inventory.</summary>
         public void RadioReportsGlobalList(params string[] names) =>

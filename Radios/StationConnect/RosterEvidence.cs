@@ -8,12 +8,18 @@ namespace Radios.StationConnect
     public sealed class RosterEntry
     {
         public RosterEntry(uint handle, string clientId, bool isThisClient, string station, string program)
+            : this(handle, clientId, isThisClient, station, program, reportedGoneByDiscovery: false)
+        {
+        }
+
+        private RosterEntry(uint handle, string clientId, bool isThisClient, string station, string program, bool reportedGoneByDiscovery)
         {
             Handle = handle;
             ClientId = clientId ?? "";
             IsThisClient = isThisClient;
             Station = station ?? "";
             Program = program ?? "";
+            ReportedGoneByDiscovery = reportedGoneByDiscovery;
         }
 
         public uint Handle { get; }
@@ -21,6 +27,20 @@ namespace Radios.StationConnect
         public bool IsThisClient { get; }
         public string Station { get; }
         public string Program { get; }
+
+        /// <summary>
+        /// True when the only thing that has said this client left is a
+        /// discovery packet that did not list it. Discovery can omit a
+        /// still-live client (design, bench question A), so the record is
+        /// KEPT and the client is treated as present — ruled 2026-09-22,
+        /// "ambiguous removals treated as present" — until the radio's own
+        /// status either lists it again (the flag clears) or reports it
+        /// disconnected (the record goes).
+        /// </summary>
+        public bool ReportedGoneByDiscovery { get; }
+
+        internal RosterEntry WithReportedGoneByDiscovery(bool value) =>
+            new RosterEntry(Handle, ClientId, IsThisClient, Station, Program, value);
 
         /// <summary>
         /// True when the record carries identity facts: FlexLib stamped it as
@@ -36,7 +56,25 @@ namespace Radios.StationConnect
         public override string ToString() =>
             "0x" + Handle.ToString("X") + (IsThisClient ? " (ours)" : "")
             + (IdentityBearing ? "" : " (no client_id)")
-            + (string.IsNullOrEmpty(Station) ? "" : " " + Station);
+            + (string.IsNullOrEmpty(Station) ? "" : " " + Station)
+            + (ReportedGoneByDiscovery ? " (discovery says gone; treated as present)" : "");
+    }
+
+    /// <summary>
+    /// Where a removal came from. FlexLib raises the same event for both,
+    /// and they mean different things: the radio's own TCP status saying
+    /// "client disconnected" is the radio speaking; a discovery packet that
+    /// did not list the client is a UDP broadcast that can lag or omit.
+    /// </summary>
+    public enum RosterRemovalOrigin
+    {
+        /// <summary>The radio's own status stream reported the client
+        /// disconnected. The record is removed.</summary>
+        RadioStatus,
+
+        /// <summary>A discovery packet did not list the client. The record is
+        /// kept and marked; the client is treated as present.</summary>
+        Discovery,
     }
 
     /// <summary>What the last roster observation was, for the authority policy.</summary>
@@ -61,7 +99,7 @@ namespace Radios.StationConnect
         public RosterSnapshot(
             IReadOnlyList<RosterEntry> entries, uint ownHandle, long generation,
             long observedAtMs, int attemptGeneration,
-            RosterChangeKind lastChange, RosterEntry lastChangedEntry, bool removalUnconfirmed)
+            RosterChangeKind lastChange, RosterEntry lastChangedEntry)
         {
             Entries = entries ?? Array.Empty<RosterEntry>();
             OwnHandle = ownHandle;
@@ -70,7 +108,6 @@ namespace Radios.StationConnect
             AttemptGeneration = attemptGeneration;
             LastChange = lastChange;
             LastChangedEntry = lastChangedEntry;
-            RemovalUnconfirmed = removalUnconfirmed;
         }
 
         public IReadOnlyList<RosterEntry> Entries { get; }
@@ -93,13 +130,18 @@ namespace Radios.StationConnect
         public RosterEntry LastChangedEntry { get; }
 
         /// <summary>
-        /// True when the most recent change was the removal of another
-        /// client's record and nothing since has confirmed the roster from the
-        /// radio's own status. Discovery can delete a still-live record
-        /// (design, bench question A), so a removal is ambiguous until the
-        /// bench says otherwise. It clears at the next add or update.
+        /// True when at least one OTHER client's record has been reported gone
+        /// by discovery alone and the radio's own status has not yet said
+        /// either way. Such a client is treated as PRESENT (ruled
+        /// 2026-09-22); this flag exists so a policy or a sentence can say
+        /// that the presence is discovery-ambiguous rather than reported.
+        /// Until Track G2 this was a tracker-wide Boolean set by ANY other
+        /// removal and cleared by ANY identity-bearing add or update — so a
+        /// clean TCP leave never cleared it, and an unrelated update of our
+        /// own record did. Both were wrong (review section 3A).
         /// </summary>
-        public bool RemovalUnconfirmed { get; }
+        public bool RemovalUnconfirmed =>
+            Entries.Any(e => e.ReportedGoneByDiscovery && (!OwnHandleKnown || e.Handle != OwnHandle));
 
         public RosterEntry Own => OwnHandleKnown ? Entries.FirstOrDefault(e => e.Handle == OwnHandle) : null;
 
@@ -132,7 +174,6 @@ namespace Radios.StationConnect
         private int _attemptGeneration;
         private RosterChangeKind _lastChange = RosterChangeKind.None;
         private RosterEntry _lastChangedEntry;
-        private bool _removalUnconfirmed;
 
         public RosterTracker(IStationClock clock)
         {
@@ -155,7 +196,34 @@ namespace Radios.StationConnect
                 _generation++;
                 _lastChange = RosterChangeKind.None;
                 _lastChangedEntry = null;
-                _removalUnconfirmed = false;
+            }
+            Changed?.Invoke();
+        }
+
+        /// <summary>
+        /// Import the roster the vendor object ALREADY holds when the
+        /// handlers are wired. Discovery fills FlexLib's client list before
+        /// we connect, and no add event fires for a record that is already
+        /// there — so without this, a client present at attachment was
+        /// invisible until it happened to change (review section 3A, "the
+        /// already-present-at-attachment case"). Entries come from discovery,
+        /// so they carry no client_id and are not identity-bearing; the
+        /// radio's own status updates them once we are connected.
+        /// </summary>
+        public void Seed(IEnumerable<RosterEntry> entries, int attemptGeneration)
+        {
+            if (entries == null) return;
+            lock (_lock)
+            {
+                if (attemptGeneration != _attemptGeneration) return;
+                foreach (var e in entries)
+                {
+                    if (e == null || _entries.ContainsKey(e.Handle)) continue;
+                    _entries[e.Handle] = e;
+                    _generation++;
+                    _lastChange = RosterChangeKind.Added;
+                    _lastChangedEntry = e;
+                }
             }
             Changed?.Invoke();
         }
@@ -179,13 +247,13 @@ namespace Radios.StationConnect
             lock (_lock)
             {
                 if (attemptGeneration != _attemptGeneration) return;
+                // An add or update of THIS handle is that client present
+                // again, whatever discovery said meanwhile. It says nothing
+                // about any other handle.
                 _entries[entry.Handle] = entry;
                 _generation++;
                 _lastChange = RosterChangeKind.Added;
                 _lastChangedEntry = entry;
-                // A fresh identity-bearing record is the radio's own status
-                // speaking; that settles any earlier ambiguous removal.
-                if (entry.IdentityBearing) _removalUnconfirmed = false;
             }
             Changed?.Invoke();
         }
@@ -200,29 +268,44 @@ namespace Radios.StationConnect
                 _generation++;
                 _lastChange = RosterChangeKind.Updated;
                 _lastChangedEntry = entry;
-                if (entry.IdentityBearing) _removalUnconfirmed = false;
             }
             Changed?.Invoke();
         }
 
-        public void ClientRemoved(uint handle, int attemptGeneration)
+        /// <summary>
+        /// A removal, with WHERE it came from. The radio's own status
+        /// removing a client is the client gone. Discovery not listing a
+        /// client is ambiguous: the record stays, marked, and the client is
+        /// treated as present until the radio's own status speaks for that
+        /// handle (ruled 2026-09-22). Provenance is preserved here rather
+        /// than reconstructed later, because a Boolean that both origins set
+        /// cannot be un-mixed by any policy (review section 3A).
+        /// </summary>
+        public void ClientRemoved(uint handle, int attemptGeneration, RosterRemovalOrigin origin)
         {
             lock (_lock)
             {
                 if (attemptGeneration != _attemptGeneration) return;
-                _entries.TryGetValue(handle, out var removed);
-                _entries.Remove(handle);
+                _entries.TryGetValue(handle, out var existing);
                 _generation++;
                 _lastChange = RosterChangeKind.Removed;
-                _lastChangedEntry = removed;
-                // Removing OUR record is loss of own evidence, handled by the
-                // guard (own handle not in roster). Removing ANOTHER handle is
-                // the ambiguous case: TCP status or a discovery packet that
-                // simply did not list them this time.
-                if (handle != _ownHandle) _removalUnconfirmed = true;
+                _lastChangedEntry = existing;
+                if (origin == RosterRemovalOrigin.RadioStatus)
+                {
+                    _entries.Remove(handle);
+                }
+                else if (existing != null)
+                {
+                    _entries[handle] = existing.WithReportedGoneByDiscovery(true);
+                }
             }
             Changed?.Invoke();
         }
+
+        /// <summary>A removal of unstated origin is treated as the ambiguous
+        /// kind: kept and marked. Callers that know the origin say so.</summary>
+        public void ClientRemoved(uint handle, int attemptGeneration) =>
+            ClientRemoved(handle, attemptGeneration, RosterRemovalOrigin.Discovery);
 
         public RosterSnapshot Snapshot()
         {
@@ -231,7 +314,7 @@ namespace Radios.StationConnect
                 return new RosterSnapshot(
                     _entries.Values.OrderBy(e => e.Handle).ToList(),
                     _ownHandle, _generation, _clock.NowMs, _attemptGeneration,
-                    _lastChange, _lastChangedEntry, _removalUnconfirmed);
+                    _lastChange, _lastChangedEntry);
             }
         }
 
@@ -346,6 +429,38 @@ namespace Radios.StationConnect
     }
 
     /// <summary>
+    /// <b>The ruled authority (Noel, 2026-09-22): live membership from the
+    /// radio's own status.</b> The roster is authoritative once OUR record is
+    /// identity-bearing — the radio's TCP status has enumerated us with a
+    /// client_id, which it does for every connected client — and a client
+    /// that discovery alone says has gone is treated as present by the
+    /// tracker, so this policy never has to reason about removals. Pending
+    /// until our record carries identity; never Unknown.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The limited guarantee, named.</b> This trusts that the
+    /// radio's status stream enumerates every connected client and reports
+    /// every departure. The 2026-09-21 SmartLink trace showed both for the
+    /// observed join and leave (client events 973 ms and 487 ms ahead of
+    /// discovery); it did not prove completeness for every firmware or
+    /// transport. It is the ruling's answer, not a bench-proven contract, and
+    /// the tracker's discovery-as-present rule is what makes it conservative
+    /// where the two sources disagree.</para>
+    /// </remarks>
+    public sealed class RosterAuthorityByLiveMembershipPolicy : IRosterAuthorityPolicy
+    {
+        public static readonly RosterAuthorityByLiveMembershipPolicy Instance = new RosterAuthorityByLiveMembershipPolicy();
+        public string Name => "live membership from the radio's own status; discovery-only removals count as present (ruled 2026-09-22)";
+        public RosterAuthority Judge(RosterSnapshot snapshot)
+        {
+            if (snapshot == null) return RosterAuthority.Pending;
+            var own = snapshot.Own;
+            if (own == null || !own.IdentityBearing) return RosterAuthority.Pending;
+            return RosterAuthority.Authoritative;
+        }
+    }
+
+    /// <summary>
     /// The live roster guard (#577): membership AND identity, never count
     /// alone, recomputed from the current snapshot every time it is asked.
     /// </summary>
@@ -368,8 +483,13 @@ namespace Radios.StationConnect
             var others = s.Others.ToList();
             if (others.Count > 0)
             {
+                // A client discovery says has gone counts as present: the
+                // radio's own status has not said so, and discovery can omit
+                // a live client (ruled 2026-09-22).
+                bool anyAmbiguous = others.Any(o => o.ReportedGoneByDiscovery);
                 return new RosterJudgement(RosterVerdict.OthersPresent,
-                    others.Count + " other client handle(s) present: " + string.Join(", ", others.Select(o => o.ToString())),
+                    others.Count + " other client handle(s) present: " + string.Join(", ", others.Select(o => o.ToString()))
+                    + (anyAmbiguous ? " — a discovery-only disappearance is treated as still present until the radio's own status confirms" : ""),
                     s.Generation);
             }
             return new RosterJudgement(RosterVerdict.OnlyUs, "our handle is the only one in the roster", s.Generation);
@@ -386,13 +506,10 @@ namespace Radios.StationConnect
             var basic = Evaluate(s);
             if (basic.Verdict != RosterVerdict.OnlyUs) return basic;
 
-            if (s.RemovalUnconfirmed)
-            {
-                return new RosterJudgement(RosterVerdict.Unknown,
-                    "another client's record was removed and nothing since has confirmed the roster from the radio's own status",
-                    s.Generation, mayChange: true);
-            }
-
+            // A discovery-only disappearance never reaches here as OnlyUs:
+            // the entry is retained and Evaluate reports it present. There is
+            // no separate "removal unconfirmed" refusal any more because the
+            // ambiguity is carried on the entry, not on the tracker.
             var p = policy ?? RosterAuthorityUnknownPolicy.Instance;
             var authority = p.Judge(s);
             if (authority == RosterAuthority.Pending)

@@ -51,9 +51,36 @@ namespace Radios.Tests.StationConnect
         // ==================================================================
 
         [Fact]
-        public void DefaultPolicies_RefuseTheOwnersAutomaticLoad_AndDoNotWaitOutTheBound()
+        public void ProductionDefaults_NobodyElseOn_SendTheOwnersLoadOnce_LeaveItHonestlyUnconfirmed_AndFillNothing()
         {
+            // Case 1 of the 2026-09-22 ruling: nobody else on the radio, so
+            // the global load is sent; completion cannot be proven (B is
+            // closed) and is said so; nothing is topped up (D is closed).
             var h = new StationHarness(StationPolicies.Defaults());
+            h.ArrangeOwnerReconnect();
+            h.RadioHonoursPanafallRequests();
+            h.Port.OnGlobalLoadSent = _ => h.DeliverGenuineCompletion(); // the radio does everything right
+
+            var r = h.Run();
+
+            Assert.Equal(RosterVerdict.OnlyUs, r.RosterAtDecision.Verdict);
+            Assert.Equal(GlobalRoute.LoadExisting, r.Route);
+            Assert.Equal(StationOutcome.Unconfirmed, r.Outcome);
+            Assert.True(r.LoadSent);
+            Assert.True(r.LoadOutstanding);
+            h.AssertExactlyOneLoadAndNothingElse("K5NER");
+            Assert.Equal(AllocationStop.LoadOutstanding, r.Allocation.Stop);
+            Assert.Equal(1, r.OwnSlicesAtEnd);                 // kept whatever came back
+        }
+
+        [Fact]
+        public void TheUnknownRosterPolicy_RefusesTheOwnersAutomaticLoad_AndDoesNotWaitOutTheBound()
+        {
+            // The pre-ruling default, still available: Unknown by policy is
+            // Unknown for good, so the refusal costs no five-second wait.
+            var policies = StationPolicies.Defaults();
+            policies.RosterAuthority = RosterAuthorityUnknownPolicy.Instance;
+            var h = new StationHarness(policies);
             h.ArrangeOwnerReconnect();
             long before = h.Clock.NowMs;
 
@@ -64,9 +91,7 @@ namespace Radios.Tests.StationConnect
             Assert.Equal(RosterVerdict.Unknown, r.RosterAtDecision.Verdict);
             Assert.Contains("authority is not established", r.RosterAtDecision.Reason);
             h.AssertNothingWasSent();
-            // Unknown by policy is Unknown for good: no five-second wait.
             Assert.True(h.Clock.NowMs - before < h.Deadlines.RosterSettleMs, "the coordinator waited for an answer that could not change");
-            // ...and no fresh allocation either: materialization is unknown by default.
             Assert.Equal(AllocationStop.MaterializationUnknown, r.Allocation.Stop);
         }
 
@@ -245,36 +270,38 @@ namespace Radios.Tests.StationConnect
         }
 
         [Fact]
-        public void AnUnconfirmedRemovalOfAnotherClient_RefusesUntilTheRadioSpeaksAgain()
+        public void ADiscoveryOnlyDisappearanceOfAnotherClient_IsTreatedAsPresent_AndRefusesTheLoad()
         {
+            // Ruled 2026-09-22: an ambiguous removal is treated as present.
+            // Nothing that follows short of the radio's own status for that
+            // handle changes it — and an update of OUR record is not that.
             var h = new StationHarness();
             h.ArrangeOwnerReconnect();
             h.OtherClientAdded();
-            h.ClientRemoved(StationHarness.OtherHandle);
+            h.ClientRemovedByDiscovery(StationHarness.OtherHandle);
+            h.Waiter.Then(() => h.Roster.ClientUpdated(
+                new RosterEntry(StationHarness.OurHandle, "our-client-id", true, "K5NER", "JJFlex"), h.Gen));
             h.RadioHonoursPanafallRequests();
-            // Nothing else arrives: the removal stays ambiguous.
 
             var r = h.Run();
 
             Assert.Equal(StationOutcome.PolicySkipped, r.Outcome);
-            Assert.Equal(RosterVerdict.Unknown, r.RosterAtDecision.Verdict);
-            Assert.Contains("removed", r.RosterAtDecision.Reason);
+            Assert.Equal(RosterVerdict.OthersPresent, r.RosterAtDecision.Verdict);
+            Assert.Contains("discovery", r.RosterAtDecision.Reason);
             Assert.Empty(h.Port.GlobalLoadsSent);
         }
 
         [Fact]
-        public void AnUnconfirmedRemoval_ClearedByARadioStatusUpdate_ThenLoads()
+        public void ARadioStatusRemovalOfAnotherClient_IsALeave_AndTheLoadGoesOut()
         {
-            // The positive control for the test above: the same removal, then
-            // the radio's own status speaks (an identity-bearing update of our
-            // record), and the load goes out exactly once.
+            // The positive control: the radio's own status says they
+            // disconnected, so the roster is only us and the load is sent
+            // exactly once.
             var h = new StationHarness();
             h.ArrangeOwnerReconnect();
             h.OtherClientAdded();
             h.ClientRemoved(StationHarness.OtherHandle);
             h.Port.OnGlobalLoadSent = _ => h.DeliverGenuineCompletion();
-            h.Waiter.Then(() => h.Roster.ClientUpdated(
-                new RosterEntry(StationHarness.OurHandle, "our-client-id", true, "K5NER", "JJFlex"), h.Gen));
 
             var r = h.Run();
 

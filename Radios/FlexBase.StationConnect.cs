@@ -131,6 +131,7 @@ namespace Radios
             RosterTracker.Reset(fresh.Generation);
             StationTracker.Reset(fresh.Generation);
             ProfileEvidence.Reset(fresh.Generation);
+            SeedRosterFrom(radio, fresh.Generation);
             _pendingGlobalCreation = null;
             LastStationResult = null;
 
@@ -182,8 +183,46 @@ namespace Radios
         private void ObserveClientUpdated(ObservationBinding binding, GUIClient client) =>
             RosterTracker.ClientUpdated(RosterEntryFrom(client), binding.Generation);
 
-        private void ObserveClientRemoved(ObservationBinding binding, GUIClient client) =>
-            RosterTracker.ClientRemoved(client.ClientHandle, binding.Generation);
+        /// <summary>
+        /// A removal, with its ORIGIN. FlexLib raises GUIClientRemoved from
+        /// two places that mean different things, and it tells them apart by
+        /// accident of its own locking: the discovery-driven sweep in
+        /// <c>Radio.UpdateGuiClientsList</c> (and the disconnect-time wipe)
+        /// raise the event while still HOLDING <c>GuiClientsLockObj</c>; the
+        /// TCP-status path, <c>Radio.RemoveGUIClient</c> for a
+        /// <c>client ... disconnected</c> line, releases the lock first.
+        /// <see cref="Monitor.IsEntered"/> on the raising thread is therefore
+        /// a true origin discriminator, with no vendor edit. Pinned by
+        /// RosterProvenanceTests against the vendored code.
+        /// </summary>
+        private void ObserveClientRemoved(ObservationBinding binding, GUIClient client)
+        {
+            var origin = binding.Radio is Radio r && System.Threading.Monitor.IsEntered(r.GuiClientsLockObj)
+                ? RosterRemovalOrigin.Discovery
+                : RosterRemovalOrigin.RadioStatus;
+            RosterTracker.ClientRemoved(client.ClientHandle, binding.Generation, origin);
+        }
+
+        /// <summary>
+        /// Import the clients the vendor object already lists at attachment,
+        /// under its own lock, so a client that was on the radio before we
+        /// wired our handlers is in the roster from the first snapshot.
+        /// </summary>
+        private void SeedRosterFrom(Radio radio, int generation)
+        {
+            if (radio == null) return;
+            List<RosterEntry> present;
+            lock (radio.GuiClientsLockObj)
+            {
+                present = radio.GuiClients.Select(RosterEntryFrom).ToList();
+            }
+            if (present.Count > 0)
+            {
+                RosterTracker.Seed(present, generation);
+                Tracing.TraceLine("StationConnect: roster seeded with " + present.Count
+                    + " client(s) already listed at attachment: " + string.Join(", ", present), TraceLevel.Info);
+            }
+        }
 
         private void ObserveOwnSliceAdded(ObservationBinding binding, Slice slc) =>
             StationTracker.OwnSliceAdded(slc.Index, slc.Letter, slc.ClientHandle, slc.PanadapterStreamID, binding.Generation);

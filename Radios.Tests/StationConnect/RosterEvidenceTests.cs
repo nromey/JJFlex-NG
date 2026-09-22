@@ -69,53 +69,144 @@ namespace Radios.Tests.StationConnect
             Assert.Equal(RosterVerdict.OthersPresent, RosterGuard.Evaluate(t.Snapshot()).Verdict);
         }
 
+        // ── removals carry their origin (Track G2; review section 3A; ruled 2026-09-22) ──
+
         [Fact]
-        public void AnotherClientsRemoval_ReturnsToOnlyUs_ButIsAmbiguousForAnAutomaticWrite()
+        public void AnotherClientsRemovalByRadioStatus_IsThemGone_ForBothVerdicts()
         {
-            // Failure mode 2 of #577 (we never recompute after they leave) is
-            // fixed for the operator-facing verdict; the automatic verdict
-            // stays Unknown until the radio speaks again, because discovery
-            // can delete a still-live record (bench A).
+            // The positive control for the removal semantics: the radio's
+            // own status said "disconnected", so they are gone, and the
+            // authoritative roster is only us.
             var (t, g) = Fresh();
             t.ClientAdded(Ours(), g);
             t.OwnHandleEstablished(Us, g);
             t.ClientAdded(Theirs(), g);
-            t.ClientRemoved(Them, g);
+            t.ClientRemoved(Them, g, RosterRemovalOrigin.RadioStatus);
 
             Assert.Equal(RosterVerdict.OnlyUs, RosterGuard.Evaluate(t.Snapshot()).Verdict);
-            var auto = RosterGuard.ForAutomaticWrite(t.Snapshot(), RosterAuthorityFromRadioStatusPolicy.Instance);
-            Assert.Equal(RosterVerdict.Unknown, auto.Verdict);
-            Assert.True(auto.MayChange);
-            Assert.True(t.Snapshot().RemovalUnconfirmed);
+            Assert.Equal(RosterVerdict.OnlyUs,
+                RosterGuard.ForAutomaticWrite(t.Snapshot(), RosterAuthorityByLiveMembershipPolicy.Instance).Verdict);
+            Assert.False(t.Snapshot().RemovalUnconfirmed);
+            Assert.Single(t.Snapshot().Entries);
         }
 
         [Fact]
-        public void ARadioStatusAddOrUpdateAfterTheRemoval_ClearsTheAmbiguity()
+        public void AnotherClientsRemovalByDiscoveryAlone_IsTreatedAsStillPresent()
         {
+            // Discovery can omit a live client. Ruled: treat them as present.
+            // Until Track G2 this was an Unknown that a bounded wait might
+            // clear; it is OthersPresent now, for every verdict, and it says
+            // why.
             var (t, g) = Fresh();
             t.ClientAdded(Ours(), g);
             t.OwnHandleEstablished(Us, g);
             t.ClientAdded(Theirs(), g);
-            t.ClientRemoved(Them, g);
+            t.ClientRemoved(Them, g, RosterRemovalOrigin.Discovery);
+
+            var raw = RosterGuard.Evaluate(t.Snapshot());
+            Assert.Equal(RosterVerdict.OthersPresent, raw.Verdict);
+            Assert.Contains("discovery", raw.Reason);
+            Assert.Equal(RosterVerdict.OthersPresent,
+                RosterGuard.ForAutomaticWrite(t.Snapshot(), RosterAuthorityByLiveMembershipPolicy.Instance).Verdict);
+            Assert.True(t.Snapshot().RemovalUnconfirmed);
+            Assert.True(t.Snapshot().Others.Single().ReportedGoneByDiscovery);
+        }
+
+        [Fact]
+        public void AnUnrelatedUpdateOfOurOwnRecord_DoesNotMakeADiscoveryOnlyDisappearanceALeave()
+        {
+            // The review's exact objection: our own record being updated
+            // proves nothing about whether the OTHER handle really left.
+            var (t, g) = Fresh();
+            t.ClientAdded(Ours(), g);
+            t.OwnHandleEstablished(Us, g);
+            t.ClientAdded(Theirs(), g);
+            t.ClientRemoved(Them, g, RosterRemovalOrigin.Discovery);
             t.ClientUpdated(Ours(), g);
 
-            Assert.False(t.Snapshot().RemovalUnconfirmed);
-            Assert.Equal(RosterVerdict.OnlyUs,
-                RosterGuard.ForAutomaticWrite(t.Snapshot(), RosterAuthorityFromRadioStatusPolicy.Instance).Verdict);
+            Assert.Equal(RosterVerdict.OthersPresent, RosterGuard.Evaluate(t.Snapshot()).Verdict);
+            Assert.True(t.Snapshot().RemovalUnconfirmed);
         }
 
         [Fact]
-        public void AFabricatedRecordDoesNotClearTheAmbiguity()
+        public void TheRadiosOwnStatusForThatHandle_SettlesADiscoveryOnlyDisappearance_EitherWay()
+        {
+            var (t, g) = Fresh();
+            t.ClientAdded(Ours(), g);
+            t.OwnHandleEstablished(Us, g);
+            t.ClientAdded(Theirs(), g);
+            t.ClientRemoved(Them, g, RosterRemovalOrigin.Discovery);
+
+            // The radio lists them again: present, no longer ambiguous.
+            t.ClientUpdated(Theirs(), g);
+            Assert.Equal(RosterVerdict.OthersPresent, RosterGuard.Evaluate(t.Snapshot()).Verdict);
+            Assert.False(t.Snapshot().RemovalUnconfirmed);
+
+            // The radio reports them disconnected: gone.
+            t.ClientRemoved(Them, g, RosterRemovalOrigin.RadioStatus);
+            Assert.Equal(RosterVerdict.OnlyUs, RosterGuard.Evaluate(t.Snapshot()).Verdict);
+            Assert.Equal(RosterVerdict.OnlyUs,
+                RosterGuard.ForAutomaticWrite(t.Snapshot(), RosterAuthorityByLiveMembershipPolicy.Instance).Verdict);
+        }
+
+        [Fact]
+        public void ARemovalOfUnstatedOrigin_IsTheAmbiguousKind()
         {
             var (t, g) = Fresh();
             t.ClientAdded(Ours(), g);
             t.OwnHandleEstablished(Us, g);
             t.ClientAdded(Theirs(), g);
             t.ClientRemoved(Them, g);
-            // A discovery rebuild of our own record: no client_id, not stamped.
-            t.ClientUpdated(new RosterEntry(Us, "", false, "K5NER", "JJFlex"), g);
 
-            Assert.True(t.Snapshot().RemovalUnconfirmed);
+            Assert.Equal(RosterVerdict.OthersPresent, RosterGuard.Evaluate(t.Snapshot()).Verdict);
+        }
+
+        [Fact]
+        public void AClientAlreadyListedAtAttachment_IsSeeded_AndCountsAsPresent()
+        {
+            // Discovery fills the vendor's list before we connect and no add
+            // event fires for a record already there.
+            var (t, g) = Fresh();
+            t.Seed(new[] { Theirs(id: "") }, g);
+            t.ClientAdded(Ours(), g);
+            t.OwnHandleEstablished(Us, g);
+
+            var j = RosterGuard.Evaluate(t.Snapshot());
+            Assert.Equal(RosterVerdict.OthersPresent, j.Verdict);
+            Assert.Equal(2, t.Snapshot().Entries.Count);
+        }
+
+        [Fact]
+        public void TheSeedNeverOverwritesALaterAddOfTheSameHandle()
+        {
+            var (t, g) = Fresh();
+            t.ClientAdded(Theirs(id: "their-id"), g);
+            t.Seed(new[] { Theirs(id: "") }, g);
+            Assert.Equal("their-id", t.Snapshot().Entries.Single().ClientId);
+        }
+
+        [Fact]
+        public void TheRuledAuthority_IsPendingUntilOurRecordCarriesIdentity_ThenAuthoritative()
+        {
+            var (t, g) = Fresh();
+            t.ClientAdded(new RosterEntry(Us, "", false, "K5NER", "JJFlex"), g); // discovery-built
+            t.OwnHandleEstablished(Us, g);
+            Assert.Equal(RosterAuthority.Pending, RosterAuthorityByLiveMembershipPolicy.Instance.Judge(t.Snapshot()));
+            Assert.True(RosterGuard.ForAutomaticWrite(t.Snapshot(), RosterAuthorityByLiveMembershipPolicy.Instance).MayChange);
+
+            t.ClientUpdated(Ours(), g); // the radio's own status: client_id
+            Assert.Equal(RosterAuthority.Authoritative, RosterAuthorityByLiveMembershipPolicy.Instance.Judge(t.Snapshot()));
+            Assert.Equal(RosterVerdict.OnlyUs,
+                RosterGuard.ForAutomaticWrite(t.Snapshot(), RosterAuthorityByLiveMembershipPolicy.Instance).Verdict);
+        }
+
+        [Fact]
+        public void TheProductionDefaultRosterAuthority_IsTheRuledLiveMembershipPolicy()
+        {
+            Assert.IsType<RosterAuthorityByLiveMembershipPolicy>(StationPolicies.Defaults().RosterAuthority);
+            // The other two stay closed.
+            Assert.IsType<LoadCompletionUnconfirmedPolicy>(StationPolicies.Defaults().LoadCompletion);
+            Assert.IsType<MaterializationUnknownPolicy>(StationPolicies.Defaults().InitialMaterialization);
         }
 
         [Fact]
@@ -124,7 +215,7 @@ namespace Radios.Tests.StationConnect
             var (t, g) = Fresh();
             t.ClientAdded(Ours(), g);
             t.OwnHandleEstablished(Us, g);
-            t.ClientRemoved(Us, g);
+            t.ClientRemoved(Us, g, RosterRemovalOrigin.RadioStatus);
 
             var gone = RosterGuard.Evaluate(t.Snapshot());
             Assert.Equal(RosterVerdict.Unknown, gone.Verdict);
@@ -175,7 +266,7 @@ namespace Radios.Tests.StationConnect
             t.OwnHandleEstablished(Us, g);
 
             t.ClientAdded(Theirs(), g - 1);
-            t.ClientRemoved(Us, g - 1);
+            t.ClientRemoved(Us, g - 1, RosterRemovalOrigin.RadioStatus);
 
             Assert.Equal(RosterVerdict.OnlyUs, RosterGuard.Evaluate(t.Snapshot()).Verdict);
             Assert.Single(t.Snapshot().Entries);
@@ -198,7 +289,7 @@ namespace Radios.Tests.StationConnect
         }
 
         [Fact]
-        public void TheDefaultPolicy_IsUnknownForGood_SoTheGuardDoesNotAskToWait()
+        public void TheUnknownPolicy_IsUnknownForGood_SoTheGuardDoesNotAskToWait()
         {
             var (t, g) = Fresh();
             t.ClientAdded(Ours(), g);
