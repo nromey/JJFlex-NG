@@ -145,6 +145,28 @@ namespace Radios
         /// change was made: without autosave off, "change but do not save" may
         /// not be a state that exists.</summary>
         AutosaveCouldNotBeTurnedOff,
+
+        /// <summary>
+        /// This connection is not the radio's declared owner's. Ruled by Noel
+        /// 2026-09-21 (#590): only the declared owner's connection restores a
+        /// station, and anyone else connecting writes nothing shared,
+        /// regardless of the roster. Selecting a profile — global, transmit
+        /// or microphone — is a shared write. The one guest path that
+        /// remains is <see cref="ProfileGuestIntent.UseMyTransmitAudio"/>,
+        /// which is a different mechanism and is not touched by this reason.
+        /// </summary>
+        NotTheDeclaredOwner,
+
+        /// <summary>
+        /// Whether another operator is on the radio could not be established:
+        /// our own handle is not yet in the live roster, or a removal is
+        /// unconfirmed, or the roster's authority is not established for an
+        /// automatic write. Refuses exactly as
+        /// <see cref="AnotherOperatorIsConnected"/> does, but is NAMED as
+        /// uncertainty — the design (section 5) forbids announcing a person
+        /// who may not be there.
+        /// </summary>
+        RosterUnknown,
     }
 
     /// <summary>What one step of a plan does to the radio.</summary>
@@ -290,6 +312,16 @@ namespace Radios
         /// the client list has been parsed at least once, so an early decision
         /// declines rather than acts.</summary>
         public bool OnlyStation = true;
+
+        /// <summary>True when <see cref="OnlyStation"/> is false because the
+        /// roster could not be established rather than because another handle
+        /// is present. Turns the refusal into
+        /// <see cref="ProfileSkipReason.RosterUnknown"/>.</summary>
+        public bool OnlyStationUnknown;
+
+        /// <summary>The refusal to use when <see cref="OnlyStation"/> is false.</summary>
+        public ProfileSkipReason CompanyRefusal =>
+            OnlyStationUnknown ? ProfileSkipReason.RosterUnknown : ProfileSkipReason.AnotherOperatorIsConnected;
 
         /// <summary>
         /// The radio's own profile-autosave setting: true or false as the
@@ -635,6 +667,85 @@ namespace Radios
             return plan;
         }
 
+        /// <summary>
+        /// The connect plan as the connect path actually runs it since
+        /// 2026-09-21: <see cref="PlanConnect"/>'s per-type rules, then the
+        /// ownership ruling (#590), then optionally narrowed to the profile
+        /// types one PHASE handles — the global decision before station
+        /// establishment, transmit and microphone after it.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Why a composition and not a change to
+        /// <see cref="PlanConnect"/>.</b> The per-type rules there are the
+        /// tested pure layer, and <see cref="PlanPutBack"/> is their mirror.
+        /// The ruling removes a ROUTE (a guest's named-profile loads) rather
+        /// than changing a rule, and the phased caller needs the same rules
+        /// twice with different type sets. Composing keeps one copy of the
+        /// ownership logic, here, where a test reaches it.</para>
+        /// </remarks>
+        /// <param name="onlyTypes">The types this phase decides, or null for
+        /// all. Actions with <see cref="ProfileTypes.none"/> (autosave) belong
+        /// to the transmit-audio phase.</param>
+        public static ProfilePlan PlanConnectRuled(ProfileSituation s, IReadOnlyCollection<ProfileTypes> onlyTypes = null)
+        {
+            var plan = PlanConnect(s);
+            ApplyOwnershipRuling(plan, s);
+            if (onlyTypes != null) RestrictToTypes(plan, onlyTypes);
+            return plan;
+        }
+
+        /// <summary>
+        /// The #590 ruling applied to a plan: on a radio the operator has not
+        /// declared theirs, every <see cref="ProfileActionKind.LoadOurs"/> is
+        /// replaced by a <see cref="ProfileSkipReason.NotTheDeclaredOwner"/>
+        /// skip and its put-back record is dropped, because the write it would
+        /// have needed putting back is not made. The live transmit-audio
+        /// actions and record are untouched: that path is preserved by the
+        /// same ruling.
+        /// </summary>
+        public static void ApplyOwnershipRuling(ProfilePlan plan, ProfileSituation s)
+        {
+            if (plan == null || s == null) return;
+            if (s.Ownership == RadioOwnership.Mine) return;
+
+            var loads = plan.Actions.Where(a => a.Kind == ProfileActionKind.LoadOurs).ToList();
+            if (loads.Count == 0) return;
+            foreach (var a in loads)
+            {
+                plan.Actions.Remove(a);
+                plan.Skips.Add(new ProfileSkip
+                {
+                    ProfileType = a.ProfileType,
+                    Reason = ProfileSkipReason.NotTheDeclaredOwner,
+                    ProfileName = a.ProfileName,
+                });
+            }
+            plan.Record.RemoveAll(r => !r.LiveTransmitAudio);
+        }
+
+        /// <summary>Narrow a plan to the types one phase handles. Autosave
+        /// actions (type none) travel with the transmit type.</summary>
+        public static void RestrictToTypes(ProfilePlan plan, IReadOnlyCollection<ProfileTypes> types)
+        {
+            if (plan == null || types == null) return;
+            bool Keep(ProfileTypes t) => types.Contains(t == ProfileTypes.none ? ProfileTypes.tx : t);
+            plan.Actions.RemoveAll(a => !Keep(a.ProfileType));
+            plan.Skips.RemoveAll(sk => !Keep(sk.ProfileType));
+            plan.Record.RemoveAll(r => !Keep(r.ProfileType));
+        }
+
+        /// <summary>
+        /// The one question every automatic shared write on connect asks, as
+        /// a predicate the phases share: connected, hold off, declared Mine,
+        /// opted in with "load mine". Everything else is the guest route,
+        /// which gets client-local receive resources and writes nothing
+        /// shared (#590).
+        /// </summary>
+        public static bool MayWriteSharedStateAutomatically(ProfileSituation s) =>
+            s != null && s.Connected && !s.ChangeNothingArmed
+            && s.Ownership == RadioOwnership.Mine
+            && s.Intent == ProfileGuestIntent.LoadMineAndPutBack;
+
         private static void PlanOneType(
             ProfilePlan plan, ProfileSituation s, ProfileTypeState st, ProfileTypes type, bool ours)
         {
@@ -689,9 +800,9 @@ namespace Radios
             // ours would discard them.
             if (st.UnsavedChanges) { Skip(ProfileSkipReason.OwnerHasUnsavedWork); return; }
 
-            // Somebody else is on the radio. Loading a profile changes the
-            // station under them.
-            if (!s.OnlyStation) { Skip(ProfileSkipReason.AnotherOperatorIsConnected); return; }
+            // Somebody else is on the radio, or we cannot tell. Loading a
+            // profile changes the station under them.
+            if (!s.OnlyStation) { Skip(s.CompanyRefusal); return; }
 
             // An earlier build's restore point is here, so what is loaded RIGHT
             // NOW is that session's profile, not the owner's state. Leave
@@ -761,9 +872,9 @@ namespace Radios
                 return;
             }
 
-            // Somebody else is on the radio. Changing its transmit chain
-            // changes the station under them.
-            if (!s.OnlyStation) { Skip(ProfileSkipReason.AnotherOperatorIsConnected); return; }
+            // Somebody else is on the radio, or we cannot tell. Changing its
+            // transmit chain changes the station under them.
+            if (!s.OnlyStation) { Skip(s.CompanyRefusal); return; }
 
             // The owner has edits in flight in the transmit or microphone
             // profile. The snapshot would put them back faithfully — but they
@@ -893,7 +1004,7 @@ namespace Radios
                 // what JJ Flexible writes, and a profile load is a write.
                 if (s.ChangeNothingArmed) { Skip(ProfileSkipReason.ChangeNothingArmed); continue; }
 
-                if (!s.OnlyStation) { Skip(ProfileSkipReason.AnotherOperatorIsConnected); continue; }
+                if (!s.OnlyStation) { Skip(s.CompanyRefusal); continue; }
 
                 if (st != null && st.UnsavedChanges)
                 {
@@ -974,7 +1085,7 @@ namespace Radios
                     // transmit chain back changes the station under them —
                     // and they may be transmitting through it.
                     plan.Skips.Add(new ProfileSkip
-                    { ProfileType = ProfileTypes.tx, Reason = ProfileSkipReason.AnotherOperatorIsConnected });
+                    { ProfileType = ProfileTypes.tx, Reason = s.CompanyRefusal });
                     everythingPutBack = false;
                 }
                 else
@@ -1031,7 +1142,7 @@ namespace Radios
 
                 if (!s.Connected) { Skip(ProfileSkipReason.NotConnected); continue; }
                 if (s.ChangeNothingArmed) { Skip(ProfileSkipReason.ChangeNothingArmed); continue; }
-                if (!s.OnlyStation) { Skip(ProfileSkipReason.AnotherOperatorIsConnected); continue; }
+                if (!s.OnlyStation) { Skip(s.CompanyRefusal); continue; }
                 if (st == null || !st.Reported) { Skip(ProfileSkipReason.RadioDidNotReportItsList); continue; }
                 if (st.UnsavedChanges) { Skip(ProfileSkipReason.OwnerHasUnsavedWork); continue; }
 
@@ -1073,7 +1184,7 @@ namespace Radios
             if (!s.StrandedLiveTransmitAudioSnapshot) { Skip(ProfileSkipReason.NothingWasChanged); return plan; }
             if (!s.Connected) { Skip(ProfileSkipReason.NotConnected); return plan; }
             if (s.ChangeNothingArmed) { Skip(ProfileSkipReason.ChangeNothingArmed); return plan; }
-            if (!s.OnlyStation) { Skip(ProfileSkipReason.AnotherOperatorIsConnected); return plan; }
+            if (!s.OnlyStation) { Skip(s.CompanyRefusal); return plan; }
 
             plan.Actions.Add(new ProfileAction
             {
