@@ -152,6 +152,22 @@ namespace Radios
 
         private void StationEvidenceChanged() => StationAttempt.Signal();
 
+        /// <summary>
+        /// Begin the teardown operation on the current attempt, if one is
+        /// live and the teardown has not begun: ends every earlier operation
+        /// (their queued work refuses) and keeps the attempt live for the
+        /// teardown's own bounded work. Idempotent.
+        /// </summary>
+        internal void BeginTeardownOperation(string why)
+        {
+            var attempt = StationAttempt;
+            if (!attempt.IsLive) return;
+            var current = attempt.CurrentOperation;
+            if (current != null && current.IsLive && current.Why.StartsWith("teardown", StringComparison.Ordinal)) return;
+            var op = attempt.BeginOperation("teardown: " + why);
+            Tracing.TraceLine("StationConnect: " + op + " — earlier operations' queued work now refuses", TraceLevel.Info);
+        }
+
         /// <summary>Invalidate the current attempt. Idempotent.</summary>
         private void CancelStationAttempt(string why)
         {

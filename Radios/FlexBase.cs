@@ -3012,6 +3012,17 @@ namespace Radios
             Tracing.TraceLine("Disconnect:" + (string)((theRadio == null) ? "null" : theRadio.Serial), TraceLevel.Info);
             if (theRadio == null) return;
 
+            // The teardown is its own OPERATION, begun first: every earlier
+            // operation on this connection ends now, so any automatic work it
+            // queued (a load, a selection, an allocation, a live-audio
+            // setter) refuses when the loop reaches it, while the teardown's
+            // own work — the create and the put-back — runs under an
+            // operation that is live until CancelStationAttempt below. Until
+            // Track G2 older automatic work stayed permitted throughout
+            // teardown because cancellation came only after it (review
+            // section 8).
+            BeginTeardownOperation("Disconnect");
+
             // The deferred create of a global that was definitely missing at
             // connect (#578, design step 11), on the CLEAN disconnect and
             // before the put-back so the two cannot fight over the global
@@ -7375,6 +7386,7 @@ namespace Radios
                     // thread nobody was watching.
                     try
                     {
+                        BeginTeardownOperation("Dispose");
                         saveNewGlobalProfile(); // if any
 
                         // Put this radio's own profiles back BEFORE the connection
@@ -15730,8 +15742,35 @@ namespace Radios
             {
                 q.Enqueue((FunctionDel)(() =>
                     {
-                        theRadio.SaveGlobalProfile(p.Name);
+                        long seq = ProfileEvidence.Sequence;
+                        using (OwnProfileWrite()) theRadio.SaveGlobalProfile(p.Name);
                         commandDone = true;
+                        // An operator save under the pending name satisfies
+                        // the deferred create — once it has actually gone out.
+                        // Until Track G2 the intent was cleared at ENQUEUE, so a
+                        // save that never ran silently cancelled the automatic
+                        // create (review section 8). Readback says whether the
+                        // save is confirmed; without it the name is recorded
+                        // as an uncertain save, which the deferred create's
+                        // fresh inventory ask then protects from overwrite.
+                        var pending = _pendingGlobalCreation;
+                        if (pending != null && p.Name == pending.Name)
+                        {
+                            bool confirmed = await(() =>
+                            {
+                                var inv = ProfileEvidence.Snapshot().GlobalList;
+                                return inv != null && inv.Provenance == ObservationProvenance.RadioReported
+                                       && inv.Sequence > seq && inv.Contains(p.Name);
+                            }, StationDeadlines.Default().DisconnectCreateConfirmMs);
+                            if (!confirmed)
+                            {
+                                _uncertainGlobalCreation = pending;
+                                Tracing.TraceLine("SaveProfile: the operator's save of '" + p.Name + "' went out but the radio did not "
+                                    + "report it within the bound; recorded as uncertain, and the deferred create for that name is withdrawn.",
+                                    TraceLevel.Warning);
+                            }
+                            _pendingGlobalCreation = null;
+                        }
                     }), "save global", true);
                 if (immediately)
                 {
@@ -15742,10 +15781,6 @@ namespace Radios
                     }, 3000);
                 }
                 rv = true;
-                // An operator save under the pending name satisfies the
-                // deferred create: nothing is left to create.
-                var pending = _pendingGlobalCreation;
-                if (pending != null && p.Name == pending.Name) _pendingGlobalCreation = null;
             }
             return rv;
         }
@@ -17054,7 +17089,12 @@ namespace Radios
         {
             if (theRadio == null || !IsConnected) return GuardedOutcome.Skipped;
             if (GuardRefuses("settings.guard.action.autosave")) return GuardedOutcome.Refused;
-            if (theRadio.ProfileAutoSave) return GuardedOutcome.Skipped; // already on
+            // "Already on" only when the radio has REPORTED it on. The vendor's
+            // cached value is optimistically true after an unconfirmed attempt
+            // set it, and a second press that returned Skipped on that value
+            // left the durable obligation standing (review section 8). The
+            // helper below sends nothing when the radio does report on.
+            if (ProfileEvidence.Snapshot().RadioReportedAutosave == true) return GuardedOutcome.Skipped;
 
             bool ok = SetRadioProfileAutosaveInternal(true, "operator asked to turn autosave back on");
             var serial = theRadio?.Serial;
