@@ -561,11 +561,42 @@ namespace Radios.Tests.StationConnect
             string none = Lexicon.Get("settings.profile_station.company.no_layout_known_none");
             Assert.Contains("2 slices on the radio's own default frequency", two, StringComparison.Ordinal);
             Assert.Contains("one slice on the radio's own default frequency", one, StringComparison.Ordinal);
-            Assert.Contains("no slice was free", none, StringComparison.Ordinal);
+            Assert.Contains("you have no slices", none, StringComparison.Ordinal);
             foreach (var s in new[] { two, one, none })
             {
                 Assert.DoesNotContain("14.100", s, StringComparison.Ordinal);
                 Assert.DoesNotContain("{", s, StringComparison.Ordinal);
+            }
+        }
+
+        [Fact]
+        public void TheNoLayoutSentences_SayWhatHappened_AndNeverWhyTheCountWasWhatItWas()
+        {
+            // RULED by Noel 2026-09-23 04:44, on being asked whether the
+            // sentence should say what happened rather than why: "yes that's
+            // good." The one-slice wording had asserted "only one slice was
+            // free", and the wording is chosen from the number of slices
+            // OBTAINED — it never reads capacity at all. One obtained slice
+            // can equally mean a second request timed out on a radio with
+            // three slots still free, so the sentence told an operator
+            // something untrue about their own radio.
+            //
+            // What the code DOES establish, and the sentences keep: this
+            // computer held no layout for this radio, and nothing was tuned,
+            // so the slices sit where the radio put them.
+            string[] sentences =
+            {
+                Lexicon.Get("settings.profile_station.company.no_layout_known_many", ("slices", "2")),
+                Lexicon.Get("settings.profile_station.company.no_layout_known_one"),
+                Lexicon.Get("settings.profile_station.company.no_layout_known_none"),
+            };
+            foreach (var s in sentences)
+            {
+                Assert.DoesNotContain("was free", s, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("were free", s, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("capacity", s, StringComparison.OrdinalIgnoreCase);
+                // The clause that IS known stays in all three.
+                Assert.Contains("no record of your frequencies on this radio yet", s, StringComparison.Ordinal);
             }
 
             var dir = new DirectoryInfo(AppContext.BaseDirectory);

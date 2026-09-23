@@ -1349,6 +1349,16 @@ namespace Radios
                     // better to give them something rather than nothing."
                     // Say how many slices there are and that the RADIO chose
                     // the frequency; the app never names one.
+                    //
+                    // The wording is chosen from the number of slices
+                    // OBTAINED and reads no capacity at all, so it must not
+                    // explain the count. The one-slice sentence used to say
+                    // "only one slice was free" — untrue whenever a second
+                    // request timed out with slots still free. RULED
+                    // 2026-09-23 04:44: asked whether to say what happened
+                    // rather than why, Noel said "yes that's good." All three
+                    // sentences now report the outcome; the clause that IS
+                    // established — no layout on this computer — stays.
                     int added = station.Allocation.Obtained;
                     sentence = added == 0
                         ? Lexicon.Get("settings.profile_station.company.no_layout_known_none")
