@@ -59,21 +59,28 @@ namespace Radios.Tests.StationConnect
         }
 
         [Fact]
-        public void ARetryOnTheSameRadioObject_RebindsTheSubscription_SoItsCallbacksCount()
+        public void ABindingIsImmutable_AHeldCallbackAcrossARetry_StampsTheAttemptItWasWiredFor()
         {
-            // RetryConnect wires nothing again; the same object's handlers
-            // must report for the new attempt. Rebind is how.
+            // A retry on the same radio object mints a NEW binding and new
+            // closures (see LifecycleIsolationTests on a real FlexBase); the
+            // old closure, still running, holds the old binding and is
+            // rejected. Nothing re-points a binding, so there is no window
+            // in which a callback in flight reads the new generation.
             var h = new StationHarness();
-            var binding = new ObservationBinding(RadioA, h.Attempt);
-            Action feed = () => h.Roster.ClientAdded(Other(), binding.Generation);
+            var oldBinding = new ObservationBinding(RadioA, h.Attempt);
+            Action heldCallback = () => h.Roster.ClientAdded(Other(), oldBinding.Generation);
+            int wiredFor = oldBinding.Generation;
 
-            h.NewAttempt();
-            feed();
-            Assert.Empty(h.Roster.Snapshot().Entries);       // not yet rebound: rejected
+            h.NewAttempt();                                   // the retry
+            var newBinding = new ObservationBinding(RadioA, h.Attempt);
 
-            binding.Rebind(h.Attempt);
-            feed();
-            Assert.Single(h.Roster.Snapshot().Entries);       // rebound: accepted
+            heldCallback();                                   // the old closure finishes now
+            Assert.Equal(wiredFor, oldBinding.Generation);    // it still says what it was wired for
+            Assert.Empty(h.Roster.Snapshot().Entries);        // and is rejected
+            Assert.Null(typeof(ObservationBinding).GetMethod("Rebind"));
+
+            h.Roster.ClientAdded(Other(), newBinding.Generation);
+            Assert.Single(h.Roster.Snapshot().Entries);       // the new closure counts
         }
 
         [Fact]

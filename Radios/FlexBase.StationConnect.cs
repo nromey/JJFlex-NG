@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Threading;
 using Flex.Smoothlake.FlexLib;
@@ -95,6 +96,13 @@ namespace Radios
             return b;
         }
 
+        /// <summary>True when <paramref name="binding"/> is the one the
+        /// current handlers were wired with. A closure holding any other
+        /// binding belongs to a subscription we have replaced or left; its
+        /// callback is dropped whole — feed AND legacy state — not just
+        /// filtered by generation at the feed.</summary>
+        private bool IsCurrentBinding(ObservationBinding binding) => ReferenceEquals(_stationBinding, binding);
+
         /// <summary>
         /// Begin a connection attempt: mint the generation every observation
         /// of this connection is stamped with, and empty the trackers so the
@@ -104,13 +112,17 @@ namespace Radios
         /// command is sent (design step 1).
         /// </summary>
         /// <remarks>
-        /// The handlers are wired ONCE per radio object (RetryConnect wires
-        /// nothing). So the binding is rebound when the attempt is for the
-        /// same radio object, and replaced when it is for a different one —
-        /// leaving the old object's handlers bound to the old attempt, whose
-        /// generation the trackers reject. That is the whole of the
-        /// generation-isolation guarantee: by radio object, never by the
-        /// moment a callback happens to run.
+        /// The binding is IMMUTABLE and minted here, once per attempt. When
+        /// the handlers are already wired on this same radio object (a
+        /// retry), the old closures are unwired and new ones wired with the
+        /// new binding; a callback that started under the old subscription
+        /// still holds the old binding and stamps the old generation, which
+        /// every tracker rejects. Until Track G3 the same binding was
+        /// re-pointed at the new attempt instead, and a callback in flight
+        /// across that re-point read the NEW generation (Track G2 re-review,
+        /// section 1 step 1). A different radio object keeps its old binding
+        /// on its dead attempt; its closures are also unwired, since we have
+        /// left it.
         /// </remarks>
         internal void BeginStationAttempt(Radio radio, string why)
         {
@@ -124,9 +136,14 @@ namespace Radios
             }
             previous?.Cancel("superseded by " + fresh + " (" + why + ")");
 
-            var binding = _stationBinding;
-            if (binding != null && binding.IsFor(radio)) binding.Rebind(fresh);
-            else _stationBinding = new ObservationBinding(radio, fresh);
+            _stationBinding = new ObservationBinding(radio, fresh);
+            var wiring = _stationWiring;
+            if (wiring != null && wiring.IsFor(radio))
+            {
+                // A retry on the same object: the subscriptions must report
+                // for the new attempt, so they are replaced, not re-pointed.
+                WireStationHandlers(radio);
+            }
 
             RosterTracker.Reset(fresh.Generation);
             StationTracker.Reset(fresh.Generation);
@@ -154,6 +171,101 @@ namespace Radios
         {
             StationAttempt.Signal();
             ConsiderOwnerProfileLoadOffer();
+        }
+
+        // ------------------------------------------------------------------
+        // The station handler wiring: one set of closures per attempt
+        // ------------------------------------------------------------------
+
+        /// <summary>The delegates wired on one radio object for one binding,
+        /// kept so they can be unwired. FlexLib never unwires them itself.</summary>
+        private sealed class StationHandlerWiring
+        {
+            public readonly Radio Radio;
+            public readonly ObservationBinding Binding;
+            public PropertyChangedEventHandler RadioProperty;
+            public Radio.GUIClientAddedEventHandler ClientAdded;
+            public Radio.GUIClientUpdatedEventHandler ClientUpdated;
+            public Radio.GUIClientRemovedEventHandler ClientRemoved;
+            public Radio.SliceAddedEventHandler SliceAdded;
+            public Radio.SliceRemovedEventHandler SliceRemoved;
+            public Radio.PanadapterAddedEventHandler PanadapterAdded;
+            public Radio.PanadapterRemovedEventHandler PanadapterRemoved;
+
+            public StationHandlerWiring(Radio radio, ObservationBinding binding) { Radio = radio; Binding = binding; }
+
+            public bool IsFor(Radio radio) => ReferenceEquals(Radio, radio);
+
+            public void Unwire()
+            {
+                Radio.PropertyChanged -= RadioProperty;
+                Radio.GUIClientAdded -= ClientAdded;
+                Radio.GUIClientUpdated -= ClientUpdated;
+                Radio.GUIClientRemoved -= ClientRemoved;
+                Radio.SliceAdded -= SliceAdded;
+                Radio.SliceRemoved -= SliceRemoved;
+                Radio.PanadapterAdded -= PanadapterAdded;
+                Radio.PanadapterRemoved -= PanadapterRemoved;
+            }
+        }
+
+        private StationHandlerWiring _stationWiring;
+
+        /// <summary>How many station wirings are live on the current radio
+        /// object: 1 after wiring, 0 before. For the lifecycle tests.</summary>
+        internal int StationWiringCount => _stationWiring == null ? 0 : 1;
+
+        /// <summary>
+        /// Wire the station-observation handlers on <paramref name="radio"/>
+        /// with closures over the CURRENT binding, unwiring whatever was
+        /// wired before (on this object or on one we have left). Each closure
+        /// drops its callback whole when its binding is no longer current, so
+        /// a subscription we have replaced cannot mutate legacy state either
+        /// (Track G2 re-review, step 1: "the handler bodies also still mutate
+        /// legacy state before/after the generation-filtered feeds").
+        /// </summary>
+        internal void WireStationHandlers(Radio radio)
+        {
+            if (radio == null) return;
+            var previous = _stationWiring;
+            if (previous != null)
+            {
+                previous.Unwire();
+                Tracing.TraceLine("StationConnect: unwired the station handlers of " + previous.Binding
+                    + (previous.IsFor(radio) ? " (same radio object; rewiring for the new attempt)" : " (a radio object we have left)"),
+                    TraceLevel.Info);
+            }
+            var binding = BindingFor(radio);
+            var w = new StationHandlerWiring(radio, binding);
+            w.RadioProperty = (s, e) => { if (IsCurrentBinding(binding)) radioPropertyChangedHandler(s, e, binding); else DropStaleCallback(binding, "PropertyChanged " + e.PropertyName); };
+            w.ClientAdded = c => { if (IsCurrentBinding(binding)) guiClientAdded(c, binding); else DropStaleCallback(binding, "GUIClientAdded"); };
+            w.ClientUpdated = c => { if (IsCurrentBinding(binding)) guiClientUpdated(c, binding); else DropStaleCallback(binding, "GUIClientUpdated"); };
+            w.ClientRemoved = c => { if (IsCurrentBinding(binding)) guiClientRemoved(c, binding); else DropStaleCallback(binding, "GUIClientRemoved"); };
+            w.SliceAdded = slc => { if (IsCurrentBinding(binding)) sliceAdded(slc, binding); else DropStaleCallback(binding, "SliceAdded"); };
+            w.SliceRemoved = slc => { if (IsCurrentBinding(binding)) sliceRemoved(slc, binding); else DropStaleCallback(binding, "SliceRemoved"); };
+            w.PanadapterAdded = (pan, fall) => { if (IsCurrentBinding(binding)) panadapterAdded(pan, fall, binding); else DropStaleCallback(binding, "PanadapterAdded"); };
+            w.PanadapterRemoved = pan => { if (IsCurrentBinding(binding)) panAdapterRemoved(pan, binding); else DropStaleCallback(binding, "PanadapterRemoved"); };
+            radio.PropertyChanged += w.RadioProperty;
+            radio.GUIClientAdded += w.ClientAdded;
+            radio.GUIClientUpdated += w.ClientUpdated;
+            radio.GUIClientRemoved += w.ClientRemoved;
+            radio.SliceAdded += w.SliceAdded;
+            radio.SliceRemoved += w.SliceRemoved;
+            radio.PanadapterAdded += w.PanadapterAdded;
+            radio.PanadapterRemoved += w.PanadapterRemoved;
+            _stationWiring = w;
+            Tracing.TraceLine("StationConnect: station handlers wired through " + binding, TraceLevel.Info);
+        }
+
+        private int _staleCallbacksDropped;
+
+        /// <summary>Stale callbacks dropped whole this process, for the tests.</summary>
+        internal int StaleCallbacksDropped => Volatile.Read(ref _staleCallbacksDropped);
+
+        private void DropStaleCallback(ObservationBinding binding, string what)
+        {
+            Interlocked.Increment(ref _staleCallbacksDropped);
+            Tracing.TraceLine("StationConnect: dropped " + what + " from " + binding + " — not the current subscription", TraceLevel.Verbose);
         }
 
         // ------------------------------------------------------------------
@@ -665,6 +777,12 @@ namespace Radios
                 facts.Intent = RadioConfig.ProfileIntentOf(serial);
                 var wanted = WantedProfilesForThisRadio();
                 facts.WantedGlobal = wanted.TryGetValue(ProfileTypes.global, out var g) ? (g ?? "") : "";
+                facts.WantedTx = wanted.TryGetValue(ProfileTypes.tx, out var t) ? (t ?? "") : "";
+                facts.WantedMic = wanted.TryGetValue(ProfileTypes.mic, out var m) ? (m ?? "") : "";
+                // The radio's own unsaved_changes_tx / _mic status, re-read
+                // at every send: work in flight since planning is a veto.
+                facts.UnsavedTx = UnsavedProfileChangesFor(ProfileTypes.tx);
+                facts.UnsavedMic = UnsavedProfileChangesFor(ProfileTypes.mic);
             }
             return facts;
         }
@@ -746,6 +864,7 @@ namespace Radios
             _liveTxSnapshotAttempt = -1;
             _pendingLiveTxApplyPreset = null;
             _pendingLiveTxApplyPayload = null;
+            _pendingLiveTxApplyOperation = null;
 
             // Hold before migration (design step 2; Track G review, step 2).
             // The record initialisation above is once per attempt whatever
@@ -1099,6 +1218,10 @@ namespace Radios
                         _pendingLiveTxApplyPreset = action.ProfileName;
                         _pendingLiveTxApplyPayload = payload;
                         _pendingLiveTxApplyAttempt = operation.Attempt.Generation;
+                        // The operation that QUEUED it, checked at its run:
+                        // the current operation being live says nothing
+                        // about this one (Track G2 re-review, step 1).
+                        _pendingLiveTxApplyOperation = operation;
                         Tracing.TraceLine(
                             "ProfileStewardship: deferring the live transmit-audio apply until the command loop is running; "
                             + "permission, the held payload and the captured chain generation are revalidated there and inside every setter.", TraceLevel.Info);
@@ -1145,9 +1268,15 @@ namespace Radios
                 // repeats it, so a load that took reported nothing (Track G2
                 // re-review, step 8). The reply is the acknowledgment; the
                 // status, when the selection changed, is a genuine report.
+                // An earlier build's restore point of this type appearing
+                // since planning means what is loaded right now is that
+                // session's profile, not the owner's; the planner refuses on
+                // it and so does the write (Track G3, the send-time set).
+                string restorePoint = ProfileRestorePoints.NameFor(action.ProfileType);
                 switch (action.ProfileType)
                 {
                     case ProfileTypes.tx:
+                        if (radio.ProfileTXList.Contains(restorePoint)) { refusal = "a transmit restore point is on the radio; leaving it for the offered restore"; return; }
                         if (!radio.ProfileTXList.Contains(action.ProfileName))
                         {
                             if (!action.MayCreate) { refusal = "transmit profile absent and creation not permitted"; return; }
@@ -1155,6 +1284,7 @@ namespace Radios
                         }
                         break;
                     case ProfileTypes.mic:
+                        if (radio.ProfileMICList.Contains(restorePoint)) { refusal = "a microphone restore point is on the radio; leaving it for the offered restore"; return; }
                         if (!radio.ProfileMICList.Contains(action.ProfileName))
                         {
                             if (!action.MayCreate) { refusal = "microphone profile absent and creation not permitted"; return; }

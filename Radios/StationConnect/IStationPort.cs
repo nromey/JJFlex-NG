@@ -14,8 +14,20 @@ namespace Radios.StationConnect
         /// choice, else the operator default. Never <c>GetDefaultProfiles()[0]</c>
         /// alone (#578).</summary>
         public string WantedGlobal = "";
+        /// <summary>The effective wanted transmit profile for this radio, or "".</summary>
+        public string WantedTx = "";
+        /// <summary>The effective wanted microphone profile for this radio, or "".</summary>
+        public string WantedMic = "";
+        /// <summary>The radio reports unsaved transmit-profile work in progress.</summary>
+        public bool UnsavedTx;
+        /// <summary>The radio reports unsaved microphone-profile work in progress.</summary>
+        public bool UnsavedMic;
         public string Serial = "";
 
+        /// <summary>The connection-level permission identity: connected, hold,
+        /// ownership, intent, the wanted GLOBAL and the serial. Per-type
+        /// names and unsaved work are checked by <see cref="SameWantedFor"/>
+        /// and <see cref="UnsavedFor"/> at the type's own send.</summary>
         public bool SameAutomaticPermissionAs(StationPolicyFacts other)
         {
             if (other == null) return false;
@@ -27,9 +39,44 @@ namespace Radios.StationConnect
                 && string.Equals(Serial, other.Serial, StringComparison.Ordinal);
         }
 
+        /// <summary>The effective wanted name for a type, or "".</summary>
+        public string WantedFor(ProfileTypes type)
+        {
+            switch (type)
+            {
+                case ProfileTypes.global: return WantedGlobal ?? "";
+                case ProfileTypes.tx: return WantedTx ?? "";
+                case ProfileTypes.mic: return WantedMic ?? "";
+                default: return "";
+            }
+        }
+
+        /// <summary>True when the wanted name for <paramref name="type"/> is
+        /// the same in both fact sets (Track G3: a per-type name changed
+        /// between planning and dispatch is a changed permission for that
+        /// type's send).</summary>
+        public bool SameWantedFor(ProfileTypes type, StationPolicyFacts other) =>
+            other != null && string.Equals(WantedFor(type), other.WantedFor(type), StringComparison.Ordinal);
+
+        /// <summary>Whether the radio reports unsaved work for a type. The
+        /// global type has no such report and reads false (an honest gap,
+        /// not a claim of safety).</summary>
+        public bool UnsavedFor(ProfileTypes type)
+        {
+            switch (type)
+            {
+                case ProfileTypes.tx: return UnsavedTx;
+                case ProfileTypes.mic: return UnsavedMic;
+                default: return false;
+            }
+        }
+
         public override string ToString() =>
             (Connected ? "connected" : "not connected") + (HoldArmed ? ", hold armed" : "")
-            + ", " + Ownership + ", " + Intent + ", wanted '" + WantedGlobal + "'";
+            + ", " + Ownership + ", " + Intent + ", wanted '" + WantedGlobal + "'"
+            + (string.IsNullOrEmpty(WantedTx) ? "" : ", tx '" + WantedTx + "'")
+            + (string.IsNullOrEmpty(WantedMic) ? "" : ", mic '" + WantedMic + "'")
+            + (UnsavedTx ? ", unsaved tx" : "") + (UnsavedMic ? ", unsaved mic" : "");
     }
 
     /// <summary>

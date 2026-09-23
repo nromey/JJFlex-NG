@@ -226,6 +226,54 @@ namespace Radios.Tests.StationConnect
             Assert.NotEqual(PlacementStop.Completed, r.Placement.Stop);
         }
 
+        [Fact]
+        public void HeldPlacement_ReleasedAfterItsOwnBound_ButInsideThePhase_IsNotSent()
+        {
+            // The placement's two-second bound is its send cutoff, not the
+            // twenty-second phase (Track G3, group 2).
+            var h = OwnerWithCompany();
+            h.Port.OnPanafallRequested = () =>
+            {
+                h.OwnSliceArrives();
+                if (h.Port.Capacity > 0) h.Port.Capacity--;
+                if (h.Port.PanafallRequests == 2) h.Port.HoldDispatch = true;
+            };
+
+            var r = h.Run();                                   // the placement delegate stays held
+            Assert.Equal(PlacementStop.Unconfirmed, r.Placement.Stop);
+            Assert.Contains("never dispatched", r.Placement.Note);
+            Assert.Empty(h.Port.TunesSent);
+
+            h.Port.ReleaseHeld();                              // released after the result was returned
+
+            Assert.Empty(h.Port.TunesSent);
+        }
+
+        [Theory]
+        [InlineData("ownership")]
+        [InlineData("intent")]
+        public void HeldPlacement_OwnershipOrIntentWithdrawnBeforeRelease_IsNotSent(string what)
+        {
+            var h = OwnerWithCompany();
+            h.Port.OnPanafallRequested = () =>
+            {
+                h.OwnSliceArrives();
+                if (h.Port.Capacity > 0) h.Port.Capacity--;
+                if (h.Port.PanafallRequests == 2) h.Port.HoldDispatch = true;
+            };
+            h.Waiter.Then(() =>
+            {
+                if (what == "ownership") h.Port.Facts.Ownership = RadioOwnership.SomeoneElses;
+                else h.Port.Facts.Intent = ProfileGuestIntent.LeaveAlone;
+                h.Port.ReleaseHeld();
+            });
+
+            var r = h.Run();
+
+            Assert.Empty(h.Port.TunesSent);
+            Assert.Equal(PlacementStop.Refused, r.Placement.Stop);
+        }
+
         // ── case 3 ──
 
         [Fact]

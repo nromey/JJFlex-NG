@@ -32,7 +32,7 @@ namespace Radios.Tests.StationConnect
         public StationPolicyFacts Facts = new StationPolicyFacts
         {
             Connected = true, Ownership = RadioOwnership.Mine, Intent = ProfileGuestIntent.LoadMineAndPutBack,
-            WantedGlobal = "K5NER", Serial = "1234-5678-9012-3456",
+            WantedGlobal = "K5NER", WantedTx = "K5NER-TX", WantedMic = "K5NER-MIC", Serial = "1234-5678-9012-3456",
         };
         public RosterVerdict Roster = RosterVerdict.OnlyUs;
         public bool? RadioAutosave = false;
@@ -89,6 +89,8 @@ namespace Radios.Tests.StationConnect
         {
             Connected = Facts.Connected, HoldArmed = Facts.HoldArmed, Ownership = Facts.Ownership,
             Intent = Facts.Intent, WantedGlobal = Facts.WantedGlobal, Serial = Facts.Serial,
+            WantedTx = Facts.WantedTx, WantedMic = Facts.WantedMic,
+            UnsavedTx = Facts.UnsavedTx, UnsavedMic = Facts.UnsavedMic,
         };
 
         public RosterJudgement RosterForAutomaticWrite() => new RosterJudgement(Roster, "fake roster", 1);
@@ -393,6 +395,37 @@ namespace Radios.Tests.StationConnect
             Assert.Equal(PostStationOutcome.Stopped, result.Outcome);
             Assert.Empty(r.Port.Sent);
             Assert.Contains(r.Port.Log, l => l.StartsWith("refused tx", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void AHeldSelection_ReleasedAfterTheWantedNameForThatTypeChanged_IsRefused()
+        {
+            // The per-type wanted name is part of the send-time set (Track
+            // G3, group 2): the plan said K5NER-TX; by dispatch the operator
+            // chose another. Neither the old nor the new is sent.
+            var r = new Rig();
+            r.Port.HoldDispatch = true;
+            r.Waiter.Then(() => { r.Port.Facts.WantedTx = "Ragchew-TX"; r.Port.ReleaseHeld(); });
+
+            var result = r.Run(Established());
+
+            Assert.Equal(PostStationOutcome.Stopped, result.Outcome);
+            Assert.Empty(r.Port.Sent);
+            Assert.Contains(r.Port.Log, l => l.StartsWith("refused tx", StringComparison.Ordinal) && l.Contains("wanted transmit profile changed"));
+        }
+
+        [Fact]
+        public void AHeldSelection_ReleasedAfterTheRadioReportsUnsavedWork_IsRefused()
+        {
+            var r = new Rig();
+            r.Port.HoldDispatch = true;
+            r.Waiter.Then(() => { r.Port.Facts.UnsavedTx = true; r.Port.ReleaseHeld(); });
+
+            var result = r.Run(Established());
+
+            Assert.Equal(PostStationOutcome.Stopped, result.Outcome);
+            Assert.Empty(r.Port.Sent);
+            Assert.Contains(r.Port.Log, l => l.StartsWith("refused tx", StringComparison.Ordinal) && l.Contains("unsaved"));
         }
 
         [Fact]

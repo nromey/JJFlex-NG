@@ -118,36 +118,46 @@ namespace Radios.Tests.StationConnect
         {
             var text = Read(FlexBase);
             int begin = IndexOf(text, "BeginStationAttempt(theRadio, \"Connect\");");
-            int bound = IndexOf(text, "var binding = BindingFor(theRadio);");
-            int wired = IndexOf(text, "theRadio.GUIClientAdded += new Radio.GUIClientAddedEventHandler(c => guiClientAdded(c, binding));");
+            int wired = IndexOf(text, "WireStationHandlers(theRadio);");
             int connect = text.IndexOf("rv = theRadio.Connect();", begin, StringComparison.Ordinal);
-            Assert.True(begin < bound && bound < wired && wired < connect,
+            Assert.True(begin < wired && wired < connect,
                 "observation must be subscribed, through the attempt's binding, before any command is sent");
+            // The retry mints a new attempt through the same entry, which
+            // rewires (BeginStationAttempt does it for a same-object retry).
+            int retry = IndexOf(text, "BeginStationAttempt(theRadio, \"RetryConnect\");");
+            Assert.True(retry > 0);
         }
 
         [Fact]
         public void EveryStationHandlerIsWiredThroughTheBinding_AndNoFeedReadsTheCurrentAttempt()
         {
             // The generation-isolation guarantee lives in the wiring: each
-            // closure holds the binding minted for this radio object. A feed
+            // closure holds the IMMUTABLE binding minted for this attempt,
+            // drops its callback whole when that binding is no longer
+            // current, and is unwired on the next attempt (Track G3). A feed
             // that read AttemptGen would stamp a stale object's callback with
             // the current attempt — the review's step-1 defect.
-            var text = Read(FlexBase);
+            var station = Read(FlexBaseStation);
+            int wiring = IndexOf(station, "internal void WireStationHandlers(Radio radio)");
+            string wiringBody = station.Substring(wiring, 4000);
             foreach (var wire in new[]
             {
-                "(s, e) => radioPropertyChangedHandler(s, e, binding)",
-                "c => guiClientUpdated(c, binding)",
-                "c => guiClientRemoved(c, binding)",
-                "slc => sliceAdded(slc, binding)",
-                "slc => sliceRemoved(slc, binding)",
-                "(pan, fall) => panadapterAdded(pan, fall, binding)",
-                "pan => panAdapterRemoved(pan, binding)",
+                "if (IsCurrentBinding(binding)) radioPropertyChangedHandler(s, e, binding);",
+                "if (IsCurrentBinding(binding)) guiClientAdded(c, binding);",
+                "if (IsCurrentBinding(binding)) guiClientUpdated(c, binding);",
+                "if (IsCurrentBinding(binding)) guiClientRemoved(c, binding);",
+                "if (IsCurrentBinding(binding)) sliceAdded(slc, binding);",
+                "if (IsCurrentBinding(binding)) sliceRemoved(slc, binding);",
+                "if (IsCurrentBinding(binding)) panadapterAdded(pan, fall, binding);",
+                "if (IsCurrentBinding(binding)) panAdapterRemoved(pan, binding);",
+                "previous.Unwire();",
             })
             {
-                Assert.Contains(wire, text, StringComparison.Ordinal);
+                Assert.Contains(wire, wiringBody, StringComparison.Ordinal);
             }
-
-            var station = Read(FlexBaseStation);
+            Assert.Null(typeof(Radios.StationConnect.ObservationBinding).GetMethod("Rebind"));
+            var flex = Read(FlexBase);
+            Assert.DoesNotContain("theRadio.GUIClientAdded += ", flex, StringComparison.Ordinal);
             int feeds = IndexOf(station, "private void ObserveClientAdded(ObservationBinding binding");
             int end = IndexOf(station, "// The live roster verdict (#577)");
             string feedRegion = station.Substring(feeds, end - feeds);

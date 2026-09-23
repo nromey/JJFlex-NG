@@ -250,16 +250,18 @@ namespace Radios.StationConnect
             string rejection = null;
             bool acknowledged = false;
             long sentAtMs = 0;
+            var window = new ActionWindow("global load '" + name + "'");
 
             _port.Dispatch("stewardship global load '" + name + "'", () =>
             {
                 // The recheck. Read on the UI side and assume the queued
                 // command is still authorised is exactly the gap this closes.
-                // The operation and the phase deadline are part of it: a
-                // delegate that finally runs after either has ended is stale
-                // work, not a late success.
+                // The operation, the phase deadline and this action's own
+                // window are part of it: a delegate that finally runs after
+                // any of them has ended is stale work, not a late success.
                 if (_op.IsEnded) { refusal = "the operation ended before the load was sent: " + _op.WhyNotLive; return; }
                 if (phase.Passed(_clock)) { refusal = "the queued load ran after the station phase had ended"; return; }
+                if (!window.IsOpen) { refusal = window.Refusal; return; }
                 var now = _port.ReadPolicyFacts();
                 if (!now.SameAutomaticPermissionAs(factsAtPlan) || AutomaticStewardshipRefusal(now) != null)
                 {
@@ -313,6 +315,9 @@ namespace Radios.StationConnect
             {
                 _waiter.Wait(Math.Min(25, phase.RemainingMs(_clock)));
             }
+            // Whatever the outcome, this action's result is about to be
+            // returned; a delegate still queued must not send after it.
+            window.Close(sent ? "sent" : refusal ?? (_op.IsEnded ? "operation ended" : "station phase ended"));
 
             if (refusal != null)
             {
@@ -589,11 +594,21 @@ namespace Radios.StationConnect
                 string refusal = null;
                 int expectedReplies = string.IsNullOrEmpty(entry.Mode) ? 1 : 2;
                 var replies = new List<CommandReply>();
+                var window = new ActionWindow("placement of " + entry + " on slice " + slice.Index);
                 _port.Dispatch("place " + entry + " on slice " + slice.Index, () =>
                 {
                     if (_op.IsEnded) { refusal = "operation ended"; return; }
                     if (phase.Passed(_clock)) { refusal = "phase ended before the placement was sent"; return; }
-                    if (_port.ReadPolicyFacts().HoldArmed) { refusal = "the hold was armed"; return; }
+                    if (!window.IsOpen) { refusal = window.Refusal; return; }
+                    // The current facts, all of them, at the moment of the
+                    // write: the hold, and the ownership and intent that
+                    // made this the owner's connection in the first place.
+                    var factsNow = _port.ReadPolicyFacts();
+                    if (factsNow.HoldArmed) { refusal = "the hold was armed"; return; }
+                    if (!factsNow.Connected) { refusal = "not connected"; return; }
+                    if (factsNow.Ownership != RadioOwnership.Mine) { refusal = "the radio is no longer declared ours (" + factsNow.Ownership + ")"; return; }
+                    if (factsNow.Intent == ProfileGuestIntent.LeaveAlone || factsNow.Intent == ProfileGuestIntent.NotAnswered)
+                    { refusal = "the intent for this radio is now " + factsNow.Intent; return; }
                     if (!_station.Snapshot().HasSlice(slice.Index)) { refusal = "slice " + slice.Index + " is no longer ours"; return; }
                     armedSeq = _station.Sequence;
                     refusal = _port.SetSliceFrequencyAndMode(slice.Index, entry.FreqHz, entry.Mode, reply =>
@@ -611,6 +626,8 @@ namespace Radios.StationConnect
                 {
                     _waiter.Wait(Math.Min(25, bound.RemainingMs(_clock)));
                 }
+                // This placement's bound is its send cutoff, not the phase's.
+                window.Close(sent ? "sent" : refusal ?? (_op.IsEnded ? "operation ended" : "the placement's " + _deadlines.FrequencyPlacementMs + " ms bound ended"));
                 if (refusal != null) { placement.Stop = PlacementStop.Refused; placement.Note = refusal; break; }
                 if (!sent) { placement.Stop = _op.IsEnded ? PlacementStop.Cancelled : PlacementStop.Unconfirmed; placement.Note = "the placement was never dispatched"; break; }
                 placement.Sent++;
@@ -714,6 +731,11 @@ namespace Radios.StationConnect
             int own = _station.Snapshot().OwnSliceCount;
             int capacity = _port.CapacityRemaining();
             int legacy = _port.LegacyFreshTarget();
+            // A hold already armed at planning does not stop the client-local
+            // receive allocation (the refused route's ruled resource); a hold
+            // ARMED SINCE planning is a change the delegate must see (Track
+            // G2 re-review, step 7).
+            bool holdAtPlan = _port.ReadPolicyFacts().HoldArmed;
 
             // The legacy target reconciled with CURRENT capacity. The latch is
             // a startup observation and is never the saved layout's size.
@@ -751,10 +773,13 @@ namespace Radios.StationConnect
                 long armedSeq = -1;
                 bool requested = false;
                 string refusal = null;
+                var window = new ActionWindow("panafall request " + (alloc.Requests + 1));
                 _port.Dispatch("request panafall " + (alloc.Requests + 1), () =>
                 {
                     if (_op.IsEnded) { refusal = "operation ended: " + _op.WhyNotLive; return; }
                     if (phase.Passed(_clock)) { refusal = "the queued request ran after the station phase had ended"; return; }
+                    if (!window.IsOpen) { refusal = window.Refusal; return; }
+                    if (!holdAtPlan && _port.ReadPolicyFacts().HoldArmed) { refusal = "the hold was armed after this allocation was planned"; return; }
                     if (_port.CapacityRemaining() == 0) { refusal = "no capacity remained when the request was about to be sent"; return; }
                     before = _station.Snapshot();
                     armedSeq = _station.Sequence;
@@ -775,6 +800,9 @@ namespace Radios.StationConnect
                     if (requestBound.Passed(_clock)) break;
                     _waiter.Wait(Math.Min(25, requestBound.RemainingMs(_clock)));
                 }
+                // The request's own bound is its send cutoff (review step 7):
+                // a delegate the loop releases after this must not send.
+                window.Close(requested ? "sent" : refusal ?? (_op.IsEnded ? "operation ended" : "the request's " + _deadlines.AllocationRequestMs + " ms bound ended"));
 
                 if (_op.IsEnded) { alloc.Stop = AllocationStop.Cancelled; break; }
                 if (refusal != null)
@@ -784,6 +812,15 @@ namespace Radios.StationConnect
                     alloc.Requests--;
                     alloc.Stop = refusal.Contains("capacity") ? AllocationStop.CapacityExhausted : AllocationStop.Timeout;
                     alloc.Note = "request not sent: " + refusal;
+                    break;
+                }
+                if (!requested)
+                {
+                    // Still queued when the bound ended: not sent, and now it
+                    // cannot be. Count it as never made.
+                    alloc.Requests--;
+                    alloc.Stop = AllocationStop.Timeout;
+                    alloc.Note = "the request was never dispatched inside its " + _deadlines.AllocationRequestMs + " ms bound; a late run refuses";
                     break;
                 }
                 if (!gotOne)

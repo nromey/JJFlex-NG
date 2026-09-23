@@ -5,37 +5,34 @@ namespace Radios.StationConnect
 {
     /// <summary>
     /// The attempt a SUBSCRIPTION belongs to, captured when the handlers were
-    /// wired rather than read when a callback happens to run.
+    /// wired rather than read when a callback happens to run. IMMUTABLE: a
+    /// binding is minted for one attempt and never re-pointed.
     /// </summary>
     /// <remarks>
     /// <para><b>Why this exists</b> (Track G review, section 1 step 1). The
     /// production feeds used to read the current attempt generation inside
-    /// the callback. FlexLib never unwires our handlers from a Radio object,
-    /// and discovery keeps updating every Radio object it has ever built —
-    /// so a roster event from the PREVIOUS connection's radio, arriving
-    /// after a new attempt had begun, was stamped with the new generation and
-    /// accepted as evidence about a radio we were no longer on.</para>
-    /// <para>One binding is minted per Radio object. Its callbacks stamp
-    /// observations with <see cref="Generation"/>, which is the generation of
-    /// the attempt the binding is bound to — not whatever attempt is current.
-    /// A reconnect on the SAME radio object (RetryConnect wires nothing
-    /// again) calls <see cref="Rebind"/>; a connect to a DIFFERENT radio
-    /// object mints a new binding and leaves this one on its old attempt,
-    /// whose generation every tracker now rejects.</para>
-    /// <para>What this cannot do: distinguish a callback the same Radio
-    /// object raised before a rebind from one raised after it. FlexLib raises
-    /// its events synchronously on the receive thread, so that window is a
-    /// thread race measured in microseconds, and the sequence-numbered
-    /// trackers already refuse anything that predates a send.</para>
+    /// the callback. FlexLib never unwires our handlers from a Radio object
+    /// by itself, and discovery keeps updating every Radio object it has
+    /// ever built — so a roster event from the PREVIOUS connection's radio,
+    /// arriving after a new attempt had begun, was stamped with the new
+    /// generation and accepted as evidence about a radio we were no longer
+    /// on.</para>
+    /// <para><b>Why it is immutable</b> (Track G2 re-review, section 1 step 1
+    /// and section 2). Track G2 rebound the same binding to the new attempt
+    /// on a same-radio retry, and called the window in which a callback
+    /// already running reads the NEW generation "microseconds". A callback
+    /// that started before the retry and finished after it was attributed
+    /// to the retry. Now a retry mints a NEW binding and the adapter unwires
+    /// the old closures and wires new ones; a closure still running holds
+    /// the old binding, stamps the old generation, and is rejected. There
+    /// is no window because there is no mutation.</para>
     /// </remarks>
     public sealed class ObservationBinding
     {
-        private ConnectionAttempt _attempt;
-
         public ObservationBinding(object radio, ConnectionAttempt attempt)
         {
             Radio = radio;
-            _attempt = attempt ?? throw new ArgumentNullException(nameof(attempt));
+            Attempt = attempt ?? throw new ArgumentNullException(nameof(attempt));
         }
 
         /// <summary>The vendor radio object the handlers were wired on. Held
@@ -43,8 +40,8 @@ namespace Radios.StationConnect
         /// by reference only.</summary>
         public object Radio { get; }
 
-        /// <summary>The attempt this binding is currently bound to.</summary>
-        public ConnectionAttempt Attempt => Volatile.Read(ref _attempt);
+        /// <summary>The attempt this binding was minted for. Never changes.</summary>
+        public ConnectionAttempt Attempt { get; }
 
         /// <summary>The generation a callback through this binding stamps its
         /// observation with.</summary>
@@ -52,14 +49,6 @@ namespace Radios.StationConnect
 
         /// <summary>True when the binding is for <paramref name="radio"/>.</summary>
         public bool IsFor(object radio) => ReferenceEquals(Radio, radio);
-
-        /// <summary>A new attempt on the SAME radio object: the existing
-        /// subscription now reports for it.</summary>
-        public void Rebind(ConnectionAttempt attempt)
-        {
-            if (attempt == null) throw new ArgumentNullException(nameof(attempt));
-            Volatile.Write(ref _attempt, attempt);
-        }
 
         public override string ToString() => "binding for " + Attempt;
     }
@@ -79,6 +68,9 @@ namespace Radios.StationConnect
     /// OPERATION generation scopes commands and waits. Track G's post-import
     /// entry logged "new operation generation" and minted nothing; this is
     /// the thing it should have minted.</para>
+    /// <para>Deferred work carries the operation that QUEUED it, and checks
+    /// that one; <c>CurrentOperation.IsLive</c> says nothing about whether
+    /// the work's own operation is live (Track G2 re-review, step 1).</para>
     /// </remarks>
     public sealed class StationOperation
     {

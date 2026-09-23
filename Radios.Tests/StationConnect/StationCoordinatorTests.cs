@@ -980,6 +980,51 @@ namespace Radios.Tests.StationConnect
         }
 
         [Fact]
+        public void HeldRequest_ReleasedAfterItsOwnBound_ButInsideThePhase_IsNotSent()
+        {
+            // The request's two-second bound is its send cutoff (Track G3,
+            // group 2). The coordinator gave up on this request and returned
+            // its result; the command loop then reaches the delegate, still
+            // well inside the twenty-second phase. It must not send.
+            var h = new StationHarness();
+            h.Port.Facts.Ownership = RadioOwnership.SomeoneElses;
+            h.Port.Capacity = 1;
+            h.Port.LegacyTarget = 1;
+            h.OurClientAdded();
+            h.Port.HoldDispatch = true;
+            h.RadioHonoursPanafallRequests();
+            long before = h.Clock.NowMs;
+
+            var r = h.Run();                                   // the delegate is never released during the run
+            Assert.True(h.Clock.NowMs - before < h.Deadlines.StationPhaseMs, "the request's own bound, not the phase, ended the wait");
+            Assert.Equal(AllocationStop.Timeout, r.Allocation.Stop);
+            Assert.Equal(0, r.Allocation.Requests);
+
+            h.Port.ReleaseHeld();                              // the loop reaches it after the result was returned
+
+            Assert.Equal(0, h.Port.PanafallRequests);
+            Assert.Equal(0, h.Station.Snapshot().OwnSliceCount);
+        }
+
+        [Fact]
+        public void HeldRequest_HoldArmedBeforeRelease_IsNotSent()
+        {
+            var h = new StationHarness();
+            h.Port.Facts.Ownership = RadioOwnership.SomeoneElses;
+            h.Port.Capacity = 1;
+            h.Port.LegacyTarget = 1;
+            h.OurClientAdded();
+            h.Port.HoldDispatch = true;
+            h.RadioHonoursPanafallRequests();
+            h.Waiter.Then(() => { h.Port.Facts.HoldArmed = true; h.Port.ReleaseHeld(); });
+
+            var r = h.Run();
+
+            Assert.Equal(0, h.Port.PanafallRequests);
+            Assert.Contains("hold", r.Allocation.Note);
+        }
+
+        [Fact]
         public void HeldRequest_CapacityGoneBeforeRelease_IsNotSent()
         {
             var h = new StationHarness();

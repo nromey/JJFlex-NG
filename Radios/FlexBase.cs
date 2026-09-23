@@ -1942,23 +1942,17 @@ namespace Radios
             BeginStationAttempt(theRadio, "Connect");
 
             // add the handlers. The station-observation handlers are wired
-            // through the BINDING minted for this radio object just above:
-            // each closure carries it, so a callback raised by this object is
-            // stamped with the attempt the object was wired for — never with
-            // whatever attempt is current when the callback runs. FlexLib
-            // never unwires these and discovery keeps updating every radio
-            // object it ever built, so an object we have left goes on raising
-            // events on its own dead attempt, which every tracker rejects.
-            var binding = BindingFor(theRadio);
-            theRadio.PropertyChanged += new PropertyChangedEventHandler((s, e) => radioPropertyChangedHandler(s, e, binding));
+            // through the IMMUTABLE binding minted for this attempt just
+            // above (WireStationHandlers): each closure carries it, so a
+            // callback raised by this object is stamped with the attempt the
+            // closure was wired for — never with whatever attempt is current
+            // when the callback runs — and a closure whose binding is no
+            // longer current drops its callback whole. A retry replaces the
+            // closures rather than re-pointing the binding. FlexLib never
+            // unwires these by itself and discovery keeps updating every
+            // radio object it ever built.
+            WireStationHandlers(theRadio);
             theRadio.MessageReceived += new Radio.MessageReceivedEventHandler(messageReceivedHandler);
-            theRadio.GUIClientAdded += new Radio.GUIClientAddedEventHandler(c => guiClientAdded(c, binding));
-            theRadio.GUIClientUpdated += new Radio.GUIClientUpdatedEventHandler(c => guiClientUpdated(c, binding));
-            theRadio.GUIClientRemoved += new Radio.GUIClientRemovedEventHandler(c => guiClientRemoved(c, binding));
-            theRadio.SliceAdded += new Radio.SliceAddedEventHandler(slc => sliceAdded(slc, binding));
-            theRadio.SliceRemoved += new Radio.SliceRemovedEventHandler(slc => sliceRemoved(slc, binding));
-            theRadio.PanadapterAdded += new Radio.PanadapterAddedEventHandler((pan, fall) => panadapterAdded(pan, fall, binding));
-            theRadio.PanadapterRemoved += new Radio.PanadapterRemovedEventHandler(pan => panAdapterRemoved(pan, binding));
             theRadio.WaterfallRemoved += new Radio.WaterfallRemovedEventHandler(waterfallRemoved);
             theRadio.TNFAdded += new Radio.TNFAddedEventHandler(tnfAdded);
             theRadio.TNFRemoved += new Radio.TNFRemovedEventHandler(tnfRemoved);
@@ -16737,6 +16731,11 @@ namespace Radios
         private int _liveTxSnapshotAttempt = -1;
         private int _pendingLiveTxApplyAttempt = -1;
 
+        /// <summary>The operation under which the live-audio apply was
+        /// deferred. Its liveness, not the current operation's, is what the
+        /// apply and every setter it queues check.</summary>
+        private Radios.StationConnect.StationOperation _pendingLiveTxApplyOperation;
+
         /// <summary>The preset as it was when the apply was deferred. Applied
         /// as held; never re-read by name at apply time.</summary>
         private AudioChainPreset _pendingLiveTxApplyPayload;
@@ -17020,14 +17019,18 @@ namespace Radios
         private string DeferredLiveAudioRefusal(string presetName, AudioChainPreset payload)
         {
             var attempt = StationAttempt;
-            var op = attempt.CurrentOperation;
+            // The operation that QUEUED the apply, never the current one: a
+            // post-import re-entry or a teardown that began meanwhile ended
+            // it, and its work must refuse even though the CURRENT operation
+            // is live (Track G2 re-review, step 1).
+            var op = _pendingLiveTxApplyOperation;
             var radio = theRadio;
             var serial = radio?.Serial ?? "";
             var evidence = ProfileEvidence.Snapshot();
             return DeferredLiveAudioGate.Refusal(new DeferredLiveAudioFacts
             {
-                OperationLive = attempt.IsLive && (op == null || op.IsLive),
-                OperationEndReason = op?.WhyNotLive ?? attempt.CancelReason,
+                OperationLive = attempt.IsLive && op != null && op.IsLive,
+                OperationEndReason = op == null ? "no originating operation is recorded for the deferred apply" : (op.WhyNotLive ?? attempt.CancelReason),
                 ApplyAttemptMatches = _pendingLiveTxApplyAttempt == attempt.Generation,
                 Connected = radio != null && IsConnected,
                 HoldArmed = ChangeNothingActive,

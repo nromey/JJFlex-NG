@@ -285,7 +285,7 @@ namespace Radios.StationConnect
                     long seqBefore = _port.ProfileSequence;
                     var reportedBefore = _port.LatestReportedSelection(type);
                     CommandReply reply = null;
-                    var send = _port.SendSelection(action, () => RefusalAtSend(operation, phase, factsAtPlan),
+                    var send = _port.SendSelection(action, () => RefusalAtSend(operation, phase, factsAtPlan, type, action.ProfileName),
                         r => { if (r != null) { Volatile.Write(ref reply, r); operation.Signal(); } });
                     if (send != ProfileActionOutcome.Sent)
                     {
@@ -389,13 +389,19 @@ namespace Radios.StationConnect
 
         /// <summary>The recheck inside the dispatched selection: the
         /// operation, the phase, the facts at planning, the stewardship
-        /// refusal, and the strict roster verdict.</summary>
-        private string RefusalAtSend(StationOperation operation, StationDeadline phase, StationPolicyFacts factsAtPlan)
+        /// refusal, the strict roster verdict, and — for THIS type — the
+        /// wanted name still being the one planned and no unsaved work
+        /// reported since (Track G3; the restore-point check is the
+        /// adapter's, against the radio's list at the write).</summary>
+        private string RefusalAtSend(StationOperation operation, StationDeadline phase, StationPolicyFacts factsAtPlan, ProfileTypes type, string plannedName)
         {
             if (operation.IsEnded) return "operation ended: " + operation.WhyNotLive;
             if (phase.Passed(_clock)) return "the queued selection ran after the post-station phase had ended";
             var now = _port.ReadPolicyFacts();
             if (!now.SameAutomaticPermissionAs(factsAtPlan)) return "policy changed before dispatch (" + now + ")";
+            if (!now.SameWantedFor(type, factsAtPlan) || !string.Equals(now.WantedFor(type), plannedName ?? "", StringComparison.Ordinal))
+                return "the wanted " + ProfileStewardship.Label(type) + " profile changed before dispatch (now '" + now.WantedFor(type) + "', planned '" + plannedName + "')";
+            if (now.UnsavedFor(type)) return "the radio reports unsaved " + ProfileStewardship.Label(type) + " work; loading ours would discard it";
             string refusal = StationCoordinator.AutomaticStewardshipRefusal(now);
             if (refusal != null) return refusal;
             var roster = _port.RosterForAutomaticWrite();
