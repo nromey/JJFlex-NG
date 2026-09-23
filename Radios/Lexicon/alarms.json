@@ -1,5 +1,12 @@
 {
-  "_note": "Operator alarms (#566, Sprint 45 Track I). EVERY sentence in this file is marked for Noel's review; none is approved copy. Keys named in Astra's design of 2026-09-22 keep those names. Placeholders are named, never positional. {meter} is the radio's own label for the meter, {units} its units in words, {value} the reading, {alarm} the operator's name for the alarm.",
+  "_note": "Operator alarms (#566, Sprint 45 Track I). EVERY sentence in this file is marked for Noel's review; none is approved copy. Keys named in Astra's design of 2026-09-22 keep those names. Placeholders are named, never positional. {meter} is the radio's own label for the meter, {point} the short place-phrase for a supply meter, {units} its units in words, {value} the reading, {alarm} the operator's name for the alarm.",
+
+  "_review_points": "Where on the supply the voltage is measured, in the few words a ham says. Ruled by Noel 2026-09-22 (#566), on hearing 'Supply voltage Main radio input voltage before fuse is 11.90 volts': 'before the fuse.' A meter we have not met keeps the radio's own description, so no radio is relabelled with another radio's words.",
+
+  "alarms.point.before_fuse": "before the fuse",
+  "alarms.point.after_fuse": "after the fuse",
+  "alarms.point.at_pa": "at the PA",
+  "alarms.point.at_cpu": "at the CPU",
 
   "_review_warnings": "The spoken warnings. Subject, value, then action, with the release-transmit instruction in the first sentence and no explanation in front of it. None of them says transmit was cut, because it was not.",
 
@@ -10,12 +17,12 @@
   "alarms.pa.rising_fast_tx": "PA temperature rose {change} degrees C in {interval} seconds, now {value} degrees C. Stop transmitting and check the cooling.",
   "alarms.pa.rising_fast_rx": "PA temperature rose {change} degrees C in {interval} seconds, now {value} degrees C. Check the cooling.",
 
-  "alarms.voltage.low_tx": "Supply voltage {point} is {value} volts. Release transmit and have the supply path checked.",
-  "alarms.voltage.low_rx": "Supply voltage {point} is {value} volts. Stay in receive and have the supply path checked.",
-  "alarms.voltage.high_tx": "Supply voltage {point} is {value} volts. Release transmit and have the supply path checked.",
-  "alarms.voltage.high_rx": "Supply voltage {point} is {value} volts. Stay in receive and have the supply path checked.",
-  "alarms.voltage.drop_tx": "Supply voltage {point} fell {change} volts from the baseline, now {value} volts. Release transmit and have the supply path checked.",
-  "alarms.voltage.drop_rx": "Supply voltage {point} fell {change} volts from the baseline, now {value} volts. Stay in receive and have the supply path checked.",
+  "alarms.voltage.low_tx": "Supply voltage, {point}, is {value} volts. Release transmit and have the supply path checked.",
+  "alarms.voltage.low_rx": "Supply voltage, {point}, is {value} volts. Stay in receive and have the supply path checked.",
+  "alarms.voltage.high_tx": "Supply voltage, {point}, is {value} volts. Release transmit and have the supply path checked.",
+  "alarms.voltage.high_rx": "Supply voltage, {point}, is {value} volts. Stay in receive and have the supply path checked.",
+  "alarms.voltage.drop_tx": "Supply voltage, {point}, fell {change} volts from the baseline, now {value} volts. Release transmit and have the supply path checked.",
+  "alarms.voltage.drop_rx": "Supply voltage, {point}, fell {change} volts from the baseline, now {value} volts. Stay in receive and have the supply path checked.",
 
   "alarms.meter.above": "{alarm}: {meter} is {value} {units}, at or above {threshold}.",
   "alarms.meter.below": "{alarm}: {meter} is {value} {units}, at or below {threshold}.",

@@ -54,8 +54,50 @@ namespace Radios.Alarms
             e.Observation?.Meter ?? new MeterDescriptor(-1, e.Definition.Selector.Name, e.Definition.Selector.Description,
                 e.Definition.Selector.Source, e.Definition.Selector.SourceIndex, e.Definition.Selector.Units, 0, 0);
 
-        /// <summary>The supply meter's measurement point: the radio's own description, or its name.</summary>
-        private static string Point(MeterDescriptor m) => m.Description.Length == 0 ? m.Name : m.Description;
+        /// <summary>
+        /// Where on the supply the voltage is measured, in the few words a ham
+        /// says: "before the fuse", "at the PA". Ruled by Noel 2026-09-22
+        /// (#566), on hearing "Supply voltage Main radio input voltage before
+        /// fuse is 11.90 volts" — <i>"before the fuse."</i>
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// A meter this build has not met keeps the radio's own description, so
+        /// no radio is relabelled with another radio's words.
+        /// </para>
+        /// <para>
+        /// <b>Keyed on the name AND the description together, not the name
+        /// alone.</b> Both radios publish <c>+13.8A</c> and <c>+13.8B</c>: on
+        /// Don's 6300 those are before and after the fuse, on Noel's 8600 they
+        /// are at the PA and at the CPU. A table keyed on the name would give
+        /// one radio the other's place-phrase, which is the one outcome the
+        /// fallback exists to prevent.
+        /// </para>
+        /// </remarks>
+        public static string MeasurementPoint(MeterDescriptor m)
+        {
+            foreach (var (name, description, key) in KnownPoints)
+            {
+                if (string.Equals(m.Name, name, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(m.Description, description, StringComparison.OrdinalIgnoreCase))
+                    return Lexicon.Get(key);
+            }
+            return m.Description.Length == 0 ? m.Name : m.Description;
+        }
+
+        /// <summary>
+        /// The supply meters whose inventories we hold: Don's 6300, from his
+        /// trace of 2026-09-06, and Noel's bench 8600, from the capture of
+        /// 2026-09-07. Nothing here is a model-wide claim — a radio that
+        /// publishes a supply meter under other words falls back to its own.
+        /// </summary>
+        private static readonly (string Name, string Description, string Key)[] KnownPoints =
+        {
+            ("+13.8A", "Main radio input voltage before fuse", "alarms.point.before_fuse"),
+            ("+13.8B", "Main radio input voltage after fuse", "alarms.point.after_fuse"),
+            ("+13.8A", "+13.8V at PA", "alarms.point.at_pa"),
+            ("+13.8B", "+13.8V at CPU", "alarms.point.at_cpu"),
+        };
 
         // ── the warnings ──
 
@@ -81,12 +123,12 @@ namespace Radios.Alarms
                     return Lexicon.Get(tx ? "alarms.pa.rising_fast_tx" : "alarms.pa.rising_fast_rx",
                         ("change", change), ("interval", interval), ("value", value));
                 case AlarmPresets.VoltageLow:
-                    return Lexicon.Get(tx ? "alarms.voltage.low_tx" : "alarms.voltage.low_rx", ("point", Point(meter)), ("value", value));
+                    return Lexicon.Get(tx ? "alarms.voltage.low_tx" : "alarms.voltage.low_rx", ("point", MeasurementPoint(meter)), ("value", value));
                 case AlarmPresets.VoltageHigh:
-                    return Lexicon.Get(tx ? "alarms.voltage.high_tx" : "alarms.voltage.high_rx", ("point", Point(meter)), ("value", value));
+                    return Lexicon.Get(tx ? "alarms.voltage.high_tx" : "alarms.voltage.high_rx", ("point", MeasurementPoint(meter)), ("value", value));
                 case AlarmPresets.VoltageDrop:
                     return Lexicon.Get(tx ? "alarms.voltage.drop_tx" : "alarms.voltage.drop_rx",
-                        ("point", Point(meter)), ("change", change), ("value", value));
+                        ("point", MeasurementPoint(meter)), ("change", change), ("value", value));
             }
 
             string key;

@@ -18,8 +18,14 @@ namespace Radios.Tests.Alarms
         private const string Serial = "0000";
 
         private static readonly MeterDescriptor Pa = PaTemperatureReplayFixture.Meter;
+        // The two inventories this build holds: Don's 6300 (trace of 2026-09-06)
+        // and Noel's bench 8600 (capture of 2026-09-07). Both radios publish
+        // +13.8A and +13.8B, and they mean different places on each.
         private static readonly MeterDescriptor SupplyA6300 = new MeterDescriptor(208, "+13.8A", "Main radio input voltage before fuse", "RAD", 208, MeterUnits.Volts, 10.5, 15);
+        private static readonly MeterDescriptor SupplyB6300 = new MeterDescriptor(210, "+13.8B", "Main radio input voltage after fuse", "RAD", 210, MeterUnits.Volts, 10.5, 15);
+        private static readonly MeterDescriptor SupplyA8600 = new MeterDescriptor(2, "+13.8A", "+13.8V at PA", "RAD", 2, MeterUnits.Volts, 10.5, 15);
         private static readonly MeterDescriptor SupplyB8600 = new MeterDescriptor(3, "+13.8B", "+13.8V at CPU", "RAD", 3, MeterUnits.Volts, 10.5, 15);
+        private static readonly MeterDescriptor SupplyUnmet = new MeterDescriptor(7, "+13.8C", "Main radio input voltage at the socket", "RAD", 7, MeterUnits.Volts, 10.5, 15);
         private static readonly MeterDescriptor Alc = new MeterDescriptor(30, "ALC", "Signal", "TX-", 0, MeterUnits.Dbfs, -50, 0);
         private static readonly MeterDescriptor Unitless = new MeterDescriptor(31, "CODEC", "Signal", "TX-", 0, MeterUnits.None, 0, 100);
 
@@ -75,19 +81,66 @@ namespace Radios.Tests.Alarms
         }
 
         [Fact]
-        public void The_voltage_presets_name_the_radio_own_measurement_point()
+        public void The_voltage_sentences_say_where_in_a_few_words_on_both_of_the_6300_supply_meters()
         {
-            var lowDon = AlarmPresets.Build(AlarmPresets.VoltageLow, SupplyA6300, Serial, "lo");
-            Assert.Equal("Supply voltage Main radio input voltage before fuse is 11.90 volts. Release transmit and have the supply path checked.",
-                AlarmPhrasing.Warning(Ev(lowDon, SupplyA6300, 11.9f, tx: true)));
+            // Ruled by Noel 2026-09-22 (#566), on hearing the radio's own
+            // description read out in full: "before the fuse."
+            var lowA = AlarmPresets.Build(AlarmPresets.VoltageLow, SupplyA6300, Serial, "lo");
+            Assert.Equal("Supply voltage, before the fuse, is 11.90 volts. Release transmit and have the supply path checked.",
+                AlarmPhrasing.Warning(Ev(lowA, SupplyA6300, 11.9f, tx: true)));
+            Assert.Equal("Supply voltage, before the fuse, is 11.90 volts. Stay in receive and have the supply path checked.",
+                AlarmPhrasing.Warning(Ev(lowA, SupplyA6300, 11.9f, tx: false)));
 
-            var drop8600 = AlarmPresets.Build(AlarmPresets.VoltageDrop, SupplyB8600, Serial, "drop");
-            Assert.Equal("Supply voltage +13.8V at CPU fell 0.52 volts from the baseline, now 13.46 volts. Stay in receive and have the supply path checked.",
-                AlarmPhrasing.Warning(Ev(drop8600, SupplyB8600, 13.46f, tx: false, change: -0.52f)));
+            var highB = AlarmPresets.Build(AlarmPresets.VoltageHigh, SupplyB6300, Serial, "hi");
+            Assert.Equal("Supply voltage, after the fuse, is 15.00 volts. Stay in receive and have the supply path checked.",
+                AlarmPhrasing.Warning(Ev(highB, SupplyB6300, 15.0f, tx: false)));
 
-            var high = AlarmPresets.Build(AlarmPresets.VoltageHigh, SupplyA6300, Serial, "hi");
-            Assert.Contains("is 15.00 volts", AlarmPhrasing.Warning(Ev(high, SupplyA6300, 15.0f, tx: false)));
-            Assert.DoesNotContain("fuse socket", AlarmPhrasing.Warning(Ev(high, SupplyA6300, 15.0f, tx: false)));
+            var dropA = AlarmPresets.Build(AlarmPresets.VoltageDrop, SupplyA6300, Serial, "drop");
+            Assert.Equal("Supply voltage, before the fuse, fell 0.52 volts from the baseline, now 13.46 volts. Release transmit and have the supply path checked.",
+                AlarmPhrasing.Warning(Ev(dropA, SupplyA6300, 13.46f, tx: true, change: -0.52f)));
+
+            // The radio's own words are gone from the sentence, and no wording
+            // beyond the place-phrase crept in with them.
+            string s = AlarmPhrasing.Warning(Ev(lowA, SupplyA6300, 11.9f, tx: true));
+            Assert.DoesNotContain("Main radio input voltage", s);
+            Assert.DoesNotContain("fuse socket", s);
+        }
+
+        [Fact]
+        public void The_same_meter_names_mean_different_places_on_the_8600_and_the_sentence_says_each_radio_own()
+        {
+            // +13.8A and +13.8B are published by BOTH radios and mean different
+            // points on each, so a place-phrase chosen by name alone would put
+            // one radio's words in the other's mouth.
+            var lowA = AlarmPresets.Build(AlarmPresets.VoltageLow, SupplyA8600, Serial, "lo");
+            Assert.Equal("Supply voltage, at the PA, is 11.90 volts. Release transmit and have the supply path checked.",
+                AlarmPhrasing.Warning(Ev(lowA, SupplyA8600, 11.9f, tx: true)));
+
+            var highA = AlarmPresets.Build(AlarmPresets.VoltageHigh, SupplyA8600, Serial, "hi");
+            Assert.Equal("Supply voltage, at the PA, is 15.00 volts. Stay in receive and have the supply path checked.",
+                AlarmPhrasing.Warning(Ev(highA, SupplyA8600, 15.0f, tx: false)));
+
+            var dropB = AlarmPresets.Build(AlarmPresets.VoltageDrop, SupplyB8600, Serial, "drop");
+            Assert.Equal("Supply voltage, at the CPU, fell 0.52 volts from the baseline, now 13.46 volts. Stay in receive and have the supply path checked.",
+                AlarmPhrasing.Warning(Ev(dropB, SupplyB8600, 13.46f, tx: false, change: -0.52f)));
+
+            var lowB = AlarmPresets.Build(AlarmPresets.VoltageLow, SupplyB8600, Serial, "lob");
+            Assert.Equal("Supply voltage, at the CPU, is 13.20 volts. Stay in receive and have the supply path checked.",
+                AlarmPhrasing.Warning(Ev(lowB, SupplyB8600, 13.2f, tx: false)));
+        }
+
+        [Fact]
+        public void A_supply_meter_we_have_not_met_keeps_the_radio_own_description()
+        {
+            var low = AlarmPresets.Build(AlarmPresets.VoltageLow, SupplyUnmet, Serial, "lo");
+            Assert.Equal("Supply voltage, Main radio input voltage at the socket, is 11.90 volts. Release transmit and have the supply path checked.",
+                AlarmPhrasing.Warning(Ev(low, SupplyUnmet, 11.9f, tx: true)));
+
+            // No description at all: the meter's name, never an empty gap.
+            var bare = SupplyUnmet with { Description = "" };
+            var lowBare = AlarmPresets.Build(AlarmPresets.VoltageLow, bare, Serial, "bare");
+            Assert.Equal("Supply voltage, +13.8C, is 11.90 volts. Release transmit and have the supply path checked.",
+                AlarmPhrasing.Warning(Ev(lowBare, bare, 11.9f, tx: true)));
         }
 
         [Fact]
@@ -188,8 +241,12 @@ namespace Radios.Tests.Alarms
         {
             var def = AlarmPresets.Build(AlarmPresets.PaTemperature, Pa, Serial, "pa") with { Enabled = true };
             var last = MeterObservation.Measured(Pa, 61.25f, 5, 1000, DateTime.UtcNow, 1, null);
-            string s = AlarmPhrasing.Status(Snap(def, AlarmDataState.Fresh, AlarmConditionState.Active, AlarmNotificationState.Acknowledged, MeterSelectorStatus.Resolved, last, 1.4));
-            Assert.Equal("PA temperature high: enabled, watching, active. acknowledged. Latest reading 61.3 degrees C, 1 seconds ago. "
+            // Three seconds, not one: the age words are MeterInventory.DescribeAge's,
+            // and its singular ("1 second ago") is fixed on sprint45/integration
+            // at 1be38b0f, not here. A plural age reads the same on both sides of
+            // that merge, so this assertion is true before it and after it.
+            string s = AlarmPhrasing.Status(Snap(def, AlarmDataState.Fresh, AlarmConditionState.Active, AlarmNotificationState.Acknowledged, MeterSelectorStatus.Resolved, last, 3));
+            Assert.Equal("PA temperature high: enabled, watching, active. acknowledged. Latest reading 61.3 degrees C, 3 seconds ago. "
                 + "Line: at or above 60 degrees C. Meter PATEMP (PA Temperature), found.", s);
 
             string snoozed = AlarmPhrasing.Status(Snap(def, AlarmDataState.Fresh, AlarmConditionState.Active, AlarmNotificationState.Snoozed, MeterSelectorStatus.Resolved, last, 1, snooze: 42));
