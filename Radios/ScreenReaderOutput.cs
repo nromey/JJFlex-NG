@@ -456,6 +456,32 @@ namespace Radios
         }
 
         /// <summary>
+        /// An operator alarm's warning (#566): Critical level, Urgent intent,
+        /// under the arbiter's alarm-aware priority contract. Critical because
+        /// the overload above checks level before intent and a Terse Urgent
+        /// would still be dropped; Urgent because it must get past stale
+        /// speech (#507, #554); tagged with the alarm's subject so an existing
+        /// cut announcement always wins and two alarms cannot cancel each
+        /// other. This is the ruled exception to the queued-never-interrupt
+        /// earcon convention, and a verbosity preference cannot silence it
+        /// (#322). <see cref="SuppressSpeech"/> still can, deliberately.
+        /// </summary>
+        /// <param name="refresh">
+        /// Re-read the condition and return the sentence to say now, or null
+        /// when it is no longer worth saying. Consulted when a deferred alarm's
+        /// turn comes and before the one bounded retry.
+        /// </param>
+        public static void SpeakAlarm(string message, string subject, Func<string?> refresh,
+            [CallerFilePath] string callerFile = "",
+            [CallerLineNumber] int callerLine = 0,
+            [CallerMemberName] string callerMember = "")
+        {
+            if (string.IsNullOrEmpty(message)) return;
+            _arbiter.UrgentAlarm(message, VerbosityLevel.Critical,
+                FormatOrigin(callerFile, callerLine, callerMember), subject, refresh);
+        }
+
+        /// <summary>
         /// Declare that <paramref name="subject"/> is covered without saying
         /// anything: the operation it narrated ended, or the state it
         /// described was replaced by something announced elsewhere. Anything

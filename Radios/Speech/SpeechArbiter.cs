@@ -840,14 +840,299 @@ namespace Radios.Speech
         /// Transmit safety: cut what is speaking AND drop what is queued —
         /// ours and the reader's — so nothing stale can play on top of the
         /// warning. The one intent for which discard is the point.
+        ///
+        /// Untagged, and therefore the HIGHEST priority urgent there is: an
+        /// operator alarm arriving while this is believed sounding waits
+        /// behind it (see <see cref="UrgentAlarm"/>). No caller of this
+        /// method changes for that; the priority is the absence of a tag.
         /// </summary>
         public void Urgent(string message, VerbosityLevel level, string? origin)
         {
             lock (_lock)
             {
+                var now = _clock.UtcNow;
                 DiscardAllLocked("an urgent warning discards everything queued");
                 try { _silenceBackend(); } catch { }
                 EmitLocked(message, interrupt: true, SpeechIntent.Urgent, level, origin, subject: null);
+                _urgentBusyUntilUtc = now.AddMilliseconds(EstimateLocked(message));
+                _urgentIsSafety = true;
+                if (_alarmPending.Count > 0) ArmAlarmTimerLocked(now);
+            }
+        }
+
+        // ── Operator alarms: the alarm-aware urgent (#566, design section 5) ──
+        //
+        // Urgent alone gets an alarm past stale speech; it cannot promise the
+        // alarm's own sentence will finish, and two alarms using it would cut
+        // each other off forever. So an alarm carries a SUBJECT (its identity)
+        // and a REFRESH (how to re-read the condition), and the arbiter keeps
+        // one small rule: an untagged Urgent — the reflected cut, the hard
+        // stop — always wins, and an alarm that arrives while any urgent is
+        // believed sounding waits, re-reads itself when its turn comes, and
+        // speaks only if it is still true. Existing callers of Urgent are
+        // untouched; the contract is an addition, not a second engine.
+
+        /// <summary>How many alarm sentences may wait behind a sounding urgent. Overflow drops the OLDEST and says so.</summary>
+        internal const int AlarmPendingCap = 8;
+
+        /// <summary>Waiting longer than this is recorded as a delivery-late condition — never a reason to pre-empt the cut.</summary>
+        internal const int AlarmDeliveryLateMs = 5000;
+
+        /// <summary>How long after a foreign cancellation (a focus change) to let the reader settle before the one retry.</summary>
+        internal const int AlarmRetrySettleMs = 600;
+
+        /// <summary>The retry happens inside this window from the original hand-over, or not at all.</summary>
+        internal const int AlarmRetryWindowMs = 5000;
+
+        private sealed class PendingAlarm
+        {
+            public string Subject = string.Empty;
+            public string Message = string.Empty;
+            public VerbosityLevel Level;
+            public string? Origin;
+            public Func<string?> Refresh = () => null;
+            public DateTime QueuedUtc;
+        }
+
+        private readonly List<PendingAlarm> _alarmPending = new List<PendingAlarm>();
+
+        /// <summary>When the last urgent hand-over — safety or alarm — is estimated to have finished.</summary>
+        private DateTime _urgentBusyUntilUtc = DateTime.MinValue;
+
+        /// <summary>True when the urgent believed sounding is an untagged one. Recorded for the trace; the wait rule is the same.</summary>
+        private bool _urgentIsSafety;
+
+        private ISpeechTimer? _alarmTimer;
+        private int _alarmGeneration;
+
+        // The last alarm handed over, for the one bounded retry after a
+        // cancellation the reader attributes to something other than us.
+        private long _lastAlarmTicket;
+        private string _lastAlarmSubject = string.Empty;
+        private Func<string?>? _lastAlarmRefresh;
+        private VerbosityLevel _lastAlarmLevel;
+        private string? _lastAlarmOrigin;
+        private DateTime _lastAlarmEmittedUtc;
+        private bool _lastAlarmRetried;
+        private ISpeechTimer? _retryTimer;
+
+        /// <summary>Alarm sentences waiting behind a sounding urgent. Tests.</summary>
+        internal int AlarmPendingCount { get { lock (_lock) return _alarmPending.Count; } }
+
+        /// <summary>
+        /// Speak an operator alarm's warning as an urgent, under the priority
+        /// contract above.
+        /// </summary>
+        /// <param name="subject">The alarm's identity (<see cref="SpeechSubject.OperatorAlarm"/>). One pending sentence per subject.</param>
+        /// <param name="refresh">
+        /// Re-read the condition and return the sentence to say NOW, or null
+        /// when there is nothing left to say — cleared, acknowledged, data
+        /// gone. Called under the arbiter's lock; must be cheap and must not
+        /// speak.
+        /// </param>
+        public void UrgentAlarm(string message, VerbosityLevel level, string? origin,
+            string subject, Func<string?> refresh)
+        {
+            if (string.IsNullOrEmpty(message)) return;
+            lock (_lock)
+            {
+                var now = _clock.UtcNow;
+                if (_urgentBusyUntilUtc > now)
+                {
+                    int waitMs = (int)(_urgentBusyUntilUtc - now).TotalMilliseconds;
+                    PendingAlarm? existing = _alarmPending.Find(p => string.Equals(p.Subject, subject, StringComparison.Ordinal));
+                    if (existing != null)
+                    {
+                        // A newer statement on the same subject replaces the
+                        // waiting one; the queue position is kept.
+                        existing.Message = message;
+                        existing.Level = level;
+                        existing.Origin = origin;
+                        existing.Refresh = refresh;
+                    }
+                    else
+                    {
+                        if (_alarmPending.Count >= AlarmPendingCap)
+                        {
+                            PendingAlarm oldest = _alarmPending[0];
+                            _alarmPending.RemoveAt(0);
+                            Tracing.TraceLine(
+                                $"SpeechArbiter: alarm pending set full at {AlarmPendingCap}; dropped the oldest, "
+                                + $"'{oldest.Message}' [subject '{oldest.Subject}']", TraceLevel.Warning);
+                        }
+                        _alarmPending.Add(new PendingAlarm
+                        {
+                            Subject = subject, Message = message, Level = level, Origin = origin,
+                            Refresh = refresh, QueuedUtc = now,
+                        });
+                    }
+                    Tracing.TraceLine(
+                        $"SpeechArbiter: alarm deferred about {waitMs} ms behind "
+                        + (_urgentIsSafety ? "a safety announcement" : "another alarm")
+                        + $": '{message}' [subject '{subject}']", TraceLevel.Info);
+                    ArmAlarmTimerLocked(now);
+                    return;
+                }
+
+                EmitAlarmLocked(message, level, origin, subject, refresh, now, deferredMs: 0, why: null);
+            }
+        }
+
+        /// <summary>The hand-over itself: discard the backlog, cut the reader, emit, and remember for the retry.</summary>
+        private void EmitAlarmLocked(string message, VerbosityLevel level, string? origin,
+            string subject, Func<string?> refresh, DateTime now, int deferredMs, string? why)
+        {
+            DiscardAllLocked("an alarm warning discards everything queued");
+            try { _silenceBackend(); } catch { }
+            var handoff = _sink(message, true, SpeechIntent.Urgent, level, origin, salvaged: false);
+            if (!handoff.Reached)
+            {
+                Tracing.TraceLine(
+                    $"SpeechArbiter: the reader did not take an alarm warning (suppressed or no backend): '{message}'",
+                    TraceLevel.Warning);
+                return;
+            }
+
+            int estimate = EstimateLocked(message);
+            _urgentBusyUntilUtc = now.AddMilliseconds(estimate);
+            _urgentIsSafety = false;
+            if (!handoff.Tracked) _readerBusyUntilUtc = _urgentBusyUntilUtc;
+
+            _lastAlarmTicket = handoff.Ticket;
+            _lastAlarmSubject = subject;
+            _lastAlarmRefresh = refresh;
+            _lastAlarmLevel = level;
+            _lastAlarmOrigin = origin;
+            _lastAlarmEmittedUtc = now;
+            _lastAlarmRetried = why != null && why.StartsWith("retry", StringComparison.Ordinal);
+
+            if (deferredMs > 0)
+            {
+                Tracing.TraceLine(
+                    $"SpeechArbiter: alarm spoken after a {deferredMs} ms deferral"
+                    + (deferredMs > AlarmDeliveryLateMs ? " — DELIVERY LATE, over the five-second bound" : string.Empty)
+                    + $": '{message}' [subject '{subject}']",
+                    deferredMs > AlarmDeliveryLateMs ? TraceLevel.Warning : TraceLevel.Info);
+            }
+            else if (why != null)
+            {
+                Tracing.TraceLine($"SpeechArbiter: alarm {why}: '{message}' [subject '{subject}']", TraceLevel.Info);
+            }
+        }
+
+        private void ArmAlarmTimerLocked(DateTime now)
+        {
+            int due = Math.Max(50, (int)(_urgentBusyUntilUtc - now).TotalMilliseconds + 50);
+            _alarmTimer?.Dispose();
+            int generation = ++_alarmGeneration;
+            _alarmTimer = _clock.StartTimer(due, () => ReleaseAlarms(generation));
+        }
+
+        /// <summary>
+        /// The sounding urgent is believed finished: give the next waiting alarm
+        /// its turn — after asking it whether it is still true. One at a time,
+        /// each re-arming for the next, so two alarms follow one another
+        /// rather than cancelling one another.
+        /// </summary>
+        private void ReleaseAlarms(int generation)
+        {
+            lock (_lock)
+            {
+                if (generation != _alarmGeneration) return;
+                _alarmTimer = null;
+                var now = _clock.UtcNow;
+                if (_urgentBusyUntilUtc > now)
+                {
+                    ArmAlarmTimerLocked(now);
+                    return;
+                }
+
+                while (_alarmPending.Count > 0)
+                {
+                    PendingAlarm next = _alarmPending[0];
+                    _alarmPending.RemoveAt(0);
+                    string? current = null;
+                    try { current = next.Refresh(); } catch (Exception ex)
+                    { Tracing.TraceLine($"SpeechArbiter: an alarm's refresh threw — {ex.Message}", TraceLevel.Warning); }
+
+                    if (current == null)
+                    {
+                        Tracing.TraceLine(
+                            $"SpeechArbiter: a waiting alarm was dropped because it is no longer current: "
+                            + $"'{next.Message}' [subject '{next.Subject}']", TraceLevel.Info);
+                        continue;
+                    }
+
+                    int deferredMs = (int)(now - next.QueuedUtc).TotalMilliseconds;
+                    EmitAlarmLocked(current, next.Level, next.Origin, next.Subject, next.Refresh, now, deferredMs, why: null);
+                    break;
+                }
+
+                if (_alarmPending.Count > 0) ArmAlarmTimerLocked(now);
+            }
+        }
+
+        /// <summary>
+        /// The reader's answer about the last alarm hand-over. Completed
+        /// releases the wait early; a cancellation NOT by us — a focus change —
+        /// earns exactly one retry after the reader settles, inside the window,
+        /// and only if the alarm still says it is true. A cancellation by us,
+        /// or by the operator's Silence, earns nothing.
+        /// </summary>
+        private void OnAlarmOutcomeLocked(long ticket, SpeechOutcome outcome, DateTime now)
+        {
+            if (ticket == 0 || ticket != _lastAlarmTicket) return;
+
+            switch (outcome.Kind)
+            {
+                case SpeechOutcomeKind.Completed:
+                    if (_urgentBusyUntilUtc > now)
+                    {
+                        _urgentBusyUntilUtc = now;
+                        if (_alarmPending.Count > 0) ArmAlarmTimerLocked(now);
+                    }
+                    return;
+
+                case SpeechOutcomeKind.Cancelled:
+                    if (outcome.CancelledByUs || _lastAlarmRetried || _lastAlarmRefresh == null) return;
+                    if ((now - _lastAlarmEmittedUtc).TotalMilliseconds > AlarmRetryWindowMs) return;
+                    _lastAlarmRetried = true;
+                    _urgentBusyUntilUtc = now;
+                    Tracing.TraceLine(
+                        $"SpeechArbiter: alarm cancelled at word {outcome.MarksReached} of {outcome.MarkCount} by a "
+                        + $"focus change or the operator's key; one retry in {AlarmRetrySettleMs} ms if still true "
+                        + $"[subject '{_lastAlarmSubject}']", TraceLevel.Info);
+                    _retryTimer?.Dispose();
+                    string subject = _lastAlarmSubject;
+                    Func<string?> refresh = _lastAlarmRefresh;
+                    VerbosityLevel level = _lastAlarmLevel;
+                    string? origin = _lastAlarmOrigin;
+                    DateTime emitted = _lastAlarmEmittedUtc;
+                    _retryTimer = _clock.StartTimer(AlarmRetrySettleMs, () => RetryAlarm(subject, refresh, level, origin, emitted));
+                    return;
+
+                default:
+                    return;
+            }
+        }
+
+        private void RetryAlarm(string subject, Func<string?> refresh, VerbosityLevel level, string? origin, DateTime emitted)
+        {
+            lock (_lock)
+            {
+                _retryTimer = null;
+                var now = _clock.UtcNow;
+                if (!string.Equals(subject, _lastAlarmSubject, StringComparison.Ordinal)) return;   // something newer took over
+                if ((now - emitted).TotalMilliseconds > AlarmRetryWindowMs) return;
+                if (_urgentBusyUntilUtc > now) return;   // a safety announcement got in first; it wins
+                string? current = null;
+                try { current = refresh(); } catch { }
+                if (current == null)
+                {
+                    Tracing.TraceLine($"SpeechArbiter: alarm retry not made, no longer current [subject '{subject}']", TraceLevel.Info);
+                    return;
+                }
+                EmitAlarmLocked(current, level, origin, subject, refresh, now, deferredMs: 0, why: "retry once after a focus transition");
             }
         }
 
@@ -868,6 +1153,18 @@ namespace Radios.Speech
                 _believedQueued.Clear();
                 _readerBusyUntilUtc = DateTime.MinValue;
                 EndHoldLocked("the operator silenced speech");
+
+                // Alarms waiting their turn, and the one bounded retry, go
+                // too: the operator asked for quiet, and an alarm that
+                // matters is still in the list and in Read active alarms.
+                if (_alarmPending.Count > 0)
+                    Tracing.TraceLine($"SpeechArbiter: {_alarmPending.Count} waiting alarm(s) let go, the operator silenced speech",
+                        TraceLevel.Info);
+                _alarmPending.Clear();
+                _alarmTimer?.Dispose(); _alarmTimer = null; _alarmGeneration++;
+                _retryTimer?.Dispose(); _retryTimer = null;
+                _lastAlarmRefresh = null;
+                _urgentBusyUntilUtc = DateTime.MinValue;
             }
         }
 
@@ -877,6 +1174,10 @@ namespace Radios.Speech
             lock (_lock)
             {
                 DiscardAllLocked("all speech state discarded");
+                _alarmPending.Clear();
+                _alarmTimer?.Dispose(); _alarmTimer = null; _alarmGeneration++;
+                _retryTimer?.Dispose(); _retryTimer = null;
+                _lastAlarmRefresh = null;
             }
         }
 
@@ -1461,6 +1762,7 @@ namespace Radios.Speech
             {
                 var now = _clock.UtcNow;
                 if (outcome.WasHeard) _rate.Observe(message, outcome.ElapsedMs);
+                OnAlarmOutcomeLocked(ticket, outcome, now);
 
                 var inLedger = true;
                 var entry = _believedQueued.Find(e => e.Ticket == ticket && ticket != 0);

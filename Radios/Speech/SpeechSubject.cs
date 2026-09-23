@@ -205,6 +205,27 @@ namespace Radios.Speech
         public const string TrackingNotch = "tracking-notch";
 
         /// <summary>
+        /// One operator alarm's current warning (#566) — its firing, its
+        /// reminders, a further step in the bad direction, and the loss of its
+        /// reading. One subject per alarm because each of these restates the
+        /// same question, "what is this meter doing and what should I do", and
+        /// only the newest answer is true: an unheard "61 degrees" is worthless
+        /// once "63 degrees" exists. Nothing outside the alarm covers it — a
+        /// tune, a slice jump or a focus change leaves the PA exactly as hot as
+        /// it was. Deliberately NOT one subject for all alarms: a supply
+        /// warning must not retire a temperature warning it says nothing about.
+        /// </summary>
+        public static string OperatorAlarm(string alarmId) => "operator-alarm:" + alarmId;
+
+        /// <summary>
+        /// The state of the alarms as a whole, volunteered — a clearance, or a
+        /// requested status or summary. Only the newest statement of state is
+        /// worth hearing, and a warning never covers it (it is not on this
+        /// subject), because "cleared" must not be able to retire "63 degrees".
+        /// </summary>
+        public const string OperatorAlarmStatus = "operator-alarm-status";
+
+        /// <summary>
         /// The value of one field, named by its label — the committed value
         /// and the swept value share it, so a committed value still queued
         /// when the operator starts sweeping is covered by the sweep. This is
