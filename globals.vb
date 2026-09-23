@@ -583,7 +583,8 @@ Module globals
             ' needs the UI thread's dispatcher, which is the thread this runs
             ' on. Radios.dll cannot call either by name — it is referenced BY
             ' this project — so this is the seam, exactly as above.
-            Radios.CaptureSeal.SealHook = Function(detail) SealCaptureForConnectionDrop(detail)
+            Radios.CaptureSeal.SealHook =
+                Function(sessionId As Guid, detail As String) SealCaptureForConnectionDrop(sessionId, detail)
             JJFlexWpf.CaptureSealWatch.Install()
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)
@@ -1319,19 +1320,36 @@ Module globals
         Try
             Dim session As TraceSession = TraceSessionContext.BeginSession()
             session.VerbosityLevel = Tracing.TheSwitch.Level.ToString()
-            ' One drop-seal per session, re-armed at the only place that knows
-            ' a session started. Without this, the first dropped connection of
-            ' the evening would spend the seal and every later one would be
-            ' archived as an ordinary session again.
-            Radios.CaptureSeal.Rearm()
+            ' NOTHING RE-ARMS THE DROP SEAL HERE ANY MORE, and that is the fix
+            ' rather than an omission (Sprint 45 Track H2). A Rearm() call sat
+            ' on this line, and this line is reached from RestartDiagnosticLog —
+            ' which the seal itself calls. So the guard that existed to refuse a
+            ' repeat death notice disarmed itself, on the seal's own path, in
+            ' time for the duplicate it was refusing; the second notice then
+            ' sealed the fresh, empty log and put a second window in front of an
+            ' operator whose radio had just died. The claim now belongs to the
+            ' removal, in Radios.CaptureSeal, where no session event can touch
+            ' it.
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)
         End Try
     End Sub
 
     ''' <summary>
-    ''' Seal the running session because the RADIO's connection dropped, then
-    ''' get back to recording. Returns the full path of the archive, or Nothing.
+    ''' True when the session recording right now is the one named. The drop
+    ''' seal's guard, kept as its own function so the question is asked in one
+    ''' place and can be read at the call site.
+    ''' </summary>
+    Friend Function CurrentTraceSessionIs(sessionId As Guid) As Boolean
+        Dim session As TraceSession = TraceSessionContext.Current
+        Return session IsNot Nothing AndAlso session.SessionId.Equals(sessionId)
+    End Function
+
+    ''' <summary>
+    ''' Seal the session that was recording when the RADIO's connection dropped,
+    ''' then get back to recording. Returns the full path of the archive, or
+    ''' Nothing — including when that session has already gone, which is a
+    ''' refusal rather than a failure and is traced as one.
     '''
     ''' <para>Installed as <see cref="Radios.CaptureSeal.SealHook"/> and called
     ''' from a worker thread, never the UI thread — see that class for why the
@@ -1351,9 +1369,22 @@ Module globals
     ''' operator's standing detail; the capture they started is closed, sealed
     ''' and named in the window they are about to be shown.</para>
     ''' </summary>
-    Friend Function SealCaptureForConnectionDrop(detail As String) As String
+    Friend Function SealCaptureForConnectionDrop(sessionId As Guid, detail As String) As String
         Dim path As String = Nothing
         Try
+            ' The recording this drop is ABOUT. Between the drop and this call a
+            ' Stop, another capture, a log toggle or an exit can have ended or
+            ' replaced it, and archiving whatever is open instead would hand the
+            ' operator a different evening under the word connection_dropped.
+            ' Nothing is archived and nothing is restarted: the session that is
+            ' running is somebody else's and is not ours to close.
+            If Not CurrentTraceSessionIs(sessionId) Then
+                Tracing.TraceLine(
+                    $"SealCaptureForConnectionDrop: the session that was recording at the drop ({sessionId}) has already ended — nothing archived",
+                    TraceLevel.Warning)
+                Return Nothing
+            End If
+
             Dim wasCapturing As Boolean = DetailedCaptureRunning
 
             path = ArchiveCurrentTraceSessionReturningPath(

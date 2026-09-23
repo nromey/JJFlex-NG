@@ -769,7 +769,23 @@ namespace Radios
                     // connection_dropped. Returns at once; the zip happens off
                     // this thread. See CaptureSeal.
                     if (RemovalSealsTheCapture(kind))
-                        CaptureSeal.AfterConnectionDrop(r.Nickname ?? "");
+                    {
+                        // Close the open temperature window FIRST, and
+                        // synchronously, so the last thing the radio said is in
+                        // the file the seal is about to zip. Emitting only on a
+                        // window close meant a drop inside the first second
+                        // saved no temperature at all, and every later drop lost
+                        // the final partial window — the moment of death being
+                        // exactly the part that went missing (#598).
+                        flushCaptureMeters(CaptureMeterSet.PartialConnectionDropped);
+
+                        // `r` is the drop's own identity. Two removals carrying
+                        // this same object are one drop, which is what stops a
+                        // repeat announcement sealing the fresh log the first
+                        // seal just started. Exact here, because this arm is
+                        // only reached when r IS theRadio.
+                        CaptureSeal.AfterConnectionDrop(r, r.Nickname ?? "");
+                    }
                     break;
                 default:
                     Tracing.TraceLine($"apiRadioRemovedHandler: {r.Serial} ({r.Nickname}) gone from discovery — removing", TraceLevel.Info);

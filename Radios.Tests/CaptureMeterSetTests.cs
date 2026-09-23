@@ -331,6 +331,27 @@ namespace Radios.Tests
             Assert.DoesNotContain("partial=", line);
         }
 
+        [Fact]
+        public void The_drop_path_is_what_flushes_and_it_does_so_before_the_seal()
+        {
+            // Order is the whole point: the line has to be in the file BEFORE
+            // the seal zips it. Source-read because the real ordering needs a
+            // live session, a radio and a drop — and because a helper with no
+            // caller is how the first attempt at this flush was lost.
+            string source = File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "FlexBase.cs"));
+            Assert.Contains("case RadioRemovalKind.ConnectionLostOurRadio:", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("ThisStringIsNotInFlexBaseAnywhere", source, StringComparison.Ordinal);
+
+            int arm = source.IndexOf("case RadioRemovalKind.ConnectionLostOurRadio:", StringComparison.Ordinal);
+            string body = source.Substring(arm, source.IndexOf("default:", arm, StringComparison.Ordinal) - arm);
+
+            int flush = body.IndexOf("flushCaptureMeters(", StringComparison.Ordinal);
+            int seal = body.IndexOf("CaptureSeal.AfterConnectionDrop", StringComparison.Ordinal);
+            Assert.True(flush > 0, "the drop arm does not flush the open temperature window");
+            Assert.True(seal > 0);
+            Assert.True(flush < seal, "the flush must happen before the seal is queued");
+        }
+
         // ────────────────────────────────────────────────────────────────
         //  Through the production handler, at Normal detail
         // ────────────────────────────────────────────────────────────────
