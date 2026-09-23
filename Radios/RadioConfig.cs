@@ -570,6 +570,73 @@ namespace Radios
         /// the write, so this is not "when last connected".</summary>
         public DateTime LastPlaceRecordedUtc { get; set; }
 
+        // ---------------------------------------------------------------
+        // The owner's station layout (Track G2, 2026-09-22; #590 case 2).
+        //
+        // Every slice's frequency and mode, in slice order, as the OWNER'S
+        // OWN client last saw them on this radio. Recorded only when the
+        // radio is declared Mine. This is what "put the owner's saved
+        // frequencies on free slices" reads, because the radio cannot be
+        // asked for a saved profile's contents: FlexLib's profile parser
+        // exposes a profile's name and nothing else, and the radio's only
+        // export is an opaque LAN-only file. So the frequencies are the
+        // owner's last session's, not the saved profile's; the sentence
+        // that announces them says so.
+        // ---------------------------------------------------------------
+
+        /// <summary>The layout's slices, in slice order. Empty when never recorded.</summary>
+        public List<Radios.StationConnect.SliceLayoutEntry> LastStationLayoutSlices { get; set; } = new();
+
+        /// <summary>The global profile that was selected when the layout was recorded, or empty.</summary>
+        public string LastStationLayoutProfile { get; set; } = "";
+
+        public DateTime LastStationLayoutRecordedUtc { get; set; }
+
+        /// <summary>The recorded layout for a radio, or null when none.</summary>
+        public static Radios.StationConnect.StationLayout StationLayoutOf(string radioId)
+        {
+            if (string.IsNullOrEmpty(radioId)) return null;
+            try
+            {
+                var cfg = LoadForRadio(radioId);
+                if (cfg.LastStationLayoutSlices == null || cfg.LastStationLayoutSlices.Count == 0) return null;
+                return new Radios.StationConnect.StationLayout
+                {
+                    Slices = cfg.LastStationLayoutSlices.Select(s => new Radios.StationConnect.SliceLayoutEntry(s.FreqHz, s.Mode)).ToList(),
+                    ProfileName = cfg.LastStationLayoutProfile ?? "",
+                    RecordedUtc = cfg.LastStationLayoutRecordedUtc,
+                };
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("RadioConfig.StationLayoutOf: " + ex.Message, System.Diagnostics.TraceLevel.Warning);
+                return null;
+            }
+        }
+
+        /// <summary>Record the layout; skips the write when unchanged. Never throws.</summary>
+        public static void RecordStationLayout(string radioId, Radios.StationConnect.StationLayout layout)
+        {
+            if (string.IsNullOrEmpty(radioId) || layout == null || layout.IsEmpty) return;
+            try
+            {
+                var cfg = LoadForRadio(radioId);
+                bool same = cfg.LastStationLayoutSlices != null
+                    && cfg.LastStationLayoutSlices.Count == layout.Slices.Count
+                    && cfg.LastStationLayoutSlices.Zip(layout.Slices, (a, b) => a.FreqHz == b.FreqHz && a.Mode == b.Mode).All(x => x)
+                    && (cfg.LastStationLayoutProfile ?? "") == (layout.ProfileName ?? "");
+                if (same) return;
+                cfg.LastStationLayoutSlices = layout.Slices.Select(s => new Radios.StationConnect.SliceLayoutEntry(s.FreqHz, s.Mode)).ToList();
+                cfg.LastStationLayoutProfile = layout.ProfileName ?? "";
+                cfg.LastStationLayoutRecordedUtc = DateTime.UtcNow;
+                cfg.SaveForRadio(radioId);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("RadioConfig.RecordStationLayout: " + ex.Message, System.Diagnostics.TraceLevel.Warning);
+            }
+        }
+
         /// <summary>
         /// Record where the operator is on a radio. Skips the disk write when
         /// the place has not changed — an evening parked on one frequency

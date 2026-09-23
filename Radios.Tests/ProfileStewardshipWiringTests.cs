@@ -43,8 +43,18 @@ namespace Radios.Tests
             return dir!.FullName;
         }
 
-        private static string Read(string relative) =>
-            File.ReadAllText(Path.Combine(RepoRoot(), relative.Replace('/', Path.DirectorySeparatorChar)));
+        private static string Read(string relative)
+        {
+            string text = File.ReadAllText(Path.Combine(RepoRoot(), relative.Replace('/', Path.DirectorySeparatorChar)));
+            // FlexBase is a partial class; the station-first connect half
+            // (Sprint 45 Track G, 2026-09-21) lives beside it. The wiring
+            // under test spans both files.
+            if (relative == FlexBase)
+            {
+                text += File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "FlexBase.StationConnect.cs"));
+            }
+            return text;
+        }
 
         // ------------------------------------------------------------------
         // The positive control, first. Everything below asserts that a string
@@ -67,8 +77,18 @@ namespace Radios.Tests
         [Fact]
         public void TheConnectPathAsksTheStewardshipRatherThanSelectingDirectly()
         {
-            Assert.Contains("ApplyProfileStewardshipOnConnect()", Read(FlexBase),
-                StringComparison.Ordinal);
+            // Since 2026-09-21 the connect path is EstablishStationOnConnect:
+            // the global decision goes through the station coordinator, and
+            // the transmit and microphone decisions through the ruled planner
+            // in the post-station phase. Both consult ProfileStewardship.
+            var text = Read(FlexBase);
+            Assert.Contains("var station = EstablishStationOnConnect(false);", text, StringComparison.Ordinal);
+            // The transmit and microphone decisions are the orchestrator's,
+            // one type at a time (Track G2); the adapter only lends it the port.
+            Assert.Contains("new PostStationOrchestrator(", text, StringComparison.Ordinal);
+            var orchestrator = File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "StationConnect", "PostStationOrchestrator.cs"));
+            Assert.Contains("ProfileStewardship.PlanConnectRuled(situation, new[] { type })", orchestrator, StringComparison.Ordinal);
+            Assert.DoesNotContain("ApplyProfileStewardshipOnConnect()", text, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -109,8 +129,13 @@ namespace Radios.Tests
             // A half-applied guest change is worse than none: if autosave will
             // not turn off, or the live capture fails, nothing is applied. And
             // if we already turned autosave off, we give it straight back.
+            // The abort rule is the orchestrator's (PostStationOrchestratorTests:
+            // AutosaveNotConfirmedOff_AbortsBeforeCapture, ACaptureThatExpires_
+            // AbortsBeforeApply_AndGivesAutosaveBack); the adapter gives
+            // autosave back.
+            var orchestrator = File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "StationConnect", "PostStationOrchestrator.cs"));
+            Assert.Contains("result.LiveAudioAborted = true", orchestrator, StringComparison.Ordinal);
             var text = Read(FlexBase);
-            Assert.Contains("abort = true", text, StringComparison.Ordinal);
             Assert.Contains("RestoreRadioAutosaveAfterAbort()", text, StringComparison.Ordinal);
         }
 

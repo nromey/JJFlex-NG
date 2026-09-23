@@ -70,7 +70,7 @@ namespace Radios.Tests
             // the reader stops finding real members rather than pass vacuously.
             var text = Read(FlexBase);
 
-            Assert.Contains("private void sliceAdded(Slice slc)", text, StringComparison.Ordinal);
+            Assert.Contains("private void sliceAdded(Slice slc, ObservationBinding binding)", text, StringComparison.Ordinal);
             Assert.Contains("internal ProfileSituation ReadProfileSituation(", text, StringComparison.Ordinal);
             Assert.DoesNotContain("ThisMemberDoesNotExistInFlexBase", text, StringComparison.Ordinal);
         }
@@ -82,7 +82,7 @@ namespace Radios.Tests
             // but sliceAdded must reject them before mutating mySlices, and
             // MyNumSlices must remain a count of that filtered list.
             var text = Read(FlexBase);
-            var sliceAdded = BracedBlock(text, "private void sliceAdded(Slice slc)");
+            var sliceAdded = BracedBlock(text, "private void sliceAdded(Slice slc, ObservationBinding binding)");
             var mineOnly = BracedBlock(sliceAdded, "if (myClient(slc.ClientHandle))");
             var myNumSlices = BracedBlock(text, "public int MyNumSlices");
 
@@ -92,20 +92,29 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void ReadProfileSituationWiresStationPresenceToThisClientsSliceCount()
+        public void ReadProfileSituationWiresStationPresenceToThisClientsOwnStationEvidence()
         {
             // Pin the production handoff, not merely the planner. A radio-wide
             // slice count would let somebody else's station suppress our own
             // profile load; omitting the assignment would silently use false.
+            //
+            // Since 2026-09-21 (Sprint 45 Track G) the fact comes from the
+            // own-station tracker — the same evidence the station coordinator
+            // decides on — which sliceAdded feeds only inside its myClient
+            // branch (StationFirstWiringTests pins that). MyNumSlices and the
+            // tracker count the same filtered set.
+            // The connection-level facts moved to ReadBaseProfileSituation on
+            // 2026-09-22 (Track G2); ReadProfileSituation composes it.
             var method = BracedBlock(Read(FlexBase),
-                "internal ProfileSituation ReadProfileSituation(");
+                "internal ProfileSituation ReadBaseProfileSituation()");
 
-            Assert.Contains("StationPresent = radio != null && MyNumSlices > 0,",
+            Assert.Contains("StationPresent = radio != null && StationTracker.Snapshot().StationPresent,",
                 method, StringComparison.Ordinal);
             Assert.DoesNotContain("StationPresent = radio != null && OtherNumSlices > 0,",
                 method, StringComparison.Ordinal);
             Assert.DoesNotContain("StationPresent = radio != null && radio.SliceList.Count > 0,",
                 method, StringComparison.Ordinal);
+            Assert.DoesNotContain("StationPresent = true", method, StringComparison.Ordinal);
         }
     }
 }

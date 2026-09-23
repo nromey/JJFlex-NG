@@ -45,7 +45,7 @@ namespace Radios.Tests
         [Fact]
         public void TheAudioThreadHasABoundaryCatchThatSaysSomething()
         {
-            string body = MethodBody("private void remoteAudioProc()");
+            string body = MethodBody("private void remoteAudioProc(long run)");
 
             Assert.Contains("catch (Exception ex)", body, StringComparison.Ordinal);
 
@@ -73,7 +73,7 @@ namespace Radios.Tests
         [Fact]
         public void TheScannerReallyReadsTheMethod()
         {
-            string body = MethodBody("private void remoteAudioProc()");
+            string body = MethodBody("private void remoteAudioProc(long run)");
 
             Assert.True(body.Length > 2000,
                 "The scan produced " + body.Length + " characters. remoteAudioProc is "
