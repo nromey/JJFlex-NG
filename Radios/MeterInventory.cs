@@ -540,13 +540,19 @@ namespace Radios
             return sb.ToString();
         }
 
-        /// <summary>Age in words. Short, because it is read aloud beside a value.</summary>
+        /// <summary>Age in words. Short, because it is read aloud beside a value.
+        /// Singular at one: "1 second", never "1 seconds" — Noel heard the
+        /// latter from the alarm dialog on 2026-09-22 and ruled the fix here,
+        /// where every meter surface inherits it.</summary>
         public static string DescribeAge(TimeSpan age)
         {
             if (age.TotalSeconds < 1) return "under a second";
-            if (age.TotalSeconds < 90) return ((int)age.TotalSeconds) + " seconds";
-            if (age.TotalMinutes < 90) return ((int)age.TotalMinutes) + " minutes";
-            return ((int)age.TotalHours) + " hours";
+            if (age.TotalSeconds < 90) return Plural((int)age.TotalSeconds, "second");
+            if (age.TotalMinutes < 90) return Plural((int)age.TotalMinutes, "minute");
+            return Plural((int)age.TotalHours, "hour");
         }
+
+        private static string Plural(int n, string unit)
+            => n + " " + unit + (n == 1 ? "" : "s");
     }
 }

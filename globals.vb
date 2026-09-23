@@ -1064,7 +1064,7 @@ Module globals
             ' it as one more anonymous session.
             LastCaptureArchivePath = ArchiveCurrentTraceSessionReturningPath(
                 TraceSessionOutcome.CleanExit,
-                CaptureOutcomeDetailPrefix & $"{FormatClock(started)}, about {DescribeMinutes(minutes)}")
+                CaptureOutcomeDetailPrefix & $"{FormatClock(started)}, {DescribeMinutes(minutes)}")
 
             _captureStartedLocal = Nothing
 
@@ -1259,6 +1259,12 @@ Module globals
         Return moment.ToString("h:mm tt")
     End Function
 
+    ''' <summary>
+    ''' "under a minute", "about 1 minute", "about 3 minutes". The "about"
+    ''' lives HERE, not in the sentence that frames this, because the frame
+    ''' used to say "about {duration}" and the short case then assembled to
+    ''' "about under a minute" — heard by Noel 2026-09-22 on a short capture.
+    ''' </summary>
     Private Function DescribeMinutes(minutes As Integer) As String
         If minutes <= 0 Then Return Radios.Lexicon.Get("logging.time.under_a_minute")
         Return If(minutes = 1, Radios.Lexicon.Get("logging.time.minutes_one",

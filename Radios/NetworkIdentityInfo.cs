@@ -151,8 +151,10 @@ namespace Radios
             var age = DateTime.UtcNow - timestampUtc;
             if (age < TimeSpan.Zero) return string.Empty;
             if (age.TotalMinutes < 1) return " just now";
-            if (age.TotalMinutes < 120) return $" {(int)age.TotalMinutes} minutes ago";
-            return $" {(int)age.TotalHours} hours ago";
+            int m = (int)age.TotalMinutes;
+            if (m < 120) return $" {m} minute{(m == 1 ? "" : "s")} ago";
+            int h = (int)age.TotalHours;
+            return $" {h} hour{(h == 1 ? "" : "s")} ago";
         }
 
         private static string YesNo(bool? v) => v switch { true => "yes", false => "no", null => "unknown" };
