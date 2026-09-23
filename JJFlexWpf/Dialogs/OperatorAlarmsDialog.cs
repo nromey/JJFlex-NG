@@ -45,7 +45,7 @@ public sealed class OperatorAlarmsDialog : JJFlexDialog
     private readonly ListBox _list = new();
     private readonly TextBox _details = new();
     private readonly TextBlock _status = new();
-    private readonly Button _add, _edit, _enable, _readStatus, _readActive, _acknowledge, _snooze, _resume, _baseline, _history, _recorded, _delete;
+    private readonly Button _add, _edit, _enable, _readStatus, _readActive, _acknowledge, _snooze, _resume, _baseline, _history, _recorded;
     private IReadOnlyList<AlarmSnapshot> _rows = Array.Empty<AlarmSnapshot>();
     private readonly DispatcherTimer _tick;
 
@@ -72,6 +72,10 @@ public sealed class OperatorAlarmsDialog : JJFlexDialog
         // Acknowledge, Snooze, Resume notifications, History, then the extras,
         // then Close. Unavailable ones are disabled, which takes them out of
         // the tab order; the detail field carries the explanation.
+        //
+        // Delete is NOT here. Ruled by Noel 2026-09-22 (#566): "move it in."
+        // It lives inside the Edit form, after Save and Save as preset, so
+        // this dialog is the list, Add, Edit and the status actions.
         var buttons = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
         DockPanel.SetDock(buttons, Dock.Bottom);
         _add = Add(buttons, "alarms.dialog.add", AddAlarm);
@@ -85,7 +89,6 @@ public sealed class OperatorAlarmsDialog : JJFlexDialog
         _baseline = Add(buttons, "alarms.dialog.capture_baseline", CaptureBaseline);
         _history = Add(buttons, "alarms.dialog.history", ShowHistory);
         _recorded = Add(buttons, "alarms.dialog.record_meters", ShowRecordedMeters);
-        _delete = Add(buttons, "alarms.dialog.delete", DeleteAlarm);
         var close = Add(buttons, "alarms.dialog.close", () => CloseWithResult(true));
         close.IsCancel = true;
         root.Children.Add(buttons);
@@ -231,7 +234,6 @@ public sealed class OperatorAlarmsDialog : JJFlexDialog
         bool usable = _model != null && _model.Service.IsConnected && _model.Service.StoreState != AlarmStoreState.Unavailable;
         _add.IsEnabled = usable;
         _edit.IsEnabled = have && usable;
-        _delete.IsEnabled = have && usable;
         _enable.IsEnabled = have && usable;
         _enable.Content = s != null && s.Definition.Enabled ? Lexicon.Get("alarms.dialog.disable") : Lexicon.Get("alarms.dialog.enable");
         AutomationProperties.SetName(_enable, (string)_enable.Content);
@@ -256,12 +258,24 @@ public sealed class OperatorAlarmsDialog : JJFlexDialog
         RefreshRows(selectFirst: false);
     }
 
+    /// <summary>
+    /// Open the editor over the selected alarm. The editor is also where
+    /// Delete lives, so it can come back having removed the row: focus returns
+    /// to the list, on the row that took the deleted one's place — or the last
+    /// row, or the empty list with its message — and the receipt is spoken
+    /// once, from here, after the list has settled.
+    /// </summary>
     private void EditAlarm()
     {
         AlarmSnapshot? s = Selected();
         if (_model == null || s == null) { Say(Lexicon.Get("alarms.dialog.select_one")); return; }
-        AlarmEditorDialog.Show(this, _model, _model.EditorFor(s));
+        string? deleted = AlarmEditorDialog.Show(this, _model, _model.EditorFor(s));
         RefreshRows(selectFirst: false);
+        if (deleted == null) return;
+        _list.Focus();
+        Say(_rows.Count == 0 && _status.Text.Length != 0
+            ? deleted + " " + _status.Text
+            : deleted);
     }
 
     private void ToggleEnabled()
@@ -328,17 +342,6 @@ public sealed class OperatorAlarmsDialog : JJFlexDialog
         AlarmSnapshot? s = Selected();
         if (_model == null || s == null) return;
         Say(_model.CaptureBaseline(s.Definition.Id));
-        RefreshRows(selectFirst: false);
-    }
-
-    private void DeleteAlarm()
-    {
-        AlarmSnapshot? s = Selected();
-        if (_model == null || s == null) return;
-        MessageBoxResult answer = MessageBox.Show(this, _model.DeleteConfirmation(s), Title,
-            MessageBoxButton.YesNo, MessageBoxImage.Warning);
-        if (answer != MessageBoxResult.Yes) return;
-        Say(_model.Delete(s.Definition.Id));
         RefreshRows(selectFirst: false);
     }
 

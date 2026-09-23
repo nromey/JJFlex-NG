@@ -167,17 +167,37 @@ namespace Radios.Alarms
             return Lexicon.Get(enabled ? "alarms.dialog.enabled" : "alarms.dialog.disabled", ("alarm", s.Definition.Name));
         }
 
-        public string DeleteConfirmation(AlarmSnapshot s) =>
-            Lexicon.Get("alarms.dialog.delete_confirm", ("alarm", s.Definition.Name));
+        /// <summary>
+        /// Delete is reachable from an OPEN EDITOR, never from a selected row.
+        /// Ruled by Noel 2026-09-22 (#566): <i>"move it in."</i> The main
+        /// dialog is the list, Add, Edit and the status actions.
+        /// </summary>
+        /// <remarks>
+        /// An Add form has nothing to delete yet, so the button is offered only
+        /// over an alarm that is already saved.
+        /// </remarks>
+        public static bool CanDelete(AlarmEditorModel editor) => !editor.IsNew;
 
-        public string Delete(string alarmId)
+        /// <summary>The confirm for the alarm the editor is open on, by name, saying there is no undo.</summary>
+        public string DeleteConfirmation(AlarmEditorModel editor) =>
+            Lexicon.Get("alarms.dialog.delete_confirm", ("alarm", SavedName(editor)));
+
+        /// <summary>Delete the alarm the editor is open on, and return the one receipt to speak.</summary>
+        public string Delete(AlarmEditorModel editor)
         {
-            AlarmSnapshot? s = _service.SnapshotOf(alarmId);
-            if (s == null) return Lexicon.Get("alarms.dialog.select_one");
-            return _service.Remove(alarmId)
-                ? Lexicon.Get("alarms.dialog.deleted", ("alarm", s.Definition.Name))
-                : Lexicon.Get("alarms.dialog.save_failed");
+            if (!CanDelete(editor)) return Lexicon.Get("alarms.dialog.delete_failed");
+            string name = SavedName(editor);
+            return _service.Remove(editor.Id)
+                ? Lexicon.Get("alarms.dialog.deleted", ("alarm", name))
+                : Lexicon.Get("alarms.dialog.delete_failed");
         }
+
+        /// <summary>
+        /// The name the alarm is SAVED under. An unsaved edit to the name field
+        /// must not rename the thing the operator is being asked to confirm.
+        /// </summary>
+        private string SavedName(AlarmEditorModel editor) =>
+            _service.SnapshotOf(editor.Id)?.Definition.Name ?? editor.Name;
 
         public AlarmEvent? Preview(string alarmId) => _service.Preview(alarmId);
 

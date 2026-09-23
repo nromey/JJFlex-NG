@@ -14,7 +14,8 @@ namespace JJFlexWpf.Dialogs;
 
 /// <summary>
 /// Add or Edit an alarm: the staged form in the design's field order, Basic
-/// first and Advanced collapsed, Preview warning, Save, Save as preset, Cancel.
+/// first and Advanced collapsed, Preview warning, Save, Save as preset,
+/// Delete, Cancel.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -29,6 +30,13 @@ namespace JJFlexWpf.Dialogs;
 /// stores the form under the operator's own name on this computer; the Add
 /// flow's picker lists shipped presets and theirs. Long explanations are in
 /// the on-demand help, never HelpText, and nothing speaks on focus.
+/// </para>
+/// <para>
+/// <b>Delete lives here, not on the main dialog</b> — ruled by Noel
+/// 2026-09-22 (#566): <i>"move it in."</i> It is offered only over an alarm
+/// that is already saved, it asks first, and it closes the form so the one
+/// receipt is spoken by the list the operator lands back on rather than by a
+/// window that is disappearing.
 /// </para>
 /// </remarks>
 public sealed class AlarmEditorDialog : JJFlexDialog
@@ -62,6 +70,9 @@ public sealed class AlarmEditorDialog : JJFlexDialog
     private IReadOnlyList<PresetChoice> _presetChoices = Array.Empty<PresetChoice>();
     private bool _loading;
 
+    /// <summary>The delete receipt, when the operator deleted from in here; null otherwise. The CALLER speaks it.</summary>
+    private string? _deletedReceipt;
+
     /// <summary>The editor with nothing attached: what the desk-guarded sweep builds. It offers no meters and refuses to save.</summary>
     public AlarmEditorDialog() : this(OperatorAlarmsModel.Detached(), null) { }
 
@@ -82,6 +93,8 @@ public sealed class AlarmEditorDialog : JJFlexDialog
         buttons.Children.Add(MakeButton("alarms.editor.preview", Preview));
         buttons.Children.Add(MakeButton("alarms.editor.save", Save, isDefault: true));
         buttons.Children.Add(MakeButton("alarms.editor.save_as_preset", SaveAsPreset));
+        if (OperatorAlarmsModel.CanDelete(editor))
+            buttons.Children.Add(MakeButton("alarms.editor.delete", Delete));
         var cancel = MakeButton("alarms.editor.cancel", () => CloseWithResult(false));
         cancel.IsCancel = true;
         buttons.Children.Add(cancel);
@@ -182,10 +195,16 @@ public sealed class AlarmEditorDialog : JJFlexDialog
         LoadFields();
     }
 
-    public static void Show(Window owner, OperatorAlarmsModel model, AlarmEditorModel editor)
+    /// <summary>
+    /// Open the form over one alarm. Returns the delete receipt when the
+    /// operator deleted the alarm from inside it, so the caller can speak it
+    /// once, after the list has settled; null in every other case.
+    /// </summary>
+    public static string? Show(Window owner, OperatorAlarmsModel model, AlarmEditorModel editor)
     {
         var d = new AlarmEditorDialog(model, editor) { Owner = owner };
         d.ShowModalDialog();
+        return d._deletedReceipt;
     }
 
     // ── building blocks ──
@@ -388,6 +407,22 @@ public sealed class AlarmEditorDialog : JJFlexDialog
         string? name = EvidenceRenameDialog.Ask(this, "preset", _editor.Name, _editor.Name);
         if (name == null) return;
         Say(_model.SaveAsPreset(_editor, name));
+    }
+
+    /// <summary>
+    /// Delete the alarm this form is open on. It asks first, and it does not
+    /// speak the receipt: the form closes, and the list the operator lands
+    /// back on says what happened — one utterance, from a window that is
+    /// still there to say it.
+    /// </summary>
+    private void Delete()
+    {
+        if (!OperatorAlarmsModel.CanDelete(_editor)) return;
+        MessageBoxResult answer = MessageBox.Show(this, _model.DeleteConfirmation(_editor), Title,
+            MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (answer != MessageBoxResult.Yes) return;
+        _deletedReceipt = _model.Delete(_editor);
+        CloseWithResult(true);
     }
 
     private static void Say(string sentence)

@@ -155,7 +155,6 @@
   "alarms.dialog.edit": "Edit",
   "alarms.dialog.enable": "Enable",
   "alarms.dialog.disable": "Disable",
-  "alarms.dialog.delete": "Delete",
   "alarms.dialog.read_status": "Read status",
   "alarms.dialog.read_active": "Read active alarms",
   "alarms.dialog.acknowledge": "Acknowledge",
@@ -171,6 +170,7 @@
   "alarms.dialog.select_one": "Select an alarm first.",
   "alarms.dialog.deleted": "{alarm} deleted.",
   "alarms.dialog.delete_confirm": "Delete the alarm {alarm}? There is no undo.",
+  "alarms.dialog.delete_failed": "The alarm could not be deleted.",
   "alarms.dialog.saved": "{alarm} saved.",
   "alarms.dialog.save_failed": "The alarm could not be saved.",
   "alarms.dialog.enabled": "{alarm} enabled. It fires on the first fresh reading at the line, so it may fire straight away.",
@@ -182,7 +182,7 @@
   "alarms.dialog.recorded_intro": "Every meter with an alarm is recorded per reading while the alarm is enabled. Tick any other meter to record it too, without an alarm.",
   "alarms.dialog.recorded_by_alarm": "{meter} (recorded because an alarm watches it)",
 
-  "_review_editor": "The Add and Edit form, in the design's field order. Units go in the accessible name of every numeric field.",
+  "_review_editor": "The Add and Edit form, in the design's field order. Units go in the accessible name of every numeric field. Delete lives here, after Save and Save as preset, and only when an existing alarm is open — ruled by Noel 2026-09-22 (#566): 'move it in.'",
 
   "alarms.editor.title_add": "Add alarm — JJ Flexible",
   "alarms.editor.title_edit": "Edit alarm — JJ Flexible",
@@ -228,6 +228,7 @@
   "alarms.editor.preview": "Preview warning",
   "alarms.editor.save": "Save",
   "alarms.editor.save_as_preset": "Save as preset",
+  "alarms.editor.delete": "Delete",
   "alarms.editor.cancel": "Cancel",
   "alarms.editor.preset_name_prompt": "Name for this preset",
   "alarms.editor.preset_saved": "Preset {name} saved. It is kept on this computer and offered for any radio.",

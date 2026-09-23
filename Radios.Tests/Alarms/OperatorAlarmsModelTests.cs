@@ -205,7 +205,7 @@ namespace Radios.Tests.Alarms
         }
 
         [Fact]
-        public void Enable_disable_and_delete_speak_receipts_and_persist()
+        public void Enable_and_disable_speak_receipts_and_persist()
         {
             var model = Up();
             AlarmEditorModel editor = model.NewEditor();
@@ -215,9 +215,38 @@ namespace Radios.Tests.Alarms
             Assert.Equal("PA temperature high enabled. It fires on the first fresh reading at the line, so it may fire straight away.", model.SetEnabled(id, true));
             Assert.True(model.Rows()[0].Definition.Enabled);
             Assert.Equal("PA temperature high disabled. Its definition is kept.", model.SetEnabled(id, false));
-            Assert.Equal("Delete the alarm PA temperature high? There is no undo.", model.DeleteConfirmation(model.Rows()[0]));
-            Assert.Equal("PA temperature high deleted.", model.Delete(id));
+        }
+
+        /// <summary>
+        /// Ruled by Noel 2026-09-22 (#566): <i>"move it in."</i> Delete is a
+        /// button inside the Edit form, not beside Edit on the main dialog, so
+        /// the model offers it over an open editor and nowhere else.
+        /// </summary>
+        [Fact]
+        public void Delete_is_reachable_from_an_open_editor_and_not_from_a_selected_row()
+        {
+            var model = Up();
+            AlarmEditorModel add = model.NewEditor();
+            add.ApplyPreset(model.PresetChoices().Single(c => c.Definition?.PresetKey == AlarmPresets.PaTemperature));
+            model.Save(add, out _);
+
+            // An Add form has nothing to delete yet.
+            Assert.False(OperatorAlarmsModel.CanDelete(model.NewEditor()));
+
+            AlarmEditorModel editor = model.EditorFor(model.Rows()[0]);
+            Assert.True(OperatorAlarmsModel.CanDelete(editor));
+            Assert.Equal("Delete the alarm PA temperature high? There is no undo.", model.DeleteConfirmation(editor));
+
+            // An unsaved edit to the name field does not rename the thing the
+            // operator is being asked to confirm.
+            editor.Name = "Something else entirely";
+            Assert.Equal("Delete the alarm PA temperature high? There is no undo.", model.DeleteConfirmation(editor));
+
+            Assert.Equal("PA temperature high deleted.", model.Delete(editor));
             Assert.Empty(model.Rows());
+
+            // A second press on a gone alarm does not claim a second success.
+            Assert.Equal("The alarm could not be deleted.", model.Delete(editor));
         }
 
         [Fact]
