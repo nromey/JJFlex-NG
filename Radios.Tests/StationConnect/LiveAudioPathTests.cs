@@ -280,6 +280,121 @@ namespace Radios.Tests.StationConnect
             Assert.DoesNotContain(r.Vendor.Transport.Commands, c => c.StartsWith("radio set tnf_enabled=", StringComparison.Ordinal));
         }
 
+        // ── abandoning THIS apply must not abandon an earlier one's put-back ──
+        //
+        // AbandonUnappliedLiveAudio is called from three places — the deferred
+        // refusal, an enqueue failure and an all-refused continuation — and
+        // until Track G5 each of them deleted the snapshot, every live record
+        // and the autosave obligation, whatever else was outstanding. Track G3
+        // repaired the sibling AbortLiveAudio and left this one. Astra's
+        // review: "A refused later operation must not erase an earlier
+        // operation's put-back or turn autosave on over its live settings."
+
+        private static readonly MethodInfo Abandon =
+            typeof(FlexBase).GetMethod("AbandonUnappliedLiveAudio", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        private static readonly FieldInfo SessionRecord =
+            typeof(FlexBase).GetField("_profileSessionRecord", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        private static readonly FieldInfo SnapshotField =
+            typeof(FlexBase).GetField("_liveTxSnapshot", BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+        private static List<ProfileSessionRecord> RecordsOf(FlexBase rig) =>
+            (List<ProfileSessionRecord>)SessionRecord.GetValue(rig)!;
+
+        [Fact]
+        public void AbandoningAnUnappliedApply_KeepsAnEarlierOperationsPutBack_AndItsSnapshot()
+        {
+            Assert.True(Abandon != null && SessionRecord != null, "the abandon path is not where this test reaches it");
+            var r = NewRig();
+            // An earlier operation on this connection applied ours and owes a
+            // put-back; the snapshot is the owner's own chain, which is the
+            // only thing that put-back can read from.
+            RecordsOf(r.Rig).Add(new ProfileSessionRecord
+            {
+                ProfileType = ProfileTypes.tx, LiveTransmitAudio = true, WeLoaded = "Contest",
+            });
+            SnapshotField.SetValue(r.Rig, new AudioChainPreset("live transmit audio"));
+            AutosaveOffThisSession.SetValue(r.Rig, true);
+
+            Abandon.Invoke(r.Rig, null);
+
+            Assert.Contains(RecordsOf(r.Rig), rec => rec.LiveTransmitAudio);
+            Assert.True(SnapshotHeld(r.Rig), "the snapshot the earlier put-back reads from must survive");
+            Assert.True((bool)AutosaveOffThisSession.GetValue(r.Rig)!,
+                "autosave must stay off while our chain is live on the radio: turning it on commits our settings into the owner's profile");
+        }
+
+        [Fact]
+        public void AbandoningAnUnappliedApply_WithNothingElseOutstanding_DiscardsTheSnapshot()
+        {
+            // The positive control, and the behaviour that was always right:
+            // an apply that never happened owes nothing.
+            var r = NewRig();
+            SnapshotField.SetValue(r.Rig, new AudioChainPreset("live transmit audio"));
+
+            Abandon.Invoke(r.Rig, null);
+
+            Assert.DoesNotContain(RecordsOf(r.Rig), rec => rec.LiveTransmitAudio);
+            Assert.False(SnapshotHeld(r.Rig), "with nothing owed, the snapshot is discarded as it always was");
+        }
+
+        [Fact]
+        public void AbandoningIsScopedAtEveryEntry_NotOnlyTheFirst()
+        {
+            // All three callers go through the one helper, so the scoping
+            // cannot be true of one entry and false of another. Pinned in the
+            // source because the defect was precisely a sibling left behind.
+            var dir = new System.IO.DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
+            Assert.NotNull(dir);
+            string text = System.IO.File.ReadAllText(System.IO.Path.Combine(dir!.FullName, "Radios", "FlexBase.cs"));
+            int helper = text.IndexOf("private void AbandonUnappliedLiveAudio()", StringComparison.Ordinal);
+            Assert.True(helper > 0);
+            string body = text.Substring(helper, 1600);
+            Assert.Contains("LiveAudioAbortPlan.Decide(", body, StringComparison.Ordinal);
+            Assert.Contains("priorRecord", body, StringComparison.Ordinal);
+            // Three calls, and no site that reaches past the helper to delete
+            // records or the snapshot itself.
+            Assert.Equal(3, System.Text.RegularExpressions.Regex.Matches(text, @"AbandonUnappliedLiveAudio\(\);").Count);
+        }
+
+        // ── the preset's receipt reaches the operator ──
+
+        [Fact]
+        public void TheApplyCarriesThePresetsReceipt_InsteadOfDroppingIt()
+        {
+            // AudioChainPreset.ApplyTo returns a spoken-ready note about
+            // anything it could NOT apply faithfully — a TX equalizer the
+            // radio has not reported, or a preset tuned for a different
+            // microphone input — and its own summary says callers append it to
+            // their announcement. This path produced that note and threw it
+            // away, so a half-applied chain was announced as applied.
+            var dir = new System.IO.DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
+            Assert.NotNull(dir);
+            string text = System.IO.File.ReadAllText(System.IO.Path.Combine(dir!.FullName, "Radios", "FlexBase.cs"));
+
+            int apply = text.IndexOf("private bool ApplyLocalTransmitAudioPayloadNow(AudioChainPreset payload, string presetName, out string receipt)", StringComparison.Ordinal);
+            Assert.True(apply > 0, "the apply must hand its receipt back");
+            Assert.Contains("receipt = payload.ApplyTo(this) ?? \"\";", text.Substring(apply, 900), StringComparison.Ordinal);
+
+            int deferred = text.IndexOf("internal void ApplyDeferredGuestTransmitAudio()", StringComparison.Ordinal);
+            string body = text.Substring(deferred, text.IndexOf("private void AbandonUnappliedLiveAudio()", StringComparison.Ordinal) - deferred);
+            Assert.Contains("out receipt", body, StringComparison.Ordinal);
+            // Spoken, not merely traced: the announcement itself carries it.
+            Assert.Contains("(\"preset\", pending)) + (receipt.Length == 0 ? \"\" : \" \" + receipt)", body, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void ThePresetsReceiptIsEmptyWhenNothingWasLeftOut_SoNothingIsAppendedForNoReason()
+        {
+            // The other half: a complete apply says nothing extra. Read
+            // assembled — "Your transmit audio is set to Contest." with a
+            // trailing space and nothing after it is a defect an operator
+            // hears as a pause.
+            var preset = new AudioChainPreset("Contest");
+            Assert.Equal("", preset.ApplyTo(NewRig().Rig, applyEq: false));
+        }
+
         [Fact]
         public void ThePostImportApply_IsQueuedToTheGatedPath_NotRunUngated()
         {

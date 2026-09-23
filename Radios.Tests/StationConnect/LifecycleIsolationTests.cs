@@ -193,11 +193,28 @@ namespace Radios.Tests.StationConnect
 
         private static readonly FieldInfo PendingOperationField =
             typeof(FlexBase).GetField("_pendingLiveTxApplyOperation", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        private static readonly FieldInfo PendingPresetField =
+            typeof(FlexBase).GetField("_pendingLiveTxApplyPreset", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        private static readonly FieldInfo PendingPayloadField =
+            typeof(FlexBase).GetField("_pendingLiveTxApplyPayload", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        private static readonly MethodInfo TakeBatch =
+            typeof(FlexBase).GetMethod("TakePendingLiveAudioBatch", BindingFlags.NonPublic | BindingFlags.Instance)!;
         private static readonly MethodInfo DeferredRefusal =
             typeof(FlexBase).GetMethod("DeferredLiveAudioRefusal", BindingFlags.NonPublic | BindingFlags.Instance)!;
 
-        private static string Refusal(FlexBase rig) =>
-            (string)DeferredRefusal.Invoke(rig, new object[] { "Contest", new AudioChainPreset("Contest") })!;
+        /// <summary>Queue an apply the way the connect does, then take it off
+        /// the fields the way the command loop does. What comes back is the
+        /// batch identity every gate for that apply is judged against.</summary>
+        private static object QueueAndTakeBatch(FlexBase rig, StationOperation under)
+        {
+            PendingPresetField.SetValue(rig, "Contest");
+            PendingPayloadField.SetValue(rig, new AudioChainPreset("Contest"));
+            PendingOperationField.SetValue(rig, under);
+            return TakeBatch.Invoke(rig, null)!;
+        }
+
+        private static string Refusal(FlexBase rig, object batch) =>
+            (string)DeferredRefusal.Invoke(rig, new[] { batch })!;
 
         [Fact]
         public void TheDeferredApply_RefusesWhenTheOperationThatQueuedItEnded_EvenThoughTheCurrentOneIsLive()
@@ -205,17 +222,56 @@ namespace Radios.Tests.StationConnect
             var r = NewRig();
             Assert.True(PendingOperationField != null && DeferredRefusal != null, "the deferred apply's operation token is not where this test reaches it");
             var connect = r.Rig.StationAttempt.BeginOperation("station establishment on connect");
-            PendingOperationField.SetValue(r.Rig, connect);           // deferred under the connect
+            var batch = QueueAndTakeBatch(r.Rig, connect);            // deferred under the connect
 
             var postImport = r.Rig.StationAttempt.BeginOperation("post-import station re-establishment");
             Assert.True(postImport.IsLive);                            // the CURRENT operation is live
             Assert.True(r.Rig.StationAttempt.IsLive);
 
-            string refusal = Refusal(r.Rig);
+            string refusal = Refusal(r.Rig, batch);
 
             Assert.NotNull(refusal);
             Assert.Contains("operation ended", refusal);
             Assert.Contains("superseded", refusal);
+        }
+
+        [Fact]
+        public void TheDeferredApply_IsJudgedAgainstItsOwnBatch_EvenAfterANewerApplyOverwritesTheField()
+        {
+            // The defect Astra found, and the one the old test could not see
+            // because it only ENDED the old operation and left the field
+            // pointing at it: the post-import entry records a NEW pending
+            // apply while the first apply's setters are still queued behind
+            // it. Reading the field at the setter asked about the newer
+            // operation, which is live — so the old batch's setters ran with
+            // the new batch's permission. The identity travels with the batch
+            // now, so the field can say anything it likes.
+            var r = NewRig();
+            var connect = r.Rig.StationAttempt.BeginOperation("station establishment on connect");
+            var firstBatch = QueueAndTakeBatch(r.Rig, connect);
+
+            var postImport = r.Rig.StationAttempt.BeginOperation("post-import station re-establishment");
+            PendingPresetField.SetValue(r.Rig, "Contest");             // the SAME preset, so the name cannot tell them apart
+            PendingPayloadField.SetValue(r.Rig, new AudioChainPreset("Contest"));
+            PendingOperationField.SetValue(r.Rig, postImport);         // the newer operation, live
+
+            string refusal = Refusal(r.Rig, firstBatch);
+
+            Assert.NotNull(refusal);
+            Assert.Contains("operation ended", refusal);
+        }
+
+        [Fact]
+        public void TakingABatch_ClearsThePendingFields_SoNothingCanRunTwice()
+        {
+            var r = NewRig();
+            var connect = r.Rig.StationAttempt.BeginOperation("station establishment on connect");
+            QueueAndTakeBatch(r.Rig, connect);
+
+            Assert.True(string.IsNullOrEmpty((string)PendingPresetField.GetValue(r.Rig)));
+            Assert.Null(PendingPayloadField.GetValue(r.Rig));
+            Assert.Null(PendingOperationField.GetValue(r.Rig));
+            Assert.Null(TakeBatch.Invoke(r.Rig, null));
         }
 
         [Fact]
@@ -226,9 +282,9 @@ namespace Radios.Tests.StationConnect
             // not connected), it is not the operation.
             var r = NewRig();
             var connect = r.Rig.StationAttempt.BeginOperation("station establishment on connect");
-            PendingOperationField.SetValue(r.Rig, connect);
+            var batch = QueueAndTakeBatch(r.Rig, connect);
 
-            string refusal = Refusal(r.Rig);
+            string refusal = Refusal(r.Rig, batch);
 
             Assert.DoesNotContain("operation ended", refusal ?? "");
             Assert.DoesNotContain("originating operation", refusal ?? "");
@@ -239,9 +295,9 @@ namespace Radios.Tests.StationConnect
         {
             var r = NewRig();
             r.Rig.StationAttempt.BeginOperation("station establishment on connect");
-            PendingOperationField.SetValue(r.Rig, null);
+            var batch = QueueAndTakeBatch(r.Rig, null);
 
-            string refusal = Refusal(r.Rig);
+            string refusal = Refusal(r.Rig, batch);
 
             Assert.Contains("no originating operation", refusal);
         }

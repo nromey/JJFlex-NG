@@ -251,7 +251,11 @@ namespace Radios.Tests.StationConnect
             // The deferred assessment runs from the continuation queued behind
             // the apply's setters, never before them.
             int apply = IndexOf(flex, "internal void ApplyDeferredGuestTransmitAudio()");
-            string applyBody = flex.Substring(apply, Math.Min(6000, flex.Length - apply));
+            // Bounded by the NEXT method rather than by a character count: the
+            // count was 6000, the method grew past it in Track G5, and a
+            // window that stops short turns every assertion below into a
+            // silent false.
+            string applyBody = flex.Substring(apply, IndexOf(flex, "private void AbandonUnappliedLiveAudio()") - apply);
             int continuation = applyBody.IndexOf("\"live transmit audio continuation\"", StringComparison.Ordinal);
             int assess = applyBody.IndexOf("RunPendingSilentMicAssessment(\"after the deferred apply's setters\")", StringComparison.Ordinal);
             Assert.True(assess > 0 && continuation > assess, "the assessment must be inside the continuation queued behind the setters");
@@ -342,14 +346,16 @@ namespace Radios.Tests.StationConnect
             // and the roster it reads is the strict one.
             var text = Read(FlexBase);
             int method = IndexOf(text, "internal void ApplyDeferredGuestTransmitAudio()");
-            int apply = text.IndexOf("ApplyLocalTransmitAudioPayloadNow(payload, pending)", method, StringComparison.Ordinal);
+            int apply = text.IndexOf("ApplyLocalTransmitAudioPayloadNow(batch.Payload, pending, out receipt)", method, StringComparison.Ordinal);
             Assert.True(apply > method, "the deferred apply must apply the HELD payload");
             string before = text.Substring(method, apply - method);
-            Assert.Contains("DeferredLiveAudioRefusal(pending, payload)", before, StringComparison.Ordinal);
-            Assert.Contains("QueuedWriteGate.Open(() => DeferredLiveAudioRefusal(pending, payload))", before, StringComparison.Ordinal);
-            Assert.DoesNotContain("FindLocalTransmitAudioProfile(pending)", text.Substring(method, 6000), StringComparison.Ordinal);
+            Assert.Contains("DeferredLiveAudioRefusal(batch)", before, StringComparison.Ordinal);
+            Assert.Contains("QueuedWriteGate.Open(() => DeferredLiveAudioRefusal(batch))", before, StringComparison.Ordinal);
+            Assert.DoesNotContain("FindLocalTransmitAudioProfile(pending)",
+                text.Substring(method, IndexOf(text, "private void AbandonUnappliedLiveAudio()") - method),
+                StringComparison.Ordinal);
 
-            int refusal = IndexOf(text, "private string DeferredLiveAudioRefusal(string presetName, AudioChainPreset payload)");
+            int refusal = IndexOf(text, "private string DeferredLiveAudioRefusal(LiveAudioBatch batch)");
             string body = text.Substring(refusal, Math.Min(2500, text.Length - refusal));
             Assert.Contains("DeferredLiveAudioGate.Refusal(", body, StringComparison.Ordinal);
             // The GUEST'S authority, not the owner's ruled one (Track G3).

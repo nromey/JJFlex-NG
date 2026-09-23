@@ -16898,16 +16898,14 @@ namespace Radios
         /// </remarks>
         internal void ApplyDeferredGuestTransmitAudio()
         {
-            string pending = _pendingLiveTxApplyPreset;
-            var payload = _pendingLiveTxApplyPayload;
-            if (string.IsNullOrEmpty(pending)) return;
-            _pendingLiveTxApplyPreset = null;
-            _pendingLiveTxApplyPayload = null;
+            var batch = TakePendingLiveAudioBatch();
+            if (batch == null) return;
+            string pending = batch.Preset;
 
             // Revalidate at the deferred delegate (design step 9): the
             // permission and the snapshot are as old as the plan, and the
             // queue delay is exactly where they go stale.
-            string refusal = DeferredLiveAudioRefusal(pending, payload);
+            string refusal = DeferredLiveAudioRefusal(batch);
             if (refusal != null)
             {
                 Tracing.TraceLine("ProfileStewardship: the deferred live transmit-audio apply did NOT run — "
@@ -16925,11 +16923,12 @@ namespace Radios
             }
 
             // Every setter the preset enqueues is asked again at its run.
-            var gate = QueuedWriteGate.Open(() => DeferredLiveAudioRefusal(pending, payload));
+            var gate = QueuedWriteGate.Open(() => DeferredLiveAudioRefusal(batch));
             bool enqueued;
+            string receipt = "";
             try
             {
-                enqueued = ApplyLocalTransmitAudioPayloadNow(payload, pending);
+                enqueued = ApplyLocalTransmitAudioPayloadNow(batch.Payload, pending, out receipt);
             }
             finally
             {
@@ -16962,11 +16961,22 @@ namespace Radios
                     }
                     Tracing.TraceLine("ProfileStewardship: applied the operator's '" + pending
                         + "' transmit audio to the radio's live state: " + gate.Ran + " setter(s) ran, none refused. "
-                        + "Nothing was saved on the radio; the put-back is owed.", TraceLevel.Info);
+                        + "Nothing was saved on the radio; the put-back is owed."
+                        + (receipt.Length == 0 ? "" : " " + receipt), TraceLevel.Info);
                     if (!SuppressSpeech)
                     {
+                        // The preset's own receipt, appended as its author
+                        // intended — "callers append it to their own
+                        // announcement". It names what could NOT be applied
+                        // faithfully (an EQ the file never captured, a
+                        // microphone input the preset was tuned for and the
+                        // radio is not on), and until Track G5 this path threw
+                        // it away, so a half-applied chain was announced as
+                        // applied. FOR NOEL'S PROSE REVIEW: the appended
+                        // sentences are AudioChainPreset.ApplyTo's.
                         NoteProfileVerdict(Lexicon.Get("settings.profile_guest.live_audio_applied",
-                            ("preset", pending)), VerbosityLevel.Terse, volunteered: true);
+                            ("preset", pending)) + (receipt.Length == 0 ? "" : " " + receipt),
+                            VerbosityLevel.Terse, volunteered: true);
                     }
                 }
                 else
@@ -16996,7 +17006,8 @@ namespace Radios
                     Tracing.TraceLine("ProfileStewardship: the live transmit-audio apply was " + (gate.Ran > 0 ? "PARTIAL" : "refused in full")
                         + ": " + gate.Ran + " setter(s) ran, " + gate.Refused + " refused (" + gate.FirstRefusal + "), "
                         + gate.Threw + " threw (" + gate.FirstThrow + "). "
-                        + (gate.Ran > 0 || gate.Threw > 0 ? "The put-back is owed." : "Nothing is owed."), TraceLevel.Warning);
+                        + (gate.Ran > 0 || gate.Threw > 0 ? "The put-back is owed." : "Nothing is owed.")
+                        + (receipt.Length == 0 ? "" : " " + receipt), TraceLevel.Warning);
                     if (gate.Ran == 0 && gate.Threw == 0) AbandonUnappliedLiveAudio();
                     if (!SuppressSpeech)
                     {
@@ -17009,21 +17020,53 @@ namespace Radios
             }), "live transmit audio continuation");
         }
 
-        /// <summary>An apply that never happened owes nothing: discard the
-        /// snapshot, give autosave back (confirmed or the notice stays).</summary>
+        /// <summary>
+        /// THIS batch never applied anything, so it owes nothing: discard its
+        /// snapshot and give autosave back.
+        /// </summary>
+        /// <remarks>
+        /// Scoped to the batch being abandoned (Track G5). It used to delete
+        /// the snapshot and EVERY live record and turn autosave back on,
+        /// whatever else was outstanding, from all three of its entry paths —
+        /// so a later operation's refusal erased an earlier operation's
+        /// put-back and committed our applied chain into the owner's profile.
+        /// An unapplied batch recorded nothing, which is what makes this
+        /// decidable: any live record present belongs to an EARLIER operation
+        /// on this connection, and so does the snapshot its put-back will read
+        /// from. The autosave half is <see cref="LiveAudioAbortPlan"/>, the
+        /// same decision Track G3 gave <see cref="AbortLiveAudio"/>.
+        /// </remarks>
         private void AbandonUnappliedLiveAudio()
         {
-            var serial = theRadio?.Serial;
-            _liveTxSnapshot = null;
-            if (!string.IsNullOrEmpty(serial)) DeleteLiveTxSnapshot(serial);
-            lock (_profileRecordLock) _profileSessionRecord.RemoveAll(r => r.LiveTransmitAudio);
-            if (_autosaveTurnedOffThisSession) RestoreRadioAutosaveAfterAbort();
+            bool priorRecord;
+            lock (_profileRecordLock) priorRecord = _profileSessionRecord.Any(r => r.LiveTransmitAudio);
+            var plan = LiveAudioAbortPlan.Decide(false, _autosaveTurnedOffThisSession, priorRecord);
+            if (priorRecord)
+            {
+                Tracing.TraceLine("ProfileStewardship: this live transmit-audio apply is abandoned, but an earlier "
+                    + "operation on this connection applied ours and owes a put-back — its record and the snapshot "
+                    + "that put-back reads are kept. " + plan.Reason, TraceLevel.Warning);
+            }
+            else
+            {
+                var serial = theRadio?.Serial;
+                _liveTxSnapshot = null;
+                if (!string.IsNullOrEmpty(serial)) DeleteLiveTxSnapshot(serial);
+                lock (_profileRecordLock) _profileSessionRecord.RemoveAll(r => r.LiveTransmitAudio);
+                Tracing.TraceLine("ProfileStewardship: nothing was applied and nothing earlier is outstanding, so the "
+                    + "snapshot is discarded. " + plan.Reason, TraceLevel.Info);
+            }
+            if (plan.RestoreAutosave) RestoreRadioAutosaveAfterAbort();
         }
 
         /// <summary>Apply a held payload to the live state: the setters are
-        /// enqueued through the command loop, under whatever gate is ambient.</summary>
-        private bool ApplyLocalTransmitAudioPayloadNow(AudioChainPreset payload, string presetName)
+        /// enqueued through the command loop, under whatever gate is ambient.
+        /// <paramref name="receipt"/> carries the preset's own note about
+        /// anything it could not apply faithfully — "" when the apply was
+        /// complete. Until Track G5 this method threw that note away.</summary>
+        private bool ApplyLocalTransmitAudioPayloadNow(AudioChainPreset payload, string presetName, out string receipt)
         {
+            receipt = "";
             if (payload == null)
             {
                 Tracing.TraceLine("ProfileStewardship: no held payload for '" + presetName + "'; nothing applied.", TraceLevel.Error);
@@ -17032,7 +17075,7 @@ namespace Radios
             try
             {
                 using (AppInitiatedSettingChanges())
-                    payload.ApplyTo(this);
+                    receipt = payload.ApplyTo(this) ?? "";
             }
             catch (Exception ex)
             {
@@ -17053,18 +17096,65 @@ namespace Radios
             CheckMicProfileForSilentTx(mayRepair: _pendingAssessmentMayRepair);
         }
 
+        /// <summary>
+        /// ONE deferred live-audio apply's identity, captured when the batch
+        /// was taken off the pending fields and carried to every gate and
+        /// continuation that batch opens.
+        /// </summary>
+        /// <remarks>
+        /// The fields it copies are mutable and a later operation overwrites
+        /// them: the post-import entry records a new pending apply while the
+        /// first apply's setters are still queued behind it. Reading them at
+        /// the setter therefore asked about the NEWER operation, and with the
+        /// same preset chosen the gate could not tell the batches apart, so
+        /// the old setters ran with the new operation's permission (Track G5;
+        /// Astra's review of G3 and G4).
+        /// </remarks>
+        private sealed class LiveAudioBatch
+        {
+            public string Preset;
+            public AudioChainPreset Payload;
+            public Radios.StationConnect.StationOperation Operation;
+            public int Attempt;
+        }
+
+        /// <summary>Take the pending apply off the fields as one batch, so
+        /// nothing a later operation writes there can reach it.</summary>
+        private LiveAudioBatch TakePendingLiveAudioBatch()
+        {
+            string preset = _pendingLiveTxApplyPreset;
+            if (string.IsNullOrEmpty(preset)) return null;
+            var batch = new LiveAudioBatch
+            {
+                Preset = preset,
+                Payload = _pendingLiveTxApplyPayload,
+                Operation = _pendingLiveTxApplyOperation,
+                Attempt = _pendingLiveTxApplyAttempt,
+            };
+            _pendingLiveTxApplyPreset = null;
+            _pendingLiveTxApplyPayload = null;
+            _pendingLiveTxApplyOperation = null;
+            _pendingLiveTxApplyAttempt = -1;
+            return batch;
+        }
+
         /// <summary>Why the deferred apply must not run now, or null: the
         /// pure <see cref="DeferredLiveAudioGate"/> over the facts as they
-        /// are at this instant. Called at the delegate and inside every
-        /// setter it queues.</summary>
-        private string DeferredLiveAudioRefusal(string presetName, AudioChainPreset payload)
+        /// are at this instant, judged against the identity THIS batch was
+        /// queued with. Called at the delegate and inside every setter it
+        /// queues.</summary>
+        private string DeferredLiveAudioRefusal(LiveAudioBatch batch)
         {
+            string presetName = batch.Preset;
+            var payload = batch.Payload;
             var attempt = StationAttempt;
             // The operation that QUEUED the apply, never the current one: a
             // post-import re-entry or a teardown that began meanwhile ended
             // it, and its work must refuse even though the CURRENT operation
-            // is live (Track G2 re-review, step 1).
-            var op = _pendingLiveTxApplyOperation;
+            // is live (Track G2 re-review, step 1). Carried in the batch
+            // rather than re-read from the field, because the field is where
+            // the newer operation writes (Track G5).
+            var op = batch.Operation;
             var radio = theRadio;
             var serial = radio?.Serial ?? "";
             var evidence = ProfileEvidence.Snapshot();
@@ -17072,7 +17162,7 @@ namespace Radios
             {
                 OperationLive = attempt.IsLive && op != null && op.IsLive,
                 OperationEndReason = op == null ? "no originating operation is recorded for the deferred apply" : (op.WhyNotLive ?? attempt.CancelReason),
-                ApplyAttemptMatches = _pendingLiveTxApplyAttempt == attempt.Generation,
+                ApplyAttemptMatches = batch.Attempt == attempt.Generation,
                 Connected = radio != null && IsConnected,
                 HoldArmed = ChangeNothingActive,
                 // The GUEST'S authority, not the owner's ruled one (Track G3).
