@@ -218,7 +218,8 @@ namespace Radios
             SilenceBackendQuietly,
             RecordGated,
             CreateRateModel(),
-            ProbeIsSpeaking);
+            ProbeIsSpeaking,
+            WithdrawUnsentFromPump);
 
         /// <summary>
         /// The speaking-rate model the estimate path uses (#557), persisted
@@ -291,6 +292,27 @@ namespace Radios
         private static Speech.PacedSpeechDelivery PumpLocked()
         {
             return _pump ??= new Speech.PacedSpeechDelivery(SpeakThroughBackend, OnPacedOutcome);
+        }
+
+        /// <summary>
+        /// The arbiter's reach into the pump: take a superseded utterance back
+        /// before the reader sees it (#606). Returns false when there is no
+        /// pump, or the reader already has it — in which case supersession
+        /// does what it always did and stops it being rescued.
+        /// </summary>
+        private static bool WithdrawUnsentFromPump(long ticket, string reason)
+        {
+            Speech.PacedSpeechDelivery? pump;
+            lock (_backendLock) { pump = _pump; }
+            if (pump == null) return false;
+            try { return pump.WithdrawIfQueued(ticket, reason); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine(
+                    $"ScreenReaderOutput: could not withdraw #{ticket} from the delivery queue: {ex.Message}",
+                    TraceLevel.Warning);
+                return false;
+            }
         }
 
         /// <summary>
@@ -429,7 +451,16 @@ namespace Radios
                 case Speech.SpeechIntent.Urgent:
                     // Cut what is speaking AND drop what is queued, so nothing
                     // stale can play on top of a transmit warning.
-                    _arbiter.Urgent(message, level, origin);
+                    //
+                    // **The subject goes with it now (#606, #571).** This line
+                    // dropped the caller's subject on the floor, and the
+                    // arbiter supplied null in its place — so the one class of
+                    // utterance that most needs an owner and a lifecycle was
+                    // the one class that had neither, and a transmit-cut
+                    // sentence cut off part-way was gone rather than delayed.
+                    // Both safety callers have been passing ReflectedPowerCut
+                    // all along.
+                    _arbiter.Urgent(message, level, origin, subject);
                     return;
 
                 case Speech.SpeechIntent.Latest:

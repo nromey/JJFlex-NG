@@ -125,6 +125,56 @@ namespace Radios.Speech
     /// ledger believes the reader busy pulls the busy-until back to now — a
     /// correction to the estimate, never the basis of a queue.
     ///
+    /// **And recovery attaches to the OBLIGATION, not to the next utterance
+    /// (#606).** Everything above answers "what did the reader still have
+    /// when something flushed it". None of it asked the prior question: is
+    /// THIS interrupt a recovery opportunity for THIS unfinished unit at all?
+    /// Until 2026-09-23 the answer was always yes — any successful ordinary
+    /// interrupt swept the whole ledger — and an unrelated key acknowledgement
+    /// was therefore permission to replay an old string. Measured in Noel's
+    /// NVDA transcript of 2026-09-23 05:42: the listening sentence was
+    /// submitted three times and cut at four, four and two words of ten,
+    /// released 599 and 600 ms after the app acknowledged the JJ key and then
+    /// Escape. Behind it sat a clause saying the station restore was
+    /// unconfirmed; it was withdrawn before it ever started on every attempt,
+    /// spent both its rescues at ADMISSION, and was never spoken once. **The
+    /// lost information was the defect; the repetition was the symptom.**
+    ///
+    /// The rule, in Astra's words: recover an unfinished information
+    /// obligation when it is still valid, belongs in the receiving context,
+    /// and a known recovery opportunity permits it; never use an unrelated key
+    /// acknowledgement as permission to replay an old string. Here that is
+    /// <see cref="Owed"/> — what the transport actually established about the
+    /// last attempt — consulted by <see cref="RecoveryPermitted"/>:
+    ///
+    /// - **Nothing said yet** — the reader or our pump still has it, and this
+    ///   interrupt is about to destroy it. That IS the evidence, and it is the
+    ///   whole pre-#521 contract. Recoverable.
+    /// - **Cut by us** — we caused the loss, so we owe the put-back.
+    ///   Recoverable.
+    /// - **Never begun** — withdrawn at zero marks, or refused outright.
+    ///   Nothing was heard, so handing it over again is a FIRST hearing, not a
+    ///   repeat: recoverable, and it spends no rescue, because the cap bounds
+    ///   repeats the operator may actually have heard.
+    /// - **Paused, cause unknown** — cut part-way by something that is not us.
+    ///   The completion callback cannot tell Ctrl from a focus change from
+    ///   another program taking the foreground, so the cause stays unknown and
+    ///   an unrelated later interrupt is NOT permission. It waits, owed,
+    ///   until the ceiling retires it or its owner covers it.
+    ///
+    /// **Safety information is protected and is the exception to every bound
+    /// here.** An interrupting warning used to be emitted and not ledgered at
+    /// all, so an interrupted transmit-cut sentence was lost permanently
+    /// rather than delayed. It is ledgered now, it survives the discard an
+    /// urgent warning performs, it survives a Silence, and it is exempt from
+    /// the salvage cap, the ceiling, the word-count bound and the ledger's
+    /// overflow eviction — ordinary verbosity, navigation, a timer expiring
+    /// and a rescue count running out may not retire it. What may: its owner
+    /// saying something newer on the same subject. What still governs it is
+    /// EVIDENCE: nothing is recovered without positive evidence the unit was
+    /// lost, and an estimate saying the reader finished is evidence of
+    /// delivery, not a bound on the obligation.
+    ///
     /// Instance-based with an injected <see cref="ISpeechClock"/> so every
     /// timing constant here is testable exactly — advance a manual clock,
     /// assert precisely one utterance, assert when. Production wiring lives
@@ -132,6 +182,35 @@ namespace Radios.Speech
     /// </summary>
     internal sealed class SpeechArbiter
     {
+        /// <summary>
+        /// What the transport established about an entry's LAST delivery
+        /// attempt — which is what decides whether a later interrupt may
+        /// recover it. Deliberately not "how long ago was it": an elapsed
+        /// estimate, a missing completion event and an unrelated keypress are
+        /// none of them proof of loss (#606).
+        /// </summary>
+        internal enum Owed
+        {
+            /// <summary>Handed over; nobody has said anything about it yet. The reader or our pump still holds it.</summary>
+            Pending,
+
+            /// <summary>Our own interrupt, Silence or Urgent cut it. We caused the loss, so recovery is ours to offer.</summary>
+            CutByUs,
+
+            /// <summary>
+            /// It never said a word: withdrawn at zero marks, or the reader
+            /// refused the text. Fully owed — re-handing it is a first
+            /// hearing, not a repeat.
+            /// </summary>
+            NeverStarted,
+
+            /// <summary>
+            /// Cut part-way by something that is not us. The cause is
+            /// unclassified and must stay unclassified, so no unrelated
+            /// interrupt may use it as permission to replay.
+            /// </summary>
+            PausedUnknownCause,
+        }
         // ── Latest (lead-then-settle) constants ──
 
         /// <summary>Quiet period after the LAST change before a Latest utterance speaks.</summary>
@@ -323,6 +402,24 @@ namespace Radios.Speech
         internal const int MaxSalvages = 2;
 
         /// <summary>
+        /// How many consecutive hand-overs of a PROTECTED obligation may come
+        /// back having said nothing at all before automatic recovery backs off.
+        ///
+        /// A safety obligation is exempt from <see cref="MaxSalvages"/> and
+        /// from <see cref="SalvageCeilingMs"/> on purpose — a rescue count
+        /// running out may not retire it, and the hazard has not ceased just
+        /// because a sentence was cut. But "never give up" and "chase every
+        /// keypress forever" are different promises, and on a live desk every
+        /// key the operator presses cancels the reader. So repeated
+        /// cancellation WITHOUT PROGRESS pauses the automatic attempts — the
+        /// obligation stays owed and is traced as undelivered rather than
+        /// dropped, and any delivery that completes anywhere is the meaningful
+        /// new opportunity that lets it try again. Any progress at all resets
+        /// the count: a sentence getting further each time is not a loop.
+        /// </summary>
+        internal const int ProtectedAttemptsWithoutProgress = 3;
+
+        /// <summary>
         /// Age bound, as a multiple of the utterance's OWN estimated duration,
         /// measured from FIRST emission rather than the latest re-queue.
         ///
@@ -482,8 +579,47 @@ namespace Radios.Speech
             public int MarksReached;
             public int MarkCount;
 
+            /// <summary>
+            /// The furthest any attempt on this obligation ever got. Kept
+            /// because <see cref="ReleaseHeld"/> used to zero the marks on
+            /// every re-hand, which threw away the one fact that says whether
+            /// the operator heard any of it — and therefore whether handing it
+            /// over again is a repeat or a first hearing (#606).
+            /// </summary>
+            public int MarksReachedEver;
+
             /// <summary>The last thing the channel said about this entry, for the trace; null when it has said nothing yet.</summary>
             public SpeechOutcomeKind? LastOutcome;
+
+            /// <summary>
+            /// What the transport established about the last attempt — see
+            /// <see cref="Owed"/>. This, not the clock and not the arrival of
+            /// an unrelated interrupt, is what decides recovery.
+            /// </summary>
+            public Owed State = Owed.Pending;
+
+            /// <summary>
+            /// A safety obligation (<see cref="SpeechIntent.Urgent"/>). Exempt
+            /// from the cap, the ceiling, the word-count bound and the
+            /// overflow eviction; survives the discard an urgent warning
+            /// performs and survives a Silence. Only its owner's own newer
+            /// statement on the same subject retires it.
+            /// </summary>
+            public bool Protected;
+
+            /// <summary>
+            /// Consecutive attempts that came back having said nothing. Drives
+            /// <see cref="ProtectedAttemptsWithoutProgress"/>; reset by any
+            /// progress at all.
+            /// </summary>
+            public int AttemptsWithoutProgress;
+
+            /// <summary>
+            /// Set when a protected obligation's automatic attempts have backed
+            /// off. It is still owed and still in the ledger; it simply stops
+            /// chasing every interrupt until a delivery completes somewhere.
+            /// </summary>
+            public bool AutoRecoveryPaused;
 
             /// <summary>
             /// When this utterance FIRST reached the reader. Never moves, however
@@ -587,6 +723,7 @@ namespace Radios.Speech
         private readonly Action<string, VerbosityLevel, SpeechIntent?, string?> _recordGated;
         private readonly SpeechRateModel _rate;
         private readonly Func<bool?>? _isSpeaking;
+        private readonly Func<long, string, bool>? _withdrawUnsent;
 
         /// <param name="clock">Time source. Inject a manual clock to test.</param>
         /// <param name="verbosity">Read at flush time — the setting can move while a value is pending.</param>
@@ -604,6 +741,19 @@ namespace Radios.Speech
         /// CORRECTION to the estimate — a "no" while the ledger believes the
         /// reader busy clamps the busy-until — never as the basis of a queue.
         /// </param>
+        /// <param name="withdrawUnsent">
+        /// Take an utterance back out of the delivery pump by ticket, if it is
+        /// still unsent, and say true when it was. Null where there is no pump.
+        ///
+        /// <para><b>Why supersession needs this (#606).</b> Marking an entry
+        /// superseded stops it being RESCUED and does nothing about a copy the
+        /// pump has already been handed and has not yet started — so a progress
+        /// heartbeat and the line that answers it could still be spoken back to
+        /// back, and a dialog's title could still arrive after the dialog had
+        /// gone. The old source comment said submitted text cannot be taken
+        /// back; that stopped being true when #521 put our own queue in front
+        /// of the reader's, and this is the consequence nobody collected.</para>
+        /// </param>
         public SpeechArbiter(
             ISpeechClock clock,
             Func<VerbosityLevel> verbosity,
@@ -611,7 +761,8 @@ namespace Radios.Speech
             Action silenceBackend,
             Action<string, VerbosityLevel, SpeechIntent?, string?> recordGated,
             SpeechRateModel? rate = null,
-            Func<bool?>? isSpeaking = null)
+            Func<bool?>? isSpeaking = null,
+            Func<long, string, bool>? withdrawUnsent = null)
         {
             _clock = clock;
             _verbosity = verbosity;
@@ -620,6 +771,7 @@ namespace Radios.Speech
             _recordGated = recordGated;
             _rate = rate ?? new SpeechRateModel();
             _isSpeaking = isSpeaking;
+            _withdrawUnsent = withdrawUnsent;
         }
 
         /// <summary>
@@ -840,14 +992,30 @@ namespace Radios.Speech
         /// Transmit safety: cut what is speaking AND drop what is queued —
         /// ours and the reader's — so nothing stale can play on top of the
         /// warning. The one intent for which discard is the point.
+        ///
+        /// <para><b>What changed, and it is the half that was missing (#606,
+        /// #571's third HIGH finding).</b> The discard used to take EVERYTHING,
+        /// including any earlier safety obligation still owed, and the warning
+        /// itself was then emitted and never entered in the ledger — so an
+        /// interrupted transmit-cut sentence was lost permanently rather than
+        /// delayed, and the one sentence that must survive was the one that
+        /// did not. Now the discard clears the ORDINARY backlog and spares
+        /// protected obligations, and the warning enters the ledger as one.
+        /// Clearing runnable text for the cut must not erase the cut.</para>
+        ///
+        /// <para><paramref name="subject"/> is carried through rather than
+        /// dropped. It is what lets the safety owner's next episode retire an
+        /// unheard earlier one — the only lifecycle event that may — and the
+        /// callers have been passing it all along into a parameter that threw
+        /// it away.</para>
         /// </summary>
-        public void Urgent(string message, VerbosityLevel level, string? origin)
+        public void Urgent(string message, VerbosityLevel level, string? origin, string? subject = null)
         {
             lock (_lock)
             {
-                DiscardAllLocked("an urgent warning discards everything queued");
+                DiscardOrdinaryLocked("an urgent warning discards everything queued");
                 try { _silenceBackend(); } catch { }
-                EmitLocked(message, interrupt: true, SpeechIntent.Urgent, level, origin, subject: null);
+                EmitLocked(message, interrupt: true, SpeechIntent.Urgent, level, origin, subject);
             }
         }
 
@@ -861,13 +1029,18 @@ namespace Radios.Speech
         /// trace says so: it was the same backlog, one stage further from the
         /// reader.
         /// </summary>
+        /// <para><b>A protected obligation is not forgotten here (#606).</b>
+        /// Silence stops the sound; it is not the operator saying they
+        /// understood a transmit-safety condition, and the hazard has not
+        /// ceased because a key was pressed. So a safety obligation still owed
+        /// is kept, paused, and the ordinary backlog around it goes.</para>
         public void OnSilenced()
         {
             lock (_lock)
             {
-                _believedQueued.Clear();
+                KeepProtectedLocked("the operator silenced speech");
                 _readerBusyUntilUtc = DateTime.MinValue;
-                EndHoldLocked("the operator silenced speech");
+                EndHoldLocked("the operator silenced speech", keepProtected: true);
             }
         }
 
@@ -903,7 +1076,8 @@ namespace Radios.Speech
                     // marks nothing — it extends its subject, it does not
                     // restate it.
                     if (!additive) MarkSupersededLocked(subject, $"'{message}'", origin, now);
-                    LedgerAddLocked(message, intent, level, origin, subject, now, handoff.Ticket);
+                    LedgerAddLocked(message, intent, level, origin, subject, now, handoff.Ticket,
+                        isProtected: false, isTheInterrupter: false);
 
                     // Given to the reader while a train is held: this is one
                     // of the follow-ups the hold exists to let through first,
@@ -940,7 +1114,23 @@ namespace Radios.Speech
 
             if (intent == SpeechIntent.Urgent)
             {
-                _believedQueued.Clear();
+                // The ordinary backlog is already gone — Urgent() discarded it
+                // before silencing the backend — and this repeats the removal
+                // so the policy is explicit rather than an artifact of call
+                // order. What is NOT removed is any other protected obligation:
+                // clearing runnable text for a cut must not erase a safety
+                // outcome still owed.
+                RemoveOrdinaryLocked();
+
+                // A newer safety episode retires an unheard older one on the
+                // same subject — the one lifecycle event that may. Then the
+                // warning itself enters the ledger, which is the whole point:
+                // before 2026-09-23 an interrupting warning was ledgered
+                // nowhere, so the one sentence that must survive an
+                // interruption was the one sentence that could not.
+                if (!additive) MarkSupersededLocked(subject, $"'{message}'", origin, now);
+                LedgerAddLocked(message, intent, level, origin, subject, now, sounding.Ticket,
+                    isProtected: true, isTheInterrupter: true);
                 return;
             }
 
@@ -963,8 +1153,31 @@ namespace Radios.Speech
             // third press under the old contract).
             int carried = ReviewHeldLocked(now);
 
-            var salvage = _believedQueued.ToArray();
+            // **Only what THIS interrupt is a recovery opportunity for (#606).**
+            // Sweeping the whole ledger is what made an unrelated keypress
+            // acknowledgement into permission to replay an old string. An
+            // entry the transport says was cut part-way by something that is
+            // not us stays exactly where it is: its cause is unknown, this
+            // interrupt did not cause it, and an interrupt is not evidence
+            // about it.
+            var salvage = new List<BelievedQueued>(_believedQueued.Count);
+            var declined = new List<BelievedQueued>();
+            foreach (var e in _believedQueued)
+            {
+                if (RecoveryPermitted(e)) salvage.Add(e); else declined.Add(e);
+            }
             _believedQueued.Clear();
+            _believedQueued.AddRange(declined);
+
+            if (declined.Count > 0)
+            {
+                Tracing.TraceLine(
+                    $"SpeechArbiter: '{Clip(message)}' is not a recovery opportunity for "
+                    + $"{declined.Count} owed utterance(s) — they were cut by something that is not us and "
+                    + $"their cause is unknown, so an unrelated interrupt does not replay them: {Quote(declined)}",
+                    TraceLevel.Info);
+            }
+
             int added = 0;
             foreach (var s in salvage)
             {
@@ -1000,15 +1213,44 @@ namespace Radios.Speech
         {
             if (_held.Count >= LedgerCap)
             {
-                var oldest = _held[0];
-                _held.RemoveAt(0);
-                Tracing.TraceLine(
-                    $"SpeechArbiter: dropped a salvage (held set full at {LedgerCap}, oldest first) "
-                    + $"after {oldest.SalvageCount} rescue(s): '{oldest.Message}'",
-                    TraceLevel.Warning);
+                // The oldest ORDINARY entry, never a protected one: queue
+                // overflow may not retire a safety obligation (#606).
+                int victim = _held.FindIndex(e => !e.Protected);
+                if (victim >= 0)
+                {
+                    var oldest = _held[victim];
+                    _held.RemoveAt(victim);
+                    Tracing.TraceLine(
+                        $"SpeechArbiter: dropped a salvage (held set full at {LedgerCap}, oldest first) "
+                        + $"after {oldest.SalvageCount} rescue(s): '{oldest.Message}'",
+                        TraceLevel.Warning);
+                }
             }
             _held.Add(entry);
         }
+
+        /// <summary>
+        /// Is this interrupt a recovery opportunity for this obligation
+        /// (#606)? Everything except an entry the transport says was cut
+        /// part-way by a cause nobody can name — and a protected obligation
+        /// whose automatic attempts have backed off, which is owed and
+        /// waiting rather than declined.
+        ///
+        /// Note what is NOT asked here: how old it is, or whether an interrupt
+        /// happened. Age is asked later, by
+        /// <see cref="SalvageRefusalLocked"/>, and the interrupt is the
+        /// occasion rather than the permission.
+        /// </summary>
+        private static bool RecoveryPermitted(BelievedQueued e) =>
+            !e.AutoRecoveryPaused && e.State != Owed.PausedUnknownCause;
+
+        /// <summary>
+        /// Everything but the protected obligations leaves the ledger. Used
+        /// where the old code cleared it outright — an urgent warning's
+        /// discard and the operator's Silence — because neither of those is a
+        /// statement that a safety outcome has been heard.
+        /// </summary>
+        private void RemoveOrdinaryLocked() => _believedQueued.RemoveAll(e => !e.Protected);
 
         /// <summary>
         /// Judge every held entry again, now, and drop — with the reason —
@@ -1120,7 +1362,13 @@ namespace Radios.Speech
                 _holdTimer.Dispose();
                 _holdTimer = null;
 
-                var train = _held.ToArray();
+                // Protected obligations go to the reader FIRST. Ordinary app
+                // speech cannot preempt a safety outcome, and a train handed
+                // over in arrival order would queue a transmit-cut sentence
+                // behind whatever ordinary narration happened to be older.
+                var train = new List<BelievedQueued>(_held.Count);
+                foreach (var s in _held) if (s.Protected) train.Add(s);
+                foreach (var s in _held) if (!s.Protected) train.Add(s);
                 _held.Clear();
                 int handed = 0;
                 foreach (var s in train)
@@ -1129,6 +1377,24 @@ namespace Radios.Speech
                     if (refusal != null)
                     {
                         TraceDropLocked(s, refusal, now);
+                        continue;
+                    }
+
+                    // A protected obligation that has come back saying nothing
+                    // at all, over and over, stops chasing interrupts — and is
+                    // kept, owed, rather than dropped. The distinction matters:
+                    // "we have stopped trying for now" and "nothing is owed"
+                    // are different states and only one of them is true.
+                    if (s.Protected && s.AttemptsWithoutProgress >= ProtectedAttemptsWithoutProgress)
+                    {
+                        s.AutoRecoveryPaused = true;
+                        LedgerEnterLocked(s, now);
+                        Tracing.TraceLine(
+                            "SpeechArbiter: a SAFETY obligation is still undelivered and its automatic "
+                            + $"attempts have backed off after {s.AttemptsWithoutProgress} hand-over(s) that said "
+                            + $"nothing at all: '{s.Message}'. It remains owed and will try again when a "
+                            + "delivery completes.",
+                            TraceLevel.Error);
                         continue;
                     }
 
@@ -1149,18 +1415,47 @@ namespace Radios.Speech
                     // Re-enter the ledger so a SECOND interrupt cannot destroy
                     // what the first one already had to salvage — bounded, now,
                     // by the count it carries with it. A fresh ticket, because
-                    // this hand-over is a new question to the reader; the
-                    // marks it reached last time are history, not progress.
-                    s.SalvageCount++;
+                    // this hand-over is a new question to the reader.
+                    //
+                    // **A rescue is spent only on an attempt that said
+                    // something (#606).** The cap bounds repeats the operator
+                    // may actually have heard, and an attempt withdrawn before
+                    // the reader started it is not one of those — it was
+                    // spending the budget for a hearing that never happened,
+                    // which is how a clause saying the station restore was
+                    // unconfirmed exhausted both its rescues without ever
+                    // being spoken once.
+                    //
+                    // And the marks are kept rather than zeroed. The old line
+                    // threw away the only record of how far the obligation had
+                    // ever got, which is the fact that says whether handing it
+                    // over again is a repeat or a first hearing.
+                    // The exemption needs POSITIVE evidence that no attempt
+                    // ever began — the transport saying so. An entry nobody
+                    // can report on keeps the old accounting exactly: with no
+                    // delivery data the honest assumption is still that the
+                    // reader started it, which is the whole pre-#521 contract
+                    // and what bounds an untracked rescue.
+                    bool neverBegun = s.State == Owed.NeverStarted && s.MarksReachedEver == 0;
+                    if (!neverBegun) s.SalvageCount++;
                     s.Ticket = requeued.Ticket;
                     s.MarksReached = 0;
                     s.LastOutcome = null;
+                    s.State = Owed.Pending;
                     LedgerEnterLocked(s, now);
                     handed++;
+                    if (neverBegun)
+                    {
+                        Tracing.TraceLine(
+                            "SpeechArbiter: handed over again without spending a rescue — no attempt on this "
+                            + $"one has ever said a word, so this is a first hearing: '{Clip(s.Message)}'"
+                            + (s.Subject != null ? $" [subject '{s.Subject}']" : string.Empty),
+                            TraceLevel.Info);
+                    }
                 }
 
                 Tracing.TraceLine(
-                    $"SpeechArbiter: released {handed} of {train.Length} held salvage(s) {heldMs} ms after "
+                    $"SpeechArbiter: released {handed} of {train.Count} held salvage(s) {heldMs} ms after "
                     + $"'{_holdBehind}' ({_holdInterrupts} interrupt(s) in the window); "
                     + (_wentFirst.Count == 0
                         ? "nothing went first"
@@ -1179,12 +1474,33 @@ namespace Radios.Speech
         /// none, the caller has already refused each entry with its own line
         /// and only the empty hold is being tidied away.
         /// </summary>
-        private void EndHoldLocked(string? letGoReason)
+        /// <param name="keepProtected">
+        /// True where the caller is silencing or discarding ORDINARY work: a
+        /// protected obligation held here goes back to the ledger rather than
+        /// being let go, because neither a Silence nor an urgent warning is a
+        /// statement that a safety outcome has been heard (#606).
+        /// </param>
+        private void EndHoldLocked(string? letGoReason, bool keepProtected = false)
         {
             bool wasHolding = _holdTimer != null;
             _holdTimer?.Dispose();
             _holdTimer = null;
             if (wasHolding) _holdGeneration++;
+
+            if (keepProtected)
+            {
+                for (int i = _held.Count - 1; i >= 0; i--)
+                {
+                    if (!_held[i].Protected) continue;
+                    var kept = _held[i];
+                    _held.RemoveAt(i);
+                    LedgerEnterLocked(kept, _clock.UtcNow);
+                    Tracing.TraceLine(
+                        $"SpeechArbiter: a SAFETY obligation was held when {letGoReason ?? "the hold ended"}; "
+                        + $"it goes back to the ledger still owed rather than being let go: '{Clip(kept.Message)}'",
+                        TraceLevel.Info);
+                }
+            }
 
             if (_held.Count > 0)
             {
@@ -1226,6 +1542,8 @@ namespace Radios.Speech
                 + (s.Subject != null ? $" [subject '{s.Subject}']" : string.Empty),
                 TraceLevel.Warning);
         }
+
+        private static string Clip(string s) => s.Length > 60 ? s.Substring(0, 60) + "…" : s;
 
         /// <summary>A short quoted list for the hold traces: the first three, each clipped, and a count of the rest.</summary>
         private static string Quote(IReadOnlyList<BelievedQueued> entries)
@@ -1289,12 +1607,28 @@ namespace Radios.Speech
                         : $" from {entry.SupersededByOrigin}");
             }
 
+            // A safety obligation is exempt from every bound below. Ordinary
+            // verbosity, navigation, a timer expiring, queue overflow and a
+            // rescue count running out may not retire it; only its owner's own
+            // newer statement, checked immediately above, may (#606). What
+            // still governs it is evidence — it is not recovered at all
+            // without something saying the unit was lost.
+            if (entry.Protected) return null;
+
             if (entry.SalvageCount >= MaxSalvages)
                 return $"salvage cap: already rescued {entry.SalvageCount} times, limit {MaxSalvages}";
 
             if (ageMs > SalvageCeilingMs)
                 return $"ceiling: {ageMs} ms old against the {SalvageCeilingMs} ms lifetime"
                     + (entry.Subject != null ? ", never superseded" : string.Empty);
+
+            // The word-count bound asks "has this been on the reader long
+            // enough that it was probably heard by now?" — and an attempt that
+            // never said a word certainly was not. Asking it of an obligation
+            // the transport says never began is the same error as spending a
+            // rescue on one: charging for a hearing that did not happen. The
+            // ceiling above still bounds it, so nothing lives forever (#606).
+            if (entry.MarksReachedEver == 0 && entry.State == Owed.NeverStarted) return null;
 
             if (atRescue && entry.Subject == null)
             {
@@ -1321,6 +1655,44 @@ namespace Radios.Speech
             // reader: "XIT +0" queued a millisecond after "RIT off" must
             // retire a held "XIT +100" exactly as it would a ledgered one.
             MarkSupersededIn(_held, subject!, by, origin, now);
+            WithdrawSupersededFromPumpLocked(now);
+        }
+
+        /// <summary>
+        /// Reach past the ledger into the delivery pump: a superseded entry
+        /// the pump still holds UNSENT is taken back, and its ledger entry
+        /// goes with it, because it will now never be spoken (#606).
+        ///
+        /// <para>Supersession reached the ledger and the held set and stopped
+        /// there, so it governed what would be RESCUED and not what was about
+        /// to be said. That is why a progress heartbeat could still be spoken
+        /// immediately behind the line that answered it, and why a dialog's
+        /// title could arrive after the dialog had been replaced. The pump
+        /// owns the unsent text since #521; text still inside it can be taken
+        /// back, and the older rationale that it could not is simply out of
+        /// date.</para>
+        ///
+        /// <para>No outcome is reported for a withdrawal: the entry leaves the
+        /// ledger here, in the same breath, so there is nothing left for an
+        /// outcome to account for — and reporting one would re-enter this
+        /// class from the pump's own thread mid-supersession.</para>
+        /// </summary>
+        private void WithdrawSupersededFromPumpLocked(DateTime now)
+        {
+            if (_withdrawUnsent == null) return;
+            for (int i = _believedQueued.Count - 1; i >= 0; i--)
+            {
+                var e = _believedQueued[i];
+                if (e.SupersededBy == null || e.Ticket == 0) continue;
+                if (e.State != Owed.Pending) continue;   // the pump cannot still be holding it
+                bool taken;
+                try { taken = _withdrawUnsent(e.Ticket, $"superseded by {e.SupersededBy}"); }
+                catch { taken = false; }
+                if (!taken) continue;
+                _believedQueued.RemoveAt(i);
+                TraceDropLocked(e, "taken back from the delivery queue before it was said, "
+                    + $"superseded by {e.SupersededBy}", now);
+            }
         }
 
         private static void MarkSupersededIn(List<BelievedQueued> entries,
@@ -1337,11 +1709,16 @@ namespace Radios.Speech
         }
 
         /// <summary>A first entry into the ledger: this is emission number one.</summary>
+        /// <param name="isTheInterrupter">
+        /// True for a warning that is itself the interrupt. It has already
+        /// pushed <see cref="_readerBusyUntilUtc"/> out by its own estimate,
+        /// so stacking a second copy on top would double-count it.
+        /// </param>
         private void LedgerAddLocked(string message,
             SpeechIntent? intent, VerbosityLevel? level, string? origin, string? subject, DateTime now,
-            long ticket)
+            long ticket, bool isProtected, bool isTheInterrupter)
         {
-            LedgerEnterLocked(new BelievedQueued
+            var entry = new BelievedQueued
             {
                 Message = message,
                 Intent = intent,
@@ -1351,7 +1728,16 @@ namespace Radios.Speech
                 FirstEmittedUtc = now,
                 SalvageCount = 0,
                 Ticket = ticket,
-            }, now);
+                Protected = isProtected,
+            };
+
+            if (isTheInterrupter && ticket == 0)
+            {
+                entry.EstFinishUtc = _readerBusyUntilUtc;
+                LedgerInsertLocked(entry);
+                return;
+            }
+            LedgerEnterLocked(entry, now);
         }
 
         /// <summary>
@@ -1386,7 +1772,22 @@ namespace Radios.Speech
                 entry.EstFinishUtc = finish;
             }
 
-            if (_believedQueued.Count >= LedgerCap) _believedQueued.RemoveAt(0);
+            LedgerInsertLocked(entry);
+        }
+
+        /// <summary>
+        /// Put an entry in, evicting the oldest ORDINARY one on overflow — a
+        /// protected obligation is never evicted by queue pressure (#606). A
+        /// ledger this deep is itself the bug the #197 transcript rule exists
+        /// to catch, so this stays purely defensive.
+        /// </summary>
+        private void LedgerInsertLocked(BelievedQueued entry)
+        {
+            if (_believedQueued.Count >= LedgerCap)
+            {
+                int victim = _believedQueued.FindIndex(e => !e.Protected);
+                if (victim >= 0) _believedQueued.RemoveAt(victim);
+            }
             _believedQueued.Add(entry);
         }
 
@@ -1424,7 +1825,42 @@ namespace Radios.Speech
             // would repeat speech the operator (probably) heard. A tracked
             // entry's finish is MaxValue and never passes.
             _believedQueued.RemoveAll(e => e.EstFinishUtc <= now);
+
+            // **And the ceiling retires a tracked entry too now (#606).** A
+            // tracked entry is stored with an infinite estimated finish, so
+            // the line above can never reach one — which is right while the
+            // reader still owes us an answer, and wrong once it has given one
+            // and the answer was "cut". Such an entry waited indefinitely for
+            // any interrupt to arrive and judge it, and that single fact is
+            // what made an unrelated keypress able to revive a sentence from
+            // minutes ago. An entry that has been answered and is past its
+            // lifetime leaves here, on its own, with a line saying it expired
+            // unheard — a salvage that gives up silently is the defect every
+            // bound in this class exists to end. Protected obligations are
+            // exempt; an entry still in flight is left to the reader.
+            for (int i = _believedQueued.Count - 1; i >= 0; i--)
+            {
+                var e = _believedQueued[i];
+                if (e.Protected || e.State == Owed.Pending) continue;
+                int ageMs = (int)(now - e.FirstEmittedUtc).TotalMilliseconds;
+                if (ageMs <= SalvageCeilingMs) continue;
+                _believedQueued.RemoveAt(i);
+                Tracing.TraceLine(
+                    $"SpeechArbiter: an owed utterance expired unheard at {ageMs} ms against the "
+                    + $"{SalvageCeilingMs} ms lifetime, {DescribeState(e)}: '{Clip(e.Message)}'"
+                    + (e.Subject != null ? $" [subject '{e.Subject}']" : string.Empty),
+                    TraceLevel.Warning);
+            }
         }
+
+        private static string DescribeState(BelievedQueued e) => e.State switch
+        {
+            Owed.CutByUs => $"cut by us at word {e.MarksReachedEver} of {e.MarkCount}",
+            Owed.NeverStarted => "never begun",
+            Owed.PausedUnknownCause =>
+                $"paused at word {e.MarksReachedEver} of {e.MarkCount} by a cause nobody can name",
+            _ => "still in flight",
+        };
 
         /// <summary>
         /// The reader's answer about one hand-over, by ticket (#521). Called
@@ -1462,6 +1898,24 @@ namespace Radios.Speech
                 var now = _clock.UtcNow;
                 if (outcome.WasHeard) _rate.Observe(message, outcome.ElapsedMs);
 
+                // Speech is flowing again. That is the meaningful new
+                // opportunity a backed-off safety obligation was waiting for
+                // (#606) — it does not make the obligation any less owed, it
+                // says the channel is worth trying once more.
+                if (outcome.WasHeard)
+                {
+                    foreach (var e in _believedQueued)
+                    {
+                        if (!e.AutoRecoveryPaused) continue;
+                        e.AutoRecoveryPaused = false;
+                        e.AttemptsWithoutProgress = 0;
+                        Tracing.TraceLine(
+                            "SpeechArbiter: a delivery completed, so the SAFETY obligation that had backed "
+                            + $"off may try again: '{Clip(e.Message)}'",
+                            TraceLevel.Info);
+                    }
+                }
+
                 var inLedger = true;
                 var entry = _believedQueued.Find(e => e.Ticket == ticket && ticket != 0);
                 if (entry == null)
@@ -1497,19 +1951,60 @@ namespace Radios.Speech
                     case SpeechOutcomeKind.Cancelled:
                         entry.MarksReached = outcome.MarksReached;
                         entry.MarkCount = outcome.MarkCount;
+                        if (outcome.MarksReached > entry.MarksReachedEver)
+                            entry.MarksReachedEver = outcome.MarksReached;
+                        if (outcome.MarksReached == 0) entry.AttemptsWithoutProgress++;
+                        else entry.AttemptsWithoutProgress = 0;
+
+                        // **The one place the cause is written down (#606).**
+                        // Zero marks means the reader never started it — it
+                        // was withdrawn from our own queue — whoever asked, so
+                        // the whole of it is still owed and nothing has been
+                        // repeated by saying it. Otherwise: if the cut was
+                        // ours we caused the loss and may offer the put-back;
+                        // if it was not, the callback cannot tell Ctrl from a
+                        // focus change from another program taking the
+                        // foreground, so the cause stays unknown and no
+                        // unrelated interrupt may treat itself as permission.
+                        entry.State =
+                            outcome.MarksReached == 0 ? Owed.NeverStarted
+                            : outcome.CancelledByUs ? Owed.CutByUs
+                            : Owed.PausedUnknownCause;
+
                         Tracing.TraceLine(
-                            $"SpeechArbiter: delivery #{ticket} {outcome} — '{message}' stays "
-                            + (inLedger ? "in the ledger for the next interrupt to judge" : "held; the settle window will judge it"),
+                            $"SpeechArbiter: delivery #{ticket} {outcome} — '{message}' is "
+                            + entry.State switch
+                            {
+                                Owed.NeverStarted =>
+                                    "still wholly owed: it never said a word, so a later hand-over is a first "
+                                    + "hearing and spends no rescue",
+                                Owed.CutByUs =>
+                                    "owed from where it was cut; we cut it, so the put-back is ours to offer",
+                                _ =>
+                                    "owed and PAUSED: the cause of the cut is unknown, so an unrelated later "
+                                    + "interrupt is not permission to replay it",
+                            }
+                            + (inLedger ? string.Empty : " (held; the settle window will judge it)"),
                             TraceLevel.Info);
                         return;
 
                     default:
                         if (outcome.UnknownReason == SpeechUnknownReason.Refused)
                         {
-                            if (inLedger) _believedQueued.Remove(entry); else _held.Remove(entry);
+                            // **INVERTED 2026-09-23 (#606).** This used to
+                            // remove the entry and trace "nothing is owed",
+                            // and a test asserted that as the contract. A
+                            // refusal is the reader taking NOTHING — NVDA
+                            // asleep for the focused application — which
+                            // means the operator heard none of it, which
+                            // means all of it is still owed. "The delivery
+                            // failed" and "there was nothing to deliver" are
+                            // different facts, and only one of them was true.
+                            entry.State = Owed.NeverStarted;
+                            entry.AttemptsWithoutProgress++;
                             Tracing.TraceLine(
-                                $"SpeechArbiter: delivery #{ticket} {outcome} — '{message}' left the ledger: "
-                                + "the reader took nothing, so nothing is owed",
+                                $"SpeechArbiter: delivery #{ticket} {outcome} — '{message}' stays owed: "
+                                + "the reader took nothing, so none of it has been heard",
                                 TraceLevel.Warning);
                             return;
                         }
@@ -1612,6 +2107,43 @@ namespace Radios.Speech
 
         private void DiscardAllLocked(string reason)
         {
+            ClearTransientLocked();
+            _believedQueued.Clear();
+            _readerBusyUntilUtc = DateTime.MinValue;
+            EndHoldLocked(reason);
+        }
+
+        /// <summary>
+        /// An urgent warning's discard: everything ordinary goes, and a
+        /// protected obligation still owed does not (#606). Clearing the
+        /// runnable text for a cut must not erase the cut, nor another safety
+        /// outcome the operator has still not heard.
+        /// </summary>
+        private void DiscardOrdinaryLocked(string reason)
+        {
+            ClearTransientLocked();
+            KeepProtectedLocked(reason);
+            _readerBusyUntilUtc = DateTime.MinValue;
+            EndHoldLocked(reason, keepProtected: true);
+        }
+
+        /// <summary>Everything but the protected obligations leaves the ledger, each ordinary drop traced as a set.</summary>
+        private void KeepProtectedLocked(string reason)
+        {
+            int before = _believedQueued.Count;
+            RemoveOrdinaryLocked();
+            int kept = _believedQueued.Count;
+            if (kept > 0)
+            {
+                Tracing.TraceLine(
+                    $"SpeechArbiter: {before - kept} ordinary utterance(s) forgotten because {reason}; "
+                    + $"{kept} SAFETY obligation(s) kept, still owed: {Quote(_believedQueued)}",
+                    TraceLevel.Info);
+            }
+        }
+
+        private void ClearTransientLocked()
+        {
             foreach (var entry in _pending.Values) entry.Timer?.Dispose();
             _pending.Clear();
 
@@ -1619,10 +2151,6 @@ namespace Radios.Speech
             // an urgent warning always speaks rather than being suppressed
             // as a duplicate of something the flush just discarded.
             _lastByKey.Clear();
-
-            _believedQueued.Clear();
-            _readerBusyUntilUtc = DateTime.MinValue;
-            EndHoldLocked(reason);
         }
     }
 }

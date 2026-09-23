@@ -150,24 +150,98 @@ namespace Radios.Tests
             Assert.Equal(new[] { Pc }, Salvaged().ToArray());
         }
 
+        // ──────────────────────────────────────────────────────────────
+        //  INVERTED 2026-09-23, DELIBERATELY (#606).
+        //
+        //  This test was named
+        //  CancelledNotByUs_StaysForTheNextInterruptToJudge_AndIsNotReSpokenOnItsOwn
+        //  and its last two lines asserted that the next interrupt "judges it
+        //  under the ordinary rules and, nothing having covered its subject,
+        //  rescues it." That assertion IS the defect, written down as the
+        //  contract — #606: "A test asserts the defect as the contract. One of
+        //  the named speech tests asserts that an unrelated later interrupt
+        //  DOES rescue a cancelled sentence. So anyone who fixed this
+        //  correctly broke a test, and backing the change out is the natural
+        //  response." A month of fixes bounced off it.
+        //
+        //  Measured in Noel's NVDA transcript of 2026-09-23 05:42: the
+        //  listening sentence was submitted three times and cut at four, four
+        //  and two words of ten, the second and third released 599 and 600 ms
+        //  after the app acknowledged the JJ key and then Escape. A keypress
+        //  acknowledgement was the permission to replay a sentence that had
+        //  nothing to do with it.
+        //
+        //  The FIRST half of the old test was right and is kept: no rescue
+        //  happens on the cancel itself. What changes is the second half.
+        //  This is not a test that rotted; it is a ruling being reversed.
+        // ──────────────────────────────────────────────────────────────
         [Fact]
-        public void CancelledNotByUs_StaysForTheNextInterruptToJudge_AndIsNotReSpokenOnItsOwn()
+        public void CancelledByAnUnknownCause_IsOwedButPaused_AndAnUnrelatedInterruptIsNotPermissionToReplayIt()
         {
             var a = NewArbiter();
             a.Emit(Lead, false, SpeechIntent.Queue, VerbosityLevel.Terse, "t", "connect-lead");
 
-            // The operator's own keystroke cut it at word two.
+            // Something that is not us cut it at word two. The completion
+            // callback cannot tell a Ctrl from a focus change from another
+            // program taking the foreground, so the cause is unknown.
             a.OnOutcome(TicketOf(Lead), Lead, SpeechOutcome.Cancelled(2, 6, byUs: false, 900));
             _clock.Advance(Settle * 3);
 
             // No rescue happens on the cancel itself — that is #554's runaway.
             Assert.Empty(Salvaged());
 
-            // The next interrupt judges it under the ordinary rules and,
-            // nothing having covered its subject, rescues it.
+            // And an unrelated later interrupt is NOT a recovery opportunity
+            // for it. Nothing about "the operator pressed a key and we
+            // acknowledged it" establishes that this sentence was lost or that
+            // now is the moment to say it again.
+            a.Emit(Bye, true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t", "where-you-are");
+            _clock.Advance(Settle);
+            Assert.Empty(Salvaged());
+
+            // Nor does a second one, which is what produced three beginnings.
+            a.Emit("Slice A", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t", "where-you-are");
+            _clock.Advance(Settle);
+            Assert.Empty(Salvaged());
+        }
+
+        [Fact]
+        public void OurOwnCut_IsStillRecovered_BecauseWeCausedTheLoss()
+        {
+            // The control for the test above: the rule turns on the CAUSE, not
+            // on refusing to recover anything. When our own interrupt cut it,
+            // we know exactly what happened and the put-back is ours to offer.
+            var a = NewArbiter();
+            a.Emit(Lead, false, SpeechIntent.Queue, VerbosityLevel.Terse, "t", "connect-lead");
+            a.OnOutcome(TicketOf(Lead), Lead, SpeechOutcome.Cancelled(2, 6, byUs: true, 900));
+
             a.Emit(Bye, true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t", "where-you-are");
             _clock.Advance(Settle);
             Assert.Equal(new[] { Lead }, Salvaged().ToArray());
+        }
+
+        [Fact]
+        public void APausedObligation_ExpiresAtTheCeiling_RatherThanWaitingForever()
+        {
+            // The mechanism #606 names: a tracked cancelled entry is stored
+            // with an INFINITE estimated finish, so pruning could never reach
+            // it and it waited indefinitely for any interrupt to arrive and
+            // judge it. It leaves on its own clock now, with a line saying it
+            // expired unheard, rather than lying in wait.
+            var a = NewArbiter();
+            a.Emit(Lead, false, SpeechIntent.Queue, VerbosityLevel.Terse, "t", "connect-lead");
+            a.OnOutcome(TicketOf(Lead), Lead, SpeechOutcome.Cancelled(2, 6, byUs: false, 900));
+
+            _clock.Advance(SpeechArbiter.SalvageCeilingMs + 1);
+            a.Emit(Bye, true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t", "where-you-are");
+            _clock.Advance(Settle);
+            Assert.Empty(Salvaged());
+
+            // And even a cut of our own finds nothing left to put back: it is
+            // gone from the ledger, not merely declined.
+            a.OnOutcome(TicketOf(Lead), Lead, SpeechOutcome.Cancelled(2, 6, byUs: true, 900));
+            a.Emit("Slice A", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t", "where-you-are");
+            _clock.Advance(Settle);
+            Assert.Empty(Salvaged());
         }
 
         [Fact]
@@ -213,8 +287,25 @@ namespace Radios.Tests
             Assert.Empty(Salvaged());
         }
 
+        // ──────────────────────────────────────────────────────────────
+        //  INVERTED 2026-09-23, DELIBERATELY (#606).
+        //
+        //  This was UnknownRefused_LeavesTheLedger_NothingIsOwed, and it
+        //  asserted that a refusal removes the entry because "the reader took
+        //  nothing, so nothing is owed". The second clause does not follow
+        //  from the first — it is exactly backwards. A refusal is NVDA asleep
+        //  for the focused application: the operator heard none of it, so ALL
+        //  of it is still owed. "The delivery failed" and "there was nothing
+        //  to deliver" are different facts.
+        //
+        //  Astra named this one alongside its sibling: "A refused backend and
+        //  an expired hang timeout leave a protected obligation
+        //  unavailable/pending, not 'nothing owed.' This replaces the current
+        //  Unknown(Refused) rule in SpeechArbiter and its test that asserts
+        //  the obligation disappears."
+        // ──────────────────────────────────────────────────────────────
         [Fact]
-        public void UnknownRefused_LeavesTheLedger_NothingIsOwed()
+        public void UnknownRefused_StaysOwed_BecauseTheReaderTookNothingAndNoneOfItWasHeard()
         {
             var a = NewArbiter();
             a.Emit(Pc, false, SpeechIntent.Queue, VerbosityLevel.Terse, "t", "pc-audio");
@@ -222,7 +313,23 @@ namespace Radios.Tests
 
             a.Emit(Bye, true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t", "where-you-are");
             _clock.Advance(Settle);
-            Assert.Empty(Salvaged());
+            Assert.Equal(new[] { Pc }, Salvaged().ToArray());
+
+            // And nothing was heard, so nothing was repeated: the hand-over
+            // spent no rescue, which is what lets a refusal that clears itself
+            // still deliver.
+            a.OnOutcome(_calls.Last(c => c.Salvaged).Ticket, Pc,
+                SpeechOutcome.Unknown(SpeechUnknownReason.Refused, "asleep", 5));
+            a.Emit("Slice A", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t", "where-you-are");
+            _clock.Advance(Settle);
+            Assert.Equal(2, _calls.Count(c => c.Salvaged));
+
+            // Bounded all the same: the ceiling retires it, so "still owed"
+            // is not "forever".
+            _clock.Advance(SpeechArbiter.SalvageCeilingMs + 1);
+            a.Emit("Slice B", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t", "where-you-are");
+            _clock.Advance(Settle);
+            Assert.Equal(2, _calls.Count(c => c.Salvaged));
         }
 
         [Fact]

@@ -216,11 +216,54 @@ namespace Radios.Speech
             // for the connect lead means the salvage may offer it again.
             foreach (var w in withdrawnItems)
                 ReportWithdrawn(w, byUs: false);
+
+            // **The cause is UNKNOWN, and this line used to assert one
+            // (#606).** It said "The operator asked for quiet" about an event
+            // this callback structurally cannot identify: Ctrl, any other key,
+            // a focus change and another program taking the foreground all
+            // arrive here identically. Recording an unknown as a known fact is
+            // the defect class this project loses the most time to, and a
+            // trace that states a cause is read later as evidence of one.
             Tracing.TraceLine(
-                $"PacedDelivery: #{afterTicket} was cancelled by something that is not us — "
-                + $"{withdrawn} queued withdrawn unspoken for the arbiter to judge. The "
-                + "operator asked for quiet.",
+                $"PacedDelivery: #{afterTicket} was cancelled by something that is not us — cause UNKNOWN "
+                + "(a key, a focus change or another program taking the foreground are indistinguishable "
+                + $"here); {withdrawn} queued withdrawn unspoken, before any of them said a word, for the "
+                + "arbiter to judge.",
                 TraceLevel.Verbose);
+        }
+
+        /// <summary>
+        /// Take an utterance back out of the queue, by ticket, if it is still
+        /// unsent. Returns true when it was, false when the reader already has
+        /// it or it has gone (#606).
+        ///
+        /// <para>The arbiter calls this when something newer supersedes an
+        /// utterance the pump has been handed and has not yet started. Until
+        /// #521 put our own queue in front of the reader's, submitted text
+        /// really could not be taken back; it can now, and not doing so is why
+        /// two progress lines about the same wait could still be spoken back to
+        /// back.</para>
+        ///
+        /// <para><b>Deliberately no outcome report.</b> The caller removes its
+        /// own ledger entry in the same breath, so there is nothing left to
+        /// account for — and reporting would re-enter the arbiter from inside
+        /// its own lock. The trace carries the record instead.</para>
+        /// </summary>
+        public bool WithdrawIfQueued(long ticket, string reason)
+        {
+            Item item;
+            lock (_lock)
+            {
+                if (_disposed) return false;
+                int at = _queue.FindIndex(q => q.Ticket == ticket);
+                if (at < 0) return false;
+                item = _queue[at];
+                _queue.RemoveAt(at);
+            }
+            Tracing.TraceLine(
+                $"PacedDelivery: withdrew #{ticket} before the reader saw it — {reason}. '{Clip(item.Text)}'",
+                TraceLevel.Info);
+            return true;
         }
 
         /// <summary>
@@ -438,6 +481,17 @@ namespace Radios.Speech
                     // delivery data instead of a guess, which is the difference
                     // between this and the pre-#521 behaviour that lost 89
                     // announcements in a day.
+                    //
+                    // **What the arbiter does with them changed on 2026-09-23
+                    // (#606).** Every item withdrawn here is reported at ZERO
+                    // marks, which is the honest report and is also the fact
+                    // the new recovery rule turns on: nothing was heard, so
+                    // the whole obligation is still owed and a later hand-over
+                    // is a first hearing rather than a repeat. The item that
+                    // was IN FLIGHT is a different case — it said some of
+                    // itself, by a cause nobody here can name, and the arbiter
+                    // pauses it rather than letting the next unrelated
+                    // interrupt replay it.
                     if (outcome.Kind == SpeechOutcomeKind.Cancelled && !outcome.CancelledByUs)
                         WithdrawForForeignCancel(item.Ticket);
 
