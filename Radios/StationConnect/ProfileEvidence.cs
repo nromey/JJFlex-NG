@@ -122,12 +122,37 @@ namespace Radios.StationConnect
         }
 
         /// <summary>The latest RADIO-REPORTED selection for a type, or null
-        /// when none has been reported (a local echo is not a report).</summary>
+        /// when none has been reported this attempt. Stored SEPARATELY from
+        /// the latest observation of any provenance: a local echo of our own
+        /// setter after a radio report does not erase the report (Track G2
+        /// re-review, step 4 — until then it did, and ReportedSelectionOf
+        /// returned null the moment we sent anything).</summary>
         public SelectionObservation ReportedSelectionOf(ProfileTypes type)
         {
-            var s = SelectionOf(type);
-            return s != null && s.Provenance == ObservationProvenance.RadioReported ? s : null;
+            switch (type)
+            {
+                case ProfileTypes.global: return GlobalReported;
+                case ProfileTypes.tx: return TxReported;
+                case ProfileTypes.mic: return MicReported;
+                default: return null;
+            }
         }
+
+        /// <summary>The last radio-reported global selection, or null.</summary>
+        public SelectionObservation GlobalReported { get; internal set; }
+
+        /// <summary>The last radio-reported transmit selection, or null.</summary>
+        public SelectionObservation TxReported { get; internal set; }
+
+        /// <summary>The last radio-reported microphone selection, or null.</summary>
+        public SelectionObservation MicReported { get; internal set; }
+
+        /// <summary>The transmit-chain property names the radio has reported
+        /// this attempt (FlexLib raises each unconditionally from the
+        /// transmit status, so a name here is a genuine receipt). The live
+        /// audio capture requires the whole set it snapshots; a missing one
+        /// means the radio has not yet said what that field holds.</summary>
+        public IReadOnlyCollection<string> TxChainFieldsReported { get; internal set; } = Array.Empty<string>();
 
         /// <summary>The latest autosave observation, or null when the radio has
         /// said nothing and we have set nothing.</summary>
@@ -174,6 +199,10 @@ namespace Radios.StationConnect
         private SelectionObservation _globalSelection;
         private SelectionObservation _txSelection;
         private SelectionObservation _micSelection;
+        private SelectionObservation _globalReported;
+        private SelectionObservation _txReported;
+        private SelectionObservation _micReported;
+        private readonly HashSet<string> _txChainFields = new HashSet<string>(StringComparer.Ordinal);
         private AutosaveObservation _autosave;
         private long _persistenceLoadedAt;
         private long _endBoundaryAt;
@@ -197,6 +226,10 @@ namespace Radios.StationConnect
                 _globalSelection = null;
                 _txSelection = null;
                 _micSelection = null;
+                _globalReported = null;
+                _txReported = null;
+                _micReported = null;
+                _txChainFields.Clear();
                 _autosave = null;
                 _persistenceLoadedAt = 0;
                 _endBoundaryAt = 0;
@@ -231,11 +264,12 @@ namespace Radios.StationConnect
                 if (attemptGeneration != _attemptGeneration) return;
                 _sequence++;
                 var obs = new SelectionObservation(name, provenance, _sequence, attemptGeneration, _clock.NowMs);
+                bool reported = provenance == ObservationProvenance.RadioReported;
                 switch (type)
                 {
-                    case ProfileTypes.global: _globalSelection = obs; break;
-                    case ProfileTypes.tx: _txSelection = obs; break;
-                    case ProfileTypes.mic: _micSelection = obs; break;
+                    case ProfileTypes.global: _globalSelection = obs; if (reported) _globalReported = obs; break;
+                    case ProfileTypes.tx: _txSelection = obs; if (reported) _txReported = obs; break;
+                    case ProfileTypes.mic: _micSelection = obs; if (reported) _micReported = obs; break;
                     default: return;
                 }
             }
@@ -279,14 +313,16 @@ namespace Radios.StationConnect
             Changed?.Invoke();
         }
 
-        /// <summary>A radio-reported change to a transmit-chain field.</summary>
-        public void TxChainReported(int attemptGeneration)
+        /// <summary>A radio-reported change to a transmit-chain field, named,
+        /// so the capture can require the whole receipt set.</summary>
+        public void TxChainReported(int attemptGeneration, string propertyName = null)
         {
             lock (_lock)
             {
                 if (attemptGeneration != _attemptGeneration) return;
                 _sequence++;
                 _txChainGeneration++;
+                if (!string.IsNullOrEmpty(propertyName)) _txChainFields.Add(propertyName);
             }
             Changed?.Invoke();
         }
@@ -298,7 +334,13 @@ namespace Radios.StationConnect
                 return new ProfileEvidenceSnapshot(
                     _globalList, _globalSelection, _autosave, _persistenceLoadedAt,
                     _endBoundaryAt, _endBoundaryToken, _sequence, _attemptGeneration, _txChainGeneration,
-                    _txSelection, _micSelection);
+                    _txSelection, _micSelection)
+                {
+                    GlobalReported = _globalReported,
+                    TxReported = _txReported,
+                    MicReported = _micReported,
+                    TxChainFieldsReported = _txChainFields.ToList(),
+                };
             }
         }
 

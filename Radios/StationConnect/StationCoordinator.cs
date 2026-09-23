@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace Radios.StationConnect
@@ -247,6 +248,7 @@ namespace Radios.StationConnect
             bool sent = false;
             string refusal = null;
             string rejection = null;
+            bool acknowledged = false;
             long sentAtMs = 0;
 
             _port.Dispatch("stewardship global load '" + name + "'", () =>
@@ -289,7 +291,17 @@ namespace Radios.StationConnect
                 profileSeqAtSend = _profiles.Sequence;
                 stationSeqAtSend = _station.Sequence;
                 stationBefore = _station.Snapshot();
-                _port.SendGlobalLoad(name, why => { rejection = why ?? "rejected"; _attempt.Signal(); });
+                // The radio's reply is acceptance or rejection of the
+                // COMMAND. Acceptance is never completion: the load rebuilds
+                // the station afterwards, and only the completion policy
+                // (bench B) may call that finished.
+                _port.SendGlobalLoad(name, reply =>
+                {
+                    if (reply == null) return;
+                    if (reply.Acknowledged) acknowledged = true;
+                    else rejection = string.IsNullOrEmpty(reply.Text) ? reply.ToString() : reply.Text;
+                    _attempt.Signal();
+                });
                 sentAtMs = _clock.NowMs;
                 sent = true;
                 _attempt.Signal();
@@ -331,6 +343,7 @@ namespace Radios.StationConnect
                     ProfileNow = _profiles.Snapshot(),
                     Rejected = rejection != null,
                     RejectionText = rejection ?? "",
+                    Acknowledged = acknowledged,
                     ElapsedSinceSendMs = _clock.NowMs - sentAtMs,
                 };
                 var completion = _policies.LoadCompletion.Judge(evidence);
@@ -528,11 +541,21 @@ namespace Radios.StationConnect
 
         /// <summary>
         /// Put the owner's saved frequencies and modes on the slices the
-        /// allocation just obtained, one at a time, each confirmed by the
-        /// slice's own radio-reported tune within a bound. Stops on the first
-        /// unconfirmed placement. The layout comes from this machine's record
-        /// of the owner's last station; see <see cref="StationLayout"/>.
+        /// allocation just obtained, one at a time, each CONFIRMED by the
+        /// radio's own reply to the tune command within a bound. Stops on
+        /// the first unconfirmed or rejected placement. The layout comes
+        /// from this machine's record of the owner's last station; see
+        /// <see cref="StationLayout"/>.
         /// </summary>
+        /// <remarks>
+        /// Until Track G3 the confirmation was a radio-reported tune through
+        /// PropertyChanged. FlexLib's setter assigns its cache first and the
+        /// vendor skips the status that repeats the cached value, so a
+        /// correctly tuned slice reported NOTHING and the placement timed
+        /// out on success (Track G2 re-review, section 5). The reply is the
+        /// independent acknowledgment; a radio-reported frequency after the
+        /// send, when the value changed, is corroboration and is traced.
+        /// </remarks>
         private PlacementResult PlaceOwnerFrequencies(StationDeadline phase, long seqBeforeAllocation, AllocationResult allocation)
         {
             var placement = new PlacementResult();
@@ -564,6 +587,8 @@ namespace Radios.StationConnect
                 long armedSeq = -1;
                 bool sent = false;
                 string refusal = null;
+                int expectedReplies = string.IsNullOrEmpty(entry.Mode) ? 1 : 2;
+                var replies = new List<CommandReply>();
                 _port.Dispatch("place " + entry + " on slice " + slice.Index, () =>
                 {
                     if (_op.IsEnded) { refusal = "operation ended"; return; }
@@ -571,7 +596,13 @@ namespace Radios.StationConnect
                     if (_port.ReadPolicyFacts().HoldArmed) { refusal = "the hold was armed"; return; }
                     if (!_station.Snapshot().HasSlice(slice.Index)) { refusal = "slice " + slice.Index + " is no longer ours"; return; }
                     armedSeq = _station.Sequence;
-                    _port.SetSliceFrequencyAndMode(slice.Index, entry.FreqHz, entry.Mode);
+                    refusal = _port.SetSliceFrequencyAndMode(slice.Index, entry.FreqHz, entry.Mode, reply =>
+                    {
+                        if (reply == null) return;
+                        lock (replies) replies.Add(reply);
+                        _attempt.Signal();
+                    });
+                    if (refusal != null) return;
                     sent = true;
                     _attempt.Signal();
                 });
@@ -584,20 +615,41 @@ namespace Radios.StationConnect
                 if (!sent) { placement.Stop = _op.IsEnded ? PlacementStop.Cancelled : PlacementStop.Unconfirmed; placement.Note = "the placement was never dispatched"; break; }
                 placement.Sent++;
 
+                // Confirmed by the radio's reply to EVERY command sent for
+                // this slice; rejected by any non-zero reply; unconfirmed
+                // when a reply does not arrive inside the bound.
                 bool confirmed = false;
+                CommandReply rejected = null;
                 while (true)
                 {
-                    if (_station.Snapshot().TunedSince(armedSeq, slice.Index, entry.FreqHz)) { confirmed = true; break; }
+                    List<CommandReply> got;
+                    lock (replies) got = replies.ToList();
+                    rejected = got.FirstOrDefault(r => !r.Acknowledged);
+                    if (rejected != null) break;
+                    if (got.Count >= expectedReplies) { confirmed = true; break; }
                     if (_op.IsEnded || bound.Passed(_clock)) break;
                     _waiter.Wait(Math.Min(25, bound.RemainingMs(_clock)));
+                }
+                if (rejected != null)
+                {
+                    placement.Stop = PlacementStop.Rejected;
+                    placement.Note = "the radio rejected the tune of slice " + slice.Index + ": " + rejected;
+                    break;
                 }
                 if (!confirmed)
                 {
                     placement.Stop = _op.IsEnded ? PlacementStop.Cancelled : PlacementStop.Unconfirmed;
-                    placement.Note = "slice " + slice.Index + " did not report " + entry.FreqHz + " Hz within " + _deadlines.FrequencyPlacementMs + " ms";
+                    placement.Note = "the radio did not acknowledge the tune of slice " + slice.Index + " to " + entry.FreqHz
+                        + " Hz within " + _deadlines.FrequencyPlacementMs + " ms";
                     break;
                 }
                 placement.Placed++;
+                // Corroboration only: a changed frequency is also reported by
+                // the radio's status; an unchanged one is not, by the vendor's
+                // equal-value skip, and that absence means nothing.
+                Trace("slice " + slice.Index + " acknowledged " + entry
+                    + (_station.Snapshot().TunedSince(armedSeq, slice.Index, entry.FreqHz)
+                        ? "; the radio also reported the frequency" : "; no frequency report (equal-value status is suppressed by FlexLib)"));
             }
             if (placement.Stop == PlacementStop.NotAttempted) placement.Stop = PlacementStop.Completed;
             Trace("frequency placement: " + placement);

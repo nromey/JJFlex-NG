@@ -79,6 +79,23 @@ namespace Radios.Tests.StationConnect
         }
 
         [Fact]
+        public void TheOwnSliceFieldFeedIsSubscribedPerNotification_AndTheFixtureSubscribesTheSameWay()
+        {
+            // The handler's lambda hands the PROPERTY NAME to the feed, so a
+            // mode notification cannot record a frequency (Track G3). The
+            // vendor fixture (RigOnVendorRadio.AddOwnSlice) subscribes the
+            // same line without running sliceAdded's timer; this pins both.
+            var text = Read(FlexBase);
+            int sig = IndexOf(text, "private void sliceAdded(Slice slc, ObservationBinding binding)");
+            string body = text.Substring(sig, 1200);
+            Assert.Contains("ObserveOwnSliceReported(binding, (Slice)s2, e2.PropertyName);", body, StringComparison.Ordinal);
+            Assert.DoesNotContain("ObserveOwnSliceTuned(", body, StringComparison.Ordinal);
+
+            var fixture = Read("Radios.Tests/StationConnect/VendorRadioFixture.cs");
+            Assert.Contains("ObserveOwnSliceReportedMethod.Invoke(Rig, new object[] { Binding, (Slice)s2, e2.PropertyName });", fixture, StringComparison.Ordinal);
+        }
+
+        [Fact]
         public void TheOnceAtOwnAddSnapshotIsGone_AndOnlyStationIsLive()
         {
             var text = Read(FlexBase);
@@ -233,10 +250,13 @@ namespace Radios.Tests.StationConnect
             var text = Read(FlexBaseStation);
             int method = IndexOf(text, "private ProfileActionOutcome DispatchSelectionChecked(");
             int dispatch = text.IndexOf("DispatchStationWork(", method, StringComparison.Ordinal);
-            int select = text.IndexOf("radio.ProfileTXSelection = action.ProfileName;", method, StringComparison.Ordinal);
+            int select = text.IndexOf("SendRadioCommandWithReply(radio, ProfileLoadCommand(action.ProfileType, action.ProfileName), onReply);", method, StringComparison.Ordinal);
+            Assert.True(select > dispatch, "the selection must go through the reply-bearing send, never the FlexLib setter (Track G3)");
             string inside = text.Substring(dispatch, select - dispatch);
             Assert.Contains("refusal = refusalAtSend?.Invoke();", inside, StringComparison.Ordinal);
             Assert.Contains("if (refusal != null) return;", inside, StringComparison.Ordinal);
+            Assert.DoesNotContain("radio.ProfileTXSelection = ", inside, StringComparison.Ordinal);
+            Assert.DoesNotContain("radio.ProfileMICSelection = ", inside, StringComparison.Ordinal);
 
             var orchestrator = Read("Radios/StationConnect/PostStationOrchestrator.cs");
             int refusal = IndexOf(orchestrator, "private string RefusalAtSend(");

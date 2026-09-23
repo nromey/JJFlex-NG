@@ -114,9 +114,14 @@ namespace Radios.Tests.StationConnect
             string repairBody = text.Substring(repair, 3500);
             int dispatch = repairBody.IndexOf("DispatchStationWork(", StringComparison.Ordinal);
             int refusal = repairBody.IndexOf("SilentMicrophoneAssessment.RepairRefusal(", StringComparison.Ordinal);
-            int write = repairBody.IndexOf("radio.ProfileMICSelection = candidate;", StringComparison.Ordinal);
+            // The write is the reply-bearing send, never the FlexLib setter:
+            // the setter's cache pre-assignment makes the vendor skip the
+            // confirming status (Track G3, group 1).
+            int write = repairBody.IndexOf("SendRadioCommandWithReply(radio, ProfileLoadCommand(ProfileTypes.mic, candidate),", StringComparison.Ordinal);
             Assert.True(dispatch > 0 && refusal > dispatch && write > refusal, "the repair must recheck inside the dispatched delegate before writing");
+            Assert.DoesNotContain("radio.ProfileMICSelection = candidate;", repairBody, StringComparison.Ordinal);
             Assert.Contains("ReportedSelectionOf(ProfileTypes.mic)", repairBody.Substring(write), StringComparison.Ordinal);
+            Assert.Contains("finalReply.Acknowledged", repairBody.Substring(write), StringComparison.Ordinal);
         }
     }
 }

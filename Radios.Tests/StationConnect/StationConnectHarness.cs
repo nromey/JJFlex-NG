@@ -113,14 +113,23 @@ namespace Radios.Tests.StationConnect
             foreach (var (_, work) in items) work();
         }
 
-        public void SendGlobalLoad(string name, Action<string> onRejected)
+        /// <summary>Whether the radio answers the load command at all. The
+        /// reply is acceptance of the command, never completion of the load.</summary>
+        public bool RadioAcknowledgesLoads = true;
+
+        public void SendGlobalLoad(string name, Action<CommandReply> onReply)
         {
             GlobalLoadsSent.Add(name);
+            string cmd = "profile global load \"" + name + "\"";
             if (RejectNextLoad != null)
             {
                 var why = RejectNextLoad;
                 RejectNextLoad = null;
-                onRejected?.Invoke(why);
+                onReply?.Invoke(new CommandReply(cmd, 0x50000001, why));
+            }
+            else if (RadioAcknowledgesLoads)
+            {
+                onReply?.Invoke(CommandReply.Ok(cmd));
             }
             OnGlobalLoadSent?.Invoke(name);
         }
@@ -156,13 +165,46 @@ namespace Radios.Tests.StationConnect
 
         public StationLayout OwnerLayout;
         public readonly List<(int index, long hz, string mode)> TunesSent = new List<(int, long, string)>();
-        /// <summary>Called on each tune; the default has the radio report it at once.</summary>
+        /// <summary>The commands the port would send for each tune, in order,
+        /// as the vendor transport would see them.</summary>
+        public readonly List<string> TuneCommandsSent = new List<string>();
+        /// <summary>Called on each tune AFTER the radio's replies, so a test
+        /// can deliver (or withhold) the corroborating status report. The
+        /// default delivers NOTHING: this models the vendor, whose equal-value
+        /// skip suppresses the status of a slice that already sits where it
+        /// was asked to, and whose setter-based path suppressed every status
+        /// (Track G2 re-review, section 5).</summary>
         public Action<int, long, string> OnTuneSent;
+        /// <summary>Whether the radio replies to the tune commands (code 0).</summary>
+        public bool RadioAcknowledgesTunes = true;
+        /// <summary>When set, the radio rejects the NEXT tune's frequency
+        /// command with this text (the reply carries the frequency it kept).</summary>
+        public string RejectNextTuneWith;
+        /// <summary>A refusal the port itself returns for the next tune
+        /// (slice locked, not ours, transport down), or null.</summary>
+        public string RefuseNextTuneWith;
         public StationLayout ReadOwnerSavedLayout() => OwnerLayout;
-        public void SetSliceFrequencyAndMode(int sliceIndex, long freqHz, string mode)
+        public string SetSliceFrequencyAndMode(int sliceIndex, long freqHz, string mode, Action<CommandReply> onReply)
         {
+            if (RefuseNextTuneWith != null) { var why = RefuseNextTuneWith; RefuseNextTuneWith = null; return why; }
             TunesSent.Add((sliceIndex, freqHz, mode));
+            string modeCmd = string.IsNullOrEmpty(mode) ? null : "slice set " + sliceIndex + " mode=" + mode.ToUpperInvariant();
+            string tuneCmd = "slice tune " + sliceIndex + " " + (freqHz / 1_000_000.0).ToString("f6", System.Globalization.CultureInfo.InvariantCulture);
+            if (modeCmd != null) TuneCommandsSent.Add(modeCmd);
+            TuneCommandsSent.Add(tuneCmd);
+            if (RadioAcknowledgesTunes)
+            {
+                if (modeCmd != null) onReply?.Invoke(CommandReply.Ok(modeCmd));
+                if (RejectNextTuneWith != null)
+                {
+                    var why = RejectNextTuneWith;
+                    RejectNextTuneWith = null;
+                    onReply?.Invoke(new CommandReply(tuneCmd, 0x50000002, why));
+                }
+                else onReply?.Invoke(CommandReply.Ok(tuneCmd));
+            }
             OnTuneSent?.Invoke(sliceIndex, freqHz, mode);
+            return null;
         }
 
         public int AllocationScopesBegun;
@@ -246,12 +288,22 @@ namespace Radios.Tests.StationConnect
             Waiter = new ScriptedWaiter(Clock);
             Port.DeliverFreshInventory = names => Profiles.GlobalListObserved(names, ObservationProvenance.RadioReported, Gen);
             Port.LatestInventory = () => Profiles.Snapshot().GlobalList;
-            Port.OnTuneSent = (index, hz, mode) => Station.OwnSliceTuned(index, hz, mode, Gen);
             NewAttempt();
         }
 
-        /// <summary>The radio reports an own slice tuned.</summary>
-        public void RadioReportsTune(int index, long hz, string mode) => Station.OwnSliceTuned(index, hz, mode, Gen);
+        /// <summary>The radio's status reports an own slice's FREQUENCY.</summary>
+        public void RadioReportsFrequency(int index, long hz) => Station.OwnSliceFrequencyReported(index, hz, Gen);
+
+        /// <summary>The radio's status reports an own slice's MODE.</summary>
+        public void RadioReportsMode(int index, string mode) => Station.OwnSliceModeReported(index, mode, Gen);
+
+        /// <summary>The radio's status reports both fields of an own slice,
+        /// as two separate receipts (which is how FlexLib raises them).</summary>
+        public void RadioReportsTune(int index, long hz, string mode)
+        {
+            RadioReportsMode(index, mode);
+            RadioReportsFrequency(index, hz);
+        }
 
         /// <summary>The disconnect-time create under a fresh teardown operation.</summary>
         public CreationResult RunCreation(PendingGlobalCreation pending, StationResult lastStation)

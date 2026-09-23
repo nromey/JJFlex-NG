@@ -46,9 +46,12 @@ namespace Radios.StationConnect
         NoSlices,
         /// <summary>Every obtained slice received a frequency and reported it.</summary>
         Completed,
-        /// <summary>A placement was sent and the slice did not report the
-        /// frequency within the bound; nothing after it was placed.</summary>
+        /// <summary>A placement was sent and the radio did not acknowledge it
+        /// within the bound; nothing after it was placed.</summary>
         Unconfirmed,
+        /// <summary>The radio answered the tune with an error; nothing after
+        /// it was placed. The note carries the radio's text.</summary>
+        Rejected,
         Refused,
         Cancelled,
     }

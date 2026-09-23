@@ -112,7 +112,17 @@ namespace Radios.Tests.StationConnect
             };
         }
 
-        public ProfileActionOutcome SendSelection(ProfileAction action, Func<string> refusalAtSend)
+        /// <summary>Whether the radio replies to the load command (code 0).
+        /// The reply is the radio's acceptance of the command; the status
+        /// report that follows a CHANGED selection is delivered separately
+        /// by OnSelectionSent, and an unchanged one is never reported at all
+        /// (the vendor's equal-value skip).</summary>
+        public bool RadioAcknowledgesSelections = true;
+        /// <summary>When set, the radio rejects the next load with this text.</summary>
+        public string RejectNextSelectionWith;
+        public readonly List<CommandReply> RepliesDelivered = new List<CommandReply>();
+
+        public ProfileActionOutcome SendSelection(ProfileAction action, Func<string> refusalAtSend, Action<CommandReply> onReply)
         {
             ProfileActionOutcome outcome = ProfileActionOutcome.Queued;
             Action work = () =>
@@ -122,6 +132,15 @@ namespace Radios.Tests.StationConnect
                 Log.Add("send " + action.ProfileType + " " + action.ProfileName);
                 Sent.Add((action.ProfileType, action.ProfileName));
                 outcome = ProfileActionOutcome.Sent;
+                string cmd = "profile " + action.ProfileType + " load \"" + action.ProfileName + "\"";
+                CommandReply reply = null;
+                if (RejectNextSelectionWith != null)
+                {
+                    reply = new CommandReply(cmd, 0x50000001, RejectNextSelectionWith);
+                    RejectNextSelectionWith = null;
+                }
+                else if (RadioAcknowledgesSelections) reply = CommandReply.Ok(cmd);
+                if (reply != null) { RepliesDelivered.Add(reply); onReply?.Invoke(reply); }
                 OnSelectionSent?.Invoke(action.ProfileType, action.ProfileName);
             };
             if (HoldDispatch)
@@ -288,6 +307,50 @@ namespace Radios.Tests.StationConnect
             Assert.True(r.Clock.NowMs - before >= StationDeadlines.Default().TxMicEffectMs);
             Assert.True(r.Clock.NowMs - before < StationDeadlines.Default().PostStationPhaseMs);
             Assert.Equal("conclude repair=False", r.Port.Log.Last());
+        }
+
+        // ── the confirmation is the reply AND the report (Track G3, group 1) ──
+
+        [Fact]
+        public void AnAcknowledgedLoad_TheRadioNeverReportsSelected_IsUnconfirmed()
+        {
+            var r = new Rig();
+            r.Port.OnSelectionSent = (type, name) => { };       // acknowledged (the fake's default), never reported
+
+            var result = r.Run(Established());
+
+            Assert.Equal(PostStationOutcome.Unconfirmed, result.Outcome);
+            Assert.Single(r.Port.RepliesDelivered);
+            Assert.Contains("acknowledged the load but did not report it selected", result.Reason);
+        }
+
+        [Fact]
+        public void AReportedSelection_TheRadioNeverAcknowledges_IsUnconfirmed()
+        {
+            var r = new Rig();
+            r.Port.RadioAcknowledgesSelections = false;        // the status arrives; the reply never does
+
+            var result = r.Run(Established());
+
+            Assert.Equal(PostStationOutcome.Unconfirmed, result.Outcome);
+            Assert.Empty(result.ConfirmedSelections);
+            Assert.Contains("did not acknowledge", result.Reason);
+        }
+
+        [Fact]
+        public void ARejectedLoad_StopsThePhase_WithTheRadiosText()
+        {
+            var r = new Rig();
+            r.Port.RejectNextSelectionWith = "profile not found";
+            r.Port.OnSelectionSent = (type, name) => { };
+
+            var result = r.Run(Established());
+
+            Assert.Equal(PostStationOutcome.Stopped, result.Outcome);
+            Assert.Contains("rejected by the radio", result.Reason);
+            Assert.Contains("profile not found", result.Reason);
+            Assert.Equal(0, r.Port.ReadsOf(ProfileTypes.mic));
+            Assert.False(result.MayRepairMicrophone);
         }
 
         [Fact]

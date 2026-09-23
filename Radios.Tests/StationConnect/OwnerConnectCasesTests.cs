@@ -43,10 +43,15 @@ namespace Radios.Tests.StationConnect
         // ── case 2 ──
 
         [Fact]
-        public void OwnerWithCompany_NoLoadOverThem_FrequenciesOnTheFreeSlices_EachConfirmedByTheSlice()
+        public void OwnerWithCompany_NoLoadOverThem_FrequenciesOnTheFreeSlices_EachConfirmedByTheRadiosReply()
         {
-            // The positive control for case 2.
+            // The positive control for case 2. The radio acknowledges each
+            // command and, as the vendor does for a slice that already sits
+            // where it was asked to, reports NO status: the reply alone is
+            // the confirmation (Track G2 re-review, section 5).
             var h = OwnerWithCompany();
+            int reports = 0;
+            h.Station.Changed += () => reports++;
 
             var r = h.Run();
 
@@ -55,9 +60,74 @@ namespace Radios.Tests.StationConnect
             Assert.Empty(h.Port.GlobalLoadsSent);
             Assert.Equal(2, h.Port.PanafallRequests);
             Assert.Equal(new[] { (0, 14_250_000L, "USB"), (1, 7_150_000L, "LSB") }, h.Port.TunesSent);
+            Assert.Equal(new[] { "slice set 0 mode=USB", "slice tune 0 14.250000", "slice set 1 mode=LSB", "slice tune 1 7.150000" },
+                h.Port.TuneCommandsSent);
             Assert.Equal(PlacementStop.Completed, r.Placement.Stop);
             Assert.Equal(2, r.Placement.Placed);
             Assert.True(r.StationEstablished);
+            // Two slice arrivals were the only station observations: no
+            // tune report was needed, and none was injected by the fake.
+            Assert.Equal(2, reports);
+        }
+
+        [Fact]
+        public void OwnerWithCompany_ATuneTheRadioRejects_StopsThePlacement_WithTheRadiosText()
+        {
+            var h = OwnerWithCompany();
+            h.Port.RejectNextTuneWith = "14.250000";      // the radio kept another frequency
+
+            var r = h.Run();
+
+            Assert.Single(h.Port.TunesSent);
+            Assert.Equal(PlacementStop.Rejected, r.Placement.Stop);
+            Assert.Contains("14.250000", r.Placement.Note);
+            Assert.Equal(0, r.Placement.Placed);
+            Assert.Equal(1, r.Placement.Sent);
+        }
+
+        [Fact]
+        public void OwnerWithCompany_ATuneTheRadioAlsoReports_IsStillConfirmedOnceByTheReply()
+        {
+            // The changed-value case: the radio's status carries the new
+            // frequency too. Corroboration; the count of placed does not
+            // double and the reply is still what confirmed it.
+            var h = OwnerWithCompany();
+            h.Port.OnTuneSent = (index, hz, mode) => h.RadioReportsTune(index, hz, mode);
+
+            var r = h.Run();
+
+            Assert.Equal(PlacementStop.Completed, r.Placement.Stop);
+            Assert.Equal(2, r.Placement.Placed);
+            Assert.Contains(h.Port.Trace, t => t.Contains("also reported the frequency", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void OwnerWithCompany_AReportWithoutAReply_DoesNotConfirm()
+        {
+            // The status arrives (the value changed) but the radio never
+            // answers the command: the report corroborates a send the radio
+            // has not acknowledged, and the placement is Unconfirmed.
+            var h = OwnerWithCompany();
+            h.Port.RadioAcknowledgesTunes = false;
+            h.Port.OnTuneSent = (index, hz, mode) => h.RadioReportsTune(index, hz, mode);
+
+            var r = h.Run();
+
+            Assert.Equal(PlacementStop.Unconfirmed, r.Placement.Stop);
+            Assert.Equal(0, r.Placement.Placed);
+        }
+
+        [Fact]
+        public void OwnerWithCompany_ATuneThePortCannotSend_IsRefused()
+        {
+            var h = OwnerWithCompany();
+            h.Port.RefuseNextTuneWith = "slice 0 is locked";
+
+            var r = h.Run();
+
+            Assert.Empty(h.Port.TunesSent);
+            Assert.Equal(PlacementStop.Refused, r.Placement.Stop);
+            Assert.Contains("locked", r.Placement.Note);
         }
 
         [Fact]
@@ -74,17 +144,20 @@ namespace Radios.Tests.StationConnect
         }
 
         [Fact]
-        public void OwnerWithCompany_ATuneTheSliceDoesNotReport_IsUnconfirmed_AndStopsThePlacement()
+        public void OwnerWithCompany_ATuneTheRadioNeverAcknowledges_IsUnconfirmed_AndStopsThePlacement()
         {
             var h = OwnerWithCompany();
-            h.Port.OnTuneSent = (index, hz, mode) => { };   // the slice never reports the tune
+            h.Port.RadioAcknowledgesTunes = false;          // no reply inside the bound
+            long before = h.Clock.NowMs;
 
             var r = h.Run();
 
             Assert.Single(h.Port.TunesSent);
             Assert.Equal(PlacementStop.Unconfirmed, r.Placement.Stop);
+            Assert.Contains("did not acknowledge", r.Placement.Note);
             Assert.Equal(0, r.Placement.Placed);
             Assert.Equal(1, r.Placement.Sent);
+            Assert.True(h.Clock.NowMs - before >= h.Deadlines.FrequencyPlacementMs);
         }
 
         [Fact]
@@ -243,8 +316,44 @@ namespace Radios.Tests.StationConnect
             Assert.False(s.TunedSince(armed, a, 7_150_000));
             Assert.False(s.TunedSince(armed, b, 14_250_000));
             Assert.False(s.TunedSince(h.Station.Sequence, b, 7_150_000)); // not after a later arm
-            h.Station.OwnSliceTuned(9, 1, "AM", h.Gen);          // unknown index: ignored
+            h.Station.OwnSliceFrequencyReported(9, 1, h.Gen);   // unknown index: ignored
             Assert.Equal(2, h.Station.Snapshot().OwnSliceCount);
+        }
+
+        [Fact]
+        public void AModeReport_DoesNotConfirmAFrequency_AndAFrequencyReport_DoesNotConfirmAMode()
+        {
+            // Each field is its own receipt (Track G2 re-review, section 5):
+            // the handler used to snapshot both on either notification.
+            var h = new StationHarness();
+            h.OurClientAdded();
+            int a = h.OwnSliceArrives();
+            long armed = h.Station.Sequence;
+
+            h.RadioReportsMode(a, "USB");
+            var afterMode = h.Station.Snapshot();
+            Assert.True(afterMode.ModeReportedSince(armed, a, "usb"));
+            Assert.False(afterMode.TunedSince(armed, a, 0));
+            Assert.Equal(0, afterMode.Slices[0].FreqSequence);
+
+            h.RadioReportsFrequency(a, 14_250_000);
+            var afterFreq = h.Station.Snapshot();
+            Assert.True(afterFreq.TunedSince(armed, a, 14_250_000));
+            Assert.True(afterFreq.Slices[0].ModeSequence < afterFreq.Slices[0].FreqSequence);
+        }
+
+        [Fact]
+        public void ASliceReAddedAtTheSameIndexAfterTheArm_IsNotTheSliceThatWasTuned()
+        {
+            var h = new StationHarness();
+            h.OurClientAdded();
+            int a = h.OwnSliceArrives();
+            long armed = h.Station.Sequence;
+            h.OwnSliceRemoved(a);
+            h.Station.OwnSliceAdded(a, "A", StationHarness.OurHandle, 0x40000001, h.Gen); // same index, new slice
+            h.RadioReportsFrequency(a, 14_250_000);
+
+            Assert.False(h.Station.Snapshot().TunedSince(armed, a, 14_250_000));
         }
 
         // ── the sentences exist and are keyed ──

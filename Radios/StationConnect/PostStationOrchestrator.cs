@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 
 namespace Radios.StationConnect
 {
@@ -99,9 +100,13 @@ namespace Radios.StationConnect
         /// <paramref name="refusalAtSend"/> immediately before writing and
         /// refuse on a non-null answer; it adds its own radio-side checks.
         /// Returns Refused, Queued (the loop has not run it inside the bound)
-        /// or Sent.
+        /// or Sent. The radio's reply to the load command is delivered to
+        /// <paramref name="onReply"/> when it arrives; the production port
+        /// sends through FlexLib's reply-bearing path, never the setter, so
+        /// the reply is real and the vendor cache is not pre-assigned (see
+        /// <see cref="CommandReply"/>).
         /// </summary>
-        ProfileActionOutcome SendSelection(ProfileAction action, Func<string> refusalAtSend);
+        ProfileActionOutcome SendSelection(ProfileAction action, Func<string> refusalAtSend, Action<CommandReply> onReply);
 
         /// <summary>The latest RADIO-REPORTED selection for a type, or null.</summary>
         SelectionObservation LatestReportedSelection(ProfileTypes type);
@@ -147,10 +152,13 @@ namespace Radios.StationConnect
     /// a source-order pin (review section 1 step 8; section 6). This is the
     /// algorithm behind a port narrow enough for a fake to drive with the
     /// fake clock, so the ordering is a behavioural test.</para>
-    /// <para>A selection is CONFIRMED by a radio-reported selection for that
-    /// type, with the wanted name, at a sequence after the send. The radio
-    /// reports <c>profile tx current=</c> from its own status when a load
-    /// takes; a local echo of our setter is not that. Whether that report
+    /// <para>A selection is CONFIRMED by two independent things: the radio's
+    /// REPLY to the load command (code 0), and a radio-reported selection
+    /// for that type equal to the wanted name — either reported after the
+    /// send, or already the radio's last report before it (the equal-value
+    /// case, where the vendor sends no second status). A local echo of our
+    /// setter is neither; the production port does not use the setter. A
+    /// non-zero reply is a rejection and stops the phase. Whether the report
     /// also proves the profile's VALUES were applied is bench question C;
     /// until it answers, this is the strongest evidence available and it is
     /// named as a selection confirmation, not an applied-state one.</para>
@@ -275,7 +283,10 @@ namespace Radios.StationConnect
                     }
 
                     long seqBefore = _port.ProfileSequence;
-                    var send = _port.SendSelection(action, () => RefusalAtSend(operation, phase, factsAtPlan));
+                    var reportedBefore = _port.LatestReportedSelection(type);
+                    CommandReply reply = null;
+                    var send = _port.SendSelection(action, () => RefusalAtSend(operation, phase, factsAtPlan),
+                        r => { if (r != null) { Volatile.Write(ref reply, r); operation.Signal(); } });
                     if (send != ProfileActionOutcome.Sent)
                     {
                         result.Outcome = send == ProfileActionOutcome.Refused || send == ProfileActionOutcome.Failed
@@ -286,12 +297,14 @@ namespace Radios.StationConnect
                         break;
                     }
 
-                    if (!WaitForSelectionConfirmed(type, action.ProfileName, seqBefore, phase, operation))
+                    var confirmation = WaitForSelectionConfirmed(type, action.ProfileName, seqBefore, reportedBefore, () => Volatile.Read(ref reply), phase, operation);
+                    if (confirmation != null)
                     {
-                        result.Outcome = operation.IsEnded ? PostStationOutcome.Cancelled : PostStationOutcome.Unconfirmed;
+                        result.Outcome = operation.IsEnded ? PostStationOutcome.Cancelled
+                            : confirmation.StartsWith("rejected", StringComparison.Ordinal) ? PostStationOutcome.Stopped
+                            : PostStationOutcome.Unconfirmed;
                         result.Reason = ProfileStewardship.Label(type) + " selection '" + action.ProfileName
-                            + "' was sent but the radio did not report it selected within " + _deadlines.TxMicEffectMs
-                            + " ms; nothing after it runs and the assessment does not repair";
+                            + "' was sent but " + confirmation + "; nothing after it runs and the assessment does not repair";
                         _port.Trace(result.Reason, warn: true);
                         stopped = true;
                         break;
@@ -390,17 +403,34 @@ namespace Radios.StationConnect
             return null;
         }
 
-        private bool WaitForSelectionConfirmed(ProfileTypes type, string name, long seqBefore, StationDeadline phase, StationOperation operation)
+        /// <summary>
+        /// Null when confirmed; else why not. Confirmation needs the radio's
+        /// acknowledgment of the command AND a radio-reported selection equal
+        /// to the name — reported after the send, or already the last report
+        /// before it (equal value: the vendor sends nothing further). A
+        /// rejection returns at once with the radio's text.
+        /// </summary>
+        private string WaitForSelectionConfirmed(
+            ProfileTypes type, string name, long seqBefore, SelectionObservation reportedBefore,
+            Func<CommandReply> reply, StationDeadline phase, StationOperation operation)
         {
             var bound = phase.Clip(_clock, _deadlines.TxMicEffectMs);
+            bool alreadyReported = reportedBefore != null && reportedBefore.Provenance == ObservationProvenance.RadioReported
+                                   && string.Equals(reportedBefore.Name, name, StringComparison.Ordinal);
             while (true)
             {
+                var r = reply();
+                if (r != null && !r.Acknowledged) return "rejected by the radio: " + r;
                 var obs = _port.LatestReportedSelection(type);
-                if (obs != null && obs.Provenance == ObservationProvenance.RadioReported
-                    && obs.Sequence > seqBefore && string.Equals(obs.Name, name, StringComparison.Ordinal))
-                    return true;
-                if (operation.IsEnded) return false;
-                if (bound.Passed(_clock)) return false;
+                bool reportedAfter = obs != null && obs.Provenance == ObservationProvenance.RadioReported
+                    && obs.Sequence > seqBefore && string.Equals(obs.Name, name, StringComparison.Ordinal);
+                if (r != null && r.Acknowledged && (reportedAfter || alreadyReported)) return null;
+                if (operation.IsEnded) return "the operation ended: " + operation.WhyNotLive;
+                if (bound.Passed(_clock))
+                {
+                    if (r == null) return "the radio did not acknowledge the load within " + _deadlines.TxMicEffectMs + " ms";
+                    return "the radio acknowledged the load but did not report it selected within " + _deadlines.TxMicEffectMs + " ms";
+                }
                 _waiter.Wait(Math.Min(25, bound.RemainingMs(_clock)));
             }
         }

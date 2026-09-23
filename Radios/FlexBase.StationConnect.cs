@@ -320,12 +320,84 @@ namespace Radios
         private void ObserveOwnSliceRemoved(ObservationBinding binding, Slice slc) =>
             StationTracker.OwnSliceRemoved(slc.Index, binding.Generation);
 
-        /// <summary>A radio-reported frequency or mode on one of our slices.
-        /// A local setter's echo (inside an OwnProfileWrite scope) is not fed.</summary>
-        private void ObserveOwnSliceTuned(ObservationBinding binding, Slice slc)
+        /// <summary>
+        /// A radio-reported FIELD on one of our slices: the frequency when
+        /// the notification was for Freq, the mode when it was for DemodMode,
+        /// never both from one notification. A local setter's echo (inside an
+        /// OwnProfileWrite scope) is not fed. Until Track G3 this snapshotted
+        /// both fields on either notification, so a radio-reported mode
+        /// change "confirmed" a frequency that had only been assigned
+        /// locally (Track G2 re-review, section 5).
+        /// </summary>
+        private void ObserveOwnSliceReported(ObservationBinding binding, Slice slc, string propertyName)
         {
             if (ProvenanceNow() != ObservationProvenance.RadioReported) return;
-            StationTracker.OwnSliceTuned(slc.Index, (long)LibFreqtoLong(slc.Freq), slc.DemodMode, binding.Generation);
+            switch (propertyName)
+            {
+                case "Freq":
+                    StationTracker.OwnSliceFrequencyReported(slc.Index, (long)LibFreqtoLong(slc.Freq), binding.Generation);
+                    break;
+                case "DemodMode":
+                    StationTracker.OwnSliceModeReported(slc.Index, slc.DemodMode, binding.Generation);
+                    break;
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // The reply-bearing send: the acknowledgment FlexLib's setters discard
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Send one command through FlexLib's public reply-bearing path and
+        /// deliver the radio's reply to <paramref name="onReply"/> on the
+        /// receive thread. Returns null when the command went out, else why
+        /// it did not. This is the ONLY honest success signal for a
+        /// confirmable command: the vendor's setters assign their cache
+        /// first, discard the success reply, and skip the status that
+        /// repeats the cached value, so once our own echo is filtered no
+        /// ordinary success reaches PropertyChanged at all (Track G2
+        /// re-review, section 5; <see cref="CommandReply"/>). Bypassing the
+        /// setter also leaves the cache honest: a CHANGED value's status
+        /// differs from it and is raised as a genuine radio report.
+        /// </summary>
+        private static string SendRadioCommandWithReply(Radio radio, string command, Action<CommandReply> onReply)
+        {
+            if (radio == null) return "no radio";
+            if (string.IsNullOrWhiteSpace(command)) return "empty command";
+            if (!radio.Connected) return "the radio's command transport is not connected";
+            int seq;
+            try
+            {
+                seq = radio.SendReplyCommand((s, code, text) =>
+                {
+                    try { onReply?.Invoke(new CommandReply(command, code, text)); }
+                    catch (Exception ex)
+                    {
+                        Tracing.TraceLine("StationConnect: reply handler for '" + command + "' threw: " + ex.Message, TraceLevel.Error);
+                    }
+                }, command);
+            }
+            catch (Exception ex)
+            {
+                return "sending '" + command + "' threw: " + ex.Message;
+            }
+            // FlexLib returns 0 without sending when its transport is down.
+            return seq == 0 ? "the radio's command transport refused the send" : null;
+        }
+
+        /// <summary>The <c>profile ... load</c> command for a type, as
+        /// FlexLib's own setter would send it (the asterisk the radio marks
+        /// a current profile with is stripped, as the setter strips it).</summary>
+        private static string ProfileLoadCommand(ProfileTypes type, string name)
+        {
+            string clean = (name ?? "").Replace("*", "");
+            switch (type)
+            {
+                case ProfileTypes.global: return "profile global load \"" + clean + "\"";
+                case ProfileTypes.tx: return "profile tx load \"" + clean + "\"";
+                case ProfileTypes.mic: return "profile mic load \"" + clean + "\"";
+                default: return null;
+            }
         }
 
         /// <summary>
@@ -469,18 +541,17 @@ namespace Radios
 
             public void Dispatch(string name, Action work) => _rig.DispatchStationWork(name, work);
 
-            public void SendGlobalLoad(string name, Action<string> onRejected)
+            public void SendGlobalLoad(string name, Action<CommandReply> onReply)
             {
                 var radio = _rig.theRadio;
-                if (radio == null) { onRejected?.Invoke("no radio"); return; }
-                // The FlexLib setter sends for every non-empty name, equal or
-                // not, and raises its own notification synchronously — which
-                // the provenance scope marks as a local echo. It offers no
-                // reply to its caller, so a rejection cannot be observed here.
-                using (OwnProfileWrite())
-                {
-                    radio.ProfileGlobalSelection = name;
-                }
+                // The same command the FlexLib setter sends, through the
+                // reply-bearing path instead: the radio's acceptance or
+                // rejection reaches the coordinator, and the vendor cache is
+                // not pre-assigned, so the radio's own "profile global
+                // current=" status is raised as a genuine report rather than
+                // skipped as equal. Acceptance is not completion (bench B).
+                string refusal = SendRadioCommandWithReply(radio, ProfileLoadCommand(ProfileTypes.global, name), onReply);
+                if (refusal != null) onReply?.Invoke(new CommandReply(ProfileLoadCommand(ProfileTypes.global, name) ?? "", 0xFFFFFFFF, refusal));
             }
 
             public void RequestPanafall() => _rig.theRadio?.RequestPanafall();
@@ -530,19 +601,32 @@ namespace Radios
                 return string.IsNullOrEmpty(serial) ? null : RadioConfig.StationLayoutOf(serial);
             }
 
-            public void SetSliceFrequencyAndMode(int sliceIndex, long freqHz, string mode)
+            public string SetSliceFrequencyAndMode(int sliceIndex, long freqHz, string mode, Action<CommandReply> onReply)
             {
+                var radio = _rig.theRadio;
                 Slice target = null;
                 lock (_rig.mySlices) target = _rig.mySlices.FirstOrDefault(x => x.Index == sliceIndex);
-                if (target == null) return;
-                // Our own slice, our own write; the echo the setter raises on
-                // this thread is a local echo, and the radio's status report
-                // is what confirms the placement.
-                using (OwnProfileWrite())
+                if (target == null) return "slice " + sliceIndex + " is not one of ours";
+                if (target.Lock) return "slice " + sliceIndex + " is locked";
+                // The same commands Slice.DemodMode and Slice.Freq send,
+                // through the reply-bearing path instead of the setters. The
+                // setters assign their cache first and discard the success
+                // reply (Slice.SetFreqReply returns on 0), and the vendor
+                // then skips the status that repeats the cached value — so a
+                // correctly tuned slice reported nothing through
+                // PropertyChanged. Here the radio's reply is the
+                // confirmation, and a changed value's status still differs
+                // from the untouched cache and is raised as a real report.
+                if (!string.IsNullOrEmpty(mode))
                 {
-                    if (!string.IsNullOrEmpty(mode)) target.DemodMode = mode;
-                    target.Freq = _rig.LongFreqToLibFreq((ulong)Math.Max(0, freqHz));
+                    string modeCmd = "slice set " + target.Index + " mode=" + mode.ToUpperInvariant();
+                    string r = SendRadioCommandWithReply(radio, modeCmd, onReply);
+                    if (r != null) return r;
                 }
+                double mhz = _rig.LongFreqToLibFreq((ulong)Math.Max(0, freqHz));
+                string tune = "slice tune " + target.Index + " " + Flex.Util.StringHelper.DoubleToString(mhz, "f6");
+                if (!target.AutoPan) tune += " autopan=0";
+                return SendRadioCommandWithReply(radio, tune, onReply);
             }
 
             public InventoryObservation RequestGlobalInventory(int timeoutMs)
@@ -805,8 +889,8 @@ namespace Radios
             public ProfileSituation ReadBaseSituation() => _rig.ReadBaseProfileSituation();
             public ProfileTypeState ReadType(ProfileTypes type, int timeoutMs) =>
                 _rig.ReadProfileTypeState(type, _rig.WantedProfilesForThisRadio(), freshAsk: true, timeoutMs: timeoutMs);
-            public ProfileActionOutcome SendSelection(ProfileAction action, Func<string> refusalAtSend) =>
-                _rig.DispatchSelectionChecked(action, _op, refusalAtSend);
+            public ProfileActionOutcome SendSelection(ProfileAction action, Func<string> refusalAtSend, Action<CommandReply> onReply) =>
+                _rig.DispatchSelectionChecked(action, _op, refusalAtSend, onReply);
             public SelectionObservation LatestReportedSelection(ProfileTypes type) =>
                 _rig.ProfileEvidence.Snapshot().ReportedSelectionOf(type);
             public long ProfileSequence => _rig.ProfileEvidence.Sequence;
@@ -1045,7 +1129,7 @@ namespace Radios
         /// (operation, phase, facts, stewardship, strict roster) first, then
         /// the radio-side checks (list membership, MayCreate).
         /// </summary>
-        private ProfileActionOutcome DispatchSelectionChecked(ProfileAction action, StationOperation operation, Func<string> refusalAtSend)
+        private ProfileActionOutcome DispatchSelectionChecked(ProfileAction action, StationOperation operation, Func<string> refusalAtSend, Action<CommandReply> onReply)
         {
             var radio = theRadio;
             if (radio == null || action == null) return ProfileActionOutcome.Failed;
@@ -1055,31 +1139,34 @@ namespace Radios
             {
                 refusal = refusalAtSend?.Invoke();
                 if (refusal != null) return;
-                using (OwnProfileWrite())
+                // The load goes through the reply-bearing path, NOT the
+                // FlexLib setter: the setter pre-assigns its cache and the
+                // vendor then skips the "profile tx current=" status that
+                // repeats it, so a load that took reported nothing (Track G2
+                // re-review, step 8). The reply is the acknowledgment; the
+                // status, when the selection changed, is a genuine report.
+                switch (action.ProfileType)
                 {
-                    switch (action.ProfileType)
-                    {
-                        case ProfileTypes.tx:
-                            if (!radio.ProfileTXList.Contains(action.ProfileName))
-                            {
-                                if (!action.MayCreate) { refusal = "transmit profile absent and creation not permitted"; return; }
-                                radio.CreateTXProfile(action.ProfileName);
-                            }
-                            radio.ProfileTXSelection = action.ProfileName;
-                            break;
-                        case ProfileTypes.mic:
-                            if (!radio.ProfileMICList.Contains(action.ProfileName))
-                            {
-                                if (!action.MayCreate) { refusal = "microphone profile absent and creation not permitted"; return; }
-                                radio.CreateMICProfile(action.ProfileName);
-                            }
-                            radio.ProfileMICSelection = action.ProfileName;
-                            break;
-                        default:
-                            refusal = "the global type is decided by the station coordinator, never here";
-                            return;
-                    }
+                    case ProfileTypes.tx:
+                        if (!radio.ProfileTXList.Contains(action.ProfileName))
+                        {
+                            if (!action.MayCreate) { refusal = "transmit profile absent and creation not permitted"; return; }
+                            using (OwnProfileWrite()) radio.CreateTXProfile(action.ProfileName);
+                        }
+                        break;
+                    case ProfileTypes.mic:
+                        if (!radio.ProfileMICList.Contains(action.ProfileName))
+                        {
+                            if (!action.MayCreate) { refusal = "microphone profile absent and creation not permitted"; return; }
+                            using (OwnProfileWrite()) radio.CreateMICProfile(action.ProfileName);
+                        }
+                        break;
+                    default:
+                        refusal = "the global type is decided by the station coordinator, never here";
+                        return;
                 }
+                refusal = SendRadioCommandWithReply(radio, ProfileLoadCommand(action.ProfileType, action.ProfileName), onReply);
+                if (refusal != null) return;
                 sent = true;
             });
 

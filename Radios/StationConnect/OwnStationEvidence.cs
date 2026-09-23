@@ -14,12 +14,12 @@ namespace Radios.StationConnect
     public sealed class OwnSlice
     {
         public OwnSlice(int index, string letter, uint handle, uint panadapterStreamId, long sequence, int attemptGeneration)
-            : this(index, letter, handle, panadapterStreamId, sequence, attemptGeneration, 0, "", 0)
+            : this(index, letter, handle, panadapterStreamId, sequence, attemptGeneration, 0, 0, "", 0)
         {
         }
 
         private OwnSlice(int index, string letter, uint handle, uint panadapterStreamId, long sequence, int attemptGeneration,
-            long freqHz, string mode, long tunedSequence)
+            long freqHz, long freqSequence, string mode, long modeSequence)
         {
             Index = index;
             Letter = letter ?? "";
@@ -28,24 +28,38 @@ namespace Radios.StationConnect
             Sequence = sequence;
             AttemptGeneration = attemptGeneration;
             FreqHz = freqHz;
+            FreqSequence = freqSequence;
             Mode = mode ?? "";
-            TunedSequence = tunedSequence;
+            ModeSequence = modeSequence;
         }
+
+        // Each field is its OWN receipt (Track G2 re-review, section 5). The
+        // handler used to snapshot both Freq and DemodMode on either
+        // notification, so a radio-reported mode change "confirmed" a
+        // frequency that had only been assigned locally. A frequency is
+        // reported when the radio's status carried rf_frequency; a mode when
+        // it carried mode; neither blesses the other.
 
         /// <summary>The slice's frequency as the RADIO last reported it, or 0
         /// when it has not reported one this attempt.</summary>
         public long FreqHz { get; }
 
+        /// <summary>The observation sequence of the last radio-reported
+        /// FREQUENCY for this slice, or 0.</summary>
+        public long FreqSequence { get; }
+
         /// <summary>The mode as the radio last reported it, or empty.</summary>
         public string Mode { get; }
 
-        /// <summary>The observation sequence of the last radio-reported tune,
-        /// or 0. A placement sent at sequence N is confirmed by a tune
-        /// reported after N with the wanted frequency.</summary>
-        public long TunedSequence { get; }
+        /// <summary>The observation sequence of the last radio-reported MODE
+        /// for this slice, or 0.</summary>
+        public long ModeSequence { get; }
 
-        internal OwnSlice WithTune(long freqHz, string mode, long tunedSequence) =>
-            new OwnSlice(Index, Letter, Handle, PanadapterStreamId, Sequence, AttemptGeneration, freqHz, mode, tunedSequence);
+        internal OwnSlice WithFrequency(long freqHz, long freqSequence) =>
+            new OwnSlice(Index, Letter, Handle, PanadapterStreamId, Sequence, AttemptGeneration, freqHz, freqSequence, Mode, ModeSequence);
+
+        internal OwnSlice WithMode(string mode, long modeSequence) =>
+            new OwnSlice(Index, Letter, Handle, PanadapterStreamId, Sequence, AttemptGeneration, FreqHz, FreqSequence, mode, modeSequence);
 
         /// <summary>The radio's slice index: the identity, stable for the slice's life.</summary>
         public int Index { get; }
@@ -108,13 +122,25 @@ namespace Radios.StationConnect
         public IEnumerable<OwnSlice> NewSince(long sequence, StationSnapshot before) =>
             Slices.Where(s => s.Sequence > sequence && (before == null || !before.HasSlice(s.Index)));
 
-        /// <summary>True when the slice at <paramref name="index"/> has a
-        /// radio-reported tune after <paramref name="sequence"/> within one
-        /// hertz of <paramref name="freqHz"/>.</summary>
+        /// <summary>True when the slice at <paramref name="index"/> — the
+        /// SAME slice entry that existed at <paramref name="sequence"/>, not
+        /// a later one reusing the index — has a radio-reported FREQUENCY
+        /// after <paramref name="sequence"/> within one hertz of
+        /// <paramref name="freqHz"/>. A mode report does not count.</summary>
         public bool TunedSince(long sequence, int index, long freqHz)
         {
             var s = Slices.FirstOrDefault(x => x.Index == index);
-            return s != null && s.TunedSequence > sequence && Math.Abs(s.FreqHz - freqHz) <= 1;
+            return s != null && s.Sequence <= sequence && s.FreqSequence > sequence && Math.Abs(s.FreqHz - freqHz) <= 1;
+        }
+
+        /// <summary>True when the same slice entry has a radio-reported MODE
+        /// after <paramref name="sequence"/> equal to <paramref name="mode"/>
+        /// (case-insensitive). A frequency report does not count.</summary>
+        public bool ModeReportedSince(long sequence, int index, string mode)
+        {
+            var s = Slices.FirstOrDefault(x => x.Index == index);
+            return s != null && s.Sequence <= sequence && s.ModeSequence > sequence
+                && string.Equals(s.Mode, mode ?? "", StringComparison.OrdinalIgnoreCase);
         }
 
         public override string ToString() =>
@@ -171,17 +197,31 @@ namespace Radios.StationConnect
             Changed?.Invoke();
         }
 
-        /// <summary>The radio reported an own slice's frequency or mode. Only
+        /// <summary>The radio reported an own slice's FREQUENCY. Only
         /// radio-reported values are fed here; a local setter's echo is not
-        /// an observation.</summary>
-        public void OwnSliceTuned(int index, long freqHz, string mode, int attemptGeneration)
+        /// an observation, and a mode report is not a frequency report.</summary>
+        public void OwnSliceFrequencyReported(int index, long freqHz, int attemptGeneration)
         {
             lock (_lock)
             {
                 if (attemptGeneration != _attemptGeneration) return;
                 if (!_slices.TryGetValue(index, out var existing)) return;
                 _sequence++;
-                _slices[index] = existing.WithTune(freqHz, mode, _sequence);
+                _slices[index] = existing.WithFrequency(freqHz, _sequence);
+                _lastObservedAtMs = _clock.NowMs;
+            }
+            Changed?.Invoke();
+        }
+
+        /// <summary>The radio reported an own slice's MODE. Same rules.</summary>
+        public void OwnSliceModeReported(int index, string mode, int attemptGeneration)
+        {
+            lock (_lock)
+            {
+                if (attemptGeneration != _attemptGeneration) return;
+                if (!_slices.TryGetValue(index, out var existing)) return;
+                _sequence++;
+                _slices[index] = existing.WithMode(mode, _sequence);
                 _lastObservedAtMs = _clock.NowMs;
             }
             Changed?.Invoke();

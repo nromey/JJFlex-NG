@@ -9172,7 +9172,9 @@ namespace Radios
                 slc.PropertyChanged += new PropertyChangedEventHandler(slicePropertyChangedHandler);
                 slc.PropertyChanged += new PropertyChangedEventHandler((s2, e2) =>
                 {
-                    if (e2.PropertyName == "Freq" || e2.PropertyName == "DemodMode") ObserveOwnSliceTuned(binding, (Slice)s2);
+                    // One field per notification: a mode report never blesses
+                    // a frequency, and the reverse (Track G3).
+                    ObserveOwnSliceReported(binding, (Slice)s2, e2.PropertyName);
                 });
                 slc.MeterAdded += new Slice.MeterAddedEventHandler(meterAdded);
                 sMeter_t sMeter = new sMeter_t(this, slc);
@@ -15650,6 +15652,7 @@ namespace Radios
             bool sent = false;
             string refusal = null;
             long seq = ProfileEvidence.Sequence;
+            Radios.StationConnect.CommandReply reply = null;
             DispatchStationWork("silent-microphone repair '" + candidate + "'", () =>
             {
                 var serial = radio.Serial ?? "";
@@ -15668,7 +15671,14 @@ namespace Radios
                 });
                 if (refusal != null) return;
                 seq = ProfileEvidence.Sequence;
-                using (OwnProfileWrite()) radio.ProfileMICSelection = candidate;
+                // The reply-bearing path, not the setter: the setter's cache
+                // pre-assignment makes the vendor skip the confirming status
+                // (Track G2 re-review, step 10). The reply is the radio's
+                // acknowledgment; the "profile mic current=" status that
+                // follows a real change is a genuine report.
+                refusal = SendRadioCommandWithReply(radio, ProfileLoadCommand(ProfileTypes.mic, candidate),
+                    r => Volatile.Write(ref reply, r));
+                if (refusal != null) return;
                 sent = true;
             });
             if (!sent && refusal == null)
@@ -15684,13 +15694,27 @@ namespace Radios
 
             bool confirmed = await(() =>
             {
+                var r = Volatile.Read(ref reply);
+                if (r != null && !r.Acknowledged) return true; // stop waiting; fails below
                 var obs = ProfileEvidence.Snapshot().ReportedSelectionOf(ProfileTypes.mic);
-                return obs != null && obs.Sequence > seq && string.Equals(obs.Name, candidate, StringComparison.Ordinal);
+                return r != null && r.Acknowledged
+                    && obs != null && obs.Sequence > seq && string.Equals(obs.Name, candidate, StringComparison.Ordinal);
             }, StationDeadlines.Default().TxMicEffectMs);
+            var finalReply = Volatile.Read(ref reply);
+            if (finalReply != null && !finalReply.Acknowledged)
+            {
+                Tracing.TraceLine("SilentTxCheck: the radio REJECTED the repair — " + finalReply, TraceLevel.Warning);
+                return false;
+            }
+            var reportedNow = ProfileEvidence.Snapshot().ReportedSelectionOf(ProfileTypes.mic);
+            confirmed = finalReply != null && finalReply.Acknowledged && reportedNow != null
+                && reportedNow.Sequence > seq && string.Equals(reportedNow.Name, candidate, StringComparison.Ordinal);
             if (!confirmed)
             {
-                Tracing.TraceLine("SilentTxCheck: the repair went out but the radio did not report '" + candidate
-                    + "' selected within " + StationDeadlines.Default().TxMicEffectMs + " ms — not claimed repaired.",
+                Tracing.TraceLine("SilentTxCheck: the repair went out but " + (finalReply == null
+                        ? "the radio did not acknowledge it"
+                        : "the radio did not report '" + candidate + "' selected")
+                    + " within " + StationDeadlines.Default().TxMicEffectMs + " ms — not claimed repaired.",
                     TraceLevel.Warning);
             }
             return confirmed;

@@ -71,10 +71,14 @@ namespace Radios.StationConnect
         void Dispatch(string name, Action work);
 
         /// <summary>Send the global load. Called only inside dispatched work,
-        /// after the recheck. <paramref name="onRejected"/> is invoked with the
-        /// radio's error text if a rejection can be observed; the FlexLib
-        /// setter path cannot observe one and never calls it.</summary>
-        void SendGlobalLoad(string name, Action<string> onRejected);
+        /// after the recheck. <paramref name="onReply"/> receives the radio's
+        /// reply to the load command when it arrives (on the receive thread):
+        /// an acknowledgment is ACCEPTANCE of the command, never completion
+        /// of the load, which remains the completion policy's question; a
+        /// non-zero code is a rejection. The production port sends through
+        /// FlexLib's reply-bearing path, not the setter, so the reply is
+        /// real and the vendor cache is not pre-assigned.</summary>
+        void SendGlobalLoad(string name, Action<CommandReply> onReply);
 
         /// <summary>Ask for one new panadapter-and-slice. Inside dispatched work only.</summary>
         void RequestPanafall();
@@ -85,9 +89,19 @@ namespace Radios.StationConnect
         /// <see cref="StationLayout"/>).</summary>
         StationLayout ReadOwnerSavedLayout();
 
-        /// <summary>Tune one of OUR slices: a per-client write, confirmable
-        /// by the slice's own status. Inside dispatched work only.</summary>
-        void SetSliceFrequencyAndMode(int sliceIndex, long freqHz, string mode);
+        /// <summary>
+        /// Tune one of OUR slices: a per-client write. Inside dispatched work
+        /// only. Sends one command per field (the mode when non-empty, then
+        /// the frequency) through FlexLib's reply-bearing path and delivers
+        /// each reply to <paramref name="onReply"/> on the receive thread.
+        /// The acknowledgment is the confirmation: FlexLib's own setter
+        /// discards the success reply and the vendor suppresses the
+        /// equal-value status, so PropertyChanged carries no ordinary
+        /// success (see <see cref="CommandReply"/>). Returns null when the
+        /// commands went out, else why they did not (no radio, slice not
+        /// ours, slice locked, transport down).
+        /// </summary>
+        string SetSliceFrequencyAndMode(int sliceIndex, long freqHz, string mode, Action<CommandReply> onReply);
 
         /// <summary>A client-local allocation is about to begin: the port may
         /// capture the operator's current receive and transmit slice OBJECTS,
