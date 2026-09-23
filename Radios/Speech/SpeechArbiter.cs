@@ -1241,8 +1241,13 @@ namespace Radios.Speech
         /// <see cref="SalvageRefusalLocked"/>, and the interrupt is the
         /// occasion rather than the permission.
         /// </summary>
+        /// <para>A PROTECTED obligation is eligible whatever cut it. Ordinary
+        /// navigation may not take a safety outcome's slot, so an interrupt
+        /// that arrives while one is still owed puts it back rather than
+        /// inheriting it — and the hazard has not ceased because a sentence
+        /// was cut by something nobody can name.</para>
         private static bool RecoveryPermitted(BelievedQueued e) =>
-            !e.AutoRecoveryPaused && e.State != Owed.PausedUnknownCause;
+            !e.AutoRecoveryPaused && (e.Protected || e.State != Owed.PausedUnknownCause);
 
         /// <summary>
         /// Everything but the protected obligations leaves the ledger. Used
