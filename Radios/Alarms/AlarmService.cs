@@ -328,38 +328,64 @@ namespace Radios.Alarms
         /// </summary>
         public AlarmEvent? Preview(string alarmId)
         {
-            AlarmEvent preview;
             lock (_gate)
             {
                 if (!_entries.TryGetValue(alarmId, out Entry? entry)) return null;
-                AlarmDefinition def = entry.Monitor.Definition;
-                MeterDescriptor meter = entry.Resolution.Match ?? new MeterDescriptor(-1, def.Selector.Name,
-                    def.Selector.Description, def.Selector.Source, def.Selector.SourceIndex, def.Selector.Units, 0, 0);
-                long now = _clock.NowMs;
-                float value = (float)def.Threshold;
-                if (def.Condition == AlarmCondition.RiseFromBaseline)
-                    value = float.IsNaN(entry.Monitor.BaselineValue) ? value : entry.Monitor.BaselineValue + (float)def.Threshold;
-                var obs = MeterObservation.PreviewOf(meter, value, now, _clock.UtcNow, _generation);
-                preview = new AlarmEvent
-                {
-                    Kind = AlarmEventKind.Fired,
-                    Definition = def,
-                    EpisodeId = "preview",
-                    AtMs = now,
-                    Observation = obs,
-                    Value = value,
-                    Threshold = def.Threshold,
-                    Change = (float)def.Threshold,
-                    Baseline = entry.Monitor.BaselineValue,
-                    IntervalSeconds = def.Condition == AlarmCondition.RisingFast ? 90 : double.NaN,
-                    Transmitting = entry.Monitor.IsTransmitting,
-                    Detail = "preview",
-                };
-                Remember(preview);
+                return PreviewLocked(entry.Monitor.Definition, entry.Resolution.Match, entry.Monitor.BaselineValue,
+                    entry.Monitor.IsTransmitting);
             }
+        }
+
+        /// <summary>The same, for a definition the editor has not saved yet.</summary>
+        public AlarmEvent PreviewDefinition(AlarmDefinition definition)
+        {
+            if (definition == null) throw new ArgumentNullException(nameof(definition));
+            lock (_gate)
+            {
+                MeterSelectorResolution r = definition.Selector.Resolve(_feed.Inventory);
+                return PreviewLocked(definition, r.Match, float.NaN, _feed.IsTransmitting);
+            }
+        }
+
+        private AlarmEvent PreviewLocked(AlarmDefinition def, MeterDescriptor? resolved, float baseline, bool transmitting)
+        {
+            MeterDescriptor meter = resolved ?? new MeterDescriptor(-1, def.Selector.Name,
+                def.Selector.Description, def.Selector.Source, def.Selector.SourceIndex, def.Selector.Units, 0, 0);
+            long now = _clock.NowMs;
+            float value = (float)def.Threshold;
+            if (def.Condition == AlarmCondition.RiseFromBaseline)
+                value = float.IsNaN(baseline) ? value : baseline + (float)def.Threshold;
+            var obs = MeterObservation.PreviewOf(meter, value, now, _clock.UtcNow, _generation);
+            var preview = new AlarmEvent
+            {
+                Kind = AlarmEventKind.Fired,
+                Definition = def,
+                EpisodeId = "preview",
+                AtMs = now,
+                Observation = obs,
+                Value = value,
+                Threshold = def.Threshold,
+                Change = (float)def.Threshold,
+                Baseline = baseline,
+                IntervalSeconds = def.Condition == AlarmCondition.RisingFast ? 90 : double.NaN,
+                Transmitting = transmitting,
+                Detail = "preview",
+            };
+            Remember(preview);
             _queue.Post(preview);
             return preview;
         }
+
+        /// <summary>Whether this meter has delivered at least one reading on this connection — "reporting" against "no reading yet".</summary>
+        public bool HasReported(int meterIndex)
+        {
+            lock (_gate) return _reported.Contains(meterIndex);
+        }
+
+        private readonly HashSet<int> _reported = new HashSet<int>();
+
+        /// <summary>Wall time for a monotonic instant, for history rows. Approximate to the clock's own drift.</summary>
+        public DateTime UtcAt(long atMs) => _clock.UtcNow.AddMilliseconds(atMs - _clock.NowMs);
 
         // ── the feed ──
 
@@ -374,6 +400,7 @@ namespace Radios.Alarms
                 if (!_connected) return;
                 long seq = ++_sequence;
                 long now = _clock.NowMs;
+                _reported.Add(meter.Index);
                 var obs = MeterObservation.Measured(meter, value, seq, now, _clock.UtcNow, _generation, null);
 
                 if (_recordedIndices.Contains(meter.Index)) _recorder.Record(obs);
@@ -427,6 +454,7 @@ namespace Radios.Alarms
                 _serial = serial ?? "";
                 _byIndex.Clear();
                 _recordedIndices.Clear();
+                _reported.Clear();
 
                 LoadDefinitions(previousSerial);
                 long now = _clock.NowMs;
