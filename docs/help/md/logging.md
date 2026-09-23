@@ -44,7 +44,7 @@ After you enter a callsign, JJ Flexible Radio Access can look it up in online ca
 | Ctrl+N | Start a new log entry |
 | Ctrl+W | Save and finalise the current entry |
 | Ctrl+Shift+F | Search your log |
-| Ctrl+Shift+T | View log statistics |
+| Ctrl+J, L | View log statistics |
 | F6 | Switch between log panes |
 | Ctrl+Shift+N | Open the Log Characteristics dialog |
 | Ctrl+Alt+L | Open the full log entry form |
