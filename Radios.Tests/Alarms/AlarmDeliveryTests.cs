@@ -119,7 +119,7 @@ namespace Radios.Tests.Alarms
             _speechClock.Advance(AlarmDelivery.ToneLeadMs + 10);
 
             Assert.Empty(_speaker.Warnings);
-            var cleared = Assert.Single(_speaker.Status, s => s.Text.StartsWith("PA temperature high cleared"));
+            var cleared = Assert.Single(_speaker.Status, s => s.Text.StartsWith("High PA temperature cleared"));
             Assert.Equal(VerbosityLevel.Terse, cleared.Level);
             Assert.Equal(SpeechSubject.OperatorAlarmStatus, cleared.Subject);
         }
@@ -147,7 +147,7 @@ namespace Radios.Tests.Alarms
             Assert.True(s.DrainDispatch(2000));
             var w = Assert.Single(_speaker.Warnings);
             // Stale is declared on the first tick past the five-second allowance: 5.25 s, spoken as 5.
-            Assert.Equal("PA temperature high: no PATEMP (PA Temperature) reading for 5 seconds. It cannot be watched. Stop the transmission.", w.Text);
+            Assert.Equal("High PA temperature: no PATEMP (PA Temperature) reading for 5 seconds. It cannot be watched. Stop the transmission.", w.Text);
 
             _feed.Key(false);
             Deliver(30f); Deliver(30f);   // resumes
@@ -168,7 +168,7 @@ namespace Radios.Tests.Alarms
 
             Assert.Single(_sounds);
             var w = Assert.Single(_speaker.Warnings);
-            Assert.StartsWith("Test warning from the alarm PA temperature high. Nothing is wrong. A real warning would say: PA temperature 60 degrees C.", w.Text);
+            Assert.StartsWith("Test warning from the alarm High PA temperature. Nothing is wrong. A real warning would say: PA temperature 60 degrees C.", w.Text);
             Assert.True(_reports[0].IsPreview);
             Assert.Equal(AlarmConditionState.Normal, s.SnapshotOf("pa")!.Condition);
             Assert.Equal(w.Text, w.Refresh());   // a preview never re-reads a live value

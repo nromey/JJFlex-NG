@@ -63,13 +63,13 @@ namespace Radios.Tests.Alarms
             var choices = model.PresetChoices();
             Assert.Equal("No preset, define it yourself", choices[0].Label);
             var pa = choices.Single(c => c.Kind == PresetChoiceKind.Shipped && c.Definition?.PresetKey == AlarmPresets.PaTemperature);
-            Assert.Equal("PA temperature high (shipped preset)", pa.Label);
+            Assert.Equal("High PA temperature (shipped preset)", pa.Label);
             Assert.Equal(3 + 3, choices.Count(c => c.Kind == PresetChoiceKind.Shipped));   // one supply meter here
 
             AlarmEditorModel editor = model.NewEditor();
             Assert.True(editor.IsNew);
             editor.ApplyPreset(pa);
-            Assert.Equal("PA temperature high", editor.Name);
+            Assert.Equal("High PA temperature", editor.Name);
             Assert.Equal(60, editor.Threshold);
             Assert.Equal("degrees C", editor.UnitsText);
             Assert.False(editor.Enabled);
@@ -78,9 +78,9 @@ namespace Radios.Tests.Alarms
 
             string receipt = model.Save(editor, out bool saved);
             Assert.True(saved);
-            Assert.Equal("PA temperature high saved.", receipt);
+            Assert.Equal("High PA temperature saved.", receipt);
             var row = Assert.Single(model.Rows());
-            Assert.Equal("PA temperature high. PATEMP (PA Temperature). at or above 60 degrees C. disabled", model.RowText(row));
+            Assert.Equal("High PA temperature. PATEMP (PA Temperature). at or above 60 degrees C. disabled", model.RowText(row));
         }
 
         [Fact]
@@ -149,7 +149,7 @@ namespace Radios.Tests.Alarms
             var model = Up();
             AlarmEditorModel editor = model.NewEditor();
             editor.ApplyPreset(model.PresetChoices().Single(c => c.Definition?.PresetKey == AlarmPresets.PaTemperature));
-            Assert.Equal("PA temperature high watches PATEMP, TX-:4 and fires when at or above 60 degrees C, on the first fresh reading at the line, "
+            Assert.Equal("High PA temperature watches PATEMP, TX-:4 and fires when at or above 60 degrees C, on the first fresh reading at the line, "
                 + "whenever connected. Cleared after 2 readings past the margin. Repeats every 30 seconds while active. "
                 + "While enabled, every reading of PATEMP, TX-:4 is recorded on this computer, about 0.8 MB per hour.", editor.Summary());
         }
@@ -165,21 +165,21 @@ namespace Radios.Tests.Alarms
             string id = model.Rows()[0].Definition.Id;
 
             Assert.False(OperatorAlarmsModel.CanAcknowledge(model.Rows()[0]));
-            Assert.Equal("PA temperature high has no active warning to act on.", model.Acknowledge(id));
+            Assert.Equal("High PA temperature has no active warning to act on.", model.Acknowledge(id));
 
             Deliver(Pa, 61f);
             var row = model.Rows()[0];
             Assert.True(OperatorAlarmsModel.CanAcknowledge(row));
             Assert.True(OperatorAlarmsModel.CanSnooze(row));
             Assert.False(OperatorAlarmsModel.CanResume(row));
-            Assert.Equal("PA temperature high acknowledged. It is still active; reminders stop until it clears.", model.Acknowledge(id));
+            Assert.Equal("High PA temperature acknowledged. It is still active; reminders stop until it clears.", model.Acknowledge(id));
             Assert.True(OperatorAlarmsModel.CanResume(model.Rows()[0]));
-            Assert.Equal("PA temperature high snoozed for 30 seconds.", model.Snooze(id, 30));
-            Assert.Equal("PA temperature high reminders resumed.", model.Resume(id));
-            Assert.Equal("PA temperature high. PATEMP (PA Temperature). at or above 60 degrees C. active", model.RowText(model.Rows()[0]));
+            Assert.Equal("High PA temperature snoozed for 30 seconds.", model.Snooze(id, 30));
+            Assert.Equal("High PA temperature reminders resumed.", model.Resume(id));
+            Assert.Equal("High PA temperature. PATEMP (PA Temperature). at or above 60 degrees C. active", model.RowText(model.Rows()[0]));
 
             string detail = model.DetailText(model.Rows()[0]);
-            Assert.StartsWith("PA temperature high: enabled, watching, active. not acknowledged. Latest reading 61 degrees C,", detail);
+            Assert.StartsWith("High PA temperature: enabled, watching, active. not acknowledged. Latest reading 61 degrees C,", detail);
             Assert.Contains("Last event:", detail);
         }
 
@@ -212,9 +212,9 @@ namespace Radios.Tests.Alarms
             editor.ApplyPreset(model.PresetChoices().Single(c => c.Definition?.PresetKey == AlarmPresets.PaTemperature));
             model.Save(editor, out _);
             string id = model.Rows()[0].Definition.Id;
-            Assert.Equal("PA temperature high enabled. It fires on the first fresh reading at the line, so it may fire straight away.", model.SetEnabled(id, true));
+            Assert.Equal("High PA temperature enabled. It fires on the first fresh reading at the line, so it may fire straight away.", model.SetEnabled(id, true));
             Assert.True(model.Rows()[0].Definition.Enabled);
-            Assert.Equal("PA temperature high disabled. Its definition is kept.", model.SetEnabled(id, false));
+            Assert.Equal("High PA temperature disabled. Its definition is kept.", model.SetEnabled(id, false));
         }
 
         /// <summary>
@@ -235,14 +235,14 @@ namespace Radios.Tests.Alarms
 
             AlarmEditorModel editor = model.EditorFor(model.Rows()[0]);
             Assert.True(OperatorAlarmsModel.CanDelete(editor));
-            Assert.Equal("Delete the alarm PA temperature high? There is no undo.", model.DeleteConfirmation(editor));
+            Assert.Equal("Delete the High PA temperature alarm? There is no undo.", model.DeleteConfirmation(editor));
 
             // An unsaved edit to the name field does not rename the thing the
             // operator is being asked to confirm.
             editor.Name = "Something else entirely";
-            Assert.Equal("Delete the alarm PA temperature high? There is no undo.", model.DeleteConfirmation(editor));
+            Assert.Equal("Delete the High PA temperature alarm? There is no undo.", model.DeleteConfirmation(editor));
 
-            Assert.Equal("PA temperature high deleted.", model.Delete(editor));
+            Assert.Equal("High PA temperature alarm deleted.", model.Delete(editor));
             Assert.Empty(model.Rows());
 
             // A second press on a gone alarm does not claim a second success.

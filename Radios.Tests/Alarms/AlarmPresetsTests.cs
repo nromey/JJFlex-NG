@@ -6,7 +6,10 @@ using Xunit;
 
 namespace Radios.Tests.Alarms
 {
-    /// <summary>The shipped presets are discovered per connection, offered unarmed, and named by the radio's own words.</summary>
+    /// <summary>
+    /// The shipped presets are discovered per connection, offered unarmed, and
+    /// named the way a ham says them, with each radio's own measurement point.
+    /// </summary>
     [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class AlarmPresetsTests
     {
@@ -26,18 +29,33 @@ namespace Radios.Tests.Alarms
         private static string NewId() => "id" + (++_ids);
 
         [Fact]
-        public void All_six_presets_are_offered_against_the_6300_census_with_the_radio_words_in_the_voltage_names()
+        public void All_six_presets_are_offered_against_the_6300_census_and_say_where_on_the_supply_they_watch()
         {
             var offers = AlarmPresets.Offer(Don6300, "0000", NewId);
             Assert.Equal(3 + 3 + 3, offers.Count);
             Assert.All(offers, o => Assert.True(o.IsAvailable));
             Assert.All(offers, o => Assert.False(o.Definition!.Enabled));
 
+            // Ruled by Noel 2026-09-22 (#566): named the way a ham says them,
+            // because the name is what every sentence about the alarm inherits.
+            Assert.Equal("High PA temperature", offers.Single(o => o.Key == AlarmPresets.PaTemperature).Definition!.Name);
+            Assert.Equal("PA temperature rise", offers.Single(o => o.Key == AlarmPresets.PaRiseFromBaseline).Definition!.Name);
+            Assert.Equal("PA temperature rising fast", offers.Single(o => o.Key == AlarmPresets.PaRisingFast).Definition!.Name);
+
             var lowA = offers.Single(o => o.Key == AlarmPresets.VoltageLow && o.Meter.Name == "+13.8A");
-            Assert.Contains("before fuse", lowA.Definition!.Name);
+            Assert.Equal("Low supply voltage, before the fuse", lowA.Definition!.Name);
             Assert.Equal(208, lowA.Definition.Selector.SourceIndex);
-            var lowB = offers.Single(o => o.Key == AlarmPresets.VoltageLow && o.Meter.Name == "+13.8B");
-            Assert.Contains("after fuse", lowB.Definition!.Name);
+            Assert.Equal("High supply voltage, before the fuse",
+                offers.Single(o => o.Key == AlarmPresets.VoltageHigh && o.Meter.Name == "+13.8A").Definition!.Name);
+            Assert.Equal("Supply voltage fall, before the fuse",
+                offers.Single(o => o.Key == AlarmPresets.VoltageDrop && o.Meter.Name == "+13.8A").Definition!.Name);
+
+            Assert.Equal("Low supply voltage, after the fuse",
+                offers.Single(o => o.Key == AlarmPresets.VoltageLow && o.Meter.Name == "+13.8B").Definition!.Name);
+            Assert.Equal("High supply voltage, after the fuse",
+                offers.Single(o => o.Key == AlarmPresets.VoltageHigh && o.Meter.Name == "+13.8B").Definition!.Name);
+            Assert.Equal("Supply voltage fall, after the fuse",
+                offers.Single(o => o.Key == AlarmPresets.VoltageDrop && o.Meter.Name == "+13.8B").Definition!.Name);
         }
 
         [Fact]
@@ -102,7 +120,7 @@ namespace Radios.Tests.Alarms
         }
 
         [Fact]
-        public void The_8600_pair_keeps_its_own_descriptions_and_indices()
+        public void The_8600_pair_keeps_its_own_measurement_points_and_indices()
         {
             var inventory = new[]
             {
@@ -111,10 +129,30 @@ namespace Radios.Tests.Alarms
                 D(3, "+13.8B", "+13.8V at CPU", "RAD", 3, MeterUnits.Volts, 10.5, 15),
             };
             var offers = AlarmPresets.Offer(inventory, "0000", NewId);
+
+            // The 8600 publishes the same two meter NAMES as the 6300 and means
+            // different places by them, so the fuse must not follow them here.
+            var lowA = offers.Single(o => o.Key == AlarmPresets.VoltageLow && o.Meter.Name == "+13.8A");
+            Assert.Equal("Low supply voltage, at the PA", lowA.Definition!.Name);
             var dropB = offers.Single(o => o.Key == AlarmPresets.VoltageDrop && o.Meter.Name == "+13.8B");
-            Assert.Contains("at CPU", dropB.Definition!.Name);
+            Assert.Equal("Supply voltage fall, at the CPU", dropB.Definition!.Name);
             Assert.DoesNotContain("fuse", dropB.Definition.Name);
             Assert.Equal(3, dropB.Definition.Selector.SourceIndex);
+        }
+
+        /// <summary>
+        /// A name is not an identity. A definition already saved under an older
+        /// preset name keeps the name it was stored with — nothing migrates
+        /// names, and nothing is keyed on one.
+        /// </summary>
+        [Fact]
+        public void A_definition_saved_under_an_older_preset_name_keeps_its_stored_name()
+        {
+            var stored = AlarmPresets.Build(AlarmPresets.PaTemperature, Don6300[0], "0000", "x")
+                with { Name = "PA temperature high" };
+            Assert.Equal("PA temperature high", stored.Name);
+            Assert.Equal(AlarmPresets.PaTemperature, stored.PresetKey);
+            Assert.Equal("High PA temperature", AlarmPresets.PresetName(AlarmPresets.PaTemperature, Don6300[0]));
         }
 
         [Fact]

@@ -39,11 +39,11 @@ namespace Radios.Alarms
     /// <para>
     /// <b>Discovered, never hardcoded.</b> PATEMP is offered when exactly one
     /// PATEMP meter in degrees C is published; the supply family is offered
-    /// once per uniquely discovered supply-voltage meter, with the radio's own
-    /// description carried into the name — a 6300 says before and after the
-    /// fuse, an 8600 says at PA and at CPU, and neither is relabelled with the
-    /// other's words. Where the name is ambiguous the preset is listed as
-    /// unavailable with the reason, and nothing is chosen.
+    /// once per uniquely discovered supply-voltage meter, with that meter's
+    /// place-phrase carried into the name — a 6300 says before and after the
+    /// fuse, an 8600 says at the PA and at the CPU, and neither is relabelled
+    /// with the other's words. Where the name is ambiguous the preset is listed
+    /// as unavailable with the reason, and nothing is chosen.
     /// </para>
     /// </remarks>
     public static class AlarmPresets
@@ -232,7 +232,26 @@ namespace Radios.Alarms
             }
         }
 
-        /// <summary>The preset's operator-facing name, from the lexicon, with the meter's own description where it varies by radio.</summary>
+        /// <summary>
+        /// The preset's operator-facing name, from the lexicon, said the way a
+        /// ham says it, with the supply meter's place-phrase where it varies by
+        /// radio.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Ruled by Noel 2026-09-22 (#566), on hearing "Delete the alarm PA
+        /// temperature high?": <i>"Also weird. Delete the high PA temperature
+        /// alarm."</i> The reversed word order was this name leaking into every
+        /// sentence that names the alarm, so the name is what changed rather
+        /// than the sentences around it.
+        /// </para>
+        /// <para>
+        /// This is a NAME, never an identity. A definition already saved under
+        /// an older name keeps the name it was stored with, and nothing is
+        /// keyed on a display name — see <see cref="AlarmDefinition.PresetKey"/>
+        /// for what identity actually is.
+        /// </para>
+        /// </remarks>
         public static string PresetName(string key, MeterDescriptor meter)
         {
             return key switch
@@ -240,9 +259,9 @@ namespace Radios.Alarms
                 PaTemperature => Lexicon.Get("alarms.preset.pa_temperature.name"),
                 PaRiseFromBaseline => Lexicon.Get("alarms.preset.pa_rise_from_baseline.name"),
                 PaRisingFast => Lexicon.Get("alarms.preset.pa_rising_fast.name"),
-                VoltageLow => Lexicon.Get("alarms.preset.voltage_low.name", ("meter", meter.Label)),
-                VoltageHigh => Lexicon.Get("alarms.preset.voltage_high.name", ("meter", meter.Label)),
-                VoltageDrop => Lexicon.Get("alarms.preset.voltage_drop.name", ("meter", meter.Label)),
+                VoltageLow => Lexicon.Get("alarms.preset.voltage_low.name", ("point", AlarmPhrasing.MeasurementPoint(meter))),
+                VoltageHigh => Lexicon.Get("alarms.preset.voltage_high.name", ("point", AlarmPhrasing.MeasurementPoint(meter))),
+                VoltageDrop => Lexicon.Get("alarms.preset.voltage_drop.name", ("point", AlarmPhrasing.MeasurementPoint(meter))),
                 _ => key,
             };
         }

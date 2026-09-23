@@ -180,9 +180,9 @@ namespace Radios.Tests.Alarms
         {
             var def = AlarmPresets.Build(AlarmPresets.PaTemperature, Pa, Serial, "pa");
             string tx = AlarmPhrasing.DataLost(Ev(def, Pa, float.NaN, tx: true, kind: AlarmEventKind.DataStale, age: 6.4));
-            Assert.Equal("PA temperature high: no PATEMP (PA Temperature) reading for 6 seconds. It cannot be watched. Stop the transmission.", tx);
+            Assert.Equal("High PA temperature: no PATEMP (PA Temperature) reading for 6 seconds. It cannot be watched. Stop the transmission.", tx);
             string rx = AlarmPhrasing.DataLost(Ev(def, Pa, float.NaN, tx: false, kind: AlarmEventKind.DataStale, age: 12));
-            Assert.Equal("PA temperature high: no PATEMP (PA Temperature) reading for 12 seconds. It cannot be watched.", rx);
+            Assert.Equal("High PA temperature: no PATEMP (PA Temperature) reading for 12 seconds. It cannot be watched.", rx);
             Assert.DoesNotContain("clear", tx + rx, StringComparison.OrdinalIgnoreCase);
         }
 
@@ -191,7 +191,7 @@ namespace Radios.Tests.Alarms
         {
             var def = AlarmPresets.Build(AlarmPresets.PaTemperature, Pa, Serial, "pa");
             string s = AlarmPhrasing.Cleared(Ev(def, Pa, 57.5f, tx: false, kind: AlarmEventKind.Cleared));
-            Assert.Equal("PA temperature high cleared. PATEMP (PA Temperature) 57.5 degrees C.", s);
+            Assert.Equal("High PA temperature cleared. PATEMP (PA Temperature) 57.5 degrees C.", s);
             Assert.DoesNotContain("transmit", s, StringComparison.OrdinalIgnoreCase);
         }
 
@@ -201,7 +201,7 @@ namespace Radios.Tests.Alarms
             var def = AlarmPresets.Build(AlarmPresets.PaTemperature, Pa, Serial, "pa");
             var e = Ev(def, Pa, 60f, tx: false) with { Detail = "preview" };
             string s = AlarmPhrasing.Preview(e, AlarmPhrasing.Warning(e));
-            Assert.Equal("Test warning from the alarm PA temperature high. Nothing is wrong. A real warning would say: "
+            Assert.Equal("Test warning from the alarm High PA temperature. Nothing is wrong. A real warning would say: "
                 + "PA temperature 60 degrees C. Stay in receive and let the radio cool.", s);
         }
 
@@ -217,9 +217,10 @@ namespace Radios.Tests.Alarms
 
         private static AlarmSnapshot Snap(AlarmDefinition def, AlarmDataState data, AlarmConditionState cond,
             AlarmNotificationState note, MeterSelectorStatus res, MeterObservation? last, double age,
-            AlarmBaselineState baseline = AlarmBaselineState.NotApplicable, float baselineValue = float.NaN, double snooze = 0)
+            AlarmBaselineState baseline = AlarmBaselineState.NotApplicable, float baselineValue = float.NaN, double snooze = 0,
+            MeterDescriptor? resolved = null)
             => new AlarmSnapshot(def, data, cond, note, baseline, baselineValue, res,
-                res == MeterSelectorStatus.Resolved ? Pa : null, last, age, "ep", snooze, null, false, float.NaN);
+                res == MeterSelectorStatus.Resolved ? resolved ?? Pa : null, last, age, "ep", snooze, null, false, float.NaN);
 
         [Fact]
         public void A_list_row_says_the_state_in_words()
@@ -227,7 +228,7 @@ namespace Radios.Tests.Alarms
             var def = AlarmPresets.Build(AlarmPresets.PaTemperature, Pa, Serial, "pa") with { Enabled = true };
             var last = MeterObservation.Measured(Pa, 61f, 5, 1000, DateTime.UtcNow, 1, null);
 
-            Assert.Equal("PA temperature high. PATEMP (PA Temperature). at or above 60 degrees C. active, acknowledged",
+            Assert.Equal("High PA temperature. PATEMP (PA Temperature). at or above 60 degrees C. active, acknowledged",
                 AlarmPhrasing.Row(Snap(def, AlarmDataState.Fresh, AlarmConditionState.Active, AlarmNotificationState.Acknowledged, MeterSelectorStatus.Resolved, last, 1)));
             Assert.EndsWith("watching", AlarmPhrasing.Row(Snap(def, AlarmDataState.Fresh, AlarmConditionState.Normal, AlarmNotificationState.None, MeterSelectorStatus.Resolved, last, 1)));
             Assert.EndsWith("unavailable, no recent reading, cannot be watched", AlarmPhrasing.Row(Snap(def, AlarmDataState.Stale, AlarmConditionState.Normal, AlarmNotificationState.None, MeterSelectorStatus.Resolved, last, 9)));
@@ -246,14 +247,14 @@ namespace Radios.Tests.Alarms
             // at 1be38b0f, not here. A plural age reads the same on both sides of
             // that merge, so this assertion is true before it and after it.
             string s = AlarmPhrasing.Status(Snap(def, AlarmDataState.Fresh, AlarmConditionState.Active, AlarmNotificationState.Acknowledged, MeterSelectorStatus.Resolved, last, 3));
-            Assert.Equal("PA temperature high: enabled, watching, active. acknowledged. Latest reading 61.3 degrees C, 3 seconds ago. "
+            Assert.Equal("High PA temperature: enabled, watching, active. acknowledged. Latest reading 61.3 degrees C, 3 seconds ago. "
                 + "Line: at or above 60 degrees C. Meter PATEMP (PA Temperature), found.", s);
 
             string snoozed = AlarmPhrasing.Status(Snap(def, AlarmDataState.Fresh, AlarmConditionState.Active, AlarmNotificationState.Snoozed, MeterSelectorStatus.Resolved, last, 1, snooze: 42));
             Assert.Contains("snoozed. Snoozed, 42 seconds left.", snoozed);
 
             string unavailable = AlarmPhrasing.Status(Snap(def, AlarmDataState.Missing, AlarmConditionState.Normal, AlarmNotificationState.None, MeterSelectorStatus.Missing, null, double.NaN));
-            Assert.Equal("PA temperature high: enabled, meter not available, normal. No reading yet. Line: at or above 60 degrees C. "
+            Assert.Equal("High PA temperature: enabled, meter not available, normal. No reading yet. Line: at or above 60 degrees C. "
                 + "Meter PATEMP, TX-:4, not published by this radio.", unavailable);
 
             var rise = AlarmPresets.Build(AlarmPresets.PaRiseFromBaseline, Pa, Serial, "r") with { Enabled = true };
@@ -274,7 +275,7 @@ namespace Radios.Tests.Alarms
                 Snap(pa, AlarmDataState.Fresh, AlarmConditionState.Active, AlarmNotificationState.Unacknowledged, MeterSelectorStatus.Resolved, last, 1),
                 Snap(lo, AlarmDataState.Missing, AlarmConditionState.Normal, AlarmNotificationState.None, MeterSelectorStatus.Missing, null, double.NaN),
             };
-            Assert.Equal("1 of 2 alarms active: PA temperature high 61 degrees C. 1 cannot be watched right now.",
+            Assert.Equal("1 of 2 alarms active: High PA temperature 61 degrees C. 1 cannot be watched right now.",
                 AlarmPhrasing.ActiveSummary(all, connected: true, AlarmStoreState.Loaded, ""));
             Assert.Equal("No radio is connected, so nothing is being watched.",
                 AlarmPhrasing.ActiveSummary(all, connected: false, AlarmStoreState.Loaded, ""));
@@ -282,6 +283,44 @@ namespace Radios.Tests.Alarms
                 AlarmPhrasing.ActiveSummary(new List<AlarmSnapshot>(), connected: true, AlarmStoreState.Empty, ""));
             Assert.StartsWith("The alarm configuration for this radio could not be read: not valid JSON",
                 AlarmPhrasing.ActiveSummary(all, connected: true, AlarmStoreState.Unavailable, "not valid JSON: x"));
+        }
+
+        /// <summary>
+        /// A supply preset's name carries the place-phrase, and every sentence
+        /// that leads with the alarm's name inherits it. Read them assembled,
+        /// because that is where a comma inside a NAME shows up.
+        /// </summary>
+        [Fact]
+        public void The_supply_preset_name_carries_its_place_into_every_sentence_that_names_the_alarm()
+        {
+            var low = AlarmPresets.Build(AlarmPresets.VoltageLow, SupplyA6300, Serial, "lo") with { Enabled = true };
+            Assert.Equal("Low supply voltage, before the fuse", low.Name);
+            var fall = AlarmPresets.Build(AlarmPresets.VoltageDrop, SupplyB8600, Serial, "fall") with { Enabled = true };
+            Assert.Equal("Supply voltage fall, at the CPU", fall.Name);
+
+            var reading = MeterObservation.Measured(SupplyA6300, 12.6f, 5, 1000, DateTime.UtcNow, 1, null);
+
+            Assert.Equal("Low supply voltage, before the fuse. +13.8A (Main radio input voltage before fuse). at or below 12.00 volts. active",
+                AlarmPhrasing.Row(Snap(low, AlarmDataState.Fresh, AlarmConditionState.Active, AlarmNotificationState.Unacknowledged,
+                    MeterSelectorStatus.Resolved, reading, 2, resolved: SupplyA6300)));
+
+            Assert.Equal("Low supply voltage, before the fuse cleared. +13.8A (Main radio input voltage before fuse) 12.60 volts.",
+                AlarmPhrasing.Cleared(Ev(low, SupplyA6300, 12.6f, tx: false, kind: AlarmEventKind.Cleared)));
+
+            Assert.Equal("Low supply voltage, before the fuse: no +13.8A (Main radio input voltage before fuse) reading for 6 seconds. It cannot be watched.",
+                AlarmPhrasing.DataLost(Ev(low, SupplyA6300, float.NaN, tx: false, kind: AlarmEventKind.DataStale, age: 6)));
+
+            // Two alarms active at once, one of each family.
+            var pa = AlarmPresets.Build(AlarmPresets.PaTemperature, Pa, Serial, "pa") with { Enabled = true };
+            var paReading = MeterObservation.Measured(Pa, 61f, 5, 1000, DateTime.UtcNow, 1, null);
+            var both = new List<AlarmSnapshot>
+            {
+                Snap(pa, AlarmDataState.Fresh, AlarmConditionState.Active, AlarmNotificationState.Unacknowledged, MeterSelectorStatus.Resolved, paReading, 2),
+                Snap(low, AlarmDataState.Fresh, AlarmConditionState.Active, AlarmNotificationState.Unacknowledged, MeterSelectorStatus.Resolved,
+                    MeterObservation.Measured(SupplyA6300, 11.9f, 5, 1000, DateTime.UtcNow, 1, null), 2, resolved: SupplyA6300),
+            };
+            Assert.Equal("2 of 2 alarms active: High PA temperature 61 degrees C; Low supply voltage, before the fuse 11.90 volts.",
+                AlarmPhrasing.ActiveSummary(both, connected: true, AlarmStoreState.Loaded, ""));
         }
 
         [Fact]
