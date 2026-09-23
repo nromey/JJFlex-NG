@@ -57,6 +57,13 @@ namespace Radios.StationConnect
         public List<ProfileTypes> ConfirmedSelections = new List<ProfileTypes>();
 
         public bool OwnerInitialisationRan;
+
+        /// <summary>A non-owner, alone on the radio with TNF off, turned it
+        /// on for the session (ruled 2026-09-22 21:37). It is NOT put back
+        /// on disconnect: that needs the put-back executor, which is a
+        /// further track.</summary>
+        public bool NonOwnerTnfEnabled;
+
         public bool LiveAudioApplied;
         public bool LiveAudioDeferred;
         public bool LiveAudioAborted;
@@ -69,6 +76,7 @@ namespace Radios.StationConnect
             Outcome + (string.IsNullOrEmpty(Reason) ? "" : " — " + Reason)
             + " confirmed=[" + string.Join(",", ConfirmedSelections) + "]"
             + (OwnerInitialisationRan ? " owner-init" : "")
+            + (NonOwnerTnfEnabled ? " non-owner-tnf" : "")
             + (LiveAudioApplied ? " live-audio-applied" : LiveAudioDeferred ? " live-audio-deferred" : LiveAudioAborted ? " live-audio-aborted" : "")
             + (MayRepairMicrophone ? " may-repair" : " no-repair");
     }
@@ -125,6 +133,14 @@ namespace Radios.StationConnect
         /// immediately before writing and refuse on a non-null answer.
         /// Returns Confirmed (written), Refused, or Queued.</summary>
         ProfileActionOutcome RunOwnerInitialization(Func<string> refusalAtWrite);
+
+        /// <summary>A NON-OWNER, alone on the radio, turning TNF on when it
+        /// is off. The delegate MUST call <paramref name="refusalAtWrite"/>
+        /// immediately before writing, and must then apply
+        /// <see cref="NonOwnerTnfGate"/> to the facts, the GUEST'S roster
+        /// authority and the radio's reported TNF state, all read at that
+        /// moment. Returns Confirmed (written), Refused, or Queued.</summary>
+        ProfileActionOutcome RunNonOwnerTnfEnable(Func<string> refusalAtWrite);
 
         /// <summary>One live-audio step (autosave off, capture, apply). The
         /// delegate MUST call <paramref name="refusalAtSend"/> immediately
@@ -269,6 +285,19 @@ namespace Radios.StationConnect
                         : baseSituation.Ownership != RadioOwnership.Mine ? "not the declared owner"
                         : baseSituation.Intent != ProfileGuestIntent.LoadMineAndPutBack ? "intent is " + baseSituation.Intent
                         : "roster: " + rosterAuto));
+
+                // REFINED by Noel 2026-09-22 21:37: "A non-owner could set it
+                // if they're the only person on, but if the TNF is enabled,
+                // i.e. turned on by the owner, don't allow a change. If it's
+                // disabled, then the non-owner should be able to turn it on
+                // and set it temporarily." The one write of the owner
+                // initialisation a non-owner may make for themselves; the
+                // decision is NonOwnerTnfGate's, applied inside the port's
+                // dispatched delegate where the radio's TNF state can be
+                // read. Nothing else of the initialisation is theirs, and a
+                // refusal here stops nothing: it was never their phase.
+                var tnf = _port.RunNonOwnerTnfEnable(() => NonOwnerTnfRefusalAtWrite(operation, phase, factsAtPlan));
+                result.NonOwnerTnfEnabled = tnf == ProfileActionOutcome.Confirmed;
             }
 
             // ── transmit, then microphone: each read fresh after the previous confirmed effect ──
@@ -448,6 +477,21 @@ namespace Radios.StationConnect
             if (refusal != null) return refusal;
             var roster = _port.RosterForAutomaticWrite();
             if (roster.Verdict != RosterVerdict.OnlyUs) return "roster at the write: " + roster;
+            return null;
+        }
+
+        /// <summary>The recheck inside a NON-OWNER'S dispatched TNF write:
+        /// the operation, the phase, and the same radio still being the one
+        /// that was planned against. Ownership, the guest roster and the
+        /// radio's TNF state are <see cref="NonOwnerTnfGate"/>'s, applied by
+        /// the port where it can read them (ruled 2026-09-22 21:37).</summary>
+        private string NonOwnerTnfRefusalAtWrite(StationOperation operation, StationDeadline phase, StationPolicyFacts factsAtPlan)
+        {
+            if (operation.IsEnded) return "operation ended: " + operation.WhyNotLive;
+            if (phase.Passed(_clock)) return "the queued TNF write ran after the post-station phase had ended";
+            var now = _port.ReadPolicyFacts();
+            if (!now.Connected) return "not connected";
+            if (!string.Equals(now.Serial, factsAtPlan.Serial, StringComparison.Ordinal)) return "a different radio is connected";
             return null;
         }
 

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
@@ -1085,6 +1085,7 @@ namespace Radios
                 _rig.ProfileEvidence.Snapshot().ReportedSelectionOf(type);
             public long ProfileSequence => _rig.ProfileEvidence.Sequence;
             public ProfileActionOutcome RunOwnerInitialization(Func<string> refusalAtWrite) => _rig.RunOwnerInitialization(_op, refusalAtWrite);
+            public ProfileActionOutcome RunNonOwnerTnfEnable(Func<string> refusalAtWrite) => _rig.RunNonOwnerTnfEnable(_op, refusalAtWrite);
             public ProfileActionOutcome RunLiveAudioAction(ProfileAction action, Func<string> refusalAtSend) =>
                 _rig.RunLiveAudioActionChecked(action, _op, refusalAtSend);
             public void AbortLiveAudio(bool autosaveWasTurnedOff) => _rig.AbortLiveAudio(autosaveWasTurnedOff);
@@ -1155,6 +1156,60 @@ namespace Radios
             if (!written) return ProfileActionOutcome.Queued;
             Tracing.TraceLine("StationConnect: owner initialisation written (TNF on, MicInput, VOX off, CW break-in off, TX1 on, keyer restore)",
                 TraceLevel.Info);
+            return ProfileActionOutcome.Confirmed;
+        }
+
+        /// <summary>
+        /// A NON-OWNER, alone on the radio, turning TNF on when the radio
+        /// says it is off. REFINED by Noel 2026-09-22 21:37, in his words:
+        /// <i>"A non-owner could set it if they're the only person on, but if
+        /// the TNF is enabled, i.e. turned on by the owner, don't allow a
+        /// change. If it's disabled, then the non-owner should be able to
+        /// turn it on and set it temporarily. Connect will help with all this
+        /// junk."</i>
+        /// <para>
+        /// The decision is <see cref="NonOwnerTnfGate"/>'s and is taken
+        /// INSIDE the dispatched delegate, where the facts, the guest's
+        /// roster authority and the radio's own TNF state are all read at the
+        /// moment of the write. Nothing else of the owner initialisation is a
+        /// non-owner's to make.
+        /// </para>
+        /// <para>
+        /// "Temporarily" is not built: the put-back on disconnect needs the
+        /// legacy put-back executor, which is a further track, so TNF stays
+        /// on after the non-owner leaves. That limit is the ruling's own.
+        /// </para>
+        /// </summary>
+        private ProfileActionOutcome RunNonOwnerTnfEnable(StationOperation operation, Func<string> refusalAtWrite)
+        {
+            var radio = theRadio;
+            if (radio == null) return ProfileActionOutcome.Failed;
+            bool written = false;
+            string refusal = null;
+            DispatchStationWork("non-owner TNF", () =>
+            {
+                refusal = refusalAtWrite?.Invoke();
+                if (refusal != null) return;
+                if (operation.IsEnded) { refusal = "operation ended: " + operation.WhyNotLive; return; }
+                var r = theRadio;
+                if (r == null) { refusal = "no radio"; return; }
+                refusal = NonOwnerTnfGate.Refusal(ReadStationPolicyFacts(), RosterJudgementForGuestSharedWrite(), r.TNFEnabled);
+                if (refusal != null) return;
+                r.TNFEnabled = true;
+                written = true;
+            });
+            if (!written && refusal == null)
+            {
+                await(() => written || refusal != null || operation.IsEnded, StationDeadlines.Default().TxMicEffectMs);
+            }
+            if (refusal != null)
+            {
+                Tracing.TraceLine("StationConnect: TNF NOT set by this non-owner connection — " + refusal, TraceLevel.Info);
+                return ProfileActionOutcome.Refused;
+            }
+            if (!written) return ProfileActionOutcome.Queued;
+            Tracing.TraceLine("StationConnect: TNF turned on by this non-owner connection, alone on the radio and with it off; "
+                + "it is NOT put back on disconnect (the put-back executor is a further track)", TraceLevel.Info);
             return ProfileActionOutcome.Confirmed;
         }
 

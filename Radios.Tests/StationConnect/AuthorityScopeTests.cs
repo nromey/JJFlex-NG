@@ -106,5 +106,83 @@ namespace Radios.Tests.StationConnect
             }
             Assert.DoesNotContain("OwnerSharedWriteGate", text, StringComparison.Ordinal);
         }
+
+        // ── TNF: the owner's connect sets it; a non-owner alone may set it
+        //    only if it is off ──
+        //
+        // REFINED by Noel 2026-09-22 21:37, in his words: "A non-owner could
+        // set it if they're the only person on, but if the TNF is enabled,
+        // i.e. turned on by the owner, don't allow a change. If it's
+        // disabled, then the non-owner should be able to turn it on and set
+        // it temporarily. Connect will help with all this junk."
+
+        private static StationPolicyFacts NonOwner() => new StationPolicyFacts
+        {
+            Connected = true, Ownership = RadioOwnership.SomeoneElses,
+            Intent = ProfileGuestIntent.LoadMineAndPutBack, Serial = "1234",
+        };
+
+        private static RosterJudgement OnlyUs() => new RosterJudgement(RosterVerdict.OnlyUs, "test", 1);
+
+        [Fact]
+        public void ANonOwnerAloneOnTheRadio_WithTnfOff_MaySetIt()
+        {
+            Assert.Null(NonOwnerTnfGate.Refusal(NonOwner(), OnlyUs(), tnfAlreadyOn: false));
+        }
+
+        [Fact]
+        public void ANonOwnerAloneOnTheRadio_WithTnfAlreadyOn_LeavesIt()
+        {
+            string why = NonOwnerTnfGate.Refusal(NonOwner(), OnlyUs(), tnfAlreadyOn: true);
+            Assert.NotNull(why);
+            // The assumption is written into the refusal itself, because the
+            // app sees only on or off and never who turned it on.
+            Assert.Contains("cannot tell who", why, StringComparison.Ordinal);
+        }
+
+        [Theory]
+        [InlineData("owner present")]
+        [InlineData("roster unknown")]
+        public void ANonOwnerWithAnyoneElseOnTheRadio_LeavesTnfAlone(string what)
+        {
+            var roster = what == "owner present"
+                ? new RosterJudgement(RosterVerdict.OthersPresent, "K5NER", 1)
+                : new RosterJudgement(RosterVerdict.Unknown, "not established", 1);
+            Assert.NotNull(NonOwnerTnfGate.Refusal(NonOwner(), roster, tnfAlreadyOn: false));
+        }
+
+        [Fact]
+        public void TheOwnersOwnRadio_IsNotThisGatesBusiness()
+        {
+            // The owner's TNF is RunOwnerInitialization's first write, under
+            // its own gate; this one must never be the path that sets it.
+            var f = NonOwner();
+            f.Ownership = RadioOwnership.Mine;
+            Assert.NotNull(NonOwnerTnfGate.Refusal(f, OnlyUs(), tnfAlreadyOn: false));
+        }
+
+        [Theory]
+        [InlineData("hold")]
+        [InlineData("not connected")]
+        public void ANonOwnersTnfWrite_StillTakesTheHoldAndTheConnection(string what)
+        {
+            var f = NonOwner();
+            if (what == "hold") f.HoldArmed = true; else f.Connected = false;
+            Assert.NotNull(NonOwnerTnfGate.Refusal(f, OnlyUs(), tnfAlreadyOn: false));
+        }
+
+        [Fact]
+        public void InProduction_TheNonOwnerTnfPathIsClosed_BecauseTheGuestAuthorityIsUnknown()
+        {
+            // The guest's shared-write authority is Unknown until a bench
+            // establishes it (Track G3), and a non-owner's TNF is a
+            // station-global write of exactly that class. So this path is
+            // built to the ruling and does not run in production yet. Said
+            // out loud here so a green suite does not read as a live feature.
+            var snapshot = OneIdentityBearingHandle();
+            var guest = RosterGuard.ForAutomaticWrite(snapshot, StationPolicies.Current.GuestSharedWriteAuthority);
+            Assert.Equal(RosterVerdict.Unknown, guest.Verdict);
+            Assert.NotNull(NonOwnerTnfGate.Refusal(NonOwner(), guest, tnfAlreadyOn: false));
+        }
     }
 }

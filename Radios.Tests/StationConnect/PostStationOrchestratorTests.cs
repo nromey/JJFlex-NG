@@ -191,6 +191,23 @@ namespace Radios.Tests.StationConnect
             return ProfileActionOutcome.Confirmed;
         }
 
+        /// <summary>What the radio reports TNF to be, for the non-owner path.</summary>
+        public bool TnfEnabled;
+
+        /// <summary>Mirrors the production port: the orchestrator's recheck
+        /// first, then the real gate against the facts, the GUEST'S roster
+        /// authority and the radio's TNF state, all at the write.</summary>
+        public ProfileActionOutcome RunNonOwnerTnfEnable(Func<string> refusalAtWrite)
+        {
+            string refusal = refusalAtWrite();
+            if (refusal == null)
+                refusal = NonOwnerTnfGate.Refusal(ReadPolicyFacts(), RosterForGuestSharedWrite(), TnfEnabled);
+            if (refusal != null) { Log.Add("non-owner-tnf refused " + refusal); return ProfileActionOutcome.Refused; }
+            TnfEnabled = true;
+            Log.Add("non-owner-tnf");
+            return ProfileActionOutcome.Confirmed;
+        }
+
         /// <summary>Runs before a live-audio step's recheck, so a test can
         /// change the world between the plan and the step's write.</summary>
         public Action<ProfileActionKind> BeforeLiveAudioStep;
@@ -533,6 +550,95 @@ namespace Radios.Tests.StationConnect
             Assert.False(result.OwnerInitialisationRan, what);
             Assert.DoesNotContain("owner-init", r.Port.Log);
             Assert.Empty(r.Port.Sent);
+        }
+
+        // ── the non-owner's TNF, refined 2026-09-22 21:37 ──
+
+        private static Rig NonOwnerAlone()
+        {
+            var r = new Rig();
+            r.Port.Facts.Ownership = RadioOwnership.SomeoneElses;
+            r.Port.GuestRoster = RosterVerdict.OnlyUs;      // a bench has opened the guest authority
+            return r;
+        }
+
+        private static StationResult SkippedStation()
+        {
+            var station = Established();
+            station.Outcome = StationOutcome.PolicySkipped;
+            station.Allocation.Stop = AllocationStop.TargetReached;
+            station.Allocation.OwnSlicesAtEnd = 2;
+            return station;
+        }
+
+        [Fact]
+        public void ANonOwnerAlone_WithTnfOff_TurnsItOn_AndNothingElseOfTheInitialisationRuns()
+        {
+            var r = NonOwnerAlone();
+            r.Port.TnfEnabled = false;
+
+            var result = r.Run(SkippedStation());
+
+            Assert.True(result.NonOwnerTnfEnabled);
+            Assert.Contains("non-owner-tnf", r.Port.Log);
+            Assert.True(r.Port.TnfEnabled);
+            // The owner initialisation is not theirs: no MicInput, no VOX, no
+            // TX1, no keyer, and no profile selection either.
+            Assert.False(result.OwnerInitialisationRan);
+            Assert.DoesNotContain("owner-init", r.Port.Log);
+            Assert.Empty(r.Port.Sent);
+        }
+
+        [Fact]
+        public void ANonOwnerAlone_WithTnfAlreadyOn_LeavesIt()
+        {
+            var r = NonOwnerAlone();
+            r.Port.TnfEnabled = true;
+
+            var result = r.Run(SkippedStation());
+
+            Assert.False(result.NonOwnerTnfEnabled);
+            Assert.Contains(r.Port.Log, l => l.StartsWith("non-owner-tnf refused", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void ANonOwnerWithTheOwnerConnected_LeavesTnfAlone()
+        {
+            var r = NonOwnerAlone();
+            r.Port.GuestRoster = RosterVerdict.OthersPresent;
+            r.Port.TnfEnabled = false;
+
+            var result = r.Run(SkippedStation());
+
+            Assert.False(result.NonOwnerTnfEnabled);
+            Assert.False(r.Port.TnfEnabled);
+        }
+
+        [Fact]
+        public void UnderTheProductionGuestAuthority_TheNonOwnerTnfPathDoesNotRun()
+        {
+            // GuestRoster is Unknown by default in the fake, as it is in
+            // production: built to the ruling, closed until a bench opens it.
+            var r = new Rig();
+            r.Port.Facts.Ownership = RadioOwnership.SomeoneElses;
+            r.Port.TnfEnabled = false;
+
+            var result = r.Run(SkippedStation());
+
+            Assert.False(result.NonOwnerTnfEnabled);
+            Assert.False(r.Port.TnfEnabled);
+        }
+
+        [Fact]
+        public void TheOwnersConnect_SetsTnfThroughTheOwnerInitialisation_NotTheNonOwnerPath()
+        {
+            var r = new Rig();                                  // Mine, OnlyUs, opted in
+
+            var result = r.Run(Established());
+
+            Assert.True(result.OwnerInitialisationRan);
+            Assert.False(result.NonOwnerTnfEnabled);
+            Assert.DoesNotContain(r.Port.Log, l => l.StartsWith("non-owner-tnf", StringComparison.Ordinal));
         }
 
         // ── the live transmit-audio path, under the STRICT roster test (part three) ──

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 
 namespace Radios.StationConnect
 {
@@ -260,6 +260,57 @@ namespace Radios.StationConnect
         public string Describe() =>
             "roster: " + RosterAuthority.Name + "; guest shared write: " + GuestSharedWriteAuthority.Name
             + "; completion: " + LoadCompletion.Name + "; materialization: " + InitialMaterialization.Name;
+    }
+
+    /// <summary>
+    /// A NON-OWNER'S TNF write. RULED by Noel 2026-09-22 21:36 — <i>"if
+    /// someone's connected by themselves, set it by all means when the
+    /// profile loads ... make it simple, don't do it if you're a non-owner
+    /// and the owner's connected"</i> — and REFINED a minute later at 21:37:
+    /// <i>"A non-owner could set it if they're the only person on, but if the
+    /// TNF is enabled, i.e. turned on by the owner, don't allow a change. If
+    /// it's disabled, then the non-owner should be able to turn it on and set
+    /// it temporarily. Connect will help with all this junk."</i>
+    /// <para>
+    /// The OWNER'S TNF write is not this gate's business and is unchanged: it
+    /// is the first write of <c>RunOwnerInitialization</c>, checked at the
+    /// write by the orchestrator's <c>OwnerInitRefusalAtWrite</c>.
+    /// </para>
+    /// <para>
+    /// TWO LIMITS, both stated in the ruling, neither of them built here.
+    /// First, "temporarily" needs a put-back on disconnect — the legacy
+    /// put-back executor Track G3 left for a further track — so until that
+    /// exists a non-owner's TNF is NOT undone when they leave. Second, the
+    /// app cannot tell WHO turned TNF on; it sees only on or off, so "on
+    /// means the owner set it" is an assumption, written down here as one.
+    /// Noel: <i>"Connect carries who set what and replaces both."</i> Do not
+    /// invent a who-set-it record.
+    /// </para>
+    /// </summary>
+    public static class NonOwnerTnfGate
+    {
+        /// <summary>Null when the non-owner may turn TNF on; else why not.</summary>
+        /// <param name="f">The facts at the moment of the write.</param>
+        /// <param name="guestRoster">The GUEST'S roster authority, never the
+        /// owner's ruled relaxation. A non-owner's station-global write is
+        /// exactly the class the Track G2 re-review found had been widened
+        /// past the ruling, so it takes the guest's own authority — which is
+        /// Unknown in production until a bench establishes it, and therefore
+        /// closes this path until then.</param>
+        /// <param name="tnfAlreadyOn">What the radio reports TNF to be.</param>
+        public static string Refusal(StationPolicyFacts f, RosterJudgement guestRoster, bool tnfAlreadyOn)
+        {
+            if (f == null) return "no facts";
+            if (f.HoldArmed) return "the change-nothing hold is armed";
+            if (!f.Connected) return "not connected";
+            if (f.Ownership == RadioOwnership.Mine)
+                return "this radio is declared ours; the owner's initialisation sets TNF, not this";
+            if (guestRoster == null || guestRoster.Verdict != RosterVerdict.OnlyUs)
+                return "not alone on this radio (guest roster authority: " + (guestRoster?.ToString() ?? "unknown") + ")";
+            if (tnfAlreadyOn)
+                return "TNF is already on; leave it — assume the owner turned it on, because the app cannot tell who did";
+            return null;
+        }
     }
 
     // Track G3's owner gate for station-global operating writes stood here.

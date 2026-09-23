@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Threading;
@@ -194,6 +194,90 @@ namespace Radios.Tests.StationConnect
             // setup; this rig has no operator directory, so it is skipped
             // and traced rather than thrown.
             Assert.DoesNotContain(commands, c => c.Contains("break_in_delay", StringComparison.Ordinal));
+        }
+
+        // ── a non-owner alone on the radio, TNF off, on the same rig
+        //    (refined 2026-09-22 21:37) ──
+
+        private static readonly MethodInfo NonOwnerTnf =
+            typeof(FlexBase).GetMethod("RunNonOwnerTnfEnable", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        private static readonly FieldInfo VendorTnfField =
+            typeof(Radio).GetField("_tnfEnabled", BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+        /// <summary>A non-owner alone on the radio, with the guest authority
+        /// opened as only a bench may open it in production. The rig's serial
+        /// is not declared ours, which is what makes it a non-owner.</summary>
+        private RigOnVendorRadio NonOwnerAloneRig()
+        {
+            var r = NewRig();
+            IsConnectedField.SetValue(r.Rig, true);
+            r.Rig.WireStationHandlers(r.Vendor.Radio);
+            r.Vendor.Radio.UpdateGuiClientsList(new List<GUIClient>
+            {
+                new GUIClient(RigOnVendorRadio.OurHandle, "our-client-id", "JJFlex", "K5NER", is_local_ptt: true),
+            });
+            return r;
+        }
+
+        [Fact]
+        public void ANonOwnerAlone_WithTnfOff_SendsTnfEnabled_AndNothingElseOfTheOwnerInitialisation()
+        {
+            Assert.NotNull(NonOwnerTnf);
+            Assert.NotNull(VendorTnfField);
+            var saved = StationPolicies.Current;
+            try
+            {
+                // In production the guest's shared-write authority is Unknown
+                // until a bench establishes it, so this path does not run at
+                // all; opening it here is the only way to exercise the ruled
+                // behaviour, and it is said out loud so a green run is not
+                // read as "a non-owner sets TNF today".
+                StationPolicies.Current = new StationPolicies { GuestSharedWriteAuthority = RosterAuthorityByLiveMembershipPolicy.Instance };
+                var r = NonOwnerAloneRig();
+                var op = r.Rig.StationAttempt.BeginOperation("connect");
+
+                var outcome = (ProfileActionOutcome)NonOwnerTnf.Invoke(r.Rig, new object[] { op, (Func<string>)(() => null) })!;
+
+                Assert.Equal(ProfileActionOutcome.Confirmed, outcome);
+                Assert.Contains(r.Vendor.Transport.Commands, c => c.StartsWith("radio set tnf_enabled=", StringComparison.Ordinal));
+                // MicInput, VOX, CW break-in, TX1 and the keyer are the
+                // owner's alone and are not in this path.
+                Assert.DoesNotContain(r.Vendor.Transport.Commands, c => c.StartsWith("interlock tx1_enabled=", StringComparison.Ordinal));
+            }
+            finally { StationPolicies.Current = saved; }
+        }
+
+        [Fact]
+        public void ANonOwnerAlone_WithTnfAlreadyOn_SendsNothing()
+        {
+            var saved = StationPolicies.Current;
+            try
+            {
+                StationPolicies.Current = new StationPolicies { GuestSharedWriteAuthority = RosterAuthorityByLiveMembershipPolicy.Instance };
+                var r = NonOwnerAloneRig();
+                // The vendor's cache set directly: the radio says TNF is on,
+                // with no command of ours behind it.
+                VendorTnfField.SetValue(r.Vendor.Radio, true);
+                var op = r.Rig.StationAttempt.BeginOperation("connect");
+
+                var outcome = (ProfileActionOutcome)NonOwnerTnf.Invoke(r.Rig, new object[] { op, (Func<string>)(() => null) })!;
+
+                Assert.Equal(ProfileActionOutcome.Refused, outcome);
+                Assert.DoesNotContain(r.Vendor.Transport.Commands, c => c.StartsWith("radio set tnf_enabled=", StringComparison.Ordinal));
+            }
+            finally { StationPolicies.Current = saved; }
+        }
+
+        [Fact]
+        public void ANonOwner_UnderTheProductionGuestAuthority_SendsNothing()
+        {
+            var r = NonOwnerAloneRig();
+            var op = r.Rig.StationAttempt.BeginOperation("connect");
+
+            var outcome = (ProfileActionOutcome)NonOwnerTnf.Invoke(r.Rig, new object[] { op, (Func<string>)(() => null) })!;
+
+            Assert.Equal(ProfileActionOutcome.Refused, outcome);
+            Assert.DoesNotContain(r.Vendor.Transport.Commands, c => c.StartsWith("radio set tnf_enabled=", StringComparison.Ordinal));
         }
 
         [Fact]
