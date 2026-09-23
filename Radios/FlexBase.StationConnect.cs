@@ -1128,6 +1128,16 @@ namespace Radios
                 if (r == null) { refusal = "no radio"; return; }
                 // radio set tnf_enabled=1 — station-global and radio-
                 // persistent, a Jim-era line the write-path audit named (1.4).
+                //
+                // THIS IS GATED ON THE PROFILE INTENT ON PURPOSE, and a review
+                // once asked for the gate to be removed. Noel ruled it stays,
+                // 2026-09-23: "If the owner says to leave stuff alone we need
+                // to leave junk alone." So an owner whose intent is LeaveAlone
+                // or NotAnswered gets TNF from no branch at all, and that is
+                // the behaviour, not an oversight. The register's #590 said
+                // the opposite for one day and was corrected; do not "fix"
+                // this from a summary. Loosening the entry test would also
+                // loosen it for MicInput, VOX and the keyer below.
                 r.TNFEnabled = true;
                 if (!RemoteRig)
                 {
