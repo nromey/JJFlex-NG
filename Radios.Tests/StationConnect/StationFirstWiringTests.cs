@@ -345,7 +345,7 @@ namespace Radios.Tests.StationConnect
             Assert.Contains("LiveTxSnapshotStore.Persist(path, snapshot)", text, StringComparison.Ordinal);
 
             int abort = IndexOf(text, "private void RestoreRadioAutosaveAfterAbort()");
-            string abortBody = text.Substring(abort, 1200);
+            string abortBody = text.Substring(abort, 2200);
             int confirmed = abortBody.IndexOf("bool confirmed = SetRadioProfileAutosaveInternal(true,", StringComparison.Ordinal);
             int clear = abortBody.IndexOf("RadioConfig.RecordAutosaveTurnedOffByUs(serial, false);", StringComparison.Ordinal);
             int guard = abortBody.IndexOf("if (!confirmed)", StringComparison.Ordinal);

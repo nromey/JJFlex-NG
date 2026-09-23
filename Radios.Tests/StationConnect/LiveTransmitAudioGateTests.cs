@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Radios;
 using Radios.StationConnect;
 using Xunit;
@@ -83,6 +84,28 @@ namespace Radios.Tests.StationConnect
             finally { rig.Dispose(); }
         }
 
+        [Fact]
+        public void AnItemIsCountedAsRanOnlyAfterItsWorkReturned_AndAThrowIsNotARun()
+        {
+            // Until Track G3, Ran was incremented BEFORE the work, so a
+            // setter that threw (caught by the command loop) still counted
+            // as applied (Track G2 re-review, step 9).
+            int calls = 0;
+            using (var gate = QueuedWriteGate.Open(() => null))
+            {
+                var ok = gate.Wrap(() => calls++, "ok", null);
+                var bad = gate.Wrap(() => { calls++; throw new InvalidOperationException("radio said no"); }, "bad", null);
+                ok();
+                Assert.Equal(1, gate.Ran);
+                Assert.Throws<InvalidOperationException>(() => bad());
+                Assert.Equal(2, calls);
+                Assert.Equal(1, gate.Ran);
+                Assert.Equal(1, gate.Threw);
+                Assert.Contains("radio said no", gate.FirstThrow);
+                Assert.False(gate.Complete);
+            }
+        }
+
         private static void RunQueue(FlexBase.q_t q)
         {
             while (q.Count > 0)
@@ -90,6 +113,45 @@ namespace Radios.Tests.StationConnect
                 var item = q.Dequeue();
                 if (item.Item is FlexBase.FunctionDel f) f();
             }
+        }
+
+        // ── the abort keeps an earlier operation's obligation (Track G3) ──
+
+        [Fact]
+        public void AnAbortWithNothingApplied_GivesAutosaveBack()
+        {
+            var p = LiveAudioAbortPlan.Decide(autosaveTurnedOffThisStep: true, autosaveOwedFromEarlier: false, priorLiveRecordExists: false);
+            Assert.True(p.RestoreAutosave);
+        }
+
+        [Fact]
+        public void AnAbortAfterAnEarlierOperationApplied_KeepsAutosaveOff_AndKeepsTheRecord()
+        {
+            // The connect applied our chain and recorded the put-back with
+            // autosave off; the post-import re-entry aborts on its safety
+            // step. Turning autosave on now would commit our chain.
+            var p = LiveAudioAbortPlan.Decide(autosaveTurnedOffThisStep: false, autosaveOwedFromEarlier: true, priorLiveRecordExists: true);
+            Assert.False(p.RestoreAutosave);
+            Assert.Contains("owes a put-back", p.Reason);
+        }
+
+        [Fact]
+        public void AnAbortWhereAutosaveWasNeverTurnedOff_RestoresNothing()
+        {
+            var p = LiveAudioAbortPlan.Decide(false, false, false);
+            Assert.False(p.RestoreAutosave);
+        }
+
+        // ── the capture's receipt set (Track G3) ──
+
+        [Fact]
+        public void TheCaptureRequiresEveryChainFieldTheSnapshotRecords_NotMicSourceAlone()
+        {
+            Assert.Equal(LiveAudioCapture.RequiredFields.Count, LiveAudioCapture.MissingFields(Array.Empty<string>()).Count);
+            Assert.Contains("MicLevel", LiveAudioCapture.MissingFields(new[] { "MicInput" }));
+            Assert.Empty(LiveAudioCapture.MissingFields(LiveAudioCapture.RequiredFields));
+            Assert.DoesNotContain("TXEqEnabled", LiveAudioCapture.RequiredFields);     // captured when reported, not required
+            Assert.Equal(new[] { "TXFilterHigh" }, LiveAudioCapture.MissingFields(LiveAudioCapture.RequiredFields.Where(f => f != "TXFilterHigh").ToList()));
         }
 
         // ── the snapshot's persistence gates the apply ──

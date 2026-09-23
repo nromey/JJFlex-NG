@@ -118,8 +118,12 @@ namespace Radios.StationConnect
         /// break-in, TX1, the keyer restore. Called only under the full gate.</summary>
         void RunOwnerInitialization();
 
-        /// <summary>One live-audio step (autosave off, capture, apply).</summary>
-        ProfileActionOutcome RunLiveAudioAction(ProfileAction action);
+        /// <summary>One live-audio step (autosave off, capture, apply). The
+        /// delegate MUST call <paramref name="refusalAtSend"/> immediately
+        /// before the step's write and refuse on a non-null answer (Track
+        /// G3: until then autosave and capture ran without a dispatched
+        /// recheck).</summary>
+        ProfileActionOutcome RunLiveAudioAction(ProfileAction action, Func<string> refusalAtSend);
 
         /// <summary>The live-audio sequence aborted on a safety step.</summary>
         void AbortLiveAudio(bool autosaveWasTurnedOff);
@@ -329,7 +333,7 @@ namespace Radios.StationConnect
                     foreach (var action in liveAudioActions)
                     {
                         if (operation.IsEnded || phase.Passed(_clock)) { result.LiveAudioAborted = true; break; }
-                        var outcome = _port.RunLiveAudioAction(action);
+                        var outcome = _port.RunLiveAudioAction(action, () => LiveAudioRefusalAtSend(operation, phase, factsAtPlan));
                         switch (action.Kind)
                         {
                             case ProfileActionKind.TurnAutosaveOff:
@@ -385,6 +389,24 @@ namespace Radios.StationConnect
             result.MayRepairMicrophone = mayWriteShared && result.Outcome == PostStationOutcome.Completed;
             _port.Conclude(result);
             return result;
+        }
+
+        /// <summary>The recheck inside a dispatched live-audio step (autosave
+        /// off, capture, apply): the operation, the phase, and the route's
+        /// own conditions read again — connected, no hold, the intent still
+        /// transmit audio, and the strict roster.</summary>
+        private string LiveAudioRefusalAtSend(StationOperation operation, StationDeadline phase, StationPolicyFacts factsAtPlan)
+        {
+            if (operation.IsEnded) return "operation ended: " + operation.WhyNotLive;
+            if (phase.Passed(_clock)) return "the queued live-audio step ran after the post-station phase had ended";
+            var now = _port.ReadPolicyFacts();
+            if (!now.Connected) return "not connected";
+            if (now.HoldArmed) return "the change-nothing hold is armed";
+            if (now.Intent != ProfileGuestIntent.UseMyTransmitAudio) return "the intent for this radio is no longer transmit audio (" + now.Intent + ")";
+            if (!string.Equals(now.Serial, factsAtPlan.Serial, StringComparison.Ordinal)) return "a different radio is connected";
+            var roster = _port.RosterForAutomaticWrite();
+            if (roster.Verdict != RosterVerdict.OnlyUs) return "roster at dispatch: " + roster;
+            return null;
         }
 
         /// <summary>The recheck inside the dispatched selection: the

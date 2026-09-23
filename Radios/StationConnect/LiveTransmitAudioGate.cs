@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 
 namespace Radios.StationConnect
@@ -28,7 +30,9 @@ namespace Radios.StationConnect
         private readonly QueuedWriteGate _previous;
         private int _ran;
         private int _refused;
+        private int _threw;
         private string _firstRefusal;
+        private string _firstThrow;
 
         private QueuedWriteGate(Func<string> refusal)
         {
@@ -44,22 +48,33 @@ namespace Radios.StationConnect
         /// <summary>The gate ambient on this thread, or null.</summary>
         public static QueuedWriteGate Ambient => _ambient;
 
-        /// <summary>Items that ran.</summary>
+        /// <summary>Items that ran TO COMPLETION. Counted after the work
+        /// returns, not before it starts (Track G2 re-review, step 9: an
+        /// exception caught by the command loop left an "applied" claim).</summary>
         public int Ran => Volatile.Read(ref _ran);
 
         /// <summary>Items refused at their run.</summary>
         public int Refused => Volatile.Read(ref _refused);
 
+        /// <summary>Items whose work threw. Not applied, and not refused
+        /// either: the radio may or may not have got the write.</summary>
+        public int Threw => Volatile.Read(ref _threw);
+
         /// <summary>The first refusal's reason, or null.</summary>
         public string FirstRefusal => _firstRefusal;
 
-        /// <summary>True when everything queued under this gate ran and
-        /// nothing was refused.</summary>
-        public bool Complete => Refused == 0;
+        /// <summary>The first exception's message, or null.</summary>
+        public string FirstThrow => _firstThrow;
+
+        /// <summary>True when everything queued under this gate ran to
+        /// completion: nothing refused, nothing threw.</summary>
+        public bool Complete => Refused == 0 && Threw == 0;
 
         /// <summary>
         /// Wrap queued work: at its run, ask the gate; refuse with a trace
-        /// through <paramref name="onRefused"/>, or run it and count it.
+        /// through <paramref name="onRefused"/>, or run it and count it once
+        /// it has returned. An exception is counted as a throw and rethrown
+        /// so the loop's own handler still sees it.
         /// </summary>
         public Action Wrap(Action work, string name, Action<string, string> onRefused)
         {
@@ -73,14 +88,84 @@ namespace Radios.StationConnect
                     onRefused?.Invoke(name, why);
                     return;
                 }
+                try
+                {
+                    work();
+                }
+                catch (Exception ex)
+                {
+                    Interlocked.Increment(ref _threw);
+                    Interlocked.CompareExchange(ref _firstThrow, name + ": " + ex.Message, null);
+                    throw;
+                }
                 Interlocked.Increment(ref _ran);
-                work();
             };
         }
 
         public void Dispose()
         {
             _ambient = _previous;
+        }
+    }
+
+    /// <summary>
+    /// What the live-audio capture must have heard from the radio before a
+    /// snapshot is a restore point: the transmit-chain fields the snapshot
+    /// records, each reported by the radio's own status this attempt.
+    /// FlexLib raises every one of these unconditionally from the transmit
+    /// status (no equal-value skip on them), so a name in the reported set
+    /// is a genuine receipt. Until Track G3 the capture accepted MicSource
+    /// alone as proof of the whole chain (Track G2 re-review, step 9).
+    /// </summary>
+    public static class LiveAudioCapture
+    {
+        /// <summary>The radio property names the snapshot reads. TXEqEnabled
+        /// is not required: the EQ is captured only when reported and the
+        /// preset records that it was not.</summary>
+        public static readonly IReadOnlyList<string> RequiredFields = new[]
+        {
+            "MicLevel", "MicBoost", "MicBias", "MicInput", "CompanderOn", "CompanderLevel",
+            "SpeechProcessorEnable", "SpeechProcessorLevel", "TXFilterLow", "TXFilterHigh",
+            "TXMonitor", "TXSBMonitorGain", "TXSBMonitorPan",
+        };
+
+        /// <summary>The required fields the radio has NOT reported, in order.</summary>
+        public static IReadOnlyList<string> MissingFields(IReadOnlyCollection<string> reported)
+        {
+            var have = new HashSet<string>(reported ?? Array.Empty<string>(), StringComparer.Ordinal);
+            return RequiredFields.Where(f => !have.Contains(f)).ToList();
+        }
+    }
+
+    /// <summary>What an aborted live-audio sequence does with what an
+    /// EARLIER step or operation may have left behind.</summary>
+    public sealed class LiveAudioAbortPlan
+    {
+        public bool RestoreAutosave;
+        public string Reason = "";
+
+        /// <summary>
+        /// The abort fires on a safety step of THIS sequence, before it
+        /// applied anything, so this sequence owes nothing. But a previous
+        /// operation on the same connection (the connect, before a post-
+        /// import re-entry) may have applied and recorded a put-back, with
+        /// autosave off to protect it. Its record stays, and while such a
+        /// record exists autosave stays OFF — turning it on now would commit
+        /// our applied chain into the owner's profile. Until Track G3 the
+        /// abort removed every live record and restored autosave regardless
+        /// (Track G2 re-review, step 9).
+        /// </summary>
+        public static LiveAudioAbortPlan Decide(bool autosaveTurnedOffThisStep, bool autosaveOwedFromEarlier, bool priorLiveRecordExists)
+        {
+            bool owed = autosaveTurnedOffThisStep || autosaveOwedFromEarlier;
+            if (!owed) return new LiveAudioAbortPlan { RestoreAutosave = false, Reason = "autosave was never turned off by us; nothing to give back" };
+            if (priorLiveRecordExists)
+                return new LiveAudioAbortPlan
+                {
+                    RestoreAutosave = false,
+                    Reason = "an earlier operation applied our transmit audio and owes a put-back; autosave stays off until it is put back, and that record is kept",
+                };
+            return new LiveAudioAbortPlan { RestoreAutosave = true, Reason = "nothing was applied; the radio gets its autosave straight back" };
         }
     }
 

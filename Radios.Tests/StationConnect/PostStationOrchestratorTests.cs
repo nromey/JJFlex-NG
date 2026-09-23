@@ -176,8 +176,19 @@ namespace Radios.Tests.StationConnect
 
         public void RunOwnerInitialization() => Log.Add("owner-init");
 
-        public ProfileActionOutcome RunLiveAudioAction(ProfileAction action)
+        /// <summary>Runs before a live-audio step's recheck, so a test can
+        /// change the world between the plan and the step's write.</summary>
+        public Action<ProfileActionKind> BeforeLiveAudioStep;
+
+        public ProfileActionOutcome RunLiveAudioAction(ProfileAction action, Func<string> refusalAtSend)
         {
+            BeforeLiveAudioStep?.Invoke(action.Kind);
+            string refusal = refusalAtSend();
+            if (refusal != null)
+            {
+                Log.Add("live " + action.Kind + " refused " + refusal);
+                return ProfileActionOutcome.Refused;
+            }
             Log.Add("live " + action.Kind);
             LiveAudioRun.Add(action.Kind);
             return LiveAudioOutcomes.TryGetValue(action.Kind, out var o) ? o : ProfileActionOutcome.Confirmed;
@@ -552,6 +563,42 @@ namespace Radios.Tests.StationConnect
             Assert.Empty(r.Port.LiveAudioRun);
             Assert.False(result.LiveAudioDeferred);
             Assert.False(result.LiveAudioApplied);
+        }
+
+        [Theory]
+        [InlineData(ProfileActionKind.TurnAutosaveOff, "hold")]
+        [InlineData(ProfileActionKind.TurnAutosaveOff, "join")]
+        [InlineData(ProfileActionKind.CaptureLiveTransmitAudio, "intent")]
+        [InlineData(ProfileActionKind.ApplyLocalTransmitAudio, "join")]
+        public void ALiveAudioStep_WhoseWorldChangedBeforeItsWrite_IsRefusedAtTheStep_AndTheSequenceAborts(ProfileActionKind step, string what)
+        {
+            // The recheck is at the STEP (Track G3, group 3): autosave and
+            // capture ran without one until then.
+            var r = new Rig();
+            r.Port.Facts.Ownership = RadioOwnership.SomeoneElses;
+            r.Port.Facts.Intent = ProfileGuestIntent.UseMyTransmitAudio;
+            r.Port.LocalTxProfile = "Contest"; r.Port.LocalTxProfileExists = true;
+            r.Port.RadioAutosave = true;
+            r.Port.BeforeLiveAudioStep = kind =>
+            {
+                if (kind != step) return;
+                switch (what)
+                {
+                    case "hold": r.Port.Facts.HoldArmed = true; break;
+                    case "join": r.Port.Roster = RosterVerdict.OthersPresent; break;
+                    case "intent": r.Port.Facts.Intent = ProfileGuestIntent.LeaveAlone; break;
+                }
+            };
+            var station = Established(); station.Outcome = StationOutcome.PolicySkipped;
+            station.Allocation.Stop = AllocationStop.TargetReached; station.Allocation.OwnSlicesAtEnd = 2;
+
+            var result = r.Run(station);
+
+            Assert.True(result.LiveAudioAborted);
+            Assert.DoesNotContain(step, r.Port.LiveAudioRun);          // the step's write never happened
+            Assert.Contains(r.Port.Log, l => l.StartsWith("live " + step + " refused", StringComparison.Ordinal));
+            Assert.False(result.LiveAudioApplied);
+            Assert.False(result.LiveAudioDeferred);
         }
 
         [Fact]

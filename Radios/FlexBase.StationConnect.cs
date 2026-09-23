@@ -567,11 +567,16 @@ namespace Radios
         /// <summary>The radio property names that make up the transmit chain
         /// the live-audio snapshot captures. A radio-reported change to any
         /// of them advances the chain generation.</summary>
+        // The names are FlexLib's PropertyChanged names, pinned by
+        // LiveAudioPathTests against the vendored transmit parser. Until
+        // Track G3 the last two read "SBMonitorGain" and "SBMonitorPan",
+        // which FlexLib never raises (it raises TXSBMonitorGain and
+        // TXSBMonitorPan), so a monitor change never advanced the chain.
         private static readonly HashSet<string> TxChainProperties = new HashSet<string>(StringComparer.Ordinal)
         {
             "MicLevel", "MicBoost", "MicBias", "MicInput", "CompanderOn", "CompanderLevel",
             "SpeechProcessorEnable", "SpeechProcessorLevel", "TXFilterLow", "TXFilterHigh",
-            "TXMonitor", "SBMonitorGain", "SBMonitorPan", "TXEqEnabled",
+            "TXMonitor", "TXSBMonitorGain", "TXSBMonitorPan", "TXEqEnabled",
         };
 
         /// <summary>Called from the radio property handler for the properties
@@ -603,7 +608,7 @@ namespace Radios
                     break;
                 default:
                     if (provenance == ObservationProvenance.RadioReported && TxChainProperties.Contains(propertyName))
-                        ProfileEvidence.TxChainReported(gen);
+                        ProfileEvidence.TxChainReported(gen, propertyName);
                     break;
             }
         }
@@ -1014,7 +1019,8 @@ namespace Radios
                 _rig.ProfileEvidence.Snapshot().ReportedSelectionOf(type);
             public long ProfileSequence => _rig.ProfileEvidence.Sequence;
             public void RunOwnerInitialization() => _rig.RunOwnerInitialization();
-            public ProfileActionOutcome RunLiveAudioAction(ProfileAction action) => _rig.RunLiveAudioActionChecked(action, _op);
+            public ProfileActionOutcome RunLiveAudioAction(ProfileAction action, Func<string> refusalAtSend) =>
+                _rig.RunLiveAudioActionChecked(action, _op, refusalAtSend);
             public void AbortLiveAudio(bool autosaveWasTurnedOff) => _rig.AbortLiveAudio(autosaveWasTurnedOff);
             public void RecordSession(IEnumerable<ProfileSessionRecord> records)
             {
@@ -1184,8 +1190,14 @@ namespace Radios
         // Executing one action with the recheck inside the dispatched work
         // ------------------------------------------------------------------
 
-        /// <summary>One live-audio step (autosave off, capture, apply).</summary>
-        private ProfileActionOutcome RunLiveAudioActionChecked(ProfileAction action, StationOperation operation)
+        /// <summary>
+        /// One live-audio step (autosave off, capture, apply), each DISPATCHED
+        /// with the orchestrator's recheck inside the delegate immediately
+        /// before its write (Track G3; until then autosave and capture ran
+        /// without any dispatched validation, and the post-import apply ran
+        /// the setters ungated and called enqueueing Confirmed).
+        /// </summary>
+        private ProfileActionOutcome RunLiveAudioActionChecked(ProfileAction action, StationOperation operation, Func<string> refusalAtSend)
         {
             var radio = theRadio;
             if (radio == null || action == null) return ProfileActionOutcome.Failed;
@@ -1197,13 +1209,22 @@ namespace Radios
             switch (action.Kind)
             {
                 case ProfileActionKind.TurnAutosaveOff:
-                    return SetRadioProfileAutosaveGuest(false) ? ProfileActionOutcome.Confirmed : ProfileActionOutcome.Failed;
+                    return RunGatedLiveAudioStep("autosave off for the visit", operation, refusalAtSend, () =>
+                    {
+                        bool confirmed = SetRadioProfileAutosaveGuest(false);
+                        // The live cleanup flag and the durable disk notice
+                        // are two obligations. Track G2 moved the flag's only
+                        // true assignment into a pure orchestrator local and
+                        // never copied it back, so a confirmed OFF was not
+                        // restored at clean teardown (re-review, step 9).
+                        if (confirmed) _autosaveTurnedOffThisSession = true;
+                        return confirmed;
+                    });
 
                 case ProfileActionKind.CaptureLiveTransmitAudio:
-                    return CaptureLiveTransmitAudio() ? ProfileActionOutcome.Confirmed : ProfileActionOutcome.Failed;
+                    return RunGatedLiveAudioStep("capture of the live transmit audio", operation, refusalAtSend, CaptureLiveTransmitAudio);
 
                 case ProfileActionKind.ApplyLocalTransmitAudio:
-                    if (q != null && !q.MainLoop)
                     {
                         // The payload is captured NOW and applied as captured:
                         // a fresh lookup by name at apply time could find a
@@ -1215,6 +1236,12 @@ namespace Radios
                                 + "' is gone at deferral; nothing will be applied.", TraceLevel.Error);
                             return ProfileActionOutcome.Failed;
                         }
+                        string refusal = refusalAtSend?.Invoke();
+                        if (refusal != null)
+                        {
+                            Tracing.TraceLine("ProfileStewardship: the live transmit-audio apply was NOT queued — " + refusal, TraceLevel.Warning);
+                            return ProfileActionOutcome.Refused;
+                        }
                         _pendingLiveTxApplyPreset = action.ProfileName;
                         _pendingLiveTxApplyPayload = payload;
                         _pendingLiveTxApplyAttempt = operation.Attempt.Generation;
@@ -1222,28 +1249,77 @@ namespace Radios
                         // the current operation being live says nothing
                         // about this one (Track G2 re-review, step 1).
                         _pendingLiveTxApplyOperation = operation;
+                        if (q != null && q.MainLoop)
+                        {
+                            // The loop is running (the post-import entry).
+                            // ONE path: the same gated apply the connect
+                            // defers to, queued behind whatever is pending,
+                            // with its own continuation to record the
+                            // put-back. Never the ungated ApplyTo that called
+                            // enqueue success "confirmed" (re-review, step 9).
+                            q.Enqueue((FunctionDel)ApplyDeferredGuestTransmitAudio, "deferred guest transmit audio (post-import)");
+                            Tracing.TraceLine("ProfileStewardship: the live transmit-audio apply is queued to the running command loop; "
+                                + "the gate, the held payload and the captured chain generation are revalidated there and inside every setter.", TraceLevel.Info);
+                            return ProfileActionOutcome.Deferred;
+                        }
                         Tracing.TraceLine(
                             "ProfileStewardship: deferring the live transmit-audio apply until the command loop is running; "
                             + "permission, the held payload and the captured chain generation are revalidated there and inside every setter.", TraceLevel.Info);
                         return ProfileActionOutcome.Deferred;
                     }
-                    return ApplyLocalTransmitAudioNow(action.ProfileName) ? ProfileActionOutcome.Confirmed : ProfileActionOutcome.Failed;
 
                 default:
                     return RunProfileAction(action) ? ProfileActionOutcome.Sent : ProfileActionOutcome.Failed;
             }
         }
 
-        /// <summary>The live-audio sequence aborted on its safety step.
-        /// Nothing else was changed by then, so the radio gets its autosave
-        /// straight back; the durable notice clears only when that is
-        /// confirmed (see RestoreRadioAutosaveAfterAbort).</summary>
+        /// <summary>Dispatch one live-audio safety step with the recheck
+        /// inside the delegate, immediately before the step's write, and
+        /// report only what the step itself confirmed.</summary>
+        private ProfileActionOutcome RunGatedLiveAudioStep(string what, StationOperation operation, Func<string> refusalAtSend, Func<bool> step)
+        {
+            bool ran = false;
+            bool confirmed = false;
+            string refusal = null;
+            DispatchStationWork("live audio: " + what, () =>
+            {
+                refusal = refusalAtSend?.Invoke();
+                if (refusal != null) return;
+                if (operation.IsEnded) { refusal = "operation ended: " + operation.WhyNotLive; return; }
+                confirmed = step();
+                ran = true;
+            });
+            if (!ran && refusal == null)
+            {
+                await(() => ran || refusal != null || operation.IsEnded, StationDeadlines.Default().AutosaveAndCaptureMs);
+            }
+            if (refusal != null)
+            {
+                Tracing.TraceLine("ProfileStewardship: " + what + " NOT run — " + refusal, TraceLevel.Warning);
+                return ProfileActionOutcome.Refused;
+            }
+            if (!ran) return ProfileActionOutcome.Queued;
+            return confirmed ? ProfileActionOutcome.Confirmed : ProfileActionOutcome.Failed;
+        }
+
+        /// <summary>
+        /// The live-audio sequence aborted on its safety step. THIS sequence
+        /// applied nothing and owes nothing; what an EARLIER operation on the
+        /// same connection recorded is an obligation and is kept, and while
+        /// such a record exists autosave stays off (see
+        /// <see cref="LiveAudioAbortPlan"/>). Until Track G3 the abort
+        /// removed every live record and restored autosave regardless.
+        /// </summary>
         private void AbortLiveAudio(bool autosaveWasTurnedOff)
         {
-            if (autosaveWasTurnedOff || _autosaveTurnedOffThisSession) RestoreRadioAutosaveAfterAbort();
-            lock (_profileRecordLock) _profileSessionRecord.RemoveAll(r => r.LiveTransmitAudio);
+            bool priorRecord;
+            lock (_profileRecordLock) priorRecord = _profileSessionRecord.Any(r => r.LiveTransmitAudio);
+            var plan = LiveAudioAbortPlan.Decide(autosaveWasTurnedOff, _autosaveTurnedOffThisSession, priorRecord);
+            Tracing.TraceLine("ProfileStewardship: live-audio abort — " + plan.Reason, TraceLevel.Warning);
+            if (plan.RestoreAutosave) RestoreRadioAutosaveAfterAbort();
             _pendingLiveTxApplyPreset = null;
             _pendingLiveTxApplyPayload = null;
+            _pendingLiveTxApplyOperation = null;
         }
 
         /// <summary>

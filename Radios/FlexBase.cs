@@ -16486,6 +16486,17 @@ namespace Radios
         private void RestoreRadioAutosaveAfterAbort()
         {
             var serial = theRadio?.Serial;
+            // Revalidated at the write (Track G3): a restore needs a live
+            // connection on the same attempt. The hold is deliberately NOT a
+            // veto here — this reverses OUR OWN write, and leaving the
+            // owner's autosave off under a hold would strand them; the
+            // roster is traced, not consulted, for the same reason.
+            if (theRadio == null || !IsConnected || !StationAttempt.IsLive)
+            {
+                Tracing.TraceLine("ProfileStewardship: autosave could not be given back — no live connection; the durable notice stays.", TraceLevel.Warning);
+                return;
+            }
+            Tracing.TraceLine("ProfileStewardship: giving autosave back with the roster " + RosterJudgementNow().Verdict, TraceLevel.Info);
             bool confirmed = SetRadioProfileAutosaveInternal(true, "restoring autosave after a connect-time abort");
             if (!confirmed)
             {
@@ -16748,18 +16759,26 @@ namespace Radios
 
             // Capturing before the radio has reported its own transmit chain
             // would snapshot defaults, and putting defaults back later is
-            // worse than nothing. MicSource reporting is the proxy for "the
-            // radio has answered its TX-chain status". Until 2026-09-21 this
-            // proceeded anyway on expiry ("best-effort"); the design (step 9)
-            // rules that expiry PREVENTS application rather than accepting a
-            // snapshot of defaults, so an expired bound is a failed capture.
+            // worse than nothing. The proof is the RECEIPT SET: every field
+            // the snapshot records, reported by the radio's own status this
+            // attempt (LiveAudioCapture.RequiredFields). Until Track G3
+            // MicSource alone stood in for the whole chain (Track G2
+            // re-review, step 9). Until 2026-09-21 this proceeded anyway on
+            // expiry ("best-effort"); the design (step 9) rules that expiry
+            // PREVENTS application rather than accepting a snapshot of
+            // defaults, so an expired bound is a failed capture.
             int bound = StationDeadlines.Default().AutosaveAndCaptureMs;
-            if (!await(() => theRadio == null || !string.IsNullOrEmpty(MicSource), bound) || theRadio == null
-                || string.IsNullOrEmpty(MicSource))
+            int gen = AttemptGen;
+            await(() => theRadio == null || AttemptGen != gen
+                || LiveAudioCapture.MissingFields(ProfileEvidence.Snapshot().TxChainFieldsReported).Count == 0, bound);
+            var missing = theRadio == null || AttemptGen != gen
+                ? LiveAudioCapture.RequiredFields
+                : LiveAudioCapture.MissingFields(ProfileEvidence.Snapshot().TxChainFieldsReported);
+            if (theRadio == null || AttemptGen != gen || missing.Count > 0)
             {
                 Tracing.TraceLine(
-                    "ProfileStewardship: the radio had not reported its transmit chain within " + bound
-                    + " ms. NOT capturing — a snapshot of defaults is not a restore point.",
+                    "ProfileStewardship: the radio had not reported its whole transmit chain within " + bound
+                    + " ms (missing: " + string.Join(", ", missing) + "). NOT capturing — a snapshot of defaults is not a restore point.",
                     TraceLevel.Error);
                 _liveTxSnapshot = null;
                 return false;
@@ -16941,8 +16960,12 @@ namespace Radios
                     // applied in full.
                     lock (_profileRecordLock)
                     {
-                        _profileSessionRecord.RemoveAll(r => r.LiveTransmitAudio);
-                        if (gate.Ran > 0)
+                        // A setter that THREW may have reached the radio
+                        // before it failed: it owes a put-back as a ran one
+                        // does. Only a fully refused apply owes nothing.
+                        bool anyMayHaveWritten = gate.Ran > 0 || gate.Threw > 0;
+                        if (anyMayHaveWritten) _profileSessionRecord.RemoveAll(r => r.LiveTransmitAudio);
+                        if (anyMayHaveWritten)
                         {
                             _profileSessionRecord.Add(new ProfileSessionRecord
                             {
@@ -16954,9 +16977,10 @@ namespace Radios
                         }
                     }
                     Tracing.TraceLine("ProfileStewardship: the live transmit-audio apply was " + (gate.Ran > 0 ? "PARTIAL" : "refused in full")
-                        + ": " + gate.Ran + " setter(s) ran, " + gate.Refused + " refused (" + gate.FirstRefusal + "). "
-                        + (gate.Ran > 0 ? "The put-back is owed." : "Nothing is owed."), TraceLevel.Warning);
-                    if (gate.Ran == 0) AbandonUnappliedLiveAudio();
+                        + ": " + gate.Ran + " setter(s) ran, " + gate.Refused + " refused (" + gate.FirstRefusal + "), "
+                        + gate.Threw + " threw (" + gate.FirstThrow + "). "
+                        + (gate.Ran > 0 || gate.Threw > 0 ? "The put-back is owed." : "Nothing is owed."), TraceLevel.Warning);
+                    if (gate.Ran == 0 && gate.Threw == 0) AbandonUnappliedLiveAudio();
                     if (!SuppressSpeech)
                     {
                         NoteProfileVerdict(Lexicon.Get("settings.profile_guest.live_audio_not_applied",
@@ -20831,7 +20855,14 @@ namespace Radios
                 var gate = Radios.StationConnect.QueuedWriteGate.Ambient;
                 if (gate != null && o is FunctionDel gated)
                 {
-                    var wrapped = gate.Wrap(() => gated(), name ?? "unnamed",
+                    // A gated item is one of OUR chain writes. Its setter
+                    // raises PropertyChanged synchronously on the loop's
+                    // thread, which the provenance scope must mark as a
+                    // local echo — or the echo advances the chain generation
+                    // and the NEXT gated setter refuses because "the chain
+                    // changed" (Track G2 re-review, step 9: the deferred apply
+                    // invalidated itself after its first changed setter).
+                    var wrapped = gate.Wrap(() => { using (OwnProfileWrite()) gated(); }, name ?? "unnamed",
                         (n, why) => Tracing.TraceLine("q: refused '" + n + "' at its run — " + why, TraceLevel.Warning));
                     o = (FunctionDel)(() => wrapped());
                 }
