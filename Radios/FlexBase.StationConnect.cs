@@ -275,40 +275,76 @@ namespace Radios
         /// Raised, at most once per connection, when the other operator whose
         /// presence stopped the owner's profile load has left according to
         /// the radio's own status, and the owner's load could now be sent.
-        /// The UI shows a dialog; nothing loads without a yes.
+        /// The UI shows a dialog; nothing loads without a yes, and the yes
+        /// carries the <see cref="OwnerLoadOffer"/> back so a consent given
+        /// on one connection cannot be applied to the next.
         /// </summary>
-        public event Action OwnerProfileLoadOffered;
+        public event Action<OwnerLoadOffer> OwnerProfileLoadOffered;
 
         private int _ownerLoadOfferedForAttempt = -1;
 
+        /// <summary>
+        /// Checked on every tracker change AND when a station result is
+        /// published (Track G3): a leave that arrived during the run, with no
+        /// further evidence after it, used to be missed because
+        /// LastStationResult was assigned only after the run returned. The
+        /// once-per-attempt flag is a compare-and-swap, since this runs from
+        /// the receive thread and the command thread alike.
+        /// </summary>
         private void ConsiderOwnerProfileLoadOffer()
         {
             var last = LastStationResult;
             if (last == null || !last.OwnerRefusedForCompany || last.LoadSent) return;
             var attempt = StationAttempt;
             if (!attempt.IsLive || attempt.Generation != last.AttemptGeneration) return;
-            if (_ownerLoadOfferedForAttempt == attempt.Generation) return;
+            int gen = attempt.Generation;
+            int already = Volatile.Read(ref _ownerLoadOfferedForAttempt);
+            if (already == gen) return;
             if (RosterJudgementForAutomaticWrite().Verdict != RosterVerdict.OnlyUs) return;
             var facts = ReadStationPolicyFacts();
             if (StationCoordinator.AutomaticStewardshipRefusal(facts) != null) return;
-            _ownerLoadOfferedForAttempt = attempt.Generation;
-            Tracing.TraceLine("StationConnect: the other operator has left (radio status); offering the owner's profile load. "
-                + "Never automatic (ruled 2026-09-22).", TraceLevel.Info);
-            try { OwnerProfileLoadOffered?.Invoke(); }
+            // Exactly one caller wins the offer for this attempt.
+            if (Interlocked.CompareExchange(ref _ownerLoadOfferedForAttempt, gen, already) != already) return;
+            var offer = new OwnerLoadOffer(gen, facts.Serial);
+            Tracing.TraceLine("StationConnect: the other operator has left (radio status); offering the owner's profile load (" + offer
+                + "). Never automatic (ruled 2026-09-22).", TraceLevel.Info);
+            try { OwnerProfileLoadOffered?.Invoke(offer); }
             catch (Exception ex) { Tracing.TraceLine("StationConnect: the load offer handler threw: " + ex.Message, TraceLevel.Error); }
         }
 
         /// <summary>
-        /// The operator answered yes to the offer. Runs the global load as its
-        /// own operation, with the connect's recheck inside the dispatched
-        /// delegate, judged by the completion policy and never topped up.
-        /// Blocks for up to the station phase; call it off the UI thread.
-        /// Returns the outcome and speaks it.
+        /// The operator answered yes to <paramref name="offer"/>. Runs the
+        /// global load as its own operation, with the connect's recheck
+        /// inside the dispatched delegate, judged by the completion policy
+        /// and never topped up — and never with an allocator fallback. An
+        /// offer made on an earlier connection attempt is refused: the
+        /// consent belonged to that connection. Blocks for up to the station
+        /// phase; call it off the UI thread. Returns the outcome and speaks it.
         /// </summary>
-        public StationResult LoadOwnerGlobalProfileOnRequest()
+        public StationResult LoadOwnerGlobalProfileOnRequest(OwnerLoadOffer offer)
         {
             var attempt = StationAttempt;
             if (!attempt.IsLive || theRadio == null) return null;
+            if (offer == null || offer.AttemptGeneration != attempt.Generation)
+            {
+                var stale = new StationResult
+                {
+                    AttemptGeneration = attempt.Generation,
+                    Outcome = StationOutcome.Cancelled,
+                    Route = GlobalRoute.Refused,
+                    Reason = "the offer belonged to an earlier connection (" + (offer?.ToString() ?? "no offer")
+                        + "; this is " + attempt + "); nothing sent",
+                };
+                Tracing.TraceLine("StationConnect: requested load refused — " + stale.Reason, TraceLevel.Warning);
+                if (!SuppressSpeech)
+                {
+                    ConnectBriefing.Current.Note(new ConnectFact(
+                        ConnectFactKind.ProfileStewardship, Lexicon.Get("settings.profile_station.requested.not_sent"),
+                        Lexicon.Get("settings.profile_station.requested.not_sent"),
+                        VerbosityLevel.Terse, Speech.SpeechSubject.ProfileStationOutcome, alarm: false));
+                }
+                return stale;
+            }
             var previous = LastStationResult;
             var operation = attempt.BeginOperation("operator-requested global load");
             StationResult result;
@@ -320,6 +356,7 @@ namespace Radios
                 result = coordinator.RunOperatorRequestedLoad();
             }
             LastStationResult = result;
+            ConsiderOwnerProfileLoadOffer();       // at publication too (Track G3)
             if (!SuppressSpeech)
             {
                 // FOR NOEL'S PROSE REVIEW: settings.profile_station.requested.*
@@ -953,6 +990,10 @@ namespace Radios
                 result = coordinator.Run();
             }
             LastStationResult = result;
+            // A leave that arrived DURING the run, with no evidence after it,
+            // is checked here at publication as well as on tracker changes
+            // (Track G3; re-review section 5).
+            ConsiderOwnerProfileLoadOffer();
 
             if (result.CreationArmed && !string.IsNullOrEmpty(result.PendingCreateName))
             {

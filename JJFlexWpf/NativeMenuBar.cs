@@ -267,9 +267,9 @@ public class NativeMenuBar : IDisposable
     /// receive thread; the dialog goes through the dispatcher. It is a
     /// JJFlexDialog (ConfirmActionDialog), so Escape is No.
     /// </summary>
-    private void OnOwnerProfileLoadOffered()
+    private void OnOwnerProfileLoadOffered(Radios.StationConnect.OwnerLoadOffer offer)
     {
-        if (_disposed) return;
+        if (_disposed || offer == null) return;
         var rig = _subscribedRig;
         if (rig == null) return;
         _window.Dispatcher.BeginInvoke(new Action(() =>
@@ -290,12 +290,13 @@ public class NativeMenuBar : IDisposable
                 Tracing.TraceLine("Owner profile load offer: declined (or Escape); nothing loaded", TraceLevel.Info);
                 return;
             }
-            Tracing.TraceLine("Owner profile load offer: accepted; running the requested load off the UI thread", TraceLevel.Info);
+            Tracing.TraceLine("Owner profile load offer: accepted (" + offer + "); running the requested load off the UI thread", TraceLevel.Info);
             // The load waits up to the station phase for its evidence; never
-            // on the UI thread.
+            // on the UI thread. The OFFER goes with the yes: a reconnect while
+            // the prompt was open makes the rig refuse it (Track G3).
             System.Threading.Tasks.Task.Run(() =>
             {
-                try { rig.LoadOwnerGlobalProfileOnRequest(); }
+                try { rig.LoadOwnerGlobalProfileOnRequest(offer); }
                 catch (Exception ex) { Tracing.TraceLine("Owner profile load on request threw: " + ex.Message, TraceLevel.Error); }
             });
         }));

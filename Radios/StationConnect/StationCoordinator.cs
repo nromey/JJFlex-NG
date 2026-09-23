@@ -238,7 +238,11 @@ namespace Radios.StationConnect
         // Step 6: an existing wanted profile requiring a load
         // ------------------------------------------------------------------
 
-        private StationResult LoadExistingRoute(StationResult result, StationDeadline phase, string name, StationPolicyFacts factsAtPlan)
+        /// <param name="allocatorFallback">True on the connect, where a load
+        /// refused at dispatch falls back to the client-local fresh-station
+        /// route. False for the operator's explicit request (Track G3): that
+        /// operation promised a load or nothing, so a refusal finishes it.</param>
+        private StationResult LoadExistingRoute(StationResult result, StationDeadline phase, string name, StationPolicyFacts factsAtPlan, bool allocatorFallback = true)
         {
             // Arm BEFORE the send: whatever arrives during dispatch or before
             // the wait begins is retained by sequence.
@@ -323,6 +327,12 @@ namespace Radios.StationConnect
             {
                 Trace("global load NOT sent: " + refusal);
                 result.Route = GlobalRoute.Refused;
+                if (!allocatorFallback)
+                {
+                    result.Allocation.Stop = AllocationStop.RouteForbids;
+                    result.Allocation.Note = "an explicit requested load allocates nothing; refused-and-finished";
+                    return Finish(result, StationOutcome.PolicySkipped, GlobalRoute.Refused, "load refused at dispatch: " + refusal + "; no allocator fallback");
+                }
                 return FreshStationRoute(result, phase, StationOutcome.PolicySkipped, "load refused at dispatch: " + refusal);
             }
             if (!sent)
@@ -487,6 +497,31 @@ namespace Radios.StationConnect
                     why + "; " + ownNow + " own slice(s) already present, preserved; nothing requested");
             }
 
+            // Case 2 (the owner with company): the allocation is BOUND to the
+            // remembered layout, read BEFORE anything is requested — two
+            // remembered slices on four free slots ask for two, never four
+            // (Track G3; re-review section 5). No remembered layout, no
+            // request: there is nothing to put on a slice, and padding is
+            // what the ruling forbids. Track G2 allocated to the legacy
+            // target first and read the layout afterwards.
+            StationLayout companyLayout = null;
+            int? layoutBound = null;
+            if (result.OwnerRefusedForCompany)
+            {
+                companyLayout = _port.ReadOwnerSavedLayout();
+                if (companyLayout == null || companyLayout.IsEmpty)
+                {
+                    result.Allocation.Stop = AllocationStop.NoTarget;
+                    result.Allocation.OwnSlicesAtEnd = ownNow;
+                    result.Allocation.Note = "no remembered layout for this radio on this machine; nothing requested (never pad)";
+                    result.Placement.Stop = PlacementStop.NoLayoutKnown;
+                    result.Placement.Note = "this machine holds no station layout for this radio";
+                    return Finish(result, StationOutcome.PolicySkipped, result.Route,
+                        why + "; no remembered layout, so no slice was requested and nothing was placed");
+                }
+                layoutBound = companyLayout.Slices.Count;
+            }
+
             // The operator's current receive and transmit slices are captured
             // around THIS allocation only, because it can insert slices ahead
             // of them; the port restores by identity when it ends. A restored
@@ -494,7 +529,7 @@ namespace Radios.StationConnect
             // replayed over a restored layout.
             long seqBeforeAllocation = _station.Sequence;
             _port.BeginClientLocalAllocation();
-            var allocation = Allocate(phase);
+            var allocation = Allocate(phase, layoutBound);
             _port.EndClientLocalAllocation(allocation);
             result.Allocation = allocation;
             if (allocation.Stop == AllocationStop.Cancelled)
@@ -528,7 +563,7 @@ namespace Radios.StationConnect
             // unconfirmable one is refused.
             if (result.OwnerRefusedForCompany && allocation.Obtained > 0)
             {
-                result.Placement = PlaceOwnerFrequencies(phase, seqBeforeAllocation, allocation);
+                result.Placement = PlaceOwnerFrequencies(phase, seqBeforeAllocation, allocation, companyLayout);
             }
             else if (result.OwnerRefusedForCompany)
             {
@@ -561,10 +596,9 @@ namespace Radios.StationConnect
         /// independent acknowledgment; a radio-reported frequency after the
         /// send, when the value changed, is corroboration and is traced.
         /// </remarks>
-        private PlacementResult PlaceOwnerFrequencies(StationDeadline phase, long seqBeforeAllocation, AllocationResult allocation)
+        private PlacementResult PlaceOwnerFrequencies(StationDeadline phase, long seqBeforeAllocation, AllocationResult allocation, StationLayout layout)
         {
             var placement = new PlacementResult();
-            var layout = _port.ReadOwnerSavedLayout();
             if (layout == null || layout.IsEmpty)
             {
                 placement.Stop = PlacementStop.NoLayoutKnown;
@@ -722,10 +756,13 @@ namespace Radios.StationConnect
                     "the wanted global '" + facts.WantedGlobal + "' is not in the radio's reported inventory");
             }
             result.Route = GlobalRoute.LoadExisting;
-            return LoadExistingRoute(result, phase, facts.WantedGlobal, facts);
+            return LoadExistingRoute(result, phase, facts.WantedGlobal, facts, allocatorFallback: false);
         }
 
-        private AllocationResult Allocate(StationDeadline phase)
+        /// <param name="layoutBound">When set, the number of slices the
+        /// remembered layout has: the target is that, clipped to current
+        /// capacity, and the legacy startup latch is not consulted at all.</param>
+        private AllocationResult Allocate(StationDeadline phase, int? layoutBound = null)
         {
             var alloc = new AllocationResult();
             int own = _station.Snapshot().OwnSliceCount;
@@ -737,13 +774,23 @@ namespace Radios.StationConnect
             // G2 re-review, step 7).
             bool holdAtPlan = _port.ReadPolicyFacts().HoldArmed;
 
-            // The legacy target reconciled with CURRENT capacity. The latch is
-            // a startup observation and is never the saved layout's size.
             int target;
-            if (legacy > 0 && capacity >= 0) target = Math.Min(legacy, own + capacity);
-            else if (legacy > 0) target = legacy;
-            else if (capacity > 0) target = own + capacity;
-            else target = own;
+            if (layoutBound.HasValue)
+            {
+                // Bound to the remembered layout, never padded to capacity.
+                int wanted = own + Math.Max(0, layoutBound.Value);
+                target = capacity >= 0 ? Math.Min(wanted, own + capacity) : wanted;
+            }
+            else
+            {
+                // The legacy target reconciled with CURRENT capacity. The
+                // latch is a startup observation and is never the saved
+                // layout's size.
+                if (legacy > 0 && capacity >= 0) target = Math.Min(legacy, own + capacity);
+                else if (legacy > 0) target = legacy;
+                else if (capacity > 0) target = own + capacity;
+                else target = own;
+            }
             alloc.Target = target;
 
             if (target <= own)

@@ -131,16 +131,62 @@ namespace Radios.Tests.StationConnect
         }
 
         [Fact]
-        public void OwnerWithCompany_NoLayoutKnown_TunesNothing_AndSaysSo()
+        public void OwnerWithCompany_NoLayoutKnown_RequestsNothing_TunesNothing_AndSaysSo()
         {
+            // Never pad (ruled 2026-09-21 and 2026-09-22): with nothing to
+            // put on a slice, no slice is requested. Until Track G3 this
+            // allocated to the legacy target first and read the layout after.
             var h = OwnerWithCompany();
             h.Port.OwnerLayout = null;
 
             var r = h.Run();
 
+            Assert.Equal(0, h.Port.PanafallRequests);
             Assert.Empty(h.Port.TunesSent);
+            Assert.Equal(AllocationStop.NoTarget, r.Allocation.Stop);
+            Assert.Contains("never pad", r.Allocation.Note);
             Assert.Equal(PlacementStop.NoLayoutKnown, r.Placement.Stop);
-            Assert.Equal(2, r.OwnSlicesAtEnd);               // the free slices are still there
+            Assert.Equal(0, r.OwnSlicesAtEnd);
+            Assert.True(r.OwnerRefusedForCompany);
+        }
+
+        [Fact]
+        public void OwnerWithCompany_ARememberedTwoSliceLayoutOnFourFreeSlots_RequestsTwo_NeverFour()
+        {
+            // The case the existing tests hid by setting capacity to two
+            // (Track G2 re-review, section 5).
+            var h = OwnerWithCompany();
+            h.Port.Capacity = 4;
+            h.Port.LegacyTarget = 4;
+
+            var r = h.Run();
+
+            Assert.Equal(2, h.Port.PanafallRequests);
+            Assert.Equal(2, r.Allocation.Target);
+            Assert.Equal(2, r.OwnSlicesAtEnd);
+            Assert.Equal(2, r.Placement.Placed);
+            Assert.Equal(PlacementStop.Completed, r.Placement.Stop);
+        }
+
+        [Fact]
+        public void OwnerWithCompany_ARememberedFourSliceLayoutOnTwoFreeSlots_RequestsTwo_AndPlacesTheFirstTwo()
+        {
+            var h = OwnerWithCompany();
+            h.Port.Capacity = 2;
+            h.Port.OwnerLayout = new StationLayout
+            {
+                Slices =
+                {
+                    new SliceLayoutEntry(14_250_000, "USB"), new SliceLayoutEntry(7_150_000, "LSB"),
+                    new SliceLayoutEntry(3_850_000, "LSB"), new SliceLayoutEntry(21_300_000, "USB"),
+                },
+            };
+
+            var r = h.Run();
+
+            Assert.Equal(2, h.Port.PanafallRequests);
+            Assert.Equal(new[] { (0, 14_250_000L, "USB"), (1, 7_150_000L, "LSB") }, h.Port.TunesSent);
+            Assert.Equal(2, r.Placement.Wanted);
         }
 
         [Fact]
@@ -331,6 +377,29 @@ namespace Radios.Tests.StationConnect
         }
 
         [Fact]
+        public void TheRequestedLoad_RefusedAtDispatchByAJoin_FinishesWithNoAllocatorFallback()
+        {
+            // Track G2 re-review, section 5: the explicit offered load fell
+            // into the connect's fresh-station route when its dispatch was
+            // refused, which under a positive D could allocate. It promised
+            // a load or nothing.
+            var h = OwnerWithCompany();
+            var connect = h.Run();
+            h.ClientRemoved(StationHarness.OtherHandle);
+            int panafallsBefore = h.Port.PanafallRequests;
+            h.Port.HoldDispatch = true;
+            h.Waiter.Then(() => { h.OtherClientAdded(0x66666666, "late-id", "K1LATE"); h.Port.ReleaseHeld(); });
+
+            var r = h.Coordinator(previous: connect).RunOperatorRequestedLoad();
+
+            Assert.Equal(StationOutcome.PolicySkipped, r.Outcome);
+            Assert.Empty(h.Port.GlobalLoadsSent);
+            Assert.Equal(panafallsBefore, h.Port.PanafallRequests);
+            Assert.Equal(AllocationStop.RouteForbids, r.Allocation.Stop);
+            Assert.Contains("no allocator fallback", r.Reason);
+        }
+
+        [Fact]
         public void TheRequestedLoad_UnderTheProductionDefaults_IsSentAndLeftHonestlyUnconfirmed()
         {
             var h = OwnerWithCompany(StationPolicies.Defaults());
@@ -428,7 +497,11 @@ namespace Radios.Tests.StationConnect
             Assert.NotNull(dir);
             var menu = File.ReadAllText(Path.Combine(dir.FullName, "JJFlexWpf", "NativeMenuBar.cs"));
             Assert.Contains("rig.OwnerProfileLoadOffered += OnOwnerProfileLoadOffered;", menu, StringComparison.Ordinal);
-            Assert.Contains("new Dialogs.ConfirmActionDialog(", menu.Substring(menu.IndexOf("private void OnOwnerProfileLoadOffered()", StringComparison.Ordinal)), StringComparison.Ordinal);
+            int handler = menu.IndexOf("private void OnOwnerProfileLoadOffered(Radios.StationConnect.OwnerLoadOffer offer)", StringComparison.Ordinal);
+            Assert.True(handler > 0, "the dialog handler must carry the offer token (Track G3)");
+            string handlerBody = menu.Substring(handler);
+            Assert.Contains("new Dialogs.ConfirmActionDialog(", handlerBody, StringComparison.Ordinal);
+            Assert.Contains("rig.LoadOwnerGlobalProfileOnRequest(offer);", handlerBody, StringComparison.Ordinal);
             var xaml = File.ReadAllText(Path.Combine(dir.FullName, "JJFlexWpf", "Dialogs", "ConfirmActionDialog.xaml"));
             Assert.Contains("IsCancel=\"True\"", xaml, StringComparison.Ordinal);   // Escape closes it as No
         }

@@ -179,12 +179,23 @@ namespace Radios.Tests.StationConnect
         // Step 3: the live roster (#577), as an input the coordinator waits on
         // ==================================================================
 
-        [Fact]
-        public void AnotherClientPresentAtDecision_RefusesTheOwnersLoad_AllocatesOnlyClientLocally()
+        private static StationLayout RememberedTwoSlices() => new StationLayout
         {
+            Slices = { new SliceLayoutEntry(14_250_000, "USB"), new SliceLayoutEntry(7_150_000, "LSB") },
+        };
+
+        [Fact]
+        public void AnotherClientPresentAtDecision_RefusesTheOwnersLoad_AllocatesOnlyClientLocally_BoundToTheRememberedLayout()
+        {
+            // Until Track G3 this ran with no remembered layout and asserted
+            // an allocation to the legacy target: it pinned the padding the
+            // ruling forbids. The owner with company allocates only what the
+            // remembered layout needs (OwnerConnectCasesTests has the
+            // no-layout and four-slot cases).
             var h = new StationHarness();
             h.ArrangeOwnerReconnect();
             h.OtherClientAdded();
+            h.Port.OwnerLayout = RememberedTwoSlices();
             h.RadioHonoursPanafallRequests();
 
             var r = h.Run();
@@ -194,8 +205,9 @@ namespace Radios.Tests.StationConnect
             Assert.Empty(h.Port.GlobalLoadsSent);
             Assert.False(r.LoadSent);
             // The refused route's only action is the bounded client-local
-            // allocation (design step 5, route 4).
+            // allocation (design step 5, route 4), bound to the layout.
             Assert.Equal(AllocationStop.TargetReached, r.Allocation.Stop);
+            Assert.Equal(2, h.Port.PanafallRequests);
         }
 
         [Fact]
@@ -204,6 +216,7 @@ namespace Radios.Tests.StationConnect
             var h = new StationHarness();
             h.ArrangeOwnerReconnect();
             h.OtherClientAdded();
+            h.Port.OwnerLayout = RememberedTwoSlices();
             // The radio never answers the panafall request.
 
             var r = h.Run();

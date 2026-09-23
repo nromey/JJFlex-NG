@@ -166,6 +166,27 @@ namespace Radios.Tests.StationConnect
         }
 
         [Fact]
+        public void TheLeaveOffer_IsCheckedAtEveryResultPublication_AndIsMadeOnceByCompareAndSwap()
+        {
+            // Track G2 re-review, section 5: a leave during the run with no
+            // evidence after it was missed, and the once flag was a plain
+            // check-then-set across two threads.
+            var text = Read(FlexBaseStation);
+            foreach (var site in new[] { "internal StationResult EstablishStationOnConnect(bool postImport)", "public StationResult LoadOwnerGlobalProfileOnRequest(OwnerLoadOffer offer)" })
+            {
+                int method = IndexOf(text, site);
+                int publish = text.IndexOf("LastStationResult = result;", method, StringComparison.Ordinal);
+                int consider = text.IndexOf("ConsiderOwnerProfileLoadOffer();", method, StringComparison.Ordinal);
+                Assert.True(publish > method && consider > publish && consider - publish < 400,
+                    site + " must consider the offer immediately after publishing its result");
+            }
+            int offer = IndexOf(text, "private void ConsiderOwnerProfileLoadOffer()");
+            string body = text.Substring(offer, 2000);
+            Assert.Contains("Interlocked.CompareExchange(ref _ownerLoadOfferedForAttempt, gen, already)", body, StringComparison.Ordinal);
+            Assert.Contains("OwnerProfileLoadOffered?.Invoke(offer);", body, StringComparison.Ordinal);
+        }
+
+        [Fact]
         public void ThePostImportEntryBeginsItsOwnOperation_AndCarriesThePreviousResult()
         {
             var text = Read(FlexBaseStation);

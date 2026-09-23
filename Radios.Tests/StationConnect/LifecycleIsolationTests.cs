@@ -112,6 +112,83 @@ namespace Radios.Tests.StationConnect
             Assert.Single(RosterOf(r.Rig).Snapshot().Entries);
         }
 
+        // ── the offer is bound to the attempt it was made on (Track G3, group 6) ──
+
+        [Fact]
+        public void AnOfferFromAnEarlierAttempt_IsRefused_AndACurrentOneIsNot()
+        {
+            var r = NewRig();
+            var serial = r.Vendor.Radio.Serial;
+            var stale = new OwnerLoadOffer(r.Rig.StationAttempt.Generation, serial);
+            r.Rig.BeginStationAttempt(r.Vendor.Radio, "RetryConnect");     // the prompt was open across this
+
+            var refused = r.Rig.LoadOwnerGlobalProfileOnRequest(stale);
+
+            Assert.NotNull(refused);
+            Assert.Equal(StationOutcome.Cancelled, refused.Outcome);
+            Assert.Contains("earlier connection", refused.Reason);
+            Assert.Empty(r.Vendor.Transport.Commands);
+
+            // The positive control: the current attempt's offer reaches the
+            // coordinator (which then refuses on this rig's facts, not on
+            // the offer), and still sends nothing.
+            var current = new OwnerLoadOffer(r.Rig.StationAttempt.Generation, serial);
+            var reached = r.Rig.LoadOwnerGlobalProfileOnRequest(current);
+            Assert.NotNull(reached);
+            Assert.DoesNotContain("earlier connection", reached.Reason);
+            Assert.NotEqual(StationOutcome.Cancelled, reached.Outcome);
+            Assert.Empty(r.Vendor.Transport.Commands);
+        }
+
+        // ── discovery-first departure, then the radio's disconnected status (Track G3, group 6) ──
+
+        private static GUIClient Mine() => new GUIClient(RigOnVendorRadio.OurHandle, "our-client-id", "JJFlex", "K5NER", is_local_ptt: true);
+        private static GUIClient Other() => new GUIClient(0x5E6F7A8B, "other-id", "SmartSDR", "W1AW", is_local_ptt: false);
+
+        [Fact]
+        public void ADiscoveryFirstDeparture_ThenTheDisconnectedStatus_LeavesTheOtherPresent_Conservatively()
+        {
+            // The vendor removes the client from Radio.GuiClients on the
+            // discovery sweep, so the later "client ... disconnected" status
+            // finds nothing and raises no removal. The tracker keeps the
+            // discovery-only disappearance as PRESENT (ruled 2026-09-22).
+            // Conservative, not unsafe: pinned here as the intended shape so
+            // it is deliberate rather than accidental (re-review section 3).
+            var r = NewRig();
+            r.Rig.WireStationHandlers(r.Vendor.Radio);
+            r.Vendor.Radio.UpdateGuiClientsList(new List<GUIClient> { Mine(), Other() });
+            Assert.Equal(RosterVerdict.OthersPresent, RosterGuard.Evaluate(RosterOf(r.Rig).Snapshot()).Verdict);
+
+            r.Vendor.Radio.UpdateGuiClientsList(new List<GUIClient> { Mine() });            // discovery no longer lists them
+            var afterDiscovery = RosterGuard.Evaluate(RosterOf(r.Rig).Snapshot());
+            Assert.Equal(RosterVerdict.OthersPresent, afterDiscovery.Verdict);
+            Assert.Contains("discovery", afterDiscovery.Reason);
+
+            r.Vendor.Status("client 0x5E6F7A8B disconnected forced=0");                     // the radio's own status, too late
+            var afterStatus = RosterGuard.Evaluate(RosterOf(r.Rig).Snapshot());
+            Assert.Equal(RosterVerdict.OthersPresent, afterStatus.Verdict);
+            Assert.Contains("discovery", afterStatus.Reason);
+            Assert.NotEqual(RosterVerdict.OnlyUs, r.Rig.RosterJudgementForAutomaticWrite().Verdict);
+        }
+
+        [Fact]
+        public void TheDisconnectedStatusFirst_IsALeave_AndTheRosterIsOnlyUs()
+        {
+            // The positive control for the sequence above: the same rig,
+            // the radio's own status arriving while the vendor still holds
+            // the record, reaches RemoveGUIClient and the tracker's real
+            // removal.
+            var r = NewRig();
+            r.Rig.WireStationHandlers(r.Vendor.Radio);
+            r.Vendor.Radio.UpdateGuiClientsList(new List<GUIClient> { Mine(), Other() });
+            Assert.Equal(RosterVerdict.OthersPresent, RosterGuard.Evaluate(RosterOf(r.Rig).Snapshot()).Verdict);
+
+            r.Vendor.Status("client 0x5E6F7A8B disconnected forced=0");
+
+            Assert.Equal(RosterVerdict.OnlyUs, RosterGuard.Evaluate(RosterOf(r.Rig).Snapshot()).Verdict);
+            Assert.Equal(RosterVerdict.OnlyUs, r.Rig.RosterJudgementForAutomaticWrite().Verdict);
+        }
+
         // ── deferred work carries the operation that queued it ──
 
         private static readonly FieldInfo PendingOperationField =
