@@ -1,0 +1,372 @@
+#nullable enable
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using JJTrace;
+using Radios.Speech;
+
+namespace Radios.Alarms
+{
+    /// <summary>The speech side of delivery, as the delivery sees it. Production is <see cref="ScreenReaderAlarmSpeaker"/>.</summary>
+    public interface IAlarmSpeaker
+    {
+        /// <summary>The warning: Critical level, Urgent intent, under the alarm-aware priority contract.</summary>
+        void SpeakWarning(string text, string subject, Func<string?> refresh);
+
+        /// <summary>A state update: queued, never interrupting, at the given level.</summary>
+        void SpeakStatus(string text, VerbosityLevel level, string subject);
+    }
+
+    /// <summary>Production speech: <see cref="ScreenReaderOutput.SpeakAlarm"/> and a queued <see cref="ScreenReaderOutput.Speak"/>.</summary>
+    public sealed class ScreenReaderAlarmSpeaker : IAlarmSpeaker
+    {
+        public void SpeakWarning(string text, string subject, Func<string?> refresh) =>
+            ScreenReaderOutput.SpeakAlarm(text, subject, refresh);
+
+        public void SpeakStatus(string text, VerbosityLevel level, string subject) =>
+            ScreenReaderOutput.Speak(text, SpeechIntent.Queue, level, subject: subject);
+    }
+
+    /// <summary>What delivery did with one event, for the journal and the trace.</summary>
+    public sealed record AlarmDeliveryReport(
+        AlarmEvent Event,
+        string Sentence,
+        bool SoundRequested,
+        bool SpeechRequested,
+        int ToneLeadMs,
+        bool IsPreview);
+
+    /// <summary>
+    /// Sound then speech, on the dispatch worker, for every warning the
+    /// service concludes (design section 5).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The tone first, the sentence after it.</b> The warning earcon is the
+    /// app's existing <c>EarconPlayer.WarningAlarmTone</c>, 750 ms with its own
+    /// receive-audio duck; it is injected as an action because this project
+    /// does not reference the WPF one. Speech is handed over on a timer
+    /// continuation 750 ms later, never by sleeping; a newer warning for the
+    /// same alarm inside that window replaces the waiting one, and a resolved
+    /// episode cancels it — a delayed stop instruction after clearing is
+    /// exactly the stale speech this exists to avoid.
+    /// </para>
+    /// <para>
+    /// <b>What speech gets: Critical AND Urgent</b>, through
+    /// <see cref="ScreenReaderOutput.SpeakAlarm"/>. Critical because the level
+    /// is checked before the intent and a Terse Urgent is still dropped;
+    /// Urgent because it must get past stale speech; tagged with the alarm's
+    /// subject so a cut announcement wins and two alarms take turns.
+    /// </para>
+    /// <para>
+    /// <b>The refresh.</b> Every warning carries a way to re-read itself: the
+    /// service's snapshot for that alarm. When a deferred warning's turn
+    /// comes, or the one bounded retry fires, the arbiter asks it, and it
+    /// answers with the CURRENT value or with nothing — never the value it
+    /// was queued with.
+    /// </para>
+    /// <para>
+    /// <b>Cleared is a state update</b>: queued, Terse, no tone, and no
+    /// permission to transmit. Data lost while transmitting is a warning in
+    /// its own right; in receive it is a queued Critical line.
+    /// </para>
+    /// </remarks>
+    public sealed class AlarmDelivery : IDisposable
+    {
+        /// <summary>The warning tone's length, which is also how long speech waits behind it.</summary>
+        public const int ToneLeadMs = 750;
+
+        private readonly AlarmService _service;
+        private readonly IAlarmSpeaker _speaker;
+        private readonly Action? _sound;
+        private readonly ISpeechClock _clock;
+        private readonly Func<bool> _warningsSoundEnabled;
+        private readonly Func<bool> _speechSuppressed;
+        private readonly Func<bool> _speechAvailable;
+
+        /// <summary>
+        /// The speech layer's quiet cohort (#182, #611). Read when the tone
+        /// continuation is ARMED and compared when it fires.
+        ///
+        /// <para><b>Why the cue stage needs this at all.</b> The warning tone
+        /// runs for 750 ms and the sentence is handed to speech only after it,
+        /// so for that whole window the warning exists nowhere the arbiter can
+        /// see. A silence policy implemented inside the arbiter's ledger
+        /// therefore cannot revoke this pending continuation, and the operator
+        /// who presses Ctrl during the tone hears the warning start anyway —
+        /// which reads as the shut-up key not working. Comparing the cohort
+        /// across the seam is the barrier one stage earlier: an event captured
+        /// before the instruction but processed after it inherits the
+        /// pause.</para>
+        ///
+        /// <para>Nothing is erased by it. The alarm's condition, its snapshot
+        /// and its place in the alarms list are untouched; only this
+        /// particular automatic presentation is stood down.</para>
+        /// </summary>
+        private readonly Func<long> _quietGeneration;
+
+        private readonly object _gate = new object();
+        private readonly Dictionary<string, (ISpeechTimer Timer, int Generation)> _continuations =
+            new Dictionary<string, (ISpeechTimer, int)>(StringComparer.Ordinal);
+        private int _generation;
+        private bool _disposed;
+
+        /// <param name="sound">Start the warning tone. Null when no sound is wired (tests, the voice lab).</param>
+        /// <param name="warningsSoundEnabled">Whether the Warnings earcon category is on, for the preview's honesty line.</param>
+        internal AlarmDelivery(AlarmService service, IAlarmSpeaker speaker, Action? sound, ISpeechClock clock,
+            Func<bool>? warningsSoundEnabled = null, Func<bool>? speechSuppressed = null, Func<bool>? speechAvailable = null,
+            Func<long>? quietGeneration = null)
+        {
+            _service = service ?? throw new ArgumentNullException(nameof(service));
+            _speaker = speaker ?? throw new ArgumentNullException(nameof(speaker));
+            _sound = sound;
+            _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+            _warningsSoundEnabled = warningsSoundEnabled ?? (() => true);
+            _speechSuppressed = speechSuppressed ?? (() => false);
+            _speechAvailable = speechAvailable ?? (() => true);
+            _quietGeneration = quietGeneration ?? (() => 0L);
+            _service.EventDispatched += OnEvent;
+            _service.DeliveryUnavailable += OnDeliveryUnavailable;
+        }
+
+        /// <summary>Production: the system clock, and the live speech layer's quiet cohort.</summary>
+        public static AlarmDelivery Attach(AlarmService service, IAlarmSpeaker speaker, Action? sound,
+            Func<bool>? warningsSoundEnabled = null)
+            => new AlarmDelivery(service, speaker, sound, new SystemSpeechClock(), warningsSoundEnabled,
+                () => ScreenReaderOutput.SuppressSpeech, () => ScreenReaderOutput.IsAvailable,
+                () => ScreenReaderOutput.SafetyQuietGeneration);
+
+        /// <summary>Every delivery, after the decision, for the journal.</summary>
+        public event Action<AlarmDeliveryReport>? Reported;
+
+        private void OnEvent(AlarmEvent e)
+        {
+            if (_disposed) return;
+            try
+            {
+                if (e.IsWarning)
+                {
+                    Warn(e);
+                    return;
+                }
+
+                switch (e.Kind)
+                {
+                    case AlarmEventKind.DataStale when e.Definition.Enabled:
+                        if (e.Transmitting) Warn(e, AlarmPhrasing.DataLost(e));
+                        else Status(e, AlarmPhrasing.DataLost(e), VerbosityLevel.Critical);
+                        return;
+
+                    case AlarmEventKind.Cleared:
+                        Cancel(e.Definition.Id);
+                        Status(e, AlarmPhrasing.Cleared(e), VerbosityLevel.Terse);
+                        return;
+
+                    case AlarmEventKind.ConfigurationChanged:
+                    case AlarmEventKind.Disabled:
+                    case AlarmEventKind.DataMissing:
+                        Cancel(e.Definition.Id);
+                        return;
+                }
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("AlarmDelivery: " + e.Kind + " for '" + e.Definition.Name + "' failed — " + ex.Message,
+                    TraceLevel.Error);
+            }
+        }
+
+        private void Warn(AlarmEvent e, string? sentenceOverride = null)
+        {
+            bool preview = e.Detail == "preview";
+            string real = sentenceOverride ?? AlarmPhrasing.Warning(e);
+            string sentence = preview ? PreviewSentence(e, real) : real;
+            string subject = SpeechSubject.OperatorAlarm(e.Definition.Id);
+            string alarmId = e.Definition.Id;
+
+            bool soundOn = _sound != null && _warningsSoundEnabled();
+            int lead = soundOn ? ToneLeadMs : 0;
+            if (_sound != null)
+            {
+                // The earcon gates itself on its category; calling it when the
+                // category is off is a no-op, and calling it is what proves the
+                // path is wired.
+                try { _sound(); } catch (Exception ex)
+                { Tracing.TraceLine("AlarmDelivery: the warning tone threw — " + ex.Message, TraceLevel.Warning); }
+            }
+
+            Func<string?> refresh = preview
+                ? () => sentence
+                : () => Refresh(alarmId, sentenceOverride != null);
+
+            lock (_gate)
+            {
+                if (_disposed) return;
+                CancelLocked(alarmId);
+                int generation = ++_generation;
+                if (lead == 0)
+                {
+                    _speaker.SpeakWarning(sentence, subject, refresh);
+                }
+                else
+                {
+                    // The cohort is captured HERE, at the instruction that
+                    // started the tone, not read when the timer fires — see
+                    // _quietGeneration. Reading it at the far end would ask
+                    // "is the operator quiet now", which is a different and
+                    // weaker question.
+                    long cohort = SafeQuietGeneration();
+                    ISpeechTimer timer = _clock.StartTimer(lead,
+                        () => Continue(alarmId, generation, cohort, sentence, subject, refresh));
+                    _continuations[alarmId] = (timer, generation);
+                }
+            }
+
+            Report(new AlarmDeliveryReport(e, sentence, soundOn, true, lead, preview));
+        }
+
+        private void Continue(string alarmId, int generation, long cohort, string sentence, string subject, Func<string?> refresh)
+        {
+            lock (_gate)
+            {
+                if (_disposed) return;
+                if (!_continuations.TryGetValue(alarmId, out var pending) || pending.Generation != generation) return;
+                _continuations.Remove(alarmId);
+                try { pending.Timer.Dispose(); } catch { }
+            }
+
+            // The operator asked for quiet while the tone was still playing.
+            // Stand the automatic presentation down — the condition, its
+            // snapshot and its place in the alarms list are untouched, nothing
+            // is acknowledged, and an explicit read still says it (#182).
+            long now = SafeQuietGeneration();
+            if (now != cohort)
+            {
+                Tracing.TraceLine("AlarmDelivery: the operator silenced speech during the warning tone, so the "
+                    + "sentence behind it is not spoken automatically; the alarm is unchanged and still in the "
+                    + "alarms list [" + alarmId + "]", TraceLevel.Info);
+                return;
+            }
+
+            // Re-read once more at the moment of speaking: the episode may
+            // have cleared during the tone.
+            string? current = refresh();
+            if (current == null)
+            {
+                Tracing.TraceLine("AlarmDelivery: warning withdrawn during the tone, no longer current [" + alarmId + "]",
+                    TraceLevel.Info);
+                return;
+            }
+            _speaker.SpeakWarning(current, subject, refresh);
+        }
+
+        /// <summary>
+        /// The speech layer's quiet cohort, or the last one successfully read.
+        ///
+        /// <para>A read that fails must not INVENT a difference: the two reads
+        /// either side of the tone are compared, so a thrown exception at one
+        /// end would silence a warning for a reason that has nothing to do
+        /// with the operator. Falling back to the last known value means only
+        /// a real advance can separate them, and the failure is traced.</para>
+        /// </summary>
+        private long SafeQuietGeneration()
+        {
+            try
+            {
+                long g = _quietGeneration();
+                _lastKnownCohort = g;
+                return g;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("AlarmDelivery: could not read the speech layer's quiet cohort — " + ex.Message,
+                    TraceLevel.Warning);
+                return _lastKnownCohort;
+            }
+        }
+
+        private long _lastKnownCohort;
+
+        /// <summary>The current sentence for an alarm, or null when there is nothing left to say.</summary>
+        private string? Refresh(string alarmId, bool dataLost)
+        {
+            AlarmSnapshot? s = _service.SnapshotOf(alarmId);
+            if (s == null || !s.Definition.Enabled) return null;
+            if (dataLost)
+            {
+                // Still lost? Then the sentence stands, with the age it has now.
+                if (s.Data is AlarmDataState.Stale or AlarmDataState.Missing)
+                {
+                    var lost = new AlarmEvent
+                    {
+                        Kind = AlarmEventKind.DataStale, Definition = s.Definition, AtMs = 0,
+                        Observation = s.LastFresh, AgeSeconds = s.LastFreshAgeSeconds, Transmitting = s.Transmitting,
+                    };
+                    return AlarmPhrasing.DataLost(lost);
+                }
+                return null;
+            }
+            if (s.Condition != AlarmConditionState.Active) return null;
+            if (s.Data is not (AlarmDataState.Fresh or AlarmDataState.Recovering)) return null;
+            if (s.Notification is AlarmNotificationState.Acknowledged or AlarmNotificationState.Snoozed) return null;
+            return AlarmPhrasing.Warning(AlarmPhrasing.WarningFromSnapshot(s));
+        }
+
+        private string PreviewSentence(AlarmEvent e, string real)
+        {
+            string s = AlarmPhrasing.Preview(e, real);
+            if (_sound == null || !_warningsSoundEnabled()) s += " " + Lexicon.Get("alarms.preview.sound_off");
+            if (_speechSuppressed()) s += " " + Lexicon.Get("alarms.preview.speech_suppressed");
+            else if (!_speechAvailable()) s += " " + Lexicon.Get("alarms.preview.no_reader");
+            return s;
+        }
+
+        private void Status(AlarmEvent e, string sentence, VerbosityLevel level)
+        {
+            _speaker.SpeakStatus(sentence, level, SpeechSubject.OperatorAlarmStatus);
+            Report(new AlarmDeliveryReport(e, sentence, false, true, 0, false));
+        }
+
+        private void OnDeliveryUnavailable(long dropped)
+        {
+            try { _speaker.SpeakStatus(AlarmPhrasing.DeliveryUnavailable(), VerbosityLevel.Critical, SpeechSubject.OperatorAlarmStatus); }
+            catch { /* best effort, off the meter thread already */ }
+        }
+
+        private void Cancel(string alarmId)
+        {
+            lock (_gate) CancelLocked(alarmId);
+        }
+
+        private void CancelLocked(string alarmId)
+        {
+            if (_continuations.TryGetValue(alarmId, out var pending))
+            {
+                try { pending.Timer.Dispose(); } catch { }
+                _continuations.Remove(alarmId);
+            }
+        }
+
+        private void Report(AlarmDeliveryReport report)
+        {
+            Tracing.TraceLine("AlarmDelivery: " + (report.IsPreview ? "PREVIEW " : "") + report.Event.Kind + " for '"
+                + report.Event.Definition.Name + "': sound=" + report.SoundRequested + " speech=" + report.SpeechRequested
+                + " lead=" + report.ToneLeadMs + " ms — '" + report.Sentence + "'", TraceLevel.Info);
+            try { Reported?.Invoke(report); }
+            catch (Exception ex) { Tracing.TraceLine("AlarmDelivery: a report listener threw — " + ex.Message, TraceLevel.Warning); }
+        }
+
+        public void Dispose()
+        {
+            lock (_gate)
+            {
+                if (_disposed) return;
+                _disposed = true;
+                foreach (var c in _continuations.Values) { try { c.Timer.Dispose(); } catch { } }
+                _continuations.Clear();
+            }
+            _service.EventDispatched -= OnEvent;
+            _service.DeliveryUnavailable -= OnDeliveryUnavailable;
+        }
+    }
+}

@@ -748,8 +748,15 @@ namespace JJFlexWpf
             // is about to stop transmitting. This is the one place in the
             // application where that ordering is a safety question rather than
             // a tidiness one.
+            // The subject is the time-limit incident, shared with the
+            // announcement that the transmission HAS ended (below, through
+            // GoIdle). Since an Urgent warning became a protected obligation,
+            // a sentence with no subject can be retired by nothing — so this
+            // one would have queued behind its own outcome instead of being
+            // covered by it.
             ScreenReaderOutput.Speak(
-                Lexicon.Get("audio.ptt.timeout_ending_now"), Radios.Speech.SpeechIntent.Urgent, VerbosityLevel.Critical);
+                Lexicon.Get("audio.ptt.timeout_ending_now"), Radios.Speech.SpeechIntent.Urgent, VerbosityLevel.Critical,
+                subject: Radios.Speech.SpeechSubject.TransmitTimeLimit);
             Tracing.TraceLine("PTT: OhCrap (1s beeps)", TraceLevel.Info);
 
             _beepTimer!.Stop();
@@ -762,7 +769,11 @@ namespace JJFlexWpf
         {
             Tracing.TraceLine("PTT: Timeout hard kill", TraceLevel.Warning);
             EarconPlayer.HardKillTone();
-            GoIdle(Lexicon.Get("audio.ptt.timed_out"), forceSpeech: true);
+            // The same owner as the "about to end" warning above: this is that
+            // incident's outcome, and it covers the warning's fact rather than
+            // queueing behind it.
+            GoIdle(Lexicon.Get("audio.ptt.timed_out"), forceSpeech: true,
+                   subject: Radios.Speech.SpeechSubject.TransmitTimeLimit);
         }
 
         private void BeepTimerTick(object? sender, EventArgs e)
@@ -986,10 +997,14 @@ namespace JJFlexWpf
                     // Urgent, and worded for the fault it actually is: nothing
                     // reached the radio, which means the device, the profile or
                     // the microphone itself — not a level to nudge.
+                    // Its own owner, not a shared safety subject: transmitting
+                    // into silence and power coming back are different faults
+                    // and neither covers the other.
                     ScreenReaderOutput.Speak(
                         Lexicon.Get("audio.ptt.no_transmit_audio"),
                         Radios.Speech.SpeechIntent.Urgent,
-                        VerbosityLevel.Critical);
+                        VerbosityLevel.Critical,
+                        subject: Radios.Speech.SpeechSubject.NoTransmitAudio);
                     Tracing.TraceLine(
                         $"PTT: no transmit audio at all — SC_MIC peak still at the "
                         + $"{TransmitSafety.MicNothingArrivedDbfs:F0} dBFS floor after "
@@ -1227,11 +1242,17 @@ namespace JJFlexWpf
             // is the moment the cut would have acted, so the sentence says out
             // loud that no cut is coming — otherwise a safety they disarmed
             // weeks ago is still silently trusted at exactly the wrong moment.
+            // ReflectedPowerWarning, and deliberately NOT ReflectedPowerCut:
+            // a later warning must not be able to retire an unheard sentence
+            // saying the transmission was ended. Successive warnings on the
+            // same run do cover one another, which is what this subject is
+            // for — only the newest reading is true.
             ScreenReaderOutput.Speak(
                 TransmitSafety.ReflectedWarningText(back, antenna, rig.DummyLoadMode,
                     cutDisarmed: !_config.CutTransmitOnReflectedAlarm),
                 Radios.Speech.SpeechIntent.Urgent,
-                VerbosityLevel.Critical);
+                VerbosityLevel.Critical,
+                subject: Radios.Speech.SpeechSubject.ReflectedPowerWarning);
             Tracing.TraceLine(
                 $"PTT: Health warning — reflected power {back * 100f:F0}% "
                 + $"({reading}, {_reflectedRun}, "

@@ -153,8 +153,12 @@ namespace Radios.Tests
         [Fact]
         public void ForeignCancel_IsReportedAsNotOurs_AndWithdrawsTheWholeQueue()
         {
-            // #562, ruled by Noel 2026-09-07: "ctrl always means silence when
-            // it comes to NVDA's shut up key."
+            // Ctrl is the shut-up key and it means silence — Noel's ruling in
+            // **#182**, not the "#562" this comment cited until 2026-09-23.
+            // No such task exists in either register file, and neither does
+            // the quotation or the date that were attributed to him here. The
+            // ruling is real; the citation was not, and a fabricated citation
+            // is the hardest kind of claim to disagree with.
             //
             // This test asserted the opposite until that ruling — that the
             // keystroke destroyed one utterance and the backlog carried on.
@@ -198,7 +202,7 @@ namespace Radios.Tests
         [Fact]
         public void Completion_Does_NOT_WithdrawTheQueue()
         {
-            // The negative control #562 needs, and NOT the one I first wrote.
+            // The negative control #182's rule needs, and NOT the one I first wrote.
             // My first attempt asserted that our OWN cancel keeps the queue —
             // it does not, and never did: Interrupt withdraws by design, so
             // that test was asserting something false and failed immediately.

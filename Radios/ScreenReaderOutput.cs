@@ -255,6 +255,22 @@ namespace Radios
         }
 
         /// <summary>
+        /// The quiet cohort every safety episode is admitted under (#182,
+        /// #611). Advanced by <see cref="Silence"/>; an episode admitted under
+        /// an older number is owed, reachable, and not re-offered by automatic
+        /// speech.
+        ///
+        /// <para><b>Exposed because the alarm cue stage arms a timer before
+        /// the arbiter ever sees the warning.</b> The warning earcon runs for
+        /// 750 ms and speech is handed over on a continuation after it, so a
+        /// silence during the tone reaches nothing inside the arbiter — the
+        /// sentence has not been submitted yet. The cue stage reads this
+        /// number when it arms and compares it when it fires, which is the
+        /// same barrier one stage earlier.</para>
+        /// </summary>
+        internal static long SafetyQuietGeneration => _arbiter.SafetyQuietGeneration;
+
+        /// <summary>
         /// Test-only: drop the arbiter's transient state — pending coalesced
         /// values, the believed-pending ledger, per-key dedup — and anything
         /// the paced delivery still holds. The arbiter is process-global, so
@@ -484,6 +500,32 @@ namespace Radios
                     _arbiter.Emit(message, interrupt: true, intent, level, origin, subject, additive);
                     return;
             }
+        }
+
+        /// <summary>
+        /// An operator alarm's warning (#566): Critical level, Urgent intent,
+        /// under the arbiter's alarm-aware priority contract. Critical because
+        /// the overload above checks level before intent and a Terse Urgent
+        /// would still be dropped; Urgent because it must get past stale
+        /// speech (#507, #554); tagged with the alarm's subject so an existing
+        /// cut announcement always wins and two alarms cannot cancel each
+        /// other. This is the ruled exception to the queued-never-interrupt
+        /// earcon convention, and a verbosity preference cannot silence it
+        /// (#322). <see cref="SuppressSpeech"/> still can, deliberately.
+        /// </summary>
+        /// <param name="refresh">
+        /// Re-read the condition and return the sentence to say now, or null
+        /// when it is no longer worth saying. Consulted when a deferred alarm's
+        /// turn comes and before the one bounded retry.
+        /// </param>
+        public static void SpeakAlarm(string message, string subject, Func<string?> refresh,
+            [CallerFilePath] string callerFile = "",
+            [CallerLineNumber] int callerLine = 0,
+            [CallerMemberName] string callerMember = "")
+        {
+            if (string.IsNullOrEmpty(message)) return;
+            _arbiter.UrgentAlarm(message, VerbosityLevel.Critical,
+                FormatOrigin(callerFile, callerLine, callerMember), subject, refresh);
         }
 
         /// <summary>

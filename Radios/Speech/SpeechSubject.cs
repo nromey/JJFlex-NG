@@ -90,6 +90,61 @@ namespace Radios.Speech
         /// </summary>
         public const string ReflectedPowerCut = "reflected-power-cut";
 
+        // ── The other three transmit-safety owners ────────────────────────
+        //
+        // Added 2026-09-23. Three `PttSafetyController` Urgent calls declared
+        // NO subject, and an urgent warning became a protected obligation the
+        // day before — so those three could be retired by nothing at all. That
+        // is the safe direction and the wrong one: the owner's own later
+        // episode is the one lifecycle event allowed to retire an unheard
+        // warning, and without a subject the owner cannot reach its own
+        // sentence. An accumulating set of unretirable warnings then competes
+        // for release slots with the one that matters.
+        //
+        // **Deliberately three separate owners, not one safety subject.** A
+        // broad "transmit safety" subject would let the missing-microphone
+        // warning retire the reflected-power cut, which says nothing about it:
+        // a replacement must come from the same owner about the same
+        // condition, or it is not a replacement at all.
+
+        /// <summary>
+        /// The transmit time limit: the warning that the transmission is about
+        /// to be ended, and the announcement that it HAS been ended, are one
+        /// incident with one owner.
+        ///
+        /// <para>Sharing the subject is the point and is the only pairing of
+        /// this kind here. "You are about to be cut off" is worth nothing once
+        /// "you have been cut off" is true, and the outcome explicitly covers
+        /// the warning's fact — so if the warning is still unheard when the
+        /// stop happens, the stop retires it rather than queueing behind it.
+        /// Every other transmit-safety condition keeps its own subject,
+        /// because no other pair stands in that relation.</para>
+        /// </summary>
+        public const string TransmitTimeLimit = "transmit-time-limit";
+
+        /// <summary>
+        /// Nothing at all is reaching the radio from the microphone path
+        /// (#571). Its own owner: the operator is transmitting into silence,
+        /// which is a different fault from the power coming back and is not
+        /// covered by it. Retired by a later verdict from the same check.
+        /// </summary>
+        public const string NoTransmitAudio = "no-transmit-audio";
+
+        /// <summary>
+        /// Reflected power is high enough to warn about, whether or not a cut
+        /// follows (#224, #571).
+        ///
+        /// <para><b>Not the same subject as
+        /// <see cref="ReflectedPowerCut"/>.</b> A warning that power is coming
+        /// back and an announcement that the transmission was ENDED are
+        /// different facts about the same meter, and the operator needs the
+        /// second whether or not they heard the first. Sharing one subject
+        /// would let a later warning retire an unheard cut — a sentence saying
+        /// the station is off the air, retired by one saying it might be in
+        /// trouble.</para>
+        /// </summary>
+        public const string ReflectedPowerWarning = "reflected-power-warning";
+
         /// <summary>
         /// The receipt that a change will not survive disconnect unless the
         /// profile is saved (#442). One reminder outstanding at a time: the
@@ -265,6 +320,27 @@ namespace Radios.Speech
         /// was, and a permanent notch survives a power cycle.</para>
         /// </summary>
         public const string TrackingNotch = "tracking-notch";
+
+        /// <summary>
+        /// One operator alarm's current warning (#566) — its firing, its
+        /// reminders, a further step in the bad direction, and the loss of its
+        /// reading. One subject per alarm because each of these restates the
+        /// same question, "what is this meter doing and what should I do", and
+        /// only the newest answer is true: an unheard "61 degrees" is worthless
+        /// once "63 degrees" exists. Nothing outside the alarm covers it — a
+        /// tune, a slice jump or a focus change leaves the PA exactly as hot as
+        /// it was. Deliberately NOT one subject for all alarms: a supply
+        /// warning must not retire a temperature warning it says nothing about.
+        /// </summary>
+        public static string OperatorAlarm(string alarmId) => "operator-alarm:" + alarmId;
+
+        /// <summary>
+        /// The state of the alarms as a whole, volunteered — a clearance, or a
+        /// requested status or summary. Only the newest statement of state is
+        /// worth hearing, and a warning never covers it (it is not on this
+        /// subject), because "cleared" must not be able to retire "63 degrees".
+        /// </summary>
+        public const string OperatorAlarmStatus = "operator-alarm-status";
 
         /// <summary>
         /// The value of one field, named by its label — the committed value

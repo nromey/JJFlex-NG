@@ -40,6 +40,21 @@ namespace JJFlexWpf
         /// </summary>
         public static Func<nint>? OwnerHandleProvider { get; set; }
 
+        /// <summary>
+        /// The dialog whose title is the one currently pending under
+        /// <see cref="Radios.Speech.SpeechSubject.DialogArrival"/> — the
+        /// identity the close hook checks before withdrawing anything.
+        ///
+        /// <para>Static because the subject is global: only one window's title
+        /// can be the pending one, and which window that is has to be a fact
+        /// the OTHER window can read. UI thread only (Loaded and Closed both
+        /// run there), so it needs no synchronisation. Never dereferenced —
+        /// only compared by reference and cleared — so it keeps no dialog
+        /// alive in any way that matters, and the next dialog to speak
+        /// replaces it.</para>
+        /// </summary>
+        private static JJFlexDialog? _arrivalTitleOwner;
+
         private static nint ResolveOwnerHandle()
         {
             var provider = OwnerHandleProvider;
@@ -106,8 +121,33 @@ namespace JJFlexWpf
             // replaced. Supersession reaches the delivery queue now, so an
             // unsent copy is taken back rather than merely made unrescuable
             // (#606).
-            Closed += (_, _) => Radios.ScreenReaderOutput.Supersede(
-                Radios.Speech.SpeechSubject.DialogArrival, "the dialog closed");
+            //
+            // **Scoped to the window that actually owns the pending title, and
+            // that is a required correction rather than a tightening (#551).**
+            // DialogArrival is one global subject, so the close hook withdrew
+            // whatever title was pending — including a SUCCESSOR's.
+            // WindowHandoff.CloseAfterSuccessorShown exists precisely to
+            // overlap two dialogs: the outgoing search window is closed only
+            // AFTER the picker has rendered, and the picker queues its own
+            // title from Loaded first. The outgoing window's Closed then fired
+            // second and could take the picker's title back before it was ever
+            // said — deleting a title the operator needs, in the name of
+            // removing one they did not. A fix aimed at a duplicate had become
+            // a way to lose the real thing.
+            //
+            // Ownership is "did I queue the title that is still pending", kept
+            // as a plain claim rather than a ticket because the arbiter's
+            // tickets are internal to Radios and this is UI-thread-only code:
+            // Loaded and Closed both run on it, so no lock is involved. A
+            // dialog that never spoke a title never claims, and therefore can
+            // no longer withdraw somebody else's.
+            Closed += (_, _) =>
+            {
+                if (!ReferenceEquals(_arrivalTitleOwner, this)) return;
+                _arrivalTitleOwner = null;
+                Radios.ScreenReaderOutput.Supersede(
+                    Radios.Speech.SpeechSubject.DialogArrival, "the dialog closed");
+            };
         }
 
         /// <summary>
@@ -220,6 +260,12 @@ namespace JJFlexWpf
                 Radios.ScreenReaderOutput.Speak(
                     Title, Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Terse,
                     subject: Radios.Speech.SpeechSubject.DialogArrival);
+
+                // We are now the window whose title is pending. Claiming it
+                // here — after the announcement, on the UI thread — is what
+                // stops an outgoing dialog's Closed hook withdrawing it during
+                // a deliberate handoff; see the constructor.
+                _arrivalTitleOwner = this;
             }
 
             // Focus first interactive control

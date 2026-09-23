@@ -1097,6 +1097,18 @@ public static class KeyInventory
     // ────────────────────────────────────────────────────────────────
     private static readonly FixedKeyEntry[] FinderDoors =
     {
+        // Sprint 45 Track I (#566). Operator alarms: no key of their own until
+        // Noel allocates the JJ key layer letter (#518), so the door is the
+        // Tools menu, and the keywords are the words an operator hunting a
+        // temperature or voltage warning would try.
+        new FixedKeyEntry
+        {
+            Description = "Operator alarms - warn when a meter crosses a line you set, with PA temperature and supply voltage presets",
+            Scope = "Global", Group = "Alarms",
+            MenuText = "Tools menu, Operator alarms",
+            Keywords = new[] { "alarm", "alarms", "temperature", "pa", "patemp", "voltage", "volts", "supply",
+                               "threshold", "warning", "warn", "meter", "monitor", "hot", "overheat", "baseline" },
+        },
         // Sprint 30 Track D. Three doors, because the operator hunting these
         // may search for any of "trace", "log", "diagnostic" or "bug" — the
         // vocabularies of the old surface, the new one, and the problem.

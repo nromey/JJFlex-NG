@@ -328,15 +328,32 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void ASafetyObligation_IsNotRetiredByTheCapOrTheCeiling()
+        public void ASafetyObligation_IsNotRetiredByTheCapOrTheCeiling_ButItsAutomaticAttemptsAreBounded()
         {
+            // ── NARROWED 2026-09-23, Sprint 45 Track K. ──
+            //
+            // This asserted FOUR hand-overs and that is what it is no longer
+            // allowed to say. The cap and the ceiling still may not retire a
+            // safety obligation — that half is unchanged and is asserted
+            // below — but "exempt from the cap and the ceiling" had become
+            // "exempt from everything", and Astra's contract is explicit that
+            // repeated partial progress must not buy infinite retries:
+            //
+            //   "One initial automatic attempt and at most one automatic
+            //    retry for an unchanged episode's material fact."
+            //
+            // So the attempts are bounded by ProtectedAutomaticAttempts and
+            // the obligation is PAUSED rather than dropped. "We have stopped
+            // trying for now" and "nothing is owed" are different states and
+            // only the first one is true here.
             const string cut = "Transmit stopped. 80 percent of your power is coming back on ANT2.";
             var a = NewArbiter();
             a.Urgent(cut, VerbosityLevel.Critical, "TransmitKillSwitch", SpeechSubject.ReflectedPowerCut);
 
-            // Four hand-overs, each cut part way — past MaxSalvages, and past
-            // the fifteen-second lifetime. Progress every time, so the
-            // no-progress back-off does not apply.
+            // Four rounds, each cut part way — past MaxSalvages, and past the
+            // fifteen-second lifetime, with PROGRESS every time so neither the
+            // rescue cap, the ceiling nor the no-progress back-off can be what
+            // stops it.
             for (int i = 0; i < 4; i++)
             {
                 CutPartWayByNobodyWeCanName(a, cut, at: 3, of: 11, ms: 900);
@@ -345,15 +362,38 @@ namespace Radios.Tests
                 _clock.Advance(Settle);
             }
 
-            Assert.Equal(4, _calls.Count(c => c.Salvaged && c.Message == cut));
+            // The initial hand-over was not a salvage, so the budget of two
+            // automatic attempts buys exactly one re-hand.
+            Assert.Equal(SpeechArbiter.ProtectedAutomaticAttempts - 1,
+                _calls.Count(c => c.Salvaged && c.Message == cut));
+
+            // And it is still OWED, which is the half that must not be read
+            // off an absence: paused and retained sound exactly like dropped.
+            var owed = a.OwedSafetyObligations;
+            Assert.Contains(owed, o => o.Message == cut);
+            Assert.True(owed.Single(o => o.Message == cut).AutomaticSpeechPaused);
+            Assert.False(owed.Single(o => o.Message == cut).SilencedByOperator);
+            Assert.Equal(SpeechSubject.ReflectedPowerCut, owed.Single(o => o.Message == cut).Subject);
         }
 
         [Fact]
-        public void ASafetyObligation_SurvivesAnUrgentDiscard_AndASilence()
+        public void ASafetyObligation_SurvivesAnUrgentDiscard_AndASilence_ButSilenceIsNotUndoneByThatNextKey()
         {
-            // Clearing the runnable text for a cut must not erase the cut, nor
-            // another safety outcome still owed; and a Silence stops the sound
-            // without being the operator saying they understood the condition.
+            // ── INVERTED IN ITS SECOND HALF 2026-09-23, Sprint 45 Track K. ──
+            //
+            // The first half stands and is unchanged: clearing the runnable
+            // text for a cut must not erase the cut, nor another safety
+            // outcome still owed, and a Silence is not the operator saying
+            // they understood the condition.
+            //
+            // The second half asserted that the very next unrelated interrupt
+            // rescues BOTH warnings, 600 ms after the operator pressed the
+            // shut-up key. Sol named that as a defect and the register's #182
+            // ruling is why: Ctrl means silence, and an unrelated keypress is
+            // not permission to undo it. Keeping the fact and immediately
+            // re-speaking it is the same defiance in a better-named place.
+            //
+            // So: still owed, still reachable, NOT automatically re-offered.
             const string first = "Transmit stopped. 80 percent of your power is coming back on ANT2.";
             const string second = "Your microphone is not reaching the radio.";
             var a = NewArbiter();
@@ -363,18 +403,48 @@ namespace Radios.Tests
 
             // A second, unrelated urgent warning. Its discard takes the
             // ordinary backlog and leaves the first warning owed.
-            a.Urgent(second, VerbosityLevel.Critical, "PttSafetyController", subject: null);
+            a.Urgent(second, VerbosityLevel.Critical, "PttSafetyController", SpeechSubject.NoTransmitAudio);
             CutPartWayByNobodyWeCanName(a, second, at: 1, of: 7, ms: 200);
+
+            // THE CONTROL, before the silence: both are recoverable, which is
+            // what makes the assertion after it mean something. Without this
+            // the test could pass because the warnings were never retained at
+            // all — an absence proving the wrong thing.
+            _clock.Advance(1000);
+            a.Emit("Slice A", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "keys", SpeechSubject.WhereYouAre);
+            _clock.Advance(Settle);
+            Assert.Contains(first, Salvaged());
+            Assert.Contains(second, Salvaged());
+            Assert.DoesNotContain("PC audio on.", Salvaged());
+
+            CutPartWayByNobodyWeCanName(a, first, at: 3, of: 11, ms: 900);
+            CutPartWayByNobodyWeCanName(a, second, at: 1, of: 7, ms: 200);
+            int before = _calls.Count(c => c.Salvaged);
 
             a.OnSilenced();
 
             _clock.Advance(1000);
-            a.Emit("Slice A", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "keys", SpeechSubject.WhereYouAre);
+            a.Emit("Slice B", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "keys", SpeechSubject.WhereYouAre);
             _clock.Advance(Settle);
 
-            Assert.Contains(first, Salvaged());
-            Assert.Contains(second, Salvaged());
-            Assert.DoesNotContain("PC audio on.", Salvaged());
+            // Nothing was handed over again by that key.
+            Assert.Equal(before, _calls.Count(c => c.Salvaged));
+
+            // But both facts are still OWED — not acknowledged, not disabled,
+            // not erased. This is the assertion that must NOT be read off an
+            // absence: "retained but paused" and "silently dropped" are the
+            // same silence, so the obligations are looked at rather than
+            // inferred from what was not spoken.
+            var owed = a.OwedSafetyObligations;
+            Assert.Contains(owed, o => o.Message == first);
+            Assert.Contains(owed, o => o.Message == second);
+            Assert.All(owed, o => Assert.True(o.SilencedByOperator,
+                "the operator's Ctrl is recorded against the obligation, not acted on by deleting it"));
+
+            // And still not acknowledged: silencing says nothing about whether
+            // the operator understood the condition.
+            Assert.Equal(SpeechSubject.ReflectedPowerCut, owed.Single(o => o.Message == first).Subject);
+            Assert.Equal(SpeechSubject.NoTransmitAudio, owed.Single(o => o.Message == second).Subject);
         }
 
         [Fact]
@@ -406,14 +476,29 @@ namespace Radios.Tests
         {
             // "Never give up" and "chase every keypress forever" are different
             // promises. Repeated hand-overs that say nothing at all pause the
-            // automatic attempts; the obligation stays in the ledger, and a
-            // delivery completing anywhere is the meaningful new opportunity
-            // that lets it try again.
+            // automatic attempts; the obligation stays in the ledger.
+            //
+            // ── ITS LAST CLAUSE INVERTED 2026-09-23, Sprint 45 Track K. ──
+            //
+            // It used to end: "a delivery completing anywhere is the meaningful
+            // new opportunity that lets it try again." That is the same shape
+            // as the defect this whole rule exists to end — an unrelated
+            // success treated as permission, one step along from an unrelated
+            // keypress treated as permission. Astra's contract says it in as
+            // many words: *"Never retry merely because a key acknowledgement
+            // or unrelated speech completed."*
+            //
+            // A recovery event has to be about the CHANNEL, not about the
+            // machine having managed to say something else. So the opportunity
+            // is now a backend-recovery EDGE — the transition out of a channel
+            // that was refusing or absent — and this test asserts both halves:
+            // an ordinary completion on a healthy channel grants nothing, and
+            // a real edge grants exactly one probe.
             const string cut = "Transmit stopped. 80 percent of your power is coming back on ANT2.";
             var a = NewArbiter();
             a.Urgent(cut, VerbosityLevel.Critical, "TransmitKillSwitch", SpeechSubject.ReflectedPowerCut);
 
-            for (int i = 0; i < SpeechArbiter.ProtectedAttemptsWithoutProgress; i++)
+            for (int i = 0; i < SpeechArbiter.ProtectedAutomaticAttempts; i++)
             {
                 WithdrawnUnstarted(a, cut, words: 11);
                 _clock.Advance(300);
@@ -421,6 +506,7 @@ namespace Radios.Tests
                 _clock.Advance(Settle);
             }
             int attempts = _calls.Count(c => c.Salvaged && c.Message == cut);
+            Assert.True(attempts > 0, "the control: it really was handed over before it backed off");
 
             // Backed off: the next interrupt does not hand it over again.
             WithdrawnUnstarted(a, cut, words: 11);
@@ -429,10 +515,59 @@ namespace Radios.Tests
             _clock.Advance(Settle);
             Assert.Equal(attempts, _calls.Count(c => c.Salvaged && c.Message == cut));
 
-            // Still owed, and a completed delivery lets it try again.
+            // AND AN ORDINARY COMPLETION CHANGES NOTHING. The channel was
+            // never in trouble, so there is no edge to take, and a sentence
+            // about a slice finishing is not evidence about this warning.
             a.OnOutcome(TicketOf("Slice B"), "Slice B", SpeechOutcome.Completed(2, 2, 400));
             _clock.Advance(300);
             a.Emit("Slice C", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "keys", SpeechSubject.WhereYouAre);
+            _clock.Advance(Settle);
+            Assert.Equal(attempts, _calls.Count(c => c.Salvaged && c.Message == cut));
+        }
+
+        [Fact]
+        public void ABackendRecoveryEdge_GrantsTheBackedOffSafetyObligation_ExactlyOneMoreAttempt()
+        {
+            // The positive control for the test above, and the other half of
+            // the rule: a completion is only a recovery event when the channel
+            // it completed on had actually been failing. One probe per edge,
+            // and the probe does not clear what the episode has already spent,
+            // so a flapping reader cannot manufacture fresh budgets.
+            const string cut = "Transmit stopped. 80 percent of your power is coming back on ANT2.";
+            var a = NewArbiter();
+            a.Urgent(cut, VerbosityLevel.Critical, "TransmitKillSwitch", SpeechSubject.ReflectedPowerCut);
+
+            for (int i = 0; i < SpeechArbiter.ProtectedAutomaticAttempts; i++)
+            {
+                WithdrawnUnstarted(a, cut, words: 11);
+                _clock.Advance(300);
+                a.Emit("Slice A", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "keys", SpeechSubject.WhereYouAre);
+                _clock.Advance(Settle);
+            }
+            int attempts = _calls.Count(c => c.Salvaged && c.Message == cut);
+
+            // The reader refuses outright — NVDA asleep for this application.
+            // THAT is what makes the channel known bad.
+            a.OnOutcome(TicketOf("Slice A"), "Slice A",
+                SpeechOutcome.Unknown(SpeechUnknownReason.Refused, "asleep", 5));
+
+            // And then something really is heard again: the edge.
+            _clock.Advance(300);
+            a.Emit("Slice B", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "keys", SpeechSubject.WhereYouAre);
+            a.OnOutcome(TicketOf("Slice B"), "Slice B", SpeechOutcome.Completed(2, 2, 400));
+            _clock.Advance(300);
+            a.Emit("Slice C", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "keys", SpeechSubject.WhereYouAre);
+            _clock.Advance(Settle);
+            Assert.Equal(attempts + 1, _calls.Count(c => c.Salvaged && c.Message == cut));
+
+            // Exactly one. A second completion on the same healthy channel is
+            // not a second edge.
+            WithdrawnUnstarted(a, cut, words: 11);
+            _clock.Advance(300);
+            a.Emit("Slice D", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "keys", SpeechSubject.WhereYouAre);
+            a.OnOutcome(TicketOf("Slice D"), "Slice D", SpeechOutcome.Completed(2, 2, 400));
+            _clock.Advance(300);
+            a.Emit("Slice E", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "keys", SpeechSubject.WhereYouAre);
             _clock.Advance(Settle);
             Assert.Equal(attempts + 1, _calls.Count(c => c.Salvaged && c.Message == cut));
         }

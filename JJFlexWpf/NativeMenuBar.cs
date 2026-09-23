@@ -2324,6 +2324,11 @@ public class NativeMenuBar : IDisposable
         // the help context already call it, so this narrows the vocabulary
         // rather than widening it.
         AddWired(tools, "Diagnostic Log", () => ShowSettingsDialog("Diagnostics"));
+        // Sprint 45 Track I (#566): the operator alarms dialog. Found through
+        // Command Finder by alarm, temperature, PA, voltage, threshold or
+        // warning; no key of its own until #518 allocates the layer letter.
+        AddWired(tools, "Operator alarms", () =>
+            Dialogs.OperatorAlarmsDialog.Show(System.Windows.Window.GetWindow(_window)));
         // Sprint 29 Track D — manual update check. Lives next to Settings
         // since the Updates settings tab is its preference home; this entry
         // is the single-action trigger for the same flow.

@@ -189,7 +189,7 @@ namespace Radios.Speech
         /// <summary>
         /// The reader was cancelled by something that is not us — the operator's
         /// Ctrl, or any other key. Give the queue back to the arbiter unspoken.
-        /// #562.
+        /// #182.
         /// </summary>
         private void WithdrawForForeignCancel(long afterTicket)
         {
@@ -465,8 +465,20 @@ namespace Radios.Speech
                         return;
                     }
 
-                    // #562, ruled by Noel 2026-09-07: "ctrl always means
-                    // silence when it comes to NVDA's shut up key."
+                    // Ctrl is the shut-up key, and it means silence. Ruled by
+                    // Noel in #182, whose reasoning is that "Ctrl is the
+                    // universal 'stop talking' for every screen reader, and
+                    // operators press it reflexively without deciding to" —
+                    // so a trained response that produces a partial result is
+                    // worse than no interrupt at all.
+                    //
+                    // **The citation was "#562" until 2026-09-23 and NO SUCH
+                    // TASK EXISTS**, in either register file. It appeared here
+                    // and in the tests, carrying a quotation and a date that
+                    // cannot be found anywhere either — which is worse than a
+                    // wrong number, because a quoted ruling reads as already
+                    // verified and stops the next person checking. The
+                    // BEHAVIOUR was right; only its authority was invented.
                     //
                     // A cancel that was not OURS is the operator asking for
                     // quiet. We cannot tell Ctrl from any other key — both come

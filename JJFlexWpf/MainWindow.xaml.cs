@@ -4631,7 +4631,12 @@ public partial class MainWindow : UserControl
             MeterToneEngine.Initialize();
             CurrentAudioConfig.Apply();
             if (RigControl != null)
+            {
                 MeterToneEngine.AttachToRadio(RigControl);
+                // Sprint 45 Track I (#566): the operator-alarm subsystem lives
+                // beside the tone engine, on the same rig, for the life of it.
+                OperatorAlarmHost.AttachToRadio(RigControl);
+            }
 
             // Give the Audio Workshop the per-operator app settings store
             // (Audio Track C: test-tone frequency/level/monitor live here, NOT
