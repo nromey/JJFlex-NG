@@ -9,9 +9,9 @@ namespace JJFlexWpf
 {
     /// <summary>
     /// Where the operator-alarm subsystem (#566) lives for the life of a rig:
-    /// the feed over the rig, the service, and the delivery through the
-    /// warning tone and Critical-plus-Urgent speech — alive whether or not
-    /// the dialog is open.
+    /// the feed over the rig, the service, the delivery through the warning
+    /// tone and Critical-plus-Urgent speech, and the journal — alive whether
+    /// or not the dialog is open.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -25,14 +25,26 @@ namespace JJFlexWpf
     /// never constructs one: a window is a view of the running subsystem,
     /// and closing it leaves monitoring running.
     /// </para>
+    /// <para>
+    /// <b>The capture link.</b> A detailed capture starting or stopping is
+    /// the one state change the diagnostics plumbing announces, through
+    /// <see cref="DiagnosticsBridge.StateChanged"/>; the host reads the
+    /// capture flag on each and tells the journal, which links its running
+    /// segment and writes the pre-roll rather than starting a second logger.
+    /// </para>
     /// </remarks>
     public static class OperatorAlarmHost
     {
         private static FlexBaseAlarmFeed? _feed;
+        private static AlarmJournal? _journal;
+        private static bool _captureWasOn;
 
         public static AlarmService? Service { get; private set; }
         public static AlarmDelivery? Delivery { get; private set; }
         public static OperatorPresetStore? Presets { get; private set; }
+
+        /// <summary>The journal, for the Diagnostics readout of rates, bytes and drops.</summary>
+        public static AlarmJournal? Journal => _journal;
 
         public static void AttachToRadio(FlexBase rig)
         {
@@ -41,11 +53,18 @@ namespace JJFlexWpf
             try
             {
                 _feed = new FlexBaseAlarmFeed(rig);
-                Service = new AlarmService(_feed, AlarmDefinitionStore.Default(), new SystemAlarmClock(), Recorder());
+                _journal = AlarmJournal.Default();
+                Service = new AlarmService(_feed, AlarmDefinitionStore.Default(), new SystemAlarmClock(),
+                    (IAlarmObservationRecorder?)_journal ?? NullAlarmObservationRecorder.Instance);
                 Delivery = AlarmDelivery.Attach(Service, new ScreenReaderAlarmSpeaker(),
                     EarconPlayer.WarningAlarmTone, () => EarconPlayer.IsOn(EarconPlayer.EarconCategory.Warnings));
+                if (_journal != null) Delivery.Reported += _journal.RecordDelivery;
                 Presets = OperatorPresetStore.Default();
-                Tracing.TraceLine("OperatorAlarmHost: attached", TraceLevel.Info);
+
+                _captureWasOn = DiagnosticsBridge.IsCapturing?.Invoke() ?? false;
+                DiagnosticsBridge.StateChanged += OnDiagnosticsStateChanged;
+                Tracing.TraceLine("OperatorAlarmHost: attached" + (_journal == null ? " (no journal: settings root unresolved)" : ""),
+                    TraceLevel.Info);
             }
             catch (Exception ex)
             {
@@ -54,16 +73,32 @@ namespace JJFlexWpf
             }
         }
 
-        /// <summary>The journal the service records into. The null recorder until the journal is wired.</summary>
-        private static IAlarmObservationRecorder Recorder() => NullAlarmObservationRecorder.Instance;
+        private static void OnDiagnosticsStateChanged(object? sender, EventArgs e)
+        {
+            bool on = DiagnosticsBridge.IsCapturing?.Invoke() ?? false;
+            if (on == _captureWasOn) return;
+            _captureWasOn = on;
+            try
+            {
+                if (on) _journal?.CaptureStarted(DiagnosticsBridge.LiveLogPath?.Invoke() ?? "");
+                else _journal?.CaptureStopped();
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("OperatorAlarmHost: capture link failed — " + ex.Message, TraceLevel.Warning);
+            }
+        }
 
         public static void Detach()
         {
+            DiagnosticsBridge.StateChanged -= OnDiagnosticsStateChanged;
             try { Delivery?.Dispose(); } catch { }
             try { Service?.Dispose(); } catch { }
+            try { _journal?.Dispose(); } catch { }
             try { _feed?.Dispose(); } catch { }
             Delivery = null;
             Service = null;
+            _journal = null;
             _feed = null;
         }
     }
