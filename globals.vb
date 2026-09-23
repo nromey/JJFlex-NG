@@ -576,6 +576,14 @@ Module globals
             JJFlexWpf.DiagnosticOffer.IsTransmitting =
                 Function() RigControl IsNot Nothing AndAlso RigControl.Transmit
             JJFlexWpf.DiagnosticOffer.Install()
+
+            ' The radio-side drop seal (#566's bridge). Two halves, both wired
+            ' here because both need this project: the hook that does the
+            ' sealing lives in this file, and the window that shows the path
+            ' needs the UI thread's dispatcher, which is the thread this runs
+            ' on. Radios.dll cannot call either by name — it is referenced BY
+            ' this project — so this is the seam, exactly as above.
+            Radios.CaptureSeal.SealHook = Function(detail) SealCaptureForConnectionDrop(detail)
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)
         End Try
@@ -1310,10 +1318,61 @@ Module globals
         Try
             Dim session As TraceSession = TraceSessionContext.BeginSession()
             session.VerbosityLevel = Tracing.TheSwitch.Level.ToString()
+            ' One drop-seal per session, re-armed at the only place that knows
+            ' a session started. Without this, the first dropped connection of
+            ' the evening would spend the seal and every later one would be
+            ' archived as an ordinary session again.
+            Radios.CaptureSeal.Rearm()
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)
         End Try
     End Sub
+
+    ''' <summary>
+    ''' Seal the running session because the RADIO's connection dropped, then
+    ''' get back to recording. Returns the full path of the archive, or Nothing.
+    '''
+    ''' <para>Installed as <see cref="Radios.CaptureSeal.SealHook"/> and called
+    ''' from a worker thread, never the UI thread — see that class for why the
+    ''' drop path must not block on a zip.</para>
+    '''
+    ''' <para><b>The standing log is restarted deliberately.</b> Archiving turns
+    ''' Tracing off, and a session that seals and stops recording leaves the
+    ''' rest of the evening — the reconnect, the second drop, whatever the
+    ''' operator does next — with no record at all. That would trade one piece
+    ''' of evidence for all the others.</para>
+    '''
+    ''' <para><b>A detailed capture that was running is ENDED, not resumed.</b>
+    ''' Its session has just been archived, so DetailedCaptureRunning has to
+    ''' stop being true or the Diagnostics tab and the running-cost register
+    ''' both describe a capture that no longer exists — and Stop would then try
+    ''' to archive a session that is not there. The standing log picks up at the
+    ''' operator's standing detail; the capture they started is closed, sealed
+    ''' and named in the window they are about to be shown.</para>
+    ''' </summary>
+    Friend Function SealCaptureForConnectionDrop(detail As String) As String
+        Dim path As String = Nothing
+        Try
+            Dim wasCapturing As Boolean = DetailedCaptureRunning
+
+            path = ArchiveCurrentTraceSessionReturningPath(
+                TraceSessionOutcome.ConnectionDropped, detail)
+
+            If wasCapturing Then
+                _captureStartedLocal = Nothing
+                LastCaptureArchivePath = path
+            End If
+
+            ' Tracing.On is False after the archive, so this really does start a
+            ' fresh session rather than returning early.
+            RestartDiagnosticLog("sealed after the radio's connection dropped")
+
+            If wasCapturing Then RaiseDiagnosticLogStateChanged()
+        Catch ex As Exception
+            Tracing.ErrTraceOnly(ex)
+        End Try
+        Return path
+    End Function
 
     ''' <summary>
     ''' Archive the active trace session (if any) into the per-session archive: compress

@@ -695,6 +695,23 @@ namespace Radios
         internal static bool RemovalSuppressesRosterRaise(RadioRemovalKind kind)
             => kind == RadioRemovalKind.SelfInitiated;
 
+        /// <summary>
+        /// Only a radio-side loss of OUR radio seals the running diagnostic
+        /// capture as <c>connection_dropped</c> (#566's bridge, Sprint 45 Track
+        /// H). The operator's own hang-up must not: it is
+        /// <see cref="RadioRemovalKind.SelfInitiated"/>, the manifest already
+        /// distinguishes the two, and tagging a deliberate disconnect as a drop
+        /// would poison the one query the outcome exists to answer. A discovery
+        /// loss of some OTHER radio says nothing about our session at all.
+        ///
+        /// <para>Pure, and pinned by <c>Radios.Tests</c>, for the same reason
+        /// as its two neighbours: this truth table is consulted at a moment
+        /// nobody is watching and must not rot silently. See
+        /// <see cref="CaptureSeal"/> for what the seal does.</para>
+        /// </summary>
+        internal static bool RemovalSealsTheCapture(RadioRemovalKind kind)
+            => kind == RadioRemovalKind.ConnectionLostOurRadio;
+
         /// <summary>Nonzero while OUR code is inside a deliberate
         /// <c>theRadio.Disconnect()</c> — FlexLib raises the removal
         /// synchronously on the same thread, so the window is exact.</summary>
@@ -743,6 +760,16 @@ namespace Radios
                     Tracing.TraceLine(
                         $"apiRadioRemovedHandler: {r.Serial} ({r.Nickname}) retired after its connection dropped — the radio may still be on the air; discovery will say (#402)",
                         TraceLevel.Info);
+                    // Seal the capture HERE, with the readings still in it and
+                    // without waiting for the app to close. Until Sprint 45
+                    // Track H the session stayed open until exit and was then
+                    // archived clean_exit, so a radio dying mid-transmit
+                    // produced a file indistinguishable from a normal evening —
+                    // which is why no archive on this machine has ever carried
+                    // connection_dropped. Returns at once; the zip happens off
+                    // this thread. See CaptureSeal.
+                    if (RemovalSealsTheCapture(kind))
+                        CaptureSeal.AfterConnectionDrop(r.Nickname ?? "");
                     break;
                 default:
                     Tracing.TraceLine($"apiRadioRemovedHandler: {r.Serial} ({r.Nickname}) gone from discovery — removing", TraceLevel.Info);
