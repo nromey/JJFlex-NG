@@ -136,44 +136,113 @@ namespace Radios
         public const int StaleWindowMs = 4 * RestingWindowMs;
 
         /// <summary>
-        /// A radio that publishes no supply-voltage meter is not a radio reading
-        /// zero volts. A FLEX-6300 — Don's radio, and the whole reason this line
-        /// exists — publishes FWDPWR, REFPWR, SWR, PATEMP, HWALC and no volts at
-        /// all (#566, verified against his own meter inventory), so
-        /// <c>VoltsDataReady</c> never fires and the field keeps its initial
-        /// zero. Say "none" rather than "0.0", because 0.0 volts on a
-        /// transmitting radio would be a finding and "we never got one" is not.
+        /// The radio's own name for the supply-voltage meter we record — the one
+        /// FlexLib subscribes <c>Volts_DataReady</c> to.
+        ///
+        /// <para><b>A FLEX-6300 DOES publish it.</b> This constant replaces a
+        /// helper that decided presence by asking whether the last reading was
+        /// above zero, under a comment saying Don's 6300 "publishes no volts at
+        /// all (#566, verified against his own meter inventory)". #566's
+        /// 2026-09-22 correction, taken from Don's own capture, records
+        /// <c>+13.8A</c> before the fuse and <c>+13.8B</c> after it, and strikes
+        /// that sentence through — it had claimed to be verified against an
+        /// inventory that said the opposite. <b>So a "no meter" reading in one
+        /// of Don's captures is a FINDING to chase, not the model behaving
+        /// normally</b> (#597), and voltage sag under load is one of the three
+        /// standing explanations for a 6300 shutting itself off.</para>
+        ///
+        /// <para>Only <c>+13.8A</c> is recorded here. <c>+13.8B</c> is a second
+        /// meter with its own story to tell — after the fuse rather than before
+        /// — and choosing between them is #566's selection job, not a silent
+        /// fallback.</para>
         /// </summary>
-        public static bool RadioPublishesSupplyVoltage(float lastVoltsReading) =>
-            lastVoltsReading > 0f;
+        public const string SupplyVoltageMeterName = "+13.8A";
 
         /// <summary>
-        /// The <c>captureMeters:</c> line for one closed window. Separate from
-        /// the emitting so a test can read the sentence rather than the source.
+        /// Why a window was closed early. Appears on the line as
+        /// <c>partial=connection_dropped</c> so a reader can tell a window that
+        /// ran its full course from one that was cut short.
+        /// </summary>
+        public const string PartialConnectionDropped = "connection_dropped";
+
+        /// <summary>
+        /// Render the supply-voltage field.
+        ///
+        /// <para><b>Four states, four renderings (#597).</b> The first build
+        /// mapped every value at or below zero to <c>none</c>, which made "this
+        /// radio has no such meter", "nothing has arrived yet", "this reading is
+        /// minutes old" and "it really does read zero" all look identical — and
+        /// a genuine zero on a transmitting radio is the single most interesting
+        /// thing this field could ever say.</para>
+        /// </summary>
+        /// <param name="volts">What the meter inventory knows.</param>
+        /// <param name="windowMs">The window this line covers. A reading older
+        /// than its own window did not come from the period being reported, so
+        /// its age is put on the line; a reading younger than the window needs
+        /// no qualification and gets none.</param>
+        public static string FormatVolts(SupplyVoltage volts, int windowMs)
+        {
+            switch (volts.State)
+            {
+                case SupplyVoltageState.InventoryUnknown:
+                    // Not the same claim as "no meter". The radio has not told
+                    // us its meter list yet, so we do not know either way, and
+                    // an absence of evidence must not be written down as
+                    // evidence of absence.
+                    return "volts=unknown";
+                case SupplyVoltageState.NoMeter:
+                    return "volts=no-meter";
+                case SupplyVoltageState.NoSample:
+                    return "volts=no-sample";
+                default:
+                    string v = "volts=" + volts.Volts.ToString("0.##", CultureInfo.InvariantCulture);
+                    TimeSpan? age = volts.Age;
+                    if (age != null && age.Value.TotalMilliseconds > windowMs)
+                    {
+                        v += " voltsAge="
+                            + age.Value.TotalSeconds.ToString("0.#", CultureInfo.InvariantCulture) + "s";
+                    }
+                    return v;
+            }
+        }
+
+        /// <summary>
+        /// The <c>captureMeters:</c> line for one window. Separate from the
+        /// emitting so a test can read the sentence rather than the source.
         /// </summary>
         /// <param name="min">Lowest PA temperature in the window.</param>
         /// <param name="max">Highest.</param>
         /// <param name="last">The most recent reading.</param>
-        /// <param name="count">How many samples the window held.</param>
-        /// <param name="volts">The supply voltage as last reported, or a value
-        /// at or below zero when the radio publishes no such meter.</param>
+        /// <param name="count">How many samples the window held. Zero is
+        /// legitimate on a flush and renders <c>paTemp none n=0</c>: "the radio
+        /// sent no temperature in this window" is itself the answer to #494's
+        /// question and must not be indistinguishable from "we wrote nothing
+        /// down".</param>
+        /// <param name="volts">The supply voltage as the meter inventory knows
+        /// it.</param>
         /// <param name="transmitting">Whether the window closed while
         /// transmitting or tuning — on the line, because a temperature read
         /// while resting and one read under load are different measurements and
         /// a reader who cannot tell them apart will average them.</param>
+        /// <param name="partialReason">Non-null when the window was cut short
+        /// rather than closing on its own.</param>
         public static string Format(float min, float max, float last, int count,
-                                    float volts, bool transmitting)
+                                    SupplyVoltage volts, bool transmitting,
+                                    string partialReason = null)
         {
-            string v = RadioPublishesSupplyVoltage(volts)
-                ? volts.ToString("0.##", CultureInfo.InvariantCulture)
-                : "none";
-            return CaptureMetersLine
+            string paTemp = count > 0
+                ? "paTemp min=" + min.ToString("0.##", CultureInfo.InvariantCulture)
+                  + " max=" + max.ToString("0.##", CultureInfo.InvariantCulture)
+                  + " last=" + last.ToString("0.##", CultureInfo.InvariantCulture)
+                  + " n=" + count.ToString(CultureInfo.InvariantCulture)
+                : "paTemp none n=0";
+
+            string line = CaptureMetersLine
                 + " state=" + (transmitting ? "tx" : "rest")
-                + " paTemp min=" + min.ToString("0.##", CultureInfo.InvariantCulture)
-                + " max=" + max.ToString("0.##", CultureInfo.InvariantCulture)
-                + " last=" + last.ToString("0.##", CultureInfo.InvariantCulture)
-                + " n=" + count.ToString(CultureInfo.InvariantCulture)
-                + " degC volts=" + v;
+                + " " + paTemp
+                + " degC " + FormatVolts(volts, WindowFor(transmitting));
+            if (!string.IsNullOrEmpty(partialReason)) line += " partial=" + partialReason;
+            return line;
         }
 
         // ── The coalescer ────────────────────────────────────────────────
@@ -193,21 +262,22 @@ namespace Radios
         /// Feed one PA temperature reading. Returns the line to trace when the
         /// window closed on this sample, or null.
         ///
-        /// <para>The supply voltage rides along as a SNAPSHOT — the last value
-        /// the radio reported, read at the moment the window closes — rather
-        /// than as a windowed min/max, because nothing feeds it into this
+        /// <para>The supply voltage rides along as a SNAPSHOT — the meter's own
+        /// last value and the age of it, read at the moment the window closes —
+        /// rather than as a windowed min/max, because nothing feeds it into this
         /// coalescer. Making it windowed means one line inside
         /// <c>VoltsDataHandler</c>, which Sprint 45 Track H was told not to
         /// touch; #566's subsystem gives every selected meter the same
-        /// treatment and ends the asymmetry.</para>
+        /// treatment and ends the asymmetry. The age is what keeps a snapshot
+        /// honest: a held value and a fresh one look identical without it.</para>
         /// </summary>
         /// <param name="celsius">The reading, as FlexLib delivered it.</param>
-        /// <param name="volts">The last supply-voltage reading, or zero when
-        /// the radio publishes no such meter.</param>
+        /// <param name="volts">What the meter inventory knows about supply
+        /// voltage at this moment.</param>
         /// <param name="transmittingOrTuning">Transmit state now.</param>
         /// <param name="nowTick"><c>Environment.TickCount</c>, passed in so the
         /// clock can be driven by a test.</param>
-        public string Report(float celsius, float volts, bool transmittingOrTuning, int nowTick)
+        public string Report(float celsius, SupplyVoltage volts, bool transmittingOrTuning, int nowTick)
         {
             lock (_gate)
             {
@@ -257,5 +327,129 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// Close whatever window is open RIGHT NOW and hand back its line,
+        /// marked with why it was cut short. Never returns null: a window with
+        /// no samples in it still produces <c>paTemp none n=0</c>.
+        ///
+        /// <para><b>Why this exists, and why it emits even when empty (#598).</b>
+        /// A line was written only when a window closed on its own — one a
+        /// second while transmitting, one every thirty seconds at rest — and
+        /// nothing closed the open one before the session was archived. So a
+        /// connection lost inside the first second saved NO temperature at all,
+        /// and every later drop lost the final partial window, which is the last
+        /// thing the radio said before it died. The moment of death was
+        /// precisely the part that went missing. An empty flush still says
+        /// something a reader needs: that the radio produced no temperature in
+        /// this window, which is #494's question, and is not the same as the
+        /// application having failed to write one down.</para>
+        ///
+        /// <para><b>A stale window is reported as empty, not as a statistic.</b>
+        /// Same rule as <see cref="Report"/>: samples either side of a very long
+        /// gap describe different situations, and min/max across them is a
+        /// fiction with a plausible-looking <c>n</c> on it.</para>
+        ///
+        /// <para>The caller writes the line. This is deliberately a pure
+        /// function of the window so a test can read the sentence, and so the
+        /// one caller that traces it is the one place a trace level is
+        /// chosen.</para>
+        /// </summary>
+        /// <param name="volts">What the meter inventory knows about supply
+        /// voltage at this moment.</param>
+        /// <param name="transmittingOrTuning">Transmit state now. Used only when
+        /// no window is open — an open window keeps the state it earned.</param>
+        /// <param name="reason">Why the window is being cut short, e.g.
+        /// <see cref="PartialConnectionDropped"/>.</param>
+        /// <param name="nowTick"><c>Environment.TickCount</c>.</param>
+        public string Flush(SupplyVoltage volts, bool transmittingOrTuning, string reason, int nowTick)
+        {
+            lock (_gate)
+            {
+                bool stale = _count > 0 && (nowTick - _windowStart) > StaleWindowMs;
+                if (_count == 0 || stale)
+                {
+                    _count = 0;
+                    return Format(0f, 0f, 0f, 0, volts, transmittingOrTuning, reason);
+                }
+
+                string line = Format(_min, _max, _last, _count, volts, _windowTransmitting, reason);
+                _count = 0;
+                return line;
+            }
+        }
+    }
+
+    /// <summary>
+    /// What is known about the supply-voltage meter at the moment a
+    /// <c>captureMeters:</c> line is written.
+    /// </summary>
+    public enum SupplyVoltageState
+    {
+        /// <summary>The radio has not told us its meter list yet, so whether it
+        /// publishes supply voltage is simply unknown. Distinct from
+        /// <see cref="NoMeter"/> on purpose: an absence of evidence is not
+        /// evidence of absence, and writing it down as one is how the claim that
+        /// a 6300 publishes no voltage meter survived long enough to reach
+        /// shipped code.</summary>
+        InventoryUnknown,
+        /// <summary>The radio published a meter list and
+        /// <see cref="CaptureMeterSet.SupplyVoltageMeterName"/> is not in
+        /// it.</summary>
+        NoMeter,
+        /// <summary>The meter exists and has never reported a value.</summary>
+        NoSample,
+        /// <summary>A real reading, zero included.</summary>
+        Reading,
+    }
+
+    /// <summary>
+    /// A supply-voltage reading with its provenance attached — present or
+    /// absent, sampled or not, and how old.
+    ///
+    /// <para><b>Presence comes from the meter inventory, never from the value
+    /// (#597).</b> Asking "is the last reading above zero?" answers a different
+    /// question than "does this radio have the meter?", and the two were
+    /// conflated into a single word, <c>none</c>, covering four different
+    /// states. <see cref="MeterInventory"/> already resolves identity, reports
+    /// <see cref="MeterReading.HasReading"/> and stamps every sample with the
+    /// time it arrived, so this joins that seam rather than inventing
+    /// one.</para>
+    /// </summary>
+    public readonly struct SupplyVoltage
+    {
+        private SupplyVoltage(SupplyVoltageState state, float volts, TimeSpan? age)
+        {
+            State = state;
+            Volts = volts;
+            Age = age;
+        }
+
+        /// <summary>Which of the four states this is.</summary>
+        public SupplyVoltageState State { get; }
+
+        /// <summary>The reading, meaningful only when
+        /// <see cref="State"/> is <see cref="SupplyVoltageState.Reading"/>.</summary>
+        public float Volts { get; }
+
+        /// <summary>How long ago the reading arrived, where that is known.</summary>
+        public TimeSpan? Age { get; }
+
+        /// <summary>The radio has not published a meter list yet.</summary>
+        public static SupplyVoltage Unknown() =>
+            new SupplyVoltage(SupplyVoltageState.InventoryUnknown, 0f, null);
+
+        /// <summary>The radio published its meters and this one is not among
+        /// them.</summary>
+        public static SupplyVoltage NoMeter() =>
+            new SupplyVoltage(SupplyVoltageState.NoMeter, 0f, null);
+
+        /// <summary>The meter exists and has never reported.</summary>
+        public static SupplyVoltage NoSample() =>
+            new SupplyVoltage(SupplyVoltageState.NoSample, 0f, null);
+
+        /// <summary>A reading, with the age of the sample where it is known.
+        /// Zero is a reading like any other.</summary>
+        public static SupplyVoltage Reading(float volts, TimeSpan? age) =>
+            new SupplyVoltage(SupplyVoltageState.Reading, volts, age);
     }
 }

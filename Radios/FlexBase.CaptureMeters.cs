@@ -43,7 +43,7 @@ namespace Radios
             {
                 string line = _captureMeters.Report(
                     celsius,
-                    _VoltsData,
+                    readSupplyVoltage(),
                     Transmit || _tuneCycleActive,
                     Environment.TickCount);
                 if (line != null) Tracing.TraceLine(line, TraceLevel.Info);
@@ -55,6 +55,63 @@ namespace Radios
                 // has no owner at all.
                 Tracing.TraceLine("recordCaptureMeters: " + ex.Message, TraceLevel.Warning);
             }
+        }
+
+        /// <summary>
+        /// Close the open temperature window and write it out, marked with why
+        /// it was cut short.
+        ///
+        /// <para>Called synchronously from the connection-drop arm of
+        /// <c>apiRadioRemovedHandler</c>, BEFORE the seal is queued, so the last
+        /// readings are in the file the seal is about to zip. Emitting only on a
+        /// natural window close meant a drop inside the first second saved no
+        /// temperature at all, and every later drop lost the final partial
+        /// window (#598).</para>
+        ///
+        /// <para>Internal rather than private so a test can drive it on a real
+        /// rig without reflection; there is one production caller and it is the
+        /// drop path.</para>
+        /// </summary>
+        internal void flushCaptureMeters(string reason)
+        {
+            try
+            {
+                string line = _captureMeters.Flush(
+                    readSupplyVoltage(),
+                    Transmit || _tuneCycleActive,
+                    reason,
+                    Environment.TickCount);
+                if (line != null) Tracing.TraceLine(line, TraceLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                // The drop path must survive anything. A radio has just died;
+                // an exception here would take the seal with it.
+                Tracing.TraceLine("flushCaptureMeters: " + ex.Message, TraceLevel.Warning);
+            }
+        }
+
+        /// <summary>
+        /// What is known about supply voltage right now — asked of the meter
+        /// inventory, which is the thing that knows whether the meter exists,
+        /// whether it has ever reported, and when (#597).
+        ///
+        /// <para>The first build decided presence by testing the cached reading
+        /// against zero, so a radio that genuinely read zero volts and a radio
+        /// with no such meter produced the same word. The inventory answers the
+        /// actual question, and a zero can now be said out loud — which on a
+        /// transmitting radio is the most interesting thing this field could
+        /// ever carry.</para>
+        /// </summary>
+        private SupplyVoltage readSupplyVoltage()
+        {
+            MeterInventory inv = MeterInventory;
+            if (inv == null || inv.Count == 0) return SupplyVoltage.Unknown();
+
+            MeterReading m = inv.Find(CaptureMeterSet.SupplyVoltageMeterName);
+            if (m == null) return SupplyVoltage.NoMeter();
+            if (!m.HasReading) return SupplyVoltage.NoSample();
+            return SupplyVoltage.Reading(m.Value, m.Age);
         }
     }
 }

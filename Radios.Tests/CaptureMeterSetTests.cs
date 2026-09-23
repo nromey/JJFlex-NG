@@ -40,6 +40,11 @@ namespace Radios.Tests
         private readonly ITestOutputHelper _out;
         public CaptureMeterSetTests(ITestOutputHelper output) { _out = output; }
 
+        /// <summary>A fresh supply-voltage reading, for the coalescer tests
+        /// below, which are about windows rather than about volts.</summary>
+        private static SupplyVoltage Volts(float v) =>
+            SupplyVoltage.Reading(v, TimeSpan.Zero);
+
         // ────────────────────────────────────────────────────────────────
         //  The recorded set — one list, in one place
         // ────────────────────────────────────────────────────────────────
@@ -72,33 +77,79 @@ namespace Radios.Tests
         public void A_transmit_window_reads_as_a_transmit_window()
         {
             string line = CaptureMeterSet.Format(
-                min: 44.5f, max: 71.25f, last: 70f, count: 17, volts: 13.8f, transmitting: true);
+                min: 44.5f, max: 71.25f, last: 70f, count: 17,
+                volts: SupplyVoltage.Reading(13.8f, TimeSpan.Zero), transmitting: true);
             _out.WriteLine(line);
             Assert.Equal(
                 "captureMeters: state=tx paTemp min=44.5 max=71.25 last=70 n=17 degC volts=13.8",
                 line);
         }
 
+        // ────────────────────────────────────────────────────────────────
+        //  The voltage field's four states (#597)
+        // ────────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// The defect this pins: every value at or below zero used to render as
+        /// <c>none</c>, so "no meter", "no sample yet", "a stale reading" and "a
+        /// genuine zero" were one word. A zero on a transmitting radio is a
+        /// finding; "we never got one" is not; and the two must never read the
+        /// same. Presence now comes from the meter inventory, not from the
+        /// value.
+        /// </summary>
         [Fact]
-        public void A_radio_with_no_volts_meter_says_none_rather_than_zero()
+        public void The_four_voltage_states_read_differently()
         {
-            // Don's 6300 publishes no +13.8A meter at all (#566, verified
-            // against his own inventory). "volts=0" on a transmitting radio
-            // would be a finding; "we never got one" is not, and the two must
-            // never read the same.
-            string line = CaptureMeterSet.Format(
-                min: 40f, max: 40f, last: 40f, count: 1, volts: 0f, transmitting: false);
-            _out.WriteLine(line);
-            Assert.Contains("volts=none", line);
-            Assert.Contains("state=rest", line);
+            int w = CaptureMeterSet.TransmitWindowMs;
+
+            // A radio that has not published its meter list yet. Not the same
+            // claim as "no meter" — an absence of evidence, said as one.
+            Assert.Equal("volts=unknown", CaptureMeterSet.FormatVolts(SupplyVoltage.Unknown(), w));
+
+            // The radio listed its meters and +13.8A was not among them.
+            Assert.Equal("volts=no-meter", CaptureMeterSet.FormatVolts(SupplyVoltage.NoMeter(), w));
+
+            // It is there and has never said anything.
+            Assert.Equal("volts=no-sample", CaptureMeterSet.FormatVolts(SupplyVoltage.NoSample(), w));
+
+            // And the one the old format could not express at all.
+            Assert.Equal("volts=0",
+                CaptureMeterSet.FormatVolts(SupplyVoltage.Reading(0f, TimeSpan.Zero), w));
+            Assert.Equal("volts=13.8",
+                CaptureMeterSet.FormatVolts(SupplyVoltage.Reading(13.8f, TimeSpan.Zero), w));
         }
 
         [Fact]
-        public void Publishing_a_supply_voltage_is_a_reading_above_zero()
+        public void A_reading_older_than_its_own_window_carries_its_age()
         {
-            Assert.False(CaptureMeterSet.RadioPublishesSupplyVoltage(0f));
-            Assert.False(CaptureMeterSet.RadioPublishesSupplyVoltage(-1f));
-            Assert.True(CaptureMeterSet.RadioPublishesSupplyVoltage(13.8f));
+            // Freshness from a received-sample timestamp, which is what
+            // MeterInventory has stamped on every sample all along. A held
+            // value and a live one are indistinguishable without it, and "the
+            // voltage was fine" read off a two-minute-old sample is exactly the
+            // wrong conclusion to draw about a radio that shut itself off.
+            string fresh = CaptureMeterSet.FormatVolts(
+                SupplyVoltage.Reading(13.8f, TimeSpan.FromMilliseconds(200)),
+                CaptureMeterSet.TransmitWindowMs);
+            Assert.Equal("volts=13.8", fresh);
+
+            string stale = CaptureMeterSet.FormatVolts(
+                SupplyVoltage.Reading(13.8f, TimeSpan.FromSeconds(4.2)),
+                CaptureMeterSet.TransmitWindowMs);
+            _out.WriteLine(stale);
+            Assert.Equal("volts=13.8 voltsAge=4.2s", stale);
+        }
+
+        [Fact]
+        public void A_six_thousand_three_hundred_is_expected_to_publish_the_meter()
+        {
+            // #566's 2026-09-22 correction, from Don's own capture: his 6300
+            // publishes +13.8A before the fuse and +13.8B after it. The code
+            // this replaced asserted the opposite WHILE CITING #566 as its
+            // authority. Only +13.8A is recorded; +13.8B is a different
+            // measurement and choosing between them is #566's selection job.
+            Assert.Equal("+13.8A", CaptureMeterSet.SupplyVoltageMeterName);
+            Assert.Contains(CaptureMeterSet.Recorded,
+                m => m.RadioMeterName == CaptureMeterSet.SupplyVoltageMeterName);
         }
 
         // ────────────────────────────────────────────────────────────────
@@ -109,19 +160,19 @@ namespace Radios.Tests
         public void Nothing_is_written_until_the_window_closes()
         {
             var set = new CaptureMeterSet();
-            Assert.Null(set.Report(40f, 13.8f, transmittingOrTuning: true, nowTick: 1_000));
-            Assert.Null(set.Report(41f, 13.8f, transmittingOrTuning: true, nowTick: 1_500));
-            Assert.Null(set.Report(42f, 13.8f, transmittingOrTuning: true, nowTick: 1_999));
+            Assert.Null(set.Report(40f, Volts(13.8f), transmittingOrTuning: true, nowTick: 1_000));
+            Assert.Null(set.Report(41f, Volts(13.8f), transmittingOrTuning: true, nowTick: 1_500));
+            Assert.Null(set.Report(42f, Volts(13.8f), transmittingOrTuning: true, nowTick: 1_999));
         }
 
         [Fact]
         public void A_transmit_window_closes_after_a_second_and_keeps_the_peak()
         {
             var set = new CaptureMeterSet();
-            set.Report(40f, 13.8f, true, 1_000);
-            set.Report(71f, 13.8f, true, 1_400);   // the peak, which must survive
-            set.Report(60f, 13.8f, true, 1_800);
-            string line = set.Report(62f, 13.7f, true, 2_000);
+            set.Report(40f, Volts(13.8f), true, 1_000);
+            set.Report(71f, Volts(13.8f), true, 1_400);   // the peak, which must survive
+            set.Report(60f, Volts(13.8f), true, 1_800);
+            string line = set.Report(62f, Volts(13.7f), true, 2_000);
 
             Assert.NotNull(line);
             _out.WriteLine(line);
@@ -138,10 +189,10 @@ namespace Radios.Tests
             // and every session. A second-by-second temperature nobody asked
             // for is how MeterTraceStream's 139-lines-a-second incident began.
             var set = new CaptureMeterSet();
-            set.Report(40f, 0f, transmittingOrTuning: false, nowTick: 1_000);
-            Assert.Null(set.Report(40f, 0f, false, 1_000 + CaptureMeterSet.TransmitWindowMs));
-            Assert.Null(set.Report(40f, 0f, false, 1_000 + CaptureMeterSet.RestingWindowMs - 1));
-            Assert.NotNull(set.Report(41f, 0f, false, 1_000 + CaptureMeterSet.RestingWindowMs));
+            set.Report(40f, Volts(13.8f), transmittingOrTuning: false, nowTick: 1_000);
+            Assert.Null(set.Report(40f, Volts(13.8f), false, 1_000 + CaptureMeterSet.TransmitWindowMs));
+            Assert.Null(set.Report(40f, Volts(13.8f), false, 1_000 + CaptureMeterSet.RestingWindowMs - 1));
+            Assert.NotNull(set.Report(41f, Volts(13.8f), false, 1_000 + CaptureMeterSet.RestingWindowMs));
         }
 
         [Fact]
@@ -151,9 +202,9 @@ namespace Radios.Tests
             // thermal question cares most about — waits out the rest of a
             // thirty-second resting window and is then labelled "rest".
             var set = new CaptureMeterSet();
-            set.Report(40f, 0f, transmittingOrTuning: false, nowTick: 1_000);
-            set.Report(44f, 0f, transmittingOrTuning: true, nowTick: 1_500);
-            string line = set.Report(52f, 0f, transmittingOrTuning: true, nowTick: 2_000);
+            set.Report(40f, Volts(13.8f), transmittingOrTuning: false, nowTick: 1_000);
+            set.Report(44f, Volts(13.8f), transmittingOrTuning: true, nowTick: 1_500);
+            string line = set.Report(52f, Volts(13.8f), transmittingOrTuning: true, nowTick: 2_000);
 
             Assert.NotNull(line);
             _out.WriteLine(line);
@@ -167,12 +218,12 @@ namespace Radios.Tests
             // min=40 max=71 n=2 across that gap would be a false statistic,
             // and the n would be a count of nothing.
             var set = new CaptureMeterSet();
-            set.Report(71f, 13.8f, transmittingOrTuning: true, nowTick: 1_000);
+            set.Report(71f, Volts(13.8f), transmittingOrTuning: true, nowTick: 1_000);
 
             int afterTheGap = 1_000 + CaptureMeterSet.StaleWindowMs + 1;
-            Assert.Null(set.Report(40f, 13.8f, true, afterTheGap));
+            Assert.Null(set.Report(40f, Volts(13.8f), true, afterTheGap));
 
-            string line = set.Report(41f, 13.8f, true, afterTheGap + 1_000);
+            string line = set.Report(41f, Volts(13.8f), true, afterTheGap + 1_000);
             Assert.NotNull(line);
             _out.WriteLine(line);
             Assert.DoesNotContain("max=71", line);
@@ -188,10 +239,96 @@ namespace Radios.Tests
             Assert.True(CaptureMeterSet.StaleWindowMs > CaptureMeterSet.RestingWindowMs);
 
             var set = new CaptureMeterSet();
-            set.Report(40f, 0f, transmittingOrTuning: false, nowTick: 1_000);
-            string line = set.Report(43f, 0f, false, 1_000 + CaptureMeterSet.RestingWindowMs);
+            set.Report(40f, Volts(13.8f), transmittingOrTuning: false, nowTick: 1_000);
+            string line = set.Report(43f, Volts(13.8f), false, 1_000 + CaptureMeterSet.RestingWindowMs);
             Assert.NotNull(line);
             Assert.Contains("n=2", line);
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        //  The flush the seal path needs (#598)
+        // ────────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// The defect: a line was written only when a window closed on its own,
+        /// and nothing closed the open one before the session was archived. The
+        /// moment of death was precisely the part that went missing.
+        /// </summary>
+        [Fact]
+        public void A_drop_part_way_through_a_window_still_records_what_the_radio_said()
+        {
+            var set = new CaptureMeterSet();
+            set.Report(44f, Volts(13.8f), transmittingOrTuning: true, nowTick: 1_000);
+            set.Report(71.5f, Volts(13.8f), transmittingOrTuning: true, nowTick: 1_300);
+            // 300 ms in. Before this change, nothing at all was ever written.
+
+            string line = set.Flush(Volts(13.8f), transmittingOrTuning: true,
+                                    CaptureMeterSet.PartialConnectionDropped, nowTick: 1_300);
+            _out.WriteLine(line);
+            Assert.Contains("state=tx", line);
+            Assert.Contains("max=71.5", line);
+            Assert.Contains("n=2", line);
+            Assert.Contains("partial=connection_dropped", line);
+        }
+
+        [Fact]
+        public void A_drop_inside_the_first_second_records_that_the_radio_said_nothing()
+        {
+            // The worst case in #598: the connection goes before any sample
+            // arrives. An empty flush is not silence — "the radio produced no
+            // temperature in this window" is #494's question answered, and it
+            // must not look the same as the application failing to write one.
+            var set = new CaptureMeterSet();
+            string line = set.Flush(SupplyVoltage.NoSample(), transmittingOrTuning: false,
+                                    CaptureMeterSet.PartialConnectionDropped, nowTick: 1_000);
+            _out.WriteLine(line);
+            Assert.Contains("paTemp none n=0", line);
+            Assert.Contains("volts=no-sample", line);
+            Assert.Contains("partial=connection_dropped", line);
+        }
+
+        [Fact]
+        public void A_flushed_window_is_not_reported_twice()
+        {
+            var set = new CaptureMeterSet();
+            set.Report(44f, Volts(13.8f), true, 1_000);
+            Assert.Contains("n=1", set.Flush(Volts(13.8f), true,
+                CaptureMeterSet.PartialConnectionDropped, 1_100));
+
+            // The samples went out with the flush; a second one must not
+            // re-count them, and a window opened afterwards starts clean.
+            Assert.Contains("n=0", set.Flush(Volts(13.8f), true,
+                CaptureMeterSet.PartialConnectionDropped, 1_200));
+            Assert.Null(set.Report(50f, Volts(13.8f), true, 1_300));
+        }
+
+        [Fact]
+        public void A_stale_window_is_flushed_as_empty_rather_than_as_a_false_statistic()
+        {
+            // Same rule the natural close already applies: samples either side
+            // of a very long gap describe different situations, and min/max
+            // across them is a fiction with a plausible n on it. A machine that
+            // slept and then lost the radio is exactly this shape.
+            var set = new CaptureMeterSet();
+            set.Report(71f, Volts(13.8f), true, 1_000);
+            string line = set.Flush(Volts(13.8f), true,
+                CaptureMeterSet.PartialConnectionDropped,
+                1_000 + CaptureMeterSet.StaleWindowMs + 1);
+            _out.WriteLine(line);
+            Assert.Contains("n=0", line);
+            Assert.DoesNotContain("max=71", line);
+        }
+
+        [Fact]
+        public void An_ordinary_window_carries_no_partial_marker()
+        {
+            // The positive control for the marker: if every line said partial,
+            // the word would carry no information at all.
+            var set = new CaptureMeterSet();
+            set.Report(40f, Volts(13.8f), true, 1_000);
+            string line = set.Report(41f, Volts(13.8f), true, 1_000 + CaptureMeterSet.TransmitWindowMs);
+            Assert.NotNull(line);
+            Assert.DoesNotContain("partial=", line);
         }
 
         // ────────────────────────────────────────────────────────────────
