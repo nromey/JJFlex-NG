@@ -49,7 +49,9 @@ namespace Radios.Speech
     /// unspoken, in order, behind itself. <see cref="SpeechIntent.Urgent"/>
     /// alone discards — that is its entire meaning — and the operator's own
     /// Silence clears the ledger too, because resurrecting speech someone
-    /// just shut up would defy them.
+    /// just shut up would defy them. (Both halves of that sentence are
+    /// qualified as of 2026-09-23: neither may take a PROTECTED safety
+    /// obligation with it. See the recovery-rule section below.)
     ///
     /// **And the rescue is bounded.** A salvaged utterance re-enters the
     /// ledger, which is right — a second interrupt must not destroy what the
@@ -1044,7 +1046,12 @@ namespace Radios.Speech
             }
         }
 
-        /// <summary>Drop all pending state. Shutdown, and Urgent's first step.</summary>
+        /// <summary>
+        /// Drop all pending state, protected obligations included. Shutdown
+        /// and the test reset, and nothing else — an urgent warning takes
+        /// <see cref="DiscardOrdinaryLocked"/> now, because a safety outcome
+        /// still owed is not something a newer warning may erase.
+        /// </summary>
         public void DiscardAll()
         {
             lock (_lock)
@@ -1101,10 +1108,8 @@ namespace Radios.Speech
             // is the lead of an action whose own follow-ups are about to be
             // queued by the same handler, and the backlog belongs behind
             // those. It is judged now, held through the settle window, and
-            // handed over by ReleaseHeld. Urgent skips all of it on purpose
-            // (ledger and held set already cleared by DiscardAllLocked, but
-            // the check keeps the policy explicit rather than an artifact of
-            // call order).
+            // handed over by ReleaseHeld. Urgent skips all of it on purpose —
+            // its own branch below ledgers the warning and nothing else.
             //
             // A TRACKED interrupter does not touch the busy-until: the
             // channel will say when it finished, and the estimate path is
