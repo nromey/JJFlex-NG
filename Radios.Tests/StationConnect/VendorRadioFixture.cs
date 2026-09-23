@@ -127,8 +127,9 @@ namespace Radios.Tests.StationConnect
     /// <summary>
     /// A real FlexBase with a vendored Radio planted as theRadio and our
     /// client handle set, so the PRODUCTION observation feeds and the
-    /// production IStationPort can be driven. The settings statics are the
-    /// caller's (RadioConfigStaticsScope); this only plants and unplants.
+    /// production IStationPort can be driven. The settings statics belong to
+    /// the calling test class, which holds the isolation scope and carries
+    /// the collection attribute; this only plants and unplants.
     /// </summary>
     internal sealed class RigOnVendorRadio : IDisposable
     {

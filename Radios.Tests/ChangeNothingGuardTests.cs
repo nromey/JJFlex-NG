@@ -53,6 +53,8 @@ namespace Radios.Tests
         /// Track G). The connect-time profile writers moved here on
         /// 2026-09-21; the hold is consulted in the same shapes.</summary>
         private const string FlexBaseStation = "Radios/FlexBase.StationConnect.cs";
+        private const string Coordinator = "Radios/StationConnect/StationCoordinator.cs";
+        private const string Policies = "Radios/StationConnect/StationPolicies.cs";
         private const string Reporter = "Radios/ProfileReporter.cs";
         private const string MainWindow = "JJFlexWpf/MainWindow.xaml.cs";
         private const string SettingsJson = "Radios/Lexicon/settings.json";
@@ -232,16 +234,45 @@ namespace Radios.Tests
         [InlineData("private bool saveNewGlobalProfile(", "GuardSkips(\"saveNewGlobalProfile", 1200)]
         [InlineData("private void ApplyAccountUPnPPreferenceIfAny(", "GuardSkips(\"UPnP router mapping", 900)]
         [InlineData("private bool startOpusOutputChannel(", "GuardSkips(\"MicInput=PC", 900)]
-        // The CW keyer restore is permitted by RunOwnerInitialization in the
-        // established-station phase (whose gate includes the hold) and checks
-        // the hold AGAIN at the moment of applying, through
-        // OwnerKeyerRestorePermitted, whose second line is GuardSkips (pinned
-        // below). The scratch setup consults the hold directly.
-        [InlineData("private void issue7620(", "OwnerKeyerRestorePermitted(\"issue7620 CW keyer restore", 3200)]
+        // The CW keyer restore is written INSIDE RunOwnerInitialization since
+        // Track G3 (see TheKeyerRestoreIsBehindTheOwnerInitialisationsRecheck);
+        // issue7620 only reads the file now. The scratch setup consults the
+        // hold directly.
         [InlineData("private bool setupFromScratch(", "GuardSkips(\"scratch-setup", 7000)]
         public void TheAutomaticWriterSkipsUnderTheHold(string signature, string guard, int window)
         {
             AssertGuardInside(FlexBase, signature, guard, window);
+        }
+
+        /// <summary>
+        /// The keyer restore (and TNF) are written inside the owner
+        /// initialisation's dispatched delegate, after the orchestrator's
+        /// recheck at the write — whose stewardship refusal consults the hold
+        /// first — and issue7620 no longer writes anything (Track G3).
+        /// </summary>
+        [Fact]
+        public void TheKeyerRestoreIsBehindTheOwnerInitialisationsRecheck()
+        {
+            var station = Read(FlexBaseStation);
+            int init = station.IndexOf("private ProfileActionOutcome RunOwnerInitialization(StationOperation operation, Func<string> refusalAtWrite)", StringComparison.Ordinal);
+            Assert.True(init >= 0, "RunOwnerInitialization is gone");
+            string body = station.Substring(init, 2500);
+            int recheck = body.IndexOf("refusal = refusalAtWrite?.Invoke();", StringComparison.Ordinal);
+            int tnf = body.IndexOf("r.TNFEnabled = true;", StringComparison.Ordinal);
+            int keyer = body.IndexOf("ApplyKeyerRestoreToRadio(r);", StringComparison.Ordinal);
+            Assert.True(recheck > 0 && tnf > recheck && keyer > tnf, "the recheck must precede TNF and the keyer restore inside the delegate");
+
+            var flex = Read(FlexBase);
+            Assert.DoesNotContain("i_BreakinDelay = cfgData.BreakinDelay;", flex, StringComparison.Ordinal);
+            Assert.DoesNotContain("OwnerKeyerRestorePermitted(", flex, StringComparison.Ordinal);
+
+            // The recheck's stewardship refusal puts the hold first.
+            AssertGuardInside(Coordinator, "internal static string AutomaticStewardshipRefusal(StationPolicyFacts f)",
+                "if (f.HoldArmed) return \"the change-nothing hold is armed\";", 200);
+            var orchestrator = Read("Radios/StationConnect/PostStationOrchestrator.cs");
+            int refusal = orchestrator.IndexOf("private string OwnerInitRefusalAtWrite(", StringComparison.Ordinal);
+            Assert.True(refusal >= 0);
+            Assert.Contains("StationCoordinator.AutomaticStewardshipRefusal(now)", orchestrator.Substring(refusal, 1000), StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -270,8 +301,13 @@ namespace Radios.Tests
         {
             AssertGuardInside(FlexBaseStation, "private bool OwnerOnlyWriteSkips(string what)",
                 "if (GuardSkips(what)) return true;", 300);
-            AssertGuardInside(FlexBaseStation, "private bool OwnerKeyerRestorePermitted(string what)",
-                "if (GuardSkips(what)) return false;", 700);
+            // OwnerSharedWriteSkips (TNF, the shack-speaker mute; Track G3)
+            // is the pure OwnerSharedWriteGate, whose first check after the
+            // null guard is the hold.
+            AssertGuardInside(FlexBaseStation, "private bool OwnerSharedWriteSkips(string what)",
+                "OwnerSharedWriteGate.Refusal(ReadStationPolicyFacts(), RosterJudgementForAutomaticWrite())", 400);
+            AssertGuardInside(Policies, "public static string Refusal(StationPolicyFacts f, RosterJudgement ownerRoster)",
+                "if (f.HoldArmed) return \"the change-nothing hold is armed\";", 300);
         }
 
         /// <summary>
@@ -288,10 +324,10 @@ namespace Radios.Tests
         public void TheOwnerInitialisationWritesLiveBehindTheOrchestratorsGate()
         {
             var station = Read(FlexBaseStation);
-            int method = station.IndexOf("private void RunOwnerInitialization()", StringComparison.Ordinal);
+            int method = station.IndexOf("private ProfileActionOutcome RunOwnerInitialization(StationOperation operation, Func<string> refusalAtWrite)", StringComparison.Ordinal);
             Assert.True(method >= 0, "RunOwnerInitialization is gone");
-            string body = station.Substring(method, 1800);
-            foreach (var write in new[] { "radio.MicInput = \"mic\";", "radio.SimpleVOXEnable = false;", "radio.CWBreakIn = false;", "radio.TX1Enabled = true;" })
+            string body = station.Substring(method, 2500);
+            foreach (var write in new[] { "r.MicInput = \"mic\";", "r.SimpleVOXEnable = false;", "r.CWBreakIn = false;", "r.TX1Enabled = true;", "r.TNFEnabled = true;" })
             {
                 Assert.Contains(write, body, StringComparison.Ordinal);
             }
@@ -306,23 +342,26 @@ namespace Radios.Tests
 
             var orchestrator = Read("Radios/StationConnect/PostStationOrchestrator.cs");
             int gate = orchestrator.IndexOf("bool mayWriteShared = ProfileStewardship.MayWriteSharedStateAutomatically(baseSituation)", StringComparison.Ordinal);
-            int call = orchestrator.IndexOf("_port.RunOwnerInitialization();", StringComparison.Ordinal);
+            int call = orchestrator.IndexOf("_port.RunOwnerInitialization(() => OwnerInitRefusalAtWrite(operation, phase, factsAtPlan));", StringComparison.Ordinal);
             Assert.True(gate >= 0 && call > gate, "owner initialisation must be behind the shared-write gate");
         }
 
         /// <summary>
         /// The writers that are LINES rather than methods — pinned by their
-        /// guarded form, which cannot exist without the guard around it.
+        /// guarded form, which cannot exist without the guard around it. The
+        /// shack-speaker mute is behind the OWNER gate since Track G3 (hold,
+        /// ownership, the owner's roster authority); TNF moved into
+        /// RunOwnerInitialization (see TheKeyerRestoreIsBehindTheOwnerInitialisationsRecheck).
         /// </summary>
         [Theory]
-        [InlineData("if (!GuardSkips(\"TNFEnabled=true on connect\")) theRadio.TNFEnabled = true;")]
-        [InlineData("GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=false on local connect\")")]
-        [InlineData("GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=true on remote audio start\")")]
+        [InlineData("if (!OwnerSharedWriteSkips(\"IsMuteLocalAudioWhenRemoteOn=false on local connect\"))")]
+        [InlineData("if (!OwnerSharedWriteSkips(\"IsMuteLocalAudioWhenRemoteOn=true on remote audio start\"))")]
         // MicInput, VOX/CWBreakIn and TX1 are RunOwnerInitialization since
         // 2026-09-22 (Track G2); see TheOwnerInitialisationWritesLiveBehindTheOrchestratorsGate.
         public void TheConnectPathLiteralIsGuarded(string guardedForm)
         {
             Assert.Contains(guardedForm, Read(FlexBase), StringComparison.Ordinal);
+            Assert.DoesNotContain("theRadio.TNFEnabled = true", Read(FlexBase), StringComparison.Ordinal);
         }
 
         [Fact]
@@ -337,11 +376,13 @@ namespace Radios.Tests
             int armed = source.IndexOf(
                 "SetChangeNothingActive(knownRadioProfile.ChangeNothingOnThisRadio)",
                 StringComparison.Ordinal);
+            // The first connect-path write is the local-connect mute since
+            // Track G3 moved TNF into the gated owner initialisation.
             int firstWrite = source.IndexOf(
-                "GuardSkips(\"TNFEnabled=true on connect\")", StringComparison.Ordinal);
+                "OwnerSharedWriteSkips(\"IsMuteLocalAudioWhenRemoteOn=false on local connect\")", StringComparison.Ordinal);
 
             Assert.True(armed > 0, "the connect path no longer arms the hold from the per-radio config");
-            Assert.True(firstWrite > 0, "the TNF connect write lost its guard");
+            Assert.True(firstWrite > 0, "the local-connect mute write lost its guard");
             Assert.True(armed < firstWrite,
                 "the hold is armed AFTER the first connect-path write it exists to stop");
         }

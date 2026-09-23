@@ -428,7 +428,7 @@ namespace Radios.StationConnect
             var now = _port.ReadPolicyFacts();
             if (!now.Connected) return "not connected";
             if (now.HoldArmed) return "the change-nothing hold is armed";
-            if (now.Intent != ProfileGuestIntent.UseMyTransmitAudio) return "the intent for this radio is no longer transmit audio (" + now.Intent + ")";
+            if (now.Intent != ProfileGuestIntent.UseMyTransmitAudio) return "the intent changed to " + now.Intent + " before the step's write";
             if (!string.Equals(now.Serial, factsAtPlan.Serial, StringComparison.Ordinal)) return "a different radio is connected";
             var roster = _port.RosterForGuestSharedWrite();
             if (roster.Verdict != RosterVerdict.OnlyUs) return "guest roster authority at dispatch: " + roster;
