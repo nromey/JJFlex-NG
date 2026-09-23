@@ -72,12 +72,12 @@ namespace Radios.Tests
         /// </summary>
         private static void RestoreSession(TraceSession session)
         {
-            TraceSessionContext.EndSession();
-            if (session == null) return;
+            // Set the pointer rather than calling EndSession, which would stamp
+            // an end time on a session this test did not open.
             typeof(TraceSessionContext)
                 .GetField("_current", System.Reflection.BindingFlags.NonPublic
                                     | System.Reflection.BindingFlags.Static)
-                ?.SetValue(null, session);
+                .SetValue(null, session);
         }
 
         /// <summary>A stand-in for the FlexLib <c>Radio</c> object a removal
