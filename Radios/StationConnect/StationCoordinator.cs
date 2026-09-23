@@ -790,7 +790,8 @@ namespace Radios.StationConnect
             // receive allocation (the refused route's ruled resource); a hold
             // ARMED SINCE planning is a change the delegate must see (Track
             // G2 re-review, step 7).
-            bool holdAtPlan = _port.ReadPolicyFacts().HoldArmed;
+            var factsAtPlan = _port.ReadPolicyFacts();
+            bool holdAtPlan = factsAtPlan.HoldArmed;
 
             int target;
             if (layoutBound.HasValue)
@@ -809,6 +810,23 @@ namespace Radios.StationConnect
                 else if (capacity > 0) target = own + capacity;
                 else target = own;
             }
+
+            // The guest cap. RULED by Noel 2026-09-23 04:44: "if I'm coming
+            // into a radio that's not mine, the max number of slices it grabs
+            // on startup should be two." A ceiling on the target, applied
+            // after it is worked out and clipped to capacity, so it can only
+            // ever ask for FEWER slices — never a floor, never a top-up. It
+            // holds whatever this computer remembers for the radio, which is
+            // what makes the first-time-guest default the rule; an owner with
+            // company keeps their own layout and is not capped.
+            if (factsAtPlan.Ownership != RadioOwnership.Mine && target > StationLayout.SlicesForAGuest)
+            {
+                Trace("this radio is not declared Mine, so the allocation is capped at "
+                      + StationLayout.SlicesForAGuest + " slice(s) rather than " + target
+                      + " (ruled 2026-09-23: a guest must not starve the owner)");
+                target = StationLayout.SlicesForAGuest;
+            }
+
             alloc.Target = target;
 
             if (target <= own)

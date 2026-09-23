@@ -38,6 +38,20 @@ namespace Radios.StationConnect
         /// </summary>
         public const int SlicesWithNoRememberedLayout = 2;
 
+        /// <summary>
+        /// The most slices a connect asks for on a radio the operator has NOT
+        /// declared theirs — every time, whatever this computer remembers for
+        /// it. RULED by Noel 2026-09-23 04:44, in his words: <i>"if I'm coming
+        /// into a radio that's not mine, the max number of slices it grabs on
+        /// startup should be two."</i> A guest taking four of someone's slices
+        /// can starve the radio's owner, and two is enough to work with, so
+        /// the first-time-guest default becomes the rule. It is a ceiling
+        /// clipped to free capacity, never a quota: nothing is padded up to it
+        /// (#587). An OWNER with company keeps their remembered layout instead
+        /// — their radio, their saved station.
+        /// </summary>
+        public const int SlicesForAGuest = 2;
+
         public List<SliceLayoutEntry> Slices { get; set; } = new List<SliceLayoutEntry>();
         public DateTime RecordedUtc { get; set; }
         public string ProfileName { get; set; } = "";
