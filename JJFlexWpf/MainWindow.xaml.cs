@@ -3092,11 +3092,20 @@ public partial class MainWindow : UserControl
     /// After a local connect, quietly find out where this radio stands with
     /// SmartLink and speak up only when the user has something to gain:
     /// NoAccount means SmartLink has never been set up on this computer (the
-    /// virgin-radio case — suggest starting it), NotRegistered means the
-    /// account exists but this radio is not in it (suggest registering).
+    /// virgin-radio case — suggest starting it), NotInAccountList means a
+    /// server answered and this radio was not among the ones it will route to.
     /// Unknown means stay silent — an unreachable server is not evidence the
     /// radio needs anything. The answer comes from the SmartLink server and
     /// can take seconds; a connect never waits on it.
+    ///
+    /// <para><b>NotInAccountList is not "not registered", and nothing on this
+    /// path may say it is</b> (#352). A radio leaves an account's list when it
+    /// is powered off, when its own path to the internet is down, when
+    /// SmartLink is switched off at the radio, and when it was never
+    /// registered. On 2026-09-23 this advisory read one empty list as the
+    /// fourth of those, 660 ms after the Remote path had read the same push as
+    /// the first — and the radio it accused had been listed as Available two
+    /// days before.</para>
     /// </summary>
     private async Task SuggestRegistrationIfUnregisteredAsync()
     {
@@ -3119,7 +3128,8 @@ public partial class MainWindow : UserControl
 
         try
         {
-            var result = await rig.QuerySmartLinkRegistrationAsync();
+            var finding = await rig.QuerySmartLinkRegistrationAsync();
+            var result = finding.Verdict;
 
             if (result == FlexBase.SmartLinkRegistrationQuery.NoAccount)
             {
@@ -3141,7 +3151,7 @@ public partial class MainWindow : UserControl
                 return;
             }
 
-            if (result != FlexBase.SmartLinkRegistrationQuery.NotRegistered) return;
+            if (result != FlexBase.SmartLinkRegistrationQuery.NotInAccountList) return;
 
             string serial = rig.SelectedRadioSerial ?? string.Empty;
             if (serial.Length == 0) return;
@@ -3193,14 +3203,20 @@ public partial class MainWindow : UserControl
             if (!_registrationSuggestedSerials.Add(serial)) return;
             if (!rig.IsConnected) return;
 
-            Tracing.TraceLine($"SuggestRegistration: {serial} not registered to {account}", TraceLevel.Info);
+            Tracing.TraceLine(
+                $"SuggestRegistration: {serial} is not in {account}'s SmartLink list"
+                + $" (live={finding.FromALiveServerAnswer}, account lists examined={finding.AccountsConsulted})",
+                TraceLevel.Info);
 
             // Registered-elsewhere awareness (live incident 2026-08-05: Noel was
             // signed in as Don, and the advisory insisted a radio he KNEW was
             // registered wasn't — true for that account, misleading as stated).
-            // The server was only asked about the signed-in account, so when
-            // other saved accounts exist, say so and offer the switch instead of
-            // presenting registration as the one explanation.
+            //
+            // The query now consults every account whose session this process is
+            // holding, so when it examined more than one list the old note —
+            // "only the signed-in account was asked" — is itself false and must
+            // not be printed. The note survives for the case it was written for:
+            // a saved account that has no live session to consult.
             int otherAccounts = 0;
             try
             {
@@ -3209,32 +3225,46 @@ public partial class MainWindow : UserControl
             }
             catch { /* count stays 0; the simple advisory is still correct */ }
 
+            bool otherAccountsUnasked = otherAccounts > 0 && finding.AccountsConsulted <= 1;
+
             // Sprint 30 Track A — a LOCAL connect with no answer on record gets
             // an OFFER, not a complaint. The old wording opened by telling an
             // operator sitting three feet from their radio that it was "not
-            // registered", which frames a valid arrangement as a fault. The
-            // offer states the same fact, says plainly that not registering is
-            // a fine answer, and gives that answer a button so it can be
-            // recorded once and never raised again.
+            // registered", which frames a valid arrangement as a fault.
             //
-            // A REMOTE connect keeps the original advisory: the operator is
-            // already using SmartLink, so registration is not hypothetical and
-            // "I only use this radio here" is not on the table.
-            // (localConnect is resolved above, where the borrowed-account guard
-            // needs it.)
+            // Sprint 45 Track L (#352) — the offer stays, and its PREMISE is
+            // what changed. It used to state a conclusion we cannot reach ("it
+            // is not registered") and then collect a permanent answer on it. It
+            // now states only what was observed — this account is not being
+            // offered this radio right now — and the durable thing it collects
+            // is the operator's answer about their OWN use, which they are the
+            // authority on and we are not.
+            //
+            // The gate below is the rule in one line. An absence has to have
+            // come from a server during this call before anything durable may
+            // be built on it; a cached absence is not an observation at all.
+            // Judge already refuses to return NotInAccountList without that, so
+            // this is the second lock on the same door — and it is the one
+            // standing where the disk write happens.
+            //
+            // A REMOTE connect keeps the plain advisory: the operator is
+            // already using SmartLink, so "I only use this radio here" is not
+            // on the table. (localConnect is resolved above, where the
+            // borrowed-account guard needs it.)
             bool undecided = SmartLinkIntentFor(rig) == Radios.SmartLinkIntents.Undecided;
+            bool mayCollect = Radios.SmartLinkRegistrationEvidence.CanCarryADurableAnswer(finding);
 
             await Dispatcher.BeginInvoke(() =>
             {
-                if (localConnect && undecided)
+                if (localConnect && undecided && mayCollect)
                 {
-                    ShowLocalOnlyOffer(serial, account, otherAccounts);
+                    ShowLocalOnlyOffer(serial, account, otherAccounts, otherAccountsUnasked);
                     return;
                 }
 
-                string msg = Radios.Lexicon.Get("connect.smartlink.not_registered_body",
+                string msg = Radios.Lexicon.Get("connect.smartlink.not_in_list_body",
                     ("account", account),
-                    ("otherAccountsNote", otherAccounts > 0
+                    ("otherAccountsNote", otherAccountsUnasked
                         ? Radios.Lexicon.Get("connect.smartlink.other_accounts_note")
                         : ""));
 
@@ -3246,7 +3276,7 @@ public partial class MainWindow : UserControl
                     actions.Add(new(Radios.Lexicon.Get("connect.smartlink.action_manage_accounts"), ShowSmartLinkAccountManager));
 
                 Dialogs.AdvisoryDialog.Show(
-                    Radios.Lexicon.Get("connect.smartlink.not_registered_title"), msg,
+                    Radios.Lexicon.Get("connect.smartlink.not_in_list_title"), msg,
                     suppressKey: Radios.AdvisoryKeys.RegisterRadio(serial),
                     actions.ToArray());
             });
@@ -3284,24 +3314,36 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
-    /// The local-only offer: this radio is not registered with SmartLink, here
-    /// is what registering would buy, and here is the button that says you do
-    /// not want it — once, permanently, per radio.
+    /// The local-only offer: this account is not being offered this radio over
+    /// SmartLink right now, here is what SmartLink would buy, and here is the
+    /// button that says you do not want it — once, permanently, per radio.
     /// </summary>
-    private void ShowLocalOnlyOffer(string serial, string account, int otherAccounts)
+    /// <remarks>
+    /// <para><b>Two constraints on the words here, and both are the kind that
+    /// get lost.</b></para>
+    ///
+    /// <para>First: nothing may imply that registration says whose radio this
+    /// is. Track B established the counter-example on 2026-08-18 — an operator
+    /// connected to somebody else's radio using that person's account, and a
+    /// registration test would have called him the owner. Registration answers
+    /// who has ACCESS. So this asks about the operator's USE ("do you operate
+    /// it from away") and never about the radio's ownership, and what it stores
+    /// is a local prompt preference on this machine, not a claim about the
+    /// radio.</para>
+    ///
+    /// <para>Second, added 2026-09-23: <b>nothing may state that the radio is
+    /// not registered</b>, because we cannot know that. Only the observation
+    /// belongs in the body — this account was not offered this radio — and the
+    /// body must name the other things that cause it, so an operator who knows
+    /// better can see immediately that we are describing a symptom and not
+    /// passing a verdict. The premise has to be true before the button beside
+    /// it may write to disk; that is the whole of #352.</para>
+    /// </remarks>
+    private void ShowLocalOnlyOffer(string serial, string account, int otherAccounts, bool otherAccountsUnasked)
     {
-        // Wording note, and it is a constraint rather than a preference:
-        // nothing here may imply that registration says whose radio this is.
-        // Track B established the counter-example on 2026-08-18 - an operator
-        // connected to somebody else's radio using that person's account, and
-        // a registration test would have called him the owner. Registration
-        // answers who has ACCESS. So this asks about the operator's USE ("do
-        // you operate it from away") and never about the radio's ownership,
-        // and what it stores is a local prompt preference on this machine,
-        // not a claim about the radio.
         string msg = Radios.Lexicon.Get("connect.smartlink.reach_from_away_body",
             ("account", account),
-            ("otherAccountsNote", otherAccounts > 0
+            ("otherAccountsNote", otherAccountsUnasked
                 ? Radios.Lexicon.Get("connect.smartlink.other_accounts_note_switch")
                 : ""));
 

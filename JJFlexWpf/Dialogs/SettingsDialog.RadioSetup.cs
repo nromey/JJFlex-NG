@@ -101,16 +101,16 @@ namespace JJFlexWpf.Dialogs
             _registrationQueryInFlight = true;
             try
             {
-                var result = await rig.QuerySmartLinkRegistrationAsync();
+                var finding = await rig.QuerySmartLinkRegistrationAsync();
                 _registrationQuerySerial = serial;
                 // Unknown and NoAccount are not cached as answers — leave the
                 // neutral text and let a later refresh try again rather than
                 // pinning a shrug; NoAccount changes the moment the user signs in.
                 _registrationQueryResult =
-                    result is FlexBase.SmartLinkRegistrationQuery.Unknown
-                           or FlexBase.SmartLinkRegistrationQuery.NoAccount
+                    finding.Verdict is FlexBase.SmartLinkRegistrationQuery.Unknown
+                                    or FlexBase.SmartLinkRegistrationQuery.NoAccount
                     ? null
-                    : result;
+                    : finding.Verdict;
                 if (_registrationQueryResult != null && IsLoaded)
                     RefreshSetupStatuses();
             }
@@ -188,8 +188,13 @@ namespace JJFlexWpf.Dialogs
                     FlexBase.SmartLinkRegistrationQuery.Registered =>
                         Lexicon.Get("settings.radio.register.already_registered",
                             ("accountEmail", regCheck.AccountEmail)),
-                    FlexBase.SmartLinkRegistrationQuery.NotRegistered =>
-                        Lexicon.Get("settings.radio.register.not_registered",
+                    // Deliberately not "not registered". The server said only
+                    // that it cannot route to this radio for this account right
+                    // now, and a step-2 status line that turns that into a
+                    // verdict is the same overreach the connect advisory made
+                    // (#352).
+                    FlexBase.SmartLinkRegistrationQuery.NotInAccountList =>
+                        Lexicon.Get("settings.radio.register.not_in_account_list",
                             ("accountEmail", regCheck.AccountEmail)),
                     _ =>
                         Lexicon.Get("settings.radio.register.checking",
