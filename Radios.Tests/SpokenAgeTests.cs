@@ -10,6 +10,20 @@ namespace Radios.Tests
     /// helper had been in use on every meter surface and nobody had read the
     /// assembled sentence at exactly one.
     /// </summary>
+    /// <remarks>
+    /// In the statics collection because the capture-duration test reads the
+    /// lexicon, which resolves the process-wide settings root. Without it this
+    /// class runs in parallel with the classes that own that root and writes
+    /// into whichever private tree is in force (#232).
+    /// <para>
+    /// It was missing for one day, and the reason is worth keeping: the class
+    /// was verified with a filtered run naming itself and two neighbours, and
+    /// the filter excluded <c>RadioConfigStaticsIsolationTests</c> — the one
+    /// test that would have refused it. A filter is a decision about what not
+    /// to look at.
+    /// </para>
+    /// </remarks>
+    [Collection(RadioConfigStaticsCollection.Name)]
     public class SpokenAgeTests
     {
         [Theory]
