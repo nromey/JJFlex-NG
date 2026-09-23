@@ -10536,14 +10536,13 @@ namespace Radios
         private float _PATempData;
         private void PATempDataHandler(float data)
         {
-            // Reported through the coalesced meter stream, NOT as a Verbose
-            // trace line. #196-era finding, 2026-08-22: this handler existed,
-            // the property existed, and PATEMP appeared in the meter model and
-            // in the transmit chain evidence — but the diagnostic capture
-            // carried only seven meters and this was not one of them, because
-            // Verbose lines are dropped at the Normal detail level a real
-            // session runs at. So an entire bench evening produced no
-            // temperature record at all.
+            // TWO destinations, and the second one is the repair.
+            //
+            // #196-era finding, 2026-08-22: this handler existed, the property
+            // existed, and PATEMP appeared in the meter model and in the
+            // transmit chain evidence — but the diagnostic capture carried only
+            // seven meters and this was not one of them. So an entire bench
+            // evening produced no temperature record at all.
             //
             // That mattered the moment unattended keying was authorised
             // (2026-08-22). #192 specifies that automated sweeps abort on
@@ -10553,7 +10552,18 @@ namespace Radios
             // human was present the gap was theoretical. Unattended, against a
             // load rated 2000 W for ONE MINUTE at tuning duty, it is the
             // actual safety mechanism.
+            //
+            // THE FIX MADE THEN DID NOT REACH AN ORDINARY CAPTURE, and the
+            // explanation written here was wrong about why. It said Verbose
+            // lines are dropped at Normal detail — true of the raw lines this
+            // replaced, and not the mechanism since. meterTrace is gated on
+            // DiagnosticsConfig.RecordMeterStream, an opt-in switch that is OFF
+            // by default and independent of the detail level, so temperature
+            // was absent even from a Ctrl+J Ctrl+D capture at Verbose. Measured
+            // 2026-09-22 against trace-20260907-080956: 258 txMeters lines
+            // carrying reflW=, zero paTemp. See CaptureMeterSet.
             meterTrace.Report("paTemp:", data);
+            recordCaptureMeters(data);
             _PATempData = data;
         }
 
