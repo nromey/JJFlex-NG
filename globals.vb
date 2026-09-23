@@ -584,6 +584,7 @@ Module globals
             ' on. Radios.dll cannot call either by name — it is referenced BY
             ' this project — so this is the seam, exactly as above.
             Radios.CaptureSeal.SealHook = Function(detail) SealCaptureForConnectionDrop(detail)
+            JJFlexWpf.CaptureSealWatch.Install()
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)
         End Try

@@ -205,6 +205,22 @@ namespace Radios.Speech
         public const string TrackingNotch = "tracking-notch";
 
         /// <summary>
+        /// Where the diagnostic recording went after a connection drop sealed
+        /// it — the confirmation that its path is now on the clipboard (Sprint
+        /// 45 Track H, #566's bridge). One subject because the only utterances
+        /// on it are successive answers to "have I got the path?", and only the
+        /// newest is true: an unheard "Path copied" is worthless once a second
+        /// press has copied it again, and a failure sentence must replace a
+        /// success rather than queue behind it.
+        ///
+        /// <para>Nothing outside this window covers it. The radio reconnecting
+        /// does not un-copy a path, and the operator is mid-errand — they
+        /// pressed a button to get something they intend to paste somewhere
+        /// else.</para>
+        /// </summary>
+        public const string CaptureSealedPath = "capture-sealed-path";
+
+        /// <summary>
         /// The value of one field, named by its label — the committed value
         /// and the swept value share it, so a committed value still queued
         /// when the operator starts sweeping is covered by the sweep. This is
