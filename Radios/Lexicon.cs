@@ -92,14 +92,23 @@ namespace Radios
         public const string Leader = "leader";
 
         /// <summary>
-        /// The seven partitions, split for REVIEW rather than for speed. An
+        /// Operator alarms (#566): the spoken warnings, the status words, the
+        /// dialog and editor, validation, presets. Every sentence in it is
+        /// marked for Noel's review. Eager, because a warning is spoken from
+        /// the dispatch worker at the moment a meter crosses its line, and a
+        /// first-use file read there is a stall at exactly the wrong moment.
+        /// </summary>
+        public const string Alarms = "alarms";
+
+        /// <summary>
+        /// The eight partitions, split for REVIEW rather than for speed. An
         /// in-memory dictionary is the same speed whichever file it loaded
         /// from; saying so here stops someone splitting a hot set across files
         /// chasing a gain that does not exist.
         /// </summary>
         public static IReadOnlyList<string> Partitions { get; } = new[]
         {
-            Connect, Audio, Settings, Logging, Earcon, Help, Leader,
+            Connect, Audio, Settings, Logging, Earcon, Help, Leader, Alarms,
         };
 
         /// <summary>
@@ -115,7 +124,7 @@ namespace Radios
         /// </remarks>
         public static IReadOnlyList<string> EagerPartitions { get; } = new[]
         {
-            Connect, Audio, Settings, Logging, Earcon, Leader,
+            Connect, Audio, Settings, Logging, Earcon, Leader, Alarms,
         };
 
         private static readonly object Gate = new object();

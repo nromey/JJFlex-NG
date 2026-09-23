@@ -81,6 +81,19 @@ namespace Radios.Alarms
         /// <summary>Age at <paramref name="nowMs"/> on the same monotonic clock, never negative.</summary>
         public double AgeSeconds(long nowMs) => Math.Max(0, nowMs - ReceiptMonotonicMs) / 1000.0;
 
+        /// <summary>
+        /// The same observation judged against one definition's documented
+        /// sentinel. An observation is built once per callback; each alarm on
+        /// that meter may know a different sentinel, and this is how it says so
+        /// without a second delivery.
+        /// </summary>
+        public MeterObservation ClassifiedAgainst(double? sentinel)
+        {
+            if (!sentinel.HasValue || Validity != ObservationValidity.Valid) return this;
+            if (Value != (float)sentinel.Value) return this;
+            return this with { Validity = ObservationValidity.Sentinel, OutOfRange = false };
+        }
+
         /// <summary>Build a measured observation, classifying validity and range here so no caller can forget to.</summary>
         public static MeterObservation Measured(MeterDescriptor meter, float value, long sequence,
             long receiptMonotonicMs, DateTime receiptUtc, int connectionGeneration, float? sentinel)
