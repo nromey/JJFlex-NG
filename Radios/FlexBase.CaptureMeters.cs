@@ -71,6 +71,17 @@ namespace Radios
         /// <para>Internal rather than private so a test can drive it on a real
         /// rig without reflection; there is one production caller and it is the
         /// drop path.</para>
+        ///
+        /// <para><b>Read <c>state=</c> on a flushed line with #596 in mind.</b>
+        /// An open window carries the state it earned from its own samples, but
+        /// an EMPTY flush has nothing to go on and asks
+        /// <see cref="Transmit"/> — which is written only from the radio's Mox
+        /// message, so a radio that has just died leaves it reading true
+        /// indefinitely. On a drop that is exactly the moment we are in. The
+        /// number of samples is the honest field here; the state word on an
+        /// <c>n=0</c> line becomes trustworthy the day #596 clears the flag on
+        /// this same path, which is a ruling rather than a tidy-up and is not
+        /// this track's to make.</para>
         /// </summary>
         internal void flushCaptureMeters(string reason)
         {
