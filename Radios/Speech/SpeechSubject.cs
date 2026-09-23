@@ -181,6 +181,32 @@ namespace Radios.Speech
         public const string WhereYouAre = "where-you-are";
 
         /// <summary>
+        /// The title a dialog speaks for itself as it opens — the one line in
+        /// <c>JJFlexDialog</c> that 74 dialogs inherit, kept because NVDA may
+        /// read the focused control instead of the window.
+        ///
+        /// <para><b>Deliberately its own subject, and deliberately not
+        /// <see cref="WhereYouAre"/></b>, whose remarks say why: "where focus
+        /// is" across every window is a design of its own, and folding a
+        /// dialog title into Home's arrival would let either retire the
+        /// other. What this subject buys is narrower and real — the line
+        /// cannot outlive the window it names. A title still queued when its
+        /// dialog closes is taken back rather than spoken over whatever
+        /// replaced it, and a newer dialog's title retires an unheard older
+        /// one, because only one window is in front of the operator at a
+        /// time.</para>
+        ///
+        /// <para><b>What this is NOT.</b> It does not stop the duplication
+        /// Astra found — this line is a third producer of the window's name,
+        /// beside the progress voice and NVDA's own narration, and removing it
+        /// is the architectural direction. That removal needs every affected
+        /// arrival checked for a real named focus destination, at the
+        /// keyboard, because a dialog that announces nothing is worse than one
+        /// that announces twice (#551, #606).</para>
+        /// </summary>
+        public const string DialogArrival = "dialog-arrival";
+
+        /// <summary>
         /// The radio's own mic-profile selection at connect — repaired by
         /// loading one, or found empty and warned about. Two verdicts on one
         /// radio cannot both be true, so the newer replaces the older.

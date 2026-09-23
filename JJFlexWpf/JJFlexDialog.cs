@@ -99,6 +99,15 @@ namespace JJFlexWpf
             // not just its edges — see StartStrandedFocusSentinel.
             Loaded += (_, _) => StartStrandedFocusSentinel();
             Closed += (_, _) => StopStrandedFocusSentinel();
+
+            // This window's own title is worthless once the window has gone,
+            // and until 2026-09-23 nothing said so: a title queued behind a
+            // backlog could still be spoken after the dialog it names had been
+            // replaced. Supersession reaches the delivery queue now, so an
+            // unsent copy is taken back rather than merely made unrescuable
+            // (#606).
+            Closed += (_, _) => Radios.ScreenReaderOutput.Supersede(
+                Radios.Speech.SpeechSubject.DialogArrival, "the dialog closed");
         }
 
         /// <summary>
@@ -181,8 +190,36 @@ namespace JJFlexWpf
                 //
                 // A dialog opening is the START of a series, never a supersession
                 // of one. Surveyed and re-bucketed 2026-08-18.
+                //
+                // **It carries a subject now, and cannot outlive its own
+                // window (#606, #551).** Noel's transcript of 2026-09-23 has
+                // the search title arriving a third time at the moment that
+                // window was about to be replaced by the picker. A title still
+                // queued when its dialog closes is taken back by the
+                // supersede below rather than spoken over whatever replaced
+                // it, and a newer dialog's title retires an unheard older one,
+                // because only one window is in front of the operator at a
+                // time.
+                //
+                // **The line itself STAYS, and that is a decision rather than
+                // an omission.** Astra is right that this is a third producer
+                // of the window's name, beside the progress voice and NVDA's
+                // own narration of the native window, and that the
+                // architectural answer is for the focused accessibility
+                // surface to own window identity alone. But nothing here can
+                // know what the reader said — there is no channel that reports
+                // native narration — so the announcement cannot be made
+                // conditional on it, and taking it out for all 74 dialogs
+                // needs each affected arrival checked at the keyboard for a
+                // real named focus destination first. A dialog that announces
+                // nothing is worse than one that announces twice. Note also
+                // what the transcript actually shows: in that run OUR copy was
+                // withdrawn before it reached NVDA and the duplicate he heard
+                // was the reader's own, so removing this line would not have
+                // changed that launch.
                 Radios.ScreenReaderOutput.Speak(
-                    Title, Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Terse);
+                    Title, Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Terse,
+                    subject: Radios.Speech.SpeechSubject.DialogArrival);
             }
 
             // Focus first interactive control
