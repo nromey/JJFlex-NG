@@ -19245,6 +19245,46 @@ namespace Radios
         private Thread remoteAudioThread = null;
         private bool stopRemoteAudio;
 
+        // ── Which PC-audio run is the current one ──
+        //
+        // An audio thread can outlive its own run: stopRemoteAudioThread
+        // ABANDONS the thread when its ten-second join fails, the PCAudio
+        // setter returns, and a later switch back to PC audio starts another
+        // one. The abandoned thread is still alive and still has its teardown
+        // to finish, so anything that teardown writes to the RADIO can land
+        // underneath a newer run. Each run is given a number here and carries
+        // it as a parameter, so no field can move under it.
+        private long _remoteAudioRun;
+
+        /// <summary>
+        /// Why a finishing PC-audio run must NOT give the shack speaker back,
+        /// or null when it may. Pure, so the interleaving that matters can be
+        /// tested without a radio, a thread or any audio hardware.
+        /// </summary>
+        /// <remarks>
+        /// The run identity is asked FIRST. A superseded run is refused for
+        /// being superseded — its connection checks all pass, which is exactly
+        /// why the connection alone was never enough: a newer run mutes the
+        /// speaker on purpose, and an old thread waking up under it would
+        /// unmute the speaker the operator is listening past. Abandoning with
+        /// no successor is not superseded, and that run does give the speaker
+        /// back, because nobody else owns it.
+        /// </remarks>
+        internal static string ShackSpeakerRestoreRefusal(
+            long myRun, long currentRun, bool radioPresent, bool connected, bool disconnecting)
+        {
+            if (myRun != currentRun)
+            {
+                return "audio run " + myRun + " finished after run " + currentRun
+                    + " started; the speaker belongs to the newer run, which muted it on purpose";
+            }
+            if (!radioPresent || !connected || disconnecting)
+            {
+                return "the connection is closing, and a command sent into a closing transport goes nowhere";
+            }
+            return null;
+        }
+
         private bool _PCAudio;
         /// <summary>
         /// Audio over PC
@@ -19274,7 +19314,11 @@ namespace Radios
         {
             Tracing.TraceLine("startRemoteAudioThread", TraceLevel.Info);
             stopRemoteAudio = false;
-            remoteAudioThread = new Thread(remoteAudioProc);
+            // The run number this thread is, handed to it rather than read
+            // from a field: an abandoned predecessor must be able to tell that
+            // it is no longer the current run.
+            long run = Interlocked.Increment(ref _remoteAudioRun);
+            remoteAudioThread = new Thread(() => remoteAudioProc(run));
             remoteAudioThread.Name = "RemoteAudio";
             remoteAudioThread.Priority = ThreadPriority.Highest;
             // Engine Track (2026-08-11): background. When stopRemoteAudioThread's
@@ -19423,7 +19467,7 @@ namespace Radios
             }
         }
 
-        private void remoteAudioProc()
+        private void remoteAudioProc(long run)
         {
             // ── #422: the boundary catch for a bare thread ──────────────────
             //
@@ -20042,8 +20086,16 @@ namespace Radios
             // came to be dead for years. A disconnect leaves the radio's own
             // setting as it stands, which is the operator's to change at the
             // radio. Company on the radio is not consulted here either.
+            //
+            // And only if THIS run is still the current one (Track G5). The
+            // connection checks alone let an abandoned thread from an earlier
+            // run unmute the speaker underneath a newer run that had muted it
+            // on purpose — every check passed, because they asked about the
+            // radio and never about which run was asking.
             var speakerRadio = theRadio;
-            if (speakerRadio != null && IsConnected && !Disconnecting)
+            string speakerRefusal = ShackSpeakerRestoreRefusal(run, Interlocked.Read(ref _remoteAudioRun),
+                speakerRadio != null, IsConnected, Disconnecting);
+            if (speakerRefusal == null)
             {
                 if (!GuardSkips("IsMuteLocalAudioWhenRemoteOn=false on remote audio stop"))
                 {
@@ -20053,8 +20105,7 @@ namespace Radios
             else
             {
                 Tracing.TraceLine("remoteAudioProc: the shack speaker is left as it is — "
-                    + "the connection is closing, and a command sent into a closing transport goes nowhere",
-                    TraceLevel.Info);
+                    + speakerRefusal, TraceLevel.Info);
             }
 
             Tracing.TraceLine("remoteAudioProc exiting", TraceLevel.Info);
