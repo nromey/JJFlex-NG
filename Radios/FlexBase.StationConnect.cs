@@ -152,7 +152,6 @@ namespace Radios
             _pendingGlobalCreation = null;
             LastStationResult = null;
             LastPostStationResult = null;
-            _ownerKeyerRestorePermitted = false;
             _pendingAssessmentOwed = false;
 
             // Anything the trackers publish wakes whoever is waiting.
@@ -628,10 +627,32 @@ namespace Radios
         /// <summary>The verdict with its reason, for callers that speak it.</summary>
         internal RosterJudgement RosterJudgementNow() => RosterGuard.Evaluate(RosterTracker.Snapshot());
 
-        /// <summary>The verdict an AUTOMATIC shared write must obtain: the live
-        /// roster plus the bench-supplied authority policy.</summary>
+        /// <summary>The verdict the OWNER'S automatic shared write must obtain:
+        /// the live roster plus the ruled owner authority policy.</summary>
         internal RosterJudgement RosterJudgementForAutomaticWrite() =>
             RosterGuard.ForAutomaticWrite(RosterTracker.Snapshot(), StationPolicies.Current.RosterAuthority);
+
+        /// <summary>The verdict a GUEST'S shared write (the UseMyTransmitAudio
+        /// route) must obtain: the same live roster under the guest's
+        /// SEPARATE authority, Unknown in production until a bench
+        /// establishes it (Track G3; see StationPolicies.GuestSharedWriteAuthority).</summary>
+        internal RosterJudgement RosterJudgementForGuestSharedWrite() =>
+            RosterGuard.ForAutomaticWrite(RosterTracker.Snapshot(), StationPolicies.Current.GuestSharedWriteAuthority);
+
+        /// <summary>
+        /// The owner's station-global operating writes that are not profile
+        /// stewardship (TNF at connect; the shack-speaker mute when audio
+        /// starts): true when the write is SKIPPED, with the reason traced.
+        /// Hold, ownership and the owner's roster authority, at the moment
+        /// of the write (Track G3; Track G2 left them hold-only).
+        /// </summary>
+        private bool OwnerSharedWriteSkips(string what)
+        {
+            string refusal = OwnerSharedWriteGate.Refusal(ReadStationPolicyFacts(), RosterJudgementForAutomaticWrite());
+            if (refusal == null) return false;
+            Tracing.TraceLine("StationConnect: skipped '" + what + "' — " + refusal, TraceLevel.Info);
+            return true;
+        }
 
         // ------------------------------------------------------------------
         // The production port
@@ -1017,6 +1038,7 @@ namespace Radios
 
             public StationPolicyFacts ReadPolicyFacts() => _rig.ReadStationPolicyFacts();
             public RosterJudgement RosterForAutomaticWrite() => _rig.RosterJudgementForAutomaticWrite();
+            public RosterJudgement RosterForGuestSharedWrite() => _rig.RosterJudgementForGuestSharedWrite();
             public ProfileSituation ReadBaseSituation() => _rig.ReadBaseProfileSituation();
             public ProfileTypeState ReadType(ProfileTypes type, int timeoutMs) =>
                 _rig.ReadProfileTypeState(type, _rig.WantedProfilesForThisRadio(), freshAsk: true, timeoutMs: timeoutMs);
@@ -1025,7 +1047,7 @@ namespace Radios
             public SelectionObservation LatestReportedSelection(ProfileTypes type) =>
                 _rig.ProfileEvidence.Snapshot().ReportedSelectionOf(type);
             public long ProfileSequence => _rig.ProfileEvidence.Sequence;
-            public void RunOwnerInitialization() => _rig.RunOwnerInitialization();
+            public ProfileActionOutcome RunOwnerInitialization(Func<string> refusalAtWrite) => _rig.RunOwnerInitialization(_op, refusalAtWrite);
             public ProfileActionOutcome RunLiveAudioAction(ProfileAction action, Func<string> refusalAtSend) =>
                 _rig.RunLiveAudioActionChecked(action, _op, refusalAtSend);
             public void AbortLiveAudio(bool autosaveWasTurnedOff) => _rig.AbortLiveAudio(autosaveWasTurnedOff);
@@ -1039,40 +1061,103 @@ namespace Radios
         }
 
         /// <summary>
-        /// The owner's generic connect-time writes — MicInput, VOX, CW
+        /// The owner's generic connect-time writes — TNF, MicInput, VOX, CW
         /// break-in, TX1, and the CW keyer restore — run INSIDE the
         /// established-station phase under the full gate (hold, intent,
         /// ownership, roster, station established), before the final profile
-        /// choices. Until Track G2 they ran from mainThreadProc after the
-        /// whole phase and its assessment, on any outcome (review step 8).
-        /// The keyer restore's setters enqueue through the command loop,
-        /// which is not up yet, so that one is permitted here and applied by
-        /// issue7620 once the loop starts.
+        /// choices, DISPATCHED with the orchestrator's recheck immediately
+        /// before the writes (Track G3). Until Track G2 they ran from
+        /// mainThreadProc after the whole phase and its assessment, on any
+        /// outcome (review step 8); until Track G3 the keyer restore was
+        /// merely permitted here and applied by issue7620 after the profile
+        /// decisions and the assessment, and TNF was written at Connect
+        /// before any fact existed. The keyer values are written to the
+        /// radio directly — the i_* setters enqueue through a loop that is
+        /// not up yet and would drop them.
         /// </summary>
-        private void RunOwnerInitialization()
+        private ProfileActionOutcome RunOwnerInitialization(StationOperation operation, Func<string> refusalAtWrite)
         {
             var radio = theRadio;
-            if (radio == null) return;
-            if (!RemoteRig)
+            if (radio == null) return ProfileActionOutcome.Failed;
+            bool written = false;
+            string refusal = null;
+            DispatchStationWork("owner initialisation", () =>
             {
-                // mic_input is station-global and outlives the session (audit 1.7).
-                radio.MicInput = "mic";
+                refusal = refusalAtWrite?.Invoke();
+                if (refusal != null) return;
+                if (operation.IsEnded) { refusal = "operation ended: " + operation.WhyNotLive; return; }
+                var r = theRadio;
+                if (r == null) { refusal = "no radio"; return; }
+                // radio set tnf_enabled=1 — station-global and radio-
+                // persistent, a Jim-era line the write-path audit named (1.4).
+                r.TNFEnabled = true;
+                if (!RemoteRig)
+                {
+                    // mic_input is station-global and outlives the session (audit 1.7).
+                    r.MicInput = "mic";
+                }
+                // Radio-persistent: an owner who deliberately set either gets it
+                // reset every time we connect (audit 1.4).
+                r.SimpleVOXEnable = false;
+                r.CWBreakIn = false;
+                // TX1 RCA by default for compatibility: an interlock write,
+                // radio-persistent, on every open.
+                r.TX1Enabled = true;
+                ApplyKeyerRestoreToRadio(r);
+                written = true;
+            });
+            if (!written && refusal == null)
+            {
+                await(() => written || refusal != null || operation.IsEnded, StationDeadlines.Default().TxMicEffectMs);
             }
-            // Radio-persistent: an owner who deliberately set either gets it
-            // reset every time we connect (audit 1.4).
-            radio.SimpleVOXEnable = false;
-            radio.CWBreakIn = false;
-            // TX1 RCA by default for compatibility: an interlock write,
-            // radio-persistent, on every open.
-            radio.TX1Enabled = true;
-            _ownerKeyerRestorePermitted = true;
-            Tracing.TraceLine("StationConnect: owner initialisation written (MicInput, VOX off, CW break-in off, TX1 on); "
-                + "keyer restore permitted for the command loop", TraceLevel.Info);
+            if (refusal != null)
+            {
+                Tracing.TraceLine("StationConnect: owner initialisation NOT written — " + refusal, TraceLevel.Warning);
+                return ProfileActionOutcome.Refused;
+            }
+            if (!written) return ProfileActionOutcome.Queued;
+            Tracing.TraceLine("StationConnect: owner initialisation written (TNF on, MicInput, VOX off, CW break-in off, TX1 on, keyer restore)",
+                TraceLevel.Info);
+            return ProfileActionOutcome.Confirmed;
         }
 
-        /// <summary>Set by <see cref="RunOwnerInitialization"/> for this
-        /// attempt; read by issue7620 when the command loop is up.</summary>
-        private bool _ownerKeyerRestorePermitted;
+        /// <summary>The operator's saved CW keyer setup (issue7620.xml), read
+        /// fresh and written to the radio's properties directly: the same
+        /// values the i_* setters would enqueue, made here because the loop
+        /// is not up and this is the owner's gated moment.</summary>
+        private void ApplyKeyerRestoreToRadio(Radio r)
+        {
+            // No saved setup, no writes — as issue7620 always behaved. An
+            // unreadable operator directory is traced, never thrown into the
+            // owner initialisation.
+            string fileName;
+            try { fileName = OperatorsDirectory + '\\' + "issue7620.xml"; }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("StationConnect: keyer restore skipped — the operator directory is not available: " + ex.Message, TraceLevel.Warning);
+                return;
+            }
+            if (!System.IO.File.Exists(fileName))
+            {
+                Tracing.TraceLine("StationConnect: keyer restore skipped — no saved keyer setup (" + fileName + ")", TraceLevel.Info);
+                return;
+            }
+            issue7620(false);                      // reads the file into cfgData; writes nothing
+            var cfg = cfgData;
+            if (cfg == null) return;
+            r.CWDelay = cfg.BreakinDelay;
+            r.TXCWMonitorGain = cfg.SidetoneGain;
+            r.CWPitch = cfg.SidetonePitch;
+            r.CWSwapPaddles = cfg.CWReverse;
+            r.CWL_Enabled = cfg.CWLEnabled;
+            r.CWIambic = cfg.Keyer != IambicValues.off;
+            if (cfg.Keyer != IambicValues.off)
+            {
+                r.CWIambicModeA = cfg.Keyer == IambicValues.iambicA;
+                r.CWIambicModeB = cfg.Keyer == IambicValues.iambicB;
+            }
+            r.CWSpeed = cfg.KeyerSpeed;
+        }
 
         /// <summary>Everything is said, then the assessment, last. Repair only
         /// when the orchestrator says so, and only after any deferred
@@ -1417,24 +1502,6 @@ namespace Radios
             if (ownership == RadioOwnership.Mine) return false;
             Tracing.TraceLine("StationConnect: skipped '" + what + "' — this radio is not declared ours ("
                 + ownership + "); a guest writes nothing shared (#590)", TraceLevel.Info);
-            return true;
-        }
-
-        /// <summary>
-        /// The keyer restore's gate: permitted by RunOwnerInitialization in
-        /// the established-station phase (which already checked the hold,
-        /// intent, ownership, roster and the station), and the hold checked
-        /// again at the moment of applying because it is a separate moment.
-        /// </summary>
-        private bool OwnerKeyerRestorePermitted(string what)
-        {
-            if (!_ownerKeyerRestorePermitted)
-            {
-                Tracing.TraceLine("StationConnect: skipped '" + what + "' — owner initialisation did not run on this "
-                    + "connection (not established, not the owner, not opted in, the hold, or company)", TraceLevel.Info);
-                return false;
-            }
-            if (GuardSkips(what)) return false;
             return true;
         }
 

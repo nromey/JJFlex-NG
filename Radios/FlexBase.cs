@@ -1957,10 +1957,12 @@ namespace Radios
             theRadio.TNFAdded += new Radio.TNFAddedEventHandler(tnfAdded);
             theRadio.TNFRemoved += new Radio.TNFRemovedEventHandler(tnfRemoved);
             theRadio.IsTNFSubscribed = true; // v2.0.19
-            // radio set tnf_enabled=1 — station-global and radio-persistent, a
-            // Jim-era line the write-path audit named (1.4). Left undone on a
-            // guarded radio; the subscription above is read-only and stays.
-            if (!GuardSkips("TNFEnabled=true on connect")) theRadio.TNFEnabled = true;
+            // radio set tnf_enabled=1 used to be written here, before Connect
+            // — where FlexLib's SendCommand returns 0 on a disconnected
+            // transport and no fact about the radio existed yet. It is the
+            // owner's station-global write and lives in RunOwnerInitialization
+            // under the full gate (Track G3). The subscription above is
+            // read-only and stays.
             theRadio.ForwardPowerDataReady += new Radio.MeterDataReadyEventHandler(forwardPowerData);
             theRadio.SWRDataReady += new Radio.MeterDataReadyEventHandler(sWRData);
             theRadio.MicDataReady += new Radio.MeterDataReadyEventHandler(micData);
@@ -2129,8 +2131,10 @@ namespace Radios
                 else
                 {
                     // local audio on. radio set mute_local_audio_when_remote —
-                    // a setting about the owner's own shack speaker (audit 1.5).
-                    if (!GuardSkips("IsMuteLocalAudioWhenRemoteOn=false on local connect"))
+                    // a station-scoped command with no client handle, about
+                    // the owner's shack speaker (audit 1.5): the owner's to
+                    // make, under the owner gate (Track G3; hold-only before).
+                    if (!OwnerSharedWriteSkips("IsMuteLocalAudioWhenRemoteOn=false on local connect"))
                     {
                         theRadio.IsMuteLocalAudioWhenRemoteOn = false;
                     }
@@ -17058,7 +17062,8 @@ namespace Radios
                 ApplyAttemptMatches = _pendingLiveTxApplyAttempt == attempt.Generation,
                 Connected = radio != null && IsConnected,
                 HoldArmed = ChangeNothingActive,
-                StrictRoster = RosterJudgementForAutomaticWrite().Verdict,
+                // The GUEST'S authority, not the owner's ruled one (Track G3).
+                StrictRoster = RosterJudgementForGuestSharedWrite().Verdict,
                 Intent = string.IsNullOrEmpty(serial) ? ProfileGuestIntent.NotAnswered : RadioConfig.ProfileIntentOf(serial),
                 ChosenLocalPreset = string.IsNullOrEmpty(serial) ? "" : RadioConfig.LocalTransmitAudioChoiceOf(serial),
                 PendingPreset = presetName,
@@ -19532,8 +19537,10 @@ namespace Radios
                 goto remoteDone;
             }
             // radio set mute_local_audio_when_remote — the owner's shack
-            // speaker, flipped from afar (audit 1.5). Held on a guarded radio.
-            if (!GuardSkips("IsMuteLocalAudioWhenRemoteOn=true on remote audio start"))
+            // speaker, flipped from afar (audit 1.5). A station-scoped command
+            // with no client handle: the owner's, under the owner gate
+            // (Track G3; hold-only before).
+            if (!OwnerSharedWriteSkips("IsMuteLocalAudioWhenRemoteOn=true on remote audio start"))
             {
                 theRadio.IsMuteLocalAudioWhenRemoteOn = true;
             }
@@ -21192,25 +21199,14 @@ namespace Radios
                         cfgStream = File.Open(fileName, FileMode.Open);
                         XmlSerializer xs = new XmlSerializer(typeof(cfg7620));
                         cfgData = (cfg7620)xs.Deserialize(cfgStream);
-                        // The i_* setters each enqueue a radio write — this
-                        // is the operator's saved CW keyer setup being pushed
-                        // to whatever radio connected (audit 2.15's automatic
-                        // half). The file is always read so the local mirror
-                        // stays whole; the WRITES are permitted only by
-                        // RunOwnerInitialization, inside the established-
-                        // station phase under the full gate (Track G2), and
-                        // applied here because the setters need the loop.
-                        if (OwnerKeyerRestorePermitted("issue7620 CW keyer restore on open"))
-                        {
-                            i_BreakinDelay = cfgData.BreakinDelay;
-                            i_SidetoneGain = cfgData.SidetoneGain;
-                            i_SidetonePitch = cfgData.SidetonePitch;
-                            i_CWReverse = cfgData.CWReverse;
-                            i_CWL = (cfgData.CWLEnabled) ?
-                                OffOnValues.on : OffOnValues.off;
-                            i_Keyer = cfgData.Keyer;
-                            i_KeyerSpeed = cfgData.KeyerSpeed;
-                        }
+                        // READ ONLY. The operator's saved CW keyer setup is
+                        // pushed to the radio (audit 2.15's automatic half)
+                        // by ApplyKeyerRestoreToRadio, INSIDE the owner
+                        // initialisation of the established-station phase,
+                        // under the full gate and before the final profile
+                        // decisions and the assessment (Track G3). Until then
+                        // the writes ran here, after both. The file is read
+                        // here too so the local mirror stays whole.
                     }
                     catch (Exception ex)
                     {

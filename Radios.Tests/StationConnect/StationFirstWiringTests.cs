@@ -331,7 +331,9 @@ namespace Radios.Tests.StationConnect
             int refusal = IndexOf(text, "private string DeferredLiveAudioRefusal(string presetName, AudioChainPreset payload)");
             string body = text.Substring(refusal, Math.Min(2500, text.Length - refusal));
             Assert.Contains("DeferredLiveAudioGate.Refusal(", body, StringComparison.Ordinal);
-            Assert.Contains("StrictRoster = RosterJudgementForAutomaticWrite().Verdict", body, StringComparison.Ordinal);
+            // The GUEST'S authority, not the owner's ruled one (Track G3).
+            Assert.Contains("StrictRoster = RosterJudgementForGuestSharedWrite().Verdict", body, StringComparison.Ordinal);
+            Assert.DoesNotContain("StrictRoster = RosterJudgementForAutomaticWrite().Verdict", body, StringComparison.Ordinal);
             Assert.DoesNotContain("RosterJudgementNow()", body, StringComparison.Ordinal);
         }
 
@@ -377,18 +379,42 @@ namespace Radios.Tests.StationConnect
         [Fact]
         public void TheGenericTransmitChainWritesAreOwnerOnly_AndInsideTheEstablishedStationPhase()
         {
-            // MicInput, VOX, CW break-in and TX1 are RunOwnerInitialization,
-            // called by the orchestrator only under the full gate; the keyer
-            // restore is permitted there and applied by issue7620 once the
-            // loop is up. Nothing in mainThreadProc writes them any more.
+            // TNF, MicInput, VOX, CW break-in, TX1 AND the keyer restore are
+            // RunOwnerInitialization, dispatched by the orchestrator only
+            // under the full gate with the recheck at the write (Track G3).
+            // Nothing in mainThreadProc, issue7620 or Connect writes them.
             var text = Read(FlexBase);
-            Assert.Contains("OwnerKeyerRestorePermitted(\"issue7620 CW keyer restore on open\")", text, StringComparison.Ordinal);
             int main = IndexOf(text, "private void mainThreadProc()");
             int end = text.IndexOf("public class cfg7620", main, StringComparison.Ordinal);
             string body = text.Substring(main, end - main);
             Assert.DoesNotContain("MicInput = \"mic\"", body, StringComparison.Ordinal);
             Assert.DoesNotContain("TX1Enabled = true", body, StringComparison.Ordinal);
             Assert.DoesNotContain("SimpleVOXEnable = false", body, StringComparison.Ordinal);
+            Assert.DoesNotContain("i_BreakinDelay = cfgData.BreakinDelay;", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("OwnerKeyerRestorePermitted(", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("theRadio.TNFEnabled = true", text, StringComparison.Ordinal);
+
+            var station = Read(FlexBaseStation);
+            int init = IndexOf(station, "private ProfileActionOutcome RunOwnerInitialization(StationOperation operation, Func<string> refusalAtWrite)");
+            string initBody = station.Substring(init, 2500);
+            int dispatch = initBody.IndexOf("DispatchStationWork(\"owner initialisation\"", StringComparison.Ordinal);
+            int recheck = initBody.IndexOf("refusal = refusalAtWrite?.Invoke();", StringComparison.Ordinal);
+            int tnf = initBody.IndexOf("r.TNFEnabled = true;", StringComparison.Ordinal);
+            int keyer = initBody.IndexOf("ApplyKeyerRestoreToRadio(r);", StringComparison.Ordinal);
+            Assert.True(dispatch > 0 && recheck > dispatch && tnf > recheck && keyer > tnf,
+                "owner initialisation must dispatch, recheck, then write TNF and the keyer inside the delegate");
+        }
+
+        [Fact]
+        public void TheShackSpeakerMuteWrites_GoThroughTheOwnerGate()
+        {
+            var text = Read(FlexBase);
+            Assert.Contains("OwnerSharedWriteSkips(\"IsMuteLocalAudioWhenRemoteOn=false on local connect\")", text, StringComparison.Ordinal);
+            Assert.Contains("OwnerSharedWriteSkips(\"IsMuteLocalAudioWhenRemoteOn=true on remote audio start\")", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("GuardSkips(\"IsMuteLocalAudioWhenRemoteOn", text, StringComparison.Ordinal);
+            var station = Read(FlexBaseStation);
+            int gate = IndexOf(station, "private bool OwnerSharedWriteSkips(string what)");
+            Assert.Contains("OwnerSharedWriteGate.Refusal(ReadStationPolicyFacts(), RosterJudgementForAutomaticWrite())", station.Substring(gate, 600), StringComparison.Ordinal);
         }
 
         [Fact]

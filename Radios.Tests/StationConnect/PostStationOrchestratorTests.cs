@@ -35,6 +35,10 @@ namespace Radios.Tests.StationConnect
             WantedGlobal = "K5NER", WantedTx = "K5NER-TX", WantedMic = "K5NER-MIC", Serial = "1234-5678-9012-3456",
         };
         public RosterVerdict Roster = RosterVerdict.OnlyUs;
+        /// <summary>The GUEST'S authority verdict. Unknown by default, as
+        /// production's StationPolicies.GuestSharedWriteAuthority is; a test
+        /// of the guest route sets OnlyUs as its positive control.</summary>
+        public RosterVerdict GuestRoster = RosterVerdict.Unknown;
         public bool? RadioAutosave = false;
         public string LocalTxProfile = "";
         public bool LocalTxProfileExists;
@@ -93,7 +97,8 @@ namespace Radios.Tests.StationConnect
             UnsavedTx = Facts.UnsavedTx, UnsavedMic = Facts.UnsavedMic,
         };
 
-        public RosterJudgement RosterForAutomaticWrite() => new RosterJudgement(Roster, "fake roster", 1);
+        public RosterJudgement RosterForAutomaticWrite() => new RosterJudgement(Roster, "fake owner roster", 1);
+        public RosterJudgement RosterForGuestSharedWrite() => new RosterJudgement(GuestRoster, "fake guest roster", 1);
 
         public ProfileSituation ReadBaseSituation() => new ProfileSituation
         {
@@ -174,7 +179,17 @@ namespace Radios.Tests.StationConnect
         public SelectionObservation LatestReportedSelection(ProfileTypes type) => Evidence.Snapshot().ReportedSelectionOf(type);
         public long ProfileSequence => Evidence.Sequence;
 
-        public void RunOwnerInitialization() => Log.Add("owner-init");
+        /// <summary>Runs before the owner initialisation's recheck.</summary>
+        public Action BeforeOwnerInit;
+
+        public ProfileActionOutcome RunOwnerInitialization(Func<string> refusalAtWrite)
+        {
+            BeforeOwnerInit?.Invoke();
+            string refusal = refusalAtWrite();
+            if (refusal != null) { Log.Add("owner-init refused " + refusal); return ProfileActionOutcome.Refused; }
+            Log.Add("owner-init");
+            return ProfileActionOutcome.Confirmed;
+        }
 
         /// <summary>Runs before a live-audio step's recheck, so a test can
         /// change the world between the plan and the step's write.</summary>
@@ -523,9 +538,68 @@ namespace Radios.Tests.StationConnect
         // ── the live transmit-audio path, under the STRICT roster test (part three) ──
 
         [Fact]
+        public void TheSameOneHandleRoster_LetsTheOwnerLoad_AndKeepsTheGuestRouteClosed()
+        {
+            // Track G2 re-review, section 4: the owner's ruled live-membership
+            // authority must not become the guest's. One snapshot, our handle
+            // alone and identity-bearing: Mine may send; UseMyTransmitAudio
+            // may not, because the GUEST'S authority is still Unknown.
+            var owner = new Rig();                                   // Roster OnlyUs, GuestRoster Unknown (the defaults)
+            var ownerResult = owner.Run(Established());
+            Assert.Equal(PostStationOutcome.Completed, ownerResult.Outcome);
+            Assert.True(ownerResult.OwnerInitialisationRan);
+            Assert.Equal(2, owner.Port.Sent.Count);
+
+            var guest = new Rig();
+            guest.Port.Facts.Ownership = RadioOwnership.SomeoneElses;
+            guest.Port.Facts.Intent = ProfileGuestIntent.UseMyTransmitAudio;
+            guest.Port.LocalTxProfile = "Contest"; guest.Port.LocalTxProfileExists = true;
+            guest.Port.RadioAutosave = true;
+            var station = Established(); station.Outcome = StationOutcome.PolicySkipped;
+            station.Allocation.Stop = AllocationStop.TargetReached; station.Allocation.OwnSlicesAtEnd = 2;
+
+            var guestResult = guest.Run(station);
+
+            Assert.Equal(RosterVerdict.OnlyUs, guest.Port.RosterForAutomaticWrite().Verdict);   // the same snapshot says only us
+            Assert.Empty(guest.Port.LiveAudioRun);                                               // and the guest route stays closed
+            Assert.Empty(guest.Port.Sent);
+            Assert.False(guestResult.LiveAudioDeferred);
+            Assert.False(guestResult.LiveAudioApplied);
+            // Closed at the ROUTE, not merely refused step by step: no live
+            // step was even attempted, and nothing aborted.
+            Assert.False(guestResult.LiveAudioAborted);
+            Assert.DoesNotContain(guest.Port.Log, l => l.StartsWith("live ", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void TheProductionDefaults_KeepTheGuestSharedWriteAuthorityUnknown()
+        {
+            var defaults = StationPolicies.Defaults();
+            Assert.Same(RosterAuthorityUnknownPolicy.Instance, defaults.GuestSharedWriteAuthority);
+            Assert.Same(RosterAuthorityByLiveMembershipPolicy.Instance, defaults.RosterAuthority);
+            Assert.Contains("guest shared write", defaults.Describe());
+        }
+
+        [Fact]
+        public void OwnerInitialisation_RefusedAtItsWrite_StopsThePhase_BeforeAnySelection()
+        {
+            var r = new Rig();
+            r.Port.BeforeOwnerInit = () => r.Port.Roster = RosterVerdict.OthersPresent;
+
+            var result = r.Run(Established());
+
+            Assert.Equal(PostStationOutcome.Stopped, result.Outcome);
+            Assert.False(result.OwnerInitialisationRan);
+            Assert.Empty(r.Port.Sent);
+            Assert.Contains(r.Port.Log, l => l.StartsWith("owner-init refused", StringComparison.Ordinal));
+            Assert.False(result.MayRepairMicrophone);
+        }
+
+        [Fact]
         public void TheLiveAudioRoute_RunsUnderTheStrictRoster_AutosaveThenCaptureThenApply()
         {
             var r = new Rig();
+            r.Port.GuestRoster = RosterVerdict.OnlyUs;                 // the positive control's authority, not production's
             r.Port.Facts.Ownership = RadioOwnership.SomeoneElses;
             r.Port.Facts.Intent = ProfileGuestIntent.UseMyTransmitAudio;
             r.Port.LocalTxProfile = "Contest"; r.Port.LocalTxProfileExists = true;
@@ -554,7 +628,7 @@ namespace Radios.Tests.StationConnect
             r.Port.Facts.Intent = ProfileGuestIntent.UseMyTransmitAudio;
             r.Port.LocalTxProfile = "Contest"; r.Port.LocalTxProfileExists = true;
             r.Port.RadioAutosave = true;
-            r.Port.Roster = roster;
+            r.Port.GuestRoster = roster;
             var station = Established(); station.Outcome = StationOutcome.PolicySkipped;
             station.Allocation.Stop = AllocationStop.TargetReached; station.Allocation.OwnSlicesAtEnd = 2;
 
@@ -563,6 +637,8 @@ namespace Radios.Tests.StationConnect
             Assert.Empty(r.Port.LiveAudioRun);
             Assert.False(result.LiveAudioDeferred);
             Assert.False(result.LiveAudioApplied);
+            Assert.False(result.LiveAudioAborted);                                     // closed at the route, nothing attempted
+            Assert.DoesNotContain(r.Port.Log, l => l.StartsWith("live ", StringComparison.Ordinal));
         }
 
         [Theory]
@@ -579,13 +655,14 @@ namespace Radios.Tests.StationConnect
             r.Port.Facts.Intent = ProfileGuestIntent.UseMyTransmitAudio;
             r.Port.LocalTxProfile = "Contest"; r.Port.LocalTxProfileExists = true;
             r.Port.RadioAutosave = true;
+            r.Port.GuestRoster = RosterVerdict.OnlyUs;                 // the positive control's authority
             r.Port.BeforeLiveAudioStep = kind =>
             {
                 if (kind != step) return;
                 switch (what)
                 {
                     case "hold": r.Port.Facts.HoldArmed = true; break;
-                    case "join": r.Port.Roster = RosterVerdict.OthersPresent; break;
+                    case "join": r.Port.GuestRoster = RosterVerdict.OthersPresent; break;
                     case "intent": r.Port.Facts.Intent = ProfileGuestIntent.LeaveAlone; break;
                 }
             };
@@ -605,6 +682,7 @@ namespace Radios.Tests.StationConnect
         public void AutosaveNotConfirmedOff_AbortsBeforeCapture()
         {
             var r = new Rig();
+            r.Port.GuestRoster = RosterVerdict.OnlyUs;
             r.Port.Facts.Ownership = RadioOwnership.SomeoneElses;
             r.Port.Facts.Intent = ProfileGuestIntent.UseMyTransmitAudio;
             r.Port.LocalTxProfile = "Contest"; r.Port.LocalTxProfileExists = true;
@@ -624,6 +702,7 @@ namespace Radios.Tests.StationConnect
         public void ACaptureThatExpires_AbortsBeforeApply_AndGivesAutosaveBack()
         {
             var r = new Rig();
+            r.Port.GuestRoster = RosterVerdict.OnlyUs;
             r.Port.Facts.Ownership = RadioOwnership.SomeoneElses;
             r.Port.Facts.Intent = ProfileGuestIntent.UseMyTransmitAudio;
             r.Port.LocalTxProfile = "Contest"; r.Port.LocalTxProfileExists = true;

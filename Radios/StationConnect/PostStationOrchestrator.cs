@@ -84,8 +84,13 @@ namespace Radios.StationConnect
     {
         StationPolicyFacts ReadPolicyFacts();
 
-        /// <summary>The verdict an automatic shared write must obtain.</summary>
+        /// <summary>The verdict the OWNER'S automatic shared write must obtain.</summary>
         RosterJudgement RosterForAutomaticWrite();
+
+        /// <summary>The verdict a GUEST'S shared write (the live-audio route)
+        /// must obtain: a separate authority, Unknown in production until a
+        /// bench establishes it (see <see cref="StationPolicies.GuestSharedWriteAuthority"/>).</summary>
+        RosterJudgement RosterForGuestSharedWrite();
 
         /// <summary>The connection-level facts of a situation with NO type
         /// states: connected, hold, ownership, intent, reported autosave, the
@@ -114,9 +119,12 @@ namespace Radios.StationConnect
         /// <summary>The profile-evidence sequence now, for "after the send".</summary>
         long ProfileSequence { get; }
 
-        /// <summary>The owner's generic initialisation: MicInput, VOX, CW
-        /// break-in, TX1, the keyer restore. Called only under the full gate.</summary>
-        void RunOwnerInitialization();
+        /// <summary>The owner's generic initialisation: TNF, MicInput, VOX,
+        /// CW break-in, TX1, the keyer restore. Called only under the full
+        /// gate; the delegate MUST call <paramref name="refusalAtWrite"/>
+        /// immediately before writing and refuse on a non-null answer.
+        /// Returns Confirmed (written), Refused, or Queued.</summary>
+        ProfileActionOutcome RunOwnerInitialization(Func<string> refusalAtWrite);
 
         /// <summary>One live-audio step (autosave off, capture, apply). The
         /// delegate MUST call <paramref name="refusalAtSend"/> immediately
@@ -191,6 +199,7 @@ namespace Radios.StationConnect
             var phase = StationDeadline.In(_clock, _deadlines.PostStationPhaseMs);
             var factsAtPlan = _port.ReadPolicyFacts();
             var rosterAuto = _port.RosterForAutomaticWrite();
+            var rosterGuest = _port.RosterForGuestSharedWrite();
             var baseSituation = _port.ReadBaseSituation() ?? new ProfileSituation { Connected = false };
             result.Situation = baseSituation;
             baseSituation.StationPresent = station.OwnSlicesAtEnd > 0 || baseSituation.StationPresent;
@@ -198,7 +207,7 @@ namespace Radios.StationConnect
             baseSituation.OnlyStationUnknown = rosterAuto.Verdict == RosterVerdict.Unknown;
 
             _port.Trace("post-station phase — station " + station.Outcome + ", established=" + station.StationEstablished
-                + ", facts " + factsAtPlan + ", roster(auto) " + rosterAuto);
+                + ", facts " + factsAtPlan + ", roster(owner) " + rosterAuto + ", roster(guest) " + rosterGuest);
 
             if (!station.StationEstablished)
             {
@@ -220,25 +229,42 @@ namespace Radios.StationConnect
                 return result;
             }
 
-            // The gates. Automatic shared writes: connected, hold off, Mine,
-            // opted in, and the roster authoritative-only-us. The live-audio
-            // route: the STRICT roster test, the same as every other shared
-            // write (ruled 2026-09-22), plus the intent and the hold.
+            // The gates. The OWNER'S automatic shared writes: connected, hold
+            // off, Mine, opted in, and the owner's roster authority saying
+            // only us. The GUEST'S live-audio route: the strict roster test
+            // under the guest's SEPARATE authority (Track G3; Track G2 had
+            // applied the owner's ruled relaxation to this route too), plus
+            // the intent and the hold.
             bool mayWriteShared = ProfileStewardship.MayWriteSharedStateAutomatically(baseSituation)
                                   && rosterAuto.Verdict == RosterVerdict.OnlyUs;
             bool liveAudioRoute = baseSituation.Intent == ProfileGuestIntent.UseMyTransmitAudio
                                   && baseSituation.Connected && !baseSituation.ChangeNothingArmed
-                                  && rosterAuto.Verdict == RosterVerdict.OnlyUs;
+                                  && rosterGuest.Verdict == RosterVerdict.OnlyUs;
 
-            // ── owner initialisation, before the final profile choices ──
+            // ── owner initialisation, before the final profile choices, with
+            //    the recheck at its write ──
             if (mayWriteShared)
             {
-                _port.RunOwnerInitialization();
-                result.OwnerInitialisationRan = true;
+                var init = _port.RunOwnerInitialization(() => OwnerInitRefusalAtWrite(operation, phase, factsAtPlan));
+                if (init == ProfileActionOutcome.Confirmed)
+                {
+                    result.OwnerInitialisationRan = true;
+                }
+                else
+                {
+                    // A permission that changed before the first shared write
+                    // has changed for every one after it.
+                    result.Outcome = init == ProfileActionOutcome.Refused ? PostStationOutcome.Stopped : PostStationOutcome.Unconfirmed;
+                    result.Reason = "owner initialisation was " + init + " at its write; nothing after it runs";
+                    _port.Trace(result.Reason, warn: true);
+                    result.MayRepairMicrophone = false;
+                    _port.Conclude(result);
+                    return result;
+                }
             }
             else
             {
-                _port.Trace("owner initialisation (MicInput, VOX, CW break-in, TX1, keyer) NOT run — "
+                _port.Trace("owner initialisation (TNF, MicInput, VOX, CW break-in, TX1, keyer) NOT run — "
                     + (baseSituation.ChangeNothingArmed ? "the hold is armed"
                         : baseSituation.Ownership != RadioOwnership.Mine ? "not the declared owner"
                         : baseSituation.Intent != ProfileGuestIntent.LoadMineAndPutBack ? "intent is " + baseSituation.Intent
@@ -325,7 +351,7 @@ namespace Radios.StationConnect
                 if (!liveAudioRoute)
                 {
                     foreach (var a in liveAudioActions)
-                        _port.Trace("NOT running " + a + " — the live transmit-audio route is not open on this connection (roster: " + rosterAuto + ")");
+                        _port.Trace("NOT running " + a + " — the live transmit-audio route is not open on this connection (guest roster authority: " + rosterGuest + ")");
                 }
                 else
                 {
@@ -404,8 +430,24 @@ namespace Radios.StationConnect
             if (now.HoldArmed) return "the change-nothing hold is armed";
             if (now.Intent != ProfileGuestIntent.UseMyTransmitAudio) return "the intent for this radio is no longer transmit audio (" + now.Intent + ")";
             if (!string.Equals(now.Serial, factsAtPlan.Serial, StringComparison.Ordinal)) return "a different radio is connected";
+            var roster = _port.RosterForGuestSharedWrite();
+            if (roster.Verdict != RosterVerdict.OnlyUs) return "guest roster authority at dispatch: " + roster;
+            return null;
+        }
+
+        /// <summary>The recheck inside the owner initialisation's dispatched
+        /// write: the operation, the phase, the facts at planning, the
+        /// stewardship refusal, and the owner's roster authority.</summary>
+        private string OwnerInitRefusalAtWrite(StationOperation operation, StationDeadline phase, StationPolicyFacts factsAtPlan)
+        {
+            if (operation.IsEnded) return "operation ended: " + operation.WhyNotLive;
+            if (phase.Passed(_clock)) return "the queued owner initialisation ran after the post-station phase had ended";
+            var now = _port.ReadPolicyFacts();
+            if (!now.SameAutomaticPermissionAs(factsAtPlan)) return "policy changed before the write (" + now + ")";
+            string refusal = StationCoordinator.AutomaticStewardshipRefusal(now);
+            if (refusal != null) return refusal;
             var roster = _port.RosterForAutomaticWrite();
-            if (roster.Verdict != RosterVerdict.OnlyUs) return "roster at dispatch: " + roster;
+            if (roster.Verdict != RosterVerdict.OnlyUs) return "roster at the write: " + roster;
             return null;
         }
 

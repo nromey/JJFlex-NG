@@ -166,6 +166,36 @@ namespace Radios.Tests.StationConnect
             Assert.Equal(before + 1, r.Profiles.Snapshot().TxChainGeneration);
         }
 
+        // ── owner initialisation on a real rig: refused at the write sends nothing (Track G3, group 5) ──
+
+        private static readonly MethodInfo OwnerInit =
+            typeof(FlexBase).GetMethod("RunOwnerInitialization", BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+        [Fact]
+        public void OwnerInitialisation_RefusedAtItsWrite_SendsNothing_PermittedItWritesTnfAndTheKeyer()
+        {
+            Assert.NotNull(OwnerInit);
+            var refused = NewRig();
+            var op1 = refused.Rig.StationAttempt.BeginOperation("connect");
+            var r1 = (ProfileActionOutcome)OwnerInit.Invoke(refused.Rig, new object[] { op1, (Func<string>)(() => "another operator joined") })!;
+            Assert.Equal(ProfileActionOutcome.Refused, r1);
+            Assert.Empty(refused.Vendor.Transport.Commands);
+
+            // The positive control: permitted, the whole set goes out
+            // through the vendor transport, TNF and the keyer included.
+            var permitted = NewRig();
+            var op2 = permitted.Rig.StationAttempt.BeginOperation("connect");
+            var r2 = (ProfileActionOutcome)OwnerInit.Invoke(permitted.Rig, new object[] { op2, (Func<string>)(() => null) })!;
+            Assert.Equal(ProfileActionOutcome.Confirmed, r2);
+            var commands = permitted.Vendor.Transport.Commands;
+            Assert.Contains(commands, c => c.StartsWith("radio set tnf_enabled=", StringComparison.Ordinal));
+            Assert.Contains(commands, c => c.StartsWith("interlock tx1_enabled=", StringComparison.Ordinal));
+            // The keyer restore writes only when the operator has a saved
+            // setup; this rig has no operator directory, so it is skipped
+            // and traced rather than thrown.
+            Assert.DoesNotContain(commands, c => c.Contains("break_in_delay", StringComparison.Ordinal));
+        }
+
         [Fact]
         public void ThePostImportApply_IsQueuedToTheGatedPath_NotRunUngated()
         {

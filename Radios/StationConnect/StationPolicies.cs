@@ -224,8 +224,24 @@ namespace Radios.StationConnect
         public ILoadCompletionPolicy LoadCompletion = LoadCompletionUnconfirmedPolicy.Instance;
         public IInitialMaterializationPolicy InitialMaterialization = MaterializationUnknownPolicy.Instance;
 
-        /// <summary>The production defaults: the ruled roster authority, and
-        /// completion and materialization fail-closed.</summary>
+        /// <summary>
+        /// The authority a GUEST'S shared write (the UseMyTransmitAudio
+        /// route: autosave off, the live chain) must obtain. SEPARATE from
+        /// <see cref="RosterAuthority"/> on purpose (Track G2 re-review,
+        /// section 4): Noel's 2026-09-22 ruling accepted live membership as
+        /// the OWNER'S defence in depth, and Track G2 applied that same
+        /// relaxation to the guest route, which the ruling never covered.
+        /// This stays Unknown — the route unreachable — until a bench
+        /// establishes what a complete roster looks like for a non-owner,
+        /// and until the legacy put-back executor can retain unresolved
+        /// snapshots and autosave obligations (re-review, group 3). A test's
+        /// positive control sets it; production does not.
+        /// </summary>
+        public IRosterAuthorityPolicy GuestSharedWriteAuthority = RosterAuthorityUnknownPolicy.Instance;
+
+        /// <summary>The production defaults: the ruled owner roster authority,
+        /// the guest authority unknown, and completion and materialization
+        /// fail-closed.</summary>
         public static StationPolicies Defaults() => new StationPolicies();
 
         private static StationPolicies _current = Defaults();
@@ -242,7 +258,32 @@ namespace Radios.StationConnect
         }
 
         public string Describe() =>
-            "roster: " + RosterAuthority.Name + "; completion: " + LoadCompletion.Name
-            + "; materialization: " + InitialMaterialization.Name;
+            "roster: " + RosterAuthority.Name + "; guest shared write: " + GuestSharedWriteAuthority.Name
+            + "; completion: " + LoadCompletion.Name + "; materialization: " + InitialMaterialization.Name;
+    }
+
+    /// <summary>
+    /// The gate for the OWNER'S automatic station-global writes that are not
+    /// profile stewardship: <c>radio set tnf_enabled</c> at connect and
+    /// <c>radio set mute_local_audio_when_remote</c> when audio starts. They
+    /// are station-scoped commands with no client handle (Track G2
+    /// re-review, section 2), so they are the owner's to make and nobody
+    /// else's, under the hold and the owner's roster authority. The profile
+    /// intent is deliberately not consulted: these are the app's operating
+    /// writes, not a profile choice.
+    /// </summary>
+    public static class OwnerSharedWriteGate
+    {
+        public static string Refusal(StationPolicyFacts f, RosterJudgement ownerRoster)
+        {
+            if (f == null) return "no facts";
+            if (f.HoldArmed) return "the change-nothing hold is armed";
+            if (!f.Connected) return "not connected";
+            if (f.Ownership != RadioOwnership.Mine)
+                return "this radio is not declared ours (" + f.Ownership + "); a guest writes nothing shared (#590)";
+            if (ownerRoster == null || ownerRoster.Verdict != RosterVerdict.OnlyUs)
+                return "roster: " + (ownerRoster?.ToString() ?? "unknown");
+            return null;
+        }
     }
 }
