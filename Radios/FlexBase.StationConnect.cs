@@ -1292,7 +1292,19 @@ namespace Radios
                 }
                 else if (p.Stop == PlacementStop.NoLayoutKnown)
                 {
-                    sentence = Lexicon.Get("settings.profile_station.company.no_layout_known");
+                    // RULED 2026-09-22 21:26. Noel: "The radio by default for
+                    // some reason gives you 14.100 default ... I suppose you
+                    // could tell the ham and then just give 'em 14.100,
+                    // better to give them something rather than nothing."
+                    // Say how many slices there are and that the RADIO chose
+                    // the frequency; the app never names one.
+                    int added = station.Allocation.Obtained;
+                    sentence = added == 0
+                        ? Lexicon.Get("settings.profile_station.company.no_layout_known_none")
+                        : added == 1
+                            ? Lexicon.Get("settings.profile_station.company.no_layout_known_one")
+                            : Lexicon.Get("settings.profile_station.company.no_layout_known_many",
+                                ("slices", added.ToString()));
                 }
                 else
                 {

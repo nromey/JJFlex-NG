@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -500,26 +500,31 @@ namespace Radios.StationConnect
             // Case 2 (the owner with company): the allocation is BOUND to the
             // remembered layout, read BEFORE anything is requested — two
             // remembered slices on four free slots ask for two, never four
-            // (Track G3; re-review section 5). No remembered layout, no
-            // request: there is nothing to put on a slice, and padding is
-            // what the ruling forbids. Track G2 allocated to the legacy
-            // target first and read the layout afterwards.
+            // (Track G3; re-review section 5). Track G2 allocated to the
+            // legacy target first and read the layout afterwards.
+            //
+            // With NO remembered layout, the bound is two slices at the
+            // radio's own defaults, and the operator is told. RULED by Noel
+            // 2026-09-22 21:26, in his words: "The radio by default for some
+            // reason gives you 14.100 default ... I suppose you could tell
+            // the ham and then just give 'em 14.100, better to give them
+            // something rather than nothing." Track G3 had read "never pad"
+            // literally here and returned no slices at all. "Never pad"
+            // still stands for an owner WITH a layout: the target is the
+            // layout's count, never the legacy latch.
             StationLayout companyLayout = null;
             int? layoutBound = null;
+            bool noLayoutKnown = false;
             if (result.OwnerRefusedForCompany)
             {
                 companyLayout = _port.ReadOwnerSavedLayout();
                 if (companyLayout == null || companyLayout.IsEmpty)
                 {
-                    result.Allocation.Stop = AllocationStop.NoTarget;
-                    result.Allocation.OwnSlicesAtEnd = ownNow;
-                    result.Allocation.Note = "no remembered layout for this radio on this machine; nothing requested (never pad)";
-                    result.Placement.Stop = PlacementStop.NoLayoutKnown;
-                    result.Placement.Note = "this machine holds no station layout for this radio";
-                    return Finish(result, StationOutcome.PolicySkipped, result.Route,
-                        why + "; no remembered layout, so no slice was requested and nothing was placed");
+                    companyLayout = null;
+                    noLayoutKnown = true;
+                    layoutBound = StationLayout.SlicesWithNoRememberedLayout;
                 }
-                layoutBound = companyLayout.Slices.Count;
+                else layoutBound = companyLayout.Slices.Count;
             }
 
             // The operator's current receive and transmit slices are captured
@@ -561,7 +566,18 @@ namespace Radios.StationConnect
             // Case 2: the owner's saved frequencies on the free slices just
             // obtained. Small, per-client, confirmable actions where the big
             // unconfirmable one is refused.
-            if (result.OwnerRefusedForCompany && allocation.Obtained > 0)
+            if (result.OwnerRefusedForCompany && noLayoutKnown)
+            {
+                // Nothing to tune TO, so nothing is tuned — the slices sit on
+                // whatever the radio chose, which is the ruled outcome and
+                // not a failure. The sentence says so (ruled 2026-09-22 21:26).
+                result.Placement.Stop = PlacementStop.NoLayoutKnown;
+                result.Placement.Note = allocation.Obtained > 0
+                    ? "this machine holds no station layout for this radio; " + allocation.Obtained
+                      + " slice(s) were asked for at the radio's own defaults and nothing was tuned"
+                    : "this machine holds no station layout for this radio, and no free slice was obtained";
+            }
+            else if (result.OwnerRefusedForCompany && allocation.Obtained > 0)
             {
                 result.Placement = PlaceOwnerFrequencies(phase, seqBeforeAllocation, allocation, companyLayout);
             }
@@ -760,8 +776,10 @@ namespace Radios.StationConnect
         }
 
         /// <param name="layoutBound">When set, the number of slices the
-        /// remembered layout has: the target is that, clipped to current
-        /// capacity, and the legacy startup latch is not consulted at all.</param>
+        /// remembered layout has — or <see cref="StationLayout.SlicesWithNoRememberedLayout"/>
+        /// when there is no layout to remember. The target is that, clipped
+        /// to current capacity, and the legacy startup latch is not
+        /// consulted at all.</param>
         private AllocationResult Allocate(StationDeadline phase, int? layoutBound = null)
         {
             var alloc = new AllocationResult();

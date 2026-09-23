@@ -131,23 +131,82 @@ namespace Radios.Tests.StationConnect
         }
 
         [Fact]
-        public void OwnerWithCompany_NoLayoutKnown_RequestsNothing_TunesNothing_AndSaysSo()
+        public void OwnerWithCompany_NoLayoutKnown_GetsTwoSlicesAtTheRadiosOwnDefaults_TunesNothing_AndSaysSo()
         {
-            // Never pad (ruled 2026-09-21 and 2026-09-22): with nothing to
-            // put on a slice, no slice is requested. Until Track G3 this
-            // allocated to the legacy target first and read the layout after.
+            // RULED 2026-09-22 21:26. Noel: "The radio by default for some
+            // reason gives you 14.100 default ... I suppose you could tell
+            // the ham and then just give 'em 14.100, better to give them
+            // something rather than nothing." Track G3 read "never pad"
+            // literally here and returned nothing at all.
             var h = OwnerWithCompany();
+            h.Port.Capacity = 4;
+            h.Port.LegacyTarget = 4;
+            h.Port.OwnerLayout = null;
+
+            var r = h.Run();
+
+            // Two, written out: an assertion against the constant would move
+            // with it and prove nothing (the mutation run caught exactly
+            // that). The constant is pinned separately, on the next line.
+            Assert.Equal(2, StationLayout.SlicesWithNoRememberedLayout);
+            Assert.Equal(2, h.Port.PanafallRequests);
+            Assert.Equal(2, r.OwnSlicesAtEnd);
+            // Two, not the legacy four: the no-layout default is a bound of
+            // its own, and the latch is still never consulted.
+            Assert.Equal(2, r.Allocation.Target);
+            // The RADIO chooses the frequency; we send no tune at all.
+            Assert.Empty(h.Port.TunesSent);
+            Assert.Equal(PlacementStop.NoLayoutKnown, r.Placement.Stop);
+            Assert.Contains("no station layout", r.Placement.Note);
+            Assert.True(r.OwnerRefusedForCompany);
+            Assert.Empty(h.Port.GlobalLoadsSent);
+        }
+
+        [Fact]
+        public void OwnerWithCompany_NoLayoutKnown_AndOnlyOneFreeSlice_GetsOne()
+        {
+            // Clipped to capacity like every other allocation; the sentence
+            // that follows says one (ruled 2026-09-22 21:26).
+            var h = OwnerWithCompany();
+            h.Port.Capacity = 1;
+            h.Port.OwnerLayout = null;
+
+            var r = h.Run();
+
+            Assert.Equal(1, h.Port.PanafallRequests);
+            Assert.Equal(1, r.Allocation.Obtained);
+            Assert.Empty(h.Port.TunesSent);
+            Assert.Equal(PlacementStop.NoLayoutKnown, r.Placement.Stop);
+        }
+
+        [Fact]
+        public void OwnerWithCompany_NoLayoutKnown_AndNoFreeSlice_SaysNoneWasFree()
+        {
+            var h = OwnerWithCompany();
+            h.Port.Capacity = 0;
             h.Port.OwnerLayout = null;
 
             var r = h.Run();
 
             Assert.Equal(0, h.Port.PanafallRequests);
-            Assert.Empty(h.Port.TunesSent);
-            Assert.Equal(AllocationStop.NoTarget, r.Allocation.Stop);
-            Assert.Contains("never pad", r.Allocation.Note);
+            Assert.Equal(0, r.Allocation.Obtained);
             Assert.Equal(PlacementStop.NoLayoutKnown, r.Placement.Stop);
-            Assert.Equal(0, r.OwnSlicesAtEnd);
-            Assert.True(r.OwnerRefusedForCompany);
+            Assert.Contains("no free slice was obtained", r.Placement.Note);
+        }
+
+        [Fact]
+        public void OwnerWithARememberedLayout_IsStillNeverToppedUpToTheLegacyLatch()
+        {
+            // What the 21:26 ruling did NOT change: an owner WITH a layout
+            // gets the layout's count, never the legacy startup target.
+            var h = OwnerWithCompany();
+            h.Port.Capacity = 4;
+            h.Port.LegacyTarget = 4;
+
+            var r = h.Run();
+
+            Assert.Equal(2, r.Allocation.Target);
+            Assert.Equal(2, h.Port.PanafallRequests);
         }
 
         [Fact]
@@ -480,7 +539,10 @@ namespace Radios.Tests.StationConnect
         {
             foreach (var key in new[]
             {
-                "settings.profile_station.company.frequencies_placed", "settings.profile_station.company.no_layout_known",
+                "settings.profile_station.company.frequencies_placed",
+                "settings.profile_station.company.no_layout_known_many",
+                "settings.profile_station.company.no_layout_known_one",
+                "settings.profile_station.company.no_layout_known_none",
                 "settings.profile_station.company.nothing_placed", "settings.profile_station.company.brief",
                 "settings.profile_station.requested.loaded", "settings.profile_station.requested.sent_unconfirmed",
                 "settings.profile_station.requested.not_sent", "settings.profile_station.offer.title",
@@ -491,6 +553,20 @@ namespace Radios.Tests.StationConnect
                 Assert.False(string.IsNullOrWhiteSpace(Lexicon.Get(key)), key);
             }
             Assert.Equal("profile-station-company", Speech.SpeechSubject.ProfileStationCompany);
+
+            // The 21:26 ruling in prose: the RADIO chose the frequency, and
+            // this app never names one. Read assembled, not as fragments.
+            string two = Lexicon.Get("settings.profile_station.company.no_layout_known_many", ("slices", "2"));
+            string one = Lexicon.Get("settings.profile_station.company.no_layout_known_one");
+            string none = Lexicon.Get("settings.profile_station.company.no_layout_known_none");
+            Assert.Contains("2 slices on the radio's own default frequency", two, StringComparison.Ordinal);
+            Assert.Contains("one slice on the radio's own default frequency", one, StringComparison.Ordinal);
+            Assert.Contains("no slice was free", none, StringComparison.Ordinal);
+            foreach (var s in new[] { two, one, none })
+            {
+                Assert.DoesNotContain("14.100", s, StringComparison.Ordinal);
+                Assert.DoesNotContain("{", s, StringComparison.Ordinal);
+            }
 
             var dir = new DirectoryInfo(AppContext.BaseDirectory);
             while (dir != null && !File.Exists(Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;

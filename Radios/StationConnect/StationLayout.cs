@@ -26,6 +26,18 @@ namespace Radios.StationConnect
     /// </summary>
     public sealed class StationLayout
     {
+        /// <summary>
+        /// How many slices a connect asks for when this computer holds no
+        /// remembered layout for the radio. RULED by Noel 2026-09-22 21:26,
+        /// in his words: <i>"The radio by default for some reason gives you
+        /// 14.100 default ... I suppose you could tell the ham and then just
+        /// give 'em 14.100, better to give them something rather than
+        /// nothing."</i> So two slices, clipped to free capacity, left on
+        /// whatever frequency the RADIO chooses — this app never names one.
+        /// The same allocation a first-time guest gets.
+        /// </summary>
+        public const int SlicesWithNoRememberedLayout = 2;
+
         public List<SliceLayoutEntry> Slices { get; set; } = new List<SliceLayoutEntry>();
         public DateTime RecordedUtc { get; set; }
         public string ProfileName { get; set; } = "";
@@ -40,7 +52,10 @@ namespace Radios.StationConnect
     public enum PlacementStop
     {
         NotAttempted,
-        /// <summary>No layout is known for this radio on this machine.</summary>
+        /// <summary>No layout is known for this radio on this machine, so
+        /// nothing was tuned. It is a reason, not a refusal to allocate: the
+        /// slices are still asked for, at the radio's own defaults (ruled
+        /// 2026-09-22 21:26; see <see cref="StationLayout.SlicesWithNoRememberedLayout"/>).</summary>
         NoLayoutKnown,
         /// <summary>No free slice was obtained to place anything on.</summary>
         NoSlices,
