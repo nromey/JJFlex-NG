@@ -223,6 +223,42 @@ namespace Radios.Tests.StationConnect
             Assert.Equal(ObservationProvenance.RadioReported, reported.Provenance);
         }
 
+        // ── the production inventory ask returns only an answer, never the cache ──
+
+        [Fact]
+        public void TheProductionInventoryAsk_ReturnsNullWhenNothingAnswers_EvenWithAListCached()
+        {
+            var rig = NewRig();
+            rig.Vendor.Status("profile global list=Default^K5NER");          // a list from earlier in the session
+            Assert.NotNull(rig.Profiles.Snapshot().GlobalList);
+
+            var answer = rig.ProductionPort().RequestGlobalInventory(150);   // the radio does not answer this ask
+
+            Assert.Null(answer);
+            Assert.Contains("profile global info", rig.Vendor.Transport.Commands);
+        }
+
+        [Fact]
+        public void TheProductionInventoryAsk_ReturnsTheAnswerThatArrivedAfterIt()
+        {
+            var rig = NewRig();
+            rig.Vendor.Status("profile global list=Default");
+            long seqBefore = rig.Profiles.Sequence;
+            var radioAnswers = new System.Threading.Thread(() =>
+            {
+                for (int i = 0; i < 100 && rig.Vendor.Transport.Written.Count == 0; i++) System.Threading.Thread.Sleep(10);
+                rig.Vendor.Status("profile global list=Default^K5NER-8600");
+            });
+            radioAnswers.Start();
+
+            var answer = rig.ProductionPort().RequestGlobalInventory(2000);
+            radioAnswers.Join();
+
+            Assert.NotNull(answer);
+            Assert.True(answer.Sequence > seqBefore);
+            Assert.True(answer.Contains("K5NER-8600"));
+        }
+
         // ── the evidence log keeps the last radio report through a local echo ──
 
         [Fact]

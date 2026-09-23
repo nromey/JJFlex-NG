@@ -150,10 +150,19 @@ namespace Radios.Tests.StationConnect
         public Action<IReadOnlyList<string>> DeliverFreshInventory;
         public Func<InventoryObservation> LatestInventory;
 
+        /// <summary>Runs inside the ask, before any answer: a test advances
+        /// the clock here to model a slow radio.</summary>
+        public Action OnInventoryRequested;
+
         public InventoryObservation RequestGlobalInventory(int timeoutMs)
         {
             InventoryRequests++;
-            if (FreshInventoryNames != null) DeliverFreshInventory?.Invoke(FreshInventoryNames.ToList());
+            OnInventoryRequested?.Invoke();
+            // The vendor's contract as the production port implements it:
+            // only an answer that arrived after the ask is returned; the
+            // cache is never the answer (Track G3).
+            if (FreshInventoryNames == null) return null;
+            DeliverFreshInventory?.Invoke(FreshInventoryNames.ToList());
             return LatestInventory?.Invoke();
         }
 

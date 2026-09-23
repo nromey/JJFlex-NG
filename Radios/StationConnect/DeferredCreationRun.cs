@@ -84,8 +84,13 @@ namespace Radios.StationConnect
                 if (deadline.Passed(_clock)) { refusal = "the queued save ran after its bound had ended"; return; }
 
                 // A FRESH inventory, asked for now, not the last cached list.
+                // The port returns only an answer that arrived after the ask;
+                // no answer is not absence, and the whole create's deadline
+                // is rechecked after the blocking read (Track G3).
                 var inventory = _port.RequestGlobalInventory(Math.Min(_deadlines.ProfileReadMs, deadline.RemainingMs(_clock)));
                 if (operation.IsEnded) { refusal = "the operation ended while the inventory was being read"; return; }
+                if (inventory == null) { refusal = "the fresh inventory ask was not answered inside its bound; a cached absence is not evidence, so nothing is sent"; return; }
+                if (deadline.Passed(_clock)) { refusal = "the create's bound ended while the inventory was being read"; return; }
 
                 var facts = _port.ReadPolicyFacts();
                 var decision = DeferredGlobalCreation.Decide(new CreationFacts
@@ -132,7 +137,9 @@ namespace Radios.StationConnect
             }
 
             result.SaveSent = true;
-            var readback = StationDeadline.In(_clock, _deadlines.DisconnectCreateConfirmMs);
+            // The readback shares the create's ONE deadline; it does not open
+            // a second full window after the first was spent (Track G3).
+            var readback = deadline;
             while (true)
             {
                 var inv = _profiles.Snapshot().GlobalList;
@@ -146,8 +153,8 @@ namespace Radios.StationConnect
                 if (readback.Passed(_clock) || operation.Attempt.IsCancelled)
                 {
                     result.Outcome = CreationOutcome.Unconfirmed;
-                    result.Reason = "the save command went out but the radio did not report '" + pending.Name + "' within "
-                        + _deadlines.DisconnectCreateConfirmMs + " ms — UNCONFIRMED, not claimed saved, not sent again";
+                    result.Reason = "the save command went out but the radio did not report '" + pending.Name + "' inside the create's "
+                        + (_deadlines.ProfileReadMs + _deadlines.DisconnectCreateConfirmMs) + " ms bound — UNCONFIRMED, not claimed saved, not sent again";
                     _port.Trace("saveNewGlobalProfile: " + result.Reason, isError: true);
                     return result;
                 }

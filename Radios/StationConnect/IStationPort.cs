@@ -162,10 +162,10 @@ namespace Radios.StationConnect
         void EndClientLocalAllocation(AllocationResult allocation);
 
         /// <summary>A FRESH, bounded <c>profile global info</c>: returns the
-        /// radio-reported inventory observation that answered it, or the
-        /// latest one held when nothing answered inside the bound (which the
-        /// caller distinguishes by sequence and provenance). Inside dispatched
-        /// work only.</summary>
+        /// radio-reported inventory observation that ANSWERED it, or null
+        /// when nothing answered inside the bound. Never the list the
+        /// session already held: a cached absence is not evidence of
+        /// absence now (Track G3). Inside dispatched work only.</summary>
         InventoryObservation RequestGlobalInventory(int timeoutMs);
 
         /// <summary>Send the global save. Inside dispatched work only, after

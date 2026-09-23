@@ -749,10 +749,17 @@ namespace Radios
             public InventoryObservation RequestGlobalInventory(int timeoutMs)
             {
                 // The answer arrives as a status message the property handler
-                // feeds into the evidence log; the read waits for it, and the
-                // caller judges the observation's sequence and provenance.
+                // feeds into the evidence log. Only an observation the radio
+                // made AFTER this ask is the answer; the list the session
+                // already held is returned by nothing here. Until Track G3
+                // this returned the cache whether or not the ask was answered,
+                // so a timed-out fresh read could authorise a save on a stale
+                // absence (Track G2 re-review, step 11).
+                long seqBefore = _rig.ProfileEvidence.Sequence;
                 _rig.ReadRadioProfileList(ProfileTypes.global, Math.Max(0, timeoutMs));
-                return _rig.ProfileEvidence.Snapshot().GlobalList;
+                var inv = _rig.ProfileEvidence.Snapshot().GlobalList;
+                if (inv == null || inv.Provenance != ObservationProvenance.RadioReported || inv.Sequence <= seqBefore) return null;
+                return inv;
             }
 
             public void SaveGlobalProfile(string name)

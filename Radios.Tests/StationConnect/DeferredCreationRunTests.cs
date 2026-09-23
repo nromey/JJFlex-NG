@@ -148,18 +148,58 @@ namespace Radios.Tests.StationConnect
         }
 
         [Fact]
-        public void TheFreshRequestThatNeverAnswers_IsNotAbsenceEvidence()
+        public void TheFreshRequestThatNeverAnswers_IsNotAbsenceEvidence_EvenWithAStaleAbsenceCached()
         {
-            var h = Armed();
-            h.Port.FreshInventoryNames = null;            // no answer inside the bound
-            h.Profiles.Reset(h.Gen);                       // and nothing reported before either
-            h.OurClientAdded();
+            // The case that mattered (Track G2 re-review, step 11): the
+            // session's CACHED list lacks the name — a stale absence — and
+            // the fresh ask times out. Until Track G3 the port returned the
+            // cache and this SAVED. Until Track G3 this test also emptied the
+            // cache first, which hid exactly that.
+            var h = Armed();                               // the cached list is "Default": the name is absent
+            h.Port.FreshInventoryNames = null;             // no answer inside the bound
+            Assert.NotNull(h.Profiles.Snapshot().GlobalList);
+            Assert.False(h.Profiles.Snapshot().GlobalList.Contains("K5NER-8600"));
 
             var r = h.RunCreation(Pending(h), FreshStation());
 
             Assert.Equal(CreationOutcome.Refused, r.Outcome);
-            Assert.Contains("never reported", r.Reason);
+            Assert.Contains("not answered", r.Reason);
             Assert.Empty(h.Port.GlobalSavesSent);
+            Assert.Equal(1, h.Port.InventoryRequests);
+        }
+
+        [Fact]
+        public void AnAskThatOutlivesTheCreatesBound_IsRefusedAfterTheRead_AndSendsNothing()
+        {
+            // The radio answers, but only after the whole create's deadline
+            // has passed: the deadline is rechecked after the blocking read.
+            var h = Armed();
+            h.Port.OnInventoryRequested = () => h.Clock.Advance(h.Deadlines.ProfileReadMs + h.Deadlines.DisconnectCreateConfirmMs + 1);
+
+            var r = h.RunCreation(Pending(h), FreshStation());
+
+            Assert.Equal(CreationOutcome.Refused, r.Outcome);
+            Assert.Contains("bound ended", r.Reason);
+            Assert.Empty(h.Port.GlobalSavesSent);
+        }
+
+        [Fact]
+        public void TheReadbackSharesTheCreatesOneDeadline_NotASecondFullWindow()
+        {
+            // A slow ask spends most of the bound; the readback gets the
+            // remainder, not a fresh DisconnectCreateConfirmMs on top.
+            var h = Armed();
+            int slowAsk = h.Deadlines.ProfileReadMs + h.Deadlines.DisconnectCreateConfirmMs - 100;
+            h.Port.OnInventoryRequested = () => h.Clock.Advance(slowAsk);
+            long before = h.Clock.NowMs;
+
+            var r = h.RunCreation(Pending(h), FreshStation());      // the radio never lists it
+
+            Assert.Equal(CreationOutcome.Unconfirmed, r.Outcome);
+            Assert.True(r.SaveSent);
+            long elapsed = h.Clock.NowMs - before;
+            Assert.True(elapsed <= h.Deadlines.ProfileReadMs + h.Deadlines.DisconnectCreateConfirmMs + 30,
+                "the readback ran " + elapsed + " ms, past the create's one bound");
         }
 
         [Fact]
