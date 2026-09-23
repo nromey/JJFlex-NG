@@ -46,50 +46,65 @@ namespace Radios.Tests.StationConnect
             Assert.Same(RosterAuthorityUnknownPolicy.Instance, StationPolicies.Current.GuestSharedWriteAuthority);
         }
 
-        // ── the owner's station-global operating writes: TNF, shack-speaker mute ──
+        // ── the shack speaker follows PC audio, and nothing else ──
+        //
+        // RULED by Noel 2026-09-22 21:33, in his words: "mute the shack
+        // speaker if you're going PC audio, unmute it if you're not using it.
+        // If for some really weird reason you want to have the speaker
+        // unmuted while you're PC audio connected, then cool. Why make it
+        // complicated." Track G3 had the two writes behind the owner gate, so
+        // company on the owner's radio stopped the mute; that is reverted.
+        //
+        // The three writes are lines inside Connect and remoteAudioProc, so
+        // the instrument is the production source, as it is for every other
+        // connect-path write in ChangeNothingGuardTests. The behavioural
+        // proof is a physical press, and it is on the bench list.
 
-        private static StationPolicyFacts Owner() => new StationPolicyFacts
+        private static string FlexBaseSource()
         {
-            Connected = true, Ownership = RadioOwnership.Mine, Intent = ProfileGuestIntent.LoadMineAndPutBack, Serial = "1234",
-        };
-
-        private static RosterJudgement OnlyUs() => new RosterJudgement(RosterVerdict.OnlyUs, "test", 1);
-
-        [Fact]
-        public void TheOwnerAloneOnTheirRadio_MayMakeTheWrite()
-        {
-            Assert.Null(OwnerSharedWriteGate.Refusal(Owner(), OnlyUs()));
-        }
-
-        [Fact]
-        public void TheIntentIsNotConsulted_ItIsAnOperatingWrite_NotAProfileChoice()
-        {
-            var f = Owner();
-            f.Intent = ProfileGuestIntent.LeaveAlone;
-            Assert.Null(OwnerSharedWriteGate.Refusal(f, OnlyUs()));
+            var dir = new System.IO.DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
+            Assert.NotNull(dir);
+            return System.IO.File.ReadAllText(System.IO.Path.Combine(dir.FullName, "Radios", "FlexBase.cs"));
         }
 
         [Theory]
-        [InlineData("hold")]
-        [InlineData("guest")]
-        [InlineData("unset")]
-        [InlineData("company")]
-        [InlineData("unknown roster")]
-        [InlineData("not connected")]
-        public void AnythingElse_Refuses(string what)
+        [InlineData("IsMuteLocalAudioWhenRemoteOn=true on remote audio start", true)]
+        [InlineData("IsMuteLocalAudioWhenRemoteOn=false on local connect", false)]
+        [InlineData("IsMuteLocalAudioWhenRemoteOn=false on remote audio stop", false)]
+        public void EachMuteWrite_TakesTheHoldAndTheValuePcAudioAsksFor(string guard, bool muted)
         {
-            var f = Owner();
-            var roster = OnlyUs();
-            switch (what)
+            string text = FlexBaseSource();
+            int at = text.IndexOf("if (!GuardSkips(\"" + guard + "\"))", StringComparison.Ordinal);
+            Assert.True(at > 0, "the guarded write '" + guard + "' is gone");
+            string body = text.Substring(at, 200);
+            Assert.Contains("IsMuteLocalAudioWhenRemoteOn = " + (muted ? "true" : "false") + ";", body, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void CompanyOnTheRadio_CannotChangeTheAnswer_BecauseNoWriteAsks()
+        {
+            // "Muted with company" and "muted without" are the same case, and
+            // this is what makes them the same case: the decision has no
+            // roster, ownership or company term in it at all. A remote client
+            // cannot know who is in the ROOM, which is who the speaker is
+            // actually shared with.
+            string text = FlexBaseSource();
+            foreach (var guard in new[]
             {
-                case "hold": f.HoldArmed = true; break;
-                case "guest": f.Ownership = RadioOwnership.SomeoneElses; break;
-                case "unset": f.Ownership = RadioOwnership.Unset; break;
-                case "company": roster = new RosterJudgement(RosterVerdict.OthersPresent, "W1AW", 1); break;
-                case "unknown roster": roster = new RosterJudgement(RosterVerdict.Unknown, "not established", 1); break;
-                case "not connected": f.Connected = false; break;
+                "IsMuteLocalAudioWhenRemoteOn=true on remote audio start",
+                "IsMuteLocalAudioWhenRemoteOn=false on local connect",
+                "IsMuteLocalAudioWhenRemoteOn=false on remote audio stop",
+            })
+            {
+                int at = text.IndexOf("if (!GuardSkips(\"" + guard + "\"))", StringComparison.Ordinal);
+                string body = text.Substring(at, 200);
+                foreach (var forbidden in new[] { "Roster", "OnlyUs", "Ownership", "OwnerShared" })
+                {
+                    Assert.DoesNotContain(forbidden, body, StringComparison.Ordinal);
+                }
             }
-            Assert.NotNull(OwnerSharedWriteGate.Refusal(f, roster));
+            Assert.DoesNotContain("OwnerSharedWriteGate", text, StringComparison.Ordinal);
         }
     }
 }

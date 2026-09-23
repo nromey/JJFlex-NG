@@ -262,28 +262,14 @@ namespace Radios.StationConnect
             + "; completion: " + LoadCompletion.Name + "; materialization: " + InitialMaterialization.Name;
     }
 
-    /// <summary>
-    /// The gate for the OWNER'S automatic station-global writes that are not
-    /// profile stewardship: <c>radio set tnf_enabled</c> at connect and
-    /// <c>radio set mute_local_audio_when_remote</c> when audio starts. They
-    /// are station-scoped commands with no client handle (Track G2
-    /// re-review, section 2), so they are the owner's to make and nobody
-    /// else's, under the hold and the owner's roster authority. The profile
-    /// intent is deliberately not consulted: these are the app's operating
-    /// writes, not a profile choice.
-    /// </summary>
-    public static class OwnerSharedWriteGate
-    {
-        public static string Refusal(StationPolicyFacts f, RosterJudgement ownerRoster)
-        {
-            if (f == null) return "no facts";
-            if (f.HoldArmed) return "the change-nothing hold is armed";
-            if (!f.Connected) return "not connected";
-            if (f.Ownership != RadioOwnership.Mine)
-                return "this radio is not declared ours (" + f.Ownership + "); a guest writes nothing shared (#590)";
-            if (ownerRoster == null || ownerRoster.Verdict != RosterVerdict.OnlyUs)
-                return "roster: " + (ownerRoster?.ToString() ?? "unknown");
-            return null;
-        }
-    }
+    // Track G3's owner gate for station-global operating writes stood here.
+    // Its only two callers were
+    // the shack-speaker mute, and RULED by Noel 2026-09-22 21:33 — "mute the
+    // shack speaker if you're going PC audio, unmute it if you're not using
+    // it. If for some really weird reason you want to have the speaker
+    // unmuted while you're PC audio connected, then cool. Why make it
+    // complicated." — the mute is not a shared write and follows nothing but
+    // PC audio. TNF and the keyer restore were never on this gate: they are
+    // RunOwnerInitialization's, checked at the write by the orchestrator's
+    // OwnerInitRefusalAtWrite, and unchanged.
 }

@@ -676,20 +676,16 @@ namespace Radios
         internal RosterJudgement RosterJudgementForGuestSharedWrite() =>
             RosterGuard.ForAutomaticWrite(RosterTracker.Snapshot(), StationPolicies.Current.GuestSharedWriteAuthority);
 
-        /// <summary>
-        /// The owner's station-global operating writes that are not profile
-        /// stewardship (TNF at connect; the shack-speaker mute when audio
-        /// starts): true when the write is SKIPPED, with the reason traced.
-        /// Hold, ownership and the owner's roster authority, at the moment
-        /// of the write (Track G3; Track G2 left them hold-only).
-        /// </summary>
-        private bool OwnerSharedWriteSkips(string what)
-        {
-            string refusal = OwnerSharedWriteGate.Refusal(ReadStationPolicyFacts(), RosterJudgementForAutomaticWrite());
-            if (refusal == null) return false;
-            Tracing.TraceLine("StationConnect: skipped '" + what + "' — " + refusal, TraceLevel.Info);
-            return true;
-        }
+        // Track G3's owner-gate helper for station-global operating writes
+        // lived here and had exactly two callers, both of them the
+        // shack-speaker mute. RULED by Noel
+        // 2026-09-22 21:33 — "mute the shack speaker if you're going PC
+        // audio, unmute it if you're not using it ... Why make it
+        // complicated" — so the mute is not a shared write, follows nothing
+        // but PC audio, and takes the plain hold guard at its three sites in
+        // FlexBase.cs. TNF and the keyer restore keep their gate: it is
+        // RunOwnerInitialization's, checked at the write by the
+        // orchestrator's OwnerInitRefusalAtWrite.
 
         // ------------------------------------------------------------------
         // The production port

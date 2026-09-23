@@ -301,13 +301,11 @@ namespace Radios.Tests
         {
             AssertGuardInside(FlexBaseStation, "private bool OwnerOnlyWriteSkips(string what)",
                 "if (GuardSkips(what)) return true;", 300);
-            // OwnerSharedWriteSkips (TNF, the shack-speaker mute; Track G3)
-            // is the pure OwnerSharedWriteGate, whose first check after the
-            // null guard is the hold.
-            AssertGuardInside(FlexBaseStation, "private bool OwnerSharedWriteSkips(string what)",
-                "OwnerSharedWriteGate.Refusal(ReadStationPolicyFacts(), RosterJudgementForAutomaticWrite())", 400);
-            AssertGuardInside(Policies, "public static string Refusal(StationPolicyFacts f, RosterJudgement ownerRoster)",
-                "if (f.HoldArmed) return \"the change-nothing hold is armed\";", 300);
+            // Track G3's OwnerSharedWriteSkips is gone with the ruling of
+            // 2026-09-22 21:33: its only callers were the shack-speaker mute,
+            // which is not a shared write and takes the plain hold guard.
+            Assert.DoesNotContain("OwnerSharedWriteSkips", Read(FlexBaseStation), StringComparison.Ordinal);
+            Assert.DoesNotContain("OwnerSharedWriteGate", Read(Policies), StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -349,13 +347,14 @@ namespace Radios.Tests
         /// <summary>
         /// The writers that are LINES rather than methods — pinned by their
         /// guarded form, which cannot exist without the guard around it. The
-        /// shack-speaker mute is behind the OWNER gate since Track G3 (hold,
-        /// ownership, the owner's roster authority); TNF moved into
+        /// three shack-speaker mute writes take the plain hold guard and
+        /// nothing else (ruled 2026-09-22 21:33); TNF moved into
         /// RunOwnerInitialization (see TheKeyerRestoreIsBehindTheOwnerInitialisationsRecheck).
         /// </summary>
         [Theory]
-        [InlineData("if (!OwnerSharedWriteSkips(\"IsMuteLocalAudioWhenRemoteOn=false on local connect\"))")]
-        [InlineData("if (!OwnerSharedWriteSkips(\"IsMuteLocalAudioWhenRemoteOn=true on remote audio start\"))")]
+        [InlineData("if (!GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=false on local connect\"))")]
+        [InlineData("if (!GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=true on remote audio start\"))")]
+        [InlineData("if (!GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=false on remote audio stop\"))")]
         // MicInput, VOX/CWBreakIn and TX1 are RunOwnerInitialization since
         // 2026-09-22 (Track G2); see TheOwnerInitialisationWritesLiveBehindTheOrchestratorsGate.
         public void TheConnectPathLiteralIsGuarded(string guardedForm)
@@ -379,7 +378,7 @@ namespace Radios.Tests
             // The first connect-path write is the local-connect mute since
             // Track G3 moved TNF into the gated owner initialisation.
             int firstWrite = source.IndexOf(
-                "OwnerSharedWriteSkips(\"IsMuteLocalAudioWhenRemoteOn=false on local connect\")", StringComparison.Ordinal);
+                "GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=false on local connect\")", StringComparison.Ordinal);
 
             Assert.True(armed > 0, "the connect path no longer arms the hold from the per-radio config");
             Assert.True(firstWrite > 0, "the local-connect mute write lost its guard");

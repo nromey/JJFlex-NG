@@ -426,16 +426,47 @@ namespace Radios.Tests.StationConnect
                 "owner initialisation must dispatch, recheck, then write TNF and the keyer inside the delegate");
         }
 
+        /// <summary>
+        /// RULED by Noel 2026-09-22 21:33, in his words: "mute the shack
+        /// speaker if you're going PC audio, unmute it if you're not using
+        /// it. If for some really weird reason you want to have the speaker
+        /// unmuted while you're PC audio connected, then cool. Why make it
+        /// complicated." So: PC audio decides, nothing else does. These are
+        /// the only three moments the app writes the radio's setting, which
+        /// is what leaves it as the operator's own opt-out afterwards.
+        /// </summary>
         [Fact]
-        public void TheShackSpeakerMuteWrites_GoThroughTheOwnerGate()
+        public void TheShackSpeakerFollowsPcAudioAndNothingElse()
         {
             var text = Read(FlexBase);
-            Assert.Contains("OwnerSharedWriteSkips(\"IsMuteLocalAudioWhenRemoteOn=false on local connect\")", text, StringComparison.Ordinal);
-            Assert.Contains("OwnerSharedWriteSkips(\"IsMuteLocalAudioWhenRemoteOn=true on remote audio start\")", text, StringComparison.Ordinal);
-            Assert.DoesNotContain("GuardSkips(\"IsMuteLocalAudioWhenRemoteOn", text, StringComparison.Ordinal);
-            var station = Read(FlexBaseStation);
-            int gate = IndexOf(station, "private bool OwnerSharedWriteSkips(string what)");
-            Assert.Contains("OwnerSharedWriteGate.Refusal(ReadStationPolicyFacts(), RosterJudgementForAutomaticWrite())", station.Substring(gate, 600), StringComparison.Ordinal);
+            Assert.Contains("if (!GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=false on local connect\"))", text, StringComparison.Ordinal);
+            Assert.Contains("if (!GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=true on remote audio start\"))", text, StringComparison.Ordinal);
+            Assert.Contains("if (!GuardSkips(\"IsMuteLocalAudioWhenRemoteOn=false on remote audio stop\"))", text, StringComparison.Ordinal);
+
+            // Track G3's owner gate on these writes is gone, here and in the
+            // policies file; it had made "company on the radio" decide the
+            // speaker, which the ruling rejects.
+            Assert.DoesNotContain("OwnerSharedWriteSkips", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("OwnerSharedWriteSkips", Read(FlexBaseStation), StringComparison.Ordinal);
+            Assert.DoesNotContain("OwnerSharedWriteGate", Read("Radios/StationConnect/StationPolicies.cs"), StringComparison.Ordinal);
+
+            // Exactly three writes, each one the assignment under one of the
+            // three guards above. A fourth would be the app re-asserting the
+            // setting behind the operator's back, which is what would take
+            // the opt-out away.
+            var writes = System.Text.RegularExpressions.Regex.Matches(text, @"IsMuteLocalAudioWhenRemoteOn = ");
+            Assert.Equal(3, writes.Count);
+            foreach (System.Text.RegularExpressions.Match m in writes)
+            {
+                // The 200 characters before each write: the hold, and no
+                // ownership, roster or company term anywhere near it.
+                string before = text.Substring(Math.Max(0, m.Index - 200), Math.Min(200, m.Index));
+                Assert.Contains("GuardSkips(\"IsMuteLocalAudioWhenRemoteOn", before, StringComparison.Ordinal);
+                foreach (var forbidden in new[] { "Roster", "Ownership", "OnlyUs", "OwnerShared" })
+                {
+                    Assert.DoesNotContain(forbidden, before, StringComparison.Ordinal);
+                }
+            }
         }
 
         [Fact]

@@ -2130,11 +2130,24 @@ namespace Radios
                 }
                 else
                 {
-                    // local audio on. radio set mute_local_audio_when_remote —
-                    // a station-scoped command with no client handle, about
-                    // the owner's shack speaker (audit 1.5): the owner's to
-                    // make, under the owner gate (Track G3; hold-only before).
-                    if (!OwnerSharedWriteSkips("IsMuteLocalAudioWhenRemoteOn=false on local connect"))
+                    // local audio on, so PC audio is not in use: the shack
+                    // speaker is not muted. radio set
+                    // mute_local_audio_when_remote (audit 1.5).
+                    //
+                    // RULED by Noel 2026-09-22 21:33, in his words: "mute the
+                    // shack speaker if you're going PC audio, unmute it if
+                    // you're not using it. If for some really weird reason you
+                    // want to have the speaker unmuted while you're PC audio
+                    // connected, then cool. Why make it complicated."
+                    //
+                    // So this is NOT a shared write and takes no ownership or
+                    // roster gate. Track G3 put it behind the owner gate,
+                    // reading it as shared state; that is reverted. The
+                    // speaker is shared between the ROOM and everyone remote,
+                    // not between operators, and a remote client cannot know
+                    // who is in the room. The hold still applies, because it
+                    // applied here before Track G3 too.
+                    if (!GuardSkips("IsMuteLocalAudioWhenRemoteOn=false on local connect"))
                     {
                         theRadio.IsMuteLocalAudioWhenRemoteOn = false;
                     }
@@ -19536,11 +19549,19 @@ namespace Radios
                 TracePendingStreamWaitOutcome("receive", rxWait);
                 goto remoteDone;
             }
-            // radio set mute_local_audio_when_remote — the owner's shack
-            // speaker, flipped from afar (audit 1.5). A station-scoped command
-            // with no client handle: the owner's, under the owner gate
-            // (Track G3; hold-only before).
-            if (!OwnerSharedWriteSkips("IsMuteLocalAudioWhenRemoteOn=true on remote audio start"))
+            // PC audio is starting, so the shack speaker is muted (audit 1.5).
+            //
+            // RULED by Noel 2026-09-22 21:33, in his words: "mute the shack
+            // speaker if you're going PC audio, unmute it if you're not using
+            // it. If for some really weird reason you want to have the speaker
+            // unmuted while you're PC audio connected, then cool. Why make it
+            // complicated."
+            //
+            // Company on the radio is deliberately not consulted; Track G3's
+            // owner gate here is reverted. Someone physically in the shack
+            // unmutes at the radio, which was always true. The hold still
+            // applies, as it did before Track G3.
+            if (!GuardSkips("IsMuteLocalAudioWhenRemoteOn=true on remote audio start"))
             {
                 theRadio.IsMuteLocalAudioWhenRemoteOn = true;
             }
@@ -20006,6 +20027,35 @@ namespace Radios
             // Restore mic input.
             theRadio.MicInput = oldMicInput;
 #endif
+
+            // PC audio has stopped, so the shack speaker is given back.
+            //
+            // RULED by Noel 2026-09-22 21:33: "mute the shack speaker if
+            // you're going PC audio, unmute it if you're not using it." The
+            // start of this method mutes it; this is the other half, and
+            // until now nothing wrote it back — a session that turned PC
+            // audio off left the speaker dead for whoever was in the room.
+            //
+            // Only while the connection is still live and we are not tearing
+            // it down: a command sent into a closing transport returns 0
+            // without going anywhere, which is how the pre-Track-G3 TNF write
+            // came to be dead for years. A disconnect leaves the radio's own
+            // setting as it stands, which is the operator's to change at the
+            // radio. Company on the radio is not consulted here either.
+            var speakerRadio = theRadio;
+            if (speakerRadio != null && IsConnected && !Disconnecting)
+            {
+                if (!GuardSkips("IsMuteLocalAudioWhenRemoteOn=false on remote audio stop"))
+                {
+                    speakerRadio.IsMuteLocalAudioWhenRemoteOn = false;
+                }
+            }
+            else
+            {
+                Tracing.TraceLine("remoteAudioProc: the shack speaker is left as it is — "
+                    + "the connection is closing, and a command sent into a closing transport goes nowhere",
+                    TraceLevel.Info);
+            }
 
             Tracing.TraceLine("remoteAudioProc exiting", TraceLevel.Info);
         }
