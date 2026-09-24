@@ -762,11 +762,24 @@ namespace Radios
                     Tracing.TraceLine(
                         $"apiRadioRemovedHandler: {r.Serial} ({r.Nickname}) released by our own disconnect — FlexLib lifecycle removal, NOT a discovery loss; roster keeps the row (#402)",
                         TraceLevel.Info);
-                    // Retired without claiming a loss: the operator hung up, so
-                    // there is no drop to announce and this object must never be
-                    // rebound as a new connection either. A reconnect acquires
-                    // a fresh one.
-                    ConnectionLifetime.Retire(ConnectionLifetime.TokenFor(r));
+                    // THE CONNECTION LIFETIME IS DELIBERATELY NOT TOUCHED HERE.
+                    //
+                    // The first shape of this retired the lifetime on a
+                    // deliberate disconnect, reasoning that a hang-up ends a
+                    // connection. It does — but "retired" in this design means
+                    // TERMINALLY retired by a claimed LOSS, and that carries the
+                    // rule that the object is never rebound. Applying it to a
+                    // hang-up made the unresolved SmartLink case reachable by an
+                    // ordinary sequence: disconnect, reconnect over SmartLink
+                    // (whose handle bank can hand back the same object), radio
+                    // dies — and the drop would not have sealed, silently losing
+                    // the evidence this whole bridge exists to produce.
+                    //
+                    // Nothing is needed here anyway. A self-initiated removal
+                    // never reaches the seal, because RemovalSealsTheCapture
+                    // answers only for ConnectionLostOurRadio. The lifetime
+                    // simply spans the hang-up and the reconnect, unclaimed, so
+                    // a genuine later drop can still claim it exactly once.
                     break;
                 case RadioRemovalKind.ConnectionLostOurRadio:
                     Tracing.TraceLine(

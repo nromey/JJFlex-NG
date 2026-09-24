@@ -103,12 +103,24 @@ namespace Radios
             /// had them when the connection was bound.</summary>
             public string Describe { get; }
 
-            /// <summary>True once this connection's loss has been claimed. A
-            /// terminal retirement: nothing ever rearms it.</summary>
+            /// <summary>
+            /// True once this connection's loss has been claimed — a TERMINAL
+            /// retirement, which nothing ever rearms and which carries the rule
+            /// that the object is never rebound as a new connection.
+            ///
+            /// <para><b>Only a claimed loss sets it.</b> A deliberate
+            /// disconnect does NOT: the operator hanging up ends a connection
+            /// but says nothing about the object's identity, and retiring on a
+            /// hang-up would make an ordinary disconnect-and-reconnect pair
+            /// look like a rebound retired object on the one path that cannot
+            /// guarantee a fresh one.</para>
+            /// </summary>
             public bool Retired { get; internal set; }
 
             /// <summary>True once the loss has been claimed by a caller that
-            /// will act on it.</summary>
+            /// will act on it. Moves in lockstep with
+            /// <see cref="Retired"/>; kept separate so a reader can see which
+            /// of the two a future state is meant to mean.</summary>
             public bool LossClaimed { get; internal set; }
 
             public override string ToString() =>
@@ -212,15 +224,6 @@ namespace Radios
                 token.Retired = true;
                 return true;
             }
-        }
-
-        /// <summary>Retire a connection without claiming its loss — a
-        /// deliberate disconnect. The object is never rebound afterwards, and
-        /// nothing announces a drop for it.</summary>
-        public static void Retire(Token token)
-        {
-            if (token == null) return;
-            lock (_sync) { token.Retired = true; }
         }
 
         /// <summary>True when this object's lifetime has been terminally

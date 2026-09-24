@@ -176,29 +176,46 @@ namespace Radios.Tests
         }
 
         /// <summary>
-        /// The operator's own disconnect retires the lifetime without claiming
-        /// a loss. Nothing announces a drop, and the object is not rebound
-        /// afterwards either — a reconnect acquires a fresh one.
+        /// <b>A deliberate disconnect leaves the lifetime alone, and that is
+        /// the fix rather than an omission.</b>
+        ///
+        /// <para>The first shape of this retired the lifetime on a hang-up,
+        /// reasoning that a hang-up ends a connection. It does — but "retired"
+        /// here means terminally retired by a claimed LOSS, and it carries the
+        /// rule that the object is never rebound. Applying it to a hang-up made
+        /// the unresolved SmartLink case reachable by an ordinary sequence:
+        /// disconnect, reconnect over SmartLink, radio dies — and the drop
+        /// would not have sealed, silently losing the evidence this bridge
+        /// exists to produce.</para>
+        ///
+        /// <para>Nothing is needed there anyway: a self-initiated removal never
+        /// reaches the seal, because <c>RemovalSealsTheCapture</c> answers only
+        /// for <c>ConnectionLostOurRadio</c>. So the lifetime spans the hang-up
+        /// and the reconnect, unclaimed, and a genuine later drop still claims
+        /// it exactly once.</para>
         /// </summary>
         [Fact]
-        public void A_deliberate_disconnect_retires_without_announcing_anything()
+        public void A_hang_up_and_reconnect_on_the_same_object_can_still_report_a_real_drop()
         {
             var rig = new Rig("1234");
-            ConnectionLifetime.Token token = ConnectionLifetime.Bind(rig, "1234", out _);
+            ConnectionLifetime.Token first = ConnectionLifetime.Bind(rig, "1234", out _);
 
-            ConnectionLifetime.Retire(token);
+            // The operator disconnects. Nothing touches the lifetime — the
+            // classification, not the lifetime, is what keeps a hang-up from
+            // being announced as a drop.
+            Assert.False(first.Retired);
+            Assert.False(first.LossClaimed);
 
-            Assert.True(token.Retired);
-            Assert.False(token.LossClaimed);
-            Assert.False(ConnectionLifetime.TryClaimLoss(token));
-            Assert.Equal(ConnectionBindOutcome.RetiredObjectRebound,
-                         Bind(rig));
-        }
+            // They reconnect, and SmartLink hands back the very same object.
+            ConnectionLifetime.Token again = ConnectionLifetime.Bind(rig, "1234", out var outcome);
+            Assert.Equal(ConnectionBindOutcome.SameLifetime, outcome);
+            Assert.Same(first, again);
 
-        private static ConnectionBindOutcome Bind(object radio)
-        {
-            ConnectionLifetime.Bind(radio, "x", out var outcome);
-            return outcome;
+            // Now the radio really dies. This must seal.
+            Assert.True(ConnectionLifetime.TryClaimLoss(again));
+
+            // And exactly once.
+            Assert.False(ConnectionLifetime.TryClaimLoss(ConnectionLifetime.TokenFor(rig)));
         }
 
         [Fact]
@@ -237,11 +254,14 @@ namespace Radios.Tests
             Assert.True(retryBind > retry && retryBind < retry + 2000,
                         "RetryConnect does not declare which lifetime it is retrying inside");
 
-            // And the operator's own disconnect retires without claiming.
+            // And the operator's own disconnect touches the lifetime not at
+            // all. Retiring there would make a hang-up look like a terminal
+            // loss to the one acquisition path that can hand back the same
+            // object, and the next real drop would go unsealed.
             int selfArm = source.IndexOf("case RadioRemovalKind.SelfInitiated:", StringComparison.Ordinal);
             int dropArm = source.IndexOf("case RadioRemovalKind.ConnectionLostOurRadio:", StringComparison.Ordinal);
             string selfBody = source.Substring(selfArm, dropArm - selfArm);
-            Assert.Contains("ConnectionLifetime.Retire(", selfBody, StringComparison.Ordinal);
+            Assert.DoesNotContain("ConnectionLifetime.Retire", selfBody, StringComparison.Ordinal);
             Assert.DoesNotContain("TryClaimLoss", selfBody, StringComparison.Ordinal);
         }
     }
