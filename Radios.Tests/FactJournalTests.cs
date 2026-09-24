@@ -424,8 +424,27 @@ namespace Radios.Tests
             // confirmed coverage kept in the durable ledger.
             var busy = new FactKit();
             SlotPublisher hot = busy.HotSlot(busy.Session("SERIAL-BUSY"));
-            EpisodeId busyId = FactKit.OpenHot(hot).Handle!.Id;
-            var tracked = new RecordingTransport(busy.Registry, "tracked", TransportCapability.ReportsCompletion);
+            // A third unit no wording carries keeps the fact owed and eligible
+            // through every round.
+            CapturedFactEvent opening = FactKit.Capture(hot, FactKit.Temp(70m));
+            EpisodeId busyId = hot.Open(opening, "condition.hot", FactKit.HotKey, new[]
+            {
+                new MaterialDeclaration("temperature", FactValue.Of(70m)),
+                new MaterialDeclaration("duration", FactValue.Of(3L)),
+                new MaterialDeclaration("zone", FactValue.Of("north")),
+            }).Handle!.Id;
+            var tracked = new RecordingTransport(busy.Registry, "tracked",
+                TransportCapability.ReportsCompletion | TransportCapability.ReportsProgress);
+
+            // The FIRST attempt is the only one that ever carries the duration:
+            // attributable progress for exactly that clause.
+            AttemptHandle first = busy.Allocate(busy.PlanAutomatic(busyId, VerbosityLevel.Chatty), tracked.Binding);
+            AttemptRunner.Run(first, tracked.Submit);
+            first.Report(TransportEvidence.Progress(5, new[] { "duration" }));
+            first.Report(TransportEvidence.CompletionUnobservable(6));   // closed, so it can be compacted
+
+            // Then enough terse attempts to push it out of the per-fact bound
+            // AND out of the tombstones, so only the durable ledger remembers.
             int rounds = FactStoreCapacity.MaxAttemptEvidence + FactStoreCapacity.MaxAttemptTombstones + 10;
             for (int i = 0; i < rounds; i++)
             {
@@ -436,10 +455,13 @@ namespace Radios.Tests
             FactSnapshot compacted = busy.Store.Find(busyId)!;
             Assert.True(compacted.Attempts.Count <= FactStoreCapacity.MaxAttemptEvidence);
             Assert.True(compacted.CompactedAttempts >= rounds - FactStoreCapacity.MaxAttemptEvidence);
+            Assert.DoesNotContain(compacted.Attempts, a => a.Id == first.Id);
             MaterialUnit temperature = compacted.Materials.Single(m => m.Name == "temperature");
             MaterialUnit duration = compacted.Materials.Single(m => m.Name == "duration");
-            Assert.Contains(temperature.Id, compacted.Covered);       // confirmed coverage survived compaction
-            Assert.Contains(duration.Id, compacted.Unpresented);      // the terse tier never carried it
+            MaterialUnit zone = compacted.Materials.Single(m => m.Name == "zone");
+            Assert.Contains(temperature.Id, compacted.Covered);
+            Assert.Contains(duration.Id, compacted.Covered);          // only the ledger still knows this
+            Assert.Contains(zone.Id, compacted.Unpresented);
 
             // Writer A: an owed fact with more units than one detail shows.
             var a1 = new FactKit();
@@ -478,7 +500,8 @@ namespace Radios.Tests
 
             FactSnapshot busyNow = c.Store.Find(busyId)!;
             Assert.Contains(temperature.Id, busyNow.Covered);
-            Assert.Contains(duration.Id, busyNow.Unpresented);
+            Assert.Contains(duration.Id, busyNow.Covered);            // the compacted coverage survived a restart
+            Assert.Contains(zone.Id, busyNow.Unpresented);
             Assert.True(busyNow.CompactedAttempts >= compacted.CompactedAttempts);
         }
 
