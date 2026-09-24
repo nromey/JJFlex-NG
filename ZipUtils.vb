@@ -28,7 +28,15 @@ Public Module ZipUtils
         End Using
     End Sub
 
-    Public Sub AddDirectoryToArchive(archive As ZipArchive, sourceDir As String, entryRoot As String, Optional excludePattern As String = Nothing)
+    ''' <param name="skip">
+    ''' Optional second gate, asked about every file's FULL path. A single
+    ''' wildcard is not enough for the problem-report bundle, which has to leave
+    ''' out a live trace that is being written while the zip is built, and every
+    ''' detached file whose archive has not been committed yet.
+    ''' </param>
+    Public Sub AddDirectoryToArchive(archive As ZipArchive, sourceDir As String, entryRoot As String,
+                                     Optional excludePattern As String = Nothing,
+                                     Optional skip As Func(Of String, Boolean) = Nothing)
         If archive Is Nothing OrElse String.IsNullOrEmpty(sourceDir) Then Return
         If Not Directory.Exists(sourceDir) Then Return
         Dim root As String = If(entryRoot, String.Empty)
@@ -37,6 +45,9 @@ Public Module ZipUtils
         For Each file As String In Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories)
             Dim name As String = Path.GetFileName(file)
             If Not String.IsNullOrEmpty(excludePattern) AndAlso name Like excludePattern Then
+                Continue For
+            End If
+            If skip IsNot Nothing AndAlso skip(file) Then
                 Continue For
             End If
             Dim fullFile As String = Path.GetFullPath(file)
