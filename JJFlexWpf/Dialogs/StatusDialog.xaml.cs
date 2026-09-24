@@ -59,7 +59,11 @@ public partial class StatusDialog : JJFlexDialog
         {
             Interval = TimeSpan.FromSeconds(5)
         };
-        _refreshTimer.Tick += (s, e) => RefreshStatus();
+        _refreshTimer.Tick += (s, e) =>
+        {
+            RefreshStatus();
+            RefreshPendingSummary();
+        };
 
         Loaded += StatusDialog_Loaded;
         Closing += StatusDialog_Closing;
@@ -72,10 +76,61 @@ public partial class StatusDialog : JJFlexDialog
 
     private void StatusDialog_Loaded(object sender, RoutedEventArgs e)
     {
+        UndeliveredButton.Content = Lexicon.Get("facts.status.button");
+        System.Windows.Automation.AutomationProperties.SetName(
+            UndeliveredButton, UndeliveredButton.Content?.ToString() ?? string.Empty);
+
         RefreshStatus();
+        RefreshPendingSummary();
         StatusText.CaretIndex = 0;
         StatusText.Focus();
         _refreshTimer.Start();
+    }
+
+    /// <summary>
+    /// How many things the radio said that were not delivered.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>On its own refresh path, deliberately.</b>
+    /// <see cref="RefreshStatus"/> returns early three times — no radio, radio
+    /// disconnected, and the operator reading the readout — and each of those
+    /// is a moment when this number matters more rather than less. A count
+    /// built inside that method would be blank exactly when somebody has come
+    /// here to find a warning they think they missed.
+    /// </para>
+    /// <para>
+    /// It writes to its own control rather than into the readout, so
+    /// refreshing it never rewrites text the reader is sitting in.
+    /// </para>
+    /// </remarks>
+    private void RefreshPendingSummary()
+    {
+        int pending = Radios.Facts.ApplicationFacts.Store.PendingCount;
+
+        PendingSummary.Text = pending switch
+        {
+            0 => Lexicon.Get("facts.status.nothing_pending"),
+            1 => Lexicon.Get("facts.status.pending_summary", ("count", pending)),
+            _ => Lexicon.Get("facts.status.pending_summary_plural", ("count", pending)),
+        };
+        System.Windows.Automation.AutomationProperties.SetName(PendingSummary, PendingSummary.Text);
+    }
+
+    /// <summary>
+    /// Open the undelivered-details window.
+    /// </summary>
+    /// <remarks>
+    /// <b>Takes no <c>Rig</c>, on purpose.</b> The handler has to work with a
+    /// null radio, a disconnected one, the picker open, and after the screen
+    /// reader binding has been replaced — so it is supplied with the store,
+    /// which is application-lifetime, instead.
+    /// </remarks>
+    private void UndeliveredButton_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new UndeliveredDetailsDialog { Owner = this };
+        dialog.ShowDialog();
+        RefreshPendingSummary();
     }
 
     private void StatusDialog_Closing(object? sender, System.ComponentModel.CancelEventArgs e)

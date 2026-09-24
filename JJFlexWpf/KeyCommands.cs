@@ -342,6 +342,15 @@ public class KeyCommands
             new(CommandValues.SpeakTxStatus, KeyTypes.Command, SpeakTxStatusHandler,
                 "Speak transmit status and time remaining", "Transmit status", false, FunctionGroups.General, KeyScope.Global)
                 { Keywords = new[] { "transmit", "ptt", "push to talk", "status", "tx", "time" }, ShortActionLabel = "speak transmit status" },
+            // #617. Global scope and no radio required: the whole point is
+            // that it opens when there is no radio and when the radio is
+            // disconnected, which is when somebody goes looking for a warning
+            // they think they missed. Keywords lean on the words an operator
+            // would actually type after missing something — "missed", "again",
+            // "queue", "backlog" — rather than on the design's vocabulary.
+            new(CommandValues.ShowUndeliveredDetails, KeyTypes.Command, ShowUndeliveredDetailsHandler,
+                "Show details that were not delivered", "Undelivered details", false, FunctionGroups.General, KeyScope.Global)
+                { Keywords = new[] { "undelivered", "missed", "again", "queue", "backlog", "history", "warning", "detail", "pending" }, ShortActionLabel = "show undelivered details" },
 
             // ── Band jumps ──
             new(CommandValues.BandJump160, KeyTypes.Command, () => _context.GetMainWindow()?.BandJump(HamBands.Bands.BandNames.m160),
@@ -1366,6 +1375,22 @@ public class KeyCommands
         dialog.ShowDialog();
     }
 
+    /// <summary>
+    /// Open the list of things the radio said that were not delivered.
+    /// </summary>
+    /// <remarks>
+    /// <b>Asks the context for nothing.</b> Every other dialog handler here
+    /// starts by fetching the rig; this one must not, because it has to work
+    /// with no radio, with a disconnected one, with the picker open and after
+    /// the screen reader binding has been replaced. The store it reads is
+    /// application-lifetime and was started before speech was.
+    /// </remarks>
+    private void ShowUndeliveredDetailsHandler()
+    {
+        var dialog = new Dialogs.UndeliveredDetailsDialog();
+        dialog.ShowDialog();
+    }
+
     private void SpeakTxStatusHandler()
     {
         var mw = _context.GetMainWindow();
@@ -1797,6 +1822,18 @@ public class KeyCommands
             "A log FIELD jump, as LogMode. Antenna is usually constant for a session."),
 
         // ── Command Finder and Hotkey Editor only, on purpose. ──
+        // Sprint 45 Track M (#617). Genuinely undecided rather than
+        // deliberately keyless: the four-tier grammar makes a letter a design
+        // decision — plain opens a layer, Shift jumps to a slice, Ctrl toggles
+        // — and which one this deserves is Noel's, not a track's. Command
+        // Finder reaches it today, the Hotkey Editor can bind it, and Status
+        // has a permanent button that works with no radio, so nothing waits on
+        // that decision.
+        [CommandValues.ShowUndeliveredDetails] = new(UnboundReason.CommandFinderOnly,
+            "Command Finder finds it, the Hotkey Editor can bind it to whatever you like, and "
+            + "the Status dialog has a permanent button for it that works with no radio "
+            + "connected. No default chord yet: Ctrl+J, U is the obvious candidate and is "
+            + "Noel's to rule on."),
         [CommandValues.StartAudioCheck] = new(UnboundReason.CommandFinderOnly,
             "Starts the Audio Check. Ctrl+Enter does it from inside the Audio Workshop, which "
             + "is where you are when you want it; a global chord that keys the transmitter "
@@ -1883,6 +1920,7 @@ public class KeyCommands
         new(Keys.F12, CommandValues.StopCW, KeyScope.Global),
         new(Keys.L | Keys.Control, CommandValues.StationLookup, KeyScope.Global),
         new(Keys.None, CommandValues.GatherDebug, KeyScope.Global), // unbound: CommandFinderOnly
+        new(Keys.None, CommandValues.ShowUndeliveredDetails, KeyScope.Global), // unbound: CommandFinderOnly
 
         // --- Radio scope ---
         new(Keys.F2, CommandValues.ShowFreq, KeyScope.Radio),
