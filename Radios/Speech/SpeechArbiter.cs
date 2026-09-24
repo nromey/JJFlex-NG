@@ -1952,6 +1952,20 @@ namespace Radios.Speech
         /// older QUIET COHORT is owed, reachable and not automatically
         /// re-offered. Ctrl stops the cohort's speech; it acknowledges nothing
         /// and disables nothing.</para>
+        ///
+        /// <para><b>What is still NOT asked here, and it is deliberate.</b>
+        /// Sol's review names a second validity question: whether the
+        /// obligation still belongs in the RECEIVING CONTEXT. A zero-mark
+        /// connect clause is handed over behind JJ or Escape merely because
+        /// they happened, and if the connect phase has moved on since, that
+        /// delivers an obsolete first hearing inside an unrelated action.
+        /// Every obligation now carries the two things such a rule needs — an
+        /// owner (its subject) and a generation — but <b>no owner advances a
+        /// context generation yet</b>, so the check would never fire and is
+        /// not written. Wiring one is a decision about WHICH events end a
+        /// context, and getting it wrong deletes the very clause #606 exists
+        /// to deliver: it is reported for a ruling rather than guessed at
+        /// here.</para>
         private bool RecoveryPermitted(BelievedQueued e) =>
             !e.AutoRecoveryPaused
             && _safety.InCurrentCohort(e.QuietGeneration)
