@@ -963,6 +963,149 @@ namespace Radios.Tests
             Assert.Equal(@"C:\b.zip", TraceCoordinator.CompletedCaptureArchivePath);
         }
 
+        // ── Track H6: a pending record that will not write ─────────────────
+
+        /// <summary>
+        /// <b>A failed pending-record write is reported, and the raw trace it
+        /// was meant to protect is kept.</b> Sol's review of H3, finding 4:
+        /// <c>WritePendingRecord</c> swallowed the failure and the seal published
+        /// its successor as if the record existed — so a crash before the
+        /// archive committed left a raw file boot recovery could not see, and
+        /// the one-day sweep deleted it unread.
+        ///
+        /// <para>The failure is forced with a DIRECTORY where the record goes,
+        /// the same device H3 used for the detach: a file there would be
+        /// overwritten, and the collision-safe naming would route round anything
+        /// placed at the trace's own name.</para>
+        ///
+        /// <para><b>One assertion pins today's behaviour and NOT a ruling:</b>
+        /// the successor still opens. Keeping the design's contract to the
+        /// letter would refuse it — logging would stop because one small write
+        /// failed — and Track H6 was told to report that trade rather than
+        /// choose it. When it is ruled, change that one line.</para>
+        /// </summary>
+        [Fact]
+        public void A_pending_record_that_will_not_write_is_reported_and_its_raw_trace_kept()
+        {
+            TraceSessionHandle live = Open();
+            Write("evidence that has to outlive a crash");
+            DateTime boot = TraceCoordinator.Observe().SessionBootTimeUtc.Value;
+            string target = TraceFileNaming.StampedPath(_livePath, boot);
+            Directory.CreateDirectory(TraceArchiveWorker.PendingPathFor(target));
+
+            TraceTransitionResult r = TraceCoordinator.TrySeal(new TraceSealRequest
+            {
+                Expected = live,
+                OperationId = Guid.NewGuid(),
+                Outcome = TraceSessionOutcome.ConnectionDropped,
+                Resume = TraceResumeIntent.Standing,
+            });
+
+            Assert.Equal(TraceTransition.Accepted, r.Status);
+            // Positive control: the obstacle sat where THIS seal's record goes.
+            Assert.Equal(target, r.Ticket.SourcePath);
+
+            // Explicit, not swallowed.
+            Assert.True(r.PendingRecordFailed);
+            Assert.False(r.Ticket.PendingRecordWritten);
+            Assert.Contains(r.DeferredFaults, f => f.Contains(target, StringComparison.Ordinal)
+                                                   && f.Contains("NO durable pending record", StringComparison.Ordinal));
+
+            // TODAY'S BEHAVIOUR, NOT A RULING: logging carried on.
+            Assert.True(r.SuccessorOpened);
+
+            // The raw file is there, and a day later the sweep keeps it,
+            // because no archive holds it yet.
+            Assert.True(File.Exists(target));
+            DateTime now = DateTime.UtcNow;
+            Assert.Equal(PlainTextTraceVerdict.KeptBecauseUnarchived,
+                TraceArchiveWorker.ClassifyPlainTextTrace(target, now.AddDays(-2), now, 1,
+                    SessionArchive.ArchivedSourceNames(_archiveDir)));
+
+            // Positive control for the sweep: once its archive commits, the
+            // ordinary window applies again. The record's absence never stopped
+            // the archive being made.
+            Assert.True(r.Ticket.Completion.Wait(TimeSpan.FromSeconds(60)));
+            Assert.True(r.Ticket.Completion.Result.ArchiveCommitted);
+            Assert.Equal(PlainTextTraceVerdict.Delete,
+                TraceArchiveWorker.ClassifyPlainTextTrace(target, now.AddDays(-2), now, 1,
+                    SessionArchive.ArchivedSourceNames(_archiveDir)));
+
+            // And an ordinary seal reports no failure.
+            TraceTransitionResult ordinary = TraceCoordinator.TrySeal(new TraceSealRequest
+            {
+                Expected = r.Successor,
+                OperationId = Guid.NewGuid(),
+                Outcome = TraceSessionOutcome.CleanExit,
+                Resume = TraceResumeIntent.None,
+            });
+            Assert.False(ordinary.PendingRecordFailed);
+            Assert.True(ordinary.Ticket.PendingRecordWritten);
+        }
+
+        /// <summary>
+        /// The checkpoint path had the same swallowed write (Sol's review,
+        /// finding 4, "same fix in the checkpoint path"). A problem-report
+        /// snapshot whose record will not write says so, is still pinned for
+        /// the bundle, and the session carries on.
+        /// </summary>
+        [Fact]
+        public void A_checkpoint_whose_pending_record_will_not_write_says_so()
+        {
+            TraceSessionHandle live = Open();
+            Write("before the bundle");
+            DateTime boot = TraceCoordinator.Observe().SessionBootTimeUtc.Value;
+            string target = TraceFileNaming.StampedPartPath(_livePath, boot, 1);
+            Directory.CreateDirectory(TraceArchiveWorker.PendingPathFor(target));
+
+            TraceTransitionResult snap = TraceCoordinator.SnapshotForBundle(live);
+
+            Assert.Equal(TraceTransition.Accepted, snap.Status);
+            Assert.Equal(target, snap.Ticket.SourcePath);
+            Assert.True(snap.PendingRecordFailed);
+            Assert.False(snap.Ticket.PendingRecordWritten);
+            Assert.Contains(snap.DeferredFaults, f => f.Contains("NO durable pending record", StringComparison.Ordinal));
+            Assert.True(File.Exists(target));
+            Assert.True(TraceEvidencePins.IsPinned(target));
+            Assert.Equal(live.SessionId, TraceCoordinator.CurrentHandle.SessionId);
+            TraceEvidencePins.Release(target);
+        }
+
+        /// <summary>
+        /// The sweep's rule on its own: young files, pinned files and pending
+        /// work are kept; an archived file goes after the ordinary window; an
+        /// unarchived one is kept until an archive's own window has passed, and
+        /// an unreadable manifest counts as nothing archived.
+        /// </summary>
+        [Fact]
+        public void The_plain_text_sweep_keeps_what_no_archive_holds()
+        {
+            string file = Path.Combine(_dir, "JJFlexRadioTrace-20260901-120000.txt");
+            File.WriteAllText(file, "x");
+            DateTime now = DateTime.UtcNow;
+            var archived = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { Path.GetFileName(file) };
+            var none = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            Assert.Equal(PlainTextTraceVerdict.Keep,
+                TraceArchiveWorker.ClassifyPlainTextTrace(file, now.AddHours(-2), now, 1, none));
+            Assert.Equal(PlainTextTraceVerdict.Delete,
+                TraceArchiveWorker.ClassifyPlainTextTrace(file, now.AddDays(-2), now, 1, archived));
+            Assert.Equal(PlainTextTraceVerdict.KeptBecauseUnarchived,
+                TraceArchiveWorker.ClassifyPlainTextTrace(file, now.AddDays(-2), now, 1, none));
+            Assert.Equal(PlainTextTraceVerdict.KeptBecauseUnarchived,
+                TraceArchiveWorker.ClassifyPlainTextTrace(file, now.AddDays(-2), now, 1, null));
+            Assert.Equal(PlainTextTraceVerdict.Delete,
+                TraceArchiveWorker.ClassifyPlainTextTrace(file, now.AddDays(-(SessionArchive.DefaultRetentionDays + 1)), now, 1, none));
+
+            TraceEvidencePins.Pin(file);
+            try
+            {
+                Assert.Equal(PlainTextTraceVerdict.Keep,
+                    TraceArchiveWorker.ClassifyPlainTextTrace(file, now.AddDays(-2), now, 1, archived));
+            }
+            finally { TraceEvidencePins.Release(file); }
+        }
+
         // ── The bundler's checkpoint ───────────────────────────────────────
 
         /// <summary>

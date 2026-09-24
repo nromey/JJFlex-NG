@@ -481,6 +481,36 @@ namespace JJTrace
         /// left behind by a run that died before its background compression
         /// finished — those get archived rather than pruned away unread.
         /// </summary>
+        /// <summary>
+        /// Every source file name the manifest archives, for a sweep that has
+        /// to ask the question once per file without loading the manifest once
+        /// per file. Null when the manifest exists but cannot be read — a
+        /// caller treats that as "nothing is archived", which keeps evidence
+        /// rather than deleting it.
+        /// </summary>
+        public static HashSet<string> ArchivedSourceNames(string archiveRootDir)
+        {
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (string.IsNullOrEmpty(archiveRootDir)) return names;
+            try
+            {
+                string manifestPath = Path.Combine(archiveRootDir, ManifestFileName);
+                if (!File.Exists(manifestPath)) return names;
+                TraceManifest manifest = TraceManifest.Load(manifestPath);
+                if (manifest?.Entries == null) return names;
+                foreach (TraceSessionEntry e in manifest.Entries)
+                {
+                    if (e != null && !string.IsNullOrEmpty(e.SourceName)) names.Add(e.SourceName);
+                }
+                return names;
+            }
+            catch (Exception ex)
+            {
+                Tracing.ErrTraceOnly(ex);
+                return null;
+            }
+        }
+
         public static bool IsSourceArchived(string archiveRootDir, string sourceName)
         {
             if (string.IsNullOrEmpty(sourceName)) return false;

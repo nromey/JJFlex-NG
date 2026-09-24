@@ -136,6 +136,14 @@ namespace JJTrace
         public string FailedStage { get; internal set; }
         public string RetainedSourcePath { get; internal set; }
 
+        /// <summary>
+        /// The session was detached, but its durable pending record could not
+        /// be written. Reported as a fact rather than swallowed (Sol's review of
+        /// H3, finding 4); <see cref="DeferredFaults"/> says where the raw file
+        /// is and what a crash before its archive commits would lose.
+        /// </summary>
+        public bool PendingRecordFailed { get; internal set; }
+
         /// <summary>One line of trace text describing this result. Never user
         /// prose — a refusal is logged as a refusal, naming both identities,
         /// and never as a statement that the current session suffered
@@ -212,6 +220,16 @@ namespace JJTrace
         /// <summary>Local boot stamp used for the archive's dated folder and
         /// filename.</summary>
         public DateTime StampLocal { get; internal set; }
+
+        /// <summary>
+        /// True when the durable pending record was written beside
+        /// <see cref="SourcePath"/> before any successor was published. False
+        /// means the raw file is retained by the plain-text sweep's
+        /// unarchived-evidence rule instead, and a process ending before this
+        /// ticket's archive commits would leave the raw file without its
+        /// outcome or detail. See <see cref="TraceArchiveWorker.ClassifyPlainTextTrace"/>.
+        /// </summary>
+        public bool PendingRecordWritten { get; internal set; }
 
         /// <summary>Completes when the archive worker has finished with this
         /// ticket, one way or the other.</summary>

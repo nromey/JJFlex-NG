@@ -34,6 +34,21 @@ namespace JJTrace
         [JsonPropertyName("entry")] public TraceSessionEntry Entry { get; set; }
     }
 
+    /// <summary>What the plain-text sweep may do with one trace file.</summary>
+    public enum PlainTextTraceVerdict
+    {
+        /// <summary>Too young, pinned, or somebody's pending work.</summary>
+        Keep,
+
+        /// <summary>Past its window: archived and past the ordinary one, or
+        /// unarchived and past an archive's own.</summary>
+        Delete,
+
+        /// <summary>Past the ordinary window, but no archive holds it, so it is
+        /// still the only copy. Kept, and worth reporting.</summary>
+        KeptBecauseUnarchived,
+    }
+
     /// <summary>
     /// One serialized worker for every archive this process makes — rotation
     /// parts and sealed sessions alike.
@@ -126,13 +141,20 @@ namespace JJTrace
             => string.IsNullOrEmpty(sourcePath) ? null : sourcePath + PendingSuffix;
 
         /// <summary>
-        /// Write the durable record. Failure is recorded as a fault rather than
-        /// thrown: a missing record costs a retry at next boot, and refusing to
-        /// seal because a sidecar would not write would cost the whole session.
+        /// Write the durable record, and SAY whether it was written.
+        ///
+        /// <para>It used to return nothing and swallow the failure into a fault
+        /// line, and the seal went on to publish its successor as if the record
+        /// existed (Sol's review of H3, finding 4). The caller now sees the
+        /// result, stamps it on the ticket, and reports it as a fact of the
+        /// transition. It is still not thrown: a seal that throws because a
+        /// sidecar would not write loses the whole session to protect its
+        /// metadata.</para>
         /// </summary>
-        internal static void WritePendingRecord(TraceArchiveTicket ticket, List<string> faults)
+        /// <returns>True when the record is on disk.</returns>
+        internal static bool WritePendingRecord(TraceArchiveTicket ticket, List<string> faults)
         {
-            if (ticket == null || string.IsNullOrEmpty(ticket.SourcePath)) return;
+            if (ticket == null || string.IsNullOrEmpty(ticket.SourcePath)) return false;
             try
             {
                 var record = new TracePendingRecord
@@ -149,11 +171,13 @@ namespace JJTrace
                 };
                 File.WriteAllText(PendingPathFor(ticket.SourcePath),
                                   JsonSerializer.Serialize(record, JsonOptions));
+                return true;
             }
             catch (Exception ex)
             {
                 faults?.Add("TraceCoordinator: could not write the pending archive record for "
                             + ticket.SourcePath + ": " + ex.Message);
+                return false;
             }
         }
 
@@ -176,6 +200,48 @@ namespace JJTrace
             if (fullPath.EndsWith(PendingSuffix, StringComparison.OrdinalIgnoreCase)) return true;
             try { return File.Exists(PendingPathFor(fullPath)); }
             catch { return false; }
+        }
+
+        /// <summary>
+        /// What the plain-text retention sweep may do with one stamp-named
+        /// trace file.
+        ///
+        /// <para><b>The recovery-safe policy for a trace whose pending record
+        /// could not be written</b> (Sol's review of H3, finding 4). Such a file
+        /// has been detached, its successor is recording, and it has no sidecar
+        /// — so if the process ends before its archive commits, the next boot's
+        /// recovery never sees it, and the ordinary one-day sweep would delete
+        /// the only copy unread. The sweep therefore asks whether the file has
+        /// an ARCHIVE, not merely how old it is: a file whose name is in the
+        /// manifest has its durable copy and ages out on the ordinary window; a
+        /// file whose name is not is kept for as long as an archive itself would
+        /// be kept. Nothing needs writing for this to hold, which is the point —
+        /// it is the policy for the case where a write just failed.</para>
+        ///
+        /// <para>Pinned files and files with pending work are always kept, as
+        /// before.</para>
+        /// </summary>
+        /// <param name="archivedSourceNames">File names the manifest already
+        /// archives. Null (the manifest could not be read) is treated as
+        /// "nothing is archived", which fails toward keeping.</param>
+        public static PlainTextTraceVerdict ClassifyPlainTextTrace(string fullPath,
+                                                                   DateTime lastWriteUtc,
+                                                                   DateTime nowUtc,
+                                                                   int retentionDays,
+                                                                   ISet<string> archivedSourceNames)
+        {
+            if (string.IsNullOrEmpty(fullPath) || retentionDays <= 0) return PlainTextTraceVerdict.Keep;
+            if (TraceEvidencePins.IsPinned(fullPath) || IsPendingWork(fullPath)) return PlainTextTraceVerdict.Keep;
+            if (lastWriteUtc >= nowUtc.AddDays(-retentionDays)) return PlainTextTraceVerdict.Keep;
+
+            bool archived = archivedSourceNames != null
+                            && archivedSourceNames.Contains(Path.GetFileName(fullPath));
+            if (archived) return PlainTextTraceVerdict.Delete;
+
+            int unarchivedDays = Math.Max(retentionDays, SessionArchive.DefaultRetentionDays);
+            return lastWriteUtc < nowUtc.AddDays(-unarchivedDays)
+                ? PlainTextTraceVerdict.Delete
+                : PlainTextTraceVerdict.KeptBecauseUnarchived;
         }
 
         /// <summary>

@@ -894,7 +894,7 @@ namespace JJTrace
             // is published: if the process dies between here and the commit, the
             // next boot finds a pending record rather than an orphan the
             // plain-text sweep will eventually delete unread.
-            TraceArchiveWorker.WritePendingRecord(ticket, faults);
+            bool recordWritten = NotePendingRecord(ticket, faults);
 
             _ticketsBySession[ticket.SessionId] = ticket;
             if (request.OperationId != Guid.Empty) _ticketsByOperation[request.OperationId] = ticket;
@@ -903,6 +903,7 @@ namespace JJTrace
             {
                 Status = TraceTransition.Accepted,
                 Ticket = ticket,
+                PendingRecordFailed = !recordWritten,
                 ExpectedSessionId = expectedId,
                 ObservedSessionId = observedId,
                 EndedDetailedCapture = endedCapture,
@@ -1104,7 +1105,9 @@ namespace JJTrace
                 OutcomeFileTag = fileTag,
                 StampLocal = session.BootTimeUtc.ToLocalTime(),
             };
-            TraceArchiveWorker.WritePendingRecord(ticket, faults);
+            // Same contract, same unresolved fallback, as the seal: see
+            // NotePendingRecord.
+            bool recordWritten = NotePendingRecord(ticket, faults);
             TraceEvidencePins.Pin(detached);
 
             _sink = null;
@@ -1124,6 +1127,7 @@ namespace JJTrace
             {
                 Status = TraceTransition.Accepted,
                 Ticket = ticket,
+                PendingRecordFailed = !recordWritten,
                 ExpectedSessionId = session.SessionId,
                 ObservedSessionId = session.SessionId,
                 Successor = next.Successor,
@@ -1165,6 +1169,48 @@ namespace JJTrace
         public static bool DrainArchives(TimeSpan budget) => TraceArchiveWorker.Drain(budget);
 
         // ── Helpers ────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Write a detached file's durable pending record and report the
+        /// result. Caller holds the gate; nothing here waits or traces.
+        ///
+        /// <para><b>What happens when the write fails, and what deliberately
+        /// does not.</b> The approved design says the durable record is written
+        /// BEFORE a successor is published. H3 swallowed a failed write and
+        /// published the successor anyway (Sol's review, finding 4). Now the
+        /// failure is explicit — on the ticket, on the result, and in a fault
+        /// that names the raw file and what a crash would cost — and the raw
+        /// file is retained by a policy that needs no write at all: the
+        /// plain-text sweep keeps any trace that no archive holds for as long as
+        /// an archive would be kept (<see cref="TraceArchiveWorker.ClassifyPlainTextTrace"/>).
+        /// The ticket is still queued, so in the ordinary case its archive
+        /// commits seconds later and nothing is lost.</para>
+        ///
+        /// <para><b>NOT DECIDED HERE: whether a successor may open at all when
+        /// this fails.</b> Keeping the design's contract to the letter means
+        /// refusing the successor — logging stops because one small write
+        /// failed. Keeping logging means the contract is broken for this
+        /// session's METADATA (outcome, detail, connection target): a crash
+        /// before its archive commits leaves the raw bytes kept but unlabelled.
+        /// Sol named that trade as one for Astra to judge, and Track H6's brief
+        /// said to stop and report it rather than choose. So the successor
+        /// behaviour is exactly H3's, unchanged, and the question is open.</para>
+        /// </summary>
+        private static bool NotePendingRecord(TraceArchiveTicket ticket, List<string> faults)
+        {
+            bool written = TraceArchiveWorker.WritePendingRecord(ticket, faults);
+            ticket.PendingRecordWritten = written;
+            if (!written)
+            {
+                faults.Add("TraceCoordinator: " + ticket.SourcePath
+                           + " has NO durable pending record. The raw trace is kept (the plain-text sweep keeps"
+                           + " any trace no archive holds for " + SessionArchive.DefaultRetentionDays
+                           + " days) and its archive is being made now; if the application ends before that"
+                           + " archive commits, the next launch will not recover it automatically, and its"
+                           + " outcome and detail will be lost with the record");
+            }
+            return written;
+        }
 
         /// <summary>
         /// A deep enough copy of the session's metadata that later observations

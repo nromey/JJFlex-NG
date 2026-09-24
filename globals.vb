@@ -1861,7 +1861,13 @@ Module globals
         If retentionDays <= 0 Then Return
         Try
             If Not Directory.Exists(BaseConfigDir) Then Return
-            Dim cutoffUtc As DateTime = DateTime.UtcNow.AddDays(-retentionDays)
+            Dim nowUtc As DateTime = DateTime.UtcNow
+            ' Asked once, not once per file. A file no archive holds is still the
+            ' only copy of its evidence — a trace whose pending record could not
+            ' be written is exactly that — so it is kept for as long as an archive
+            ' itself would be (Sol's review of H3, finding 4).
+            Dim archived As HashSet(Of String) = SessionArchive.ArchivedSourceNames(TraceArchiveDir)
+            Dim keptUnarchived As Integer = 0
             Dim patterns As New List(Of String) From {$"{DailyTraceFilePrefix}-*.txt"}
             Dim instanceStem As String = $"{LiveTraceStem}-*.txt"
             If Not patterns.Contains(instanceStem) Then patterns.Add(instanceStem)
@@ -1870,23 +1876,31 @@ Module globals
             For Each pattern As String In patterns
                 For Each path As String In Directory.GetFiles(BaseConfigDir, pattern)
                     If Not seen.Add(path) Then Continue For
-                    ' Two reasons to leave a plain-text trace alone regardless of
-                    ' age: somebody is bundling it right now, or it is a detached
-                    ' file whose archive has not been committed yet. Either way
-                    ' deleting it destroys the only copy of evidence somebody is
-                    ' still counting on.
-                    If TraceEvidencePins.IsPinned(path) Then Continue For
-                    If TraceArchiveWorker.IsPendingWork(path) Then Continue For
+                    ' Three reasons to leave a plain-text trace alone past its day:
+                    ' somebody is bundling it right now, it is a detached file whose
+                    ' archive has not been committed yet, or no archive holds it at
+                    ' all. Each way, deleting it destroys the only copy of evidence
+                    ' somebody is still counting on. The rule lives in one place.
                     Try
                         Dim fi As New FileInfo(path)
-                        If fi.LastWriteTimeUtc < cutoffUtc Then
-                            File.Delete(path)
-                        End If
+                        Select Case TraceArchiveWorker.ClassifyPlainTextTrace(
+                                path, fi.LastWriteTimeUtc, nowUtc, retentionDays, archived)
+                            Case PlainTextTraceVerdict.Delete
+                                File.Delete(path)
+                            Case PlainTextTraceVerdict.KeptBecauseUnarchived
+                                keptUnarchived += 1
+                        End Select
                     Catch ex As Exception
                         Tracing.ErrTraceOnly(ex)
                     End Try
                 Next
             Next
+            If keptUnarchived > 0 Then
+                Tracing.TraceLine(
+                    $"PrunePlainTextTracesOlderThan: kept {keptUnarchived} plain-text trace(s) past the " &
+                    $"{retentionDays}-day window because no archive holds them — they are the only copy",
+                    TraceLevel.Warning)
+            End If
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)
         End Try
