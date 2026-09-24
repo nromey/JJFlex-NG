@@ -411,6 +411,61 @@ namespace Radios.Tests
             // And listedUnder is bound from the finding's listing account.
             Assert.Contains("ListedUnderAccount: { Length: > 0 } listedUnder", src, StringComparison.Ordinal);
         }
+
+        /// <summary>
+        /// Radio Setup's step 2 said "Checking with SmartLink" after the check
+        /// had ended. An unanswered check is deliberately not cached, and its
+        /// completion refreshed nothing, so the in-flight words stayed on
+        /// screen indefinitely (Sol's review of Track L2, 2026-09-24). A
+        /// finished check now refreshes the step once, to a line of its own —
+        /// and that refresh must never start another check, or an unanswered
+        /// check would re-ask for as long as the dialog stayed open.
+        /// </summary>
+        [Fact]
+        public void Radio_setup_settles_a_check_that_finished_without_an_answer()
+        {
+            string src = System.IO.File.ReadAllText(System.IO.Path.Combine(
+                RepoRoot(), "JJFlexWpf", "Dialogs", "SettingsDialog.RadioSetup.cs"));
+
+            int kick = src.IndexOf("private async void KickRegistrationQuery()", StringComparison.Ordinal);
+            int refresh = src.IndexOf("private void RefreshSetupStatuses(", StringComparison.Ordinal);
+            Assert.True(kick >= 0 && refresh > kick,
+                "KickRegistrationQuery or RefreshSetupStatuses is not where this test looks for it, so nothing below would be checking it.");
+            string kickBody = src.Substring(kick, refresh - kick);
+
+            // Every completion refreshes, answered or not — the old refresh
+            // was conditional on an answer having been cached.
+            Assert.DoesNotContain("_registrationQueryResult != null && IsLoaded", kickBody, StringComparison.Ordinal);
+            Assert.Contains("_registrationUnansweredSerial = answered ? null : serial", kickBody, StringComparison.Ordinal);
+
+            // ...and that refresh cannot start another check.
+            int settle = kickBody.IndexOf("RefreshSetupStatuses(startARegistrationCheck: false)", StringComparison.Ordinal);
+            Assert.True(settle >= 0, "A finished registration check does not refresh the step, so its in-flight words stay on screen.");
+            Assert.DoesNotContain("RefreshSetupStatuses()", kickBody, StringComparison.Ordinal);
+
+            // It runs after the check is marked finished, or it would still
+            // read as in flight.
+            int cleared = kickBody.IndexOf("_registrationQueryInFlight = false", StringComparison.Ordinal);
+            Assert.True(cleared >= 0 && cleared < settle,
+                "The step is refreshed while the check still reads as in flight.");
+
+            // The status refresh starts a check only when asked to, and that is
+            // the only place in the file one is started.
+            Assert.Matches(@"if \(startARegistrationCheck\)\s+KickRegistrationQuery\(\);", src);
+            Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(src, @"KickRegistrationQuery\(\);").Count);
+
+            // The settled line is its own resource key, and it exists.
+            Assert.Contains("\"settings.radio.register.check_unanswered\"", src, StringComparison.Ordinal);
+            string lexicon = System.IO.File.ReadAllText(System.IO.Path.Combine(
+                RepoRoot(), "Radios", "Lexicon", "settings.json"));
+            using var doc = System.Text.Json.JsonDocument.Parse(lexicon);
+            Assert.True(doc.RootElement.TryGetProperty("settings.radio.register.check_unanswered", out var settled),
+                "The settled line's key is not in settings.json, so the operator would hear the key read out.");
+            Assert.False(string.IsNullOrWhiteSpace(settled.GetString()));
+            Assert.NotEqual(
+                doc.RootElement.GetProperty("settings.radio.register.checking").GetString(),
+                settled.GetString());
+        }
     }
 
     /// <summary>

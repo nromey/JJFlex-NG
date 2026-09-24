@@ -747,6 +747,7 @@
   "settings.radio.name.type_one_first": "Type a name first. The radio keeps its current name.",
   "settings.radio.register.already_registered": "Done. This radio is already registered to {accountEmail}. You only need the button below to register it again after unregistering.",
   "settings.radio.register.blocked": "Cannot register yet. {reason}",
+  "settings.radio.register.check_unanswered": "Ready to register to {accountEmail}. The check for whether this radio is already registered has finished without an answer, so that is still not known. Refresh all steps checks again. {state}",
   "settings.radio.register.checking": "Ready to register to {accountEmail}. Checking with SmartLink whether it already is... {state}",
   "settings.radio.register.command_not_sent": "The command could not be sent. Check that you are signed in to SmartLink and see the trace file.",
   "settings.radio.register.command_not_sent_spoken": "Could not send the command.",

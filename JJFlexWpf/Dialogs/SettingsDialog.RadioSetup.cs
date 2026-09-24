@@ -95,6 +95,15 @@ namespace JJFlexWpf.Dialogs
         private SmartLinkRegistrationEvidence.Finding? _registrationQueryResult;
         private bool _registrationQueryInFlight;
 
+        // The serial whose most recent check FINISHED without an answer. An
+        // unanswered check is deliberately not cached as an answer (see
+        // below), and before Track L3 its completion refreshed nothing — so
+        // "Checking with SmartLink" stayed on screen after the check had
+        // ended, indefinitely, until some unrelated event redrew the step.
+        // Sol's review of Track L2 (2026-09-24) found it, and L2 had made the
+        // path more common by setting aside a disconnected session's list.
+        private string? _registrationUnansweredSerial;
+
         private async void KickRegistrationQuery()
         {
             var rig = _rig;
@@ -106,32 +115,46 @@ namespace JJFlexWpf.Dialogs
             if (_registrationQueryResult != null && serial == _registrationQuerySerial) return;
 
             _registrationQueryInFlight = true;
+            SmartLinkRegistrationEvidence.Finding? finding = null;
             try
             {
-                var finding = await rig.QuerySmartLinkRegistrationAsync();
-                _registrationQuerySerial = serial;
-                // Unknown and NoAccount are not cached as answers — leave the
-                // neutral text and let a later refresh try again rather than
-                // pinning a shrug; NoAccount changes the moment the user signs in.
-                _registrationQueryResult =
-                    finding.Verdict is FlexBase.SmartLinkRegistrationQuery.Unknown
-                                    or FlexBase.SmartLinkRegistrationQuery.NoAccount
-                    ? null
-                    : finding;
-                if (_registrationQueryResult != null && IsLoaded)
-                    RefreshSetupStatuses();
+                finding = await rig.QuerySmartLinkRegistrationAsync();
             }
             catch (Exception ex)
             {
+                // A check that threw has finished too, and without an answer.
                 Tracing.TraceLine($"KickRegistrationQuery: {ex.Message}", TraceLevel.Error);
             }
             finally
             {
+                // Cleared BEFORE the refresh below, so the refresh sees the
+                // check as finished rather than still in flight.
                 _registrationQueryInFlight = false;
             }
+
+            _registrationQuerySerial = serial;
+            // Unknown and NoAccount are not cached as answers — let a later
+            // refresh try again rather than pinning a shrug; NoAccount changes
+            // the moment the user signs in.
+            bool answered = finding is { } f
+                && f.Verdict is not (FlexBase.SmartLinkRegistrationQuery.Unknown
+                                     or FlexBase.SmartLinkRegistrationQuery.NoAccount);
+            _registrationQueryResult = answered ? finding : null;
+            _registrationUnansweredSerial = answered ? null : serial;
+
+            // Every completion refreshes the step ONCE, answer or not, and the
+            // refresh it asks for never starts another check: an unanswered
+            // check whose refresh re-asked would loop for as long as the
+            // dialog is open. A new check starts only on the events that
+            // started one before this — the tab opening, Refresh all steps, an
+            // address change, a registration or firmware result.
+            if (IsLoaded)
+                RefreshSetupStatuses(startARegistrationCheck: false);
         }
 
-        private void RefreshSetupStatuses()
+        /// <param name="startARegistrationCheck">False only from a finished
+        /// registration check, whose refresh must not start another one.</param>
+        private void RefreshSetupStatuses(bool startARegistrationCheck = true)
         {
             bool connected = _rig != null && _rig.IsConnected;
 
@@ -209,12 +232,25 @@ namespace JJFlexWpf.Dialogs
                     { Verdict: FlexBase.SmartLinkRegistrationQuery.NotInAccountList } =>
                         Lexicon.Get("settings.radio.register.not_in_account_list",
                             ("accountEmail", regCheck.AccountEmail)),
+                    // The check has finished and established nothing, and
+                    // no new one is starting. Says only that — nothing about
+                    // whether the radio is registered, because nothing was
+                    // learned. FIRST DRAFT: the words are Noel's to rule, and
+                    // the line waits on his review with the other registration
+                    // wording from Sol's reviews.
+                    _ when !startARegistrationCheck
+                           && !_registrationQueryInFlight
+                           && _registrationUnansweredSerial == _rig.SelectedRadioSerial =>
+                        Lexicon.Get("settings.radio.register.check_unanswered",
+                            ("accountEmail", regCheck.AccountEmail),
+                            ("state", _rig.RegistrationStateText)),
                     _ =>
                         Lexicon.Get("settings.radio.register.checking",
                             ("accountEmail", regCheck.AccountEmail),
                             ("state", _rig.RegistrationStateText)),
                 };
-                KickRegistrationQuery();
+                if (startARegistrationCheck)
+                    KickRegistrationQuery();
             }
 
             // Step 4 — addressing.
