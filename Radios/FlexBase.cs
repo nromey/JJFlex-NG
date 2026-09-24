@@ -742,6 +742,126 @@ namespace Radios
             finally { System.Threading.Interlocked.Decrement(ref _selfDisconnects); }
         }
 
+        /// <summary>
+        /// Set when we have handed the radio a firmware image, so the
+        /// connection falling while it restarts is not read as a drop. Cleared
+        /// by the next <see cref="Connect"/>.
+        ///
+        /// <para><b>Why this exists at all.</b> While the seal hung off
+        /// <c>API.RadioRemoved</c>, a firmware update never reached it:
+        /// FlexLib's <c>RemoveRadio</c> returns early for a radio that is
+        /// updating. The <c>Connected</c> fall has no such exemption, so moving
+        /// the trigger there would have started sealing every firmware update
+        /// the operator asked for as <c>connection_dropped</c>, and showing the
+        /// drop window over it. FlexLib's own updating flag is internal, so we
+        /// keep ours.</para>
+        /// </summary>
+        private volatile bool _firmwareUpdateSent;
+
+        /// <summary>
+        /// Whether our connection falling seals the capture. The same
+        /// classification the removal handler uses — a hang-up is ours and
+        /// does not seal, another object's fall says nothing about our
+        /// session — with one more deliberate case: a radio restarting because
+        /// we sent it firmware. Pure, so the truth table is pinned by tests.
+        /// </summary>
+        internal static bool ConnectionFallSealsTheCapture(RadioRemovalKind kind, bool firmwareUpdateSent)
+            => RemovalSealsTheCapture(kind) && !firmwareUpdateSent;
+
+        /// <summary>
+        /// The Radio's <c>Connected</c> property has just gone false. If it was
+        /// OUR connection and we did not ask for it, seal the running capture as
+        /// <c>connection_dropped</c> (#566's bridge).
+        ///
+        /// <para><b>THIS IS THE ONE PLACE THE SEAL IS TAKEN, and it is here
+        /// because this is the only signal FlexLib raises on every path.</b> On
+        /// a transport loss FlexLib sets <c>Connected</c> false, then calls its
+        /// own <c>Disconnect</c>, which calls <c>API.RemoveRadio</c> — and
+        /// <c>RemoveRadio</c> raises <c>RadioRemoved</c> only for a serial in
+        /// its LAN discovery dictionary. A radio reached only through SmartLink
+        /// is never in it. Tracks H, H2 and H3 sealed on <c>RadioRemoved</c>,
+        /// so on Don's path no drop was ever sealed; the 8600 on the bench is
+        /// on the LAN too, which is why it looked right there.</para>
+        ///
+        /// <para><b>Exactly once on a dual-homed radio.</b> Both signals arrive
+        /// there, <c>Connected</c> false first and <c>RadioRemoved</c> after it,
+        /// on the same thread. The removal handler's drop arm is roster
+        /// bookkeeping only, so it never asks for a seal; and any repeat of this
+        /// call for the same connection is refused by the connection lifetime's
+        /// claim inside <see cref="CaptureSeal.AfterConnectionDrop"/>.</para>
+        ///
+        /// <para><b>What this cannot see (#620).</b> FlexLib's <c>Disconnect</c>
+        /// unhooks the Radio from its transport and its <c>Connect</c> does not
+        /// hook it back, so a Radio object connected a SECOND time never raises
+        /// this property again when that connection dies. Every successful
+        /// remote <see cref="RetryConnect"/> and any SmartLink reconnect handed
+        /// the same object is in that state. That needs a change inside FlexLib
+        /// and is not made here.</para>
+        /// </summary>
+        private void sealIfOurConnectionDropped(Radio r)
+        {
+            if (r == null) return;
+            var kind = ClassifyRadioRemoval(
+                selfDisconnectActive: System.Threading.Volatile.Read(ref _selfDisconnects) > 0,
+                disconnectingFlag: Disconnecting,
+                sameObject: ReferenceEquals(r, theRadio));
+            bool firmware = _firmwareUpdateSent;
+
+            if (!ConnectionFallSealsTheCapture(kind, firmware))
+            {
+                Tracing.TraceLine(
+                    $"connection fell: {r.Serial} ({r.Nickname}) — {kind}"
+                    + (firmware ? ", firmware update sent" : "")
+                    + "; not a drop, nothing sealed",
+                    TraceLevel.Info);
+                return;
+            }
+
+            Tracing.TraceLine(
+                $"connection fell: {r.Serial} ({r.Nickname}) — our connection dropped without us asking; sealing the capture",
+                TraceLevel.Warning);
+
+            // Returns at once; the zip happens off this thread, which is
+            // FlexLib's own transport thread in the middle of a teardown.
+            //
+            // `r` is the drop's identity, and its CONNECTION LIFETIME is what
+            // makes two notices one drop — not the object alone and not a timer.
+            //
+            // CLAIM FIRST, THEN COLLECT (#618). The meter window is rendered by
+            // the closure, which AfterConnectionDrop calls only after winning
+            // the claim; the line then travels as data into the trace boundary
+            // and is written to the accepted session or to nothing at all.
+            CaptureSeal.AfterConnectionDrop(
+                r, r.Nickname ?? "",
+                () => collectCaptureMeterFlush(CaptureMeterSet.PartialConnectionDropped));
+        }
+
+        /// <summary>
+        /// Subscribe this rig's property handler to a Radio, at most once.
+        /// Idempotent on purpose: a Radio object can come back to
+        /// <see cref="Connect"/> without this rig having disconnected it — a
+        /// failed leg of the connect walk, or a SmartLink reconnect handed the
+        /// same object — and a second subscription dispatches every property
+        /// change twice, the connection falling included.
+        /// </summary>
+        private void wireRadioPropertyHandler(Radio radio)
+        {
+            if (radio == null) return;
+            radio.PropertyChanged -= radioPropertyChangedHandler;
+            radio.PropertyChanged += radioPropertyChangedHandler;
+        }
+
+        /// <summary>
+        /// Take this rig's property handler off a Radio it is letting go of, so
+        /// a later connection on the same object does not carry this one's
+        /// handler as well.
+        /// </summary>
+        private void unwireRadioPropertyHandler(Radio radio)
+        {
+            if (radio == null) return;
+            radio.PropertyChanged -= radioPropertyChangedHandler;
+        }
+
         private void apiRadioRemovedHandler(Radio r)
         {
             if (r == null || string.IsNullOrWhiteSpace(r.Serial)) return;
@@ -785,37 +905,25 @@ namespace Radios
                     Tracing.TraceLine(
                         $"apiRadioRemovedHandler: {r.Serial} ({r.Nickname}) retired after its connection dropped — the radio may still be on the air; discovery will say (#402)",
                         TraceLevel.Info);
-                    // Seal the capture HERE, with the readings still in it and
-                    // without waiting for the app to close. Until Sprint 45
-                    // Track H the session stayed open until exit and was then
-                    // archived clean_exit, so a radio dying mid-transmit
-                    // produced a file indistinguishable from a normal evening —
-                    // which is why no archive on this machine has ever carried
-                    // connection_dropped. Returns at once; the zip happens off
-                    // this thread. See CaptureSeal.
-                    if (RemovalSealsTheCapture(kind))
-                    {
-                        // `r` is the drop's own identity, and its CONNECTION
-                        // LIFETIME is what makes two notices one drop — not the
-                        // object alone and not a timer, because the vendor does
-                        // not guarantee a fresh object per reconnect. Exact
-                        // here, because this arm is only reached when r IS
-                        // theRadio.
-                        //
-                        // CLAIM FIRST, THEN COLLECT (#618). The temperature
-                        // window is rendered by the closure below, which
-                        // AfterConnectionDrop calls only after winning the
-                        // claim; the line then travels as data into the trace
-                        // boundary and is written to the accepted session or to
-                        // nothing at all. H2 wrote it before the claim, so a
-                        // repeat notice stamped a false drop line into the fresh
-                        // standing log — and moving the write alone would still
-                        // have let a session replacement land it in a
-                        // successor's file.
-                        CaptureSeal.AfterConnectionDrop(
-                            r, r.Nickname ?? "",
-                            () => collectCaptureMeterFlush(CaptureMeterSet.PartialConnectionDropped));
-                    }
+                    // ROSTER BOOKKEEPING ONLY. THE SEAL DOES NOT LIVE HERE ANY
+                    // MORE, and it must not come back.
+                    //
+                    // Tracks H, H2 and H3 sealed the capture in this arm. FlexLib
+                    // never raises RadioRemoved for a radio reached only through
+                    // SmartLink: API.RemoveRadio returns without an event when
+                    // the serial is not in its LAN discovery dictionary, and only
+                    // LAN discovery writes that dictionary. So on a SmartLink-only
+                    // path — Don's 6300 — this arm is never reached and no drop
+                    // was ever sealed, first loss included. It worked on the bench
+                    // only because the 8600 is on the LAN as well.
+                    //
+                    // The seal is taken where the drop is signalled on EVERY path:
+                    // the Radio's Connected property falling, in
+                    // radioPropertyChangedHandler, which FlexLib raises on this
+                    // same thread just BEFORE it calls RemoveRadio. On a
+                    // dual-homed radio this arm still arrives afterwards, and
+                    // leaving the seal out of it is what keeps that to one seal.
+                    // See sealIfOurConnectionDropped.
                     break;
                 default:
                     Tracing.TraceLine($"apiRadioRemovedHandler: {r.Serial} ({r.Nickname}) gone from discovery — removing", TraceLevel.Info);
@@ -1954,6 +2062,10 @@ namespace Radios
             // radio that is not ours (#499). See _radioReportedAutosave.
             _radioReportedAutosave = false;
 
+            // Fresh connection: whatever firmware we once sent is behind us, and
+            // this connection falling is a drop again.
+            _firmwareUpdateSent = false;
+
             ConnectionProfiler.Current?.RecordEvent("connect_begin", new Dictionary<string, object>
             {
                 { "serial", serial },
@@ -2020,7 +2132,9 @@ namespace Radios
             SetChangeNothingActive(knownRadioProfile.ChangeNothingOnThisRadio);
 
             // add the handlers.
-            theRadio.PropertyChanged += new PropertyChangedEventHandler(radioPropertyChangedHandler);
+            // The property handler is wired idempotently: it carries the
+            // connection-fall seal, and a second copy would dispatch it twice.
+            wireRadioPropertyHandler(theRadio);
             theRadio.MessageReceived += new Radio.MessageReceivedEventHandler(messageReceivedHandler);
             theRadio.GUIClientAdded += new Radio.GUIClientAddedEventHandler(guiClientAdded);
             theRadio.GUIClientUpdated += new Radio.GUIClientUpdatedEventHandler(guiClientUpdated);
@@ -3087,6 +3201,11 @@ namespace Radios
             Tracing.TraceLine("Disconnect:" + (string)((theRadio == null) ? "null" : theRadio.Serial), TraceLevel.Info);
             if (theRadio == null) return;
 
+            // Held for the end of this method, which lets go of the object's
+            // property handler once its fall has been seen. theRadio itself is
+            // cleared part way through.
+            Radio releasing = theRadio;
+
             // Put this radio's own profiles back, FIRST, while the link is
             // certainly still up and before the cancel flag below starts
             // shortening waits (#450). Idempotent: the record is cleared once
@@ -3265,6 +3384,17 @@ namespace Radios
 
                 theRadio = null;
             }
+
+            // Let go of the property handler, so a later connection handed this
+            // same Radio object carries one handler rather than two. Only once
+            // the object reports itself disconnected: its fall is what sets
+            // IsConnected false, so a radio that has not yet let go keeps the
+            // handler until it does. That fall is ours and seals nothing,
+            // because Disconnecting is already set.
+            if (!releasing.Connected)
+                unwireRadioPropertyHandler(releasing);
+            else
+                Tracing.TraceLine("Disconnect: the radio still reports connected; its property handler stays until it lets go", TraceLevel.Info);
 
             // Now collect the farewell started at the top of this method. See the
             // long comment there: this path plays SK and suppresses the only
@@ -5099,6 +5229,9 @@ namespace Radios
             try
             {
                 Tracing.TraceLine($"BeginFirmwareUpdate: sending {path}", TraceLevel.Info);
+                // Before the send, so the restart it causes is never read as a
+                // drop. See _firmwareUpdateSent.
+                _firmwareUpdateSent = true;
                 // FlexLib 4.2.x made this async Task where 4.1.x was fire-and-forget
                 // void. Completion is still watched via discovery, not this task —
                 // but a faulted transfer means the image never arrived, and that
@@ -7805,9 +7938,15 @@ namespace Radios
 #endif
                 case "Connected":
                     {
-                        Tracing.TraceLine("Connected:" + r.Connected.ToString(), TraceLevel.Error);
-                        _IsConnected = r.Connected;
-                        ConnectionStateChanged?.Invoke(r.Connected);
+                        // Read once: every use below must describe the same
+                        // transition.
+                        bool nowConnected = r.Connected;
+                        Tracing.TraceLine("Connected:" + nowConnected.ToString(), TraceLevel.Error);
+                        _IsConnected = nowConnected;
+                        // The seal is taken BEFORE ConnectionStateChanged, so a
+                        // subscriber that throws cannot cost the evidence.
+                        if (!nowConnected) sealIfOurConnectionDropped(r);
+                        ConnectionStateChanged?.Invoke(nowConnected);
 #if zero
                         bool justReconnected = false;
                         if (!r.Connected &&

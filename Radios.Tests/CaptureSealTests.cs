@@ -123,31 +123,58 @@ namespace Radios.Tests
                 FlexBase.RadioRemovalKind.DiscoveryLoss));
         }
 
+        /// <summary>
+        /// <b>This test used to pin the defect.</b> Until Track H5 it asserted
+        /// that the seal sat inside <c>apiRadioRemovedHandler</c>'s
+        /// <c>ConnectionLostOurRadio</c> arm — the arm FlexLib never reaches for
+        /// a radio known only through SmartLink, because <c>API.RemoveRadio</c>
+        /// raises nothing for a serial outside its LAN discovery dictionary. It
+        /// was green on every run and on the bench, because the 8600 is on the
+        /// LAN as well.
+        ///
+        /// <para>The truth table still decides. What moved is the signal it is
+        /// consulted on: our Radio's <c>Connected</c> property falling, which
+        /// FlexLib raises on every path. <c>ConnectionFallSealsTheCapture</c>
+        /// answers through <c>RemovalSealsTheCapture</c>, so a hang-up is still
+        /// ours and still seals nothing.</para>
+        /// </summary>
         [Fact]
-        public void The_drop_case_seals_and_the_self_case_does_not_in_the_shipped_handler()
+        public void The_shipped_seal_is_gated_by_the_truth_table_and_carries_the_radio_itself()
         {
             // A truth table nothing consults is a truth table that is wrong for
-            // free. This pins the call site: the seal is inside the
-            // ConnectionLostOurRadio arm and nowhere else in the handler.
+            // free. This pins the call site.
             string source = File.ReadAllText(Path.Combine(
                 CaptureMeterSetTests.RepoRoot(), "Radios", "FlexBase.cs"));
-            Assert.Contains("case RadioRemovalKind.ConnectionLostOurRadio:", source, StringComparison.Ordinal);
+            string sealMethod = SealMethodBody(source);
 
+            Assert.Contains("ClassifyRadioRemoval(", sealMethod, StringComparison.Ordinal);
+            Assert.Contains("ConnectionFallSealsTheCapture(kind,", sealMethod, StringComparison.Ordinal);
+            Assert.Contains("=> RemovalSealsTheCapture(kind) && !firmwareUpdateSent;", source, StringComparison.Ordinal);
+
+            // Neither removal arm asks for a seal any more.
             int drop = source.IndexOf("case RadioRemovalKind.ConnectionLostOurRadio:", StringComparison.Ordinal);
             int selfCase = source.IndexOf("case RadioRemovalKind.SelfInitiated:", StringComparison.Ordinal);
             Assert.True(drop > 0 && selfCase > 0);
-
             string dropArm = source.Substring(drop, source.IndexOf("default:", drop, StringComparison.Ordinal) - drop);
             string selfArm = source.Substring(selfCase, drop - selfCase);
-
-            Assert.Contains("CaptureSeal.AfterConnectionDrop", dropArm, StringComparison.Ordinal);
+            Assert.DoesNotContain("CaptureSeal.AfterConnectionDrop", dropArm, StringComparison.Ordinal);
             Assert.DoesNotContain("CaptureSeal.AfterConnectionDrop", selfArm, StringComparison.Ordinal);
 
-            // And the removal's own object is what identifies the drop, not
+            // And the fallen radio's own object is what identifies the drop, not
             // just its nickname — its connection lifetime is what makes two
             // notices one drop.
-            Assert.Contains("CaptureSeal.AfterConnectionDrop(\r\n                            r,", dropArm,
+            Assert.Contains("CaptureSeal.AfterConnectionDrop(\r\n                r,", sealMethod,
                             StringComparison.Ordinal);
+        }
+
+        /// <summary>The body of the one method that takes the seal.</summary>
+        internal static string SealMethodBody(string flexBaseSource)
+        {
+            int at = flexBaseSource.IndexOf("private void sealIfOurConnectionDropped(Radio r)", StringComparison.Ordinal);
+            Assert.True(at > 0, "sealIfOurConnectionDropped is gone");
+            int end = flexBaseSource.IndexOf("private void wireRadioPropertyHandler(", at, StringComparison.Ordinal);
+            Assert.True(end > at, "the member after sealIfOurConnectionDropped moved");
+            return flexBaseSource.Substring(at, end - at);
         }
 
         /// <summary>
@@ -159,8 +186,9 @@ namespace Radios.Tests
         {
             string source = File.ReadAllText(Path.Combine(
                 CaptureMeterSetTests.RepoRoot(), "Radios", "FlexBase.cs"));
-            int drop = source.IndexOf("case RadioRemovalKind.ConnectionLostOurRadio:", StringComparison.Ordinal);
-            string dropArm = source.Substring(drop, source.IndexOf("default:", drop, StringComparison.Ordinal) - drop);
+            // The seal moved from the removal arm to the connection's fall in
+            // Track H5; the #618 shape moved with it.
+            string dropArm = SealMethodBody(source);
 
             // A lambda passed to AfterConnectionDrop, not a statement before it.
             Assert.Contains("() => collectCaptureMeterFlush(", dropArm, StringComparison.Ordinal);

@@ -354,15 +354,16 @@ namespace Radios.Tests
             // Source-read because the real ordering needs a live session, a
             // radio and a drop — and because a helper with no caller is how the
             // first attempt at this flush was lost.
+            //
+            // Track H5 moved the seal from the RadioRemoved drop arm, which
+            // FlexLib never reaches for a SmartLink-only radio, to our radio's
+            // Connected property falling. The ordering this pins moved with it.
             string source = File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "FlexBase.cs"));
-            Assert.Contains("case RadioRemovalKind.ConnectionLostOurRadio:", source, StringComparison.Ordinal);
-
-            int arm = source.IndexOf("case RadioRemovalKind.ConnectionLostOurRadio:", StringComparison.Ordinal);
-            string body = source.Substring(arm, source.IndexOf("default:", arm, StringComparison.Ordinal) - arm);
+            string body = CaptureSealTests.SealMethodBody(source);
 
             int seal = body.IndexOf("CaptureSeal.AfterConnectionDrop", StringComparison.Ordinal);
             int collector = body.IndexOf("() => collectCaptureMeterFlush(", StringComparison.Ordinal);
-            Assert.True(seal > 0, "the drop arm no longer queues a seal");
+            Assert.True(seal > 0, "the connection's fall no longer queues a seal");
             Assert.True(collector > seal,
                 "the meter window must be handed to the seal as a function, not rendered ahead of it");
 

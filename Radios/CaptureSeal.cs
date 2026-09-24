@@ -181,8 +181,12 @@ namespace Radios
         /// landed.
         ///
         /// <para>Returns immediately: the sealing itself compresses a file that
-        /// can be megabytes, and this is called from FlexLib's own removal
-        /// handler, on FlexLib's thread, in the middle of a teardown. Blocking
+        /// can be megabytes, and this is called when FlexLib reports our
+        /// Radio's <c>Connected</c> property falling, on FlexLib's own transport
+        /// thread, in the middle of a teardown. (Tracks H to H3 called it from
+        /// the <c>RadioRemoved</c> handler instead, which FlexLib never raises
+        /// for a radio reached only through SmartLink — see
+        /// <c>FlexBase.sealIfOurConnectionDropped</c>.) Blocking
         /// that to zip a log would be a hang in the one situation where the
         /// application most needs to stay responsive. Nothing here waits for the
         /// trace boundary, for a file operation, for compression or for a UI
@@ -193,8 +197,8 @@ namespace Radios
         /// world where the operator may already have stopped the capture,
         /// started another, toggled logging or closed the app.</para>
         /// </summary>
-        /// <param name="dropToken">The removal's own identity — the
-        /// <c>Radio</c> object FlexLib handed to the removal handler. Its
+        /// <param name="dropToken">The drop's own identity — the <c>Radio</c>
+        /// object whose <c>Connected</c> property fell. Its
         /// connection lifetime is what makes two notices one drop. May be null;
         /// the claim then falls back to one seal per session.</param>
         /// <param name="radioName">The radio's nickname, for the sentence on the
