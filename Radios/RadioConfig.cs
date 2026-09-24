@@ -119,6 +119,16 @@ namespace Radios
     /// lives in the same room as the operator, and an app that keeps asking is
     /// treating a valid choice as an unfinished task. Numeric values are
     /// stable for saved configs.</para>
+    ///
+    /// <para><b>But the NAMES are what is saved.</b> XmlSerializer writes this
+    /// enum by member name — <c>&lt;SmartLinkIntent&gt;LocalOnly&lt;/SmartLinkIntent&gt;</c>
+    /// — so renaming a member orphans every stored answer with that name, and
+    /// <see cref="RadioConfig.Load"/> answers the unreadable file with
+    /// defaults, which asks the operator again as if they had never answered.
+    /// To rename one, keep the old name on the wire with
+    /// <c>[XmlEnum("OldName")]</c>. <c>SmartLinkIntentSerializationTests</c>
+    /// reads a hand-built config in the old shape and fails on a rename
+    /// (#619).</para>
     /// </summary>
     public enum SmartLinkIntents
     {
