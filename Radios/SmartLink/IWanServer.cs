@@ -38,6 +38,27 @@ namespace Radios.SmartLink
         /// </summary>
         bool IsConnected { get; }
 
+        /// <summary>
+        /// Which connection is the newest one dialed: 0 before the first
+        /// <see cref="Connect"/>, and one higher after every <see cref="Connect"/>
+        /// that dials, whether or not the dial succeeds. A list whose
+        /// <see cref="WanRadioListReceivedEventArgs.ConnectionGeneration"/> is
+        /// below this came from a transport that has since been replaced.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Lock-free, on purpose.</b> The reader that needs it is the
+        /// radio-list handler, which runs on the receive thread of whichever
+        /// transport produced the list — possibly a dying one — while the
+        /// monitor thread may be inside a dial holding the adapter's lock for
+        /// up to fifteen seconds. A read that took that lock would stall the
+        /// receive thread behind the dial; a read that could return a value
+        /// older than the list's own generation would be wrong. The adapter
+        /// writes this before it creates the transport that carries the new
+        /// generation, so a plain volatile read on any thread is at least as
+        /// new as any list it is compared against (#619).</para>
+        /// </remarks>
+        long ConnectionGeneration { get; }
+
         /// <summary>Initiate a SmartLink session connect.</summary>
         void Connect();
 
@@ -121,14 +142,43 @@ namespace Radios.SmartLink
         }
     }
 
-    /// <summary>Event payload for <see cref="IWanServer.WanRadioRadioListReceived"/>.</summary>
+    /// <summary>
+    /// Event payload for <see cref="IWanServer.WanRadioRadioListReceived"/>:
+    /// the list, and which connection it was born on.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The generation is provenance, stamped where the transport is
+    /// created, never decided when the handler happens to run.</b> FlexLib
+    /// invokes list handlers on the transport's own read loop, and closing
+    /// that transport cancels the loop without waiting for a handler already
+    /// in flight. So an old connection's callback can pause, the monitor can
+    /// dial a new connection, and the old callback can then reach our handler
+    /// after the new connection is up. Track L3 stamped the list with a
+    /// number the OWNER kept current at that moment, which labelled exactly
+    /// such a callback as the new connection's; Sol's review of L3 named it.
+    /// The adapter now subscribes each transport's list event with that
+    /// transport's generation captured in the subscription, so a late
+    /// callback carries the generation it was actually born under, and the
+    /// owner compares it with <see cref="IWanServer.ConnectionGeneration"/>
+    /// to decide whether it describes the live connection (#619).</para>
+    ///
+    /// <para>The constructor takes the generation as a required argument so
+    /// that no list can be raised without saying where it came from.</para>
+    /// </remarks>
     public sealed class WanRadioListReceivedEventArgs : EventArgs
     {
         public IReadOnlyList<Radio> Radios { get; }
 
-        public WanRadioListReceivedEventArgs(IReadOnlyList<Radio> radios)
+        /// <summary>
+        /// The <see cref="IWanServer.ConnectionGeneration"/> of the connection
+        /// whose transport delivered this list.
+        /// </summary>
+        public long ConnectionGeneration { get; }
+
+        public WanRadioListReceivedEventArgs(IReadOnlyList<Radio> radios, long connectionGeneration)
         {
             Radios = radios;
+            ConnectionGeneration = connectionGeneration;
         }
     }
 

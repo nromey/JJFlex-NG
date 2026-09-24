@@ -54,17 +54,31 @@ namespace Radios.SmartLink
         private IReadOnlyList<Radio> _availableRadios = Array.Empty<Radio>();
         private DateTime? _lastRadioListUtc;
 
-        // Which connection the list above arrived on (#619). The list is kept
-        // across a drop on purpose — the post-drop diagnostic probe reads it,
-        // and the connect flow replays it — so emptying it at the boundary
-        // would break both. Instead the boundary advances a number, and a
-        // list is from the live connection only while its number matches.
-        // Advanced wherever a connection starts or ends: in AttemptConnect,
-        // which is the only place the monitor dials, and on every IsConnected
-        // edge the server raises, which also closes the moment between a drop
-        // and the monitor waking to notice it.
-        private long _connectionNumber;
-        private long _radioListConnectionNumber = -1;
+        // Which connection the list above arrived on, and which connection is
+        // live (#619). The list is kept across a drop on purpose — the
+        // post-drop diagnostic probe reads it, and the connect flow replays it
+        // — so emptying it at the boundary would break both. Instead each list
+        // carries the generation of the transport it was born on, stamped by
+        // the adapter where that transport was created, and a list describes
+        // the live connection only while its generation is the live one.
+        //
+        // Track L3 numbered the connections HERE, advancing on every dial and
+        // every IsConnected edge, and stamped a list with the number current
+        // when its callback reached this owner. Sol's review of L3 found the
+        // hole: FlexLib invokes the handler on the transport's read loop and
+        // does not wait for one in flight when it closes the transport, so an
+        // old connection's callback could pause, cross the reconnect edge, and
+        // be stamped as the new connection's. The stamp is provenance now,
+        // and this owner only correlates: it compares the stamp with the
+        // newest generation the server has dialed.
+        //
+        // _liveConnectionGeneration is learned two ways, and takes the larger:
+        // from the server after every dial (AttemptConnect), and from a list
+        // whose generation is newer than anything recorded — which can only
+        // be the connection being dialed right now, whose list arrived before
+        // the dial returned. Sol named that ordering too.
+        private long _liveConnectionGeneration;
+        private long _radioListConnectionGeneration = -1;
 
         private volatile bool _userWantsConnected;
         private volatile bool _shutdownRequested;
@@ -191,7 +205,7 @@ namespace Radios.SmartLink
                         connected,
                         connected
                             && _lastRadioListUtc != null
-                            && _radioListConnectionNumber == _connectionNumber);
+                            && _radioListConnectionGeneration == _liveConnectionGeneration);
                 }
             }
         }
@@ -455,9 +469,6 @@ namespace Radios.SmartLink
                 // dropped; the one we are about to dial needs its own.
                 _registeredThisConnection = false;
                 _registrationRecoveryTried = false;
-                // And so did any list: it stays held, but no longer describes
-                // the connection that is live (#619).
-                _connectionNumber++;
             }
             _registrationInvalidPending = false;
             _registrationRetryCount = 0;
@@ -479,6 +490,18 @@ namespace Radios.SmartLink
                 {
                     _lastError = ex;
                 }
+            }
+
+            // The connection just dialed is the live one, succeed or fail; the
+            // held list, whatever its generation, no longer describes it
+            // unless it arrived on it (#619). Read after the dial, because the
+            // server mints the generation inside Connect. A list that landed
+            // during the dial may already have recorded this value — hence
+            // the larger of the two, never a plain assignment.
+            long dialed = _wan.ConnectionGeneration;
+            lock (_stateGate)
+            {
+                if (dialed > _liveConnectionGeneration) _liveConnectionGeneration = dialed;
             }
 
             if (_wan.IsConnected)
@@ -678,29 +701,54 @@ namespace Radios.SmartLink
         {
             if (e.PropertyName == nameof(IWanServer.IsConnected))
             {
-                // Either edge ends the connection the held list arrived on, or
-                // starts one it did not arrive on (#619). Deliberately does not
-                // read _wan.IsConnected here: this can run on the receive
-                // thread, and the adapter's getter takes a lock the monitor
-                // may be holding.
-                lock (_stateGate) _connectionNumber++;
-                // Wake monitor to re-evaluate whether to reconnect or settle into connected state.
+                // No bookkeeping here, deliberately: which connection a list
+                // belongs to is stamped on the list by the adapter and
+                // compared in OnWanRadioListReceived, so an edge that arrives
+                // late, twice, or on the receive thread cannot relabel
+                // anything (#619). Just wake the monitor to re-evaluate
+                // whether to reconnect or settle into connected state.
                 _wakeEvent.Set();
             }
         }
 
         private void OnWanRadioListReceived(object? sender, WanRadioListReceivedEventArgs e)
         {
+            // Correlation, not provenance: the list says which connection it
+            // was born on, the server says which connection is the newest one
+            // dialed. A list from an earlier generation is a callback from a
+            // transport that has since been replaced — the interleaving Sol
+            // named in his review of Track L3 — and it is not this session's
+            // current knowledge: not held, not stamped, not re-raised, so the
+            // connect flow cannot capture it as a push either (#619). The
+            // read is lock-free by contract, which matters because this runs
+            // on the receive thread while the monitor may be inside a dial
+            // holding the adapter's lock.
+            long newest = _wan.ConnectionGeneration;
+            if (e.ConnectionGeneration < newest)
+            {
+                Tracing.TraceLine(
+                    $"{_tracePrefix} radio list count={e.Radios.Count} from connection {e.ConnectionGeneration} ignored — connection {newest} has been dialed since, so this is a late callback from a replaced transport (#619)",
+                    TraceLevel.Info);
+                return;
+            }
+
             lock (_stateGate)
             {
                 _availableRadios = e.Radios;
                 _lastRadioListUtc = DateTime.UtcNow;
-                _radioListConnectionNumber = _connectionNumber;
+                _radioListConnectionGeneration = e.ConnectionGeneration;
+                // A list newer than any connection recorded as live can only be
+                // the one being dialed right now, arriving before the dial
+                // returned: it teaches the owner the live generation rather
+                // than waiting to be labelled history until AttemptConnect
+                // catches up.
+                if (e.ConnectionGeneration > _liveConnectionGeneration)
+                    _liveConnectionGeneration = e.ConnectionGeneration;
                 // A list arriving is proof the registration works, so a MUCH
                 // later registration-invalid gets its own recovery attempt.
                 _registrationRecoveryTried = false;
             }
-            Tracing.TraceLine($"{_tracePrefix} radio list received count={e.Radios.Count}", TraceLevel.Info);
+            Tracing.TraceLine($"{_tracePrefix} radio list received count={e.Radios.Count} connection={e.ConnectionGeneration}", TraceLevel.Info);
             // Re-raise with THIS owner as sender: with one held session per
             // account (#259), the sender's AccountId is what attributes the
             // list. Fires on the SmartLink receive thread — consumers marshal.

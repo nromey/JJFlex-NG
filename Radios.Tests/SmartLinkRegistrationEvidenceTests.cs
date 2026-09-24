@@ -647,6 +647,106 @@ namespace Radios.Tests
             }
         }
 
+        private const string Other = "1111-2222-6400-3333";
+
+        /// <summary>
+        /// The interleaving Sol's review of Track L3 named. FlexLib invokes a
+        /// list handler on the transport's read loop and does not wait for
+        /// one in flight when the transport is closed, so the OLD
+        /// connection's callback can reach the owner after the NEW
+        /// connection is up. L3 stamped a list with the number current when
+        /// the callback arrived, which made that late list the new
+        /// connection's. The stamp now travels with the list from where the
+        /// transport was created, and the owner compares it with the newest
+        /// connection dialed: a late list from a replaced transport is not
+        /// held, not labelled current, and not re-raised.
+        /// </summary>
+        [Fact]
+        public void A_late_list_from_the_replaced_transport_is_not_the_new_connections()
+        {
+            var (owner, wan) = Build(Account);
+            try
+            {
+                ReconnectWithoutANewList(owner, wan);
+                Assert.Equal(2, wan.ConnectionGeneration);
+
+                int reRaised = 0;
+                owner.RadioListReceived += (_, __) => reRaised++;
+
+                // Connection 1's transport, delivering late, with a different
+                // serial so that ignoring it is observable.
+                wan.RaiseWanRadioRadioListReceivedFrom(1, new[] { SmartLinkRegistrationReplayTests.WanRadio(Other) });
+
+                Assert.Equal(0, reRaised);
+                Assert.Contains(owner.AvailableRadios, r => r.Serial == Listed);
+                Assert.DoesNotContain(owner.AvailableRadios, r => r.Serial == Other);
+
+                var lists = Evidence.HeldLists(new[] { owner });
+                Assert.Equal(Evidence.ListSource.HeldFromAnEarlierConnection, lists.Single().Source);
+                Assert.NotEqual(Verdict.Registered, Evidence.Judge(Other, false, true, true, lists).Verdict);
+                Assert.NotEqual(Verdict.Registered, Evidence.Judge(Listed, false, true, true, lists).Verdict);
+
+                // Positive control: the same list from the live transport is
+                // held, current, and re-raised.
+                wan.RaiseWanRadioRadioListReceivedFrom(2, new[] { SmartLinkRegistrationReplayTests.WanRadio(Other) });
+
+                Assert.Equal(1, reRaised);
+                Assert.Contains(owner.AvailableRadios, r => r.Serial == Other);
+                lists = Evidence.HeldLists(new[] { owner });
+                Assert.Equal(Evidence.ListSource.HeldByAConnectedSession, lists.Single().Source);
+                Assert.Equal(Verdict.Registered, Evidence.Judge(Other, false, true, true, lists).Verdict);
+            }
+            finally
+            {
+                owner.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// The reverse ordering Sol also named: the new connection's list
+        /// lands before the dial has returned, so the owner has not yet been
+        /// told which connection is live. L3 would have stamped it with the
+        /// old number and read it as history. The list carries its own
+        /// generation, which is newer than anything the owner has recorded,
+        /// and that teaches the owner the live generation.
+        /// </summary>
+        [Fact]
+        public void A_list_that_lands_before_the_dial_returns_belongs_to_the_new_connection()
+        {
+            var (owner, wan) = Build(Account);
+            try
+            {
+                owner.Connect();
+                WaitUntil(() => owner.IsConnected, "the mock session never reported connected");
+                wan.RaiseWanRadioRadioListReceived(new[] { SmartLinkRegistrationReplayTests.WanRadio(Listed) });
+
+                // The mock's hook runs inside Connect(), after the generation
+                // advanced and before the connected edge is raised — which is
+                // where a real list can land, between WanServer subscribing
+                // its transport and Connect returning to the monitor.
+                wan.OnPropertyChangedHook = () =>
+                {
+                    if (!wan.IsConnected) return; // the drop's edge, not the dial's
+                    wan.OnPropertyChangedHook = null;
+                    wan.RaiseWanRadioRadioListReceived(new[] { SmartLinkRegistrationReplayTests.WanRadio(Listed) });
+                };
+
+                int dialsBefore = wan.ConnectCallCount;
+                wan.ForceIsConnected(false);
+                WaitUntil(() => wan.ConnectCallCount > dialsBefore && owner.IsConnected,
+                    "the session never dialled a new connection after the drop");
+                Assert.Null(wan.OnPropertyChangedHook); // the list was delivered inside the dial
+
+                var lists = Evidence.HeldLists(new[] { owner });
+                Assert.Equal(Evidence.ListSource.HeldByAConnectedSession, lists.Single().Source);
+                Assert.Equal(Verdict.Registered, Evidence.Judge(Listed, false, true, true, lists).Verdict);
+            }
+            finally
+            {
+                owner.Dispose();
+            }
+        }
+
         /// <summary>
         /// Why the fix stamps the list instead of emptying it at the boundary.
         /// The session's post-drop diagnostic probe fires on the way INTO

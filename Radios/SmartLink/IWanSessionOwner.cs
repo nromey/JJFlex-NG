@@ -104,6 +104,15 @@ namespace Radios.SmartLink
         /// about now could take a listing the radio has since left as a
         /// current answer (#619).</para>
         ///
+        /// <para><b>Where "arrived on the live connection" comes from.</b>
+        /// Each list carries the generation of the transport it was born on,
+        /// stamped by the adapter at the moment that transport was created —
+        /// never a number the owner happened to hold when the callback
+        /// reached it, which is what Track L3 did and what let a callback
+        /// from a replaced transport, arriving late, read as the new
+        /// connection's (Sol's review of L3). A list from a replaced transport
+        /// is not held at all, so nothing here can be one.</para>
+        ///
         /// <para>This does not replace <see cref="AvailableRadios"/> or
         /// <see cref="LastRadioListUtc"/>, whose meanings are unchanged. It is
         /// for a reader whose sentence is in the present tense.</para>

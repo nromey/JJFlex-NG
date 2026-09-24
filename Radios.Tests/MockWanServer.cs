@@ -70,9 +70,21 @@ namespace Radios.Tests
             get => _isConnected;
         }
 
+        private long _connectionGeneration;
+
+        /// <summary>
+        /// Advances on every <see cref="Connect"/> that dials, as the real
+        /// adapter's does — before the connection is up, so a list raised from
+        /// inside the connect (via <see cref="OnPropertyChangedHook"/>) already
+        /// carries the new generation, which is the ordering the reverse race
+        /// in #619 needs.
+        /// </summary>
+        public long ConnectionGeneration => Volatile.Read(ref _connectionGeneration);
+
         public void Connect()
         {
             Interlocked.Increment(ref _connectCallCount);
+            if (!_isConnected) Interlocked.Increment(ref _connectionGeneration);
 
             if (ConnectDelay is { } delay)
             {
@@ -135,9 +147,23 @@ namespace Radios.Tests
             WanRadioConnectReady?.Invoke(this, new WanRadioConnectReadyEventArgs(handle, serial));
         }
 
+        /// <summary>
+        /// A list from the connection most recently dialed, as a live push is.
+        /// </summary>
         public void RaiseWanRadioRadioListReceived(IReadOnlyList<Radio> radios)
         {
-            WanRadioRadioListReceived?.Invoke(this, new WanRadioListReceivedEventArgs(radios));
+            RaiseWanRadioRadioListReceivedFrom(ConnectionGeneration, radios);
+        }
+
+        /// <summary>
+        /// A list stamped with a chosen connection generation. With one below
+        /// <see cref="ConnectionGeneration"/> this is the late callback Sol
+        /// named in his review of Track L3: a transport that has since been
+        /// replaced delivering its list after the reconnect (#619).
+        /// </summary>
+        public void RaiseWanRadioRadioListReceivedFrom(long connectionGeneration, IReadOnlyList<Radio> radios)
+        {
+            WanRadioRadioListReceived?.Invoke(this, new WanRadioListReceivedEventArgs(radios, connectionGeneration));
         }
 
         public void RaiseWanApplicationRegistrationInvalid()
