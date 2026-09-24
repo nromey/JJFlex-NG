@@ -21,6 +21,7 @@ namespace Radios.Tests
         private bool _isConnected;
 
         public event PropertyChangedEventHandler? PropertyChanged;
+        public event EventHandler<long>? ConnectionDialing;
         public event EventHandler<WanRadioConnectReadyEventArgs>? WanRadioConnectReady;
         public event EventHandler? WanApplicationRegistrationInvalid;
         public event EventHandler<WanRadioListReceivedEventArgs>? WanRadioRadioListReceived;
@@ -53,6 +54,17 @@ namespace Radios.Tests
         /// </summary>
         public Action? OnPropertyChangedHook { get; set; }
 
+        /// <summary>
+        /// Runs inside <see cref="Connect"/> on a dial, after the generation
+        /// and <see cref="ConnectionDialing"/> have been published and before
+        /// anything else happens — where the real adapter is creating and
+        /// dialing its transport, for up to fifteen seconds. A test that
+        /// blocks here holds a dial in progress, which is the only way to
+        /// decide a parked callback DURING a dial rather than before or
+        /// after it (#619).
+        /// </summary>
+        public Action? DialHook { get; set; }
+
         // --- Observable call counters ---
 
         private int _connectCallCount;
@@ -77,14 +89,20 @@ namespace Radios.Tests
         /// adapter's does — before the connection is up, so a list raised from
         /// inside the connect (via <see cref="OnPropertyChangedHook"/>) already
         /// carries the new generation, which is the ordering the reverse race
-        /// in #619 needs.
+        /// in #619 needs. <see cref="ConnectionDialing"/> is raised right
+        /// after, as the adapter raises it before its transport exists.
         /// </summary>
         public long ConnectionGeneration => Volatile.Read(ref _connectionGeneration);
 
         public void Connect()
         {
             Interlocked.Increment(ref _connectCallCount);
-            if (!_isConnected) Interlocked.Increment(ref _connectionGeneration);
+            if (!_isConnected)
+            {
+                long generation = Interlocked.Increment(ref _connectionGeneration);
+                ConnectionDialing?.Invoke(this, generation);
+                DialHook?.Invoke();
+            }
 
             if (ConnectDelay is { } delay)
             {

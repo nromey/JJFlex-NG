@@ -72,13 +72,50 @@ namespace Radios.SmartLink
         // and this owner only correlates: it compares the stamp with the
         // newest generation the server has dialed.
         //
-        // _liveConnectionGeneration is learned two ways, and takes the larger:
-        // from the server after every dial (AttemptConnect), and from a list
-        // whose generation is newer than anything recorded — which can only
-        // be the connection being dialed right now, whose list arrived before
-        // the dial returned. Sol named that ordering too.
+        // Track L4 read that newest generation from the server, lock-free,
+        // and then took _stateGate to accept the list. Sol's review of L4
+        // found the gap between the two: an old callback could read "newest
+        // is 1", pause, and resume after a dial had published 2 — and then
+        // store and re-raise its list as current, during the dial, before
+        // AttemptConnect had caught up. So the check and the acceptance are
+        // ONE critical section now, and the retirement joins it: the server
+        // raises ConnectionDialing before the new transport exists, the
+        // handler records it under _stateGate, and the list handler decides
+        // under the same _stateGate. A callback is decided either before that
+        // record (its connection really was the newest at that moment) or
+        // after (refused); there is no third order. Nothing reads the
+        // server's generation back after the dial any more, because a
+        // fallback that catches up later is exactly a window.
+        //
+        // The "larger of the two" arm survives for a list whose generation is
+        // newer than anything recorded. Through the real adapter it is
+        // unreachable — the transport is created after the event — but it is
+        // the correct reading of such a list if a server ever produced one,
+        // and the suite's mock can.
         private long _liveConnectionGeneration;
         private long _radioListConnectionGeneration = -1;
+
+        // The live connection has been torn down BY THIS OWNER — the operator
+        // asked to disconnect, Reset, or Dispose — and nothing has been dialed
+        // since. Its generation is still the newest, so the generation alone
+        // would let a list from the closed transport in; Sol's review of L4
+        // named that timing. A transport that DIES is not marked here: the
+        // owner never knows the instant, the IsConnected edge can arrive late
+        // or twice (which is why that handler does no bookkeeping), and the
+        // snapshot already reports such a list as not live through the
+        // session status. Cleared by the next ConnectionDialing.
+        private bool _liveConnectionRetired;
+
+        /// <summary>
+        /// For the suite only. Runs at the top of the list handler, on the
+        /// delivering thread, before the owner decides anything and before it
+        /// takes any lock. A test parks a callback here so the overlap Sol
+        /// named — a callback that has reached the owner when a dial begins
+        /// and is decided while the dial is in progress — can be held exactly,
+        /// rather than approximated with an event delivered after the fact.
+        /// Null in production and never read by anything else.
+        /// </summary>
+        internal Action? BeforeListDecision;
 
         private volatile bool _userWantsConnected;
         private volatile bool _shutdownRequested;
@@ -143,6 +180,7 @@ namespace Radios.SmartLink
             _backoffScheduleMs = backoffScheduleMs ?? BackoffScheduleMs;
 
             _wan.PropertyChanged += OnWanPropertyChanged;
+            _wan.ConnectionDialing += OnWanConnectionDialing;
             _wan.WanRadioRadioListReceived += OnWanRadioListReceived;
             _wan.WanRadioConnectReady += OnWanRadioConnectReady;
             _wan.WanApplicationRegistrationInvalid += OnWanApplicationRegistrationInvalid;
@@ -205,7 +243,8 @@ namespace Radios.SmartLink
                         connected,
                         connected
                             && _lastRadioListUtc != null
-                            && _radioListConnectionGeneration == _liveConnectionGeneration);
+                            && _radioListConnectionGeneration == _liveConnectionGeneration
+                            && !_liveConnectionRetired);
                 }
             }
         }
@@ -257,6 +296,9 @@ namespace Radios.SmartLink
             {
                 _reconnectAttemptCount = 0;
                 _lastError = null;
+                // Torn down on purpose; the redial will retire it by number
+                // as well, but a list landing between the two is history.
+                _liveConnectionRetired = true;
             }
             try { _wan.Disconnect(); } catch { /* intentional — monitor loop re-tries */ }
             _wakeEvent.Set();
@@ -408,6 +450,15 @@ namespace Radios.SmartLink
                 if (!_userWantsConnected)
                 {
                     // User wants to stay disconnected; ensure underlying session is torn down and sleep until signaled.
+                    //
+                    // Retired BEFORE the teardown, under the lock the list
+                    // handler decides under, so a list the closing transport
+                    // delivers from here on is refused — its generation is
+                    // still the newest, and generation alone would let it
+                    // through to the coordinator and the intake after the
+                    // operator asked to be disconnected (Sol's review of L4,
+                    // #619). Idempotent, so the loop can pass here freely.
+                    lock (_stateGate) _liveConnectionRetired = true;
                     if (_wan.IsConnected)
                     {
                         try { _wan.Disconnect(); } catch (Exception ex) { TraceWarn("Disconnect threw", ex); }
@@ -492,17 +543,11 @@ namespace Radios.SmartLink
                 }
             }
 
-            // The connection just dialed is the live one, succeed or fail; the
-            // held list, whatever its generation, no longer describes it
-            // unless it arrived on it (#619). Read after the dial, because the
-            // server mints the generation inside Connect. A list that landed
-            // during the dial may already have recorded this value — hence
-            // the larger of the two, never a plain assignment.
-            long dialed = _wan.ConnectionGeneration;
-            lock (_stateGate)
-            {
-                if (dialed > _liveConnectionGeneration) _liveConnectionGeneration = dialed;
-            }
+            // Which connection is live was recorded INSIDE the dial, by
+            // OnWanConnectionDialing, before the transport existed. Nothing is
+            // read back here: Track L4 did, and the read-after-the-dial was
+            // the window Sol found — an old list accepted during the dial was
+            // current until this point caught up (#619).
 
             if (_wan.IsConnected)
             {
@@ -711,43 +756,88 @@ namespace Radios.SmartLink
             }
         }
 
+        /// <summary>
+        /// The server is dialing a new connection: record its generation as
+        /// the live one, under the lock the list handler decides under. This
+        /// runs on the monitor thread, inside the adapter's Connect, before
+        /// the transport that will carry the generation exists — so by the
+        /// time any list can say this number, it is already the live one
+        /// here, and any list saying a smaller number decided after this
+        /// point is refused (#619).
+        /// </summary>
+        private void OnWanConnectionDialing(object? sender, long generation)
+        {
+            long retiredFrom;
+            lock (_stateGate)
+            {
+                retiredFrom = _liveConnectionGeneration;
+                if (generation > _liveConnectionGeneration)
+                {
+                    _liveConnectionGeneration = generation;
+                    _liveConnectionRetired = false;
+                }
+            }
+            Tracing.TraceLine(
+                $"{_tracePrefix} connection {generation} dialing — connection {retiredFrom} is retired; a list must say {generation} to be this session's current knowledge (#619)",
+                TraceLevel.Info);
+        }
+
         private void OnWanRadioListReceived(object? sender, WanRadioListReceivedEventArgs e)
         {
+            BeforeListDecision?.Invoke();
+
             // Correlation, not provenance: the list says which connection it
-            // was born on, the server says which connection is the newest one
-            // dialed. A list from an earlier generation is a callback from a
-            // transport that has since been replaced — the interleaving Sol
-            // named in his review of Track L3 — and it is not this session's
-            // current knowledge: not held, not stamped, not re-raised, so the
-            // connect flow cannot capture it as a push either (#619). The
-            // read is lock-free by contract, which matters because this runs
-            // on the receive thread while the monitor may be inside a dial
-            // holding the adapter's lock.
-            long newest = _wan.ConnectionGeneration;
-            if (e.ConnectionGeneration < newest)
+            // was born on; this owner records which connection is the newest
+            // dialed, told by the server before that connection's transport
+            // existed, and whether this owner has since torn it down. Decided
+            // in ONE critical section, the same one OnWanConnectionDialing
+            // records under, so a callback that reached this method before a
+            // dial began and is decided during it sees the new generation —
+            // the interleaving Sol's review of L4 named (#619). A list that
+            // is refused is not held, not stamped, not re-raised, so the
+            // coordinator and the connect flow never see it and it cannot be
+            // captured as a push. Traced outside the lock: tracing is I/O.
+            string? refused = null;
+            lock (_stateGate)
+            {
+                if (e.ConnectionGeneration < _liveConnectionGeneration)
+                {
+                    refused = $"connection {_liveConnectionGeneration} has been dialed since, so this is a late callback from a replaced transport";
+                }
+                else if (e.ConnectionGeneration == _liveConnectionGeneration && _liveConnectionRetired)
+                {
+                    refused = $"this session disconnected connection {_liveConnectionGeneration} and has dialed nothing since, so this is a late callback from a transport it closed";
+                }
+                else
+                {
+                    _availableRadios = e.Radios;
+                    _lastRadioListUtc = DateTime.UtcNow;
+                    _radioListConnectionGeneration = e.ConnectionGeneration;
+                    // A list newer than any connection recorded as live can
+                    // only be from a connection the server dialed without
+                    // announcing; unreachable through the adapter, which
+                    // announces before the transport exists, but if it ever
+                    // happened this is the right reading of it.
+                    if (e.ConnectionGeneration > _liveConnectionGeneration)
+                    {
+                        _liveConnectionGeneration = e.ConnectionGeneration;
+                        _liveConnectionRetired = false;
+                    }
+                    // A list arriving is proof the registration works, so a
+                    // MUCH later registration-invalid gets its own recovery
+                    // attempt.
+                    _registrationRecoveryTried = false;
+                }
+            }
+
+            if (refused != null)
             {
                 Tracing.TraceLine(
-                    $"{_tracePrefix} radio list count={e.Radios.Count} from connection {e.ConnectionGeneration} ignored — connection {newest} has been dialed since, so this is a late callback from a replaced transport (#619)",
+                    $"{_tracePrefix} radio list count={e.Radios.Count} from connection {e.ConnectionGeneration} ignored — {refused} (#619)",
                     TraceLevel.Info);
                 return;
             }
 
-            lock (_stateGate)
-            {
-                _availableRadios = e.Radios;
-                _lastRadioListUtc = DateTime.UtcNow;
-                _radioListConnectionGeneration = e.ConnectionGeneration;
-                // A list newer than any connection recorded as live can only be
-                // the one being dialed right now, arriving before the dial
-                // returned: it teaches the owner the live generation rather
-                // than waiting to be labelled history until AttemptConnect
-                // catches up.
-                if (e.ConnectionGeneration > _liveConnectionGeneration)
-                    _liveConnectionGeneration = e.ConnectionGeneration;
-                // A list arriving is proof the registration works, so a MUCH
-                // later registration-invalid gets its own recovery attempt.
-                _registrationRecoveryTried = false;
-            }
             Tracing.TraceLine($"{_tracePrefix} radio list received count={e.Radios.Count} connection={e.ConnectionGeneration}", TraceLevel.Info);
             // Re-raise with THIS owner as sender: with one held session per
             // account (#259), the sender's AccountId is what attributes the
@@ -821,6 +911,13 @@ namespace Radios.SmartLink
             Tracing.TraceLine($"{_tracePrefix} Dispose", TraceLevel.Info);
             _shutdownRequested = true;
             _userWantsConnected = false;
+            // First, under the list handler's lock: a callback already in
+            // flight when this began is decided against a retired connection
+            // and refused, rather than re-raised into the coordinator from a
+            // session that is going away (Sol's review of L4, #619). The
+            // unsubscribe below is too late for a callback that has already
+            // read the delegate.
+            lock (_stateGate) _liveConnectionRetired = true;
             CancelPendingRadioConnect("session disposed");
             _wakeEvent.Set();
 
@@ -832,6 +929,7 @@ namespace Radios.SmartLink
             }
 
             _wan.PropertyChanged -= OnWanPropertyChanged;
+            _wan.ConnectionDialing -= OnWanConnectionDialing;
             _wan.WanRadioRadioListReceived -= OnWanRadioListReceived;
             _wan.WanRadioConnectReady -= OnWanRadioConnectReady;
             _wan.WanApplicationRegistrationInvalid -= OnWanApplicationRegistrationInvalid;

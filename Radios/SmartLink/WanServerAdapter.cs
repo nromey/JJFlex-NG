@@ -114,14 +114,22 @@ namespace Radios.SmartLink
 
                 var previous = _wan;
                 long generation = _connectionGeneration + 1;
-                // The generation is published before the transport that will
-                // carry it exists. So a list from the NEW instance always reads
-                // a current generation equal to its own, and a list from the
-                // OLD instance — even one whose callback was already in flight
-                // when this dial began — reads one that is higher. The
-                // comparison lives in WanSessionOwner; the ordering that makes
-                // it exact lives here (#619).
+                // The generation is published, and every subscriber told,
+                // before the transport that will carry it exists. So by the
+                // time any list can say this generation, the owner has already
+                // recorded it — and a list from the OLD instance, even one
+                // whose callback was already at the owner's door when this
+                // dial began, is decided either before the owner records this
+                // (its connection really was the newest then) or after (it is
+                // refused). The decision lives in WanSessionOwner, under the
+                // lock it records this under; the ordering that leaves it no
+                // third case lives here (#619).
+                //
+                // Raised while _gate is held. The owner's handler takes its
+                // own _stateGate inside; nothing on the owner takes _stateGate
+                // and then calls into this adapter, so the order is one-way.
                 Volatile.Write(ref _connectionGeneration, generation);
+                ConnectionDialing?.Invoke(this, generation);
                 Retire(previous);
                 _wan = Hook(_newWanServer(), generation);
                 Tracing.TraceLine($"{_tracePrefix}WanServerAdapter.Connect dialing connection {generation}", TraceLevel.Info);
@@ -174,6 +182,7 @@ namespace Radios.SmartLink
         // --- Events (re-raised from FlexLib) ---
 
         public event PropertyChangedEventHandler? PropertyChanged;
+        public event EventHandler<long>? ConnectionDialing;
         public event EventHandler<WanRadioConnectReadyEventArgs>? WanRadioConnectReady;
         public event EventHandler? WanApplicationRegistrationInvalid;
         public event EventHandler<WanRadioListReceivedEventArgs>? WanRadioRadioListReceived;

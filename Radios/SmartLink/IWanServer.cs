@@ -46,18 +46,56 @@ namespace Radios.SmartLink
         /// below this came from a transport that has since been replaced.
         /// </summary>
         /// <remarks>
-        /// <para><b>Lock-free, on purpose.</b> The reader that needs it is the
-        /// radio-list handler, which runs on the receive thread of whichever
-        /// transport produced the list — possibly a dying one — while the
-        /// monitor thread may be inside a dial holding the adapter's lock for
-        /// up to fifteen seconds. A read that took that lock would stall the
-        /// receive thread behind the dial; a read that could return a value
-        /// older than the list's own generation would be wrong. The adapter
-        /// writes this before it creates the transport that carries the new
-        /// generation, so a plain volatile read on any thread is at least as
-        /// new as any list it is compared against (#619).</para>
+        /// <para><b>Not the thing a list is accepted against.</b> Track L4 had
+        /// the owner's list handler read this, lock-free, and then take its
+        /// own lock to accept the list — two steps, and Sol's review of L4
+        /// found the gap between them: an old connection's callback could read
+        /// "newest is 1", pause, and resume after a dial had published 2, and
+        /// store its list as current. A second read would only shrink that
+        /// window. So the acceptance is now serialized with the retirement
+        /// instead: the adapter raises <see cref="ConnectionDialing"/> before
+        /// the new transport exists, the owner records it under the same lock
+        /// its list handler decides under, and this property is read only for
+        /// tracing and by the suite (#619).</para>
+        ///
+        /// <para>Lock-free because its readers are on the receive thread,
+        /// which must never wait behind the adapter's lock — the monitor
+        /// thread may be inside a dial holding it for up to fifteen
+        /// seconds.</para>
         /// </remarks>
         long ConnectionGeneration { get; }
+
+        /// <summary>
+        /// A new connection is being dialed, and the value carried is its
+        /// generation — the one <see cref="ConnectionGeneration"/> now reports.
+        /// Raised synchronously on the dialing thread, inside
+        /// <see cref="Connect"/>, AFTER the generation has advanced and BEFORE
+        /// the transport that will carry it exists. Every connection dialed
+        /// earlier is retired the moment this returns.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>This is the boundary that makes list acceptance atomic
+        /// with retirement (#619).</b> A subscriber that records the value
+        /// under the same lock it decides list acceptance under has exactly
+        /// two possible orders for any callback: the callback is decided
+        /// before this event has been recorded, in which case its connection
+        /// really was the newest one at that moment, or after, in which case
+        /// a list from an earlier generation is refused. There is no third
+        /// order, because there is no gap between the check and the decision.
+        /// And no list stamped with the new generation can be decided before
+        /// this has been raised, because the transport that would carry it
+        /// is created after.</para>
+        ///
+        /// <para>Implementers MUST raise it on every dial. The owner learns
+        /// which connection is live from this event alone; it no longer reads
+        /// the generation back after the dial, because a fallback that catches
+        /// up later is precisely a window.</para>
+        ///
+        /// <para>The handler runs while the adapter holds its lock, so it must
+        /// not call back into the server; recording a number under a lock of
+        /// its own is what it is for.</para>
+        /// </remarks>
+        event EventHandler<long>? ConnectionDialing;
 
         /// <summary>Initiate a SmartLink session connect.</summary>
         void Connect();

@@ -773,6 +773,216 @@ namespace Radios.Tests
         }
 
         /// <summary>
+        /// The overlap Sol's review of Track L4 named, held exactly. An old
+        /// connection's callback has REACHED the owner — past the server's
+        /// delivery, not yet decided — when the monitor begins dialing a new
+        /// connection, and it is decided while that dial is still in
+        /// progress. L4 read the newest generation lock-free and then took
+        /// the owner's lock to accept, so a callback paused between those
+        /// two steps accepted connection 1's list as current while
+        /// connection 2 was being dialed, and re-raised it — where the
+        /// connect flow could capture it as this call's push. The server now
+        /// announces the dial before its transport exists, the owner records
+        /// that under the lock its list handler decides under, and the parked
+        /// callback finds connection 2 already live.
+        /// </summary>
+        /// <remarks>
+        /// The dial is held open through <see cref="MockWanServer.DialHook"/>,
+        /// which is where the real adapter is creating and dialing its
+        /// transport. Without holding it the mock's dial returns at once, and
+        /// an owner that only learns the generation after the dial — L4's —
+        /// would have caught up before the callback was released, so the test
+        /// would pass against the very defect it exists to catch. That is
+        /// also how the positive control was run: with the owner learning the
+        /// generation after the dial returned, this went red at the re-raise
+        /// count.
+        /// </remarks>
+        [Fact]
+        public void A_callback_at_the_owners_door_when_a_dial_begins_is_decided_against_the_new_connection()
+        {
+            var (owner, wan) = Build(Account);
+            var release = new System.Threading.ManualResetEventSlim();
+            var finishDial = new System.Threading.ManualResetEventSlim();
+            try
+            {
+                owner.Connect();
+                WaitUntil(() => owner.IsConnected, "the mock session never reported connected");
+                wan.RaiseWanRadioRadioListReceived(new[] { SmartLinkRegistrationReplayTests.WanRadio(Listed) });
+                Assert.Equal(1, wan.ConnectionGeneration);
+
+                int reRaised = 0;
+                owner.RadioListReceived += (_, __) => System.Threading.Interlocked.Increment(ref reRaised);
+
+                // Connection 1's transport delivers a second list, and its
+                // callback is parked at the owner's door: delivered, not
+                // decided.
+                var arrived = new System.Threading.ManualResetEventSlim();
+                owner.BeforeListDecision = () =>
+                {
+                    arrived.Set();
+                    Assert.True(release.Wait(5000), "the parked callback was never released");
+                };
+                var oldCallback = System.Threading.Tasks.Task.Run(() =>
+                    wan.RaiseWanRadioRadioListReceivedFrom(1, new[] { SmartLinkRegistrationReplayTests.WanRadio(Other) }));
+                Assert.True(arrived.Wait(5000), "connection 1's callback never reached the owner");
+                owner.BeforeListDecision = null; // only that one callback is parked
+
+                // The transport dies and the monitor dials connection 2 — and
+                // the dial is held open, in progress.
+                var dialing = new System.Threading.ManualResetEventSlim();
+                wan.DialHook = () =>
+                {
+                    wan.DialHook = null;
+                    dialing.Set();
+                    finishDial.Wait(30000);
+                };
+                wan.ForceIsConnected(false);
+                Assert.True(dialing.Wait(5000), "the session never dialed a new connection after the drop");
+                Assert.Equal(2, wan.ConnectionGeneration);
+                Assert.False(owner.IsConnected, "the dial returned before the parked callback was decided, so this test holds no overlap");
+
+                // The parked callback is decided DURING the dial.
+                release.Set();
+                Assert.True(oldCallback.Wait(5000), "the parked callback never finished");
+
+                Assert.Equal(0, reRaised);
+                Assert.Contains(owner.AvailableRadios, r => r.Serial == Listed);
+                Assert.DoesNotContain(owner.AvailableRadios, r => r.Serial == Other);
+
+                // The dial completes; the held list is connection 1's, which
+                // is history now.
+                finishDial.Set();
+                WaitUntil(() => owner.IsConnected, "the held dial never completed");
+                var lists = Evidence.HeldLists(new[] { owner });
+                Assert.Equal(Evidence.ListSource.HeldFromAnEarlierConnection, lists.Single().Source);
+                Assert.NotEqual(Verdict.Registered, Evidence.Judge(Other, false, true, true, lists).Verdict);
+
+                // Positive control: connection 2's own list is accepted,
+                // re-raised, and current.
+                wan.RaiseWanRadioRadioListReceivedFrom(2, new[] { SmartLinkRegistrationReplayTests.WanRadio(Other) });
+                Assert.Equal(1, reRaised);
+                Assert.Contains(owner.AvailableRadios, r => r.Serial == Other);
+                Assert.Equal(Evidence.ListSource.HeldByAConnectedSession,
+                    Evidence.HeldLists(new[] { owner }).Single().Source);
+            }
+            finally
+            {
+                release.Set();
+                finishDial.Set();
+                owner.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// The second timing Sol's review of L4 named: the operator
+        /// disconnects and nothing is dialed after, so the closed
+        /// connection's generation is still the newest, and a list its
+        /// transport delivers late passed the generation check and was
+        /// re-raised into the coordinator and the intake from a session the
+        /// operator had just asked to close. The owner now marks the
+        /// connection retired, under the list handler's lock, before it
+        /// tears the transport down.
+        /// </summary>
+        [Fact]
+        public void A_list_arriving_after_the_operator_disconnected_is_not_this_sessions_knowledge()
+        {
+            var (owner, wan) = Build(Account);
+            try
+            {
+                owner.Connect();
+                WaitUntil(() => owner.IsConnected, "the mock session never reported connected");
+                wan.RaiseWanRadioRadioListReceived(new[] { SmartLinkRegistrationReplayTests.WanRadio(Listed) });
+
+                int reRaised = 0;
+                owner.RadioListReceived += (_, __) => reRaised++;
+
+                owner.Disconnect();
+                WaitUntil(() => owner.Status == Radios.SmartLink.SessionStatus.Disconnected,
+                    "the session never settled into Disconnected");
+                // The trap, stated: nothing has been dialed since, so the
+                // generation alone would let the list in.
+                Assert.Equal(1, wan.ConnectionGeneration);
+
+                wan.RaiseWanRadioRadioListReceivedFrom(1, new[] { SmartLinkRegistrationReplayTests.WanRadio(Other) });
+
+                Assert.Equal(0, reRaised);
+                // The earlier list stays, for the probe; the late one is not it.
+                Assert.Contains(owner.AvailableRadios, r => r.Serial == Listed);
+                Assert.DoesNotContain(owner.AvailableRadios, r => r.Serial == Other);
+                Assert.Equal(Evidence.ListSource.HeldByADisconnectedSession,
+                    Evidence.HeldLists(new[] { owner }).Single().Source);
+
+                // Positive control: connect again, and the new connection's
+                // own list is accepted, re-raised, and current.
+                owner.Connect();
+                WaitUntil(() => owner.IsConnected, "the mock session never reconnected");
+                Assert.Equal(2, wan.ConnectionGeneration);
+                wan.RaiseWanRadioRadioListReceived(new[] { SmartLinkRegistrationReplayTests.WanRadio(Other) });
+
+                Assert.Equal(1, reRaised);
+                Assert.Contains(owner.AvailableRadios, r => r.Serial == Other);
+                Assert.Equal(Evidence.ListSource.HeldByAConnectedSession,
+                    Evidence.HeldLists(new[] { owner }).Single().Source);
+            }
+            finally
+            {
+                owner.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// The third: a callback already in flight when the session is
+        /// disposed. Dispose unsubscribes the owner from the server, but a
+        /// callback that has already read the delegate still arrives, and an
+        /// owner that accepted it would re-raise into the coordinator from a
+        /// session that no longer exists. Dispose retires the connection
+        /// under the list handler's lock before anything else, so the
+        /// callback is refused however late it lands.
+        /// </summary>
+        [Fact]
+        public void A_callback_in_flight_when_the_session_is_disposed_is_refused()
+        {
+            var (owner, wan) = Build(Account);
+            var release = new System.Threading.ManualResetEventSlim();
+            try
+            {
+                owner.Connect();
+                WaitUntil(() => owner.IsConnected, "the mock session never reported connected");
+                wan.RaiseWanRadioRadioListReceived(new[] { SmartLinkRegistrationReplayTests.WanRadio(Listed) });
+
+                int reRaised = 0;
+                owner.RadioListReceived += (_, __) => System.Threading.Interlocked.Increment(ref reRaised);
+
+                var arrived = new System.Threading.ManualResetEventSlim();
+                owner.BeforeListDecision = () =>
+                {
+                    arrived.Set();
+                    Assert.True(release.Wait(5000), "the parked callback was never released");
+                };
+                var oldCallback = System.Threading.Tasks.Task.Run(() =>
+                    wan.RaiseWanRadioRadioListReceivedFrom(1, new[] { SmartLinkRegistrationReplayTests.WanRadio(Other) }));
+                Assert.True(arrived.Wait(5000), "the callback never reached the owner");
+                owner.BeforeListDecision = null;
+
+                owner.Dispose();
+                WaitUntil(() => owner.Status == Radios.SmartLink.SessionStatus.ShutDown,
+                    "the session never shut down");
+
+                release.Set();
+                Assert.True(oldCallback.Wait(5000), "the parked callback never finished");
+
+                Assert.Equal(0, reRaised);
+                Assert.DoesNotContain(owner.AvailableRadios, r => r.Serial == Other);
+                Assert.False(owner.RadioListSnapshot.ArrivedOnTheLiveConnection);
+            }
+            finally
+            {
+                release.Set();
+                owner.Dispose();
+            }
+        }
+
+        /// <summary>
         /// Why the fix stamps the list instead of emptying it at the boundary.
         /// The session's post-drop diagnostic probe fires on the way INTO
         /// Reconnecting and reads the held list to choose which radio to test;
