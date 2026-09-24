@@ -51,6 +51,20 @@ namespace JJFlexWpf
     ///   ReportingFailed — the pipeline itself broke. The record IS the fallback
     ///     here: if the bundle would not build, knowing that is what is left.
     ///
+    ///   RecordingRecoveryAtRisk — a recording that has ended is kept as plain
+    ///     text but is not yet safely filed: its recovery index could not be
+    ///     written, its archive would not commit, or its tail is uncertain.
+    ///     The operator may be about to send that file, and should know its
+    ///     details may not be recovered automatically (Sprint 45 Track H7,
+    ///     Astra's ruling: the failure must not depend on the failing disk to
+    ///     be told).
+    ///
+    ///   RecordingStopped — nothing is being written to the diagnostic log and
+    ///     the operator did not turn it off. Its own kind, not folded into the
+    ///     one above, because "evidence from now on is not being kept" and
+    ///     "evidence already kept is not yet filed" call for different action
+    ///     and each deserves its one announcement.
+    ///
     /// WHAT IS DELIBERATELY NOT SURFACED:
     ///
     ///   Crashes. CrashReporter already shows a bundle prompt with a full

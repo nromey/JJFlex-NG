@@ -36,7 +36,31 @@ namespace Radios
         /// not build, a capture that would not start. The one case where the
         /// offer is also the fallback.
         /// </summary>
-        ReportingFailed
+        ReportingFailed,
+
+        /// <summary>
+        /// A recording that has ended is not yet safe: its durable recovery
+        /// record could not be written, its archive could not be committed, or
+        /// its last lines may not have reached the disk. The raw file is kept
+        /// and the current log carries on; what is at risk is that the
+        /// recording's details are recovered automatically if the application
+        /// closes before the archive commits. Added Sprint 45 Track H7 under
+        /// Astra's ruling that this failure reaches the operator through the
+        /// existing accessible route rather than only through the trace, and
+        /// as its own kind so a first announcement is not swallowed by an
+        /// earlier, unrelated <see cref="ReportingFailed"/>.
+        /// </summary>
+        RecordingRecoveryAtRisk,
+
+        /// <summary>
+        /// Nothing is being written to the diagnostic log, and the operator did
+        /// not turn it off: the live file failed a write, or a successor could
+        /// not be opened after a seal. Distinct from
+        /// <see cref="RecordingRecoveryAtRisk"/> because the consequence is
+        /// different — evidence from now on, not the filing of evidence already
+        /// taken — and both deserve to be heard once.
+        /// </summary>
+        RecordingStopped
     }
 
     /// <summary>

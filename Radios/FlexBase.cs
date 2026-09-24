@@ -7977,7 +7977,6 @@ namespace Radios
                 // unconditional before it moved here, and still is.
                 trace("propertyChanged:Radio:NotMine:Connected", TraceLevel.Off);
             }
-            trace("Connected:" + nowConnected.ToString(), TraceLevel.Error);
 
             // A STRANDED HANDLER MUST NOT FLIP THE LIVE RIG'S STATE (Sprint 45
             // Track H6, Sol's review finding 7). This used to set IsConnected
@@ -7986,6 +7985,14 @@ namespace Radios
             // Connect moved away from, say — so an abandoned object falling
             // told the whole application the live radio had gone. The seal
             // already checked the object; the rig's state now does too.
+            //
+            // AND THE BARE "Connected:False" LINE COMES AFTER THIS CHECK (Sol's
+            // review of H6, finding 7). Written before it, a stranded object's
+            // fall left an unqualified connected-state line in the live trace
+            // — reading exactly like the live radio going — while the rig
+            // correctly ignored it. The ignored branch writes its own line,
+            // naming the object; the unqualified line is now only ever about
+            // this rig's connection.
             Radio live = theRadio;
             if (!ConnectionStateAppliesToRig(ReferenceEquals(r, live), live != null, nowConnected))
             {
@@ -7994,6 +8001,7 @@ namespace Radios
                       + " the live connection's state is unchanged", TraceLevel.Info);
                 return;
             }
+            trace("Connected:" + nowConnected.ToString(), TraceLevel.Error);
 
             _IsConnected = nowConnected;
             // The seal is taken BEFORE ConnectionStateChanged, so a subscriber

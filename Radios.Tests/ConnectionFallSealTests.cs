@@ -616,6 +616,91 @@ namespace Radios.Tests
         }
 
         /// <summary>
+        /// <b>A stranded object's fall leaves no bare <c>Connected:False</c>
+        /// in the live trace</b> (Sol's review of H6, finding 7): the
+        /// unqualified line is written only after the sender check, so the
+        /// only line about a stranger's fall is the one that names the
+        /// stranger and says it was ignored. Read from a real session file,
+        /// with our own radio's fall as the positive control that the bare
+        /// line still appears for the rig's own connection.
+        /// </summary>
+        [Fact]
+        public void A_stranded_objects_fall_leaves_no_unqualified_connected_line()
+        {
+            string dir = Path.Combine(Path.GetTempPath(), "jjflex-h7-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            string livePath = Path.Combine(dir, "JJFlexRadioTrace.txt");
+            string savedRoot = TraceCoordinator.ArchiveRootDir;
+            bool savedOn = Tracing.On;
+            TraceLevel savedLevel = Tracing.TheSwitch.Level;
+            var rig = NewRig();
+            var ours = NewWanRadio(UniqueSerial(), "ours");
+            var other = NewWanRadio(UniqueSerial(), "other");
+            try
+            {
+                typeof(TraceCoordinator)
+                    .GetMethod("RestoreSessionForTests", BindingFlags.NonPublic | BindingFlags.Static)!
+                    .Invoke(null, new object[] { null });
+                TraceCoordinator.ArchiveRootDir = Path.Combine(dir, "Traces");
+                Tracing.TheSwitch.Level = TraceLevel.Verbose;
+                Tracing.On = true;
+                Assert.Equal(TraceTransition.Accepted,
+                    TraceCoordinator.Begin(livePath, TraceLevel.Verbose, asDetailedCapture: false).Status);
+
+                rig.theRadio = ours;
+                WireAsConnectDoes(rig, ours);
+                MarkLive(ours, rig);
+                WireAsConnectDoes(rig, other);
+                MarkLive(other);
+
+                LoseTheTransport(other);
+                Tracing.FlushDeferred();
+                string afterStranger = ReadLive(livePath);
+                Assert.Contains("which is not this rig's connection", afterStranger, StringComparison.Ordinal);
+                foreach (string line in afterStranger.Split('\n'))
+                {
+                    if (!line.Contains("Connected:False", StringComparison.Ordinal)) continue;
+                    Assert.Contains(other.Serial, line, StringComparison.Ordinal);
+                }
+
+                // Positive control: our own fall writes the bare line, so the
+                // reader above really would have seen one.
+                LoseTheTransport(ours);
+                Tracing.FlushDeferred();
+                Assert.Contains(ReadLive(livePath).Split('\n'),
+                    l => l.Contains("Connected:False", StringComparison.Ordinal)
+                         && !l.Contains(other.Serial, StringComparison.Ordinal)
+                         && !l.Contains("ignored", StringComparison.Ordinal));
+            }
+            finally
+            {
+                if (TraceCoordinator.Recording)
+                {
+                    TraceCoordinator.TrySeal(new TraceSealRequest
+                    {
+                        ShutdownAuthority = true,
+                        Outcome = TraceSessionOutcome.CleanExit,
+                        Resume = TraceResumeIntent.None,
+                        OperationId = Guid.NewGuid(),
+                    });
+                }
+                TraceCoordinator.DrainArchives(TimeSpan.FromSeconds(20));
+                TraceCoordinator.ArchiveRootDir = savedRoot;
+                Tracing.TheSwitch.Level = savedLevel;
+                Tracing.On = savedOn;
+                Release(rig);
+                try { Directory.Delete(dir, recursive: true); } catch { }
+            }
+        }
+
+        private static string ReadLive(string path)
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var sr = new StreamReader(fs);
+            return sr.ReadToEnd();
+        }
+
+        /// <summary>
         /// With no radio at all, a fall of the object being let go of still
         /// leaves the rig disconnected — that is the only true state — while a
         /// stranger's RISE never makes it connected.
@@ -777,24 +862,36 @@ namespace Radios.Tests
         // ────────────────────────────────────────────────────────────────
 
         /// <summary>
-        /// <b>A slow transition holds the trace gate, and the fall returns
-        /// anyway, having claimed the drop and queued its seal.</b> Sol's review
-        /// of H3, finding 1: the drop read <c>TraceCoordinator.CurrentHandle</c>
-        /// through the same gate that is held across a transition's flush,
-        /// close, move and successor open, and wrote an ordinary trace line
-        /// first — so a disk stalled under a problem-report checkpoint stalled
-        /// FlexLib's transport thread, and the claim waited with it.
+        /// <b>A slow transition holds the trace gate, and the WHOLE of
+        /// FlexLib's teardown returns anyway</b> — our handler, its claim, its
+        /// queued seal, and then <c>Radio.Disconnect</c> to its end. Sol's
+        /// review of H3, finding 1: the drop read
+        /// <c>TraceCoordinator.CurrentHandle</c> through the same gate that is
+        /// held across a transition's flush, close, move and successor open,
+        /// and wrote an ordinary trace line first — so a disk stalled under a
+        /// problem-report checkpoint stalled FlexLib's transport thread. H6
+        /// freed the claim; Sol's review of H6 (finding 1, second paragraph)
+        /// found that was not the whole thread: after our handler returned,
+        /// FlexLib's own <c>Disconnect</c> raised further property changes on
+        /// the same thread, each traced through the gate as an ordinary line.
         ///
         /// <para>Driven with a real session in a temporary tree, at capture
         /// detail, and a checkpoint held INSIDE the gate on a barrier. The
-        /// barrier is proved to hold the gate first — an ordinary writer is
-        /// shown to block — so a fall that returns is a measurement, not a gate
-        /// nobody was holding. Then the lines the fall deferred are shown to
-        /// land in the session they describe, the sealed one.</para>
+        /// barrier is proved to hold the gate first — a GATED READ is shown to
+        /// block — so a fall that returns is a measurement, not a gate nobody
+        /// was holding. (Until H7 the proof was an ordinary writer blocking;
+        /// an ordinary writer no longer blocks on a transition, which is the
+        /// point of H7, so the proof moved to a read.) What is measured is the
+        /// fall thread's call into the transport RETURNING — which is after
+        /// <c>Radio.Disconnect</c> has finished, not merely after our handler
+        /// has. Then the lines the fall deferred are shown to land in the
+        /// session they describe, the sealed one.</para>
         ///
-        /// <para>Positive control, run by hand at H6 (see the report): with
-        /// <c>CurrentHandle</c> put back behind the gate, the fall does not
-        /// return and this test goes red.</para>
+        /// <para>Positive controls, run by hand: with <c>CurrentHandle</c> put
+        /// back behind the gate, the fall does not return (H6); with the
+        /// router's transition check removed so an ordinary line waits on the
+        /// gate again, the fall thread does not return within the bound and
+        /// this test goes red (H7).</para>
         /// </summary>
         [Fact]
         public void A_fall_returns_while_a_slow_transition_holds_the_trace_gate()
@@ -866,28 +963,32 @@ namespace Radios.Tests
                     checkpoint.Start();
                     Assert.True(inside.Wait(TimeSpan.FromSeconds(10)), "the checkpoint never reached its probe");
 
-                    // The barrier really holds the gate: an ordinary line cannot
-                    // get in.
-                    writer = new Thread(() => Tracing.TraceLine("H6: an ordinary line, held at the gate")) { IsBackground = true };
+                    // The barrier really holds the gate: a gated READ cannot get
+                    // in. (Not a writer — since H7 an ordinary writer defers
+                    // rather than waits on a transition, so a writer returning
+                    // would prove nothing about the gate.)
+                    Assert.True(TraceCoordinator.TransitionInProgress, "the checkpoint is at its probe but no transition is flagged");
+                    writer = new Thread(() => { _ = TraceCoordinator.Recording; }) { IsBackground = true };
                     writer.Start();
                     Assert.False(writer.Join(TimeSpan.FromMilliseconds(300)),
-                        "an ordinary trace line got past the barrier — the gate is not held, and the measurement below would be vacuous");
+                        "a gated read got past the barrier — the gate is not held, and the measurement below would be vacuous");
 
                     // The fall, on its own thread, entering where a real one
-                    // does. What is measured is OUR handler for the Connected
-                    // fall reaching its end — ConnectionStateChanged is its last
-                    // statement — not FlexLib's whole teardown: after our handler
-                    // returns, FlexLib's own Disconnect raises further property
-                    // changes on this same thread, and those still trace through
-                    // the gate (reported by H6, not changed: the ruling is about
-                    // the claim).
+                    // does. What is measured is that thread RETURNING from the
+                    // transport's Disconnect — which is after FlexLib's own
+                    // Radio.Disconnect has run to its end on that thread, with
+                    // every property change it raises and every handler of
+                    // ours those reach. Our Connected handler is only the first
+                    // thing on that path.
                     var handlerDone = new ManualResetEventSlim(false);
                     rig.ConnectionStateChanged += connected => { if (!connected) handlerDone.Set(); };
                     fall = new Thread(() => LoseTheTransport(radio)) { IsBackground = true };
                     fall.Start();
                     Assert.True(handlerDone.Wait(TimeSpan.FromSeconds(5)),
                         "the Connected fall's handler did not return while a transition held the trace gate — FlexLib's transport thread is waiting on a file before the drop is claimed");
-                    Assert.True(checkpoint.IsAlive, "the gate was released before the handler returned; nothing was measured");
+                    Assert.True(fall.Join(TimeSpan.FromSeconds(5)),
+                        "FlexLib's Radio.Disconnect did not finish while a transition held the trace gate — something on the teardown path after our handler still waits on the gate");
+                    Assert.True(checkpoint.IsAlive, "the gate was released before the teardown finished; nothing was measured");
 
                     // And it did its job before returning: the drop was claimed
                     // and its seal queued, not put off until the disk recovered.
@@ -927,9 +1028,19 @@ namespace Radios.Tests
                 // after the checkpoint...
                 Assert.Contains("--- trace continues from part 001", text, StringComparison.Ordinal);
                 // ...and the lines the fall wrote on FlexLib's thread are in it:
-                // the session they describe, not a successor.
+                // the session they describe, not a successor — bound to it at
+                // the fall, and written by its own seal under the gate (H7).
                 Assert.Contains("Connected:False", text, StringComparison.Ordinal);
                 Assert.Contains("our connection dropped without us asking", text, StringComparison.Ordinal);
+                // And none of them was refused: every deferred line found the
+                // session it was bound to still current when the seal drained
+                // it. (The harness radio has no slices or panadapters, so
+                // FlexLib's Disconnect raises nothing further for our handlers
+                // to trace here; the proof that the rest of the teardown does
+                // not wait is the fall thread's Join above, and the router's
+                // own test in TraceCoordinatorTests covers a line written
+                // during a transition.)
+                Assert.DoesNotContain("TraceDeferred: REFUSED", text, StringComparison.Ordinal);
             }
             finally
             {

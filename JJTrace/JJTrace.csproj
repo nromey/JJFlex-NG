@@ -28,7 +28,9 @@
     <Compile Include="TraceCoordinator.cs" />
     <Compile Include="TraceDeferred.cs" />
     <Compile Include="TraceFileNaming.cs" />
+    <Compile Include="TraceLeftoverAdoption.cs" />
     <Compile Include="TraceOutcomeLabels.cs" />
+    <Compile Include="TraceRecordingHealth.cs" />
     <Compile Include="TraceRotation.cs" />
     <Compile Include="TraceRouterListener.cs" />
     <Compile Include="TraceStateMarker.cs" />

@@ -128,6 +128,17 @@ namespace JJTrace
         /// </summary>
         [JsonPropertyName("truncated")]
         public bool? Truncated { get; set; }
+
+        /// <summary>
+        /// True when this entry's <see cref="SessionId"/> is an inventory
+        /// identity assigned at boot, because the raw file it was made from
+        /// carried no durable record of the session that wrote it. The bytes
+        /// are real; the identity and, unless the entry says otherwise, the
+        /// outcome are not recovered. Absent on every entry a live session
+        /// wrote itself.
+        /// </summary>
+        [JsonPropertyName("orphaned")]
+        public bool? Orphaned { get; set; }
     }
 
     /// <summary>

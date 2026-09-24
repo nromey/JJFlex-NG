@@ -111,7 +111,10 @@ namespace JJTrace
         public bool RestartFailed { get; internal set; }
 
         /// <summary>Whether tracing is actually writing to a file now. The real
-        /// state, not the intent.</summary>
+        /// state, not the intent — and since Track H7, VERIFIED: a sink counts
+        /// as recording only once its first record was written and flushed.
+        /// "Opened" used to be enough, and an opened stream proves nothing
+        /// about the next byte.</summary>
         public bool TracingOn { get; internal set; }
 
         /// <summary>True when the detached session was carrying the operator's
@@ -140,9 +143,25 @@ namespace JJTrace
         /// The session was detached, but its durable pending record could not
         /// be written. Reported as a fact rather than swallowed (Sol's review of
         /// H3, finding 4); <see cref="DeferredFaults"/> says where the raw file
-        /// is and what a crash before its archive commits would lose.
+        /// is and what a crash before its archive commits would lose. The same
+        /// fact is retained in <see cref="TraceRecordingHealth"/>, which is
+        /// where the operator reaches it.
         /// </summary>
         public bool PendingRecordFailed { get; internal set; }
+
+        /// <summary>
+        /// A terminal record or the close reported a failure while the
+        /// session was sealed: the detached file's last lines may not have
+        /// reached the disk. The bytes that did land are still retained and
+        /// still reported; this says the tail is uncertain.
+        /// </summary>
+        public bool TailUncertain { get; internal set; }
+
+        /// <summary>
+        /// The sink's latched fault when <see cref="TailUncertain"/>, or when a
+        /// successor could not verify its first write; null otherwise.
+        /// </summary>
+        public string SinkFault { get; internal set; }
 
         /// <summary>One line of trace text describing this result. Never user
         /// prose — a refusal is logged as a refusal, naming both identities,
@@ -230,6 +249,16 @@ namespace JJTrace
         /// outcome or detail. See <see cref="TraceArchiveWorker.ClassifyPlainTextTrace"/>.
         /// </summary>
         public bool PendingRecordWritten { get; internal set; }
+
+        /// <summary>
+        /// True when a terminal write or the close failed as the file was
+        /// sealed, so its tail may be incomplete. The retained bytes are
+        /// still the evidence; this is the honest label on them.
+        /// </summary>
+        public bool TailUncertain { get; internal set; }
+
+        /// <summary>The sink's latched fault, when <see cref="TailUncertain"/>.</summary>
+        public string SinkFault { get; internal set; }
 
         /// <summary>Completes when the archive worker has finished with this
         /// ticket, one way or the other.</summary>

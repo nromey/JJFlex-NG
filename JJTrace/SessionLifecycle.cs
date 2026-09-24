@@ -29,6 +29,25 @@ namespace JJTrace
         private string _partFileTag;
 
         /// <summary>
+        /// True when this session object is an INVENTORY identity: it was made
+        /// at boot to file raw trace files whose real session nothing recorded
+        /// — a previous run's rotated parts with no durable record beside them.
+        /// Its <see cref="SessionId"/> is not, and must never be read as, the
+        /// id of the session that wrote those bytes. Carried onto the manifest
+        /// entry as <c>orphaned</c> (Astra's ruling on the pending-record
+        /// failure, implementation note 5: "If an import needs an inventory
+        /// id, keep it separate from the unrecovered original session id").
+        /// </summary>
+        public bool IdentityUnknown { get; private set; }
+
+        /// <summary>Mark this session as an inventory identity for orphaned
+        /// evidence. One way; see <see cref="IdentityUnknown"/>.</summary>
+        public void MarkIdentityUnknown()
+        {
+            lock (_lock) { IdentityUnknown = true; }
+        }
+
+        /// <summary>
         /// The outcome tag baked into every part FILENAME of this session,
         /// frozen at the first rotation.
         ///
@@ -194,7 +213,8 @@ namespace JJTrace
                     TraceSizeCompressedBytes = compressedSize,
                     VerbosityLevel = VerbosityLevel,
                     AppVersion = AppVersion,
-                    KeyEvents = KeyEvents.Count == 0 ? null : new List<string>(KeyEvents)
+                    KeyEvents = KeyEvents.Count == 0 ? null : new List<string>(KeyEvents),
+                    Orphaned = IdentityUnknown ? true : (bool?)null,
                 };
             }
         }

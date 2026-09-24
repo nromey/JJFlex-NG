@@ -62,6 +62,27 @@ namespace Radios
         /// <summary>Where the raw trace was retained when no archive is
         /// committed. Evidence is never deleted to make room.</summary>
         public string RawRetainedPath { get; set; }
+
+        /// <summary>
+        /// The sealed session's durable recovery record could not be written.
+        /// The raw file is kept and its archive is still being made; what is
+        /// at risk is automatic recovery if the application closes first. A
+        /// fact about the OLD session, carried independently of whether a
+        /// successor is recording (Astra's ruling, implementation note 2).
+        /// </summary>
+        public bool RecoveryRecordFailed { get; set; }
+
+        /// <summary>A terminal record or the close failed while sealing, so
+        /// the sealed file's last lines may not have reached the disk.</summary>
+        public bool TailUncertain { get; set; }
+
+        /// <summary>
+        /// Whether the successor is VERIFIED recording — its first record
+        /// written and flushed — as opposed to merely opened.
+        /// <see cref="SuccessorOpened"/> is the transition's fact; this is the
+        /// sink's.
+        /// </summary>
+        public bool SuccessorRecording { get; set; }
     }
 
     /// <summary>
@@ -410,7 +431,8 @@ namespace Radios
             try
             {
                 SealedAfterDrop?.Invoke(new CaptureSealNotice(
-                    radioName, result.ArchivePath, result.SuccessorOpened, result.ArchivedSessionId));
+                    radioName, result.ArchivePath, result.SuccessorOpened, result.ArchivedSessionId,
+                    recoveryAtRisk: result.RecoveryRecordFailed || result.TailUncertain));
             }
             catch (Exception ex)
             {

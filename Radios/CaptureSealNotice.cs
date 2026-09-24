@@ -54,15 +54,40 @@ namespace Radios
         /// </summary>
         public CaptureSealNotice(string radioName, string archivePath,
                                  bool successorOpened, Guid? archivedSessionId)
+            : this(radioName, archivePath, successorOpened, archivedSessionId, recoveryAtRisk: false)
+        {
+        }
+
+        /// <summary>
+        /// The Track H7 shape: the drop result also says whether the sealed
+        /// session's recovery is at risk, so the window can carry that
+        /// condition rather than a possibly unwritable log being the only
+        /// place it is said (Astra's ruling: the capture/drop result reads the
+        /// same health state Diagnostics does).
+        /// </summary>
+        public CaptureSealNotice(string radioName, string archivePath,
+                                 bool successorOpened, Guid? archivedSessionId,
+                                 bool recoveryAtRisk)
         {
             RadioName = (radioName ?? string.Empty).Trim();
             ArchivePath = archivePath ?? string.Empty;
             SuccessorOpened = successorOpened;
             ArchivedSessionId = archivedSessionId;
+            RecoveryAtRisk = recoveryAtRisk;
         }
 
         /// <summary>The radio's nickname, or empty when we never learned one.</summary>
         public string RadioName { get; }
+
+        /// <summary>
+        /// The sealed session's durable recovery record could not be written,
+        /// or its last lines may not have reached the disk. When this window
+        /// is shown at all an archive path exists, so the archive itself is
+        /// committed — but the condition is still reported, because a
+        /// committed archive of a file whose tail is uncertain is not a
+        /// complete recording, and the operator sending it should know.
+        /// </summary>
+        public bool RecoveryAtRisk { get; }
 
         /// <summary>
         /// Whether a fresh recording really opened after the seal. Not yet
@@ -98,6 +123,16 @@ namespace Radios
 
         /// <summary>What to do with it.</summary>
         public string WhatToDo => Lexicon.Get("logging.capture.dropped.what_to_do");
+
+        /// <summary>
+        /// The extra paragraph when <see cref="RecoveryAtRisk"/>: that this
+        /// recording's details may not be recovered automatically, and that the
+        /// file above is still the one to send. Empty otherwise, so the ordinary
+        /// window's prose is untouched. DRAFT — Noel's to rule; listed in the
+        /// Track H7 wording file.
+        /// </summary>
+        public string RecoveryCaveat =>
+            RecoveryAtRisk ? Lexicon.Get("logging.capture.dropped.recovery_at_risk") : string.Empty;
 
         /// <summary>The Copy path button.</summary>
         public string CopyButtonLabel => Lexicon.Get("logging.capture.dropped.copy_button");
@@ -136,7 +171,8 @@ namespace Radios
         public string Explanation =>
             WhatHappened + Environment.NewLine + Environment.NewLine
             + WhatWasSaved + Environment.NewLine + Environment.NewLine
-            + WhatToDo;
+            + WhatToDo
+            + (RecoveryAtRisk ? Environment.NewLine + Environment.NewLine + RecoveryCaveat : string.Empty);
 
         /// <summary>
         /// The whole notice as one block, path included — for the trace, and
@@ -146,6 +182,7 @@ namespace Radios
             WhatHappened + Environment.NewLine + Environment.NewLine
             + WhatWasSaved + Environment.NewLine + Environment.NewLine
             + PathLabel + Environment.NewLine + ArchivePath + Environment.NewLine + Environment.NewLine
-            + WhatToDo;
+            + WhatToDo
+            + (RecoveryAtRisk ? Environment.NewLine + Environment.NewLine + RecoveryCaveat : string.Empty);
     }
 }

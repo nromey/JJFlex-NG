@@ -74,6 +74,15 @@ namespace JJTrace
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
         };
 
+        /// <summary>
+        /// Tests only: runs on the worker with a ticket in hand, BEFORE its
+        /// sidecar retry and its archive, outside every lock. A test that must
+        /// hold the archive back — to read a successor while the old file's
+        /// archive is still pending, say — blocks in here on a barrier.
+        /// Null in production.
+        /// </summary>
+        internal static Action<TraceArchiveTicket> BeforeArchiveForTests;
+
         /// <summary>Hand a detached file to the worker. Returns at once.</summary>
         internal static Task<TraceArchiveCompletion> Queue(TraceArchiveTicket ticket)
         {
@@ -95,6 +104,8 @@ namespace JJTrace
                     TraceArchiveCompletion completion;
                     try
                     {
+                        BeforeArchiveForTests?.Invoke(ticket);
+                        RetryPendingRecordOnce(ticket);
                         completion = SessionArchive.ArchiveTicket(ticket);
                     }
                     catch (Exception ex)
@@ -110,10 +121,31 @@ namespace JJTrace
                             FailureMessage = ex.Message,
                         };
                     }
+                    // The health model hears the outcome BEFORE anyone waiting
+                    // on the ticket is released, so a caller that reads health
+                    // after AwaitArchive sees this ticket resolved or failed,
+                    // never in between.
+                    try { TraceRecordingHealth.NoteArchiveOutcome(ticket, completion); } catch { }
                     try { tcs.TrySetResult(completion); } catch { }
                 }, TaskScheduler.Default);
             }
             return tcs.Task;
+        }
+
+        /// <summary>
+        /// One retry of the durable record, from exactly the frozen ticket,
+        /// on the worker and before compression. Allowed by Astra's ruling
+        /// (implementation note 4): useful, bounded, and neither a
+        /// prerequisite for the successor nor a substitute for the crash case.
+        /// A success clears that ticket's recovery condition; a failure is
+        /// simply the state the seal already reported.
+        /// </summary>
+        private static void RetryPendingRecordOnce(TraceArchiveTicket ticket)
+        {
+            if (ticket == null || ticket.PendingRecordWritten) return;
+            if (!WritePendingRecord(ticket, null)) return;
+            ticket.PendingRecordWritten = true;
+            TraceRecordingHealth.NoteRecoveryRecordPersisted(ticket);
         }
 
         /// <summary>

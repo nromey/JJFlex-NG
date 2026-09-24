@@ -155,6 +155,36 @@ namespace JJTrace
         }
 
         /// <summary>
+        /// The first write or flush failure this sink hit, or null while every
+        /// byte handed to it has reached the stream. Latched: it is never
+        /// cleared, because a sink that failed once has closed itself and a
+        /// later "closed cleanly" must not be able to erase what happened.
+        ///
+        /// <para><b>Why it exists.</b> A write failure used to be swallowed
+        /// into <see cref="CloseInternal"/>, and a later
+        /// <see cref="FlushAndClose"/> on the already-closed sink answered
+        /// true. So a session whose terminal records never reached the disk
+        /// could report itself closed cleanly, and nothing downstream — the
+        /// ticket, the operator's status — could know the tail was missing
+        /// (Astra's ruling on the pending-record failure, implementation note
+        /// 3: "Do not erase an earlier write failure when closing an
+        /// already-closed sink").</para>
+        /// </summary>
+        public string WriteFault { get; private set; }
+
+        /// <summary>True once any write or flush has failed on this sink.</summary>
+        public bool Faulted
+        {
+            get { lock (_sync) { return WriteFault != null; } }
+        }
+
+        /// <summary>Caller holds <c>_sync</c>. Latch the first failure only.</summary>
+        private void Fault(Exception ex)
+        {
+            if (WriteFault == null) WriteFault = ex == null ? "unknown write failure" : ex.Message;
+        }
+
+        /// <summary>
         /// Write one line straight into this sink, bypassing
         /// <c>System.Diagnostics.Trace</c> entirely.
         ///
@@ -167,13 +197,21 @@ namespace JJTrace
         ///
         /// <para>Rotation is suppressed for the duration: a terminal record is
         /// finite and must land in the part whose number was just frozen.</para>
+        ///
+        /// <para><b>It says whether the line landed.</b> Written AND flushed to
+        /// the stream, or false — with the failure latched in
+        /// <see cref="WriteFault"/> and the sink closed. It used to return
+        /// nothing and close quietly, which let a seal report its terminal
+        /// records as written when they were not.</para>
         /// </summary>
-        public void WriteTerminalLine(string line)
+        /// <returns>True when the line was written and flushed; false when the
+        /// sink was already closed or the write failed.</returns>
+        public bool WriteTerminalLine(string line)
         {
-            if (line == null) return;
+            if (line == null) return false;
             lock (_sync)
             {
-                if (_closed) return;
+                if (_closed) return false;
                 _rotationSuppressed = true;
                 try
                 {
@@ -181,10 +219,13 @@ namespace JJTrace
                     _writer.Write(Environment.NewLine);
                     _bytesInPart += line.Length + Environment.NewLine.Length;
                     _writer.Flush();
+                    return true;
                 }
-                catch
+                catch (Exception ex)
                 {
+                    Fault(ex);
                     CloseInternal();
+                    return false;
                 }
                 finally
                 {
@@ -198,20 +239,30 @@ namespace JJTrace
         /// Called by the coordinator under the gate, on the sink it owns —
         /// never through the process-wide <c>Trace.Close</c>, which would close
         /// somebody else's session too.
+        ///
+        /// <para><b>A sink that already closed itself over a failure reports
+        /// that failure here</b>, not success. The old answer for "already
+        /// closed" was true unconditionally, so a terminal write that failed
+        /// and closed the sink was followed by a close that said everything
+        /// was fine.</para>
         /// </summary>
         public bool FlushAndClose(out string failure)
         {
             failure = null;
             lock (_sync)
             {
-                if (_closed) return true;
+                if (_closed)
+                {
+                    failure = WriteFault;
+                    return WriteFault == null;
+                }
                 bool ok = true;
                 try { _writer?.Flush(); }
-                catch (Exception ex) { ok = false; failure = ex.Message; }
+                catch (Exception ex) { ok = false; failure = ex.Message; Fault(ex); }
                 try { _writer?.Dispose(); }
-                catch (Exception ex) { ok = false; failure = failure ?? ex.Message; }
+                catch (Exception ex) { ok = false; failure = failure ?? ex.Message; Fault(ex); }
                 try { _stream?.Dispose(); }
-                catch (Exception ex) { ok = false; failure = failure ?? ex.Message; }
+                catch (Exception ex) { ok = false; failure = failure ?? ex.Message; Fault(ex); }
                 _writer = null;
                 _stream = null;
                 _closed = true;
@@ -315,11 +366,15 @@ namespace JJTrace
                     // of the question.
                     _bytesInPart += message.Length;
                 }
-                catch
+                catch (Exception ex)
                 {
                     // A write failure means the file is gone / disk full. Close
                     // rather than throw from a trace call — tracing must never
-                    // be the thing that takes the app down.
+                    // be the thing that takes the app down. But LATCH it: the
+                    // coordinator reads WriteFault after the write and tells
+                    // the operator the log has stopped, which a silent close
+                    // never did.
+                    Fault(ex);
                     CloseInternal();
                     return;
                 }
@@ -406,7 +461,7 @@ namespace JJTrace
                 {
                     if (_closed) return;
                     try { _writer.Flush(); }
-                    catch { CloseInternal(); }
+                    catch (Exception ex) { Fault(ex); CloseInternal(); }
                 }
             }
             finally

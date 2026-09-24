@@ -56,7 +56,13 @@ public sealed class CaptureSealedDialog : JJFlexDialog
     private readonly CaptureSealNotice _notice;
     private readonly TextBlock _status = new();
 
-    private CaptureSealedDialog(CaptureSealNotice notice)
+    /// <summary>
+    /// Internal rather than private since Track H7 so <c>JJFlexWpf.Tests</c>
+    /// can realise the window non-modally under its own guard and read what
+    /// the explanation box carries when a recording's recovery is at risk.
+    /// Production still enters only through <see cref="Show"/>.
+    /// </summary>
+    internal CaptureSealedDialog(CaptureSealNotice notice)
     {
         _notice = notice;
         Title = notice.Title;

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Threading;
 
 namespace JJTrace
 {
@@ -168,6 +169,81 @@ namespace JJTrace
         /// gated operation that can change the current handle.</summary>
         private static void PublishLocked() => _published = _handle;
 
+        // ── Transitions do not make anyone wait ────────────────────────────
+        //
+        // The gate is held for two very different lengths of time. An ordinary
+        // write holds it for one sink write — microseconds, or a rotation's
+        // rename and reopen. A lifecycle TRANSITION holds it across flush,
+        // close, move, pending-record write and successor open: file I/O that
+        // a stalled disk can stretch to minutes. Every writer used to wait for
+        // whichever it hit. Sol's review of H6 (finding 1) showed what that
+        // meant on FlexLib's transport thread: our Connected handler returned
+        // promptly, and then FlexLib's own Radio.Disconnect raised further
+        // property changes on the same thread, each traced through the gate,
+        // so the radio library's teardown still waited out the disk.
+        //
+        // That thread cannot be marked and its teardown cannot be scoped — the
+        // read loop that raises the fall is a thread-pool task, and nothing
+        // tells us when Disconnect ends. So the rule lives at the router, for
+        // every thread: a write that finds a TRANSITION holding the gate is
+        // queued (Tracing.DeferUnbound) and written by that transition on its
+        // way out, into the sink that results — which is exactly where the
+        // line would have landed had the writer waited. A write that finds
+        // another WRITER holding the gate waits as before, briefly, and never
+        // long: if a transition begins while it waits, it defers.
+        //
+        // The depth is written only under the gate, so a thread holding the
+        // gate always sees zero unless it is itself a transition.
+
+        private static volatile int _transitionDepth;
+
+        /// <summary>True while a lifecycle transition holds the gate across
+        /// file I/O. Readable without the gate.</summary>
+        public static bool TransitionInProgress => _transitionDepth > 0;
+
+        /// <summary>Caller holds the gate, and is a transition.</summary>
+        private static void BeginTransitionLocked() => _transitionDepth++;
+
+        /// <summary>
+        /// Caller holds the gate. Drain what queued up while this transition
+        /// held it — into the sink that now exists, before anything written
+        /// directly can get ahead of it — then let writers in again.
+        /// </summary>
+        private static void EndTransitionLocked()
+        {
+            try { DrainDeferredLocked(); }
+            catch { /* the drain must not be able to fail a transition */ }
+            _transitionDepth--;
+            PublishLocked();
+        }
+
+        /// <summary>
+        /// How long a writer will wait behind another WRITER before it gives up
+        /// and defers. Ordinary contention resolves in microseconds; only a
+        /// sink write that is itself stalling on the disk reaches this, and a
+        /// stalled sink write is exactly the thing not to wait on.
+        /// </summary>
+        private const int ContendedWriteWaitMs = 100;
+
+        /// <summary>
+        /// Take the gate for one write, or say no. Never waits on a transition:
+        /// checked before trying, and again every few milliseconds while
+        /// waiting on another writer, so a transition that begins meanwhile is
+        /// noticed within one slice.
+        /// </summary>
+        private static bool TryEnterForWrite()
+        {
+            if (_transitionDepth > 0) return false;
+            if (Monitor.TryEnter(_gate, 0)) return true;
+            long deadline = Environment.TickCount64 + ContendedWriteWaitMs;
+            while (true)
+            {
+                if (_transitionDepth > 0) return false;
+                if (Monitor.TryEnter(_gate, 5)) return true;
+                if (Environment.TickCount64 >= deadline) return false;
+            }
+        }
+
         /// <summary>
         /// Tests only: called at named points INSIDE a transition, with the gate
         /// held, so a test can hold the gate through a slow transition on a
@@ -266,6 +342,16 @@ namespace JJTrace
             get { lock (_gate) { return _sink != null && !_sink.IsClosed; } }
         }
 
+        /// <summary>
+        /// The live sink's latched write failure, or null. Non-null means a
+        /// session is nominally open and nothing is being written — the state
+        /// the operator must be able to tell apart from "logging is off".
+        /// </summary>
+        public static string SinkFault
+        {
+            get { lock (_gate) { return _sink?.WriteFault; } }
+        }
+
         public static bool ShuttingDown
         {
             get { lock (_gate) { return _shuttingDown; } }
@@ -353,18 +439,131 @@ namespace JJTrace
         internal static void RouteWrite(string message)
         {
             if (message == null) return;
-            lock (_gate) { _sink?.Write(message); }
+            if (!TryEnterForWrite()) { Tracing.DeferUnbound(message, newLine: false); return; }
+            try
+            {
+                _sink?.Write(message);
+                NoticeSinkFaultLocked();
+            }
+            finally { Monitor.Exit(_gate); }
         }
 
         internal static void RouteWriteLine(string message)
         {
             if (message == null) return;
-            lock (_gate) { _sink?.WriteLine(message); }
+            if (!TryEnterForWrite()) { Tracing.DeferUnbound(message, newLine: true); return; }
+            try
+            {
+                _sink?.WriteLine(message);
+                NoticeSinkFaultLocked();
+            }
+            finally { Monitor.Exit(_gate); }
         }
 
         internal static void RouteFlush()
         {
-            lock (_gate) { _sink?.Flush(); }
+            // A flush that cannot get in is not queued: the transition holding
+            // the gate flushes the sink it leaves behind, and the drain flushes
+            // after writing.
+            if (!Monitor.TryEnter(_gate, 0)) return;
+            try
+            {
+                _sink?.Flush();
+                NoticeSinkFaultLocked();
+            }
+            finally { Monitor.Exit(_gate); }
+        }
+
+        /// <summary>
+        /// Set once per sink, under the gate, so a failed sink is reported to
+        /// the health model exactly once — from a pool thread, never from
+        /// inside the gate.
+        /// </summary>
+        private static bool _sinkFaultPublished;
+
+        /// <summary>
+        /// Caller holds the gate. If the live sink has just latched a fault,
+        /// hand the fact to <see cref="TraceRecordingHealth"/> off this thread.
+        /// A later sink failure "must update recording/capture health and the
+        /// accessible status" (Astra, implementation note 3); the sink itself
+        /// cannot raise anything from inside its own lock.
+        /// </summary>
+        private static void NoticeSinkFaultLocked()
+        {
+            RotatingTraceListener sink = _sink;
+            if (sink == null || _sinkFaultPublished) return;
+            string fault = sink.WriteFault;
+            if (fault == null) return;
+            _sinkFaultPublished = true;
+            string path = sink.FilePath;
+            Guid session = _session?.SessionId ?? Guid.Empty;
+            ThreadPool.UnsafeQueueUserWorkItem(
+                _ => TraceRecordingHealth.NoteSink(TraceSinkState.Failed, fault, path, session), null);
+        }
+
+        // ── Draining deferred lines ────────────────────────────────────────
+
+        /// <summary>
+        /// Write every queued line, taking the gate to do it. The pool drainer
+        /// and <see cref="Tracing.FlushDeferred"/> come here; a transition
+        /// drains from inside the gate instead.
+        /// </summary>
+        internal static void DrainDeferred()
+        {
+            lock (_gate) { DrainDeferredLocked(); }
+        }
+
+        /// <summary>
+        /// Caller holds the gate. Consume the queue in order: an unbound line
+        /// goes to the current sink; a bound line goes to the current sink
+        /// only if that IS its session, and is otherwise written as a refusal
+        /// record naming both sessions — never as a bare line that would read
+        /// as a statement about the session it did not describe, and never
+        /// dropped, because the fall it recorded happened.
+        ///
+        /// <para>Consumed ONLY under the gate. Sol's interleaving for H6 was a
+        /// drainer that dequeued, then waited for the gate behind a Stop, and
+        /// wrote the old session's lines into the successor the Stop opened.
+        /// With the queue consumed under the gate there is no gap between
+        /// deciding a line's session and writing it.</para>
+        ///
+        /// <para><b>Bounded to what was queued when it began.</b> A drain that
+        /// ran until the queue was empty would chase a producer: while a
+        /// transition holds the gate every writer in the process is deferring
+        /// INTO this queue, so a thread writing at full speed keeps it
+        /// non-empty and the transition never ends. Found by the first full
+        /// run at H7 — the rotation test's producer, with a four-kilobyte
+        /// threshold, made a seal rotate once per drained line and never
+        /// return. Lines queued during a drain wait for the next one: the end
+        /// of the transition, or the pool drainer after it.</para>
+        /// </summary>
+        private static void DrainDeferredLocked()
+        {
+            bool any = false;
+            Guid current = _session?.SessionId ?? Guid.Empty;
+            int budget = Tracing.DeferredLinesQueued;
+            while (budget-- > 0 && Tracing.TryDequeueDeferred(out DeferredTraceLine line))
+            {
+                any = true;
+                if (_sink == null) continue;   // nothing recording: as a direct write would be, dropped
+                if (line.BoundSession == Guid.Empty || line.BoundSession == current)
+                {
+                    if (line.NewLine) _sink.WriteLine(line.Text);
+                    else _sink.Write(line.Text);
+                    continue;
+                }
+                Tracing.NoteDeferredRefused();
+                _sink.WriteLine(Tracing.TracePrefix()
+                    + "TraceDeferred: REFUSED — the following line was formatted while session "
+                    + line.BoundSession + " was recording, and that session has since been sealed"
+                    + " (session " + current + " is current). It describes that session, not this one;"
+                    + " kept here so the moment is not lost: " + line.Text);
+            }
+            if (any)
+            {
+                _sink?.Flush();
+                NoticeSinkFaultLocked();
+            }
         }
 
         /// <summary>The live sink, for the rotation surface on
@@ -388,15 +587,19 @@ namespace JJTrace
             lock (_gate)
             {
                 if (_session != null) return;
-                CloseSinkLocked();
-                OpenSessionLocked(path, _level, faults, startPartNumber: 1,
-                                  continuing: null);
-                // No managed session: drop the pointer the open just set, so
-                // nothing mistakes a console tool's file for a lifecycle
-                // session it could seal.
-                _session = null;
-                _handle = null;
-                PublishLocked();
+                BeginTransitionLocked();
+                try
+                {
+                    CloseSinkLocked();
+                    OpenSessionLocked(path, _level, faults, startPartNumber: 1,
+                                      continuing: null);
+                    // No managed session: drop the pointer the open just set, so
+                    // nothing mistakes a console tool's file for a lifecycle
+                    // session it could seal.
+                    _session = null;
+                    _handle = null;
+                }
+                finally { EndTransitionLocked(); }
             }
         }
 
@@ -405,7 +608,9 @@ namespace JJTrace
             lock (_gate)
             {
                 if (_session != null) return;
-                CloseSinkLocked();
+                BeginTransitionLocked();
+                try { CloseSinkLocked(); }
+                finally { EndTransitionLocked(); }
             }
         }
 
@@ -468,33 +673,67 @@ namespace JJTrace
             var faults = new List<string>();
             TraceTransitionResult result;
             lock (_gate)
+            {
+                BeginTransitionLocked();
+                try
+                {
+                    if (_shuttingDown)
+                    {
+                        return TraceTransitionResult.Refusal(TraceTransition.ShuttingDown,
+                            Guid.Empty, _session?.SessionId ?? Guid.Empty,
+                            "TraceCoordinator.Begin refused: exit is committed",
+                            _sink != null && !_sink.IsClosed);
+                    }
+                    if (_session != null || (_sink != null && !_sink.IsClosed))
+                    {
+                        return TraceTransitionResult.Refusal(TraceTransition.AlreadyRecording,
+                            Guid.Empty, _session?.SessionId ?? Guid.Empty,
+                            "TraceCoordinator.Begin refused: session "
+                            + (_session?.SessionId.ToString() ?? "(none)") + " is still recording",
+                            true);
+                    }
+
+                    result = OpenSessionLocked(livePath, level, faults);
+                    if (result.Status == TraceTransition.Accepted && asDetailedCapture)
+                    {
+                        result.StartedCaptureId = StartCaptureLocked(captureStartedLocal);
+                    }
+                    result.TracingOn = _sink != null && !_sink.IsClosed;
+                }
+                finally { EndTransitionLocked(); }
+            }
+            result.DeferredFaults = faults;
+            PublishSinkHealth(result);
+            return result;
+        }
+
+        /// <summary>
+        /// Tell the health model what the live sink is doing, from a result,
+        /// OUTSIDE the gate. Called on the way out of every transition that can
+        /// change the sink.
+        /// </summary>
+        private static void PublishSinkHealth(TraceTransitionResult result)
+        {
+            if (result == null) return;
             try
             {
-                if (_shuttingDown)
+                if (result.TracingOn)
                 {
-                    return TraceTransitionResult.Refusal(TraceTransition.ShuttingDown,
-                        Guid.Empty, _session?.SessionId ?? Guid.Empty,
-                        "TraceCoordinator.Begin refused: exit is committed", Recording);
+                    TraceRecordingHealth.NoteSink(TraceSinkState.Recording, null, LivePath,
+                                                  result.Successor?.SessionId ?? Guid.Empty);
                 }
-                if (_session != null || (_sink != null && !_sink.IsClosed))
+                else if (result.RestartFailed || result.Status == TraceTransition.Failed)
                 {
-                    return TraceTransitionResult.Refusal(TraceTransition.AlreadyRecording,
-                        Guid.Empty, _session?.SessionId ?? Guid.Empty,
-                        "TraceCoordinator.Begin refused: session "
-                        + (_session?.SessionId.ToString() ?? "(none)") + " is still recording",
-                        true);
+                    TraceRecordingHealth.NoteSink(TraceSinkState.Failed,
+                        result.SinkFault ?? result.Explanation, null, Guid.Empty);
                 }
-
-                result = OpenSessionLocked(livePath, level, faults);
-                if (result.Status == TraceTransition.Accepted && asDetailedCapture)
+                else if (result.Status == TraceTransition.Accepted)
                 {
-                    result.StartedCaptureId = StartCaptureLocked(captureStartedLocal);
+                    // Sealed with no successor, by intent.
+                    TraceRecordingHealth.NoteSink(TraceSinkState.Off, null, null, Guid.Empty);
                 }
-                result.TracingOn = _sink != null && !_sink.IsClosed;
             }
-            finally { PublishLocked(); }
-            result.DeferredFaults = faults;
-            return result;
+            catch { /* the health note must not fail the transition it describes */ }
         }
 
         /// <summary>
@@ -590,12 +829,26 @@ namespace JJTrace
             }
         }
 
-        /// <summary>Caller must hold the gate.</summary>
+        /// <summary>
+        /// Caller must hold the gate.
+        ///
+        /// <para><b>A sink is not "recording" until its first record has been
+        /// written and flushed.</b> Constructing the stream proves the path
+        /// could be opened; it says nothing about the next byte. So the open
+        /// writes one header line — the session and part it belongs to — and
+        /// checks it landed. A header that will not write is an open that
+        /// failed, reported as such, with the sink closed and nothing
+        /// published (Astra's ruling, implementation note 3: "Verify the
+        /// successor's first record and flush before describing it as
+        /// recording"). The optional last argument is the header to write and
+        /// verify; null means the standard "session opened" line.</para>
+        /// </summary>
         private static TraceTransitionResult OpenSessionLocked(string livePath, TraceLevel level,
                                                                List<string> faults,
                                                                int startPartNumber = 1,
                                                                TraceSession continuing = null,
-                                                               bool append = false)
+                                                               bool append = false,
+                                                               string firstLine = null)
         {
             var result = new TraceTransitionResult();
             try
@@ -611,7 +864,31 @@ namespace JJTrace
                     startPartNumber,
                     append);
 
+                string header = firstLine
+                    ?? ("--- trace session " + session.SessionId + " part "
+                        + startPartNumber.ToString("D3") + " opened "
+                        + DateTime.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture)
+                        + " ---");
+                if (!sink.WriteTerminalLine(Tracing.TracePrefix() + header))
+                {
+                    string fault = sink.WriteFault ?? "the first record could not be written";
+                    try { sink.FlushAndClose(out _); } catch { }
+                    faults.Add("TraceCoordinator: opened a trace at " + livePath
+                               + " but its first record would not write (" + fault
+                               + "); nothing is recording");
+                    _sink = null;
+                    _session = null;
+                    _handle = null;
+                    _stamp = null;
+                    result.Status = TraceTransition.Failed;
+                    result.FailedStage = "first-write";
+                    result.SinkFault = fault;
+                    result.TracingOn = false;
+                    return result;
+                }
+
                 _sink = sink;
+                _sinkFaultPublished = false;
                 _session = session;
                 _handle = new TraceSessionHandle(session);
                 _stamp = stamp;
@@ -707,15 +984,25 @@ namespace JJTrace
 
             lock (_gate)
             {
+                BeginTransitionLocked();
                 try { result = SealLocked(request, faults, out queued); }
-                finally { PublishLocked(); }
+                finally { EndTransitionLocked(); }
             }
 
-            // Outside the gate, deliberately: queueing touches a Task chain and
-            // the design forbids waiting on anything while the gate is held.
-            if (queued != null) TraceArchiveWorker.Queue(queued);
-
             result.DeferredFaults = faults;
+
+            // Outside the gate, deliberately, and in this order: the health
+            // model hears about the detached ticket BEFORE it is queued, so a
+            // caller that waits on the archive afterwards (the drop hook, up
+            // to its five-minute budget) has already had the failure published
+            // to the operator's surface. Queueing touches a Task chain and the
+            // design forbids waiting on anything while the gate is held.
+            if (queued != null)
+            {
+                TraceRecordingHealth.NoteDetached(queued);
+                TraceArchiveWorker.Queue(queued);
+            }
+            if (result.Owned) PublishSinkHealth(result);
             return result;
         }
 
@@ -792,19 +1079,30 @@ namespace JJTrace
             TraceSession sealing = _session;
             RotatingTraceListener sink = _sink;
 
+            // This operation owns the session. Everything queued up to this
+            // moment — the fall's own bound lines above all — belongs in THIS
+            // file, ahead of its terminal records. Drained here, under the
+            // gate, so a line bound to this session cannot wait behind this
+            // seal and land in the successor (Sol's review of H6, finding 1).
+            Probe("seal:owned");
+            DrainDeferredLocked();
+
             if (!string.IsNullOrEmpty(request.Outcome))
             {
                 sealing.MarkOutcome(request.Outcome, request.OutcomeDetail);
             }
 
             // The caller's last observations, written into the file they belong
-            // to and nowhere else.
+            // to and nowhere else — and each write's result kept, because a
+            // terminal record that did not land is the tail of the evidence
+            // going missing, and that has to be said rather than closed over.
+            bool tailUncertain = false;
             if (request.TerminalLines != null)
             {
                 foreach (string line in request.TerminalLines)
                 {
                     if (string.IsNullOrEmpty(line)) continue;
-                    sink.WriteTerminalLine(Tracing.TracePrefix() + line);
+                    if (!sink.WriteTerminalLine(Tracing.TracePrefix() + line)) tailUncertain = true;
                 }
             }
 
@@ -812,8 +1110,11 @@ namespace JJTrace
             // because it is itself a write. Rotation is suppressed for the
             // duration of a terminal write, so the number below cannot go stale
             // underneath us.
-            sink.WriteTerminalLine(Tracing.TracePrefix()
-                + TraceStateMarker.RenderTerminal(AppIdentity, sealing.BootTimeUtc, sink.FilePath));
+            if (!sink.WriteTerminalLine(Tracing.TracePrefix()
+                    + TraceStateMarker.RenderTerminal(AppIdentity, sealing.BootTimeUtc, sink.FilePath)))
+            {
+                tailUncertain = true;
+            }
 
             bool hadParts = sink.HasRotated;
             int finalPart = sink.PartNumber;
@@ -825,7 +1126,14 @@ namespace JJTrace
 
             if (!sink.FlushAndClose(out string closeFailure))
             {
+                tailUncertain = true;
                 faults.Add("TraceCoordinator: the trace file did not close cleanly: " + closeFailure);
+            }
+            string sinkFault = tailUncertain ? (sink.WriteFault ?? closeFailure ?? "terminal record not written") : null;
+            if (tailUncertain)
+            {
+                faults.Add("TraceCoordinator: not every terminal record reached " + sourcePath
+                           + " (" + sinkFault + "); the bytes that did land are retained, and the file's tail is uncertain");
             }
 
             // Close and MOVE before a successor opens. The old path compressed
@@ -870,6 +1178,8 @@ namespace JJTrace
                     ExpectedSessionId = expectedId,
                     ObservedSessionId = observedId,
                     TracingOn = false,
+                    TailUncertain = tailUncertain,
+                    SinkFault = sinkFault,
                     EndedDetailedCapture = endedCapture,
                     EndedCaptureId = endedCaptureId,
                     EndedCaptureStartedLocal = endedCaptureStarted,
@@ -888,6 +1198,8 @@ namespace JJTrace
                 Entry = entry,
                 OutcomeFileTag = fileTag,
                 StampLocal = sealing.BootTimeUtc.ToLocalTime(),
+                TailUncertain = tailUncertain,
+                SinkFault = sinkFault,
             };
 
             // Durable metadata beside the raw source, written BEFORE a successor
@@ -904,6 +1216,8 @@ namespace JJTrace
                 Status = TraceTransition.Accepted,
                 Ticket = ticket,
                 PendingRecordFailed = !recordWritten,
+                TailUncertain = tailUncertain,
+                SinkFault = sinkFault,
                 ExpectedSessionId = expectedId,
                 ObservedSessionId = observedId,
                 EndedDetailedCapture = endedCapture,
@@ -938,6 +1252,9 @@ namespace JJTrace
                 if (opened.Status == TraceTransition.Accepted)
                 {
                     result.Successor = opened.Successor;
+                    // Verified: the successor's first record was written and
+                    // flushed inside OpenSessionLocked, or it would not be
+                    // Accepted.
                     result.TracingOn = true;
                     Probe("seal:successor-opened");
                     // Still inside the gate, and before the successor is
@@ -950,8 +1267,13 @@ namespace JJTrace
                 }
                 else
                 {
+                    // The old ticket stands; only the restart failed. Said so,
+                    // with the sink's own reason, so the operator can be told
+                    // nothing is recording rather than "off".
                     result.RestartFailed = true;
                     result.TracingOn = false;
+                    result.SinkFault = result.SinkFault ?? opened.SinkFault ?? opened.FailedStage;
+                    _level = TraceLevel.Off;
                 }
             }
             else
@@ -987,6 +1309,9 @@ namespace JJTrace
 
             lock (_gate)
             {
+                BeginTransitionLocked();
+                try
+                {
                 Guid expectedId = expected?.SessionId ?? Guid.Empty;
                 Guid observedId = _session?.SessionId ?? Guid.Empty;
                 bool recording = _session != null && _sink != null && !_sink.IsClosed;
@@ -1038,11 +1363,22 @@ namespace JJTrace
                         + ", observed " + observedId + "; no trace snapshot is available for the bundle",
                         true);
                 }
-                PublishLocked();
+                }
+                finally { EndTransitionLocked(); }
             }
 
-            if (queued != null) TraceArchiveWorker.Queue(queued);
             result.DeferredFaults = faults;
+            // Same order as a seal: the health model before the queue, and
+            // before anything the bundler waits on.
+            if (queued != null)
+            {
+                TraceRecordingHealth.NoteDetached(queued);
+                TraceArchiveWorker.Queue(queued);
+            }
+            if (result.Status == TraceTransition.Accepted || result.Status == TraceTransition.Failed)
+            {
+                PublishSinkHealth(result);
+            }
             return result;
         }
 
@@ -1056,7 +1392,11 @@ namespace JJTrace
             int part = sink.PartNumber;
             string sourcePath = sink.FilePath;
 
-            sink.WriteTerminalLine(Tracing.TracePrefix()
+            // What queued up while this transition took the gate belongs to
+            // the part being frozen, ahead of its checkpoint record.
+            DrainDeferredLocked();
+
+            bool tailUncertain = !sink.WriteTerminalLine(Tracing.TracePrefix()
                 + "TraceCheckpoint: part " + part.ToString("D3")
                 + " frozen for a problem report; this session continues in part "
                 + (part + 1).ToString("D3"));
@@ -1066,8 +1406,10 @@ namespace JJTrace
 
             if (!sink.FlushAndClose(out string closeFailure))
             {
+                tailUncertain = true;
                 faults.Add("TraceCoordinator: the trace file did not close cleanly for the snapshot: " + closeFailure);
             }
+            string sinkFault = tailUncertain ? (sink.WriteFault ?? closeFailure ?? "checkpoint record not written") : null;
 
             string target = TraceFileNaming.StampedPartPath(_livePath, session.BootTimeUtc, part);
             string detached = TraceFileNaming.Detach(sourcePath, target, deleteOnFailure: false,
@@ -1085,9 +1427,11 @@ namespace JJTrace
                            + " (" + moveFailure + ")");
                 _sink = null;
                 TraceTransitionResult reopened = OpenSessionLocked(_livePath, _level, faults,
-                                                                   startPartNumber: part,
-                                                                   continuing: session,
-                                                                   append: true);
+                    startPartNumber: part,
+                    continuing: session,
+                    append: true,
+                    firstLine: "--- trace resumes in the same file: a problem-report snapshot could not"
+                               + " be taken (" + moveFailure + ") and nothing was moved ---");
                 return new TraceTransitionResult
                 {
                     Status = TraceTransition.Failed,
@@ -1097,6 +1441,8 @@ namespace JJTrace
                     ObservedSessionId = session.SessionId,
                     Successor = reopened.Successor,
                     TracingOn = reopened.Status == TraceTransition.Accepted,
+                    TailUncertain = tailUncertain,
+                    SinkFault = reopened.SinkFault ?? sinkFault,
                     Explanation = "TraceCoordinator: no snapshot was taken for the bundle; the session continues",
                 };
             }
@@ -1112,23 +1458,22 @@ namespace JJTrace
                 Entry = entry,
                 OutcomeFileTag = fileTag,
                 StampLocal = session.BootTimeUtc.ToLocalTime(),
+                TailUncertain = tailUncertain,
+                SinkFault = sinkFault,
             };
-            // Same contract, same unresolved fallback, as the seal: see
+            // Same contract, same continuation rule, as the seal: see
             // NotePendingRecord.
             bool recordWritten = NotePendingRecord(ticket, faults);
             TraceEvidencePins.Pin(detached);
 
             _sink = null;
+            // The continuation header IS the next part's verified first write.
             TraceTransitionResult next = OpenSessionLocked(_livePath, _level, faults,
-                                                           startPartNumber: part + 1,
-                                                           continuing: session);
-            if (next.Status == TraceTransition.Accepted)
-            {
-                _sink.WriteTerminalLine(Tracing.TracePrefix()
-                    + "--- trace continues from part " + part.ToString("D3")
-                    + " (" + Path.GetFileName(detached) + ") — this is part "
-                    + (part + 1).ToString("D3") + " ---");
-            }
+                startPartNumber: part + 1,
+                continuing: session,
+                firstLine: "--- trace continues from part " + part.ToString("D3")
+                           + " (" + Path.GetFileName(detached) + ") — this is part "
+                           + (part + 1).ToString("D3") + " ---");
 
             queued = ticket;
             return new TraceTransitionResult
@@ -1136,6 +1481,8 @@ namespace JJTrace
                 Status = TraceTransition.Accepted,
                 Ticket = ticket,
                 PendingRecordFailed = !recordWritten,
+                TailUncertain = tailUncertain,
+                SinkFault = next.Status == TraceTransition.Accepted ? sinkFault : (next.SinkFault ?? sinkFault),
                 ExpectedSessionId = session.SessionId,
                 ObservedSessionId = session.SessionId,
                 Successor = next.Successor,
@@ -1194,15 +1541,24 @@ namespace JJTrace
         /// The ticket is still queued, so in the ordinary case its archive
         /// commits seconds later and nothing is lost.</para>
         ///
-        /// <para><b>NOT DECIDED HERE: whether a successor may open at all when
-        /// this fails.</b> Keeping the design's contract to the letter means
-        /// refusing the successor — logging stops because one small write
-        /// failed. Keeping logging means the contract is broken for this
-        /// session's METADATA (outcome, detail, connection target): a crash
-        /// before its archive commits leaves the raw bytes kept but unlabelled.
-        /// Sol named that trade as one for Astra to judge, and Track H6's brief
-        /// said to stop and report it rather than choose. So the successor
-        /// behaviour is exactly H3's, unchanged, and the question is open.</para>
+        /// <para><b>RULED: logging continues.</b> Astra's design ruling on the
+        /// pending-record failure
+        /// (<c>for-claude/2026-09-24-codex-design-pending-record-failure.md</c>):
+        /// "Allow logging to continue after a failed pending-record write,
+        /// provided the old file has been safely detached and the successor
+        /// can write. Report the old ticket's recovery failure independently
+        /// of the new session's recording state." The durable-record-before-
+        /// successor rule existed to preserve evidence across asynchronous
+        /// archiving, not to turn a metadata failure into the loss of every
+        /// subsequent observation. So: the frozen ticket is still queued, the
+        /// successor still opens (and is verified before it is called
+        /// recording), and the failure goes to
+        /// <see cref="TraceRecordingHealth"/>, where Diagnostics and the
+        /// operator's notification read it — not only to this trace, which is
+        /// the log that may not be writable. The archive worker makes one
+        /// retry of the sidecar from the frozen ticket; a crash before either
+        /// that or the archive commits still loses the metadata, and the
+        /// health model says so rather than claiming it is recoverable.</para>
         /// </summary>
         private static bool NotePendingRecord(TraceArchiveTicket ticket, List<string> faults)
         {

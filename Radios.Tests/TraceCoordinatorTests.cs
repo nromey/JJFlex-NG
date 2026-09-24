@@ -38,9 +38,15 @@ namespace Radios.Tests
         private readonly string _savedArchiveRoot;
         private readonly TraceSession _savedSession;
         private readonly bool _savedOn;
+        private readonly TraceLevel _savedLevel;
 
         public TraceCoordinatorTests()
         {
+            // The switch is process-wide and gates TraceLineDeferred as it
+            // gates TraceLine; a test that writes a Warning line through
+            // either needs it raised, and must put it back.
+            _savedLevel = Tracing.TheSwitch.Level;
+            Tracing.TheSwitch.Level = TraceLevel.Verbose;
             _dir = Path.Combine(Path.GetTempPath(), "jjflex-h3-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(_dir);
             _archiveDir = Path.Combine(_dir, "Traces");
@@ -68,7 +74,37 @@ namespace Radios.Tests
             RestoreSession(_savedSession);
             TraceCoordinator.ArchiveRootDir = _savedArchiveRoot;
             Tracing.On = _savedOn;
+            Tracing.TheSwitch.Level = _savedLevel;
             try { Directory.Delete(_dir, recursive: true); } catch { }
+        }
+
+        /// <summary>
+        /// Hold the archive worker at the ticket that matches, so a condition
+        /// the worker would resolve in milliseconds is still there to assert
+        /// on. Dispose releases it and clears the hook.
+        /// </summary>
+        private sealed class HeldWorker : IDisposable
+        {
+            private readonly ManualResetEventSlim _release = new ManualResetEventSlim(false);
+            public ManualResetEventSlim Reached { get; } = new ManualResetEventSlim(false);
+
+            public HeldWorker(Func<TraceArchiveTicket, bool> match)
+            {
+                TraceArchiveWorker.BeforeArchiveForTests = t =>
+                {
+                    if (!match(t)) return;
+                    Reached.Set();
+                    _release.Wait(TimeSpan.FromSeconds(30));
+                };
+            }
+
+            public void Release() => _release.Set();
+
+            public void Dispose()
+            {
+                _release.Set();
+                TraceArchiveWorker.BeforeArchiveForTests = null;
+            }
         }
 
         // ── Harness ────────────────────────────────────────────────────────
@@ -89,6 +125,34 @@ namespace Radios.Tests
             TraceCoordinator.SetStandingIntent(true, TraceLevel.Info);
             TraceCoordinator.TransitionProbeForTests = null;
             TraceCoordinator.BeforeCaptureSlotWriteForTests = null;
+            TraceArchiveWorker.BeforeArchiveForTests = null;
+            TraceRecordingHealth.ResetForTests();
+            Tracing.ResetDeferredCountersForTests();
+        }
+
+        /// <summary>Collect every health change raised while the returned
+        /// handle is alive.</summary>
+        private sealed class HealthChanges : IDisposable
+        {
+            private readonly List<TraceRecordingHealthChange> _changes = new List<TraceRecordingHealthChange>();
+            public HealthChanges() { TraceRecordingHealth.Changed += OnChanged; }
+            private void OnChanged(TraceRecordingHealthChange c) { lock (_changes) _changes.Add(c); }
+            public List<TraceRecordingHealthChange> All { get { lock (_changes) return new List<TraceRecordingHealthChange>(_changes); } }
+            public void Dispose() { TraceRecordingHealth.Changed -= OnChanged; }
+        }
+
+        /// <summary>
+        /// Break the live sink's writer so its next write throws — the
+        /// deterministic stand-in for a disk that stops accepting bytes.
+        /// </summary>
+        private static void BreakTheLiveSink()
+        {
+            RotatingTraceListener live = Tracing.LiveListener;
+            Assert.NotNull(live);
+            var writer = (StreamWriter)typeof(RotatingTraceListener)
+                .GetField("_writer", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+                .GetValue(live)!;
+            writer.Dispose();
         }
 
         /// <summary>
@@ -107,14 +171,23 @@ namespace Radios.Tests
 
         private void ForceCloseAnySession()
         {
-            if (TraceCoordinator.CurrentHandle == null) return;
-            TraceCoordinator.TrySeal(new TraceSealRequest
+            if (TraceCoordinator.CurrentHandle != null)
             {
-                ShutdownAuthority = true,
-                Outcome = TraceSessionOutcome.CleanExit,
-                Resume = TraceResumeIntent.None,
-                OperationId = Guid.NewGuid(),
-            });
+                TraceCoordinator.TrySeal(new TraceSealRequest
+                {
+                    ShutdownAuthority = true,
+                    Outcome = TraceSessionOutcome.CleanExit,
+                    Resume = TraceResumeIntent.None,
+                    OperationId = Guid.NewGuid(),
+                });
+            }
+            // ALWAYS drain, whether or not anything was open. A test that ended
+            // with no session — a seal with no successor, a shutdown — can
+            // still have its last ticket compressing on the worker; returning
+            // early here let Dispose delete the directory under it, and the
+            // worker then reported "compress: could not find file" into the
+            // NEXT test's freshly reset health state. Found at H7 the first
+            // time the health model made a failed archive visible.
             TraceCoordinator.DrainArchives(TimeSpan.FromSeconds(20));
         }
 
@@ -963,101 +1036,341 @@ namespace Radios.Tests
             Assert.Equal(@"C:\b.zip", TraceCoordinator.CompletedCaptureArchivePath);
         }
 
-        // ── Track H6: a pending record that will not write ─────────────────
+        // ── Track H6/H7: a pending record that will not write ──────────────
 
         /// <summary>
-        /// <b>A failed pending-record write is reported, and the raw trace it
-        /// was meant to protect is kept.</b> Sol's review of H3, finding 4:
-        /// <c>WritePendingRecord</c> swallowed the failure and the seal published
-        /// its successor as if the record existed — so a crash before the
-        /// archive committed left a raw file boot recovery could not see, and
-        /// the one-day sweep deleted it unread.
+        /// <b>A failed pending-record write is reported to the operator's
+        /// state, logging continues on a VERIFIED successor, and the raw trace
+        /// the record was meant to protect is kept.</b> Sol's review of H3,
+        /// finding 4, found the write swallowed; Track H6 made it explicit and
+        /// stopped at whether the successor may open; Astra ruled
+        /// (<c>for-claude/2026-09-24-codex-design-pending-record-failure.md</c>)
+        /// that it may, provided the old file is safely detached, the successor
+        /// can actually write, and the old ticket's failure is reported
+        /// independently of the new session's state.
         ///
         /// <para>The failure is forced with a DIRECTORY where the record goes,
         /// the same device H3 used for the detach: a file there would be
         /// overwritten, and the collision-safe naming would route round anything
-        /// placed at the trace's own name.</para>
+        /// placed at the trace's own name. The archive worker is held on a
+        /// barrier so the old file's archive is genuinely pending while the
+        /// successor is read back — a handle alone does not prove logging
+        /// continued, and Astra asked for a real line through the real routing
+        /// listener.</para>
         ///
-        /// <para><b>One assertion pins today's behaviour and NOT a ruling:</b>
-        /// the successor still opens. Keeping the design's contract to the
-        /// letter would refuse it — logging would stop because one small write
-        /// failed — and Track H6 was told to report that trade rather than
-        /// choose it. When it is ruled, change that one line.</para>
+        /// <para><b>Positive controls, run by hand at H7:</b> refusing the
+        /// successor (Resume None in the request) fails the distinctive-line
+        /// assertion; dropping <c>TraceRecordingHealth.NoteDetached</c> from
+        /// the seal fails the reachable-status assertion; clearing the
+        /// condition when the successor opens (a NoteSink that resolved
+        /// conditions) fails the same assertion. Each restored afterwards.</para>
         /// </summary>
         [Fact]
         public void A_pending_record_that_will_not_write_is_reported_and_its_raw_trace_kept()
         {
-            TraceSessionHandle live = Open();
+            TraceSessionHandle a = Open();
             Write("evidence that has to outlive a crash");
             DateTime boot = TraceCoordinator.Observe().SessionBootTimeUtc.Value;
             string target = TraceFileNaming.StampedPath(_livePath, boot);
             Directory.CreateDirectory(TraceArchiveWorker.PendingPathFor(target));
 
-            TraceTransitionResult r = TraceCoordinator.TrySeal(new TraceSealRequest
+            var atWorker = new ManualResetEventSlim(false);
+            var release = new ManualResetEventSlim(false);
+            TraceArchiveWorker.BeforeArchiveForTests = t =>
             {
-                Expected = live,
-                OperationId = Guid.NewGuid(),
-                Outcome = TraceSessionOutcome.ConnectionDropped,
-                Resume = TraceResumeIntent.Standing,
-            });
+                if (t.SessionId != a.SessionId) return;
+                atWorker.Set();
+                release.Wait(TimeSpan.FromSeconds(30));
+            };
+            TraceTransitionResult r;
+            using (var changes = new HealthChanges())
+            {
+                try
+                {
+                    r = TraceCoordinator.TrySeal(new TraceSealRequest
+                    {
+                        Expected = a,
+                        OperationId = Guid.NewGuid(),
+                        Outcome = TraceSessionOutcome.ConnectionDropped,
+                        OutcomeDetail = "the drop whose record would not write",
+                        Resume = TraceResumeIntent.Standing,
+                    });
 
-            Assert.Equal(TraceTransition.Accepted, r.Status);
-            // Positive control: the obstacle sat where THIS seal's record goes.
-            Assert.Equal(target, r.Ticket.SourcePath);
+                    Assert.Equal(TraceTransition.Accepted, r.Status);
+                    // Positive control: the obstacle sat where THIS seal's record goes.
+                    Assert.Equal(target, r.Ticket.SourcePath);
 
-            // Explicit, not swallowed.
-            Assert.True(r.PendingRecordFailed);
-            Assert.False(r.Ticket.PendingRecordWritten);
-            Assert.Contains(r.DeferredFaults, f => f.Contains(target, StringComparison.Ordinal)
-                                                   && f.Contains("NO durable pending record", StringComparison.Ordinal));
+                    // Explicit, not swallowed.
+                    Assert.True(r.PendingRecordFailed);
+                    Assert.False(r.Ticket.PendingRecordWritten);
+                    Assert.Contains(r.DeferredFaults, f => f.Contains(target, StringComparison.Ordinal)
+                                                           && f.Contains("NO durable pending record", StringComparison.Ordinal));
 
-            // TODAY'S BEHAVIOUR, NOT A RULING: logging carried on.
-            Assert.True(r.SuccessorOpened);
+                    // RULED: logging continues, and "continues" means verified —
+                    // the successor's first record was written and flushed.
+                    Assert.True(r.SuccessorOpened);
+                    Assert.True(r.TracingOn);
 
-            // The raw file is there, and a day later the sweep keeps it,
-            // because no archive holds it yet.
-            Assert.True(File.Exists(target));
-            DateTime now = DateTime.UtcNow;
-            Assert.Equal(PlainTextTraceVerdict.KeptBecauseUnarchived,
-                TraceArchiveWorker.ClassifyPlainTextTrace(target, now.AddDays(-2), now, 1,
-                    SessionArchive.ArchivedSourceNames(_archiveDir)));
+                    // Published BEFORE the seal returned, so before anyone waits
+                    // on the archive: the change is already in hand.
+                    Assert.Contains(changes.All, c => c.Kind == TraceRecordingHealthChangeKind.ConditionRaised
+                                                      && c.Condition.TicketId == r.Ticket.TicketId);
 
-            // Positive control for the sweep: once its archive commits, the
-            // ordinary window applies again. The record's absence never stopped
-            // the archive being made.
-            Assert.True(r.Ticket.Completion.Wait(TimeSpan.FromSeconds(60)));
-            Assert.True(r.Ticket.Completion.Result.ArchiveCommitted);
+                    // The worker is held: A's archive is genuinely pending.
+                    Assert.True(atWorker.Wait(TimeSpan.FromSeconds(10)), "the archive worker never reached A");
+                    Assert.False(r.Ticket.Completion.IsCompleted);
+
+                    // A real line, through the real routing listener, into B —
+                    // flushed and read back while A's archive is still blocked.
+                    Write("a distinctive line for successor B");
+                    Trace.Flush();
+                    string bText = ReadLiveText(_livePath);
+                    Assert.Contains("a distinctive line for successor B", bText, StringComparison.Ordinal);
+                    Assert.DoesNotContain("evidence that has to outlive a crash", bText, StringComparison.Ordinal);
+
+                    // A's bytes are unchanged and untouched by B.
+                    string aText = File.ReadAllText(target);
+                    Assert.Contains("evidence that has to outlive a crash", aText, StringComparison.Ordinal);
+                    Assert.DoesNotContain("a distinctive line for successor B", aText, StringComparison.Ordinal);
+
+                    // A's recovery failure is reachable through the operator-state
+                    // model, naming A, its file, and what is missing.
+                    TraceRecordingHealthSnapshot snap = TraceRecordingHealth.Snapshot();
+                    TraceRecoveryCondition condition = Assert.Single(snap.Unresolved);
+                    Assert.Equal(a.SessionId, condition.SessionId);
+                    Assert.Equal(target, condition.RawPath);
+                    Assert.True(condition.RawRetained);
+                    Assert.False(condition.RecoveryRecordWritten);
+                    Assert.Null(condition.ArchiveFailureStage);
+
+                    // B is recording, and the two facts are independent: the
+                    // healthy new session does not erase the old ticket's state.
+                    Assert.Equal(TraceSinkState.Recording, snap.SinkState);
+                    Assert.Equal(r.Successor.SessionId, snap.LiveSessionId);
+                    Assert.Equal(r.Successor.SessionId, TraceCoordinator.CurrentHandle.SessionId);
+
+                    // Neither result claims an archive is committed.
+                    Assert.False(r.Ticket.Completion.IsCompleted);
+
+                    // And a day later the sweep keeps the raw file, because no
+                    // archive holds it yet.
+                    DateTime now = DateTime.UtcNow;
+                    Assert.Equal(PlainTextTraceVerdict.KeptBecauseUnarchived,
+                        TraceArchiveWorker.ClassifyPlainTextTrace(target, now.AddDays(-2), now, 1,
+                            SessionArchive.ArchivedSourceNames(_archiveDir)));
+                }
+                finally
+                {
+                    release.Set();
+                    TraceArchiveWorker.BeforeArchiveForTests = null;
+                }
+
+                // Released: A commits with its ORIGINAL metadata — outcome,
+                // detail, identity — and only A's unresolved status clears.
+                Assert.True(r.Ticket.Completion.Wait(TimeSpan.FromSeconds(60)));
+                Assert.True(r.Ticket.Completion.Result.ArchiveCommitted);
+                TraceSessionEntry entry = Manifest().Entries.Single(e => e.SessionId == a.SessionId.ToString());
+                Assert.Equal(TraceSessionOutcome.ConnectionDropped, entry.Outcome);
+                Assert.Equal("the drop whose record would not write", entry.OutcomeDetail);
+                Assert.Null(entry.Orphaned);
+                Assert.Contains(changes.All, c => c.Kind == TraceRecordingHealthChangeKind.ConditionResolved
+                                                  && c.Condition.TicketId == r.Ticket.TicketId);
+            }
+            TraceRecordingHealthSnapshot after = TraceRecordingHealth.Snapshot();
+            Assert.Empty(after.Unresolved);
+            // Resolution changed nothing live, and the history of the failure
+            // is kept separately from the condition that cleared.
+            Assert.Equal(TraceSinkState.Recording, after.SinkState);
+            Assert.Equal(r.Successor.SessionId, TraceCoordinator.CurrentHandle.SessionId);
+            Assert.True(after.HistoricalFailures >= 1);
+
+            DateTime later = DateTime.UtcNow;
             Assert.Equal(PlainTextTraceVerdict.Delete,
-                TraceArchiveWorker.ClassifyPlainTextTrace(target, now.AddDays(-2), now, 1,
+                TraceArchiveWorker.ClassifyPlainTextTrace(target, later.AddDays(-2), later, 1,
                     SessionArchive.ArchivedSourceNames(_archiveDir)));
 
-            // And an ordinary seal reports no failure.
-            TraceTransitionResult ordinary = TraceCoordinator.TrySeal(new TraceSealRequest
+            // Positive control: the ordinary sidecar succeeds, reports no
+            // failure, and raises no condition.
+            using (var quiet = new HealthChanges())
             {
-                Expected = r.Successor,
-                OperationId = Guid.NewGuid(),
-                Outcome = TraceSessionOutcome.CleanExit,
-                Resume = TraceResumeIntent.None,
-            });
-            Assert.False(ordinary.PendingRecordFailed);
-            Assert.True(ordinary.Ticket.PendingRecordWritten);
+                TraceTransitionResult ordinary = TraceCoordinator.TrySeal(new TraceSealRequest
+                {
+                    Expected = r.Successor,
+                    OperationId = Guid.NewGuid(),
+                    Outcome = TraceSessionOutcome.CleanExit,
+                    Resume = TraceResumeIntent.None,
+                });
+                Assert.False(ordinary.PendingRecordFailed);
+                Assert.True(ordinary.Ticket.PendingRecordWritten);
+                Assert.True(ordinary.Ticket.Completion.Wait(TimeSpan.FromSeconds(60)));
+                Assert.DoesNotContain(quiet.All, c => c.Kind == TraceRecordingHealthChangeKind.ConditionRaised);
+            }
+        }
+
+        /// <summary>
+        /// The sidecar fails AND the successor cannot write. No recording claim
+        /// survives: the result says the restart failed and tracing is off,
+        /// the health model says the sink FAILED (not "off by choice"), A's
+        /// raw file is there to the extent it was written, and A's ticket is
+        /// still queued. Paired below with the successful first write.
+        ///
+        /// <para>The successor is made unwritable by putting a DIRECTORY at the
+        /// live path from inside the transition, after the old file has been
+        /// moved away and before the successor opens — the probe at
+        /// <c>seal:detached</c> is exactly that moment.</para>
+        /// </summary>
+        [Fact]
+        public void A_failed_record_and_a_successor_that_cannot_write_claims_no_recording()
+        {
+            TraceSessionHandle a = Open();
+            Write("what A managed to write");
+            DateTime boot = TraceCoordinator.Observe().SessionBootTimeUtc.Value;
+            string target = TraceFileNaming.StampedPath(_livePath, boot);
+            Directory.CreateDirectory(TraceArchiveWorker.PendingPathFor(target));
+
+            TraceCoordinator.TransitionProbeForTests = point =>
+            {
+                if (point == "seal:detached") Directory.CreateDirectory(_livePath);
+            };
+            TraceTransitionResult r;
+            using var held = new HeldWorker(t => t.SessionId == a.SessionId);
+            try
+            {
+                using var changes = new HealthChanges();
+                r = TraceCoordinator.TrySeal(new TraceSealRequest
+                {
+                    Expected = a,
+                    OperationId = Guid.NewGuid(),
+                    Outcome = TraceSessionOutcome.ConnectionDropped,
+                    Resume = TraceResumeIntent.Standing,
+                });
+
+                Assert.Equal(TraceTransition.Accepted, r.Status);   // A was detached
+                Assert.True(r.PendingRecordFailed);
+                Assert.True(r.RestartFailed);
+                Assert.False(r.TracingOn);
+                Assert.False(r.SuccessorOpened);
+                Assert.NotNull(r.SinkFault);
+                Assert.NotNull(r.Ticket.Completion);                 // still queued
+                Assert.True(File.Exists(target));
+                Assert.Contains("what A managed to write", File.ReadAllText(target), StringComparison.Ordinal);
+
+                TraceRecordingHealthSnapshot snap = TraceRecordingHealth.Snapshot();
+                Assert.Equal(TraceSinkState.Failed, snap.SinkState);
+                Assert.NotNull(snap.SinkFault);
+                Assert.Single(snap.Unresolved);
+                Assert.Contains(changes.All, c => c.Kind == TraceRecordingHealthChangeKind.SinkFailed);
+                Assert.Contains(changes.All, c => c.Kind == TraceRecordingHealthChangeKind.ConditionRaised);
+                Assert.False(TraceCoordinator.Recording);
+                Assert.Null(TraceCoordinator.CurrentHandle);
+            }
+            finally
+            {
+                TraceCoordinator.TransitionProbeForTests = null;
+                try { Directory.Delete(_livePath); } catch { }
+            }
+            held.Release();
+            Assert.True(r.Ticket.Completion.Wait(TimeSpan.FromSeconds(60)));
+
+            // The pair: with a writable path, the first write is verified and
+            // the successor is called recording — and the live file carries
+            // the header that verified it.
+            TraceSessionHandle b = Open();
+            Assert.True(TraceCoordinator.Recording);
+            Assert.Contains("--- trace session " + b.SessionId + " part 001 opened",
+                            ReadLiveText(_livePath), StringComparison.Ordinal);
+            Assert.Equal(TraceSinkState.Recording, TraceRecordingHealth.Snapshot().SinkState);
+        }
+
+        /// <summary>
+        /// The sink's own truth (Astra, implementation note 3): a terminal
+        /// write that fails says so, latches the fault, and a
+        /// <c>FlushAndClose</c> on the sink it closed does NOT turn that
+        /// failure into success. Paired with a healthy sink that says yes to
+        /// both.
+        /// </summary>
+        [Fact]
+        public void A_terminal_write_failure_followed_by_a_close_does_not_become_success()
+        {
+            string path = Path.Combine(_dir, "sink-fault.txt");
+            var healthy = new RotatingTraceListener(path, 0, _ => null, (_, _) => { });
+            Assert.True(healthy.WriteTerminalLine("a line that lands"));
+            Assert.Null(healthy.WriteFault);
+            Assert.True(healthy.FlushAndClose(out string none));
+            Assert.Null(none);
+            // Closed cleanly, and a second close still says so.
+            Assert.True(healthy.FlushAndClose(out _));
+
+            string broken = Path.Combine(_dir, "sink-broken.txt");
+            var sink = new RotatingTraceListener(broken, 0, _ => null, (_, _) => { });
+            ((StreamWriter)typeof(RotatingTraceListener)
+                .GetField("_writer", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+                .GetValue(sink)!).Dispose();
+
+            Assert.False(sink.WriteTerminalLine("a line that cannot land"));
+            Assert.NotNull(sink.WriteFault);
+            Assert.True(sink.IsClosed);
+            // THE OLD LIE: closed already, so "true". Now the latched fault.
+            Assert.False(sink.FlushAndClose(out string failure));
+            Assert.Equal(sink.WriteFault, failure);
+        }
+
+        /// <summary>
+        /// A write failure on the LIVE sink, mid-session, reaches the health
+        /// model as "the log stopped" — not "off" — and the coordinator says
+        /// what the fault was.
+        /// </summary>
+        [Fact]
+        public void A_live_sink_that_fails_a_write_reports_the_log_stopped()
+        {
+            TraceSessionHandle live = Open();
+            Write("fine so far");
+            Assert.Equal(TraceSinkState.Recording, TraceRecordingHealth.Snapshot().SinkState);
+
+            var failed = new ManualResetEventSlim(false);
+            void OnChanged(TraceRecordingHealthChange c)
+            {
+                if (c.Kind == TraceRecordingHealthChangeKind.SinkFailed) failed.Set();
+            }
+            TraceRecordingHealth.Changed += OnChanged;
+            try
+            {
+                BreakTheLiveSink();
+                Write("the write that fails");
+                Assert.True(failed.Wait(TimeSpan.FromSeconds(10)), "the sink's failure never reached the health model");
+            }
+            finally { TraceRecordingHealth.Changed -= OnChanged; }
+
+            Assert.NotNull(TraceCoordinator.SinkFault);
+            Assert.False(TraceCoordinator.Recording);
+            TraceRecordingHealthSnapshot snap = TraceRecordingHealth.Snapshot();
+            Assert.Equal(TraceSinkState.Failed, snap.SinkState);
+            Assert.Equal(_livePath, snap.SinkPath);
+            Assert.Equal(live.SessionId, snap.LiveSessionId);
         }
 
         /// <summary>
         /// The checkpoint path had the same swallowed write (Sol's review,
-        /// finding 4, "same fix in the checkpoint path"). A problem-report
-        /// snapshot whose record will not write says so, is still pinned for
-        /// the bundle, and the session carries on.
+        /// finding 4, "same fix in the checkpoint path"). During a DETAILED
+        /// CAPTURE, a problem-report snapshot whose record will not write says
+        /// so, is still pinned for the bundle, keeps the session AND the
+        /// capture's identity, claims no session end, writes the next part —
+        /// and the condition is reachable, marked as a checkpoint.
         /// </summary>
         [Fact]
         public void A_checkpoint_whose_pending_record_will_not_write_says_so()
         {
-            TraceSessionHandle live = Open();
+            TraceSessionHandle live = Open(TraceLevel.Verbose, asCapture: true);
+            Guid captureId = TraceCoordinator.CaptureId;
+            DateTime? startedAt = TraceCoordinator.CaptureStartedLocal;
             Write("before the bundle");
             DateTime boot = TraceCoordinator.Observe().SessionBootTimeUtc.Value;
             string target = TraceFileNaming.StampedPartPath(_livePath, boot, 1);
             Directory.CreateDirectory(TraceArchiveWorker.PendingPathFor(target));
 
+            // Held so the condition is still there to read: the worker would
+            // otherwise commit the part and resolve it in milliseconds.
+            using var held = new HeldWorker(t => t.IsCheckpoint);
             TraceTransitionResult snap = TraceCoordinator.SnapshotForBundle(live);
 
             Assert.Equal(TraceTransition.Accepted, snap.Status);
@@ -1067,8 +1380,430 @@ namespace Radios.Tests
             Assert.Contains(snap.DeferredFaults, f => f.Contains("NO durable pending record", StringComparison.Ordinal));
             Assert.True(File.Exists(target));
             Assert.True(TraceEvidencePins.IsPinned(target));
+
+            // Same session, same capture, same start; no false end.
             Assert.Equal(live.SessionId, TraceCoordinator.CurrentHandle.SessionId);
+            Assert.True(TraceCoordinator.CaptureRunning);
+            Assert.Equal(captureId, TraceCoordinator.CaptureId);
+            Assert.Equal(startedAt, TraceCoordinator.CaptureStartedLocal);
+            Assert.Null(snap.Ticket.Entry.EndTime);
+            Assert.True(snap.Ticket.IsCheckpoint);
+
+            // The next part is writable and verified.
+            Assert.True(snap.TracingOn);
+            Write("after the bundle");
+            Assert.Contains("after the bundle", ReadLiveText(_livePath), StringComparison.Ordinal);
+
+            TraceRecoveryCondition condition = Assert.Single(TraceRecordingHealth.Snapshot().Unresolved);
+            Assert.True(condition.IsCheckpoint);
+            Assert.Equal(1, condition.PartNumber);
+            Assert.Equal(live.SessionId, condition.SessionId);
             TraceEvidencePins.Release(target);
+            held.Release();
+            Assert.True(snap.Ticket.Completion.Wait(TimeSpan.FromSeconds(60)));
+        }
+
+        /// <summary>
+        /// Continuation cannot override the standing intent: with the standing
+        /// log OFF, a failed record still means no successor. The ticket is
+        /// still queued and the condition still reachable — the two facts are
+        /// independent of the successor decision.
+        /// </summary>
+        [Fact]
+        public void A_failed_record_with_the_standing_log_off_opens_nothing_and_still_reports()
+        {
+            TraceSessionHandle a = Open();
+            Write("x");
+            TraceCoordinator.SetStandingIntent(false, TraceLevel.Info);
+            DateTime boot = TraceCoordinator.Observe().SessionBootTimeUtc.Value;
+            string target = TraceFileNaming.StampedPath(_livePath, boot);
+            Directory.CreateDirectory(TraceArchiveWorker.PendingPathFor(target));
+
+            using var held = new HeldWorker(t => t.SessionId == a.SessionId);
+            TraceTransitionResult r = TraceCoordinator.TrySeal(new TraceSealRequest
+            {
+                Expected = a,
+                OperationId = Guid.NewGuid(),
+                Outcome = TraceSessionOutcome.CleanExit,
+                Resume = TraceResumeIntent.Standing,
+            });
+            Assert.Equal(TraceTransition.Accepted, r.Status);
+            Assert.True(r.PendingRecordFailed);
+            Assert.False(r.SuccessorOpened);
+            Assert.False(r.RestartFailed);
+            Assert.False(r.TracingOn);
+            Assert.NotNull(r.Ticket.Completion);
+            TraceRecordingHealthSnapshot snap = TraceRecordingHealth.Snapshot();
+            Assert.Single(snap.Unresolved);
+            Assert.Equal(TraceSinkState.Off, snap.SinkState);   // by choice, not failure
+            held.Release();
+            Assert.True(r.Ticket.Completion.Wait(TimeSpan.FromSeconds(60)));
+        }
+
+        /// <summary>Same, for shutdown: exit committed means no successor,
+        /// whatever happened to the record.</summary>
+        [Fact]
+        public void A_failed_record_during_shutdown_opens_nothing_and_still_reports()
+        {
+            TraceSessionHandle a = Open();
+            Write("x");
+            DateTime boot = TraceCoordinator.Observe().SessionBootTimeUtc.Value;
+            string target = TraceFileNaming.StampedPath(_livePath, boot);
+            Directory.CreateDirectory(TraceArchiveWorker.PendingPathFor(target));
+            TraceCoordinator.LatchShutdown();
+
+            using var held = new HeldWorker(t => t.SessionId == a.SessionId);
+            TraceTransitionResult r = TraceCoordinator.TrySeal(new TraceSealRequest
+            {
+                Expected = a,
+                OperationId = Guid.NewGuid(),
+                Outcome = TraceSessionOutcome.ConnectionDropped,
+                Resume = TraceResumeIntent.Standing,
+            });
+            Assert.Equal(TraceTransition.Accepted, r.Status);
+            Assert.True(r.PendingRecordFailed);
+            Assert.False(r.SuccessorOpened);
+            Assert.Contains("exit is committed", r.Explanation, StringComparison.Ordinal);
+            Assert.NotNull(r.Ticket.Completion);
+            Assert.Single(TraceRecordingHealth.Snapshot().Unresolved);
+            held.Release();
+            Assert.True(r.Ticket.Completion.Wait(TimeSpan.FromSeconds(60)));
+        }
+
+        /// <summary>
+        /// A compression that cannot happen (no archive root) is delivered to
+        /// the operator's state BEFORE the ticket's completion is released,
+        /// and without any archive path to offer — a notification cannot
+        /// depend on a path existing.
+        /// </summary>
+        [Fact]
+        public void An_archive_that_fails_is_delivered_before_completion_and_without_a_path()
+        {
+            TraceSessionHandle a = Open();
+            Write("x");
+            TraceCoordinator.ArchiveRootDir = null;   // the worker cannot make a zip
+            bool deliveredBeforeCompletion = false;
+            TraceRecoveryCondition seen = null;
+            TraceArchiveTicket ticket = null;
+            var raised = new ManualResetEventSlim(false);
+            void OnChanged(TraceRecordingHealthChange c)
+            {
+                if (c.Kind != TraceRecordingHealthChangeKind.ConditionRaised) return;
+                seen = c.Condition;
+                deliveredBeforeCompletion = ticket != null && !ticket.Completion.IsCompleted;
+                raised.Set();
+            }
+            TraceRecordingHealth.Changed += OnChanged;
+            try
+            {
+                TraceTransitionResult r = TraceCoordinator.TrySeal(new TraceSealRequest
+                {
+                    Expected = a,
+                    OperationId = Guid.NewGuid(),
+                    Outcome = TraceSessionOutcome.CleanExit,
+                    Resume = TraceResumeIntent.Standing,
+                });
+                ticket = r.Ticket;
+                Assert.False(r.PendingRecordFailed);   // the sidecar was fine; it is the ARCHIVE that fails
+                Assert.True(raised.Wait(TimeSpan.FromSeconds(30)), "the archive failure never reached the health model");
+                Assert.True(ticket.Completion.Wait(TimeSpan.FromSeconds(30)));
+                Assert.False(ticket.Completion.Result.ArchiveCommitted);
+                Assert.Null(ticket.Completion.Result.ArchiveFullPath);
+
+                Assert.True(deliveredBeforeCompletion, "the condition was raised only after the completion was released");
+                Assert.NotNull(seen);
+                Assert.Equal("no_archive_root", seen.ArchiveFailureStage);
+                Assert.True(seen.RawRetained);
+                Assert.Equal(ticket.SourcePath, seen.RawPath);
+                // And the live recording is unaffected by the old file's fate.
+                Assert.True(TraceCoordinator.Recording);
+                Assert.Equal(r.Successor.SessionId, TraceCoordinator.CurrentHandle.SessionId);
+            }
+            finally
+            {
+                TraceRecordingHealth.Changed -= OnChanged;
+                TraceCoordinator.ArchiveRootDir = _archiveDir;
+            }
+        }
+
+        /// <summary>
+        /// Two tickets at risk; the first's archive commits. ONLY that ticket
+        /// resolves, and the live recording state does not move.
+        /// </summary>
+        [Fact]
+        public void A_later_successful_archive_resolves_only_its_own_ticket()
+        {
+            TraceSessionHandle a = Open();
+            Write("A");
+            DateTime bootA = TraceCoordinator.Observe().SessionBootTimeUtc.Value;
+            Directory.CreateDirectory(TraceArchiveWorker.PendingPathFor(TraceFileNaming.StampedPath(_livePath, bootA)));
+
+            var holdB = new ManualResetEventSlim(false);
+            var atB = new ManualResetEventSlim(false);
+            Guid bSession = Guid.Empty;
+            TraceArchiveWorker.BeforeArchiveForTests = t =>
+            {
+                if (t.SessionId != bSession) return;
+                atB.Set();
+                holdB.Wait(TimeSpan.FromSeconds(30));
+            };
+            try
+            {
+                TraceTransitionResult sealA = TraceCoordinator.TrySeal(new TraceSealRequest
+                {
+                    Expected = a, OperationId = Guid.NewGuid(),
+                    Outcome = TraceSessionOutcome.CleanExit, Resume = TraceResumeIntent.Standing,
+                });
+                Assert.True(sealA.PendingRecordFailed);
+                TraceSessionHandle b = sealA.Successor;
+                bSession = b.SessionId;
+                Write("B");
+                DateTime bootB = TraceCoordinator.Observe().SessionBootTimeUtc.Value;
+                Directory.CreateDirectory(TraceArchiveWorker.PendingPathFor(TraceFileNaming.StampedPath(_livePath, bootB)));
+                TraceTransitionResult sealB = TraceCoordinator.TrySeal(new TraceSealRequest
+                {
+                    Expected = b, OperationId = Guid.NewGuid(),
+                    Outcome = TraceSessionOutcome.CleanExit, Resume = TraceResumeIntent.Standing,
+                });
+                Assert.True(sealB.PendingRecordFailed);
+                TraceSessionHandle c = sealB.Successor;
+
+                // A commits (the worker is serial: A runs before it reaches B).
+                Assert.True(sealA.Ticket.Completion.Wait(TimeSpan.FromSeconds(60)));
+                Assert.True(sealA.Ticket.Completion.Result.ArchiveCommitted);
+                Assert.True(atB.Wait(TimeSpan.FromSeconds(10)));
+
+                TraceRecordingHealthSnapshot snap = TraceRecordingHealth.Snapshot();
+                TraceRecoveryCondition only = Assert.Single(snap.Unresolved);
+                Assert.Equal(sealB.Ticket.TicketId, only.TicketId);
+                Assert.Equal(c.SessionId, TraceCoordinator.CurrentHandle.SessionId);
+                Assert.Equal(TraceSinkState.Recording, snap.SinkState);
+
+                holdB.Set();
+                Assert.True(sealB.Ticket.Completion.Wait(TimeSpan.FromSeconds(60)));
+                Assert.Empty(TraceRecordingHealth.Snapshot().Unresolved);
+                Assert.Equal(c.SessionId, TraceCoordinator.CurrentHandle.SessionId);
+            }
+            finally
+            {
+                holdB.Set();
+                TraceArchiveWorker.BeforeArchiveForTests = null;
+            }
+        }
+
+        // ── Track H7: deferred lines are bound to their session ────────────
+
+        /// <summary>
+        /// <b>Sol's interleaving (review of H6, finding 1).</b> A Stop holds the
+        /// gate past the point where it drains its own session's lines; a fall
+        /// reads the old published handle and queues its lines; the Stop
+        /// publishes its successor; the lines drain. Until H7 they were unbound
+        /// and landed in the successor as bare <c>Connected:False</c> lines.
+        /// Now they are bound to the session they were formatted under and,
+        /// that session being sealed, are REFUSED: written into the successor
+        /// only as refusal records naming both sessions, never as a bare line,
+        /// and never dropped.
+        ///
+        /// <para>Positive control, run by hand at H7: with the binding removed
+        /// (bound session forced to empty), the bare line lands in the
+        /// successor and this test goes red.</para>
+        /// </summary>
+        [Fact]
+        public void A_fall_line_queued_after_the_seal_drained_its_session_is_refused_not_misfiled()
+        {
+            TraceSessionHandle old = Open(TraceLevel.Verbose);
+            Write("the old session");
+
+            var inside = new ManualResetEventSlim(false);
+            var release = new ManualResetEventSlim(false);
+            TraceCoordinator.TransitionProbeForTests = point =>
+            {
+                if (point != "seal:detached") return;   // past the seal's own drain point
+                inside.Set();
+                release.Wait(TimeSpan.FromSeconds(30));
+            };
+            TraceTransitionResult stop = null;
+            Thread stopper = null;
+            try
+            {
+                stopper = new Thread(() => stop = TraceCoordinator.TrySeal(new TraceSealRequest
+                {
+                    Expected = old, OperationId = Guid.NewGuid(),
+                    Outcome = TraceSessionOutcome.CleanExit, Resume = TraceResumeIntent.Standing,
+                })) { IsBackground = true };
+                stopper.Start();
+                Assert.True(inside.Wait(TimeSpan.FromSeconds(10)), "the Stop never reached its barrier");
+
+                // The fall: reads the published handle (still the old session —
+                // publication happens at the END of the transition) and queues
+                // its lines without touching the gate.
+                Assert.Equal(old.SessionId, TraceCoordinator.CurrentHandle.SessionId);
+                Tracing.TraceLineDeferred("Connected:False", TraceLevel.Error);
+                Tracing.TraceLineDeferred("connection fell: H7-test — our connection dropped without us asking", TraceLevel.Warning);
+                Assert.Equal(0, Tracing.DeferredLinesRefused);
+            }
+            finally
+            {
+                release.Set();
+                TraceCoordinator.TransitionProbeForTests = null;
+                stopper?.Join(TimeSpan.FromSeconds(10));
+            }
+
+            Assert.Equal(TraceTransition.Accepted, stop.Status);
+            TraceSessionHandle successor = stop.Successor;
+            Assert.NotNull(successor);
+            // Drained on the transition's way out, so both are refused by now.
+            Tracing.FlushDeferred();
+            Assert.Equal(2, Tracing.DeferredLinesRefused);
+
+            // The successor carries them ONLY as refusal records.
+            string live = ReadLiveText(_livePath);
+            Assert.Contains("TraceDeferred: REFUSED", live, StringComparison.Ordinal);
+            Assert.Contains(old.SessionId.ToString(), live, StringComparison.Ordinal);
+            Assert.Contains(successor.SessionId.ToString(), live, StringComparison.Ordinal);
+            foreach (string line in live.Split('\n'))
+            {
+                if (!line.Contains("Connected:False", StringComparison.Ordinal)
+                    && !line.Contains("connection fell", StringComparison.Ordinal)) continue;
+                Assert.Contains("TraceDeferred: REFUSED", line, StringComparison.Ordinal);
+            }
+            // And the old session's archive does not have them either: they
+            // arrived after its drain point, which is the honest limit.
+            string archived = ReadArchivedText(stop.Ticket);
+            Assert.Contains("the old session", archived, StringComparison.Ordinal);
+            Assert.DoesNotContain("connection fell", archived, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The other ordering, and the ordinary case: the fall's lines are
+        /// queued BEFORE the seal reaches its drain point, so the seal writes
+        /// them into the session they describe, ahead of its terminal records,
+        /// and nothing is refused.
+        /// </summary>
+        [Fact]
+        public void A_fall_line_queued_before_the_seal_drains_lands_in_the_session_it_describes()
+        {
+            TraceSessionHandle old = Open(TraceLevel.Verbose);
+            Write("the old session");
+
+            var inside = new ManualResetEventSlim(false);
+            var release = new ManualResetEventSlim(false);
+            TraceCoordinator.TransitionProbeForTests = point =>
+            {
+                if (point != "seal:owned") return;   // ownership decided, drain not yet run
+                inside.Set();
+                release.Wait(TimeSpan.FromSeconds(30));
+            };
+            TraceTransitionResult stop = null;
+            Thread stopper = null;
+            try
+            {
+                stopper = new Thread(() => stop = TraceCoordinator.TrySeal(new TraceSealRequest
+                {
+                    Expected = old, OperationId = Guid.NewGuid(),
+                    Outcome = TraceSessionOutcome.CleanExit, Resume = TraceResumeIntent.Standing,
+                })) { IsBackground = true };
+                stopper.Start();
+                Assert.True(inside.Wait(TimeSpan.FromSeconds(10)));
+                Tracing.TraceLineDeferred("Connected:False", TraceLevel.Error);
+                Tracing.TraceLineDeferred("connection fell: H7-test — our connection dropped without us asking", TraceLevel.Warning);
+            }
+            finally
+            {
+                release.Set();
+                TraceCoordinator.TransitionProbeForTests = null;
+                stopper?.Join(TimeSpan.FromSeconds(10));
+            }
+
+            Assert.Equal(TraceTransition.Accepted, stop.Status);
+            Tracing.FlushDeferred();
+            Assert.Equal(0, Tracing.DeferredLinesRefused);
+            string archived = ReadArchivedText(stop.Ticket);
+            Assert.Contains("Connected:False", archived, StringComparison.Ordinal);
+            Assert.Contains("connection fell: H7-test", archived, StringComparison.Ordinal);
+            // Ahead of the terminal marker.
+            Assert.True(archived.IndexOf("connection fell: H7-test", StringComparison.Ordinal)
+                        < archived.IndexOf("level=Off", StringComparison.Ordinal));
+            Assert.DoesNotContain("connection fell", ReadLiveText(_livePath), StringComparison.Ordinal);
+        }
+
+        // ── Track H7: nobody waits on a transition to write a line ─────────
+
+        /// <summary>
+        /// An ordinary <c>Tracing.TraceLine</c> and a direct
+        /// <c>System.Diagnostics.Trace.WriteLine</c> — the way JJFlexWpf and
+        /// FlexLib's panadapter write — both RETURN while a transition holds
+        /// the gate, and both land in the successor, in order, once it opens.
+        /// The gate is proved held by a gated read that does block.
+        ///
+        /// <para>Positive control, run by hand at H7: with the transition check
+        /// taken out of <c>TryEnterForWrite</c>, both writers block and this
+        /// test goes red.</para>
+        /// </summary>
+        [Fact]
+        public void A_transition_holding_the_gate_does_not_block_an_ordinary_writer()
+        {
+            TraceSessionHandle old = Open();
+            Write("before");
+
+            var inside = new ManualResetEventSlim(false);
+            var release = new ManualResetEventSlim(false);
+            TraceCoordinator.TransitionProbeForTests = point =>
+            {
+                if (point != "seal:detached") return;
+                inside.Set();
+                release.Wait(TimeSpan.FromSeconds(30));
+            };
+            TraceTransitionResult stop = null;
+            Thread stopper = null, reader = null, ours = null, direct = null;
+            try
+            {
+                stopper = new Thread(() => stop = TraceCoordinator.TrySeal(new TraceSealRequest
+                {
+                    Expected = old, OperationId = Guid.NewGuid(),
+                    Outcome = TraceSessionOutcome.CleanExit, Resume = TraceResumeIntent.Standing,
+                })) { IsBackground = true };
+                stopper.Start();
+                Assert.True(inside.Wait(TimeSpan.FromSeconds(10)));
+                Assert.True(TraceCoordinator.TransitionInProgress);
+
+                // The gate IS held: a gated read cannot get in.
+                reader = new Thread(() => { _ = TraceCoordinator.Recording; }) { IsBackground = true };
+                reader.Start();
+                Assert.False(reader.Join(TimeSpan.FromMilliseconds(300)), "a gated read got in; the gate is not held and nothing below is measured");
+
+                // The writers do not wait on it.
+                ours = new Thread(() => Tracing.TraceLine("H7: ours, written during a transition")) { IsBackground = true };
+                direct = new Thread(() => Trace.WriteLine("H7: direct, written during a transition")) { IsBackground = true };
+                ours.Start();
+                direct.Start();
+                Assert.True(ours.Join(TimeSpan.FromSeconds(2)), "Tracing.TraceLine waited on a transition's file I/O");
+                Assert.True(direct.Join(TimeSpan.FromSeconds(2)), "Trace.WriteLine waited on a transition's file I/O");
+                Assert.True(Tracing.DeferredLinesQueued >= 2);
+                Assert.True(stopper.IsAlive, "the transition finished early; nothing was measured");
+            }
+            finally
+            {
+                release.Set();
+                TraceCoordinator.TransitionProbeForTests = null;
+                stopper?.Join(TimeSpan.FromSeconds(10));
+                reader?.Join(TimeSpan.FromSeconds(10));
+                ours?.Join(TimeSpan.FromSeconds(10));
+                direct?.Join(TimeSpan.FromSeconds(10));
+            }
+
+            // Both landed in the SUCCESSOR — where they would have landed had
+            // they waited — before anything written directly afterwards.
+            Assert.Equal(TraceTransition.Accepted, stop.Status);
+            Write("H7: after the transition");
+            string live = ReadLiveText(_livePath);
+            int ourAt = live.IndexOf("H7: ours, written during a transition", StringComparison.Ordinal);
+            int directAt = live.IndexOf("H7: direct, written during a transition", StringComparison.Ordinal);
+            int afterAt = live.IndexOf("H7: after the transition", StringComparison.Ordinal);
+            Assert.True(ourAt >= 0 && directAt >= 0 && afterAt >= 0, "a deferred line never landed: " + live);
+            Assert.True(ourAt < afterAt && directAt < afterAt, "a deferred line landed after a later direct write");
+            Assert.DoesNotContain("H7: ours", ReadArchivedText(stop.Ticket), StringComparison.Ordinal);
+            Assert.Equal(0, Tracing.DeferredLinesRefused);
         }
 
         /// <summary>

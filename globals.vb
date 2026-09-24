@@ -381,11 +381,22 @@ Module globals
             ' its chain is adopted here and the live leftover becomes that
             ' chain's final part — so a killed marathon session reads as one
             ' sequence in the archive instead of a pile of unrelated files.
-            Dim adopted As LeftoverChain = ArchiveLeftoverTraceChains(tracePath)
+            '
+            ' JOINED BY THE FILE'S OWN HEADER, not by the newest timestamp
+            ' (Sprint 45 Track H7). A rotated or checkpointed live file begins
+            ' "--- trace continues from part NNN (<part file>) ---", and that
+            ' name carries the chain's stamp; that is the only evidence that
+            ' this file and those parts are one session. When the file says so,
+            ' the leftover live file IS evidence the run was killed — a sealed
+            ' session never leaves one — so the joined chain is marked killed;
+            ' its identity is still an inventory id and stays marked orphaned.
+            Dim adopted As LeftoverChainAdoption = ArchiveLeftoverTraceChains(tracePath)
             If adopted IsNot Nothing Then
                 Dim finalPart As Integer = adopted.HighestPart + 1
                 Dim partPath As String = RenameTraceToStampedPart(tracePath, adopted.Session.BootTimeUtc, finalPart)
                 If Not String.IsNullOrEmpty(partPath) Then
+                    adopted.Session.MarkOutcome(TraceSessionOutcome.Killed,
+                        "Inferred from the leftover live trace at next launch, which names these parts as its own (no clean exit observed)")
                     SessionArchive.ArchiveSession(TraceArchiveDir, partPath, adopted.Session,
                         deleteSourceAfter:=False, partNumber:=finalPart, isFinalPart:=True)
                     Return
@@ -611,6 +622,15 @@ Module globals
             Radios.CaptureSeal.SealHook =
                 Function(request As Radios.CaptureSealRequest) SealCaptureForConnectionDrop(request)
             JJFlexWpf.CaptureSealWatch.Install()
+
+            ' Recording health (Sprint 45 Track H7, Astra's ruling): a failed
+            ' recovery record, a failed archive or a sink that stopped writing
+            ' reaches the operator through the SAME route as every other
+            ' failure — the Problems list and its one queued announcement —
+            ' rather than only through a trace that may be the file that
+            ' failed. Installed after the offer so the first report has
+            ' somewhere to land.
+            Radios.RecordingHealthWatch.Install()
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)
         End Try
@@ -1430,14 +1450,33 @@ Module globals
     ''' </summary>
     Friend Function DescribeDiagnosticLogState() As String
         Try
+            ' The recording-health sentence rides on the end of whatever the
+            ' state sentence is (Sprint 45 Track H7, Astra's ruling): an earlier
+            ' recording waiting on recovery, or a sink that failed, is said here
+            ' — read from the same retained state the problem-report bundle and
+            ' the drop result read — rather than only in a trace that may be
+            ' the very file that failed. Empty when there is nothing to say.
+            Dim health As String = ""
+            Try
+                health = Radios.RecordingHealthNotice.StatusSentence(TraceRecordingHealth.Snapshot())
+            Catch
+            End Try
+
             If DetailedCaptureRunning Then
-                Return $"Detailed capture in progress, started {FormatClock(_captureStartedLocal.Value)}."
+                Return $"Detailed capture in progress, started {FormatClock(_captureStartedLocal.Value)}.{health}"
             End If
             ' Recording, not the emission gate: the operator is asking whether
             ' anything is being written down, and after the boundary took over
             ' file ownership those became different questions.
             If Not DiagnosticsSettings.KeepDiagnosticLog OrElse Not TraceCoordinator.Recording Then
-                Return "Diagnostic log is off."
+                ' "Off" only when it is off by choice. A log the operator keeps
+                ' that is NOT being written is a failure, and the health
+                ' sentence above already says so; do not also call it off.
+                If DiagnosticsSettings.KeepDiagnosticLog AndAlso
+                   TraceRecordingHealth.Snapshot().SinkState = TraceSinkState.Failed Then
+                    Return health.TrimStart()
+                End If
+                Return $"Diagnostic log is off.{health}"
             End If
             Dim since As String = ""
             Try
@@ -1447,7 +1486,7 @@ Module globals
                 End If
             Catch
             End Try
-            Return $"Diagnostic log is on at {DiagnosticsSettings.DetailWord} detail{since}. No capture in progress."
+            Return $"Diagnostic log is on at {DiagnosticsSettings.DetailWord} detail{since}. No capture in progress.{health}"
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)
             Return "Diagnostic log state is not available."
@@ -1579,10 +1618,19 @@ Module globals
             ReportTraceTransition(result)
             outcome.ArchivedSessionId = result.Ticket?.SessionId
             outcome.SuccessorOpened = result.SuccessorOpened
+            outcome.SuccessorRecording = result.TracingOn
+            outcome.RecoveryRecordFailed = result.PendingRecordFailed
+            outcome.TailUncertain = result.TailUncertain
             outcome.Refused = Not result.Owned
             outcome.RefusalReason = If(result.Owned, Nothing, result.Explanation)
 
             If Not result.Owned Then Return outcome
+
+            ' The recovery failure, if any, has ALREADY been published to the
+            ' health model by the boundary — after the gate was released and
+            ' before the ticket was queued — so the operator's surface carries
+            ' it before the five-minute wait below starts. Nothing here gates a
+            ' failure notice on an archive path existing (Astra's ruling).
 
             ' The completed-capture slot already belongs to the capture this drop
             ' ended: it was claimed when that capture started. Nothing to set.
@@ -1754,93 +1802,52 @@ Module globals
     End Function
 
     ''' <summary>
-    ''' A chain of leftover part files from a previous run, grouped by the boot
-    ''' stamp baked into their file names.
-    ''' </summary>
-    Private Class LeftoverChain
-        Public Session As TraceSession
-        Public HighestPart As Integer
-        Public StampLocal As DateTime
-    End Class
-
-    ''' <summary>
     ''' Archive part files left in AppData by a previous run. Rotation hands each
     ''' closed part to a background compressor; if the app is killed (or exits)
     ''' before that finishes, the plain-text part survives but has no manifest
     ''' entry — and the 24h plain-text sweep would eventually delete unread
     ''' evidence. This closes that hole at boot.
     '''
-    ''' Parts are grouped by the boot stamp in their names, so one prior session's
-    ''' chain is reconstructed as one TraceSession and its parts keep a shared
-    ''' archive stem. Parts already archived (matched by source_name in the
-    ''' manifest) are skipped, so this is idempotent across boots.
+    ''' <para><b>Delegated to <c>JJTrace.TraceLeftoverAdoption</c> in Sprint 45
+    ''' Track H7, and the rule changed with the move.</b> The old body here made
+    ''' a NEW TraceSession per boot stamp, marked it <c>killed</c>, and handed
+    ''' back whichever chain had the newest stamp so the live leftover could be
+    ''' attached to it. Astra's ruling on the pending-record failure found both
+    ''' wrong: a sidecarless part is not evidence of a killed session — since
+    ''' Track H6 it is exactly what a FAILED pending-record write leaves, on a
+    ''' session whose real outcome may have been <c>connection_dropped</c> —
+    ''' and a live file joined to a chain "solely because that chain has the
+    ''' newest filename timestamp" is a guess. The parts are now filed as
+    ''' ORPHANED evidence (outcome unknown, an inventory identity the manifest
+    ''' marks as such), and the live leftover is joined to a chain only when
+    ''' its own continuation header names a part of that chain.</para>
     '''
-    ''' Returns the chain matching the still-present live trace — the caller
-    ''' attaches that trace as the chain's final part — or Nothing.
+    ''' Returns the chain the still-present live trace CONTINUES, by its own
+    ''' header — the caller attaches that trace as the chain's final part — or
+    ''' Nothing.
     ''' </summary>
-    Private Function ArchiveLeftoverTraceChains(liveTracePath As String) As LeftoverChain
-        Dim newest As LeftoverChain = Nothing
+    Private Function ArchiveLeftoverTraceChains(liveTracePath As String) As LeftoverChainAdoption
         Try
-            If Not Directory.Exists(BaseConfigDir) Then Return Nothing
-            Dim stem As String = LiveTraceStem
-            Dim chains As New Dictionary(Of DateTime, List(Of Tuple(Of String, Integer)))
-
-            For Each partFile As String In Directory.GetFiles(BaseConfigDir, stem & "-*-part-*.txt")
-                Dim name As String = Path.GetFileNameWithoutExtension(partFile)
-                ' <stem>-yyyyMMdd-HHmmss-part-NNN[-collisionSuffix]
-                Dim tail As String = name.Substring(stem.Length + 1)
-                Dim bits As String() = tail.Split("-"c)
-                If bits.Length < 4 Then Continue For
-                Dim stamp As DateTime
-                If Not DateTime.TryParseExact(bits(0) & "-" & bits(1), "yyyyMMdd-HHmmss",
-                                              CultureInfo.InvariantCulture, DateTimeStyles.None, stamp) Then
-                    Continue For
-                End If
-                Dim partNo As Integer
-                If Not Integer.TryParse(bits(3), partNo) Then Continue For
-
-                If Not chains.ContainsKey(stamp) Then chains(stamp) = New List(Of Tuple(Of String, Integer))
-                chains(stamp).Add(Tuple.Create(partFile, partNo))
-            Next
-
-            For Each kvp In chains
-                Dim stampLocal As DateTime = kvp.Key
-                Dim session As New TraceSession(stampLocal.ToUniversalTime())
-                session.MarkOutcome(TraceSessionOutcome.Killed,
-                    "Leftover trace parts adopted at next launch (no clean exit observed)")
-
-                Dim highest As Integer = 0
-                For Each item In kvp.Value.OrderBy(Function(t) t.Item2)
-                    If item.Item2 > highest Then highest = item.Item2
-                    Dim fileName As String = Path.GetFileName(item.Item1)
-                    If SessionArchive.IsSourceArchived(TraceArchiveDir, fileName) Then Continue For
-                    ' A part that already has a pending record belongs to a real
-                    ' session whose own archive is outstanding. Adopting it here
-                    ' would file it under a fabricated "killed" session instead
-                    ' of its own — the dedup downstream would stop it being
-                    ' archived twice, but the surviving entry would be the wrong
-                    ' one. Recovery picks these up later in this same boot.
-                    If TraceArchiveWorker.IsPendingWork(item.Item1) Then Continue For
-                    SessionArchive.ArchiveSession(TraceArchiveDir, item.Item1, session,
-                        deleteSourceAfter:=False, partNumber:=item.Item2, isFinalPart:=False)
+            Dim chains As IReadOnlyList(Of LeftoverChainAdoption) =
+                TraceLeftoverAdoption.AdoptLeftoverParts(BaseConfigDir, LiveTraceStem, TraceArchiveDir)
+            If chains.Count > 0 Then
+                Dim filed As Integer = 0
+                For Each chain In chains
+                    filed += chain.Archived
                 Next
-
-                If newest Is Nothing OrElse stampLocal > newest.StampLocal Then
-                    newest = New LeftoverChain With {
-                        .Session = session,
-                        .HighestPart = highest,
-                        .StampLocal = stampLocal
-                    }
-                End If
-            Next
+                Tracing.TraceLine(
+                    $"ArchiveLeftoverTraceChains: {chains.Count} chain(s) of leftover parts from earlier runs, " &
+                    $"{filed} part(s) filed as orphaned evidence under inventory identities — their session and outcome are not known",
+                    TraceLevel.Warning)
+            End If
+            ' Only claim the live leftover for a chain when there IS a live
+            ' leftover, and only by the file's own word.
+            If String.IsNullOrEmpty(liveTracePath) Then Return Nothing
+            Return TraceLeftoverAdoption.ChainForLiveLeftover(chains, liveTracePath)
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)
             Return Nothing
         End Try
-
-        ' Only claim the live leftover for a chain when there IS a live leftover.
-        If String.IsNullOrEmpty(liveTracePath) Then Return Nothing
-        Return newest
     End Function
 
     ''' <summary>
