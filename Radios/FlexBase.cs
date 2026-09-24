@@ -7918,6 +7918,29 @@ namespace Radios
             FeatureLicenseChanged?.Invoke(this, EventArgs.Empty);
         }
         /// <summary>
+        /// Whether a <c>Connected</c> change reported by a Radio object may
+        /// change this rig's own connection state. Pure, so the table is pinned
+        /// by tests.
+        ///
+        /// <para>Yes for the rig's own Radio. No for any other object — a
+        /// handler left on an abandoned object must not speak for the live
+        /// connection. One deliberate exception: when the rig has no Radio at
+        /// all, a FALL may still apply. That is the object
+        /// <see cref="Disconnect"/> is letting go of when the radio took longer
+        /// than its wait to let go, and "disconnected" is the only true state
+        /// for a rig with no radio; a RISE from a stranger never is.</para>
+        /// </summary>
+        internal static bool ConnectionStateAppliesToRig(bool fromOurRadio, bool rigHasRadio, bool nowConnected)
+            => fromOurRadio || (!rigHasRadio && !nowConnected);
+
+        private int _strandedConnectionChangesIgnored;
+
+        /// <summary>How many Connected changes from objects that are not this
+        /// rig's connection were ignored. Diagnostic, and the tests' positive
+        /// control that such a change really reached the handler.</summary>
+        internal int StrandedConnectionChangesIgnored => Volatile.Read(ref _strandedConnectionChangesIgnored);
+
+        /// <summary>
         /// Our Radio's <c>Connected</c> property changed. Reached from
         /// <see cref="radioPropertyChangedHandler"/> before anything else it
         /// does.
@@ -7955,6 +7978,22 @@ namespace Radios
                 trace("propertyChanged:Radio:NotMine:Connected", TraceLevel.Off);
             }
             trace("Connected:" + nowConnected.ToString(), TraceLevel.Error);
+
+            // A STRANDED HANDLER MUST NOT FLIP THE LIVE RIG'S STATE (Sprint 45
+            // Track H6, Sol's review finding 7). This used to set IsConnected
+            // and raise ConnectionStateChanged for a change on ANY object
+            // carrying this handler — a failed leg of the connect walk that
+            // Connect moved away from, say — so an abandoned object falling
+            // told the whole application the live radio had gone. The seal
+            // already checked the object; the rig's state now does too.
+            Radio live = theRadio;
+            if (!ConnectionStateAppliesToRig(ReferenceEquals(r, live), live != null, nowConnected))
+            {
+                Interlocked.Increment(ref _strandedConnectionChangesIgnored);
+                trace($"Connected:{nowConnected} on {r.Serial}, which is not this rig's connection — ignored;"
+                      + " the live connection's state is unchanged", TraceLevel.Info);
+                return;
+            }
 
             _IsConnected = nowConnected;
             // The seal is taken BEFORE ConnectionStateChanged, so a subscriber

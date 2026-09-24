@@ -561,26 +561,90 @@ namespace Radios.Tests
         }
 
         /// <summary>
-        /// Another Radio object's fall says nothing about our session — a
-        /// handler this rig left on an object it has since moved away from, for
-        /// instance.
+        /// <b>A fall on an abandoned object leaves the live rig connected, and
+        /// seals nothing.</b> Another Radio object's fall says nothing about our
+        /// session or our connection — a handler this rig left on an object it
+        /// has since moved away from, for instance.
+        ///
+        /// <para><b>This test used to assert the defect.</b> Until Track H6 it
+        /// checked that the rig's <c>IsConnected</c> FELL here — "the rig saw
+        /// the fall" — which is exactly Sol's finding 7: a stranded handler
+        /// flipping the live rig's state. It now asserts the live rig stays
+        /// connected and hears nothing, and uses the ignored-change counter as
+        /// its proof that the fall really reached the handler.</para>
+        ///
+        /// <para>Positive control, run by hand at H6: with the sender gate
+        /// removed, this goes red.</para>
         /// </summary>
         [Fact]
-        public void A_fall_on_an_object_that_is_not_our_connection_does_not_seal()
+        public void A_fall_on_an_abandoned_object_leaves_the_live_rig_connected()
         {
             var rig = NewRig();
             var ours = NewWanRadio(UniqueSerial(), "ours");
             var other = NewWanRadio(UniqueSerial(), "other");
+            int stateChanges = 0;
+            rig.ConnectionStateChanged += _ => Interlocked.Increment(ref stateChanges);
             try
             {
                 rig.theRadio = ours;
+                WireAsConnectDoes(rig, ours);
+                MarkLive(ours, rig);
                 WireAsConnectDoes(rig, other);
-                MarkLive(other, rig);
+                MarkLive(other);
 
                 LoseTheTransport(other);
 
                 Assert.False(other.Connected);
+                // The fall reached this rig's handler...
+                Assert.Equal(1, rig.StrandedConnectionChangesIgnored);
+                // ...and changed nothing about the live connection.
+                Assert.True(ours.Connected);
+                Assert.True(rig.IsConnected, "an abandoned object's fall flipped the live rig's IsConnected");
+                Assert.Equal(0, Volatile.Read(ref stateChanges));
+                Assert.Equal(0, Volatile.Read(ref _seals));
+
+                // Positive control: our own radio's fall still does all three.
+                LoseTheTransport(ours);
                 AssertTheRigSawTheFall(rig);
+                Assert.Equal(1, Volatile.Read(ref stateChanges));
+                Assert.Equal(1, Volatile.Read(ref _seals));
+            }
+            finally
+            {
+                Release(rig);
+            }
+        }
+
+        /// <summary>
+        /// With no radio at all, a fall of the object being let go of still
+        /// leaves the rig disconnected — that is the only true state — while a
+        /// stranger's RISE never makes it connected.
+        /// </summary>
+        [Fact]
+        public void Only_our_radio_speaks_for_the_rig_unless_it_has_none()
+        {
+            Assert.True(FlexBase.ConnectionStateAppliesToRig(fromOurRadio: true, rigHasRadio: true, nowConnected: true));
+            Assert.True(FlexBase.ConnectionStateAppliesToRig(fromOurRadio: true, rigHasRadio: true, nowConnected: false));
+            Assert.False(FlexBase.ConnectionStateAppliesToRig(fromOurRadio: false, rigHasRadio: true, nowConnected: false));
+            Assert.False(FlexBase.ConnectionStateAppliesToRig(fromOurRadio: false, rigHasRadio: true, nowConnected: true));
+            Assert.True(FlexBase.ConnectionStateAppliesToRig(fromOurRadio: false, rigHasRadio: false, nowConnected: false));
+            Assert.False(FlexBase.ConnectionStateAppliesToRig(fromOurRadio: false, rigHasRadio: false, nowConnected: true));
+
+            // Driven: a rig whose Disconnect has already let go of theRadio,
+            // and whose radio lets go late.
+            var rig = NewRig();
+            var releasing = NewWanRadio(UniqueSerial(), "late");
+            try
+            {
+                WireAsConnectDoes(rig, releasing);
+                MarkLive(releasing, rig);
+                rig.theRadio = null;
+                rig.Disconnecting = true;
+
+                LoseTheTransport(releasing);
+
+                AssertTheRigSawTheFall(rig);
+                Assert.Equal(0, rig.StrandedConnectionChangesIgnored);
                 Assert.Equal(0, Volatile.Read(ref _seals));
             }
             finally
