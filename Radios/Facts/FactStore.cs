@@ -265,10 +265,11 @@ namespace Radios.Facts
 
                 if (_slots.Count >= FactStoreCapacity.MaxCurrentSlots)
                 {
-                    string why =
-                        "There is no room to keep track of this condition: " + _slots.Count +
-                        " are already registered, which is the limit. It will not be monitored, " +
-                        "and nothing it might have reported would be kept.";
+                    // The words come from the lexicon, not from here. This
+                    // sentence is one an operator is told, so it belongs where
+                    // he can read every sentence the program says in one place
+                    // and where he can change it.
+                    string why = Lexicon.Get("facts.capacity.slot_refused", ("count", _slots.Count));
                     Tracing.TraceLine("FactStore: slot registration refused for '" + conditionSlot +
                         "' — " + why, TraceLevel.Warning);
                     return new RegistrationResult(RegistrationOutcome.Exhausted, conditionSlot, why);
@@ -346,8 +347,7 @@ namespace Radios.Facts
                         "' is recorded in the overflow record rather than retained in full",
                         TraceLevel.Warning);
                     return new FactAdmission(AdmissionOutcome.CapacityRecorded, null,
-                        "There was no room to keep the details of this one. It is counted in the " +
-                        "record of what was lost, with the time it happened.");
+                        Lexicon.Get("facts.capacity.overflow"));
                 }
 
                 var fact = new Fact(

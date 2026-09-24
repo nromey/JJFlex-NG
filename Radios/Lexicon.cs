@@ -101,14 +101,23 @@ namespace Radios
         public const string Alarms = "alarms";
 
         /// <summary>
-        /// The eight partitions, split for REVIEW rather than for speed. An
+        /// The undelivered-details surface (#617): the list of things the radio
+        /// said that did not land, and the history of the ones that could not
+        /// wait. Its own partition because every sentence in it is provisional
+        /// and Noel reviews it as one file, the way the alarms vocabulary was
+        /// reviewed.
+        /// </summary>
+        public const string FactsSurface = "facts";
+
+        /// <summary>
+        /// The nine partitions, split for REVIEW rather than for speed. An
         /// in-memory dictionary is the same speed whichever file it loaded
         /// from; saying so here stops someone splitting a hot set across files
         /// chasing a gain that does not exist.
         /// </summary>
         public static IReadOnlyList<string> Partitions { get; } = new[]
         {
-            Connect, Audio, Settings, Logging, Earcon, Help, Leader, Alarms,
+            Connect, Audio, Settings, Logging, Earcon, Help, Leader, Alarms, FactsSurface,
         };
 
         /// <summary>
@@ -122,9 +131,15 @@ namespace Radios
         /// says while armed. A first-use file read there is a stall at exactly
         /// the moment the operator is waiting to hear whether the chord took.
         /// </remarks>
+        /// <remarks>
+        /// The facts surface is eager for the same reason the alarms
+        /// vocabulary is: its words are needed at the moment something failed
+        /// to be delivered, and a first-use file read there happens exactly
+        /// when the machine is least able to oblige.
+        /// </remarks>
         public static IReadOnlyList<string> EagerPartitions { get; } = new[]
         {
-            Connect, Audio, Settings, Logging, Earcon, Leader, Alarms,
+            Connect, Audio, Settings, Logging, Earcon, Leader, Alarms, FactsSurface,
         };
 
         private static readonly object Gate = new object();

@@ -200,9 +200,9 @@ namespace Radios.Facts
 
             if (gaps > 0)
             {
+                // Operator-facing, so the words live in the lexicon.
                 _store.NotePersistence(PersistenceStatus.RecoveryGap,
-                    gaps + " saved record file(s) could not be read, so some earlier events are " +
-                    "missing from this list. Nothing was deleted.");
+                    Lexicon.Get("facts.storage.recovery_gap", ("count", gaps)));
             }
             return restored;
         }
