@@ -2,136 +2,22 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using JJTrace;
 
 namespace Radios.Facts
 {
-    /// <summary>What happened when a producer asked for a condition slot.</summary>
-    public enum RegistrationOutcome
+    /// <summary>Where the store is in loading its saved history.</summary>
+    public enum HistoryLoadState
     {
-        /// <summary>A slot exists. Information published against it has somewhere to go.</summary>
-        Granted = 0,
+        /// <summary>No journal is attached, so nothing can be said about saved history.</summary>
+        NotAttached = 0,
 
-        /// <summary>
-        /// No slot could be allocated. <b>Reported, never assumed.</b> A newly
-        /// configured alarm whose delivery record could not be allocated must
-        /// not be described as monitored.
-        /// </summary>
-        Exhausted = 1,
+        /// <summary>A journal is loading. A distinct state, never "empty".</summary>
+        Loading = 1,
 
-        /// <summary>The capability offered was revoked or not ours.</summary>
-        NotAuthorised = 2,
-    }
-
-    /// <summary>The answer to a registration request, including why not.</summary>
-    public sealed class RegistrationResult
-    {
-        internal RegistrationResult(RegistrationOutcome outcome, string slot, string explanation)
-        {
-            Outcome = outcome;
-            Slot = slot;
-            Explanation = explanation;
-        }
-
-        public RegistrationOutcome Outcome { get; }
-        public string Slot { get; }
-
-        /// <summary>Plain words for the operator-facing capacity result. Never only a trace line.</summary>
-        public string Explanation { get; }
-
-        public bool Granted => Outcome == RegistrationOutcome.Granted;
-    }
-
-    /// <summary>What happened when a producer offered a fact.</summary>
-    public enum AdmissionOutcome
-    {
-        /// <summary>Retained. The handle is live and the information is owed.</summary>
-        Accepted = 0,
-
-        /// <summary>
-        /// A newer revision of this episode already exists, or this revision was
-        /// seen before. Idempotent: nothing regressed and nothing was lost.
-        /// </summary>
-        AlreadyKnown = 1,
-
-        /// <summary>
-        /// The store is full. <b>An explicit, reachable capacity result</b> —
-        /// the overflow record records how much detail was lost and over what
-        /// range. Never a silent drop and never a trace-only refusal.
-        /// </summary>
-        CapacityRecorded = 2,
-
-        /// <summary>The capability was revoked, replaced, or belongs to another connection.</summary>
-        NotAuthorised = 3,
-    }
-
-    /// <summary>The answer to an admission, and the handle when there is one.</summary>
-    public sealed class FactAdmission
-    {
-        internal FactAdmission(AdmissionOutcome outcome, Fact? fact, string explanation)
-        {
-            Outcome = outcome;
-            Fact = fact;
-            Explanation = explanation;
-        }
-
-        public AdmissionOutcome Outcome { get; }
-
-        /// <summary>The retained fact, or null when none was retained.</summary>
-        public Fact? Fact { get; }
-
-        /// <summary>Plain words for the reachable surface.</summary>
-        public string Explanation { get; }
-
-        public bool Accepted => Outcome == AdmissionOutcome.Accepted;
-    }
-
-    /// <summary>
-    /// What was lost when even the bounded store filled. Honest reduced
-    /// guarantee, never silence.
-    /// </summary>
-    public sealed class OverflowRecord
-    {
-        /// <summary>How many facts could not be retained. Saturates rather than wrapping.</summary>
-        public long LostCount { get; private set; }
-
-        /// <summary>The first and last moments covered by the loss.</summary>
-        public DateTime? FirstLostUtc { get; private set; }
-        public DateTime? LastLostUtc { get; private set; }
-
-        /// <summary>True when the count stopped being exact.</summary>
-        public bool Saturated { get; private set; }
-
-        internal void Note(DateTime whenUtc)
-        {
-            if (LostCount == long.MaxValue) { Saturated = true; return; }
-            LostCount++;
-            FirstLostUtc ??= whenUtc;
-            LastLostUtc = whenUtc;
-        }
-
-        public bool Any => LostCount > 0;
-
-        public override string ToString() =>
-            Any
-                ? LostCount + (Saturated ? " or more" : string.Empty) + " fact(s) could not be retained"
-                : "nothing lost";
-    }
-
-    /// <summary>How the store's own durability is doing.</summary>
-    public enum PersistenceStatus
-    {
-        /// <summary>Everything mutated has been written.</summary>
-        UpToDate = 0,
-
-        /// <summary>A write is outstanding. Recent information may be lost to a crash.</summary>
-        Pending = 1,
-
-        /// <summary>The last write failed. Explicitly unsaved, never a durability claim.</summary>
-        Failed = 2,
-
-        /// <summary>Some records could not be read back and are named as a recovery gap.</summary>
-        RecoveryGap = 3,
+        /// <summary>Loading finished. Whatever it could not account for is an issue row.</summary>
+        Loaded = 2,
     }
 
     /// <summary>
@@ -140,419 +26,265 @@ namespace Radios.Facts
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Application lifetime.</b> It starts before speech is initialised and
-    /// outlives every dialog, controller and reader binding, because a store
-    /// that dies with the thing that failed cannot tell anyone it failed.
+    /// <b>One gate, one ordered stream.</b> Source capture, quiet, permission
+    /// changes, lifecycle revocation, receipt claims and the final application
+    /// start all take the same short gate and the same strictly increasing
+    /// sequence. There is no second counter to disagree with the first. Checks
+    /// and mutation happen atomically under it; nothing slow ever runs under it.
     /// </para>
     /// <para>
-    /// <b>It is narrow on purpose.</b> Undelivered detail, and the history of
-    /// perishable events. It is not a notifications centre: a persistent
-    /// condition that WAS successfully presented belongs in the live status and
-    /// alarm surfaces, not in a growing list nobody reads. That narrowness is
-    /// what keeps the list worth opening.
+    /// <b>Everything outside sees snapshots.</b> Find, All, Pending, History and
+    /// the projection return immutable views. There is no public setter beside
+    /// the checked paths: publication goes through an issued
+    /// <see cref="SlotPublisher"/>, presentation through an issued
+    /// <see cref="FactPresentation"/>, review through a displayed-detail token,
+    /// and history comes back through an internal hydration endpoint that
+    /// cannot mint a publisher.
     /// </para>
     /// <para>
-    /// <b>Nothing in here waits.</b> No method touches a radio, a delegate, the
-    /// UI dispatcher, the disk, or native speech. Admission is a short
-    /// in-memory update; durability is somebody else's asynchronous problem and
-    /// is reported rather than promised. <b>A protective stop must never wait
-    /// for store capacity, disk or speech.</b>
+    /// <b>Nothing in here waits and nothing in here reads a clock.</b> No
+    /// method touches a radio, a delegate, the UI dispatcher, the disk or native
+    /// speech under the gate. Every time value in this layer was supplied by a
+    /// producer and is used for ordering display and explanation only;
+    /// eligibility is decided by owner transitions and sequence comparisons,
+    /// and no rule asks how old anything is.
     /// </para>
     /// <para>
-    /// <b>And nothing in here counts seconds.</b> There is no age-based purge,
-    /// no expiry and no TTL. Times order events and explain observations; the
-    /// condition decides whether a rendering is still justified.
+    /// <b>It is narrow on purpose.</b> Undelivered detail, the history of
+    /// perishable events, and the store's own problems — not a notifications
+    /// centre.
     /// </para>
     /// </remarks>
-    public sealed class FactStore
+    public sealed partial class FactStore
     {
-        private readonly object _gate = new object();
-        private readonly Dictionary<string, Fact> _facts = new(StringComparer.Ordinal);
-        private readonly List<Fact> _order = new();
-        private readonly HashSet<string> _slots = new(StringComparer.Ordinal);
+        internal readonly object Gate = new object();
 
-        private long _ingestionSequence;
-        private long _quietGeneration;
-        private long _nextAttemptId;
+        private readonly Dictionary<EpisodeId, List<FactRecord>> _byId = new();
+        private readonly List<FactRecord> _order = new();
+        private readonly Dictionary<string, IssueRecord> _issues = new(StringComparer.Ordinal);
+        private IssueRecord? _overflowIssue;
+
+        private long _sequence;
+        private long _latestQuiet;
+        private readonly List<(long Sequence, string Reason)> _quiets = new();
+
+        private long _nextEpisode, _nextEvent, _nextScope, _nextSlot, _nextAttempt, _nextPlan, _nextGrant,
+                     _nextReceipt, _nextView, _nextToken, _nextIssue, _nextReadGrant, _nextBinding;
+
+        private long _mutation;
+        private long _persistedThrough;
+        private long _projectionRevision;
+        private HistoryLoadState _load = HistoryLoadState.NotAttached;
+        private bool _journalAttached;
+
+        private long _compactedCovered;
+        private long _compactedReviewedOnly;
+        private long _compactedForgettableUnpresented;
+        private bool _compactedCountsLowerBound;
+
         private bool _channelFailing;
-
-        public FactStore(long processIncarnation)
-        {
-            ProcessIncarnation = processIncarnation;
-        }
-
-        /// <summary>This run of the application.</summary>
-        public long ProcessIncarnation { get; }
-
-        /// <summary>What was lost to capacity, if anything.</summary>
-        public OverflowRecord Overflow { get; } = new OverflowRecord();
-
-        /// <summary>How durability is doing. Reported, never promised.</summary>
-        public PersistenceStatus Persistence { get; private set; } = PersistenceStatus.UpToDate;
-
-        /// <summary>Why, when it is not up to date.</summary>
-        public string? PersistenceNote { get; private set; }
+        private bool _raiseProjection;
+        private bool _raisePersistence;
 
         /// <summary>
-        /// Raised when the retained set changed, so a journal can coalesce to
-        /// the newest complete snapshot rather than queueing every sample.
+        /// The largest sequence this store may issue. Checked, never wrapped:
+        /// reaching it stops issuance with a reachable integrity result rather
+        /// than wrapping into apparently fresh authority.
         /// </summary>
-        /// <remarks>
-        /// Deliberately a bare signal carrying no data: a handler that needs the
-        /// contents takes them itself, under its own lock, at its own pace, so
-        /// nothing slow is ever called with the store's gate held.
-        /// </remarks>
-        public event Action? Dirty;
+        internal long SequenceCeiling = long.MaxValue;
 
-        /// <summary>
-        /// The one sequencer shared by fact ingestion and the quiet barrier.
-        /// </summary>
-        /// <remarks>
-        /// <b>Stamp at the source, before any slow stage.</b> An event stamped
-        /// after a cue, a journal write or a dispatcher hop can arrive on the
-        /// wrong side of a barrier the operator has already crossed, and then
-        /// speak into a silence he asked for. Timestamps cannot order two
-        /// delayed queues; one counter can.
-        /// </remarks>
-        public long NextIngestionStamp()
+        internal FactStore(Guid writerIncarnation, IFactCatalog catalog, IFactRenderer renderer)
         {
-            lock (_gate) return ++_ingestionSequence;
+            if (writerIncarnation == Guid.Empty) throw new ArgumentException("a store needs a writer incarnation", nameof(writerIncarnation));
+            WriterIncarnation = writerIncarnation;
+            Catalog = catalog;
+            Renderer = renderer;
         }
 
-        /// <summary>The current quiet cohort. Advanced by every deliberate silence.</summary>
-        public long QuietGeneration
+        /// <summary>
+        /// This store's random writer incarnation: its process identity and
+        /// the namespace of every identity it allocates. One per lifetime; never
+        /// derived from a timestamp.
+        /// </summary>
+        public Guid WriterIncarnation { get; }
+
+        internal IFactCatalog Catalog { get; }
+        internal IFactRenderer Renderer { get; }
+
+        /// <summary>
+        /// Raised, outside the gate, whenever anything the surface shows may
+        /// have changed. A bare signal: a handler takes a fresh projection
+        /// itself. Handlers must be cheap and must not block.
+        /// </summary>
+        public event Action? ProjectionChanged;
+
+        /// <summary>
+        /// Raised, outside the gate, when a mutation needing persistence
+        /// happened. Persistence-status changes do not raise it, so a writer
+        /// cannot talk itself into an endless loop.
+        /// </summary>
+        public event Action? PersistenceNeeded;
+
+        // ────────────────────────────────────────────────────────────────
+        //  The ordered stream
+        // ────────────────────────────────────────────────────────────────
+
+        /// <summary>Take the next position. Under the gate. Null when exhausted.</summary>
+        internal long? NextSequenceLocked()
         {
-            get { lock (_gate) return _quietGeneration; }
+            if (_sequence >= SequenceCeiling)
+            {
+                NoteIssueLocked(IssueKind.IntegrityRefusal, "sequence", "this store",
+                                "the ordered sequence reached its end; no further events, quiets or starts can be ordered",
+                                1, ExtentCertainty.Exact, "sequence exhausted", "sequence-exhausted");
+                return null;
+            }
+            return ++_sequence;
+        }
+
+        /// <summary>The position of the most recent observed operator quiet, or zero.</summary>
+        public long LatestQuietSequence
+        {
+            get { lock (Gate) return _latestQuiet; }
+        }
+
+        /// <summary>The current position of the ordered stream.</summary>
+        public long CurrentSequence
+        {
+            get { lock (Gate) return _sequence; }
+        }
+
+        internal long Checked(ref long counter)
+        {
+            if (counter == long.MaxValue) throw new InvalidOperationException("an identity counter reached its end");
+            return ++counter;
         }
 
         // ────────────────────────────────────────────────────────────────
-        //  Registration — before monitoring starts, never after
+        //  Signals, raised after the gate is released
         // ────────────────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Reserve a current slot for a condition, before anything is monitored
-        /// against it.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// <b>The ninth warning must have a slot before it is spoken.</b> A
-        /// warning presented while only a trace knows its retention failed is
-        /// the defect this whole store exists to end, and the fix is ordering:
-        /// register first, monitor second, so the refusal happens at
-        /// configuration time where somebody can see it.
-        /// </para>
-        /// <para>
-        /// Refusing a slot concerns DELIVERY REGISTRATION only. It is not
-        /// permission to perform a protective stop and must never be read as
-        /// one.
-        /// </para>
-        /// </remarks>
-        public RegistrationResult RegisterSlot(ProducerCapability capability, string conditionSlot)
+        /// <summary>Under the gate: the projection changed, and optionally something needs saving.</summary>
+        internal void TouchLocked(bool persist)
         {
-            if (capability == null || capability.Revoked)
+            _projectionRevision++;
+            _raiseProjection = true;
+            if (persist)
             {
-                return new RegistrationResult(RegistrationOutcome.NotAuthorised, conditionSlot,
-                    "the producer's capability has been revoked, so nothing may be registered against it");
-            }
-
-            lock (_gate)
-            {
-                if (_slots.Contains(conditionSlot))
-                {
-                    return new RegistrationResult(RegistrationOutcome.Granted, conditionSlot,
-                        "already registered");
-                }
-
-                if (_slots.Count >= FactStoreCapacity.MaxCurrentSlots)
-                {
-                    // The words come from the lexicon, not from here. This
-                    // sentence is one an operator is told, so it belongs where
-                    // he can read every sentence the program says in one place
-                    // and where he can change it.
-                    string why = Lexicon.Get("facts.capacity.slot_refused", ("count", _slots.Count));
-                    Tracing.TraceLine("FactStore: slot registration refused for '" + conditionSlot +
-                        "' — " + why, TraceLevel.Warning);
-                    return new RegistrationResult(RegistrationOutcome.Exhausted, conditionSlot, why);
-                }
-
-                _slots.Add(conditionSlot);
-                return new RegistrationResult(RegistrationOutcome.Granted, conditionSlot, "registered");
+                _mutation++;
+                _raisePersistence = true;
             }
         }
 
-        /// <summary>Every registered slot, for the diagnostic view.</summary>
-        public IReadOnlyCollection<string> RegisteredSlots
+        /// <summary>After the gate: raise whatever the last operation owes.</summary>
+        internal void RaiseSignals()
         {
-            get { lock (_gate) return new List<string>(_slots); }
+            bool projection, persistence;
+            lock (Gate)
+            {
+                projection = _raiseProjection;
+                persistence = _raisePersistence;
+                _raiseProjection = false;
+                _raisePersistence = false;
+            }
+            if (persistence) PersistenceNeeded?.Invoke();
+            if (projection) ProjectionChanged?.Invoke();
         }
 
         // ────────────────────────────────────────────────────────────────
-        //  Admission — before the tone, before the sentence
+        //  Queries — immutable snapshots only
         // ────────────────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Take ownership of a fact.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// <b>This happens BEFORE the earcon is requested and before any
-        /// speech, and neither is conditioned on the other.</b> That ordering
-        /// is what makes the tone reliable: a warning whose sentence cannot be
-        /// spoken still makes its noise, and a fact whose tone device is broken
-        /// is still owed. Acceptance depends on nothing outside this method.
-        /// </para>
-        /// <para>
-        /// <b>An unclassified message is still admitted.</b> See
-        /// <see cref="IsEligibleForAutomaticDelivery"/> for what it may not do.
-        /// Throwing away a safety event because its formatting metadata was
-        /// missing would be the worse failure by a wide margin.
-        /// </para>
-        /// </remarks>
-        public FactAdmission Admit(
-            ProducerCapability capability,
-            FactIdentity identity,
-            LexiconMessage message,
-            ValiditySnapshot validity,
-            FactProvenance provenance,
-            string? detail = null)
+        /// <summary>One episode, or null. For a conflicted identity this is the first variant.</summary>
+        public FactSnapshot? Find(EpisodeId id)
         {
-            if (capability == null || capability.Revoked)
+            lock (Gate)
             {
-                return new FactAdmission(AdmissionOutcome.NotAuthorised, null,
-                    "the producer's capability has been revoked; this report is not admitted as current");
-            }
-
-            if (capability.ConnectionIncarnation != identity.ConnectionIncarnation)
-            {
-                // A stale publisher cannot mutate a live fact. The connection
-                // captured when the callback was subscribed is the one that
-                // counts, not whichever is current when it finally runs.
-                return new FactAdmission(AdmissionOutcome.NotAuthorised, null,
-                    "this report came from an older connection than the capability it used");
-            }
-
-            lock (_gate)
-            {
-                if (_facts.TryGetValue(identity.EpisodeId, out Fact? existing))
-                {
-                    return new FactAdmission(AdmissionOutcome.AlreadyKnown, existing,
-                        "this occurrence is already retained; repeating it changes nothing");
-                }
-
-                if (_order.Count >= FactStoreCapacity.MaxHistoricalRecords && !Compact())
-                {
-                    Overflow.Note(provenance.ObservedUtc);
-                    Tracing.TraceLine(
-                        "FactStore: at capacity and nothing could be compacted; '" + message.Key +
-                        "' is recorded in the overflow record rather than retained in full",
-                        TraceLevel.Warning);
-                    return new FactAdmission(AdmissionOutcome.CapacityRecorded, null,
-                        Lexicon.Get("facts.capacity.overflow"));
-                }
-
-                var fact = new Fact(
-                    identity, message.Key, message.Delivery, message.Classification,
-                    validity, provenance, _quietGeneration)
-                {
-                    CatalogGeneration = message.CatalogGeneration,
-                };
-                fact.ApplyDetail(detail);
-
-                _facts[identity.EpisodeId] = fact;
-                _order.Add(fact);
-                MarkDirtyLocked();
-
-                return new FactAdmission(AdmissionOutcome.Accepted, fact, "retained");
+                return _byId.TryGetValue(id, out List<FactRecord>? list) && list.Count > 0
+                    ? list[0].Freeze(_latestQuiet, _projectionRevision)
+                    : null;
             }
         }
 
-        /// <summary>
-        /// Update an episode's validity. Only the capability that issued it may
-        /// do this, and only forwards.
-        /// </summary>
-        /// <param name="material">
-        /// True when the INFORMATION changed — a correction or a material
-        /// outcome. False for a fresh sample of the same thing, which must not
-        /// manufacture an incident, undo a silence or replenish an allowance.
-        /// </param>
-        public bool UpdateValidity(
-            ProducerCapability capability,
-            string episodeId,
-            ValiditySnapshot snapshot,
-            FactProvenance provenance,
-            bool material = false)
+        /// <summary>Every variant of one identity: more than one only after an identity conflict on load.</summary>
+        public IReadOnlyList<FactSnapshot> Variants(EpisodeId id)
         {
-            if (capability == null || capability.Revoked) return false;
-
-            lock (_gate)
+            lock (Gate)
             {
-                if (!_facts.TryGetValue(episodeId, out Fact? fact)) return false;
-                if (fact.Identity.ConnectionIncarnation != capability.ConnectionIncarnation) return false;
-
-                // Older provenance cannot regress the store. A late callback
-                // may append evidence to history; it cannot reopen current
-                // truth.
-                if (provenance.IngestionSequence < fact.Provenance.IngestionSequence) return false;
-
-                fact.ApplyValidity(snapshot, provenance, material);
-                MarkDirtyLocked();
-                return true;
+                return _byId.TryGetValue(id, out List<FactRecord>? list)
+                    ? list.Select(r => r.Freeze(_latestQuiet, _projectionRevision)).ToArray()
+                    : Array.Empty<FactSnapshot>();
             }
         }
 
-        /// <summary>
-        /// Revoke every current rendering that depended on a connection —
-        /// at ingestion, before any UI or delivery work is posted.
-        /// </summary>
-        /// <remarks>
-        /// <b>Disconnect is an ENDED OBSERVATION CONTEXT, not a resolved
-        /// condition.</b> After it, what was last established is shown and
-        /// current state is left unknown. A successful later attach never
-        /// rehabilitates an old token.
-        /// </remarks>
-        public int RevokeConnection(long connectionIncarnation, DateTime nowUtc, string why)
+        /// <summary>Every retained fact, oldest first.</summary>
+        public IReadOnlyList<FactSnapshot> All
         {
-            lock (_gate)
+            get { lock (Gate) return _order.Select(r => r.Freeze(_latestQuiet, _projectionRevision)).ToArray(); }
+        }
+
+        /// <summary>Owed facts: a retained debt nobody presented or reviewed.</summary>
+        public IReadOnlyList<FactSnapshot> Pending(string? stationFilter = null)
+        {
+            lock (Gate)
             {
-                int touched = 0;
-                foreach (Fact fact in _order)
-                {
-                    if (fact.Identity.ConnectionIncarnation != connectionIncarnation) continue;
-                    if (!fact.Validity.IsCurrent) continue;
-                    fact.ApplyValidity(
-                        ValiditySnapshot.End(EndedKind.EndedObservationContext, nowUtc, why),
-                        fact.Provenance, material: false);
-                    touched++;
-                }
-                if (touched > 0) MarkDirtyLocked();
-                return touched;
+                return _order.Where(r => r.HasRetainedDebt() && Matches(r, stationFilter))
+                             .Select(r => r.Freeze(_latestQuiet, _projectionRevision)).ToArray();
             }
         }
 
-        // ────────────────────────────────────────────────────────────────
-        //  Delivery and receipt evidence
-        // ────────────────────────────────────────────────────────────────
-
-        /// <summary>Record what became of one attempt.</summary>
-        public void RecordAttempt(
-            string episodeId, DeliveryState state, DateTime atUtc,
-            bool coveredRequiredDetail, string? note = null)
+        /// <summary>History: perishable events, ended premises, and everything restored.</summary>
+        public IReadOnlyList<FactSnapshot> History(string? stationFilter = null)
         {
-            lock (_gate)
+            lock (Gate)
             {
-                if (!_facts.TryGetValue(episodeId, out Fact? fact)) return;
-                fact.RecordAttempt(new DeliveryAttempt(
-                    ++_nextAttemptId, fact.MaterialRevision, state, atUtc, note, coveredRequiredDetail));
-
-                // An unknown-cause end pauses automatic delivery rather than
-                // retiring anything. A zero-mark cancellation from an external
-                // cause is not proof that no presentation began, and proves
-                // nothing about why it stopped.
-                if (state == DeliveryState.UnknownCompletion)
-                {
-                    fact.Pause("the last attempt ended and nobody can say why or how much was said");
-                }
-
-                MarkDirtyLocked();
+                return _order.Where(r => IsHistoryRow(r) && Matches(r, stationFilter))
+                             .Select(r => r.Freeze(_latestQuiet, _projectionRevision)).ToArray();
             }
         }
 
-        /// <summary>
-        /// Note the receipt for this occurrence. The token is issued once;
-        /// <b>a retry does not replay the receipt</b>, so a failing warning
-        /// does not become a beeping one.
-        /// </summary>
-        public void RecordReceipt(string episodeId, ReceiptState state, string? token = null)
+        /// <summary>Every retained store issue, active or resolved.</summary>
+        public IReadOnlyList<StoreIssueSnapshot> Issues
         {
-            lock (_gate)
-            {
-                if (!_facts.TryGetValue(episodeId, out Fact? fact)) return;
-                fact.RecordReceipt(state, token ?? episodeId);
-                MarkDirtyLocked();
-            }
+            get { lock (Gate) return AllIssuesLocked().Select(i => i.Freeze(_projectionRevision)).ToArray(); }
         }
 
-        // ────────────────────────────────────────────────────────────────
-        //  Quiet, review and resume
-        // ────────────────────────────────────────────────────────────────
-
-        /// <summary>
-        /// The operator asked for quiet. Advance the barrier and pause the
-        /// cohort admitted before it.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// <b>This changes DELIVERY PERMISSION and nothing else.</b> Nothing is
-        /// acknowledged, no condition is disabled, no alarm is snoozed and no
-        /// fact becomes less true. Every paused item stays on the list, which
-        /// is the entire compensation for it going quiet.
-        /// </para>
-        /// <para>
-        /// Events captured before the barrier but delivered after it inherit
-        /// their captured quiet generation — arriving late cannot earn fresh
-        /// permission.
-        /// </para>
-        /// </remarks>
-        public long AdvanceQuietBarrier(string reason)
+        /// <summary>How many facts are owed. For the Status count; the surface uses the full projection.</summary>
+        public int PendingCount
         {
-            lock (_gate)
-            {
-                _quietGeneration++;
-                foreach (Fact fact in _order)
-                {
-                    if (fact.AdmittedAtQuietGeneration < _quietGeneration && !fact.Reviewed)
-                        fact.Pause(reason);
-                }
-                MarkDirtyLocked();
-                Tracing.TraceLine(
-                    "FactStore: quiet barrier advanced to generation " + _quietGeneration + " — " + reason
-                    + ". Nothing is acknowledged and nothing is cleared; the paused information stays "
-                    + "on the list.",
-                    TraceLevel.Info);
-                return _quietGeneration;
-            }
+            get { lock (Gate) return _order.Count(r => r.HasRetainedDebt()); }
         }
 
-        /// <summary>
-        /// The operator explicitly reviewed what is on screen, for the material
-        /// revision he was shown.
-        /// </summary>
-        /// <remarks>
-        /// <b>Scoped to the revision SHOWN.</b> It cannot acknowledge a newer
-        /// revision that arrived behind the selected row while he was reading
-        /// it. Reviewing a store record never acknowledges, snoozes or disables
-        /// an operator alarm — that belongs to the alarm's own control.
-        /// </remarks>
-        public bool MarkReviewed(string episodeId, long materialRevisionShown)
+        public long ProjectionRevision
         {
-            lock (_gate)
-            {
-                if (!_facts.TryGetValue(episodeId, out Fact? fact)) return false;
-                if (materialRevisionShown < fact.MaterialRevision) return false;
-                fact.MarkReviewed(materialRevisionShown);
-                MarkDirtyLocked();
-                return true;
-            }
+            get { lock (Gate) return _projectionRevision; }
         }
 
-        /// <summary>
-        /// Resume automatic delivery for ONE selected record.
-        /// </summary>
-        /// <remarks>
-        /// <b>One at a time, deliberately.</b> One successful read cannot
-        /// silently resume every paused item — that would turn a single
-        /// deliberate action into permission the operator never gave.
-        /// </remarks>
-        public bool ResumeAutomatic(string episodeId)
+        /// <summary>The newest mutation needing persistence.</summary>
+        public long MutationSequence
         {
-            lock (_gate)
-            {
-                if (!_facts.TryGetValue(episodeId, out Fact? fact)) return false;
-                fact.Resume();
-                MarkDirtyLocked();
-                return true;
-            }
+            get { lock (Gate) return _mutation; }
         }
+
+        /// <summary>The newest mutation a committed journal image contains.</summary>
+        public long PersistedThrough
+        {
+            get { lock (Gate) return _persistedThrough; }
+        }
+
+        public HistoryLoadState Load
+        {
+            get { lock (Gate) return _load; }
+        }
+
+        private static bool Matches(FactRecord r, string? station) =>
+            station == null || string.Equals(r.RadioIdentity, station, StringComparison.Ordinal);
+
+        private static bool IsHistoryRow(FactRecord r) =>
+            r.Restored
+            || (r.Delivery != null && r.Delivery.ShelfLife == ShelfLife.Perishable)
+            || r.Validity.State == ValidityState.Ended
+            || r.Validity.State == ValidityState.Superseded;
 
         // ────────────────────────────────────────────────────────────────
         //  Eligibility — what may be offered for an automatic attempt
@@ -563,34 +295,31 @@ namespace Radios.Facts
         /// </summary>
         /// <remarks>
         /// <para>
-        /// The scheduler asks this; it does not decide it. An explicit read
-        /// requested by the operator goes through
-        /// <see cref="MayReadOnRequest"/> instead and is subject to almost none
-        /// of this — asking for something is its own permission.
+        /// The scheduler asks this; it does not decide it. The final start gate
+        /// asks the same question again, under the gate, against the live
+        /// record — this answer is about a snapshot and can go stale.
         /// </para>
         /// <para>
-        /// <b>No clause here is a clock.</b> Nothing below asks how old
-        /// anything is.
+        /// <b>The staleness rule, stated as an invariant because a source guard
+        /// cannot prove it:</b> nothing here compares a time. Whether saying
+        /// something is still justified is the owner's validity transition;
+        /// whether it may be said now is a comparison of sequence positions.
         /// </para>
         /// </remarks>
-        public bool IsEligibleForAutomaticDelivery(Fact fact)
+        public bool IsEligibleForAutomaticDelivery(FactSnapshot fact)
         {
             if (fact == null) return false;
 
-            // ── DECISION POINT ONE — OPEN QUESTION WITH NOEL ──────────────
-            // "Should a Ctrl-silenced persistent condition resume speaking on
-            // its own once the condition is still true and the channel is
-            // healthy?"
+            // ── DECISION POINT ONE — RULED ─────────────────────────────────
+            // Noel, 2026-09-24 07:46 (#617): "if pressing control silences and
+            // the alarm condition gets worse, then we definitely would want to
+            // speak that warning again."
             //
-            // The design's answer, built here: NO. A pause is released by an
-            // explicit read or resume for the selected record, and by nothing
-            // else — not a reconnect, not a window opening, not the backend
-            // recovering, and not time passing. A positively established NEW
-            // hazard occurrence still gets its own warning, so the
-            // safety-relevant half is protected; a condition that was silenced
-            // stops volunteering and stays reachable on the list.
-            //
-            // If Noel rules the other way, this is the line that changes.
+            // So a quiet lasts until the condition's OWNER issues a worsening,
+            // which carries its own grant (see FactStore.Worsen). A reconnect,
+            // a window opening, a backend recovering and time passing release
+            // nothing. AutomaticPaused is derived from grants and the latest
+            // quiet position, never stored as a flag that could go stale.
             if (fact.AutomaticPaused) return false;
 
             // ── DECISION POINT TWO — OPEN QUESTION WITH NOEL ──────────────
@@ -613,129 +342,39 @@ namespace Radios.Facts
             // If Noel rules the other way, this is the line that changes.
             if (fact.Classification != DeliveryClassification.Message) return false;
 
+            // History has no live owner to justify a present-tense rendering.
+            if (!fact.IsLive) return false;
+
             // A rendering that is not justified is not offered. Unknown
             // suspends the current wording immediately, without claiming
             // anything resolved.
             if (!fact.Validity.IsCurrent) return false;
 
-            // Forgettable gets one eligible presentation. A miss is a miss, and
-            // an obsolete first hearing is still obsolete.
-            if (fact.Delivery!.ShelfLife == ShelfLife.Forgettable && fact.Attempts.Count > 0) return false;
+            // Forgettable gets exactly one eligible presentation and no
+            // retained debt. It is eligible for that first one — which it
+            // never was before, because eligibility used to end on "has a
+            // retained debt" and forgettable information has none by design.
+            if (fact.Delivery!.ShelfLife == ShelfLife.Forgettable)
+                return fact.Attempts.Count == 0 && fact.Unpresented.Count > 0;
 
-            if (fact.Reviewed) return false;
-
-            return fact.HasUndeliveredDetail;
+            return fact.HasUndeliveredDetail && fact.PermittedNow;
         }
 
         /// <summary>
-        /// May this fact be read out because the operator asked for this
-        /// record?
+        /// May this fact be read because the operator asked for this record?
+        /// Asking is its own permission; truth is still checked at the final
+        /// start boundary, and ended premises are read as history.
         /// </summary>
-        /// <remarks>
-        /// <para>
-        /// Asking is its own permission, so quiet and the automatic burst rule
-        /// do not apply. What still applies is truth: the plan is revalidated
-        /// immediately before dispatch, and a fact whose premise has ended is
-        /// read as HISTORY rather than replayed as a present-tense assurance.
-        /// </para>
-        /// <para>
-        /// Reading never transmits and never re-runs the original action.
-        /// </para>
-        /// </remarks>
-        public bool MayReadOnRequest(Fact fact) => fact != null;
+        public bool MayReadOnRequest(FactSnapshot fact) => fact != null;
 
         /// <summary>
-        /// True when this attempt would be the third or later repeat in a
-        /// burst, so a waiting explicit request should go first.
+        /// True when this attempt would be the third or later automatic repeat
+        /// in a burst, so a waiting explicit request should go first.
+        /// Fairness, never a lifetime cap.
         /// </summary>
-        /// <remarks>
-        /// <b>Fairness, not a lifetime cap.</b> See
-        /// <see cref="FactStoreCapacity.AutomaticBurstAttempts"/> — answering
-        /// true here yields the slot; it never retires the fact.
-        /// </remarks>
-        public bool ShouldYieldToWaitingRequest(Fact fact)
-            => fact != null && fact.Attempts.Count >= FactStoreCapacity.AutomaticBurstAttempts;
-
-        // ────────────────────────────────────────────────────────────────
-        //  The reachable projections
-        // ────────────────────────────────────────────────────────────────
-
-        /// <summary>
-        /// The operator's default list: information whose required detail has
-        /// no confirmed complete presentation and has not been reviewed.
-        /// </summary>
-        /// <remarks>
-        /// Includes deliberately paused items. Excludes a persistent condition
-        /// that WAS fully presented — that belongs in the live status and alarm
-        /// surfaces, and putting it here too is how a narrow list becomes a
-        /// notifications centre nobody reads.
-        /// </remarks>
-        public IReadOnlyList<Fact> Pending(string? stationFilter = null)
-        {
-            lock (_gate)
-            {
-                var list = new List<Fact>();
-                foreach (Fact fact in _order)
-                    if (fact.IsPending && MatchesStation(fact, stationFilter)) list.Add(fact);
-
-                // A filter that hides the only pending item is a filter that
-                // lies about the state of the station.
-                if (list.Count == 0 && stationFilter != null)
-                {
-                    foreach (Fact fact in _order) if (fact.IsPending) list.Add(fact);
-                }
-                return list;
-            }
-        }
-
-        /// <summary>
-        /// The bounded history view: perishable events, including ones whose
-        /// speech completed, plus anything whose premise has ended.
-        /// </summary>
-        public IReadOnlyList<Fact> History(string? stationFilter = null)
-        {
-            lock (_gate)
-            {
-                var list = new List<Fact>();
-                foreach (Fact fact in _order)
-                {
-                    bool perishable = fact.Delivery != null && fact.Delivery.ShelfLife == ShelfLife.Perishable;
-                    if (!perishable && !fact.IsHistorical) continue;
-                    if (!MatchesStation(fact, stationFilter)) continue;
-                    list.Add(fact);
-                }
-                return list;
-            }
-        }
-
-        /// <summary>Every retained fact, newest last.</summary>
-        public IReadOnlyList<Fact> All
-        {
-            get { lock (_gate) return new List<Fact>(_order); }
-        }
-
-        /// <summary>One fact by episode, or null.</summary>
-        public Fact? Find(string episodeId)
-        {
-            lock (_gate) return _facts.TryGetValue(episodeId, out Fact? fact) ? fact : null;
-        }
-
-        /// <summary>How many items are on the default list. For the Status summary.</summary>
-        public int PendingCount
-        {
-            get
-            {
-                lock (_gate)
-                {
-                    int n = 0;
-                    foreach (Fact fact in _order) if (fact.IsPending) n++;
-                    return n;
-                }
-            }
-        }
-
-        private static bool MatchesStation(Fact fact, string? station)
-            => station == null || string.Equals(fact.Identity.RadioIdentity, station, StringComparison.Ordinal);
+        public bool ShouldYieldToWaitingRequest(FactSnapshot fact) =>
+            fact != null
+            && fact.Attempts.Count(a => a.Kind == PlanRequestKind.Automatic) >= FactStoreCapacity.AutomaticBurstAttempts;
 
         // ────────────────────────────────────────────────────────────────
         //  Delivery channel health
@@ -743,25 +382,12 @@ namespace Radios.Facts
 
         /// <summary>
         /// Note whether the delivery channel is working, and say whether this
-        /// call is the TRANSITION into failure.
+        /// call is the TRANSITION into failure — once per edge, not per fact.
+        /// Deliberate quiet is not a failure and never reaches this.
         /// </summary>
-        /// <remarks>
-        /// <para>
-        /// Returns true exactly once per working-to-failing edge, so the
-        /// aggregated notice is raised once rather than once per fact. The
-        /// notice must not use the failing speech bridge, must not steal the
-        /// emergency-stop route, must be Escape-closable and must leave a way
-        /// back to where the operator was.
-        /// </para>
-        /// <para>
-        /// <b>Deliberate suppression is not a failure.</b> Raising a notice
-        /// because the operator asked for silence would defeat the instruction
-        /// through another channel, so quiet never reaches this method.
-        /// </para>
-        /// </remarks>
         public bool NoteChannelHealth(bool healthy)
         {
-            lock (_gate)
+            lock (Gate)
             {
                 if (healthy)
                 {
@@ -774,80 +400,206 @@ namespace Radios.Facts
             }
         }
 
-        /// <summary>True while the delivery channel is known to be failing.</summary>
         public bool ChannelFailing
         {
-            get { lock (_gate) return _channelFailing; }
+            get { lock (Gate) return _channelFailing; }
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        //  Store issues — reserved, bounded, reachable
+        // ────────────────────────────────────────────────────────────────
+
+        private IEnumerable<IssueRecord> AllIssuesLocked()
+        {
+            foreach (IssueRecord issue in _issues.Values.OrderBy(i => i.Id)) yield return issue;
+            if (_overflowIssue != null) yield return _overflowIssue;
+        }
+
+        /// <summary>
+        /// Record a store problem. Creates or updates its row, deduplicates a
+        /// repeated observation of the same thing, and advances the issue's
+        /// revision only when there is genuinely new information. Always under
+        /// the gate, and always in the same transition as the refusal or loss
+        /// it reports.
+        /// </summary>
+        internal IssueRecord NoteIssueLocked(
+            IssueKind kind, string sourceKey, string source, string reason, long count,
+            ExtentCertainty extent, string? exemplar, string? dedupeKey, bool persist = true)
+        {
+            string key = (int)kind + "|" + sourceKey;
+            if (!_issues.TryGetValue(key, out IssueRecord? issue))
+            {
+                if (_issues.Count >= FactStoreCapacity.MaxIssues)
+                {
+                    // The reserved final summary. It exists outside the space
+                    // whose exhaustion it reports, so it can always be written.
+                    issue = _overflowIssue ??= new IssueRecord
+                    {
+                        Id = Checked(ref _nextIssue),
+                        Kind = IssueKind.IssueOverflow,
+                        SourceKey = "issues",
+                        Source = "this store",
+                        Reason = "the table of store problems is full; further problems are counted here",
+                        Revision = 0,
+                    };
+                    issue.Count = Saturate(issue.Count, 1, out bool saturated);
+                    issue.Extent = saturated ? ExtentCertainty.LowerBound : ExtentCertainty.Exact;
+                    AddExemplar(issue, kind + ": " + source);
+                    issue.Revision++;
+                    issue.State = IssueState.Active;
+                    TouchLocked(persist);
+                    return issue;
+                }
+
+                issue = new IssueRecord
+                {
+                    Id = Checked(ref _nextIssue),
+                    Kind = kind,
+                    SourceKey = sourceKey,
+                    Source = source,
+                    Reason = reason,
+                    Revision = 0,
+                };
+                _issues[key] = issue;
+            }
+
+            if (dedupeKey != null)
+            {
+                if (issue.Seen.Contains(dedupeKey))
+                {
+                    // The same corrupt generation, the same refused event: not
+                    // new loss, so no new revision. Unless it had been
+                    // resolved, in which case it is active again.
+                    if (issue.State != IssueState.Active)
+                    {
+                        issue.State = IssueState.Active;
+                        TouchLocked(persist);
+                    }
+                    return issue;
+                }
+                if (issue.Seen.Count < FactStoreCapacity.MaxIssueDedupeKeys) issue.Seen.Add(dedupeKey);
+                else issue.SeenOverflowed = true;
+            }
+
+            issue.Count = Saturate(issue.Count, count, out bool sat);
+            if (sat || issue.SeenOverflowed || extent == ExtentCertainty.LowerBound)
+                issue.Extent = issue.Extent == ExtentCertainty.Unknown ? ExtentCertainty.Unknown : ExtentCertainty.LowerBound;
+            if (extent == ExtentCertainty.Unknown) issue.Extent = ExtentCertainty.Unknown;
+            issue.Reason = reason;
+            if (exemplar != null) AddExemplar(issue, exemplar);
+            issue.State = IssueState.Active;
+            issue.Revision++;
+            TouchLocked(persist);
+
+            Tracing.TraceLine("FactStore: " + kind + " (" + source + ") — " + reason, TraceLevel.Warning);
+            return issue;
+        }
+
+        /// <summary>
+        /// A problem is no longer true. It stays in history; resolution is not
+        /// new unreviewed information, so it can leave the default view once
+        /// its last information was reviewed.
+        /// </summary>
+        internal void ResolveIssueLocked(IssueKind kind, string sourceKey)
+        {
+            if (_issues.TryGetValue((int)kind + "|" + sourceKey, out IssueRecord? issue) && issue.State == IssueState.Active)
+            {
+                issue.State = IssueState.ResolvedWithHistory;
+                TouchLocked(persist: true);
+            }
+        }
+
+        internal void NoteIntegrityLocked(string sourceKey, string what, string exemplar, string? dedupeKey = null) =>
+            NoteIssueLocked(IssueKind.IntegrityRefusal, sourceKey, "publication", what, 1,
+                            ExtentCertainty.Exact, exemplar, dedupeKey);
+
+        private static void AddExemplar(IssueRecord issue, string exemplar)
+        {
+            if (issue.Exemplars.Count < FactStoreCapacity.MaxIssueExemplars) issue.Exemplars.Add(exemplar);
+            else issue.ExemplarsOverflowed = true;
+        }
+
+        internal static long Saturate(long value, long add, out bool saturated)
+        {
+            saturated = false;
+            if (add <= 0) return value;
+            if (value > long.MaxValue - add)
+            {
+                saturated = true;
+                return long.MaxValue;
+            }
+            return value + add;
         }
 
         // ────────────────────────────────────────────────────────────────
         //  Persistence status — reported, never promised
         // ────────────────────────────────────────────────────────────────
 
-        /// <summary>Called by the journal. The store itself never touches disk.</summary>
-        public void NotePersistence(PersistenceStatus status, string? note = null)
+        internal void SetLoadState(HistoryLoadState state)
         {
-            lock (_gate)
+            lock (Gate)
             {
-                Persistence = status;
-                PersistenceNote = note;
+                if (_load == state) return;
+                _load = state;
+                TouchLocked(persist: false);
             }
+            RaiseSignals();
         }
 
         /// <summary>
-        /// Put a record back after a restart, as HISTORY.
+        /// A journal image containing mutations up to <paramref name="throughMutation"/>
+        /// committed. Acknowledges exactly that — a store already at N+1 stays
+        /// unsaved through the newer mutation.
         /// </summary>
-        /// <remarks>
-        /// <b>A restored record never speaks on its own.</b> It carries no live
-        /// capability, its connection is gone, and its current state is
-        /// unknown. A new connection creates new authority and may relate to an
-        /// older condition without retroactively confirming it.
-        /// </remarks>
-        public void Restore(Fact fact)
+        internal void NotePersisted(long throughMutation, string ownShardKey)
         {
-            if (fact == null) return;
-            lock (_gate)
+            lock (Gate)
             {
-                fact.RestoredFromDisk = true;
-                if (_facts.ContainsKey(fact.Identity.EpisodeId)) return;
-                _facts[fact.Identity.EpisodeId] = fact;
-                _order.Add(fact);
+                if (throughMutation > _persistedThrough) _persistedThrough = throughMutation;
+                // A successful write of THIS shard resolves THIS shard's
+                // failure. It cannot resolve another source's problem.
+                ResolveIssueLocked(IssueKind.PersistenceFailure, ownShardKey);
+                _projectionRevision++;
+                _raiseProjection = true;
             }
+            RaiseSignals();
         }
 
-        /// <summary>
-        /// Drop the oldest REVIEWED, completed historical record to make room.
-        /// Returns false when nothing may be dropped.
-        /// </summary>
-        /// <remarks>
-        /// <b>Compaction can never decrement the unpresented count as though
-        /// delivery occurred.</b> Nothing pending is touched; when only pending
-        /// records remain, this refuses and the caller records overflow
-        /// honestly instead.
-        /// </remarks>
-        private bool Compact()
+        internal void NotePersistFailure(string ownShardKey, string shardName, string reason)
         {
-            for (int i = 0; i < _order.Count; i++)
+            lock (Gate)
             {
-                Fact fact = _order[i];
-                if (fact.IsPending) continue;
-                if (!fact.Reviewed && fact.HasUndeliveredDetail) continue;
-                _order.RemoveAt(i);
-                _facts.Remove(fact.Identity.EpisodeId);
-                return true;
+                NoteIssueLocked(IssueKind.PersistenceFailure, ownShardKey, shardName, reason, 1,
+                                ExtentCertainty.Unknown, reason, "fail:" + reason);
             }
-            return false;
+            RaiseSignals();
         }
 
-        private void MarkDirtyLocked()
+        internal void NoteIssue(IssueKind kind, string sourceKey, string source, string reason, long count,
+                                ExtentCertainty extent, string? exemplar, string? dedupeKey)
         {
-            if (Persistence == PersistenceStatus.UpToDate) Persistence = PersistenceStatus.Pending;
-
-            // Raised outside the gate by the caller's continuation, not here:
-            // invoking a handler under the store's lock is how a fast path
-            // acquires somebody else's slow one.
-            Action? handler = Dirty;
-            if (handler != null) System.Threading.ThreadPool.QueueUserWorkItem(_ => handler());
+            lock (Gate) NoteIssueLocked(kind, sourceKey, source, reason, count, extent, exemplar, dedupeKey);
+            RaiseSignals();
         }
+
+        internal void ResolveIssue(IssueKind kind, string sourceKey)
+        {
+            lock (Gate) ResolveIssueLocked(kind, sourceKey);
+            RaiseSignals();
+        }
+
+        /// <summary>A journal took its lease: from here on, saved-through-current can be true.</summary>
+        internal void NoteJournalAttached()
+        {
+            lock (Gate)
+            {
+                if (_journalAttached) return;
+                _journalAttached = true;
+                TouchLocked(persist: false);
+            }
+            RaiseSignals();
+        }
+
+        internal bool JournalAttachedLocked => _journalAttached;
     }
 }

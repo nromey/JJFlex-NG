@@ -93,12 +93,23 @@ namespace Radios.Facts
 
         /// <summary>Total bytes this process's journal shard may occupy.</summary>
         /// <remarks>
-        /// One megabyte of readable JSON is far more than the bounded record
-        /// set above can produce, so hitting it means something is wrong rather
-        /// than busy — and the store reports pressure instead of overwriting
+        /// <para>
+        /// Schema 2 persists attempt evidence, typed material and event history
+        /// that schema 1 threw away, so the one megabyte Track M chose no longer
+        /// holds the bounded record set. <b>Sized by measurement, not by
+        /// arithmetic:</b> <c>FactJournalCapacityTests</c> fills every bound at
+        /// once — every historical record, every attempt, every event line,
+        /// every unit, the longest detail — renders it, and asserts it fits here
+        /// with room to spare. If that test fails, a bound grew; change the
+        /// bound or this number deliberately, never by guessing.
+        /// </para>
+        /// <para>
+        /// Hitting it at run time means something is wrong rather than busy,
+        /// and the store reports an unsaved state instead of overwriting
         /// anything it cannot safely compact.
+        /// </para>
         /// </remarks>
-        public const int MaxJournalBytes = 1024 * 1024;
+        public const int MaxJournalBytes = 8 * 1024 * 1024;
 
         /// <summary>
         /// How many automatic attempts a fact makes in one burst before
@@ -150,5 +161,57 @@ namespace Radios.Facts
         /// </para>
         /// </remarks>
         public static readonly int[] AutomaticBackoffMs = { 2000, 5000, 15000, 30000 };
+
+        // ────────────────────────────────────────────────────────────────
+        //  Bounds added with the authority and history rework. Each counts
+        //  toward declared capacity; none decides truth.
+        // ────────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Store-issue rows. Deliberately separate from fact capacity: a
+        /// pressure event must still have somewhere to be written when the
+        /// facts are what filled. Beyond this, one reserved summary row counts
+        /// the rest, so even the table of problems cannot fill silently.
+        /// </summary>
+        public const int MaxIssues = 32;
+
+        /// <summary>Exemplars kept per issue row, with an explicit marker when more were dropped.</summary>
+        public const int MaxIssueExemplars = 8;
+
+        /// <summary>
+        /// Deduplication keys kept per issue, so the same corrupt generation or
+        /// the same refused event is not counted twice. Beyond this the count
+        /// becomes a lower bound, said so.
+        /// </summary>
+        public const int MaxIssueDedupeKeys = 256;
+
+        /// <summary>Event history lines per fact; older ones become a dropped count.</summary>
+        public const int MaxEventHistoryPerFact = 16;
+
+        /// <summary>Applied-event identities remembered per fact, for duplicate and conflict detection.</summary>
+        public const int MaxAppliedEventsPerFact = 64;
+
+        /// <summary>Units of owed information per fact.</summary>
+        public const int MaxMaterialUnitsPerFact = 32;
+
+        /// <summary>Operator quiet positions remembered, for the pause evidence a detail can explain.</summary>
+        public const int MaxQuietHistory = 32;
+
+        /// <summary>
+        /// Continuity records across disconnects. Losing one is exposed as a
+        /// row, and a reconnect then needs positive onset evidence or an
+        /// explicit resume — absence of a record is never read as clear.
+        /// </summary>
+        public const int MaxContinuityRecords = 128;
+
+        /// <summary>
+        /// Retired attempts kept only so late evidence can still be attributed.
+        /// Beyond this, late evidence is uncorrelatable and the debt it might
+        /// have settled stays unknown.
+        /// </summary>
+        public const int MaxAttemptTombstones = 64;
+
+        /// <summary>Display tokens one open view keeps valid at once.</summary>
+        public const int MaxTokensPerView = 64;
     }
 }

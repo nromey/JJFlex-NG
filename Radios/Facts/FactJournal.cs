@@ -2,155 +2,226 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using JJTrace;
 
 namespace Radios.Facts
 {
+    /// <summary>What became of one saved source when history was loaded.</summary>
+    public enum SourceStatus
+    {
+        Loaded = 0,
+
+        /// <summary>The primary would not read; its validated last-good generation did. The newer interval is a recovery gap.</summary>
+        RecoveredFromLastGood = 1,
+
+        /// <summary>Another running instance holds it. The inventory is partial — not corrupt, not complete.</summary>
+        SkippedLive = 2,
+
+        Inaccessible = 3,
+        Corrupt = 4,
+        Unsupported = 5,
+
+        /// <summary>A schema-1 file: legacy evidence, loaded with its limitations named.</summary>
+        Legacy = 6,
+    }
+
+    public sealed class SourceInventoryEntry
+    {
+        internal SourceInventoryEntry(string name, SourceStatus status, int records, string? note)
+        {
+            Name = name;
+            Status = status;
+            Records = records;
+            Note = note;
+        }
+
+        public string Name { get; }
+        public SourceStatus Status { get; }
+        public int Records { get; }
+        public string? Note { get; }
+        public override string ToString() => Name + ": " + Status + " (" + Records + ")";
+    }
+
+    /// <summary>The load inventory: every source and what it contributed, counted separately.</summary>
+    public sealed class LoadReport
+    {
+        internal LoadReport(IReadOnlyList<SourceInventoryEntry> sources, HydrationCounts counts)
+        {
+            Sources = sources;
+            Counts = counts;
+        }
+
+        public IReadOnlyList<SourceInventoryEntry> Sources { get; }
+        public HydrationCounts Counts { get; }
+
+        /// <summary>Some source was not fully accounted for.</summary>
+        public bool Partial => Sources.Any(s => s.Status != SourceStatus.Loaded && s.Status != SourceStatus.Legacy);
+
+        public override string ToString() => string.Join("; ", Sources) + " — " + Counts;
+    }
+
     /// <summary>
-    /// The store's disk half: a versioned, readable JSON shard under the
-    /// settings root.
+    /// The store's disk half: one versioned, readable JSON shard per writer
+    /// incarnation, under the settings root.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>What is persisted and what is deliberately not.</b> Typed facts,
-    /// provenance, material coverage, quiet and review state and delivery
-    /// evidence are written. Executable refresh delegates, capabilities that
-    /// could be restored as live authority, and a cached current sentence
-    /// treated as the truth are NOT — a restored file must be readable as
-    /// history and must never be able to assert a current condition or speak on
-    /// its own.
+    /// <b>Schema 2 persists meaning, not just fields.</b> Origin identity,
+    /// classification and descriptor as they were, typed material, the exact
+    /// sets presented and reviewed, attempt evidence, the receipt's consumed
+    /// allowance, and why anything was paused. Schema 1 wrote many of these and
+    /// then read them back as defaults — process zero, unclassified, pending —
+    /// so a reviewed item returned as owed and two shards aliased one another.
     /// </para>
     /// <para>
-    /// <b>One shard per process, with a lease.</b> The settings root is not
-    /// owned by one application instance, and two processes writing one file is
-    /// how a store loses both halves. Each process writes only its own shard
-    /// and holds the file open for its lifetime; on restart, shards nobody
-    /// holds load as historical records.
+    /// <b>History, never authority.</b> A loaded record carries no publisher,
+    /// no grant and no receipt permit, and it never speaks on its own. An
+    /// attempt that was in flight when the file was written loads as
+    /// interrupted, completion unconfirmed.
     /// </para>
     /// <para>
-    /// <b>Durability is reported, never promised.</b> A crash before an
-    /// asynchronous write may lose recent information, and no amount of
-    /// wording changes that — so the status says pending, failed or up to date,
-    /// and a failed flush leaves an explicit unsaved state rather than a claim.
+    /// <b>Durability is reported, never promised.</b> Persisted-through N is
+    /// acknowledged only after the image containing N commits; a store already
+    /// at N+1 stays unsaved through the newer mutation.
     /// </para>
     /// </remarks>
     public sealed class FactJournal : IDisposable
     {
         /// <summary>The on-disk format. Bumped when the shape changes, never reused.</summary>
-        public const int SchemaVersion = 1;
+        public const int SchemaVersion = 2;
 
         private readonly FactStore _store;
         private readonly string _directory;
         private readonly string _shardPath;
         private readonly object _gate = new object();
         private FileStream? _lease;
+        private long _generation;
+        private long _committedMutation = -1;
         private bool _disposed;
 
-        /// <summary>
-        /// Open (or create) this process's shard.
-        /// </summary>
         /// <param name="directory">
-        /// Normally <c>facts</c> under <see cref="RadioConfig.AppDataRoot"/>.
-        /// Resolved by the caller from <c>AppDataRoot</c> rather than from the
-        /// ApplicationData folder directly, so a throwaway settings tree really
-        /// is throwaway.
+        /// Normally <c>facts</c> under <see cref="RadioConfig.AppDataRoot"/>,
+        /// resolved by the caller from that root so a relocated test root is
+        /// really used.
         /// </param>
-        public FactJournal(FactStore store, string directory, string shardName)
+        public FactJournal(FactStore store, string directory)
         {
             _store = store ?? throw new ArgumentNullException(nameof(store));
             _directory = directory ?? throw new ArgumentNullException(nameof(directory));
-            _shardPath = Path.Combine(directory, "facts-" + shardName + ".json");
+            if (!Path.IsPathRooted(_directory))
+                throw new ArgumentException("the journal directory must be absolute", nameof(directory));
+            // The shard identity is the writer identity: one lifetime, one file.
+            _shardPath = Path.Combine(_directory, "facts-" + store.WriterIncarnation.ToString("N") + ".json");
         }
 
-        /// <summary>The file this process writes. Nothing else may write it.</summary>
         public string ShardPath => _shardPath;
+        public string Directory => _directory;
 
-        /// <summary>True when this process holds the lease on its shard.</summary>
+        internal string ShardKey => "shard:" + Path.GetFileName(_shardPath);
+
         public bool HoldsLease
         {
             get { lock (_gate) return _lease != null; }
         }
 
-        /// <summary>
-        /// Take the lease. Returns false when it could not be taken, which is
-        /// reported rather than worked around.
-        /// </summary>
+        /// <summary>Take this writer's exclusive lease for its whole lifetime.</summary>
         public bool TakeLease()
         {
             lock (_gate)
             {
+                if (_disposed) return false;
                 if (_lease != null) return true;
                 try
                 {
-                    Directory.CreateDirectory(_directory);
-                    // The lease is a separate, empty file held open for the
-                    // process's lifetime. Holding the DATA file open would stop
-                    // the atomic replace below from ever running.
-                    _lease = new FileStream(
-                        _shardPath + ".lease", FileMode.OpenOrCreate,
-                        FileAccess.ReadWrite, FileShare.None);
+                    System.IO.Directory.CreateDirectory(_directory);
+                    _lease = new FileStream(_shardPath + ".lease", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                    _store.NoteJournalAttached();
                     return true;
                 }
-                catch (IOException ex)
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    _store.NotePersistence(PersistenceStatus.Failed,
-                        "another instance is using this settings folder's fact store: " + ex.Message);
-                    return false;
-                }
-                catch (UnauthorizedAccessException ex)
-                {
-                    _store.NotePersistence(PersistenceStatus.Failed,
-                        "the fact store folder could not be opened: " + ex.Message);
+                    _store.NotePersistFailure(ShardKey, Path.GetFileName(_shardPath),
+                        "the fact store's file could not be reserved: " + ex.Message);
                     return false;
                 }
             }
         }
 
+        // ────────────────────────────────────────────────────────────────
+        //  Writing
+        // ────────────────────────────────────────────────────────────────
+
+        /// <summary>Capture the newest image and write it.</summary>
+        public bool Write() => Write(_store.CaptureImage());
+
         /// <summary>
-        /// Write the newest complete snapshot.
+        /// Write one captured image. Temporary file, flush to disk, atomic
+        /// replace keeping the previous generation as last-good, and only
+        /// then acknowledge the image's mutation sequence.
         /// </summary>
-        /// <remarks>
-        /// <b>Coalesced by construction.</b> This writes the whole bounded
-        /// snapshot rather than an event, so a caller that fires it on every
-        /// dirty signal writes the newest state and never a queue of samples.
-        /// Temporary file, flush, atomic replace, last-good generation kept.
-        /// </remarks>
-        public bool Write()
+        internal bool Write(StoreImage image)
         {
             lock (_gate)
             {
                 if (_disposed) return false;
+                if (_lease == null)
+                {
+                    // Never a false success: without the lease this writer does
+                    // not own the file it would replace.
+                    _store.NotePersistFailure(ShardKey, Path.GetFileName(_shardPath),
+                        "a write was attempted without holding the file's lease, so it was refused");
+                    return false;
+                }
+
+                // Coalescing: an older image than one already committed has
+                // nothing to add.
+                if (image.Mutation <= _committedMutation) return true;
+
+                if (image.IsEmpty && !File.Exists(_shardPath))
+                {
+                    // Nothing to persist and nothing previously persisted.
+                    _committedMutation = image.Mutation;
+                    _store.NotePersisted(image.Mutation, ShardKey);
+                    return true;
+                }
+
                 string temp = _shardPath + ".tmp";
                 try
                 {
-                    string json = Render(_store);
-                    if (Encoding.UTF8.GetByteCount(json) > FactStoreCapacity.MaxJournalBytes)
+                    long generation = _generation + 1;
+                    byte[] bytes = new UTF8Encoding(false).GetBytes(FactJournalFormat.Render(image, generation));
+                    if (bytes.Length > FactStoreCapacity.MaxJournalBytes)
                     {
-                        // Pressure is REPORTED, not resolved by overwriting
-                        // something we cannot safely compact.
-                        _store.NotePersistence(PersistenceStatus.Failed,
+                        _store.NotePersistFailure(ShardKey, Path.GetFileName(_shardPath),
                             "the fact store is larger than its disk allowance, so it was not written");
                         return false;
                     }
 
-                    Directory.CreateDirectory(_directory);
-                    File.WriteAllText(temp, json, new UTF8Encoding(false));
+                    System.IO.Directory.CreateDirectory(_directory);
+                    using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
+                    {
+                        stream.Write(bytes, 0, bytes.Length);
+                        stream.Flush(flushToDisk: true);
+                    }
 
                     if (File.Exists(_shardPath))
                         File.Replace(temp, _shardPath, _shardPath + ".last-good", ignoreMetadataErrors: true);
                     else
                         File.Move(temp, _shardPath);
 
-                    _store.NotePersistence(PersistenceStatus.UpToDate);
+                    _generation = generation;
+                    _committedMutation = image.Mutation;
+                    _store.NotePersisted(image.Mutation, ShardKey);
                     return true;
                 }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    _store.NotePersistence(PersistenceStatus.Failed,
+                    _store.NotePersistFailure(ShardKey, Path.GetFileName(_shardPath),
                         "the fact store could not be written: " + ex.Message);
                     Tracing.TraceLine("FactJournal: write failed — " + ex.Message, TraceLevel.Warning);
                     return false;
@@ -158,70 +229,162 @@ namespace Radios.Facts
             }
         }
 
+        // ────────────────────────────────────────────────────────────────
+        //  Loading
+        // ────────────────────────────────────────────────────────────────
+
         /// <summary>
-        /// Load every shard nobody holds, as history.
+        /// Load every released source as history, keeping an inventory of what
+        /// each contributed. Nothing that fails to load becomes an empty,
+        /// healthy-looking list: each failure is a row.
         /// </summary>
-        /// <remarks>
-        /// <para>
-        /// A shard a live process holds is skipped rather than read, because a
-        /// half-written snapshot is not history. Records that will not parse
-        /// produce a <b>reachable recovery-gap item</b> rather than an empty
-        /// healthy-looking list — an empty list after a corrupt file is the
-        /// worst possible answer, because it looks exactly like nothing having
-        /// gone wrong.
-        /// </para>
-        /// </remarks>
-        public int LoadHistory()
+        public LoadReport LoadHistory()
         {
-            if (!Directory.Exists(_directory)) return 0;
-
-            int restored = 0, gaps = 0;
-            foreach (string path in Directory.EnumerateFiles(_directory, "facts-*.json"))
-            {
-                if (string.Equals(path, _shardPath, StringComparison.OrdinalIgnoreCase)) continue;
-                if (File.Exists(path + ".lease") && IsHeld(path + ".lease")) continue;
-
-                try
-                {
-                    foreach (Fact fact in ReadShard(File.ReadAllText(path)))
-                    {
-                        _store.Restore(fact);
-                        restored++;
-                    }
-                }
-                catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
-                {
-                    gaps++;
-                    Tracing.TraceLine(
-                        "FactJournal: '" + Path.GetFileName(path) + "' could not be read — " + ex.Message,
-                        TraceLevel.Warning);
-                }
-            }
-
-            if (gaps > 0)
-            {
-                // Operator-facing, so the words live in the lexicon.
-                _store.NotePersistence(PersistenceStatus.RecoveryGap,
-                    Lexicon.Get("facts.storage.recovery_gap", ("count", gaps)));
-            }
-            return restored;
-        }
-
-        private static bool IsHeld(string leasePath)
-        {
+            var inventory = new List<SourceInventoryEntry>();
+            var sources = new List<LoadedSource>();
+            _store.SetLoadState(HistoryLoadState.Loading);
             try
             {
-                using var probe = new FileStream(leasePath, FileMode.Open, FileAccess.Read, FileShare.None);
-                return false;   // we got it, so nobody holds it
+                if (!System.IO.Directory.Exists(_directory))
+                    return new LoadReport(inventory, _store.Hydrate(sources));
+
+                foreach (string path in System.IO.Directory.EnumerateFiles(_directory, "facts-*.json")
+                                                           .Where(p => p.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+                                                           .OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
+                {
+                    if (string.Equals(path, _shardPath, StringComparison.OrdinalIgnoreCase)) continue;
+                    inventory.Add(LoadOne(path, sources));
+                }
+
+                HydrationCounts counts = _store.Hydrate(sources);
+                return new LoadReport(inventory, counts);
             }
-            catch (IOException)
+            finally
             {
-                return true;
+                _store.SetLoadState(HistoryLoadState.Loaded);
             }
-            catch (UnauthorizedAccessException)
+        }
+
+        private SourceInventoryEntry LoadOne(string path, List<LoadedSource> sources)
+        {
+            string name = Path.GetFileName(path);
+            FileStream? lease = null;
+            try
             {
-                return true;
+                // Hold the source's lease WHILE reading it, rather than probing
+                // and releasing first — a probe-then-read lets a writer start in
+                // between.
+                string leasePath = path + ".lease";
+                if (File.Exists(leasePath))
+                {
+                    try
+                    {
+                        lease = new FileStream(leasePath, FileMode.Open, FileAccess.Read, FileShare.None);
+                    }
+                    catch (IOException)
+                    {
+                        _store.NoteIssue(IssueKind.IncompleteInventory, "live:" + name, name,
+                            "another running instance is writing this history, so it was not read; this list is partial, not damaged",
+                            1, ExtentCertainty.Unknown, name, "live:" + name);
+                        return new SourceInventoryEntry(name, SourceStatus.SkippedLive, 0, "held by a live writer");
+                    }
+                    catch (UnauthorizedAccessException ex)
+                    {
+                        return Inaccessible(name, ex.Message);
+                    }
+                }
+
+                string text;
+                try
+                {
+                    text = File.ReadAllText(path, Encoding.UTF8);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    return Inaccessible(name, ex.Message);
+                }
+
+                string contentHash = FactHash.Of(text);
+                try
+                {
+                    LoadedSource source = FactJournalFormat.Parse(text, name, out List<string> rejected);
+                    sources.Add(source);
+                    NoteRejected(name, rejected);
+                    if (source.Legacy)
+                    {
+                        _store.NoteIssue(IssueKind.MigrationGap, "legacy:" + name, name,
+                            "this history was saved by an older format; its delivery evidence is unverified and incomplete",
+                            source.Facts.Count, ExtentCertainty.Exact, name, "legacy:" + contentHash);
+                        return new SourceInventoryEntry(name, SourceStatus.Legacy, source.Facts.Count, null);
+                    }
+                    return new SourceInventoryEntry(name, SourceStatus.Loaded, source.Facts.Count, null);
+                }
+                catch (UnsupportedSchemaException ex)
+                {
+                    _store.NoteIssue(IssueKind.IncompleteInventory, "unsupported:" + name, name,
+                        "this history was saved in a format this version cannot read; the file is kept",
+                        1, ExtentCertainty.Unknown, name + ": " + ex.Message, "unsupported:" + contentHash);
+                    return new SourceInventoryEntry(name, SourceStatus.Unsupported, 0, ex.Message);
+                }
+                catch (Exception ex) when (ex is JsonException or FormatException or InvalidDataException)
+                {
+                    return RecoverFromLastGood(path, name, contentHash, ex.Message, sources);
+                }
             }
+            finally
+            {
+                lease?.Dispose();
+            }
+        }
+
+        private SourceInventoryEntry RecoverFromLastGood(string path, string name, string contentHash, string why,
+                                                         List<LoadedSource> sources)
+        {
+            string lastGood = path + ".last-good";
+            if (File.Exists(lastGood))
+            {
+                try
+                {
+                    LoadedSource recovered = FactJournalFormat.Parse(File.ReadAllText(lastGood, Encoding.UTF8),
+                                                                    name + " (last good)", out List<string> rejected);
+                    sources.Add(recovered);
+                    NoteRejected(name, rejected);
+                    // Usable history — and the newer interval it does not
+                    // contain is still missing, of unknown extent.
+                    _store.NoteIssue(IssueKind.RecoveryGap, "recovery:" + name, name,
+                        "the newest saved copy could not be read; an earlier copy was used, and whatever happened after it is missing",
+                        1, ExtentCertainty.Unknown, name + ": " + why, "gap:" + contentHash);
+                    return new SourceInventoryEntry(name, SourceStatus.RecoveredFromLastGood, recovered.Facts.Count, why);
+                }
+                catch (Exception ex) when (ex is JsonException or FormatException or InvalidDataException
+                                            or UnsupportedSchemaException or IOException or UnauthorizedAccessException)
+                {
+                    why += "; the earlier copy could not be read either (" + ex.Message + ")";
+                }
+            }
+
+            _store.NoteIssue(IssueKind.RecoveryGap, "recovery:" + name, name,
+                "saved history could not be read, so some earlier events are missing from this list; nothing was deleted",
+                1, ExtentCertainty.Unknown, name + ": " + why, "gap:" + contentHash);
+            return new SourceInventoryEntry(name, SourceStatus.Corrupt, 0, why);
+        }
+
+        private SourceInventoryEntry Inaccessible(string name, string why)
+        {
+            _store.NoteIssue(IssueKind.IncompleteInventory, "inaccessible:" + name, name,
+                "saved history could not be opened, so this list may be missing some of it",
+                1, ExtentCertainty.Unknown, name + ": " + why, "inaccessible:" + name);
+            return new SourceInventoryEntry(name, SourceStatus.Inaccessible, 0, why);
+        }
+
+        private void NoteRejected(string name, List<string> rejected)
+        {
+            if (rejected.Count == 0) return;
+            // Record-level salvage: each recovered record passed full
+            // validation, and the remaining gap is explicit.
+            _store.NoteIssue(IssueKind.RecoveryGap, "records:" + name, name,
+                "some saved records failed validation and were not loaded; the file is kept",
+                rejected.Count, ExtentCertainty.Exact, rejected[0], "records:" + name + ":" + FactHash.Of(string.Join("|", rejected)));
         }
 
         public void Dispose()
@@ -234,135 +397,72 @@ namespace Radios.Facts
                 _lease = null;
             }
         }
+    }
 
-        // ────────────────────────────────────────────────────────────────
-        //  The format
-        // ────────────────────────────────────────────────────────────────
+    /// <summary>A source written in a schema this version does not read.</summary>
+    public sealed class UnsupportedSchemaException : Exception
+    {
+        public UnsupportedSchemaException(string message) : base(message) { }
+    }
 
-        internal static string Render(FactStore store)
+    /// <summary>
+    /// Coalesces persistence to the newest pending image on a background
+    /// thread. One write in flight at a time; a dirty signal during a write
+    /// schedules exactly one more.
+    /// </summary>
+    public sealed class FactJournalWriter : IDisposable
+    {
+        private readonly FactStore _store;
+        private readonly FactJournal _journal;
+        private int _dirty;
+        private int _running;
+        private bool _disposed;
+
+        public FactJournalWriter(FactStore store, FactJournal journal)
         {
-            var options = new JsonWriterOptions { Indented = true };
-            using var buffer = new MemoryStream();
-            using (var writer = new Utf8JsonWriter(buffer, options))
-            {
-                writer.WriteStartObject();
-                writer.WriteNumber("schema", SchemaVersion);
-                writer.WriteNumber("processIncarnation", store.ProcessIncarnation);
-                writer.WriteStartArray("facts");
-
-                foreach (Fact fact in store.All)
-                {
-                    writer.WriteStartObject();
-                    writer.WriteString("episode", fact.Identity.EpisodeId);
-                    writer.WriteNumber("connection", fact.Identity.ConnectionIncarnation);
-                    writer.WriteString("radio", fact.Identity.RadioIdentity);
-                    writer.WriteString("slot", fact.Identity.ConditionSlot);
-                    writer.WriteString("occurrence", fact.Identity.OccurrenceId);
-                    writer.WriteString("key", fact.MessageKey);
-                    writer.WriteString("classification", fact.Classification.ToString());
-                    if (fact.Delivery != null)
-                    {
-                        writer.WriteString("shelfLife", fact.Delivery.ShelfLife.ToString());
-                        writer.WriteString("validityContract", fact.Delivery.Validity);
-                        writer.WriteString("historyKey", fact.Delivery.HistoryKey);
-                        writer.WriteString("receiptPolicy", fact.Delivery.Receipt.ToString());
-                    }
-                    writer.WriteString("validity", fact.Validity.State.ToString());
-                    writer.WriteString("validityDetail", fact.Validity.ToString());
-                    writer.WriteString("observedUtc",
-                        fact.Provenance.ObservedUtc.ToString("o", CultureInfo.InvariantCulture));
-                    writer.WriteNumber("revision", fact.Revision);
-                    writer.WriteNumber("materialRevision", fact.MaterialRevision);
-                    writer.WriteNumber("reviewedMaterialRevision", fact.ReviewedMaterialRevision);
-                    writer.WriteString("receipt", fact.Receipt.ToString());
-                    writer.WriteBoolean("paused", fact.AutomaticPaused);
-                    writer.WriteBoolean("undelivered", fact.HasUndeliveredDetail);
-                    writer.WriteNumber("attempts", fact.Attempts.Count + fact.CompactedAttempts);
-                    writer.WriteString("detail", fact.Detail);
-                    writer.WriteBoolean("detailTruncated", fact.DetailTruncated);
-                    writer.WriteEndObject();
-                }
-
-                writer.WriteEndArray();
-
-                writer.WriteStartObject("overflow");
-                writer.WriteNumber("lost", store.Overflow.LostCount);
-                writer.WriteBoolean("saturated", store.Overflow.Saturated);
-                writer.WriteEndObject();
-
-                writer.WriteEndObject();
-            }
-            return Encoding.UTF8.GetString(buffer.ToArray());
+            _store = store ?? throw new ArgumentNullException(nameof(store));
+            _journal = journal ?? throw new ArgumentNullException(nameof(journal));
+            _store.PersistenceNeeded += OnNeeded;
         }
 
-        internal static IReadOnlyList<Fact> ReadShard(string json)
+        private void OnNeeded()
         {
-            var result = new List<Fact>();
-            using JsonDocument document = JsonDocument.Parse(json);
-            JsonElement root = document.RootElement;
-
-            if (root.ValueKind != JsonValueKind.Object) throw new JsonException("not an object");
-            if (!root.TryGetProperty("schema", out JsonElement schema) || schema.GetInt32() != SchemaVersion)
-            {
-                throw new JsonException(
-                    "this file was written by a different version of the fact store, so it is not " +
-                    "read rather than guessed at");
-            }
-
-            if (!root.TryGetProperty("facts", out JsonElement facts)) return result;
-
-            foreach (JsonElement element in facts.EnumerateArray())
-            {
-                string slot = Text(element, "slot");
-                string occurrence = Text(element, "occurrence");
-                if (slot.Length == 0 || occurrence.Length == 0) continue;
-
-                var identity = new FactIdentity(
-                    0,                                    // a restored record belongs to no live process
-                    Number(element, "connection"),
-                    element.TryGetProperty("radio", out JsonElement radio)
-                        && radio.ValueKind == JsonValueKind.String ? radio.GetString() : null,
-                    slot, occurrence);
-
-                // Restored records are HISTORY and UNKNOWN. A loaded file can
-                // never assert that a condition is current, whatever it said
-                // when it was written.
-                var validity = ValiditySnapshot.NotKnown(
-                    UnknownReason.DataUnavailable,
-                    DateTime.UtcNow,
-                    "this was saved before the application last closed; whether it is still true now "
-                    + "is not known");
-
-                var provenance = new FactProvenance(
-                    Number(element, "connection"), 0, ParseTime(Text(element, "observedUtc")),
-                    "restored from an earlier session", observationComplete: false);
-
-                var fact = new Fact(
-                    identity, Text(element, "key"), null,
-                    DeliveryClassification.Unclassified, validity, provenance,
-                    admittedAtQuietGeneration: 0);
-                fact.ApplyDetail(Text(element, "detail"));
-                fact.RestoredFromDisk = true;
-                result.Add(fact);
-            }
-
-            return result;
+            if (_disposed) return;
+            Interlocked.Exchange(ref _dirty, 1);
+            if (Interlocked.CompareExchange(ref _running, 1, 0) == 0)
+                ThreadPool.QueueUserWorkItem(_ => Drain());
         }
 
-        private static string Text(JsonElement element, string name)
-            => element.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.String
-                ? value.GetString() ?? string.Empty
-                : string.Empty;
+        private void Drain()
+        {
+            try
+            {
+                while (Interlocked.Exchange(ref _dirty, 0) == 1 && !_disposed)
+                    _journal.Write();
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _running, 0);
+                if (Volatile.Read(ref _dirty) == 1 && !_disposed) OnNeeded();
+            }
+        }
 
-        private static long Number(JsonElement element, string name)
-            => element.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.Number
-                ? value.GetInt64()
-                : 0;
+        /// <summary>
+        /// The bounded final flush: one write attempt, no retries. It neither
+        /// holds up protection nor invents durable success — a failure leaves
+        /// the store's explicit unsaved state.
+        /// </summary>
+        public bool FlushOnce()
+        {
+            if (_store.PersistedThrough >= _store.MutationSequence) return true;
+            return _journal.Write();
+        }
 
-        private static DateTime ParseTime(string text)
-            => DateTime.TryParse(text, CultureInfo.InvariantCulture,
-                    DateTimeStyles.RoundtripKind, out DateTime when)
-                ? when
-                : DateTime.MinValue;
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _store.PersistenceNeeded -= OnNeeded;
+        }
     }
 }

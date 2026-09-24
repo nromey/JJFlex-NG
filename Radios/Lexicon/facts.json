@@ -56,5 +56,70 @@
 
   "facts.detail.no_selection": { "text": "Nothing selected.", "delivery": null },
   "facts.detail.restored": { "text": "This was saved before the program last closed. Whether it is still true now is not known.", "delivery": null },
-  "facts.detail.truncated": { "text": "The rest of this detail was too long to keep.", "delivery": null }
+  "facts.detail.truncated": { "text": "The rest of this detail was too long to keep.", "delivery": null },
+
+  "_note_m2": "Sprint 45 Track M2 added every entry below this note. EVERY ONE IS A FIRST DRAFT FOR NOEL'S REVIEW and none is approved copy. They exist because the code must be able to choose between distinct truths - a tone requested versus a tone played, quiet versus an unknown cancellation, a completed short sentence versus the full detail, an empty list versus everything delivered - and a choice needs somewhere to point. The existing entries above were deliberately NOT changed; where one of them was false in some cases, the code now uses it only in the case it is true and falls to a draft below otherwise. The list of every key, where the operator meets it and what it must be able to say truthfully is in the private planning folder, for-noel/priority/2026-09-24-fact-store-issue-wording.md.",
+
+  "facts.state.paused_unknown_cause": { "text": "paused, because the last attempt stopped and nobody can say why", "delivery": null },
+  "facts.state.paused_continuity": { "text": "paused, because it carries on from before the radio reconnected, when it had been paused", "delivery": null },
+  "facts.state.paused_cause_not_recorded": { "text": "paused; an older version saved it without saying why", "delivery": null },
+  "facts.state.not_a_message": { "text": "kept, but not announced, because its wording is marked as a label rather than a message", "delivery": null },
+  "facts.state.conflicting": { "text": "two saved copies of this disagree", "delivery": null },
+
+  "facts.delivery.legacy_unverified": { "text": "an older version saved this without saying whether it was read out", "delivery": null },
+  "facts.delivery.not_started_quiet": { "text": "not started, because you asked for quiet first", "delivery": null },
+  "facts.delivery.not_started_paused": { "text": "not started, because an earlier attempt stopped and nobody can say why", "delivery": null },
+  "facts.delivery.withdrawn_superseded": { "text": "not started, because newer information replaced what it would have said", "delivery": null },
+  "facts.delivery.withdrawn_context_ended": { "text": "not started, because the connection it came from ended or it could no longer be confirmed", "delivery": null },
+  "facts.delivery.started": { "text": "started; nothing has been reported back yet", "delivery": null },
+  "facts.delivery.requested_only": { "text": "sent to the screen reader, which cannot say whether it was read out", "delivery": null },
+  "facts.delivery.request_failed": { "text": "sending it to the screen reader failed", "delivery": null },
+  "facts.delivery.completed_short": { "text": "read out, but the shorter wording left some of the detail out", "delivery": null },
+  "facts.delivery.cancelled_known": { "text": "stopped by the program before it finished", "delivery": null },
+  "facts.delivery.unobservable": { "text": "sent, and there is no way to tell whether it was read out", "delivery": null },
+  "facts.delivery.disputed": { "text": "the reports about it contradict each other, so it is not counted as read out", "delivery": null },
+  "facts.delivery.interrupted": { "text": "the program closed while it was being sent; whether it finished is not known", "delivery": null },
+
+  "facts.receipt.request_issued": { "text": "the tone was asked for", "delivery": null },
+  "facts.receipt.withheld": { "text": "no tone was asked for, because by then you had asked for quiet or the connection had ended", "delivery": null },
+  "facts.receipt.outcome_unknown": { "text": "the tone was asked for, and whether it played is not known", "delivery": null },
+
+  "facts.window.loading": { "text": "Still reading saved history.", "delivery": null },
+  "facts.window.nothing_pending_unverified": { "text": "Nothing is waiting on this list.", "delivery": null },
+  "facts.window.nothing_pending_reviewed": { "text": "Some items left this list because you marked them as read, not because they were read out.", "delivery": null },
+  "facts.window.nothing_pending_forgettable": { "text": "Some brief messages were not heard. They are not kept, because they would no longer be useful.", "delivery": null },
+  "facts.window.excluded_by_filter": { "text": "{count} waiting items for other radios are not shown.", "delivery": null },
+
+  "facts.status.problems_present": { "text": "{count} problems with the saved record need a look.", "delivery": null },
+  "facts.status.nothing_waiting": { "text": "Nothing is waiting.", "delivery": null },
+
+  "facts.action.refresh": { "text": "Show the newer version", "delivery": null },
+
+  "facts.detail.changed": { "text": "This record has changed since it was shown.", "delivery": null },
+  "facts.detail.no_rendering": { "text": "The wording for this is not available. What was saved about it follows.", "delivery": null },
+  "facts.detail.material_line": { "text": "{name}: {value}", "delivery": null },
+  "facts.detail.more_not_shown": { "text": "{count} more details are not shown here, and marking this as read does not cover them.", "delivery": null },
+  "facts.detail.legacy": { "text": "An older version of the program saved this, and it did not record whether it was read out.", "delivery": null },
+  "facts.detail.conflict": { "text": "Another saved copy of this record says something different. Both are kept.", "delivery": null },
+  "facts.detail.restored_issue": { "text": "This problem was recorded before the program last closed.", "delivery": null },
+
+  "facts.row.issue_summary": { "text": "{problem}: {state}", "delivery": null },
+
+  "facts.issue.kind.recovery_gap": { "text": "Saved history could not be read back", "delivery": null },
+  "facts.issue.kind.identity_conflict": { "text": "Two saved records disagree about the same event", "delivery": null },
+  "facts.issue.kind.registration_pressure": { "text": "Something could not be monitored because there was no room to track it", "delivery": null },
+  "facts.issue.kind.retention_pressure": { "text": "Something could not be kept in full because the list was full", "delivery": null },
+  "facts.issue.kind.detail_loss": { "text": "Some older detail was compacted to make room", "delivery": null },
+  "facts.issue.kind.incomplete_inventory": { "text": "Some saved history was not read", "delivery": null },
+  "facts.issue.kind.persistence_failure": { "text": "Recent items could not be saved to disk", "delivery": null },
+  "facts.issue.kind.integrity_refusal": { "text": "Something reported information it was not allowed to report, and it was refused", "delivery": null },
+  "facts.issue.kind.migration_gap": { "text": "History saved by an older version is missing some details", "delivery": null },
+  "facts.issue.kind.issue_overflow": { "text": "More problems happened than this list can hold", "delivery": null },
+  "facts.issue.state.active": { "text": "still happening", "delivery": null },
+  "facts.issue.state.resolved": { "text": "no longer happening", "delivery": null },
+  "facts.issue.count.exact": { "text": "{count} affected.", "delivery": null },
+  "facts.issue.count.lower_bound": { "text": "At least {count} affected.", "delivery": null },
+  "facts.issue.count.unknown": { "text": "How much is affected is not known.", "delivery": null },
+  "facts.issue.source": { "text": "Where: {source}", "delivery": null },
+  "facts.issue.exemplars_more": { "text": "There were more examples than are shown.", "delivery": null }
 }

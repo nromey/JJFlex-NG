@@ -23,6 +23,15 @@ Namespace My
         ''' </summary>
         Friend Shared TheShellForm As ShellForm
 
+        ''' <summary>
+        ''' The fact store's issuer, handed to this composition root once by
+        ''' ApplicationFacts.Start. Held here, not published, because it is the
+        ''' authority to declare owners and open observation scopes: a producer
+        ''' must receive its own publishing endpoint from here, never fetch the
+        ''' issuer and register itself. Nothing publishes facts yet on this base.
+        ''' </summary>
+        Friend Shared FactIssuer As Radios.Facts.FactAuthorityRegistry
+
         Private Sub MyApplication_Startup(sender As Object, e As ApplicationServices.StartupEventArgs) Handles Me.Startup
             ' The Startup thread IS the UI thread: this same thread goes on to
             ' create ShellForm and run the message loop. Record its identity
@@ -99,6 +108,19 @@ Namespace My
             End Try
 
             Radios.OutputChannelRecorder.Configure(outputSwitches.Render, outputSwitches.Record, outputSwitches.RecordPath)
+
+            ' Start the fact store BEFORE speech: the information owed to the
+            ' operator has to have somewhere to go before anything can fail to be
+            ' said. It takes this writer's lease under the settings root, loads
+            ' released history, and writes in the background. A failure here
+            ' never stops the application - the store stays in memory and the
+            ' failure is a row on the undelivered-details list.
+            Try
+                FactIssuer = Radios.Facts.ApplicationFacts.Start(Radios.RadioConfig.AppDataRoot)
+            Catch ex As Exception
+                JJTrace.Tracing.TraceLine("Startup: the fact store could not start: " & ex.Message,
+                                  TraceLevel.Warning)
+            End Try
 
             ' Initialize screen reader output (Prism) for accessibility announcements.
             Radios.ScreenReaderOutput.Initialize()
@@ -561,6 +583,14 @@ Namespace My
             JJFlexWpf.EarconPlayer.Dispose()
             ' Clean up screen reader resources.
             Radios.ScreenReaderOutput.Shutdown()
+            ' The fact store's bounded final flush: one write attempt, then the
+            ' lease is released. A failed flush leaves the explicit unsaved
+            ' state; it never delays exit beyond that one attempt.
+            Try
+                Radios.Facts.ApplicationFacts.Shutdown()
+            Catch ex As Exception
+                JJTrace.Tracing.TraceLine("Shutdown: fact store flush threw: " & ex.Message)
+            End Try
             ' Seal the output transcript (session-end marker). Last of the
             ' output teardown on purpose: the CW farewell and any final speech
             ' above still land in the transcript. A transcript that ends

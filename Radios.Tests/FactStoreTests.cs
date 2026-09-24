@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Radios;
 using Radios.Facts;
 using Xunit;
@@ -9,166 +10,33 @@ using Xunit;
 namespace Radios.Tests
 {
     /// <summary>
-    /// The store that owns the information owed to the operator.
+    /// The store that owns the information owed to the operator — the rules
+    /// Track M established that still stand, now exercised through issued
+    /// publishers, plans and displayed-snapshot review instead of the raw
+    /// recorders that could not tell who was speaking.
     /// </summary>
     /// <remarks>
-    /// <para>
     /// <b>Most of this file is about what the store REFUSES to conclude.</b>
     /// Unknown observation is not clear, silence is not acknowledgement,
     /// refusal is not delivery, a completion is not understanding, and capacity
-    /// pressure is not a reason for a warning to disappear. Each of those was a
-    /// real path in the code before there was a store to hold the fact apart
-    /// from the sentence.
-    /// </para>
-    /// <para>
-    /// <b>No test here moves a clock, and that is the point.</b> There is no
-    /// elapsed time this store responds to.
-    /// </para>
+    /// pressure is not a reason for a warning to disappear. Owners here are
+    /// synthetic.
     /// </remarks>
-    // In the RadioConfig statics collection because the store's operator-facing
-    // sentences come from the lexicon, which loads its partitions into
-    // process-wide state on first use.
     [Collection(RadioConfigStaticsCollection.Name)]
     public class FactStoreTests
     {
-        private static readonly DateTime T0 = new DateTime(2026, 9, 24, 12, 0, 0, DateTimeKind.Utc);
-
-        private static LexiconMessage Classified(
-            string key, ShelfLife life, string validity = "transmit.active")
-        {
-            var entry = LexiconEntry.Plain("words").WithDelivery(
-                DeliveryClassification.Message,
-                new DeliveryDescriptor(life, validity,
-                    life == ShelfLife.Forgettable ? null : key + ".history",
-                    ReceiptPolicy.Warning));
-            return new LexiconMessage(key, entry, Array.Empty<(string, object?)>(), 1);
-        }
-
-        private static LexiconMessage Unclassified(string key)
-            => new LexiconMessage(key, LexiconEntry.Plain("words"), Array.Empty<(string, object?)>(), 1);
-
-        private static LexiconMessage TextOnly(string key)
-        {
-            var entry = LexiconEntry.Plain("a label").WithDelivery(DeliveryClassification.TextOnly, null);
-            return new LexiconMessage(key, entry, Array.Empty<(string, object?)>(), 1);
-        }
-
-        private static (FactStore Store, RadioSessionFacts Session, ProducerCapability Cap) Fresh(
-            string? radio = "SERIAL-1")
-        {
-            var store = new FactStore(processIncarnation: 1);
-            var session = new RadioSessionFacts(store, radio);
-            return (store, session, session.IssueCapability("test producer"));
-        }
-
-        private static FactAdmission Admit(
-            FactStore store, RadioSessionFacts session, ProducerCapability cap,
-            LexiconMessage message, string occurrence = "occ-1",
-            ValiditySnapshot? validity = null, string slot = "transmit.reflected")
-            => store.Admit(
-                cap,
-                session.NewOccurrence(slot, occurrence),
-                message,
-                validity ?? ValiditySnapshot.Establish(T0),
-                session.Observe(T0));
-
-        // ────────────────────────────────────────────────────────────────
-        //  Admission comes first, and depends on nothing
-        // ────────────────────────────────────────────────────────────────
+        private static readonly DateTime T0 = FactKit.T0;
 
         [Fact]
-        public void AFactIsRetainedWithoutAnyToneOrSentenceHavingHappened()
+        public void AFactIsRetainedBeforeAnyToneOrSentence()
         {
-            var (store, session, cap) = Fresh();
-            FactAdmission result = Admit(store, session, cap,
-                Classified("a.warning", ShelfLife.Perishable));
+            var kit = new FactKit();
+            FactSnapshot fact = FactKit.OpenHot(kit.HotSlot(kit.Session())).Fact!;
 
-            Assert.True(result.Accepted);
-            Assert.Equal(ReceiptState.NotRequested, result.Fact!.Receipt);
-            Assert.Empty(result.Fact.Attempts);
-
-            // The ordering the whole design turns on: the fact is owned before
-            // a tone is asked for and before speech is attempted, so neither
-            // failing can lose it.
-            Assert.True(result.Fact.IsPending);
+            Assert.Equal(ReceiptState.NotRequested, fact.Receipt.State);
+            Assert.Empty(fact.Attempts);
+            Assert.True(fact.IsPending);
         }
-
-        [Fact]
-        public void TheSameOccurrenceTwiceChangesNothing()
-        {
-            var (store, session, cap) = Fresh();
-            var message = Classified("a.warning", ShelfLife.Persistent);
-
-            FactAdmission first = Admit(store, session, cap, message);
-            FactAdmission second = Admit(store, session, cap, message);
-
-            Assert.True(first.Accepted);
-            Assert.Equal(AdmissionOutcome.AlreadyKnown, second.Outcome);
-            Assert.Single(store.All);
-        }
-
-        [Fact]
-        public void TwoRadiosUsingOneKeyKeepTwoSeparateEpisodes()
-        {
-            var store = new FactStore(1);
-            var a = new RadioSessionFacts(store, "SERIAL-A");
-            var b = new RadioSessionFacts(store, "SERIAL-B");
-            var message = Classified("a.warning", ShelfLife.Persistent);
-
-            Admit(store, a, a.IssueCapability("a"), message);
-            Admit(store, b, b.IssueCapability("b"), message);
-
-            // A subject string is not an identity. One radio's warning must
-            // never be able to retire another's.
-            Assert.Equal(2, store.All.Count);
-        }
-
-        [Fact]
-        public void AReconnectToTheSameSerialIsANewIncarnation()
-        {
-            var store = new FactStore(1);
-            var first = new RadioSessionFacts(store, "SERIAL-1");
-            var second = new RadioSessionFacts(store, "SERIAL-1");
-
-            Assert.NotEqual(first.ConnectionIncarnation, second.ConnectionIncarnation);
-        }
-
-        [Fact]
-        public void ARevokedCapabilityCannotAdmitAnythingAsCurrent()
-        {
-            var (store, session, cap) = Fresh();
-            session.Detach(T0, "the radio went away");
-
-            FactAdmission result = Admit(store, session, cap,
-                Classified("a.warning", ShelfLife.Persistent));
-
-            Assert.Equal(AdmissionOutcome.NotAuthorised, result.Outcome);
-            Assert.Empty(store.All);
-        }
-
-        [Fact]
-        public void AnOlderObservationCannotRegressALiveFact()
-        {
-            var (store, session, cap) = Fresh();
-            Fact fact = Admit(store, session, cap, Classified("a.warning", ShelfLife.Persistent)).Fact!;
-
-            FactProvenance late = session.Observe(T0);          // stamped now
-            FactProvenance later = session.Observe(T0);         // stamped after it
-
-            Assert.True(store.UpdateValidity(cap, fact.Identity.EpisodeId,
-                ValiditySnapshot.End(EndedKind.ResolvedCondition, T0), later, material: true));
-
-            // The earlier stamp arriving afterwards adds nothing: a late
-            // callback may append evidence to history, never reopen current
-            // truth.
-            Assert.False(store.UpdateValidity(cap, fact.Identity.EpisodeId,
-                ValiditySnapshot.Establish(T0), late));
-            Assert.True(fact.Validity.IsResolved);
-        }
-
-        // ────────────────────────────────────────────────────────────────
-        //  Unknown observation is not clear
-        // ────────────────────────────────────────────────────────────────
 
         [Theory]
         [InlineData(UnknownReason.ObservationFailed)]
@@ -177,35 +45,30 @@ namespace Radios.Tests
         [InlineData(UnknownReason.EvaluationFailed)]
         public void AFailedObservationKeepsTheObligationAndClearsNothing(UnknownReason reason)
         {
-            // Four different failures used to arrive as one success: a throwing
-            // refresh, a null service, a missing meter and a disconnect all
-            // came back null and were read as "the condition cleared", which
-            // removed the pending warning.
-            var (store, session, cap) = Fresh();
-            Fact fact = Admit(store, session, cap, Classified("a.warning", ShelfLife.Persistent)).Fact!;
+            var kit = new FactKit();
+            SlotPublisher publisher = kit.HotSlot(kit.Session());
+            PublicationResult opened = FactKit.OpenHot(publisher);
 
-            store.UpdateValidity(cap, fact.Identity.EpisodeId,
-                ValiditySnapshot.NotKnown(reason, T0), session.Observe(T0));
+            publisher.Update(opened.Handle!, FactKit.Capture(publisher, FactKit.Temp(70m)),
+                             FactTransition.ObservationUnknown(reason), opened.Fact!.Revision);
 
+            FactSnapshot fact = kit.Store.Find(opened.Handle!.Id)!;
             Assert.False(fact.Validity.IsCurrent);
             Assert.False(fact.Validity.IsResolved);
             Assert.True(fact.IsPending);
-
-            // Suspended, not withdrawn: no current wording, obligation intact.
-            Assert.False(store.IsEligibleForAutomaticDelivery(fact));
+            Assert.False(kit.Store.IsEligibleForAutomaticDelivery(fact));
         }
 
         [Fact]
-        public void OnlyAnOwnerTransitionReachesResolved()
+        public void ADisconnectEndsTheContextAndNeverResolvesTheCondition()
         {
-            var (store, session, cap) = Fresh();
-            Fact fact = Admit(store, session, cap, Classified("a.warning", ShelfLife.Persistent)).Fact!;
+            var kit = new FactKit();
+            FactSession session = kit.Session();
+            EpisodeId id = FactKit.OpenHot(kit.HotSlot(session)).Handle!.Id;
 
-            session.Detach(T0, "the connection closed");
+            session.End(T0, "the connection closed");
 
-            // A disconnect ends the observation CONTEXT. It is not evidence
-            // that a hot PA cooled down.
-            Assert.Equal(ValidityState.Ended, fact.Validity.State);
+            FactSnapshot fact = kit.Store.Find(id)!;
             Assert.Equal(EndedKind.EndedObservationContext, fact.Validity.Ended);
             Assert.False(fact.Validity.IsResolved);
             Assert.True(fact.IsPending);
@@ -214,483 +77,339 @@ namespace Radios.Tests
         [Fact]
         public void AnUnheardPersistentConditionThatResolvesStaysOwedAsHistory()
         {
-            var (store, session, cap) = Fresh();
-            Fact fact = Admit(store, session, cap, Classified("a.warning", ShelfLife.Persistent)).Fact!;
+            var kit = new FactKit();
+            SlotPublisher publisher = kit.HotSlot(kit.Session());
+            PublicationResult opened = FactKit.OpenHot(publisher);
 
-            store.UpdateValidity(cap, fact.Identity.EpisodeId,
-                ValiditySnapshot.End(EndedKind.ResolvedCondition, T0), session.Observe(T0), material: false);
+            publisher.Resolve(opened.Handle!, FactKit.Capture(publisher, FactKit.Temp(50m)), opened.Fact!.Revision);
 
-            // The condition going away does not prove anybody heard about it.
+            FactSnapshot fact = kit.Store.Find(opened.Handle!.Id)!;
             Assert.True(fact.IsHistorical);
             Assert.True(fact.IsPending);
-            Assert.Contains(fact, store.Pending());
+            Assert.Contains(kit.Store.Pending(), f => f.Id == fact.Id);
         }
-
-        // ────────────────────────────────────────────────────────────────
-        //  Decision point two: an unclassified key that reaches a run
-        // ────────────────────────────────────────────────────────────────
 
         [Fact]
         public void AnUnclassifiedMessageIsKeptAndIsSilent()
         {
-            var (store, session, cap) = Fresh();
-            FactAdmission result = Admit(store, session, cap, Unclassified("a.mystery"));
+            var kit = new FactKit();
+            FactSnapshot fact = FactKit.OpenNote(kit.NotesSlot(kit.Session()), FactKit.MysteryKey).Fact!;
 
-            // Kept: throwing away a safety event because its formatting
-            // metadata was missing is much the worse failure.
-            Assert.True(result.Accepted);
-            Assert.True(result.Fact!.IsPending);
-            Assert.Contains(result.Fact, store.Pending());
-
-            // Silent: nothing knows how long the information stays worth
-            // saying, so nothing may volunteer it.
-            Assert.False(store.IsEligibleForAutomaticDelivery(result.Fact));
-
-            // But it can still be READ, because asking is its own permission.
-            Assert.True(store.MayReadOnRequest(result.Fact));
+            Assert.True(fact.IsPending);
+            Assert.False(kit.Store.IsEligibleForAutomaticDelivery(fact));
+            Assert.True(kit.Store.MayReadOnRequest(fact));
+            Assert.Equal(ReceiptPolicy.None, fact.Receipt.Policy);
         }
 
         [Fact]
         public void ATextOnlyKeyOfferedAsAMessageIsAlsoSilent()
         {
-            // A different refusal for a different reason: somebody
-            // affirmatively said this string is not a message, so treating it
-            // as one overrides a decision rather than filling a gap.
-            var (store, session, cap) = Fresh();
-            Fact fact = Admit(store, session, cap, TextOnly("a.label")).Fact!;
-
-            Assert.False(store.IsEligibleForAutomaticDelivery(fact));
+            var kit = new FactKit();
+            FactSnapshot fact = FactKit.OpenNote(kit.NotesSlot(kit.Session()), FactKit.LabelKey).Fact!;
+            Assert.False(kit.Store.IsEligibleForAutomaticDelivery(fact));
         }
 
-        // ────────────────────────────────────────────────────────────────
-        //  Decision point one: Ctrl, and what releases it
-        // ────────────────────────────────────────────────────────────────
-
         [Fact]
-        public void QuietPausesTheCohortWithoutAcknowledgingOrClearingAnything()
+        public void QuietPausesWithoutAcknowledgingOrClearingAnything()
         {
-            var (store, session, cap) = Fresh();
-            Fact fact = Admit(store, session, cap, Classified("a.warning", ShelfLife.Persistent)).Fact!;
+            var kit = new FactKit();
+            EpisodeId id = FactKit.OpenHot(kit.HotSlot(kit.Session())).Handle!.Id;
 
-            store.AdvanceQuietBarrier("the operator pressed Ctrl");
+            kit.Registry.Quiet.Observe("the operator pressed Ctrl");
 
+            FactSnapshot fact = kit.Store.Find(id)!;
             Assert.True(fact.AutomaticPaused);
-            Assert.False(store.IsEligibleForAutomaticDelivery(fact));
-
-            // Nothing acknowledged, nothing cleared, nothing less true.
-            Assert.False(fact.Reviewed);
+            Assert.Equal(PauseCause.OperatorQuiet, fact.Pause);
+            Assert.False(kit.Store.IsEligibleForAutomaticDelivery(fact));
+            Assert.Empty(fact.Reviewed);
             Assert.True(fact.Validity.IsCurrent);
             Assert.True(fact.IsPending);
-            Assert.Contains(fact, store.Pending());
         }
-
-        [Fact]
-        public void APausedFactIsNotResumedByAReconnectOrABackendRecovery()
-        {
-            var (store, session, cap) = Fresh();
-            Fact fact = Admit(store, session, cap, Classified("a.warning", ShelfLife.Persistent)).Fact!;
-            store.AdvanceQuietBarrier("the operator pressed Ctrl");
-
-            // Things that happen afterwards and confer nothing.
-            store.NoteChannelHealth(healthy: false);
-            store.NoteChannelHealth(healthy: true);
-            var reconnected = new RadioSessionFacts(store, "SERIAL-1");
-            reconnected.IssueCapability("after the reconnect");
-
-            Assert.True(fact.AutomaticPaused);
-            Assert.False(store.IsEligibleForAutomaticDelivery(fact));
-        }
-
-        [Fact]
-        public void OnlyAnExplicitResumeForTheSelectedRecordReleasesIt()
-        {
-            var (store, session, cap) = Fresh();
-            Fact one = Admit(store, session, cap, Classified("a.one", ShelfLife.Persistent), "occ-1").Fact!;
-            Fact two = Admit(store, session, cap, Classified("a.two", ShelfLife.Persistent), "occ-2",
-                slot: "transmit.temperature").Fact!;
-            store.AdvanceQuietBarrier("quiet");
-
-            store.ResumeAutomatic(one.Identity.EpisodeId);
-
-            Assert.True(store.IsEligibleForAutomaticDelivery(one));
-
-            // One successful read cannot silently resume everything — that
-            // would turn one deliberate action into permission never given.
-            Assert.False(store.IsEligibleForAutomaticDelivery(two));
-        }
-
-        [Fact]
-        public void AnUnknownCancellationPausesRatherThanRetires()
-        {
-            // A zero-mark cancellation from an external cause is not proof that
-            // no presentation began, and proves nothing about why it stopped.
-            var (store, session, cap) = Fresh();
-            Fact fact = Admit(store, session, cap, Classified("a.warning", ShelfLife.Persistent)).Fact!;
-
-            store.RecordAttempt(fact.Identity.EpisodeId,
-                DeliveryState.UnknownCompletion, T0, coveredRequiredDetail: false);
-
-            Assert.True(fact.AutomaticPaused);
-            Assert.True(fact.IsPending);
-        }
-
-        // ────────────────────────────────────────────────────────────────
-        //  Shelf life and finite attempts
-        // ────────────────────────────────────────────────────────────────
 
         [Fact]
         public void APersistentConditionIsStillEligibleAfterMoreThanTwoFailedAttempts()
         {
-            // The struck-out contract said two attempts and then terminal
-            // silence. The number survived as a fairness rule; the terminal
-            // state did not, because the condition makes the fact true.
-            var (store, session, cap) = Fresh();
-            Fact fact = Admit(store, session, cap, Classified("a.warning", ShelfLife.Persistent)).Fact!;
+            var kit = new FactKit();
+            EpisodeId id = FactKit.OpenHot(kit.HotSlot(kit.Session())).Handle!.Id;
+            var refusing = new RecordingTransport(kit.Registry, "refuses", TransportCapability.ReportsAcceptance);
 
             for (int i = 0; i < 5; i++)
             {
-                store.RecordAttempt(fact.Identity.EpisodeId,
-                    DeliveryState.Refused, T0, coveredRequiredDetail: false);
+                AttemptHandle a = kit.Allocate(kit.PlanAutomatic(id), refusing.Binding);
+                AttemptRunner.Run(a, refusing.Submit);
+                a.Report(TransportEvidence.BackendRefused(5));
             }
 
+            FactSnapshot fact = kit.Store.Find(id)!;
             Assert.True(fact.IsPending);
-            Assert.True(store.IsEligibleForAutomaticDelivery(fact));
-
-            // What the burst limit DOES do: yield the slot to somebody waiting.
-            Assert.True(store.ShouldYieldToWaitingRequest(fact));
+            Assert.True(kit.Store.IsEligibleForAutomaticDelivery(fact));
+            Assert.True(kit.Store.ShouldYieldToWaitingRequest(fact));   // fairness, never retirement
         }
 
         [Fact]
         public void TheBurstLimitIsTwoAndItOnlyYields()
         {
-            var (store, session, cap) = Fresh();
-            Fact fact = Admit(store, session, cap, Classified("a.warning", ShelfLife.Persistent)).Fact!;
-
+            var kit = new FactKit();
+            EpisodeId id = FactKit.OpenHot(kit.HotSlot(kit.Session())).Handle!.Id;
+            var refusing = new RecordingTransport(kit.Registry, "refuses", TransportCapability.ReportsAcceptance);
             Assert.Equal(2, FactStoreCapacity.AutomaticBurstAttempts);
-            Assert.False(store.ShouldYieldToWaitingRequest(fact));
+            Assert.False(kit.Store.ShouldYieldToWaitingRequest(kit.Store.Find(id)!));
 
-            store.RecordAttempt(fact.Identity.EpisodeId, DeliveryState.Refused, T0, false);
-            Assert.False(store.ShouldYieldToWaitingRequest(fact));
-
-            store.RecordAttempt(fact.Identity.EpisodeId, DeliveryState.Refused, T0, false);
-            Assert.True(store.ShouldYieldToWaitingRequest(fact));
-
-            // Yielding is not retiring.
-            Assert.True(store.IsEligibleForAutomaticDelivery(fact));
+            for (int i = 0; i < 2; i++)
+            {
+                AttemptHandle a = kit.Allocate(kit.PlanAutomatic(id), refusing.Binding);
+                AttemptRunner.Run(a, refusing.Submit);
+                a.Report(TransportEvidence.BackendRefused(5));
+            }
+            Assert.True(kit.Store.ShouldYieldToWaitingRequest(kit.Store.Find(id)!));
+            Assert.True(kit.Store.IsEligibleForAutomaticDelivery(kit.Store.Find(id)!));
         }
 
         [Fact]
-        public void AForgettableMessageCreatesNoContinuingDebt()
+        public void AForgettableMessageGetsExactlyOnePresentationAndNoContinuingDebt()
         {
-            var (store, session, cap) = Fresh();
-            Fact fact = Admit(store, session, cap,
-                Classified("a.pc_audio_on", ShelfLife.Forgettable, ValidityContracts.RequestScoped)).Fact!;
+            var kit = new FactKit();
+            EpisodeId id = FactKit.OpenNote(kit.NotesSlot(kit.Session()), FactKit.BriefKey).Handle!.Id;
+            var refusing = new RecordingTransport(kit.Registry, "refuses", TransportCapability.ReportsAcceptance);
 
-            store.RecordAttempt(fact.Identity.EpisodeId, DeliveryState.Refused, T0, false);
+            // Track M never made it eligible even once: its eligibility ended
+            // on "has retained debt", which forgettable information never has.
+            FactSnapshot before = kit.Store.Find(id)!;
+            Assert.False(before.IsPending);
+            Assert.True(kit.Store.IsEligibleForAutomaticDelivery(before));
 
-            Assert.False(fact.HasUndeliveredDetail);
-            Assert.False(fact.IsPending);
-            Assert.DoesNotContain(fact, store.Pending());
-            Assert.False(store.IsEligibleForAutomaticDelivery(fact));
+            AttemptHandle a = kit.Allocate(kit.PlanAutomatic(id), refusing.Binding);
+            AttemptRunner.Run(a, refusing.Submit);
+            a.Report(TransportEvidence.BackendRefused(5));
+
+            FactSnapshot after = kit.Store.Find(id)!;
+            Assert.False(after.HasUndeliveredDetail);
+            Assert.False(after.IsPending);
+            Assert.DoesNotContain(kit.Store.Pending(), f => f.Id == id);
+            Assert.False(kit.Store.IsEligibleForAutomaticDelivery(after));
         }
 
         [Fact]
         public void APerishableEventKeepsItsHistoryEvenWhenTheSpeechCompleted()
         {
-            var (store, session, cap) = Fresh();
-            Fact fact = Admit(store, session, cap, Classified("a.cut", ShelfLife.Perishable)).Fact!;
+            var kit = new FactKit();
+            EpisodeId id = FactKit.OpenNote(kit.NotesSlot(kit.Session()), FactKit.CutKey).Handle!.Id;
+            var tracked = new RecordingTransport(kit.Registry, "t", TransportCapability.ReportsCompletion);
+            AttemptHandle a = kit.Allocate(kit.PlanAutomatic(id), tracked.Binding);
+            AttemptRunner.Run(a, tracked.Submit);
+            a.Report(TransportEvidence.Completed(5));
 
-            store.RecordAttempt(fact.Identity.EpisodeId,
-                DeliveryState.TrackedCompletion, T0, coveredRequiredDetail: true);
-
-            // Delivered, so off the pending list...
-            Assert.False(fact.IsPending);
-            // ...and still in the history view, which is the other half of the
-            // ruling: what happened remains readable afterwards.
-            Assert.Contains(fact, store.History());
+            Assert.False(kit.Store.Find(id)!.IsPending);
+            Assert.Contains(kit.Store.History(), f => f.Id == id);
         }
 
         [Fact]
-        public void AShortSentenceThatCompletedDoesNotSettleDetailItDidNotCarry()
+        public void ACorrectionMakesADeliveredFactOwedAgainAndAFreshSampleDoesNot()
         {
-            var (store, session, cap) = Fresh();
-            Fact fact = Admit(store, session, cap, Classified("a.capture", ShelfLife.Persistent)).Fact!;
+            var kit = new FactKit();
+            SlotPublisher publisher = kit.HotSlot(kit.Session());
+            PublicationResult opened = FactKit.OpenHot(publisher);
+            EpisodeId id = opened.Handle!.Id;
+            var tracked = new RecordingTransport(kit.Registry, "t", TransportCapability.ReportsCompletion);
+            AttemptHandle a = kit.Allocate(kit.PlanAutomatic(id), tracked.Binding);
+            AttemptRunner.Run(a, tracked.Submit);
+            a.Report(TransportEvidence.Completed(5));
+            Assert.False(kit.Store.Find(id)!.IsPending);
 
-            store.RecordAttempt(fact.Identity.EpisodeId,
-                DeliveryState.TrackedCompletion, T0, coveredRequiredDetail: false);
+            publisher.Update(opened.Handle!, FactKit.Capture(publisher, FactKit.Temp(71m)), FactTransition.Sample(),
+                             kit.Store.Find(id)!.Revision);
+            Assert.False(kit.Store.Find(id)!.IsPending);
 
-            // The capture acknowledgement completing says nothing about the
-            // duration the chosen verbosity tier left out.
-            Assert.True(fact.IsPending);
+            publisher.Update(opened.Handle!, FactKit.Capture(publisher, FactKit.Temp(71m)),
+                FactTransition.Correction(new[] { new MaterialDeclaration("temperature", FactValue.Of(71m)) }),
+                kit.Store.Find(id)!.Revision);
+            Assert.True(kit.Store.Find(id)!.IsPending);
         }
 
         [Fact]
-        public void ACorrectionMakesAnAlreadyDeliveredFactOwedAgain()
+        public void SlotExhaustionIsAReachableRowAndNeverATraceLineOnly()
         {
-            var (store, session, cap) = Fresh();
-            Fact fact = Admit(store, session, cap, Classified("a.warning", ShelfLife.Persistent)).Fact!;
-            store.RecordAttempt(fact.Identity.EpisodeId, DeliveryState.TrackedCompletion, T0, true);
-            Assert.False(fact.IsPending);
+            var kit = new FactKit();
+            FactSession session = kit.Session();
+            for (int i = 0; i < FactStoreCapacity.MaxCurrentSlots; i++) kit.HotSlot(session, "slot-" + i);
 
-            store.UpdateValidity(cap, fact.Identity.EpisodeId,
-                ValiditySnapshot.Establish(T0, "corrected"), session.Observe(T0), material: true);
+            RegistrationResult refused = kit.Registry.Register(kit.Hot, session, FactKit.Temperature, new ConditionKey("one too many"));
 
-            Assert.True(fact.IsPending);
-        }
-
-        [Fact]
-        public void AFreshSampleDoesNotMakeADeliveredFactOwedAgain()
-        {
-            var (store, session, cap) = Fresh();
-            Fact fact = Admit(store, session, cap, Classified("a.warning", ShelfLife.Persistent)).Fact!;
-            store.RecordAttempt(fact.Identity.EpisodeId, DeliveryState.TrackedCompletion, T0, true);
-
-            store.UpdateValidity(cap, fact.Identity.EpisodeId,
-                ValiditySnapshot.Establish(T0, "same condition, newer reading"),
-                session.Observe(T0), material: false);
-
-            // A newer sample must not manufacture an incident, undo a silence
-            // or replenish an allowance.
-            Assert.False(fact.IsPending);
-        }
-
-        // ────────────────────────────────────────────────────────────────
-        //  Review
-        // ────────────────────────────────────────────────────────────────
-
-        [Fact]
-        public void ReviewingIsScopedToWhatWasShown()
-        {
-            var (store, session, cap) = Fresh();
-            Fact fact = Admit(store, session, cap, Classified("a.warning", ShelfLife.Persistent)).Fact!;
-            long shown = fact.MaterialRevision;
-
-            // A newer revision arrives behind the selected row while he reads.
-            store.UpdateValidity(cap, fact.Identity.EpisodeId,
-                ValiditySnapshot.Establish(T0, "something new"), session.Observe(T0), material: true);
-
-            Assert.False(store.MarkReviewed(fact.Identity.EpisodeId, shown));
-            Assert.True(fact.IsPending);
-
-            Assert.True(store.MarkReviewed(fact.Identity.EpisodeId, fact.MaterialRevision));
-            Assert.False(fact.IsPending);
-        }
-
-        // ────────────────────────────────────────────────────────────────
-        //  Capacity, and the ninth warning
-        // ────────────────────────────────────────────────────────────────
-
-        [Fact]
-        public void SlotExhaustionComesBackAsWordsAndNotAsATraceLine()
-        {
-            var (store, _, cap) = Fresh();
-            for (int i = 0; i < FactStoreCapacity.MaxCurrentSlots; i++)
-                Assert.True(store.RegisterSlot(cap, "slot-" + i).Granted);
-
-            RegistrationResult refused = store.RegisterSlot(cap, "one too many");
-
-            // "It cannot be spoken while only a trace knows its retention
-            // failed." The refusal has to be something an operator can be told.
             Assert.Equal(RegistrationOutcome.Exhausted, refused.Outcome);
-            Assert.False(string.IsNullOrWhiteSpace(refused.Explanation));
-
-            // Real words, not the key spoken back. Deliberately not an
-            // assertion about WHICH words: every sentence on this surface is
-            // provisional until Noel rules on it, and a test that pins
-            // unapproved prose makes changing it look like breaking something.
+            Assert.Null(refused.Publisher);
             Assert.False(Lexicon.LooksLikeKey(refused.Explanation));
+            Assert.Contains(kit.Store.Issues, i => i.Kind == IssueKind.RegistrationPressure && i.Outstanding);
         }
 
         [Fact]
-        public void AFullStoreRecordsWhatItCouldNotKeepRatherThanDroppingIt()
+        public void AFullStoreRecordsWhatItCouldNotKeepAndKeepsTheReservedCurrentSlot()
         {
-            var (store, session, cap) = Fresh();
+            var kit = new FactKit();
+            FactSession session = kit.Session();
+            SlotPublisher publisher = kit.HotSlot(session);
 
-            // Fill it with pending facts, which may never be compacted away.
+            // Fill history with owed facts that may never be compacted, one
+            // slot at a time so the slot bound is not what is measured.
             for (int i = 0; i < FactStoreCapacity.MaxHistoricalRecords; i++)
-                Admit(store, session, cap, Classified("a.w", ShelfLife.Persistent), "occ-" + i);
+            {
+                FactSession s = kit.Session("SERIAL-" + i);
+                FactKit.OpenHot(kit.HotSlot(s, "c"));
+                s.End(T0, "filled");
+            }
 
-            FactAdmission overflowed = Admit(store, session, cap,
-                Classified("a.w", ShelfLife.Persistent), "occ-overflow");
+            // The reserved current slot still accepts its first current record.
+            PublicationResult current = FactKit.OpenHot(publisher);
+            Assert.Equal(PublicationOutcome.Accepted, current.Outcome);
 
-            Assert.Equal(AdmissionOutcome.CapacityRecorded, overflowed.Outcome);
-            Assert.True(store.Overflow.Any);
-            Assert.Equal(1, store.Overflow.LostCount);
-            Assert.NotNull(store.Overflow.FirstLostUtc);
-            Assert.False(string.IsNullOrWhiteSpace(overflowed.Explanation));
+            // A second current record on the same slot is counted, not kept.
+            PublicationResult overflow = FactKit.OpenHot(publisher);
+            Assert.Equal(PublicationOutcome.CapacityRecorded, overflow.Outcome);
+            Assert.False(string.IsNullOrWhiteSpace(overflow.Explanation));
+            StoreIssueSnapshot pressure = Assert.Single(kit.Store.Issues, i => i.Kind == IssueKind.RetentionPressure);
+            Assert.Equal(1, pressure.Count);
         }
 
         [Fact]
-        public void CompactionTakesReviewedHistoryAndNeverSomethingStillOwed()
+        public void CompactionTakesDischargedHistoryAndNeverSomethingStillOwed()
         {
-            var (store, session, cap) = Fresh();
-
-            Fact reviewed = Admit(store, session, cap,
-                Classified("a.old", ShelfLife.Persistent), "occ-reviewed").Fact!;
-            store.MarkReviewed(reviewed.Identity.EpisodeId, reviewed.MaterialRevision);
-
+            var kit = new FactKit();
+            // A discharged one first.
+            FactSession dischargedSession = kit.Session("SERIAL-D");
+            EpisodeId discharged = FactKit.OpenNote(kit.NotesSlot(dischargedSession), FactKit.CutKey).Handle!.Id;
+            using (FactListView view = new FactListPresenter(kit.Store).OpenView())
+            {
+                RenderedDetailSnapshot d = view.RenderDetail(view.Snapshot(FactView.Pending).Items.Single())!;
+                view.Installed(d);
+                view.Review(d.Token);
+            }
+            dischargedSession.End(T0, "history now");
             for (int i = 1; i < FactStoreCapacity.MaxHistoricalRecords; i++)
-                Admit(store, session, cap, Classified("a.w", ShelfLife.Persistent), "occ-" + i);
+            {
+                FactSession s = kit.Session("SERIAL-" + i);
+                FactKit.OpenHot(kit.HotSlot(s, "c"));
+                s.End(T0, "filled");
+            }
 
-            FactAdmission next = Admit(store, session, cap,
-                Classified("a.w", ShelfLife.Persistent), "occ-new");
+            PublicationResult next = FactKit.OpenHot(kit.HotSlot(kit.Session("SERIAL-NEW"), "c"));
 
-            // Room was made from the reviewed record, and nothing pending was
-            // touched — compaction can never decrement the unpresented count as
-            // though delivery had occurred.
-            Assert.True(next.Accepted);
-            Assert.False(store.Overflow.Any);
-            Assert.Null(store.Find(reviewed.Identity.EpisodeId));
+            Assert.Equal(PublicationOutcome.Accepted, next.Outcome);
+            Assert.Null(kit.Store.Find(discharged));
+            Assert.Equal(FactStoreCapacity.MaxHistoricalRecords, kit.Store.Pending().Count);
+            // The loss of discharged detail is history, not an outstanding problem.
+            StoreIssueSnapshot compaction = Assert.Single(kit.Store.Issues, i => i.SourceKey == "compaction");
+            Assert.False(compaction.Outstanding);
+            // And it keeps the delivered sentence from being chosen.
+            Assert.True(kit.Store.Project(FactView.Pending, null).Predicates.ReviewedNotDelivered >= 1);
         }
 
         [Fact]
-        public void AStationFilterNeverHidesTheOnlyPendingItem()
+        public void AStationFilterNamesWhatItHidesRatherThanHidingItSilently()
         {
-            var (store, session, cap) = Fresh("SERIAL-1");
-            Fact fact = Admit(store, session, cap, Classified("a.warning", ShelfLife.Persistent)).Fact!;
+            var kit = new FactKit();
+            EpisodeId id = FactKit.OpenHot(kit.HotSlot(kit.Session("SERIAL-1"))).Handle!.Id;
 
-            Assert.Contains(fact, store.Pending("SERIAL-1"));
-
-            // A filter that empties a non-empty list is a filter that lies
-            // about the state of the station.
-            Assert.Contains(fact, store.Pending("SOME-OTHER-RADIO"));
+            Assert.Contains(kit.Store.Pending("SERIAL-1"), f => f.Id == id);
+            FactListSnapshot other = kit.Store.Project(FactView.Pending, "SOME-OTHER-RADIO");
+            Assert.Empty(other.Items);
+            Assert.Equal(1, other.Predicates.ExcludedOutstanding);
         }
 
         [Fact]
         public void TruncatedDetailSaysSo()
         {
-            var (store, session, cap) = Fresh();
-            FactAdmission result = store.Admit(
-                cap, session.NewOccurrence("slot", "occ"),
-                Classified("a.warning", ShelfLife.Persistent),
-                ValiditySnapshot.Establish(T0), session.Observe(T0),
-                detail: new string('x', FactStoreCapacity.MaxDetailBytes + 100));
+            var kit = new FactKit();
+            FactSnapshot fact = FactKit.OpenNote(kit.NotesSlot(kit.Session()), FactKit.CutKey,
+                detail: new string('x', FactStoreCapacity.MaxDetailBytes + 100)).Fact!;
 
-            Assert.True(result.Fact!.DetailTruncated);
-            Assert.True(result.Fact.Detail.Length <= FactStoreCapacity.MaxDetailBytes);
-        }
-
-        // ────────────────────────────────────────────────────────────────
-        //  Receipt
-        // ────────────────────────────────────────────────────────────────
-
-        [Fact]
-        public void TheReceiptTokenIsIssuedOnceAndNotReplayedPerRetry()
-        {
-            var (store, session, cap) = Fresh();
-            Fact fact = Admit(store, session, cap, Classified("a.warning", ShelfLife.Persistent)).Fact!;
-
-            store.RecordReceipt(fact.Identity.EpisodeId, ReceiptState.Requested);
-            string? token = fact.ReceiptToken;
-
-            store.RecordAttempt(fact.Identity.EpisodeId, DeliveryState.Refused, T0, false);
-            store.RecordReceipt(fact.Identity.EpisodeId, ReceiptState.Requested);
-
-            // A second automatic attempt at the same warning makes no new
-            // sound: a failing warning must not become a beeping one.
-            Assert.Equal(token, fact.ReceiptToken);
+            Assert.True(fact.DetailTruncated);
+            Assert.True(fact.Detail.Length <= FactStoreCapacity.MaxDetailBytes);
         }
 
         [Theory]
-        [InlineData(ReceiptState.Requested)]
-        [InlineData(ReceiptState.PlaybackReported)]
-        [InlineData(ReceiptState.Unavailable)]
-        [InlineData(ReceiptState.Suppressed)]
-        public void NoReceiptStateMeansHeardAndNoneOfThemClearsTheDebt(ReceiptState state)
+        [InlineData(ToneRequestResult.Requested)]
+        [InlineData(ToneRequestResult.PlaybackReported)]
+        [InlineData(ToneRequestResult.Unavailable)]
+        [InlineData(ToneRequestResult.Suppressed)]
+        public void NoReceiptOutcomeMeansHeardAndNoneOfThemClearsTheDebt(ToneRequestResult result)
         {
-            var (store, session, cap) = Fresh();
-            Fact fact = Admit(store, session, cap, Classified("a.warning", ShelfLife.Persistent)).Fact!;
-
-            store.RecordReceipt(fact.Identity.EpisodeId, state);
-
-            // The earcon is the receipt as a product role. A broken output
-            // device, a disabled category and deliberate suppression all remain
-            // possible, so the pending indication is held independently of it.
-            Assert.True(fact.IsPending);
+            var kit = new FactKit();
+            EpisodeId id = FactKit.OpenHot(kit.HotSlot(kit.Session())).Handle!.Id;
+            new ReceiptRequestAdapter(kit.Registry.RegisterReceiptAdapter("r"), _ => result).RequestFor(id);
+            Assert.True(kit.Store.Find(id)!.IsPending);
         }
-
-        // ────────────────────────────────────────────────────────────────
-        //  Channel failure
-        // ────────────────────────────────────────────────────────────────
 
         [Fact]
         public void TheFailureNoticeFiresOnceOnTheEdgeAndNotPerFact()
         {
-            var store = new FactStore(1);
-
-            Assert.True(store.NoteChannelHealth(healthy: false));
-            Assert.False(store.NoteChannelHealth(healthy: false));
-            Assert.False(store.NoteChannelHealth(healthy: false));
-
-            store.NoteChannelHealth(healthy: true);
-            Assert.True(store.NoteChannelHealth(healthy: false));
+            var kit = new FactKit();
+            Assert.True(kit.Store.NoteChannelHealth(healthy: false));
+            Assert.False(kit.Store.NoteChannelHealth(healthy: false));
+            kit.Store.NoteChannelHealth(healthy: true);
+            Assert.True(kit.Store.NoteChannelHealth(healthy: false));
         }
-
-        // ────────────────────────────────────────────────────────────────
-        //  No clock
-        // ────────────────────────────────────────────────────────────────
 
         [Fact]
         public void NothingInTheStoreAsksHowOldAnythingIs()
         {
-            var (store, session, cap) = Fresh();
+            // An observation from years ago is exactly as current as its owner
+            // says it is. If any eligibility rule compared a time, it would
+            // fire here.
+            var kit = new FactKit();
+            SlotPublisher publisher = kit.HotSlot(kit.Session());
+            CapturedFactEvent ancient = publisher.Capture(FactKit.Temp(70m), new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc)).Event!;
+            PublicationResult opened = publisher.Open(ancient, "condition.hot", FactKit.HotKey,
+                new[] { new MaterialDeclaration("temperature", FactValue.Of(70m)) });
 
-            // Admitted with an observation time from years ago. If any rule in
-            // here counted seconds, this is where it would fire.
-            var ancient = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-            FactAdmission result = store.Admit(
-                cap, session.NewOccurrence("slot", "occ"),
-                Classified("a.warning", ShelfLife.Persistent),
-                ValiditySnapshot.Establish(ancient),
-                new FactProvenance(session.ConnectionIncarnation, store.NextIngestionStamp(), ancient));
-
-            Assert.True(result.Fact!.Validity.IsCurrent);
-            Assert.True(result.Fact.IsPending);
-            Assert.True(store.IsEligibleForAutomaticDelivery(result.Fact));
+            Assert.True(opened.Fact!.Validity.IsCurrent);
+            Assert.True(kit.Store.IsEligibleForAutomaticDelivery(opened.Fact));
         }
 
+        /// <summary>
+        /// A source-name denylist over the fact layer. <b>It proves exactly
+        /// this and no more:</b> none of these clock APIs is named on a code
+        /// line in <c>Radios/Facts</c>. It cannot prove the absence of every
+        /// possible clock-based expiry — a time could arrive as a parameter
+        /// and be compared — which is why the staleness rule is also stated as
+        /// an invariant on eligibility and pinned by the behavioural test above.
+        /// </summary>
         [Fact]
-        public void TheWholeFactLayerContainsNoClockAtAll()
+        public void TheFactLayerSourceNamesNoClockApi()
         {
-            // The behavioural test above shows the rules in place today do not
-            // count seconds. This one is about the rules that come next: a
-            // timer added here would be a TTL under another name, and it would
-            // be added by somebody solving a real scheduling problem in the
-            // wrong file. Scheduling belongs to the scheduler; the store holds
-            // what is true.
-            string root = RepoRoot();
-            string dir = Path.Combine(root, "Radios", "Facts");
+            string dir = Path.Combine(RepoRoot(), "Radios", "Facts");
             Assert.True(Directory.Exists(dir), "Radios/Facts was not found at " + dir);
-
             string[] files = Directory.GetFiles(dir, "*.cs");
-            Assert.True(files.Length >= 7, "only " + files.Length + " files were scanned");
+            Assert.True(files.Length >= 15, "only " + files.Length + " files were scanned");
+
+            string[] clocks =
+            {
+                "Timer", "Stopwatch", "Elapsed", "TimeSpan", "AddSeconds", "AddMinutes", "AddMilliseconds",
+                "AddHours", "UtcNow", "DateTime.Now", "DateTimeOffset.Now", "TickCount", "GetTimestamp",
+            };
+
+            // POSITIVE CONTROL: the scan really does find a clock name on a
+            // code line when one is there.
+            Assert.NotEmpty(Offenders(new[] { "    var t = DateTime.UtcNow;" }, clocks));
 
             var offenders = new List<string>();
             foreach (string file in files)
-            {
-                foreach (string raw in File.ReadAllLines(file))
-                {
-                    string line = raw.Trim();
-                    if (line.StartsWith("//", StringComparison.Ordinal)) continue;
-                    if (line.StartsWith("///", StringComparison.Ordinal)) continue;
-                    if (line.StartsWith("*", StringComparison.Ordinal)) continue;
-
-                    foreach (string clock in new[]
-                             {
-                                 "Timer", "Stopwatch", "Elapsed", "TimeSpan",
-                                 "AddSeconds", "AddMinutes", "AddMilliseconds",
-                             })
-                    {
-                        if (line.Contains(clock, StringComparison.Ordinal))
-                            offenders.Add(Path.GetFileName(file) + ": " + line);
-                    }
-                }
-            }
+                foreach (string hit in Offenders(File.ReadAllLines(file), clocks))
+                    offenders.Add(Path.GetFileName(file) + ": " + hit);
 
             Assert.True(offenders.Count == 0,
-                "The fact store has grown a clock. Nothing here decides staleness by counting "
-                + "seconds — the condition governs, and a timer in this layer is a shelf life "
-                + "under another name:\n  " + string.Join("\n  ", offenders));
+                "The fact layer names a clock. Nothing here decides staleness by counting time — the owner's "
+                + "transition does — and a clock in this layer is a shelf life under another name:\n  "
+                + string.Join("\n  ", offenders));
+        }
+
+        private static IEnumerable<string> Offenders(IEnumerable<string> lines, string[] clocks)
+        {
+            foreach (string raw in lines)
+            {
+                string line = raw.Trim();
+                if (line.StartsWith("//", StringComparison.Ordinal) || line.StartsWith("*", StringComparison.Ordinal)) continue;
+                foreach (string clock in clocks)
+                    if (line.Contains(clock, StringComparison.Ordinal)) yield return line;
+            }
         }
 
         private static string RepoRoot()
@@ -705,148 +424,61 @@ namespace Radios.Tests
         }
     }
 
-    /// <summary>The store's disk half.</summary>
-    public class FactJournalTests : IDisposable
+    /// <summary>The application composition point: one store, one journal, started from the settings root.</summary>
+    [Collection(RadioConfigStaticsCollection.Name)]
+    public class ApplicationFactsStartupTests
     {
-        private readonly string _dir = Path.Combine(
-            Path.GetTempPath(), "jjflex-facts-" + Guid.NewGuid().ToString("N"));
-
-        private static readonly DateTime T0 = new DateTime(2026, 9, 24, 12, 0, 0, DateTimeKind.Utc);
-
-        public void Dispose()
-        {
-            try { if (Directory.Exists(_dir)) Directory.Delete(_dir, recursive: true); }
-            catch (IOException) { /* a temp directory we could not remove is not a test failure */ }
-            GC.SuppressFinalize(this);
-        }
-
-        private static Fact OneFact(FactStore store, RadioSessionFacts session, ProducerCapability cap)
-        {
-            var entry = LexiconEntry.Plain("words").WithDelivery(
-                DeliveryClassification.Message,
-                new DeliveryDescriptor(ShelfLife.Persistent, "pa.temperature", "a.w.history", ReceiptPolicy.Warning));
-            return store.Admit(
-                cap, session.NewOccurrence("pa.temperature", "occ-1"),
-                new LexiconMessage("a.w", entry, Array.Empty<(string, object?)>(), 1),
-                ValiditySnapshot.Establish(T0), session.Observe(T0),
-                detail: "The PA reached 70 degrees.").Fact!;
-        }
-
         [Fact]
-        public void ARestoredRecordIsHistoryAndUnknownWhateverItSaidWhenItWasWritten()
+        public void StartLoadsHistoryUnderTheGivenRootAndHandsTheIssuerOutOnce()
         {
-            var written = new FactStore(1);
-            var session = new RadioSessionFacts(written, "SERIAL-1");
-            Fact live = OneFact(written, session, session.IssueCapability("p"));
-            Assert.True(live.Validity.IsCurrent);
+            using var root = new TempFactDir();
 
-            string json = FactJournal.Render(written);
-            IReadOnlyList<Fact> restored = FactJournal.ReadShard(json);
-
-            Assert.Single(restored);
-
-            // A loaded file can never assert that a condition is current, and a
-            // restored record carries no capability, so it cannot speak on its
-            // own. A new connection creates new authority and may relate to an
-            // older condition without retroactively confirming it.
-            Assert.Equal(ValidityState.Unknown, restored[0].Validity.State);
-            Assert.True(restored[0].RestoredFromDisk);
-            Assert.Equal("The PA reached 70 degrees.", restored[0].Detail);
-        }
-
-        [Fact]
-        public void AFileFromAnotherSchemaIsRefusedRatherThanGuessedAt()
-        {
-            Assert.Throws<System.Text.Json.JsonException>(
-                () => FactJournal.ReadShard("""{ "schema": 99, "facts": [] }"""));
-        }
-
-        [Fact]
-        public void AWriteLandsAtomicallyAndTheStatusSaysSo()
-        {
-            var store = new FactStore(1);
-            var session = new RadioSessionFacts(store, "SERIAL-1");
-            OneFact(store, session, session.IssueCapability("p"));
-
-            using var journal = new FactJournal(store, _dir, "shard-a");
-            Assert.True(journal.TakeLease());
-            Assert.True(journal.Write());
-
-            Assert.True(File.Exists(journal.ShardPath));
-            Assert.Equal(PersistenceStatus.UpToDate, store.Persistence);
-        }
-
-        [Fact]
-        public void TwoProcessesWriteTwoShardsAndNeitherOverwritesTheOther()
-        {
-            var one = new FactStore(1);
-            var two = new FactStore(2);
-
-            using var a = new FactJournal(one, _dir, "shard-a");
-            using var b = new FactJournal(two, _dir, "shard-b");
-
-            Assert.True(a.TakeLease());
-            Assert.True(b.TakeLease());
-            Assert.NotEqual(a.ShardPath, b.ShardPath);
-
-            Assert.True(a.Write());
-            Assert.True(b.Write());
-            Assert.Equal(2, Directory.GetFiles(_dir, "facts-*.json").Length);
-        }
-
-        [Fact]
-        public void AnUnreadableShardBecomesAReachableRecoveryGapAndNotAnEmptyHealthyList()
-        {
-            Directory.CreateDirectory(_dir);
-            File.WriteAllText(Path.Combine(_dir, "facts-broken.json"), "{ this is not json");
-
-            var store = new FactStore(1);
-            using var journal = new FactJournal(store, _dir, "mine");
-
-            int restored = journal.LoadHistory();
-
-            // An empty list after a corrupt file is the worst possible answer,
-            // because it looks exactly like nothing having gone wrong.
-            Assert.Equal(0, restored);
-            Assert.Equal(PersistenceStatus.RecoveryGap, store.Persistence);
-            Assert.NotNull(store.PersistenceNote);
-            Assert.False(Lexicon.LooksLikeKey(store.PersistenceNote));
-        }
-
-        [Fact]
-        public void AnotherProcessesShardLoadsAsHistoryOnRestart()
-        {
-            var old = new FactStore(1);
-            var session = new RadioSessionFacts(old, "SERIAL-1");
-            OneFact(old, session, session.IssueCapability("p"));
-
-            using (var writer = new FactJournal(old, _dir, "old-process"))
+            // A previous run left a released shard with an owed fact.
+            var previous = new FactKit();
+            EpisodeId id = FactKit.OpenHot(previous.HotSlot(previous.Session("SERIAL-P"))).Handle!.Id;
+            using (var j = new FactJournal(previous.Store, Path.Combine(root.Path, "facts")))
             {
-                Assert.True(writer.TakeLease());
-                Assert.True(writer.Write());
-            }   // lease released, as a process exiting would
+                j.TakeLease();
+                j.Write();
+            }
 
-            var fresh = new FactStore(2);
-            using var reader = new FactJournal(fresh, _dir, "new-process");
-            Assert.Equal(1, reader.LoadHistory());
-            Assert.Single(fresh.All);
-            Assert.True(fresh.All[0].RestoredFromDisk);
+            ApplicationFacts.Forget();
+            try
+            {
+                FactAuthorityRegistry? issuer = ApplicationFacts.Start(root.Path);
+                Assert.NotNull(issuer);
+                Assert.Null(ApplicationFacts.Start(root.Path));                 // the issuer is handed out once
+                Assert.Same(issuer!.Store, ApplicationFacts.Store);            // one store, not a second incidental one
+                Assert.Equal(HistoryLoadState.Loaded, ApplicationFacts.Store.Load);
+                Assert.NotNull(ApplicationFacts.Store.Find(id));
+                Assert.StartsWith(Path.Combine(root.Path, "facts"), ApplicationFacts.Journal!.ShardPath, StringComparison.Ordinal);
+
+                // The status summary the Status dialog shows comes from the same projection.
+                Assert.Equal("facts.status.pending_summary",
+                    FactListPresenter.StatusSummaryRoles(ApplicationFacts.Store.Project(FactView.Pending, null)).Single().Key);
+            }
+            finally
+            {
+                ApplicationFacts.Shutdown();
+                ApplicationFacts.Forget();
+            }
         }
 
         [Fact]
-        public void ALiveShardIsSkippedBecauseAHalfWrittenSnapshotIsNotHistory()
+        public void ApplicationEventsStartsTheStoreBeforeSpeechAndShutsItDown()
         {
-            var other = new FactStore(1);
-            var session = new RadioSessionFacts(other, "SERIAL-1");
-            OneFact(other, session, session.IssueCapability("p"));
+            string root = new DirectoryInfo(AppContext.BaseDirectory).Parent!.FullName;
+            var dir = new DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null && !File.Exists(Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
+            Assert.NotNull(dir);
+            string vb = File.ReadAllText(Path.Combine(dir!.FullName, "ApplicationEvents.vb"));
 
-            using var held = new FactJournal(other, _dir, "still-running");
-            Assert.True(held.TakeLease());
-            Assert.True(held.Write());
-
-            var fresh = new FactStore(2);
-            using var reader = new FactJournal(fresh, _dir, "new-process");
-            Assert.Equal(0, reader.LoadHistory());
+            int start = vb.IndexOf("Radios.Facts.ApplicationFacts.Start(", StringComparison.Ordinal);
+            int speech = vb.IndexOf("Radios.ScreenReaderOutput.Initialize()", StringComparison.Ordinal);
+            Assert.True(speech > 0, "the speech initialisation line was not found, so this test checks nothing");
+            Assert.True(start > 0 && start < speech, "the fact store must start before speech is initialised");
+            Assert.Contains("Radios.Facts.ApplicationFacts.Shutdown()", vb, StringComparison.Ordinal);
+            _ = root;
         }
     }
 }

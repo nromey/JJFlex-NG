@@ -3,23 +3,31 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:JJFlexWpf"
         Title="Undelivered details"
-        Width="720" Height="520"
+        Width="760" Height="560"
         ResizeMode="CanResize">
 
     <!-- An ordinary accessible list-and-detail window. Deliberately ordinary:
          the detail is a read-only multi-line text box rather than anything
          custom, so it reaches the screen reader and the braille display
          through the platform's own text pattern with nothing of ours in the
-         way. The backlog is never recited and never put into HelpText. -->
+         way. The backlog is never recited and never put into HelpText.
+
+         Rows are immutable snapshots with stable identities, updated in place,
+         so an arriving row never moves the selection or the reading position.
+         The detail text is replaced ONLY by an explicit selection or Refresh;
+         a background change shows the changed-notice and enables Refresh
+         instead of rewriting the text under the reader. -->
 
     <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="300"/>
+            <ColumnDefinition Width="320"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
@@ -34,16 +42,39 @@
                          AutomationProperties.Name="Event history"/>
         </StackPanel>
 
-        <ListBox x:Name="Items" Grid.Row="1" Grid.Column="0" Margin="0,0,12,0"
-                 SelectionChanged="Items_SelectionChanged"
-                 AutomationProperties.Name="Undelivered details"/>
+        <!-- Outstanding items a station filter is hiding. Global store
+             problems are never hidden by a filter. Empty and collapsed when
+             nothing is excluded. -->
+        <TextBlock x:Name="ExcludedNotice" Grid.Row="1" Grid.ColumnSpan="2" Margin="0,0,0,6"
+                   TextWrapping="Wrap" Visibility="Collapsed" Focusable="False"/>
 
-        <TextBox x:Name="DetailText" Grid.Row="1" Grid.Column="1"
+        <ListBox x:Name="Items" Grid.Row="2" Grid.Column="0" Margin="0,0,12,0"
+                 DisplayMemberPath="Text"
+                 SelectionChanged="Items_SelectionChanged"
+                 AutomationProperties.Name="Undelivered details">
+            <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem">
+                    <Setter Property="AutomationProperties.Name" Value="{Binding Text}"/>
+                </Style>
+            </ListBox.ItemContainerStyle>
+        </ListBox>
+
+        <TextBox x:Name="DetailText" Grid.Row="2" Grid.Column="1"
                  IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap"
                  VerticalScrollBarVisibility="Auto"
                  AutomationProperties.Name="Detail"/>
 
-        <StackPanel Grid.Row="2" Grid.ColumnSpan="2" Orientation="Horizontal"
+        <!-- Newer information arrived for the record on screen. State exposed
+             by a control, not a burst of speech: the text above is left exactly
+             as the operator is reading it until he asks for the new one. -->
+        <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Margin="0,8,0,0">
+            <TextBlock x:Name="ChangedNotice" VerticalAlignment="Center" TextWrapping="Wrap"
+                       Visibility="Collapsed" Margin="0,0,8,0"/>
+            <Button x:Name="RefreshButton" MinWidth="110" Height="30" IsEnabled="False"
+                    Click="RefreshButton_Click"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="4" Grid.ColumnSpan="2" Orientation="Horizontal"
                     HorizontalAlignment="Right" Margin="0,12,0,0">
             <Button x:Name="ReadButton" MinWidth="110" Height="32" Margin="0,0,8,0"
                     Click="ReadButton_Click"

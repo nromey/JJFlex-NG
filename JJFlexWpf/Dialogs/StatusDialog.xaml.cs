@@ -106,14 +106,9 @@ public partial class StatusDialog : JJFlexDialog
     /// </remarks>
     private void RefreshPendingSummary()
     {
-        int pending = Radios.Facts.ApplicationFacts.Store.PendingCount;
-
-        PendingSummary.Text = pending switch
-        {
-            0 => Lexicon.Get("facts.status.nothing_pending"),
-            1 => Lexicon.Get("facts.status.pending_summary", ("count", pending)),
-            _ => Lexicon.Get("facts.status.pending_summary_plural", ("count", pending)),
-        };
+        // The same issue-aware projection the list itself consumes, so this
+        // line can never say "nothing" while the list shows a problem row.
+        PendingSummary.Text = new Radios.Facts.FactListPresenter(Radios.Facts.ApplicationFacts.Store).StatusSummaryText();
         System.Windows.Automation.AutomationProperties.SetName(PendingSummary, PendingSummary.Text);
     }
 

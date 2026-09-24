@@ -1,179 +1,186 @@
 #nullable enable
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Threading;
+using System.IO;
 using JJTrace;
 
 namespace Radios.Facts
 {
     /// <summary>
-    /// The owner of one concrete attachment to a radio. It issues the
-    /// capabilities its producers publish through, and revokes them when the
-    /// attachment ends.
+    /// The lifecycle owner of one concrete attachment to a radio.
     /// </summary>
     /// <remarks>
     /// <para>
     /// <b>A generation is issued by the thing whose lifetime it represents.</b>
-    /// This one owns the connection incarnation, and it issues it BEFORE any
-    /// callback is subscribed, so every closure can capture it. Reading the
-    /// current generation when an old callback finally runs would stamp an old
-    /// observation with a new connection's authority — provenance
-    /// manufactured, and undetectable afterwards.
+    /// This opens the session scope BEFORE any callback subscribes, so every
+    /// closure registers against it; it registers slots for the owners the
+    /// composition root declared; and it ends the scope when the attachment
+    /// ends. It is the only holder of the scope handle, so nothing else can end
+    /// its observation context.
     /// </para>
     /// <para>
-    /// <b>A reconnect to the same serial is a NEW incarnation.</b> The gap is
-    /// exactly where the world may have changed without us, and treating the
-    /// two as one session is how a silenced warning comes back to life having
-    /// proved nothing.
+    /// <b>A reconnect to the same serial is a NEW session.</b> The gap is where
+    /// the world may have changed without us; continuity across it is the
+    /// owner's classification, recorded by the store, never assumed.
     /// </para>
     /// </remarks>
     public sealed class RadioSessionFacts
     {
-        private static long _nextIncarnation;
+        private readonly FactAuthorityRegistry _registry;
 
-        private readonly object _gate = new object();
-        private readonly List<ProducerCapability> _issued = new();
-
-        public RadioSessionFacts(FactStore store, string? radioIdentity)
+        public RadioSessionFacts(FactAuthorityRegistry registry, string? radioIdentity, string label = "")
         {
-            Store = store ?? throw new ArgumentNullException(nameof(store));
-            RadioIdentity = radioIdentity;
-            ConnectionIncarnation = Interlocked.Increment(ref _nextIncarnation);
+            _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+            Session = registry.OpenSession(radioIdentity, label);
         }
 
-        public FactStore Store { get; }
+        public FactSession Session { get; }
+        public string? RadioIdentity => Session.RadioIdentity;
+        public bool Detached => Session.Ended;
+
+        /// <summary>Reserve the one publishing endpoint for an owner's condition in this session.</summary>
+        public RegistrationResult Register(FactOwner owner, ConditionContract contract, ConditionKey condition) =>
+            _registry.Register(owner, Session, contract, condition);
 
         /// <summary>
-        /// The stable radio identity when known; null when it is not.
-        /// <b>Unknown stays unknown</b> — never filled in from a nickname or
-        /// from whichever rig happens to be selected.
+        /// End the attachment: revoke every publisher, then end the current
+        /// rendering of everything observed through it. Called BEFORE
+        /// unsubscribing, so a callback firing during teardown is refused
+        /// rather than racing the unsubscribe.
         /// </summary>
-        public string? RadioIdentity { get; }
-
-        /// <summary>Issued before any callback is subscribed.</summary>
-        public long ConnectionIncarnation { get; }
-
-        /// <summary>True once the attachment has ended.</summary>
-        public bool Detached { get; private set; }
-
-        /// <summary>
-        /// Issue a capability to one producer. Naming a subject grants nothing;
-        /// holding this does.
-        /// </summary>
-        public ProducerCapability IssueCapability(string producerName)
-        {
-            lock (_gate)
-            {
-                var capability = new ProducerCapability(
-                    Guid.NewGuid(), producerName, ConnectionIncarnation, RadioIdentity);
-                if (Detached) capability.Revoke();
-                _issued.Add(capability);
-                return capability;
-            }
-        }
-
-        /// <summary>
-        /// Build an identity for one occurrence in this session.
-        /// </summary>
-        /// <param name="occurrenceId">
-        /// The owner's identity for THIS occurrence. Another occurrence of the
-        /// same condition kind is a different incident, never a revision of the
-        /// older one.
-        /// </param>
-        public FactIdentity NewOccurrence(
-            string conditionSlot, string occurrenceId, long? transmitGeneration = null)
-            => new FactIdentity(
-                Store.ProcessIncarnation, ConnectionIncarnation, RadioIdentity,
-                conditionSlot, occurrenceId, transmitGeneration);
-
-        /// <summary>Capture provenance at the source, with an ingestion stamp taken now.</summary>
-        public FactProvenance Observe(
-            DateTime observedUtc, string? sourceIdentity = null, bool observationComplete = true)
-            => new FactProvenance(
-                ConnectionIncarnation, Store.NextIngestionStamp(),
-                observedUtc, sourceIdentity, observationComplete);
-
-        /// <summary>
-        /// End the attachment: revoke every capability, then end the current
-        /// rendering of everything that depended on this connection.
-        /// </summary>
-        /// <remarks>
-        /// <b>Revoke BEFORE unsubscribing.</b> A callback that fires during
-        /// teardown then finds a revoked capability and is refused, rather than
-        /// racing the unsubscribe and being admitted as current.
-        /// </remarks>
-        public void Detach(DateTime nowUtc, string why)
-        {
-            lock (_gate)
-            {
-                if (Detached) return;
-                Detached = true;
-                foreach (ProducerCapability capability in _issued) capability.Revoke();
-            }
-
-            int touched = Store.RevokeConnection(ConnectionIncarnation, nowUtc, why);
-            Tracing.TraceLine(
-                "RadioSessionFacts: connection " + ConnectionIncarnation + " detached — " + why
-                + "; " + touched + " current rendering(s) became history. What was last established "
-                + "is still readable and current state is unknown, which is not the same as clear.",
-                TraceLevel.Info);
-        }
+        public int Detach(DateTime asOfUtc, string why) => Session.End(asOfUtc, why);
     }
 
     /// <summary>
-    /// Where the application-lifetime store lives.
+    /// Where the application-lifetime store, its journal and its issuer live.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Application lifetime, started before speech.</b> The store must exist
-    /// before anything can fail to be said, because a store created by the
-    /// speech layer would be unavailable in exactly the case it is for.
+    /// <b>Started before speech is initialised</b>, from
+    /// <c>ApplicationEvents.vb</c>, because a store created by the speech layer
+    /// would be unavailable in exactly the case it is for.
     /// </para>
     /// <para>
-    /// <b>A static holder rather than an injected one, deliberately and
-    /// narrowly.</b> The producers are scattered across a VB WinForms app, a
-    /// WPF layer and a static kill-switch adapter, none of which can be handed
-    /// a constructor argument today. What is static is the HOLDER; the
-    /// authority is not — every write still needs a capability issued by a
-    /// session owner, which is the thing that actually had to stop being
-    /// ambient.
+    /// <b>The holder is static; the authority is not ambient.</b> Consumers
+    /// reach the <see cref="Store"/> — queries and narrow endpoints only. The
+    /// issuer is returned ONCE, to the composition root that starts the store,
+    /// and is not reachable from here by anything else; a producer cannot fetch
+    /// it to register itself as some other owner.
     /// </para>
     /// </remarks>
     public static class ApplicationFacts
     {
         private static readonly object Gate = new object();
-        private static FactStore? _store;
+        private static FactAuthorityRegistry? _registry;
+        private static bool _issued;
+        private static FactJournal? _journal;
+        private static FactJournalWriter? _writer;
 
         /// <summary>
-        /// The store, created on first use. Never null, so no caller has to
-        /// decide what to do when the place information goes is missing.
+        /// The application's store. Never null: created on first use, so no
+        /// caller has to decide what to do when the place information goes is
+        /// missing.
         /// </summary>
         public static FactStore Store
         {
             get
             {
-                lock (Gate)
-                {
-                    return _store ??= new FactStore(DateTime.UtcNow.Ticks);
-                }
+                lock (Gate) return (_registry ??= FactAuthorityRegistry.Create()).Store;
             }
         }
 
-        /// <summary>Start it explicitly, before speech is initialised.</summary>
-        public static FactStore Start(long processIncarnation)
+        /// <summary>
+        /// Start the application store against a settings root: take this
+        /// writer's lease, load released history, and begin coalesced writing.
+        /// </summary>
+        /// <returns>
+        /// The issuer, the first time only. Every later call returns null: the
+        /// composition root is handed the authority once.
+        /// </returns>
+        /// <remarks>
+        /// Failure to open the journal never stops the application: the store
+        /// stays in memory and the failure is a reachable row, which is the
+        /// honest reduced guarantee.
+        /// </remarks>
+        public static FactAuthorityRegistry? Start(string settingsRoot)
         {
             lock (Gate)
             {
-                _store ??= new FactStore(processIncarnation);
-                return _store;
+                _registry ??= FactAuthorityRegistry.Create();
+                if (_journal == null && !string.IsNullOrEmpty(settingsRoot) && Path.IsPathRooted(settingsRoot))
+                {
+                    try
+                    {
+                        _journal = new FactJournal(_registry.Store, Path.Combine(settingsRoot, "facts"));
+                        if (_journal.TakeLease())
+                        {
+                            LoadReport report = _journal.LoadHistory();
+                            Tracing.TraceLine("ApplicationFacts: history loaded — " + report, TraceLevel.Info);
+                            _writer = new FactJournalWriter(_registry.Store, _journal);
+                        }
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+                    {
+                        _registry.Store.NotePersistFailure("shard:startup", "fact store",
+                            "the fact store's folder could not be opened: " + ex.Message);
+                    }
+                }
+
+                if (_issued) return null;
+                _issued = true;
+                return _registry;
+            }
+        }
+
+        /// <summary>The journal, when one was started. For diagnostics and tests.</summary>
+        public static FactJournal? Journal
+        {
+            get { lock (Gate) return _journal; }
+        }
+
+        /// <summary>
+        /// The bounded final flush: one write attempt, then release the lease.
+        /// A failure leaves the explicit unsaved state; it never delays exit
+        /// beyond that one attempt.
+        /// </summary>
+        public static void Shutdown()
+        {
+            FactJournalWriter? writer;
+            FactJournal? journal;
+            lock (Gate)
+            {
+                writer = _writer;
+                journal = _journal;
+                _writer = null;
+                _journal = null;
+            }
+            try
+            {
+                writer?.Dispose();
+                writer?.FlushOnce();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Tracing.TraceLine("ApplicationFacts: final flush failed — " + ex.Message, TraceLevel.Warning);
+            }
+            finally
+            {
+                journal?.Dispose();
             }
         }
 
         /// <summary>For tests. Never called in the running application.</summary>
         internal static void Forget()
         {
-            lock (Gate) _store = null;
+            lock (Gate)
+            {
+                _writer?.Dispose();
+                _journal?.Dispose();
+                _writer = null;
+                _journal = null;
+                _registry = null;
+                _issued = false;
+            }
         }
     }
 }
