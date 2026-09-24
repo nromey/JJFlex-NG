@@ -142,6 +142,60 @@ namespace Radios.Tests
         private TraceManifest Manifest() =>
             TraceManifest.Load(Path.Combine(_archiveDir, SessionArchive.ManifestFileName));
 
+        // ── Emission ───────────────────────────────────────────────────────
+
+        /// <summary>
+        /// <b>Opening a sink raises the emission gate.</b> Making
+        /// <c>Tracing.On</c> a pure gate — so that turning it off could no
+        /// longer close somebody else's file — left a hole: boot was the only
+        /// place that raised it. An operator who launched with logging off and
+        /// then turned it on in Settings would have got a session, a file, and
+        /// not one line in it, because every <c>TraceLine</c> tests that gate
+        /// first.
+        /// </summary>
+        [Fact]
+        public void A_log_turned_on_after_a_silent_launch_actually_writes()
+        {
+            Tracing.On = false;                       // launched with logging off
+            TraceSessionHandle live = Open();
+            Assert.True(Tracing.On, "opening a sink did not raise the emission gate");
+
+            Write("the first line after the operator turned it on");
+
+            TraceTransitionResult r = TraceCoordinator.TrySeal(new TraceSealRequest
+            {
+                Expected = live,
+                OperationId = Guid.NewGuid(),
+                Outcome = TraceSessionOutcome.CleanExit,
+                Resume = TraceResumeIntent.None,
+            });
+            Assert.Contains("the first line after the operator turned it on",
+                            ReadArchivedText(r.Ticket), StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// And the gate is not the same question as "is a log being written".
+        /// It stays raised once anything has opened a sink, so every reader that
+        /// meant the second question has to ask the boundary — the running-cost
+        /// register, the Diagnostics status sentence, the state marker and the
+        /// support snapshot all did.
+        /// </summary>
+        [Fact]
+        public void The_emission_gate_is_not_the_same_question_as_recording()
+        {
+            TraceSessionHandle live = Open();
+            TraceCoordinator.TrySeal(new TraceSealRequest
+            {
+                Expected = live,
+                OperationId = Guid.NewGuid(),
+                Outcome = TraceSessionOutcome.CleanExit,
+                Resume = TraceResumeIntent.None,
+            });
+
+            Assert.True(Tracing.On);                  // still raised
+            Assert.False(TraceCoordinator.Recording); // and nothing is being written
+        }
+
         // ── The losing caller ──────────────────────────────────────────────
 
         /// <summary>

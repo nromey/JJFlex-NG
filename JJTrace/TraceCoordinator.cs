@@ -476,6 +476,20 @@ namespace JJTrace
                 _level = level;
                 if (continuing == null) session.VerbosityLevel = level.ToString();
 
+                // Opening a sink turns emission on. It has to happen here
+                // rather than at each call site: Tracing.On is the gate every
+                // TraceLine tests, and a caller that opened a session without
+                // raising it would write to a file nothing ever reached. That
+                // is not hypothetical — the standing log turned on from
+                // Settings after a launch with logging off would have been
+                // silent, because boot was the only place that raised it.
+                //
+                // Nothing here ever lowers it. Turning emission off is the
+                // console tools' and the tests' business, and the old coupling
+                // of "stop emitting" to "close this session's file" is exactly
+                // what let one caller close another's trace.
+                Tracing.On = true;
+
                 result.Status = TraceTransition.Accepted;
                 result.Successor = _handle;
                 result.TracingOn = true;

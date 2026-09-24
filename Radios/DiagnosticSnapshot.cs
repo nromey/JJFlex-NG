@@ -731,7 +731,11 @@ namespace Radios
         {
             try
             {
-                TracingActive = JJTrace.Tracing.On;
+                // Recording, not the emission gate. Tracing.On stays raised for
+                // the life of the process once anything has opened a sink; a
+                // snapshot that reported it as "tracing active" would tell a
+                // support reader a log was being written when none was.
+                TracingActive = JJTrace.TraceCoordinator.Recording;
                 TraceFilePath = JJTrace.Tracing.TraceFile;
                 if (!string.IsNullOrEmpty(TraceFilePath))
                 {

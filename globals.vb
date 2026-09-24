@@ -652,8 +652,12 @@ Module globals
             ' point is that none of them were ever told, and this read is where
             ' they can now find out.
             Dim standingLog As New Radios.RunningCost("diagnostic-log", "The diagnostic log")
+            ' TraceCoordinator.Recording, not Tracing.On. The latter is now the
+            ' EMISSION gate and stays raised for the life of the process once
+            ' anything has opened a sink; the question here is whether a log is
+            ' actually being written, which only the boundary knows.
             standingLog.IsRunning = Function() DiagnosticsSettings.KeepDiagnosticLog _
-                                                AndAlso Tracing.On _
+                                                AndAlso TraceCoordinator.Recording _
                                                 AndAlso Not DetailedCaptureRunning
             standingLog.DescribeCost = Function() DescribeBytes(LiveLogBytes())
             standingLog.StopHow = "go to Settings, then Diagnostics"
@@ -909,8 +913,9 @@ Module globals
     ' replaced. The log now lives in one place, rotates there, archives there,
     ' and is exported by copying — not by being pointed somewhere else while it
     ' runs. The rule those two existed to protect still holds and is now
-    ' enforced by there being no way to break it: nothing flips Tracing.On
-    ' without archiving what was already open.
+    ' enforced by there being no way to break it: opening and closing a trace
+    ' file is TraceCoordinator's alone, and it settles the session in the same
+    ' transition.
 
     ''' <summary>
     ''' Open the Saved Diagnostic Logs window — the repurposed TraceAdmin form,
@@ -980,7 +985,7 @@ Module globals
     Friend Sub TraceCaptureStateMarker(Optional captureOn As Boolean? = Nothing,
                                        Optional levelOverride As TraceLevel? = Nothing)
         Try
-            If Not Tracing.On Then Return
+            If Not TraceCoordinator.Recording Then Return
             Dim isOn As Boolean = If(captureOn, DetailedCaptureRunning)
             Dim lvl As TraceLevel = If(levelOverride, Tracing.TheSwitch.Level)
             Dim asmPath As String = If(myAssembly IsNot Nothing,
@@ -1422,7 +1427,10 @@ Module globals
             If DetailedCaptureRunning Then
                 Return $"Detailed capture in progress, started {FormatClock(_captureStartedLocal.Value)}."
             End If
-            If Not DiagnosticsSettings.KeepDiagnosticLog OrElse Not Tracing.On Then
+            ' Recording, not the emission gate: the operator is asking whether
+            ' anything is being written down, and after the boundary took over
+            ' file ownership those became different questions.
+            If Not DiagnosticsSettings.KeepDiagnosticLog OrElse Not TraceCoordinator.Recording Then
                 Return "Diagnostic log is off."
             End If
             Dim since As String = ""
@@ -1626,11 +1634,11 @@ Module globals
     End Function
 
     ''' <summary>
-    ''' Archive the active trace session (if any) into the per-session archive: compress
-    ''' the trace file, write a manifest entry, and delete the source. Captures the trace
-    ''' path BEFORE closing the listener (since Tracing.On = False clears Tracing.TraceFile).
-    ''' Idempotent — if no session is active, no-op. Called at clean exit and from the
-    ''' shutdown event for belt-and-suspenders.
+    ''' Close whichever trace session is open and let its archive be made.
+    ''' Kept as the name both shutdown hooks already use; the work is
+    ''' <see cref="FinalizeTraceForShutdown"/>'s. Idempotent — if no session is
+    ''' active, no-op, and if one hook has already sealed, the other gets that
+    ''' hook's ticket rather than sealing again.
     ''' </summary>
     ''' <param name="outcome">Outcome tag for the manifest entry. Defaults to clean_exit.</param>
     ''' <param name="detail">Optional outcome detail string.</param>
@@ -2360,7 +2368,9 @@ Module globals
             }
             TraceCoordinator.SetStandingIntent(DiagnosticsSettings.KeepDiagnosticLog,
                                                DiagnosticsSettings.TraceLevel)
-            Tracing.On = True
+            ' The boundary raises the emission gate itself when it opens a
+            ' sink, so every path that starts a log - boot, a capture, a
+            ' settings change, a restart - gets it without having to remember.
             ReportTraceTransition(TraceCoordinator.Begin(BootTraceFileName, bootLevel, asDetailedCapture:=False))
             Tracing.TraceLine("Boot Tracing on instance:" & ProgramInstance & " " & myAssembly.Location & " " & myVersion.ToString() & " " & Date.Now & " level=" & bootLevel.ToString)
             ' Where this run's settings actually came from. Decided before
