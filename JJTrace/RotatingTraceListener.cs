@@ -42,6 +42,27 @@ namespace JJTrace
         private StreamWriter _writer;
         private bool _closed;
 
+        /// <summary>
+        /// Immutable identity of the session whose parts this sink produces.
+        ///
+        /// <para><b>Carried rather than looked up, and that is a correctness
+        /// fix, not tidiness.</b> Rotation names a part and queues its
+        /// compression from inside this listener's own lock. Both used to read
+        /// the process-global current session from there — so a rotation racing
+        /// a lifecycle transition could stamp a part with the WRONG session's
+        /// boot time, and a lock wrapped around listener closure would have
+        /// closed on the coordinator gate from inside sink synchronisation,
+        /// which is the inversion. Nothing below this line reaches back up.</para>
+        /// </summary>
+        internal TraceSinkStamp Stamp { get; }
+
+        /// <summary>
+        /// Suppress size rotation. Set while a terminal record is written so
+        /// the last line of a sealed file cannot land in a part nobody is
+        /// expecting, and the final part number stays the one that was frozen.
+        /// </summary>
+        private bool _rotationSuppressed;
+
         /// <summary>Bytes written into the currently open part.</summary>
         private long _bytesInPart;
 
@@ -76,15 +97,25 @@ namespace JJTrace
         public RotatingTraceListener(string path,
                                      long rotationThresholdBytes,
                                      Func<int, string> resolvePartPath,
-                                     Action<string, int> onPartClosed)
+                                     Action<string, int> onPartClosed,
+                                     TraceSinkStamp stamp = null,
+                                     int startPartNumber = 1)
         {
             FilePath = path;
             RotationThresholdBytes = rotationThresholdBytes;
             _resolvePartPath = resolvePartPath;
             _onPartClosed = onPartClosed;
+            Stamp = stamp;
+            _partNumber = startPartNumber < 1 ? 1 : startPartNumber;
+            _startPartNumber = _partNumber;
             _nextRotateAt = rotationThresholdBytes;
             Open(path, append: false);
         }
+
+        /// <summary>The part number this sink opened at. A sink that opens at
+        /// part 4 (a bundler checkpoint continued the session) has rotated in
+        /// the session's terms even though it has not rotated in its own.</summary>
+        private readonly int _startPartNumber;
 
         /// <summary>Bytes written into the part currently open.</summary>
         public long BytesInCurrentPart
@@ -102,6 +133,84 @@ namespace JJTrace
         public bool HasRotated
         {
             get { lock (_sync) { return _partNumber > 1; } }
+        }
+
+        /// <summary>True once THIS sink has rotated, ignoring parts inherited
+        /// from an earlier sink of the same session.</summary>
+        public bool RotatedHere
+        {
+            get { lock (_sync) { return _partNumber > _startPartNumber; } }
+        }
+
+        /// <summary>True when the file is closed and no further write lands.</summary>
+        public bool IsClosed
+        {
+            get { lock (_sync) { return _closed; } }
+        }
+
+        /// <summary>
+        /// Write one line straight into this sink, bypassing
+        /// <c>System.Diagnostics.Trace</c> entirely.
+        ///
+        /// <para>The boundary uses this for terminal records. Going through
+        /// <c>Trace.WriteLine</c> would take the framework's global trace lock
+        /// while the coordinator gate is held, which is the one lock order the
+        /// design forbids — and it would fan the line out to every other
+        /// listener and to whatever sink is current, which for a terminal
+        /// record is precisely the wrong file.</para>
+        ///
+        /// <para>Rotation is suppressed for the duration: a terminal record is
+        /// finite and must land in the part whose number was just frozen.</para>
+        /// </summary>
+        public void WriteTerminalLine(string line)
+        {
+            if (line == null) return;
+            lock (_sync)
+            {
+                if (_closed) return;
+                _rotationSuppressed = true;
+                try
+                {
+                    _writer.Write(line);
+                    _writer.Write(Environment.NewLine);
+                    _bytesInPart += line.Length + Environment.NewLine.Length;
+                    _writer.Flush();
+                }
+                catch
+                {
+                    CloseInternal();
+                }
+                finally
+                {
+                    _rotationSuppressed = false;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Flush and close this sink, reporting whether the bytes really landed.
+        /// Called by the coordinator under the gate, on the sink it owns —
+        /// never through the process-wide <c>Trace.Close</c>, which would close
+        /// somebody else's session too.
+        /// </summary>
+        public bool FlushAndClose(out string failure)
+        {
+            failure = null;
+            lock (_sync)
+            {
+                if (_closed) return true;
+                bool ok = true;
+                try { _writer?.Flush(); }
+                catch (Exception ex) { ok = false; failure = ex.Message; }
+                try { _writer?.Dispose(); }
+                catch (Exception ex) { ok = false; failure = failure ?? ex.Message; }
+                try { _stream?.Dispose(); }
+                catch (Exception ex) { ok = false; failure = failure ?? ex.Message; }
+                _writer = null;
+                _stream = null;
+                _closed = true;
+                return ok;
+            }
         }
 
         /// <summary>
@@ -209,7 +318,7 @@ namespace JJTrace
                     return;
                 }
 
-                if (RotationThresholdBytes > 0 && _bytesInPart >= _nextRotateAt)
+                if (!_rotationSuppressed && RotationThresholdBytes > 0 && _bytesInPart >= _nextRotateAt)
                 {
                     RotateInternal();
                 }

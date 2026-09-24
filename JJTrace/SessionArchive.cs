@@ -158,9 +158,7 @@ namespace JJTrace
                 if (truncated) entry.Truncated = true;
 
                 string manifestPath = Path.Combine(archiveRootDir, ManifestFileName);
-                TraceManifest manifest = TraceManifest.Load(manifestPath);
-                manifest.Entries.Add(entry);
-                manifest.Save(manifestPath);
+                TraceManifest.Mutate(manifestPath, m => { m.Entries.Add(entry); return true; });
 
                 if (deleteSourceAfter)
                 {
@@ -179,6 +177,172 @@ namespace JJTrace
                 Tracing.ErrTraceOnly(ex);
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Compress a ticket's detached source, publish it, and commit its
+        /// manifest entry — in that order, and each phase reported truthfully.
+        ///
+        /// <para><b>Nothing here runs under the trace boundary.</b> The ticket
+        /// arrived because the boundary had already closed the file and moved it
+        /// to a path no future writer knows, so this can take as long as LZMA
+        /// takes without a single trace line in the process waiting on it.</para>
+        ///
+        /// <para><b>Write to a temporary name, publish, then commit.</b> If the
+        /// compression fails half way, no partial zip appears under a name the
+        /// manifest might later claim. If the manifest commit fails, the zip is
+        /// left and the pending record is KEPT, so the next boot finishes the
+        /// job rather than leaving an archive nothing indexes. The raw source is
+        /// never deleted to make room, and a failure never rolls the live
+        /// session backwards.</para>
+        /// </summary>
+        public static TraceArchiveCompletion ArchiveTicket(TraceArchiveTicket ticket)
+        {
+            var completion = new TraceArchiveCompletion
+            {
+                TicketId = ticket?.TicketId ?? Guid.Empty,
+                RawPath = ticket?.SourcePath,
+            };
+            if (ticket == null) { completion.FailureStage = "ticket"; return completion; }
+
+            completion.RawRetained = SafeExists(ticket.SourcePath);
+
+            if (string.IsNullOrEmpty(ticket.ArchiveRootDir))
+            {
+                // No archive root configured. The raw part stays as plain
+                // text — bounded and readable — which is still far better than
+                // nothing, and the pending record is released because no
+                // amount of retrying will produce an archive.
+                completion.FailureStage = "no_archive_root";
+                TraceArchiveWorker.ReleasePendingRecord(ticket.SourcePath);
+                return completion;
+            }
+            if (!completion.RawRetained)
+            {
+                completion.FailureStage = "source_missing";
+                TraceArchiveWorker.ReleasePendingRecord(ticket.SourcePath);
+                return completion;
+            }
+
+            string tempPath = null;
+            try
+            {
+                DateTime stamp = ticket.StampLocal;
+                string monthDir = Path.Combine(ticket.ArchiveRootDir,
+                    stamp.ToString("yyyy", CultureInfo.InvariantCulture),
+                    stamp.ToString("MM", CultureInfo.InvariantCulture));
+                Directory.CreateDirectory(monthDir);
+
+                string outcomeTag = SanitizeFileTag(ticket.OutcomeFileTag);
+                string partSuffix = ticket.PartNumber > 0
+                    ? string.Format(CultureInfo.InvariantCulture, "-part-{0:D3}", ticket.PartNumber)
+                    : string.Empty;
+
+                string baseName = string.Format(CultureInfo.InvariantCulture,
+                    "trace-{0:yyyyMMdd-HHmmss}-{1}{2}.zip", stamp, outcomeTag, partSuffix);
+                string fullPath = Path.Combine(monthDir, baseName);
+                int suffix = 1;
+                while (File.Exists(fullPath))
+                {
+                    baseName = string.Format(CultureInfo.InvariantCulture,
+                        "trace-{0:yyyyMMdd-HHmmss}-{1}{2}-{3}.zip", stamp, outcomeTag, partSuffix, suffix);
+                    fullPath = Path.Combine(monthDir, baseName);
+                    suffix++;
+                }
+
+                tempPath = fullPath + ".writing";
+                long sourceBytes = new FileInfo(ticket.SourcePath).Length;
+                bool truncated = sourceBytes > MaxWholeFileArchiveBytes;
+                long archivedBytes = truncated ? OversizedTailBytes : sourceBytes;
+                string nameInZip = Path.GetFileName(ticket.SourcePath);
+
+                using (FileStream fs = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                using (IWriter writer = WriterFactory.OpenWriter(fs, ArchiveType.Zip,
+                                                                 new WriterOptions(CompressionType.LZMA)))
+                {
+                    if (truncated)
+                    {
+                        WriteTailEntry(writer, ticket.SourcePath, nameInZip, sourceBytes, OversizedTailBytes);
+                    }
+                    else
+                    {
+                        using (FileStream src = new FileStream(ticket.SourcePath, FileMode.Open, FileAccess.Read,
+                                                               FileShare.ReadWrite | FileShare.Delete))
+                        {
+                            writer.Write(nameInZip, src, null);
+                        }
+                    }
+                }
+
+                File.Move(tempPath, fullPath);
+                tempPath = null;
+
+                long compressed = new FileInfo(fullPath).Length;
+                string relativeFilename = Path.Combine(
+                        stamp.ToString("yyyy", CultureInfo.InvariantCulture),
+                        stamp.ToString("MM", CultureInfo.InvariantCulture), baseName)
+                    .Replace(Path.DirectorySeparatorChar, '/');
+
+                TraceSessionEntry entry = ticket.Entry ?? new TraceSessionEntry();
+                entry.Filename = relativeFilename;
+                entry.SourceName = nameInZip;
+                entry.TraceSizeCompressedBytes = compressed;
+                entry.TraceSizeUncompressedBytes = archivedBytes;
+                if (ticket.PartNumber > 0)
+                {
+                    entry.PartNumber = ticket.PartNumber;
+                    if (ticket.IsFinalPart) entry.PartFinal = true;
+                }
+                if (truncated) entry.Truncated = true;
+
+                string manifestPath = Path.Combine(ticket.ArchiveRootDir, ManifestFileName);
+                bool committed = TraceManifest.Mutate(manifestPath, m =>
+                {
+                    // Deduplicate by session and part: recovery can re-queue a
+                    // ticket whose manifest commit actually succeeded before the
+                    // process ended.
+                    foreach (TraceSessionEntry existing in m.Entries)
+                    {
+                        if (existing == null) continue;
+                        if (string.Equals(existing.SourceName, entry.SourceName, StringComparison.OrdinalIgnoreCase))
+                            return false;
+                    }
+                    m.Entries.Add(entry);
+                    return true;
+                });
+
+                completion.ArchiveFullPath = fullPath;
+                completion.ArchiveRelativeName = relativeFilename;
+                completion.ArchiveCommitted = committed;
+                completion.RawRetained = SafeExists(ticket.SourcePath);
+                if (!committed)
+                {
+                    // Keep the pending record: the zip exists but nothing indexes
+                    // it, and saying "committed" here is exactly the lie the
+                    // manifest's silent Save made possible.
+                    completion.FailureStage = "manifest";
+                    return completion;
+                }
+
+                TraceArchiveWorker.ReleasePendingRecord(ticket.SourcePath);
+                return completion;
+            }
+            catch (Exception ex)
+            {
+                Tracing.ErrTraceOnly(ex);
+                completion.ArchiveCommitted = false;
+                completion.FailureStage = completion.FailureStage ?? "compress";
+                completion.FailureMessage = ex.Message;
+                completion.RawRetained = SafeExists(ticket.SourcePath);
+                try { if (tempPath != null && File.Exists(tempPath)) File.Delete(tempPath); } catch { }
+                return completion;
+            }
+        }
+
+        private static bool SafeExists(string path)
+        {
+            try { return !string.IsNullOrEmpty(path) && File.Exists(path); }
+            catch { return false; }
         }
 
         /// <summary>
@@ -290,26 +454,25 @@ namespace JJTrace
                 if (toDelete.Count == 0) return 0;
 
                 string manifestPath = Path.Combine(archiveRootDir, ManifestFileName);
-                TraceManifest manifest = TraceManifest.Load(manifestPath);
-                bool changed = false;
-                for (int i = manifest.Entries.Count - 1; i >= 0; i--)
+                TraceManifest.Mutate(manifestPath, manifest =>
                 {
-                    TraceSessionEntry entry = manifest.Entries[i];
-                    if (entry == null || string.IsNullOrEmpty(entry.Filename)) continue;
-                    if (!toDelete.Contains(entry.Filename)) continue;
+                    bool changed = false;
+                    for (int i = manifest.Entries.Count - 1; i >= 0; i--)
+                    {
+                        TraceSessionEntry entry = manifest.Entries[i];
+                        if (entry == null || string.IsNullOrEmpty(entry.Filename)) continue;
+                        if (!toDelete.Contains(entry.Filename)) continue;
 
-                    string fullPath = Path.Combine(archiveRootDir, entry.Filename.Replace('/', Path.DirectorySeparatorChar));
-                    try { if (File.Exists(fullPath)) File.Delete(fullPath); }
-                    catch (Exception ex) { Tracing.ErrTraceOnly(ex); }
+                        string fullPath = Path.Combine(archiveRootDir, entry.Filename.Replace('/', Path.DirectorySeparatorChar));
+                        try { if (File.Exists(fullPath)) File.Delete(fullPath); }
+                        catch (Exception ex) { Tracing.ErrTraceOnly(ex); }
 
-                    manifest.Entries.RemoveAt(i);
-                    changed = true;
-                    deleted++;
-                }
-                if (changed)
-                {
-                    manifest.Save(manifestPath);
-                }
+                        manifest.Entries.RemoveAt(i);
+                        changed = true;
+                        deleted++;
+                    }
+                    return changed;
+                });
             }
             catch (Exception ex)
             {
@@ -356,23 +519,22 @@ namespace JJTrace
             try
             {
                 string manifestPath = Path.Combine(archiveRootDir, ManifestFileName);
-                TraceManifest manifest = TraceManifest.Load(manifestPath);
-                bool changed = false;
-                for (int i = manifest.Entries.Count - 1; i >= 0; i--)
+                TraceManifest.Mutate(manifestPath, manifest =>
                 {
-                    TraceSessionEntry entry = manifest.Entries[i];
-                    if (string.IsNullOrEmpty(entry.Filename)) { manifest.Entries.RemoveAt(i); changed = true; continue; }
-                    string fullPath = Path.Combine(archiveRootDir, entry.Filename.Replace('/', Path.DirectorySeparatorChar));
-                    if (!File.Exists(fullPath))
+                    bool changed = false;
+                    for (int i = manifest.Entries.Count - 1; i >= 0; i--)
                     {
-                        manifest.Entries.RemoveAt(i);
-                        changed = true;
+                        TraceSessionEntry entry = manifest.Entries[i];
+                        if (string.IsNullOrEmpty(entry.Filename)) { manifest.Entries.RemoveAt(i); changed = true; continue; }
+                        string fullPath = Path.Combine(archiveRootDir, entry.Filename.Replace('/', Path.DirectorySeparatorChar));
+                        if (!File.Exists(fullPath))
+                        {
+                            manifest.Entries.RemoveAt(i);
+                            changed = true;
+                        }
                     }
-                }
-                if (changed)
-                {
-                    manifest.Save(manifestPath);
-                }
+                    return changed;
+                });
             }
             catch (Exception ex)
             {
@@ -394,28 +556,34 @@ namespace JJTrace
             try
             {
                 string manifestPath = Path.Combine(archiveRootDir, ManifestFileName);
-                TraceManifest manifest = TraceManifest.Load(manifestPath);
                 DateTime cutoffUtc = DateTime.UtcNow.AddDays(-retentionDays);
 
-                for (int i = manifest.Entries.Count - 1; i >= 0; i--)
+                TraceManifest.Mutate(manifestPath, manifest =>
                 {
-                    TraceSessionEntry entry = manifest.Entries[i];
-                    if (entry.KeptForever) continue;
-                    if (entry.BootTime > cutoffUtc) continue;
-
-                    if (!string.IsNullOrEmpty(entry.Filename))
+                    for (int i = manifest.Entries.Count - 1; i >= 0; i--)
                     {
-                        string fullPath = Path.Combine(archiveRootDir, entry.Filename.Replace('/', Path.DirectorySeparatorChar));
-                        try { if (File.Exists(fullPath)) File.Delete(fullPath); }
-                        catch (Exception ex) { Tracing.ErrTraceOnly(ex); }
+                        TraceSessionEntry entry = manifest.Entries[i];
+                        if (entry.KeptForever) continue;
+                        if (entry.BootTime > cutoffUtc) continue;
+
+                        string fullPath = null;
+                        if (!string.IsNullOrEmpty(entry.Filename))
+                        {
+                            fullPath = Path.Combine(archiveRootDir, entry.Filename.Replace('/', Path.DirectorySeparatorChar));
+                            // Evidence somebody is in the middle of bundling is
+                            // not evidence to age out from underneath them.
+                            if (TraceEvidencePins.IsPinned(fullPath)) continue;
+                            try { if (File.Exists(fullPath)) File.Delete(fullPath); }
+                            catch (Exception ex) { Tracing.ErrTraceOnly(ex); }
+                        }
+                        manifest.Entries.RemoveAt(i);
+                        pruned++;
                     }
-                    manifest.Entries.RemoveAt(i);
-                    pruned++;
-                }
+                    return pruned > 0;
+                });
 
                 if (pruned > 0)
                 {
-                    manifest.Save(manifestPath);
                     PruneEmptyDateDirs(archiveRootDir);
                 }
             }

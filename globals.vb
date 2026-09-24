@@ -504,12 +504,25 @@ Module globals
     ''' </summary>
     Friend ReadOnly Property DetailedCaptureRunning As Boolean
         Get
-            Return _captureStartedLocal.HasValue
+            Return TraceCoordinator.CaptureRunning
         End Get
     End Property
 
-    ''' <summary>When the running capture began, or Nothing.</summary>
-    Private _captureStartedLocal As Date? = Nothing
+    ''' <summary>
+    ''' When the running capture began, or Nothing.
+    '''
+    ''' <para><b>The coordinator owns this now.</b> It was a module field that
+    ''' Start set, Stop cleared and the drop seal cleared again — three writers,
+    ''' none of them in the same transition as the archive that made the clearing
+    ''' true. A capture "running" against a session that has already been sealed
+    ''' is #612 wearing different clothes, so the capture's identity and start
+    ''' time change under the same gate as the session and the file.</para>
+    ''' </summary>
+    Private ReadOnly Property _captureStartedLocal As Date?
+        Get
+            Return TraceCoordinator.CaptureStartedLocal
+        End Get
+    End Property
 
     ''' <summary>
     ''' Where the capture that just STOPPED was archived to, so the surface can
@@ -584,7 +597,7 @@ Module globals
             ' on. Radios.dll cannot call either by name — it is referenced BY
             ' this project — so this is the seam, exactly as above.
             Radios.CaptureSeal.SealHook =
-                Function(sessionId As Guid, detail As String) SealCaptureForConnectionDrop(sessionId, detail)
+                Function(request As Radios.CaptureSealRequest) SealCaptureForConnectionDrop(request)
             JJFlexWpf.CaptureSealWatch.Install()
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)
@@ -954,6 +967,16 @@ Module globals
     ''' recorded (sealing a capture that is still nominally running).</param>
     ''' <param name="levelOverride">Explicit level, for the seal marker —
     ''' TraceLevel.Off means "this file is finished, nobody is writing it".</param>
+    ''' <remarks>
+    ''' <para><b>The seal marker is not written here any more.</b> The last
+    ''' CaptureState line of a sealed file is written by
+    ''' <c>TraceCoordinator</c>, straight into that session's own sink while it
+    ''' holds the boundary — because writing it through <c>Tracing.TraceLine</c>
+    ''' means writing it to whatever sink is CURRENT, which during a race is
+    ''' exactly the wrong file. Both writers render it through
+    ''' <c>JJTrace.TraceStateMarker</c>, so the contract with uia-probe has one
+    ''' implementation.</para>
+    ''' </remarks>
     Friend Sub TraceCaptureStateMarker(Optional captureOn As Boolean? = Nothing,
                                        Optional levelOverride As TraceLevel? = Nothing)
         Try
@@ -964,20 +987,46 @@ Module globals
                                        myAssembly.Location,
                                        Assembly.GetEntryAssembly()?.Location)
             Dim sess As TraceSession = TraceSessionContext.Current
-            Dim startedIso As String = If(sess IsNot Nothing,
-                sess.BootTimeUtc.ToString("O", CultureInfo.InvariantCulture),
-                Date.UtcNow.ToString("O", CultureInfo.InvariantCulture))
+            Dim startedUtc As Date = If(sess IsNot Nothing, sess.BootTimeUtc, Date.UtcNow)
             ' The no-level TraceLine overload on purpose: a state line that only
             ' appears at some detail levels is a state line a reader cannot rely
             ' on finding.
-            Tracing.TraceLine(
-                "CaptureState: capture=" & If(isOn, "on", "off") &
-                " level=" & lvl.ToString() &
-                " instance=" & ProgramInstance.ToString(CultureInfo.InvariantCulture) &
-                " started=" & startedIso &
-                " version=" & If(myVersion IsNot Nothing, myVersion.ToString(), "unknown") &
-                " app=" & If(asmPath, String.Empty) &
-                " file=" & If(Tracing.TraceFile, String.Empty))
+            Tracing.TraceLine(TraceStateMarker.Render(
+                isOn, lvl, ProgramInstance, startedUtc,
+                If(myVersion IsNot Nothing, myVersion.ToString(), "unknown"),
+                If(asmPath, String.Empty),
+                If(Tracing.TraceFile, String.Empty)))
+        Catch ex As Exception
+            Tracing.ErrTraceOnly(ex)
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' Say out loud what a boundary transition did, once the gate is released.
+    '''
+    ''' <para>Nothing inside the boundary may log through <c>Tracing</c> — that
+    ''' would take the framework's trace lock in the opposite order from every
+    ''' ordinary write, which is the inversion the whole lock discipline exists
+    ''' to avoid. So faults are collected under the gate and published here.</para>
+    ''' </summary>
+    Friend Sub ReportTraceTransition(result As TraceTransitionResult,
+                                     Optional level As TraceLevel = TraceLevel.Info)
+        If result Is Nothing Then Return
+        Try
+            If result.DeferredFaults IsNot Nothing Then
+                For Each fault As String In result.DeferredFaults
+                    Tracing.TraceLine(fault, TraceLevel.Warning)
+                Next
+            End If
+            If Not String.IsNullOrEmpty(result.Explanation) Then
+                Dim lvl As TraceLevel = level
+                If result.Status = TraceTransition.NotCurrent _
+                   OrElse result.Status = TraceTransition.Failed _
+                   OrElse result.RestartFailed Then
+                    lvl = TraceLevel.Warning
+                End If
+                Tracing.TraceLine(result.Explanation, lvl)
+            End If
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)
         End Try
@@ -1005,19 +1054,30 @@ Module globals
             Return
         End If
 
-        Try
-            ' Settle the current session BEFORE touching Tracing.On. Nothing may
-            ' ever flip the switch without archiving first — that bypass is what
-            ' made the old dialog's traces invisible to the browser and got the
-            ' leftover file falsely tagged "killed" at the next boot.
-            ArchiveCurrentTraceSession(TraceSessionOutcome.CleanExit,
-                "Standing diagnostic log closed to begin a detailed capture")
+        If TraceCoordinator.ShuttingDown Then
+            ' Exit is committed. A capture started now would open a file the
+            ' teardown is about to abandon, and the next boot would read it as a
+            ' killed session.
+            Tracing.TraceLine("StartDetailedCapture: refused — exit is committed", TraceLevel.Warning)
+            SpeakDiagnostics(Radios.Lexicon.Get("logging.capture.start_failed"))
+            Return
+        End If
 
+        Try
+            ' One transition: settle whatever was open, and open the capture in
+            ' its place. Nothing may ever flip the switch without settling first
+            ' — that bypass is what made the old dialog's traces invisible to the
+            ' browser and got the leftover file falsely tagged "killed" at the
+            ' next boot — and doing it as two steps is what let a third caller
+            ' arrive in between (#612).
             Tracing.TheSwitch.Level = TraceLevel.Verbose
-            Tracing.TraceFile = BootTraceFileName
-            Tracing.On = True
-            BeginNewTraceSession()
-            _captureStartedLocal = Date.Now
+            Dim opened As TraceTransitionResult = BeginCaptureSession(reason)
+            ReportTraceTransition(opened)
+            If Not opened.TracingOn Then
+                Throw New InvalidOperationException(
+                    "the detailed capture's trace session did not open (" & opened.Status.ToString() & ")")
+            End If
+
             LastCaptureArchivePath = Nothing
             LastUserTraceFile = Tracing.TraceFile
             Tracing.TraceLine(
@@ -1032,7 +1092,6 @@ Module globals
             Radios.ScreenReaderOutput.TraceBackend()
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)
-            _captureStartedLocal = Nothing
             SpeakDiagnostics(Radios.Lexicon.Get("logging.capture.start_failed"))
             ' The reporting pipeline failing is the one case where the offer is
             ' also the fallback: if the capture will not start, the standing log
@@ -1057,34 +1116,71 @@ Module globals
     ''' next launch — so the one moment an operator had proved they were hunting
     ''' a problem was the moment the app stopped watching.
     ''' </summary>
+    ''' <remarks>
+    ''' <para><b>Identity and handle are read together</b>, from one immutable
+    ''' observation, and both are verified inside the boundary. Reading "is a
+    ''' capture running", then "which session", then archiving, was three reads
+    ''' of a world that another thread can change between any two of them.</para>
+    '''
+    ''' <para><b>A second Stop gets the same ticket, not a second archive.</b>
+    ''' The capture's identity is the operation id, so the boundary answers a
+    ''' repeat with AlreadyClaimed — no extra restart, no second speech about a
+    ''' capture that was already saved.</para>
+    '''
+    ''' <para><b>The saved path is written back only if it is still this
+    ''' capture's slot.</b> Compression finishes later, and by then the operator
+    ''' may have started another capture; an old completion overwriting
+    ''' <see cref="LastCaptureArchivePath"/> would point the Export button at the
+    ''' wrong evening. "Accepted" means the file was detached and queued — the
+    ''' saved result is supported only by a committed archive.</para>
+    ''' </remarks>
     Friend Sub StopDetailedCapture()
-        If Not DetailedCaptureRunning Then
+        Dim observed As TraceObservation = TraceCoordinator.Observe()
+        If Not observed.CaptureRunning Then
             SpeakDiagnostics(Radios.Lexicon.Get("logging.capture.not_running"))
             Return
         End If
 
-        Dim started As Date = _captureStartedRequired()
+        Dim started As Date = If(observed.CaptureStartedLocal.HasValue,
+                                 observed.CaptureStartedLocal.Value, Date.Now)
         Dim spoken As String
         Try
             Dim minutes As Integer = CInt(Math.Max(0, Math.Round((Date.Now - started).TotalMinutes)))
-            Tracing.TraceLine($"Detailed capture stopped {Date.Now:O} after about {minutes} minute(s)")
 
             ' Archive under a capture-flavoured outcome detail so the browser
             ' can say "Detailed capture, tonight at 8:14 PM" instead of listing
-            ' it as one more anonymous session.
-            LastCaptureArchivePath = ArchiveCurrentTraceSessionReturningPath(
-                TraceSessionOutcome.CleanExit,
-                CaptureOutcomeDetailPrefix & $"{FormatClock(started)}, about {DescribeMinutes(minutes)}")
+            ' it as one more anonymous session. The "stopped" line goes in as a
+            ' terminal record so it lands in THIS capture's file rather than in
+            ' whatever session is current by the time it is written.
+            Dim result As TraceTransitionResult = TraceCoordinator.TrySeal(
+                New TraceSealRequest With {
+                    .Expected = observed.Handle,
+                    .ExpectedCaptureId = observed.CaptureId,
+                    .RequireCaptureRunning = True,
+                    .OperationId = observed.CaptureId,
+                    .Outcome = TraceSessionOutcome.CleanExit,
+                    .OutcomeDetail = CaptureOutcomeDetailPrefix &
+                        $"{FormatClock(started)}, about {DescribeMinutes(minutes)}",
+                    .TerminalLines = New String() {
+                        $"Detailed capture stopped {Date.Now:O} after about {minutes} minute(s)"},
+                    .Resume = TraceResumeIntent.Standing
+                })
 
-            _captureStartedLocal = Nothing
+            If Not result.Owned Then
+                ' Somebody else already ended this recording — a drop's seal, an
+                ' exit. Refused as a refusal: nothing archived twice, nothing
+                ' restarted twice.
+                ReportTraceTransition(result, TraceLevel.Warning)
+                SpeakDiagnostics(Radios.Lexicon.Get("logging.capture.save_problem"))
+                RaiseDiagnosticLogStateChanged()
+                Return
+            End If
 
-            ' Resume the standing log at the standing level, if the operator
-            ' keeps one at all.
-            If DiagnosticsSettings.KeepDiagnosticLog Then
+            ReportTraceTransition(result)
+            RememberCaptureArchiveWhenCommitted(result, observed.CaptureId)
+
+            If result.TracingOn Then
                 Tracing.TheSwitch.Level = DiagnosticsSettings.TraceLevel
-                Tracing.TraceFile = BootTraceFileName
-                Tracing.On = True
-                BeginNewTraceSession()
                 Tracing.TraceLine(
                     $"Diagnostic log resumed at {Tracing.TheSwitch.Level} after a detailed capture")
                 TraceCaptureStateMarker()
@@ -1094,7 +1190,6 @@ Module globals
                                         ("started", FormatClock(started)), ("duration", DescribeMinutes(minutes)))
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)
-            _captureStartedLocal = Nothing
             spoken = Radios.Lexicon.Get("logging.capture.save_problem")
         End Try
 
@@ -1102,8 +1197,60 @@ Module globals
         RaiseDiagnosticLogStateChanged()
     End Sub
 
-    Private Function _captureStartedRequired() As Date
-        Return If(_captureStartedLocal.HasValue, _captureStartedLocal.Value, Date.Now)
+    ''' <summary>
+    ''' Identity of the capture whose archive path <see cref="LastCaptureArchivePath"/>
+    ''' currently describes, so a late completion can tell whether it is still
+    ''' talking about the slot the operator is looking at.
+    ''' </summary>
+    Private _lastCaptureSlot As Guid = Guid.Empty
+
+    ''' <summary>
+    ''' Write the archive path back when — and only when — the archive is
+    ''' really committed AND the completed-capture slot still refers to this
+    ''' capture. An old completion must not undo a newly started capture's
+    ''' reset of the field.
+    ''' </summary>
+    Private Sub RememberCaptureArchiveWhenCommitted(result As TraceTransitionResult, captureId As Guid)
+        If result?.Ticket Is Nothing Then Return
+        _lastCaptureSlot = captureId
+        Dim ticket = result.Ticket
+        ticket.Completion?.ContinueWith(
+            Sub(t)
+                Try
+                    Dim done As TraceArchiveCompletion = t.Result
+                    If done Is Nothing OrElse Not done.ArchiveCommitted Then Return
+                    If _lastCaptureSlot <> captureId Then Return
+                    LastCaptureArchivePath = done.ArchiveFullPath
+                    RaiseDiagnosticLogStateChanged()
+                Catch ex As Exception
+                    Tracing.ErrTraceOnly(ex)
+                End Try
+            End Sub, TaskScheduler.Default)
+    End Sub
+
+    ''' <summary>
+    ''' Open a fresh session at maximum detail and mark it as the operator's
+    ''' detailed capture, settling whatever was open in the same transition.
+    ''' </summary>
+    Private Function BeginCaptureSession(reason As String) As TraceTransitionResult
+        Dim observed As TraceObservation = TraceCoordinator.Observe()
+        If observed.Handle IsNot Nothing Then
+            Dim sealed_ As TraceTransitionResult = TraceCoordinator.TrySeal(
+                New TraceSealRequest With {
+                    .Expected = observed.Handle,
+                    .OperationId = Guid.NewGuid(),
+                    .Outcome = TraceSessionOutcome.CleanExit,
+                    .OutcomeDetail = "Standing diagnostic log closed to begin a detailed capture",
+                    .Resume = TraceResumeIntent.Explicit,
+                    .ResumeLevel = TraceLevel.Verbose
+                })
+            ReportTraceTransition(sealed_)
+            If sealed_.Owned AndAlso sealed_.SuccessorOpened Then
+                TraceCoordinator.MarkSuccessorAsCapture(sealed_.Successor)
+                Return sealed_
+            End If
+        End If
+        Return TraceCoordinator.Begin(BootTraceFileName, TraceLevel.Verbose, asDetailedCapture:=True)
     End Function
 
     ''' <summary>Toggle the detailed capture. The chord and the button share this.</summary>
@@ -1132,8 +1279,14 @@ Module globals
                 "Something stopped the settings file from being written.")
         End If
 
+        ' The operator's standing intent, told to the boundary rather than
+        ' re-derived at every restart. A successor opens because they keep a
+        ' standing log, not because a worker assumed one.
+        TraceCoordinator.SetStandingIntent(keepLog, DiagnosticsSettings.TraceLevel)
+
         Try
-            If DetailedCaptureRunning Then
+            Dim observed As TraceObservation = TraceCoordinator.Observe()
+            If observed.CaptureRunning Then
                 ' A capture outranks the standing level while it runs; the new
                 ' level lands when the capture stops. Say so rather than
                 ' silently appearing to do nothing.
@@ -1141,13 +1294,21 @@ Module globals
                     $"Diagnostic settings changed during a capture: keepLog={keepLog} detail={detail}",
                     TraceLevel.Info)
             ElseIf keepLog Then
-                If Not wasOn OrElse Not Tracing.On Then
-                    Tracing.TheSwitch.Level = DiagnosticsSettings.TraceLevel
-                    Tracing.TraceFile = BootTraceFileName
-                    Tracing.On = True
-                    BeginNewTraceSession()
-                    Tracing.TraceLine($"Diagnostic log turned on at {Tracing.TheSwitch.Level}")
-                    TraceCaptureStateMarker()
+                If Not wasOn OrElse Not observed.Recording Then
+                    If TraceCoordinator.ShuttingDown Then
+                        Tracing.TraceLine(
+                            "ApplyDiagnosticLogSettings: the log was not turned on — exit is committed",
+                            TraceLevel.Warning)
+                    Else
+                        Tracing.TheSwitch.Level = DiagnosticsSettings.TraceLevel
+                        Dim opened As TraceTransitionResult = TraceCoordinator.Begin(
+                            BootTraceFileName, DiagnosticsSettings.TraceLevel, asDetailedCapture:=False)
+                        ReportTraceTransition(opened)
+                        If opened.TracingOn Then
+                            Tracing.TraceLine($"Diagnostic log turned on at {Tracing.TheSwitch.Level}")
+                            TraceCaptureStateMarker()
+                        End If
+                    End If
                 Else
                     Tracing.TraceLine($"Diagnostic log detail is now {Tracing.TheSwitch.Level}", TraceLevel.Info)
                     Tracing.TheSwitch.Level = DiagnosticsSettings.TraceLevel
@@ -1158,8 +1319,15 @@ Module globals
                 End If
             ElseIf wasOn Then
                 Tracing.TraceLine("Diagnostic log turned off by the operator")
-                ArchiveCurrentTraceSession(TraceSessionOutcome.CleanExit,
-                    "User turned diagnostic log off")
+                Dim closed As TraceTransitionResult = TraceCoordinator.TrySeal(
+                    New TraceSealRequest With {
+                        .Expected = observed.Handle,
+                        .OperationId = Guid.NewGuid(),
+                        .Outcome = TraceSessionOutcome.CleanExit,
+                        .OutcomeDetail = "User turned diagnostic log off",
+                        .Resume = TraceResumeIntent.None
+                    })
+                ReportTraceTransition(closed)
             End If
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)
@@ -1294,14 +1462,25 @@ Module globals
     ''' problem-report bundler above all — so that the log resumes instead of
     ''' staying dead for the rest of the session.
     ''' </summary>
+    ''' <remarks>
+    ''' <para><b>Refused once exit is committed.</b> A log restarted during
+    ''' teardown is a file the process is about to abandon, which the next boot
+    ''' reads as a killed session.</para>
+    ''' </remarks>
     Friend Sub RestartDiagnosticLog(reason As String)
         Try
             If Not DiagnosticsSettings.KeepDiagnosticLog Then Return
-            If Tracing.On Then Return ' already running; nothing to restart
+            If TraceCoordinator.ShuttingDown Then
+                Tracing.TraceLine($"RestartDiagnosticLog ({reason}): refused — exit is committed",
+                                  TraceLevel.Warning)
+                Return
+            End If
+            If TraceCoordinator.Recording Then Return ' already running; nothing to restart
             Tracing.TheSwitch.Level = If(DetailedCaptureRunning, TraceLevel.Verbose, DiagnosticsSettings.TraceLevel)
-            Tracing.TraceFile = BootTraceFileName
-            Tracing.On = True
-            BeginNewTraceSession()
+            Dim opened As TraceTransitionResult = TraceCoordinator.Begin(
+                BootTraceFileName, Tracing.TheSwitch.Level, asDetailedCapture:=False)
+            ReportTraceTransition(opened)
+            If Not opened.TracingOn Then Return
             Tracing.TraceLine($"Diagnostic log resumed ({reason}) at {Tracing.TheSwitch.Level}")
             TraceCaptureStateMarker()
         Catch ex As Exception
@@ -1311,34 +1490,14 @@ Module globals
     End Sub
 
     ''' <summary>
-    ''' Begin a new trace session. Captures session id, boot time, and current verbosity
-    ''' so that on archive we can write a structured manifest entry. Idempotent — calling
-    ''' twice without an intervening archive overwrites the previous session pointer.
-    ''' Per memory/project_trace_persistence_design.md, Sprint 29 Track A.
-    ''' </summary>
-    Friend Sub BeginNewTraceSession()
-        Try
-            Dim session As TraceSession = TraceSessionContext.BeginSession()
-            session.VerbosityLevel = Tracing.TheSwitch.Level.ToString()
-            ' NOTHING RE-ARMS THE DROP SEAL HERE ANY MORE, and that is the fix
-            ' rather than an omission (Sprint 45 Track H2). A Rearm() call sat
-            ' on this line, and this line is reached from RestartDiagnosticLog —
-            ' which the seal itself calls. So the guard that existed to refuse a
-            ' repeat death notice disarmed itself, on the seal's own path, in
-            ' time for the duplicate it was refusing; the second notice then
-            ' sealed the fresh, empty log and put a second window in front of an
-            ' operator whose radio had just died. The claim now belongs to the
-            ' removal, in Radios.CaptureSeal, where no session event can touch
-            ' it.
-        Catch ex As Exception
-            Tracing.ErrTraceOnly(ex)
-        End Try
-    End Sub
-
-    ''' <summary>
-    ''' True when the session recording right now is the one named. The drop
-    ''' seal's guard, kept as its own function so the question is asked in one
-    ''' place and can be read at the call site.
+    ''' True when the session recording right now is the one named.
+    '''
+    ''' <para><b>It is no longer a guard, and that is the point.</b> Asking this
+    ''' and then archiving was check-then-act: another caller could replace the
+    ''' session between the question and the answer's use, which is #612. The
+    ''' ownership comparison now happens INSIDE the boundary, against the handle
+    ''' the caller carried. This remains only as a read for anything that wants
+    ''' to describe the world, never as permission to act on it.</para>
     ''' </summary>
     Friend Function CurrentTraceSessionIs(sessionId As Guid) As Boolean
         Dim session As TraceSession = TraceSessionContext.Current
@@ -1369,41 +1528,93 @@ Module globals
     ''' operator's standing detail; the capture they started is closed, sealed
     ''' and named in the window they are about to be shown.</para>
     ''' </summary>
-    Friend Function SealCaptureForConnectionDrop(sessionId As Guid, detail As String) As String
-        Dim path As String = Nothing
+    Friend Function SealCaptureForConnectionDrop(request As Radios.CaptureSealRequest) As Radios.CaptureSealResult
+        Dim outcome As New Radios.CaptureSealResult()
+        If request Is Nothing Then Return outcome
         Try
-            ' The recording this drop is ABOUT. Between the drop and this call a
-            ' Stop, another capture, a log toggle or an exit can have ended or
-            ' replaced it, and archiving whatever is open instead would hand the
-            ' operator a different evening under the word connection_dropped.
-            ' Nothing is archived and nothing is restarted: the session that is
-            ' running is somebody else's and is not ours to close.
-            If Not CurrentTraceSessionIs(sessionId) Then
+            Dim expected As TraceSessionHandle = TryCast(request.ExpectedSession, TraceSessionHandle)
+
+            ' One transition. The ownership comparison, the terminal records,
+            ' the file's closure and detachment, the capture's running state and
+            ' the successor all happen inside the boundary — so a Stop, another
+            ' capture, a log toggle or an exit arriving in between is refused
+            ' rather than half-applied. The partial meter line rides along as a
+            ' terminal record, which is what stops it landing in a successor's
+            ' log (#618).
+            Dim lines As New List(Of String)
+            If Not String.IsNullOrEmpty(request.PartialMeterLine) Then lines.Add(request.PartialMeterLine)
+
+            Dim result As TraceTransitionResult = TraceCoordinator.TrySeal(
+                New TraceSealRequest With {
+                    .Expected = expected,
+                    .OperationId = request.DropOperationId,
+                    .Outcome = TraceSessionOutcome.ConnectionDropped,
+                    .OutcomeDetail = request.OutcomeDetail,
+                    .TerminalLines = lines,
+                    .Resume = TraceResumeIntent.Standing
+                })
+
+            ReportTraceTransition(result)
+            outcome.ArchivedSessionId = result.Ticket?.SessionId
+            outcome.SuccessorOpened = result.SuccessorOpened
+            outcome.Refused = Not result.Owned
+            outcome.RefusalReason = If(result.Owned, Nothing, result.Explanation)
+
+            If Not result.Owned Then Return outcome
+
+            If result.EndedDetailedCapture Then
+                _lastCaptureSlot = result.EndedCaptureId
+                RaiseDiagnosticLogStateChanged()
+            End If
+
+            If result.TracingOn Then
+                Tracing.TraceLine("Diagnostic log resumed after the radio's connection dropped")
+                TraceCaptureStateMarker()
+                RaiseDiagnosticLogStateChanged()
+            End If
+
+            ' The operator is only ever offered a path that exists. Accepted
+            ' means the bytes were detached and queued; a committed archive is
+            ' what supports a path, and this runs on the seal worker so waiting
+            ' for it costs the UI nothing.
+            Dim completion As TraceArchiveCompletion = AwaitArchive(result.Ticket, DropArchiveWait)
+            If completion IsNot Nothing AndAlso completion.ArchiveCommitted Then
+                outcome.ArchivePath = completion.ArchiveFullPath
+                If result.EndedDetailedCapture AndAlso _lastCaptureSlot = result.EndedCaptureId Then
+                    LastCaptureArchivePath = completion.ArchiveFullPath
+                    RaiseDiagnosticLogStateChanged()
+                End If
+            Else
+                outcome.RawRetainedPath = If(completion IsNot Nothing, completion.RawPath, result.Ticket.SourcePath)
                 Tracing.TraceLine(
-                    $"SealCaptureForConnectionDrop: the session that was recording at the drop ({sessionId}) has already ended — nothing archived",
+                    "SealCaptureForConnectionDrop: the session was detached to " & outcome.RawRetainedPath &
+                    " but no archive is committed yet — the raw trace is retained",
                     TraceLevel.Warning)
-                Return Nothing
             End If
-
-            Dim wasCapturing As Boolean = DetailedCaptureRunning
-
-            path = ArchiveCurrentTraceSessionReturningPath(
-                TraceSessionOutcome.ConnectionDropped, detail)
-
-            If wasCapturing Then
-                _captureStartedLocal = Nothing
-                LastCaptureArchivePath = path
-            End If
-
-            ' Tracing.On is False after the archive, so this really does start a
-            ' fresh session rather than returning early.
-            RestartDiagnosticLog("sealed after the radio's connection dropped")
-
-            If wasCapturing Then RaiseDiagnosticLogStateChanged()
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)
         End Try
-        Return path
+        Return outcome
+    End Function
+
+    ''' <summary>
+    ''' How long the drop seal waits for its own zip before telling the operator
+    ''' there is no path yet. Generous because it runs on a background worker
+    ''' and a capture can be large; bounded because a stalled disk must not
+    ''' leave the notice hanging forever.
+    ''' </summary>
+    Private ReadOnly DropArchiveWait As TimeSpan = TimeSpan.FromMinutes(5)
+
+    ''' <summary>Wait for a ticket's completion, bounded. Never throws; a
+    ''' timeout returns Nothing, which is "not committed", not "failed".</summary>
+    Private Function AwaitArchive(ticket As TraceArchiveTicket, budget As TimeSpan) As TraceArchiveCompletion
+        If ticket?.Completion Is Nothing Then Return Nothing
+        Try
+            If ticket.Completion.Wait(budget) Then Return ticket.Completion.Result
+        Catch ex As Exception
+            Tracing.ErrTraceOnly(ex)
+        End Try
+        Return Nothing
     End Function
 
     ''' <summary>
@@ -1416,94 +1627,56 @@ Module globals
     ''' <param name="outcome">Outcome tag for the manifest entry. Defaults to clean_exit.</param>
     ''' <param name="detail">Optional outcome detail string.</param>
     Friend Sub ArchiveCurrentTraceSession(Optional outcome As String = Nothing, Optional detail As String = Nothing)
-        ArchiveCurrentTraceSessionReturningPath(outcome, detail)
+        FinalizeTraceForShutdown(If(outcome, TraceSessionOutcome.CleanExit), detail)
     End Sub
 
     ''' <summary>
-    ''' Same work as <see cref="ArchiveCurrentTraceSession"/>, but hands back the
-    ''' full path of the archive it just wrote (or Nothing).
+    ''' Close whichever session remains, for good, and let the queued archives
+    ''' finish within one bounded budget.
     '''
-    ''' Exists so stopping a detailed capture can offer "Export this capture..."
-    ''' immediately — the common next act after a capture is getting the file
-    ''' somewhere sendable, and making the operator go find it in a browse list
-    ''' is the friction this whole surface exists to remove.
+    ''' <para><b>This is the one caller with authority over a session it did not
+    ''' name</b>, because process shutdown intentionally closes all recording —
+    ''' and it says so to the boundary rather than implementing that authority
+    ''' as an unlocked read of the current pointer followed by a generic helper,
+    ''' which is what #612 actually was. Both exit hooks share one operation id,
+    ''' so the second one gets the first one's ticket and repeats nothing.</para>
+    '''
+    ''' <para><b>One budget, applied to final files as well as rotation
+    ''' parts.</b> The old path compressed the final file synchronously — no
+    ''' bound at all — and then waited up to thirty seconds for the rotation
+    ''' workers, so the unbounded half was the big one. Both go through one
+    ''' worker now. If the budget expires, the pending raw files and their
+    ''' records stay exactly where they are, the next boot finishes them, and
+    ''' nothing claims an archive exists. A timeout must never try to cancel a
+    ''' file write by deleting its source.</para>
     ''' </summary>
-    Friend Function ArchiveCurrentTraceSessionReturningPath(Optional outcome As String = Nothing,
-                                                            Optional detail As String = Nothing) As String
-        Dim archivedRelName As String = Nothing
+    Friend Sub FinalizeTraceForShutdown(outcome As String, detail As String)
         Try
-            Dim session As TraceSession = TraceSessionContext.Current
-            If session Is Nothing Then Return Nothing
-
-            If Not String.IsNullOrEmpty(outcome) Then
-                session.MarkOutcome(outcome, detail)
-            End If
-
-            ' Seal the file with a state line saying nobody writes it any more.
-            ' A finished capture is full of Verbose lines that look exactly like
-            ' a running one — on 2026-08-21 jjprobe read such a corpse moments
-            ' after the capture was toggled off and reported the speech channel
-            ' live. capture=off level=Off as the file's last CaptureState line
-            ' is what makes a corpse distinguishable from a capture in flight.
-            ' Written BEFORE the rotation snapshot below: this line is itself a
-            ' write, and a write can rotate, which would stale the part number.
-            TraceCaptureStateMarker(captureOn:=False, levelOverride:=TraceLevel.Off)
-
-            ' Capture rotation state before closing the listener — Tracing.On =
-            ' False disposes it and the part number goes with it.
-            Dim hadParts As Boolean = Tracing.SessionHasParts
-            Dim finalPartNumber As Integer = Tracing.CurrentPartNumber
-
-            Dim tracePath As String = Tracing.TraceFile
-            Tracing.On = False ' flushes + closes; Tracing.TraceFile becomes null
-
-            TraceSessionContext.EndSession()
-
-            If Not String.IsNullOrEmpty(tracePath) Then
-                If hadParts Then
-                    ' This session rotated, so its tail is the FINAL PART of a
-                    ' chain, not a standalone whole-session archive. Rename to
-                    ' the part name first so the plain-text chain in AppData is
-                    ' complete and consistently named, then archive from there.
-                    Dim partPath As String = RenameTraceToStampedPart(tracePath, session.BootTimeUtc, finalPartNumber)
-                    If Not String.IsNullOrEmpty(partPath) Then
-                        archivedRelName = SessionArchive.ArchiveSession(TraceArchiveDir, partPath, session,
-                            deleteSourceAfter:=False, partNumber:=finalPartNumber, isFinalPart:=True)
-                    End If
-                Else
-                    Dim relName As String = SessionArchive.ArchiveSession(
-                        TraceArchiveDir, tracePath, session, deleteSourceAfter:=False)
-                    If Not String.IsNullOrEmpty(relName) Then
-                        archivedRelName = relName
-                        ' Archive succeeded; preserve source as stamp-named .txt
-                        ' for the plain-text retention window. See
-                        ' RenameTraceToStamped / PrunePlainTextTracesOlderThan.
-                        RenameTraceToStamped(tracePath, session.BootTimeUtc)
-                    End If
-                End If
-            End If
-
-            ' Let queued part compressions finish so a rotated session doesn't
-            ' leave uncompressed parts behind. Bounded: exit must not hang on a
-            ' slow disk. Anything still queued gets picked up by the leftover
-            ' sweep at next boot, so the worst case is a delay, not a loss.
-            If hadParts Then
-                Tracing.WaitForPendingArchives(TimeSpan.FromSeconds(30))
+            Dim result As TraceTransitionResult = TraceCoordinator.FinalizeShutdown(outcome, detail)
+            ' Reported through the trace only if something is still listening;
+            ' after a successful seal nothing is, which is correct — the lines
+            ' would have nowhere to land but a file that is already closed.
+            ReportTraceTransition(result)
+            If Not TraceCoordinator.DrainArchives(ShutdownArchiveBudget) Then
+                ' Not a failure to report to the operator: the evidence is
+                ' retained and recorded, and the next boot picks it up.
+                Tracing.ErrTraceOnly(New TimeoutException(
+                    "Trace archives were still compressing when the shutdown budget expired; " &
+                    "their raw files and pending records are retained for the next launch."))
             End If
         Catch ex As Exception
             ' Trace-only: this runs during shutdown, where a modal dialog
             ' carrying a raw framework message is the worst possible outcome.
             Tracing.ErrTraceOnly(ex)
         End Try
+    End Sub
 
-        If String.IsNullOrEmpty(archivedRelName) Then Return Nothing
-        Try
-            Return Path.Combine(TraceArchiveDir,
-                archivedRelName.Replace("/"c, Path.DirectorySeparatorChar))
-        Catch
-            Return Nothing
-        End Try
-    End Function
+    ''' <summary>
+    ''' The whole archive backlog's budget at exit. Thirty seconds was the old
+    ''' bound on rotation parts alone; it now covers the final file too, which
+    ''' used to be unbounded.
+    ''' </summary>
+    Private ReadOnly ShutdownArchiveBudget As TimeSpan = TimeSpan.FromSeconds(30)
 
     ''' <summary>
     ''' Plain-text trace retention window in days. After this many days, the
@@ -1529,25 +1702,16 @@ Module globals
     ''' isn't blocked from opening a clean trace file.
     ''' </summary>
     Private Sub RenameTraceToStamped(tracePath As String, bootTimeUtc As DateTime)
-        Try
-            Dim dir As String = Path.GetDirectoryName(tracePath)
-            Dim baseName As String = Path.GetFileNameWithoutExtension(tracePath)
-            Dim ext As String = Path.GetExtension(tracePath)
-            Dim stamp As DateTime = bootTimeUtc.ToLocalTime()
-            Dim target As String = Path.Combine(dir, $"{baseName}-{stamp:yyyyMMdd-HHmmss}{ext}")
-            Dim suffix As Integer = 1
-            While File.Exists(target)
-                target = Path.Combine(dir, $"{baseName}-{stamp:yyyyMMdd-HHmmss}-{suffix}{ext}")
-                suffix += 1
-            End While
-            File.Move(tracePath, target)
-        Catch ex As Exception
-            Tracing.ErrTraceOnly(ex)
-            Try
-                File.Delete(tracePath)
-            Catch
-            End Try
-        End Try
+        ' deleteOnFailure stays True HERE and nowhere else: this caller is past a
+        ' successful archive, so the plain text is a convenience copy and the
+        ' durable evidence is already in the zip. The boundary's own detach runs
+        ' BEFORE anything is compressed and must never delete.
+        Dim target As String = TraceFileNaming.StampedPath(tracePath, bootTimeUtc)
+        Dim failure As String = Nothing
+        If TraceFileNaming.Detach(tracePath, target, deleteOnFailure:=True, failure:=failure) Is Nothing _
+           AndAlso Not String.IsNullOrEmpty(failure) Then
+            Tracing.ErrTraceOnly(New IOException(failure))
+        End If
     End Sub
 
     ''' <summary>
@@ -1558,23 +1722,14 @@ Module globals
     ''' empty on failure.
     ''' </summary>
     Private Function RenameTraceToStampedPart(tracePath As String, bootTimeUtc As DateTime, partNumber As Integer) As String
-        Try
-            Dim dir As String = Path.GetDirectoryName(tracePath)
-            Dim baseName As String = Path.GetFileNameWithoutExtension(tracePath)
-            Dim ext As String = Path.GetExtension(tracePath)
-            Dim stamp As DateTime = bootTimeUtc.ToLocalTime()
-            Dim target As String = Path.Combine(dir, $"{baseName}-{stamp:yyyyMMdd-HHmmss}-part-{partNumber:D3}{ext}")
-            Dim suffix As Integer = 1
-            While File.Exists(target)
-                target = Path.Combine(dir, $"{baseName}-{stamp:yyyyMMdd-HHmmss}-part-{partNumber:D3}-{suffix}{ext}")
-                suffix += 1
-            End While
-            File.Move(tracePath, target)
-            Return target
-        Catch ex As Exception
-            Tracing.ErrTraceOnly(ex)
+        Dim target As String = TraceFileNaming.StampedPartPath(tracePath, bootTimeUtc, partNumber)
+        Dim failure As String = Nothing
+        Dim moved As String = TraceFileNaming.Detach(tracePath, target, deleteOnFailure:=False, failure:=failure)
+        If moved Is Nothing Then
+            If Not String.IsNullOrEmpty(failure) Then Tracing.ErrTraceOnly(New IOException(failure))
             Return String.Empty
-        End Try
+        End If
+        Return moved
     End Function
 
     ''' <summary>
@@ -1687,6 +1842,13 @@ Module globals
             For Each pattern As String In patterns
                 For Each path As String In Directory.GetFiles(BaseConfigDir, pattern)
                     If Not seen.Add(path) Then Continue For
+                    ' Two reasons to leave a plain-text trace alone regardless of
+                    ' age: somebody is bundling it right now, or it is a detached
+                    ' file whose archive has not been committed yet. Either way
+                    ' deleting it destroys the only copy of evidence somebody is
+                    ' still counting on.
+                    If TraceEvidencePins.IsPinned(path) Then Continue For
+                    If TraceArchiveWorker.IsPendingWork(path) Then Continue For
                     Try
                         Dim fi As New FileInfo(path)
                         If fi.LastWriteTimeUtc < cutoffUtc Then
@@ -1711,6 +1873,21 @@ Module globals
     ''' </summary>
     Friend Sub TraceArchiveBootMaintenance()
         Try
+            ' FIRST, before anything reconciles or prunes: finish the archives a
+            ' previous run detached and never committed. Compression moved out
+            ' of the teardown, so a process can end between "the bytes were
+            ' detached" and "the archive was committed" — and a raw file with no
+            ' manifest entry is exactly what the reconcile and the plain-text
+            ' sweep would otherwise tidy away unread. Each pending record names
+            ' its own session and part, so this retries them without inventing a
+            ' new session and deduplicates against what is already in the
+            ' manifest.
+            Dim pending As Integer = TraceArchiveWorker.RecoverPending(BaseConfigDir)
+            If pending > 0 Then
+                Tracing.TraceLine(
+                    $"TraceArchiveBootMaintenance: {pending} archive(s) from a previous run were detached but never committed — requeued",
+                    TraceLevel.Info)
+            End If
             SessionArchive.Reconcile(TraceArchiveDir)
             SessionArchive.PruneOlderThan(TraceArchiveDir, SessionArchive.DefaultRetentionDays)
             ' Order matters: adopt leftover parts into the archive BEFORE the
@@ -2146,9 +2323,19 @@ Module globals
                 End If
             End If
             Tracing.TheSwitch.Level = bootLevel
-            Tracing.TraceFile = BootTraceFileName
+            ' The facts a terminal record needs, handed over as DATA before
+            ' anything can seal. The boundary never calls back into this
+            ' assembly to have a string formatted — that would take the
+            ' framework's trace lock in the wrong order.
+            TraceCoordinator.AppIdentity = New TraceEnvironment With {
+                .Instance = ProgramInstance,
+                .AppVersion = If(myVersion IsNot Nothing, myVersion.ToString(), "unknown"),
+                .AppPath = If(myAssembly IsNot Nothing, myAssembly.Location, String.Empty)
+            }
+            TraceCoordinator.SetStandingIntent(DiagnosticsSettings.KeepDiagnosticLog,
+                                               DiagnosticsSettings.TraceLevel)
             Tracing.On = True
-            BeginNewTraceSession()
+            ReportTraceTransition(TraceCoordinator.Begin(BootTraceFileName, bootLevel, asDetailedCapture:=False))
             Tracing.TraceLine("Boot Tracing on instance:" & ProgramInstance & " " & myAssembly.Location & " " & myVersion.ToString() & " " & Date.Now & " level=" & bootLevel.ToString)
             ' Where this run's settings actually came from. Decided before
             ' tracing existed, so it is reported here or not at all — and a run
@@ -5650,10 +5837,18 @@ RadioConnected:
             Return False
         End If
 
-        ' Nothing may cancel the exit past this point, so stop sampling: a
-        ' threshold announcement landing during teardown would speak over the
-        ' farewell, and there is nothing useful left to say about a cost that
-        ' is about to stop existing.
+        ' Nothing may cancel the exit past this point. That makes this the
+        ' moment to latch shutting-down: after every chance to cancel, before
+        ' teardown begins. From here the boundary refuses new captures,
+        ' log-enable requests and restarts, and a connection drop that wins the
+        ' race during teardown may seal its own session but may not open a
+        ' successor. The existing session stays writable, deliberately — the
+        ' closing evidence is exactly what a teardown needs to record.
+        TraceCoordinator.LatchShutdown()
+
+        ' Stop sampling: a threshold announcement landing during teardown would
+        ' speak over the farewell, and there is nothing useful left to say about
+        ' a cost that is about to stop existing.
         StopRunningCostSampler()
 
         ' The exit is now certain - the two prompts above are the only things
@@ -5707,10 +5902,11 @@ RadioConnected:
             Tracing.TraceLine("ExitApplication:" & ex.Message, TraceLevel.Error)
         End Try
         Tracing.TraceLine("End.")
-        ' Archive the current trace session before closing the listener.
-        ' ArchiveCurrentTraceSession handles Tracing.On = False internally so
-        ' the file is fully flushed before compression. Per memory/project_trace_persistence_design.md.
-        ArchiveCurrentTraceSession(TraceSessionOutcome.CleanExit, "ExitApplication clean shutdown")
+        ' Close whichever session remains, once, and let the queued archives
+        ' finish inside one bounded budget. Shares an operation id with
+        ' MyApplication_Shutdown, so whichever hook runs second gets the first
+        ' one's ticket rather than sealing anything twice.
+        FinalizeTraceForShutdown(TraceSessionOutcome.CleanExit, "ExitApplication clean shutdown")
         Return True
     End Function
 

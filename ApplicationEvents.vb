@@ -569,9 +569,10 @@ Namespace My
             Radios.OutputChannelRecorder.Close()
             ' Belt-and-suspenders archive: if ExitApplication wasn't reached (e.g.
             ' shutdown via WPF route that bypasses Form-side Closing handlers), the
-            ' session is still active here. Idempotent — no-op if ExitApplication
-            ' already archived. Per memory/project_trace_persistence_design.md.
-            ArchiveCurrentTraceSession(JJTrace.TraceSessionOutcome.CleanExit, "MyApplication_Shutdown event")
+            ' session is still active here. Idempotent by construction now — both
+            ' hooks share one shutdown operation, so the second one is answered
+            ' with the first one's ticket rather than sealing again.
+            FinalizeTraceForShutdown(JJTrace.TraceSessionOutcome.CleanExit, "MyApplication_Shutdown event")
         End Sub
     End Class
 End Namespace
