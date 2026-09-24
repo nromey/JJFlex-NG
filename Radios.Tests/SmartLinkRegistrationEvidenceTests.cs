@@ -132,6 +132,34 @@ namespace Radios.Tests
         }
 
         // ------------------------------------------------------------------
+        // Counting accounts, not lists
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// The caller prints "only the signed-in account was asked" when one
+        /// account was consulted, and suppresses it when more were. Track L
+        /// counted LISTS, and one account routinely supplies two — the push
+        /// captured during the call and the held session carrying the same
+        /// list — so a single account read as two and the caveat vanished
+        /// exactly when it was true.
+        /// </summary>
+        [Fact]
+        public void One_account_heard_twice_is_one_account_consulted()
+        {
+            var f = Ask(Lists(Pushed(Mine), Held(Mine), Held(Mine.ToUpperInvariant())));
+
+            Assert.Equal(1, f.AccountsConsulted);
+        }
+
+        [Fact]
+        public void Two_accounts_are_two_whatever_the_number_of_lists()
+        {
+            var f = Ask(Lists(Pushed(Mine), Held(Mine), Held(Other)));
+
+            Assert.Equal(2, f.AccountsConsulted);
+        }
+
+        // ------------------------------------------------------------------
         // An absence is not
         // ------------------------------------------------------------------
 
@@ -262,6 +290,60 @@ namespace Radios.Tests
                 new Evidence.Finding(Verdict.Registered, false, 1, Mine)));
             Assert.True(Evidence.CanCarryADurableAnswer(
                 new Evidence.Finding(Verdict.NoAccount, false, 0, string.Empty)));
+        }
+    }
+
+    /// <summary>
+    /// What a held session contributes to the registration query, read from a
+    /// real <see cref="Radios.SmartLink.WanSessionOwner"/> behind a mock server.
+    /// </summary>
+    public sealed class SmartLinkHeldListTests
+    {
+        private static (Radios.SmartLink.WanSessionOwner owner, MockWanServer wan) Build(string account)
+        {
+            var wan = new MockWanServer();
+            var owner = new Radios.SmartLink.WanSessionOwner(
+                Guid.NewGuid().ToString("N").Substring(0, 12), account, wan,
+                new Radios.SmartLink.DirectPassthroughSink(), new[] { 50, 50, 50 });
+            return (owner, wan);
+        }
+
+        private static void WaitUntil(Func<bool> condition, string because) =>
+            Assert.True(System.Threading.SpinWait.SpinUntil(condition, 5000), because);
+
+        /// <summary>
+        /// A session starts life holding an EMPTY radio array, before any
+        /// server list has arrived. That array is the owner's initial value,
+        /// not an answer, and counting it made "we consulted this account"
+        /// true of an account that had said nothing.
+        /// </summary>
+        [Fact]
+        public void A_session_that_has_heard_nothing_contributes_nothing()
+        {
+            var (owner, wan) = Build("friend@example.com");
+            try
+            {
+                owner.Connect();
+                WaitUntil(() => owner.IsConnected, "the mock session never reported connected");
+
+                // The trap, stated: an empty array is already sitting there.
+                Assert.Empty(owner.AvailableRadios);
+                Assert.Null(owner.LastRadioListUtc);
+
+                Assert.Empty(Evidence.HeldLists(new[] { owner }));
+
+                // Positive control: the same session, once the server has
+                // spoken — even to say "nothing" — does contribute.
+                wan.RaiseWanRadioRadioListReceived(Array.Empty<Flex.Smoothlake.FlexLib.Radio>());
+
+                var lists = Evidence.HeldLists(new[] { owner });
+                Assert.Single(lists);
+                Assert.Empty(lists.First().Serials);
+            }
+            finally
+            {
+                owner.Dispose();
+            }
         }
     }
 

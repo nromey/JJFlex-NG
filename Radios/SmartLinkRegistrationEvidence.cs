@@ -51,10 +51,14 @@ namespace Radios
         /// positive evidence forward but can never establish an absence, so
         /// this is the flag a caller checks before building anything durable
         /// on a negative.</param>
-        /// <param name="AccountsConsulted">How many account lists were
-        /// examined. One means the old, narrower question was asked; more
+        /// <param name="AccountsConsulted">How many DISTINCT accounts answered
+        /// — accounts, not lists. One account routinely supplies two lists (the
+        /// push captured during the call and the held session carrying the
+        /// same one), and a session that has not yet heard from the server
+        /// supplies none. One means the old, narrower question was asked; more
         /// means the answer describes the operator rather than the session
-        /// (#352).</param>
+        /// (#352). Callers print "only the signed-in account was asked" on
+        /// this number, so a list count here suppressed a true caveat.</param>
         /// <param name="ListedUnderAccount">The account whose list contains
         /// the serial, when one does. Empty otherwise.</param>
         public readonly record struct Finding(
@@ -136,22 +140,23 @@ namespace Radios
             var lists = listsInHand ?? Array.Empty<AccountList>();
             bool aServerAnsweredThisCall =
                 lists.Any(l => l.Source == ListSource.ServerPushThisCall);
+            int accounts = DistinctAccounts(lists);
 
             // No serial means no question. Never a negative: a radio we cannot
             // name has not been found absent from anything.
             if (string.IsNullOrEmpty(serial))
-                return Finding.Unknown(lists.Count);
+                return Finding.Unknown(accounts);
 
             // Connected over SmartLink. The connection IS the proof, and it is
             // better evidence than any list.
             if (arrivedOverSmartLink)
                 return new Finding(
                     FlexBase.SmartLinkRegistrationQuery.Registered,
-                    aServerAnsweredThisCall, lists.Count, string.Empty);
+                    aServerAnsweredThisCall, accounts, string.Empty);
 
             if (!anAccountIsInHand)
                 return anySavedAccount
-                    ? Finding.Unknown(lists.Count)
+                    ? Finding.Unknown(accounts)
                     : new Finding(FlexBase.SmartLinkRegistrationQuery.NoAccount,
                         false, 0, string.Empty);
 
@@ -166,23 +171,42 @@ namespace Radios
                 if (list.Serials.Any(s => string.Equals(s, serial, StringComparison.OrdinalIgnoreCase)))
                     return new Finding(
                         FlexBase.SmartLinkRegistrationQuery.Registered,
-                        aServerAnsweredThisCall, lists.Count, list.Account ?? string.Empty);
+                        aServerAnsweredThisCall, accounts, list.Account ?? string.Empty);
             }
 
             // Nothing positive. An absence only counts as an observation when
             // a server actually answered; otherwise we simply did not look.
             if (!aServerAnsweredThisCall)
-                return Finding.Unknown(lists.Count);
+                return Finding.Unknown(accounts);
 
             return new Finding(
                 FlexBase.SmartLinkRegistrationQuery.NotInAccountList,
-                true, lists.Count, string.Empty);
+                true, accounts, string.Empty);
         }
 
         /// <summary>
-        /// The list each held SmartLink session is carrying, labelled
-        /// <see cref="ListSource.HeldBySession"/>.
+        /// How many different accounts these lists came from. Account ids are
+        /// emails and are matched the way the account manager and the session
+        /// coordinator match them, ignoring case.
         /// </summary>
+        private static int DistinctAccounts(IEnumerable<AccountList> lists) =>
+            lists.Select(l => l.Account ?? string.Empty)
+                 .Distinct(StringComparer.OrdinalIgnoreCase)
+                 .Count();
+
+        /// <summary>
+        /// The list each held SmartLink session is carrying, labelled
+        /// <see cref="ListSource.HeldBySession"/> — from every session the
+        /// server has actually sent a list to, and from no other.
+        /// </summary>
+        /// <remarks>
+        /// A session is created holding an EMPTY radio array, and keeps it
+        /// until the server's first list arrives. That array is the owner's
+        /// initial value, not an answer: it looks exactly like "this account
+        /// has no radios", and counting it made an account that had said
+        /// nothing read as consulted. <c>LastRadioListUtc</c> is null until
+        /// the first list lands, so it is what tells the two apart.
+        /// </remarks>
         internal static IReadOnlyCollection<AccountList> HeldLists(
             IEnumerable<Radios.SmartLink.IWanSessionOwner?>? sessions)
         {
@@ -191,6 +215,7 @@ namespace Radios
             foreach (var held in sessions)
             {
                 if (held == null) continue;
+                if (held.LastRadioListUtc == null) continue;
                 var available = held.AvailableRadios;
                 if (available == null) continue;
                 lists.Add(new AccountList(

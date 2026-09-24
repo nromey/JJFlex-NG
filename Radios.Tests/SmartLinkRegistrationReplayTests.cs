@@ -223,6 +223,12 @@ namespace Radios.Tests
 
             Assert.Equal(Verdict.NotInAccountList, finding.Verdict);
             Assert.True(finding.FromALiveServerAnswer);
+
+            // One account answered, once. The push was captured AND the held
+            // session now carries the same list, and Track L counted those as
+            // two — which is how the caller's "only the signed-in account was
+            // asked" caveat could be suppressed after hearing from one account.
+            Assert.Equal(1, finding.AccountsConsulted);
         }
     }
 }
