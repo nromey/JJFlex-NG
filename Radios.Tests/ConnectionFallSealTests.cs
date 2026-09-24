@@ -1,6 +1,8 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -554,11 +556,19 @@ namespace Radios.Tests
             int methodEnd = source.IndexOf("private void wireRadioPropertyHandler(", method, StringComparison.Ordinal);
             Assert.True(seal > method && seal < methodEnd, "the one seal call is not in sealIfOurConnectionDropped");
 
-            // Reached from the Connected case, when it falls.
-            int connectedCase = source.IndexOf("case \"Connected\":", StringComparison.Ordinal);
-            Assert.True(connectedCase > 0);
-            string caseBody = source.Substring(connectedCase, source.IndexOf("break;", connectedCase, StringComparison.Ordinal) - connectedCase);
-            Assert.Contains("if (!nowConnected) sealIfOurConnectionDropped(r);", caseBody, StringComparison.Ordinal);
+            // Reached from the Connected property's handler, when it falls.
+            // Track H6 moved that handler out of the switch and ahead of every
+            // ordinary trace line (the fall must not wait on the trace gate
+            // before its claim), so it is read from its own method now.
+            int handlerTop = source.IndexOf("private void radioPropertyChangedHandler(object sender, PropertyChangedEventArgs e)", StringComparison.Ordinal);
+            Assert.True(handlerTop > 0);
+            string dispatch = source.Substring(handlerTop, source.IndexOf("switch (e.PropertyName)", handlerTop, StringComparison.Ordinal) - handlerTop);
+            Assert.Contains("onRadioConnectedChanged(r);", dispatch, StringComparison.Ordinal);
+            int connectedMethod = source.IndexOf("private void onRadioConnectedChanged(Radio r)", StringComparison.Ordinal);
+            Assert.True(connectedMethod > 0, "the Connected handler moved");
+            string connectedBody = source.Substring(connectedMethod,
+                source.IndexOf("private void radioPropertyChangedHandler(", connectedMethod, StringComparison.Ordinal) - connectedMethod);
+            Assert.Contains("if (!nowConnected) sealIfOurConnectionDropped(r);", connectedBody, StringComparison.Ordinal);
 
             // And the removal handler's drop arm is bookkeeping: no seal there.
             int handler = source.IndexOf("private void apiRadioRemovedHandler(Radio r)", StringComparison.Ordinal);
@@ -566,6 +576,186 @@ namespace Radios.Tests
             Assert.True(handler > 0 && handlerEnd > handler);
             Assert.DoesNotContain("AfterConnectionDrop", source.Substring(handler, handlerEnd - handler),
                                   StringComparison.Ordinal);
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        //  The fall does not wait on a file (Track H6)
+        // ────────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// <b>A slow transition holds the trace gate, and the fall returns
+        /// anyway, having claimed the drop and queued its seal.</b> Sol's review
+        /// of H3, finding 1: the drop read <c>TraceCoordinator.CurrentHandle</c>
+        /// through the same gate that is held across a transition's flush,
+        /// close, move and successor open, and wrote an ordinary trace line
+        /// first — so a disk stalled under a problem-report checkpoint stalled
+        /// FlexLib's transport thread, and the claim waited with it.
+        ///
+        /// <para>Driven with a real session in a temporary tree, at capture
+        /// detail, and a checkpoint held INSIDE the gate on a barrier. The
+        /// barrier is proved to hold the gate first — an ordinary writer is
+        /// shown to block — so a fall that returns is a measurement, not a gate
+        /// nobody was holding. Then the lines the fall deferred are shown to
+        /// land in the session they describe, the sealed one.</para>
+        ///
+        /// <para>Positive control, run by hand at H6 (see the report): with
+        /// <c>CurrentHandle</c> put back behind the gate, the fall does not
+        /// return and this test goes red.</para>
+        /// </summary>
+        [Fact]
+        public void A_fall_returns_while_a_slow_transition_holds_the_trace_gate()
+        {
+            string dir = Path.Combine(Path.GetTempPath(), "jjflex-h6-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            string livePath = Path.Combine(dir, "JJFlexRadioTrace.txt");
+            string savedRoot = TraceCoordinator.ArchiveRootDir;
+            bool savedOn = Tracing.On;
+            TraceLevel savedLevel = Tracing.TheSwitch.Level;
+
+            var queued = new List<Action>();
+            var inside = new ManualResetEventSlim(false);
+            var release = new ManualResetEventSlim(false);
+            TraceArchiveTicket sealedTicket = null;
+            Thread checkpoint = null, writer = null, fall = null;
+
+            var rig = NewRig();
+            var radio = NewWanRadio(UniqueSerial(), "Don's 6300");
+            try
+            {
+                try
+                {
+                    typeof(TraceCoordinator)
+                        .GetMethod("RestoreSessionForTests", BindingFlags.NonPublic | BindingFlags.Static)!
+                        .Invoke(null, new object[] { null });
+                    TraceCoordinator.ArchiveRootDir = Path.Combine(dir, "Traces");
+                    Tracing.TheSwitch.Level = TraceLevel.Verbose;
+                    Tracing.On = true;
+                    TraceTransitionResult began = TraceCoordinator.Begin(livePath, TraceLevel.Verbose, asDetailedCapture: false);
+                    Assert.Equal(TraceTransition.Accepted, began.Status);
+                    TraceSessionHandle session = began.Successor;
+
+                    // The hook does what the application's does: seal the
+                    // session the drop named, through the boundary.
+                    CaptureSeal.SealHook = req =>
+                    {
+                        Interlocked.Increment(ref _seals);
+                        var lines = new List<string>();
+                        if (!string.IsNullOrEmpty(req.PartialMeterLine)) lines.Add(req.PartialMeterLine);
+                        TraceTransitionResult sealedNow = TraceCoordinator.TrySeal(new TraceSealRequest
+                        {
+                            Expected = (TraceSessionHandle)req.ExpectedSession,
+                            OperationId = req.DropOperationId,
+                            Outcome = TraceSessionOutcome.ConnectionDropped,
+                            OutcomeDetail = req.OutcomeDetail,
+                            TerminalLines = lines,
+                            Resume = TraceResumeIntent.None,
+                        });
+                        sealedTicket = sealedNow.Ticket;
+                        return new CaptureSealResult { Refused = !sealedNow.Owned };
+                    };
+                    // Hold the seal worker back so its timing is ours.
+                    CaptureSeal.Queue = work => { lock (queued) queued.Add(work); };
+
+                    rig.theRadio = radio;
+                    WireAsConnectDoes(rig, radio);
+                    MarkLive(radio, rig);
+
+                    // A problem-report checkpoint that stalls on the disk,
+                    // holding the gate while it does.
+                    TraceCoordinator.TransitionProbeForTests = point =>
+                    {
+                        if (point != "checkpoint:detached") return;
+                        inside.Set();
+                        release.Wait(TimeSpan.FromSeconds(30));
+                    };
+                    checkpoint = new Thread(() => TraceCoordinator.SnapshotForBundle(session)) { IsBackground = true };
+                    checkpoint.Start();
+                    Assert.True(inside.Wait(TimeSpan.FromSeconds(10)), "the checkpoint never reached its probe");
+
+                    // The barrier really holds the gate: an ordinary line cannot
+                    // get in.
+                    writer = new Thread(() => Tracing.TraceLine("H6: an ordinary line, held at the gate")) { IsBackground = true };
+                    writer.Start();
+                    Assert.False(writer.Join(TimeSpan.FromMilliseconds(300)),
+                        "an ordinary trace line got past the barrier — the gate is not held, and the measurement below would be vacuous");
+
+                    // The fall, on its own thread, entering where a real one
+                    // does. What is measured is OUR handler for the Connected
+                    // fall reaching its end — ConnectionStateChanged is its last
+                    // statement — not FlexLib's whole teardown: after our handler
+                    // returns, FlexLib's own Disconnect raises further property
+                    // changes on this same thread, and those still trace through
+                    // the gate (reported by H6, not changed: the ruling is about
+                    // the claim).
+                    var handlerDone = new ManualResetEventSlim(false);
+                    rig.ConnectionStateChanged += connected => { if (!connected) handlerDone.Set(); };
+                    fall = new Thread(() => LoseTheTransport(radio)) { IsBackground = true };
+                    fall.Start();
+                    Assert.True(handlerDone.Wait(TimeSpan.FromSeconds(5)),
+                        "the Connected fall's handler did not return while a transition held the trace gate — FlexLib's transport thread is waiting on a file before the drop is claimed");
+                    Assert.True(checkpoint.IsAlive, "the gate was released before the handler returned; nothing was measured");
+
+                    // And it did its job before returning: the drop was claimed
+                    // and its seal queued, not put off until the disk recovered.
+                    AssertTheRigSawTheFall(rig);
+                    lock (queued) Assert.Single(queued);
+                }
+                finally
+                {
+                    release.Set();
+                    TraceCoordinator.TransitionProbeForTests = null;
+                    checkpoint?.Join(TimeSpan.FromSeconds(10));
+                    writer?.Join(TimeSpan.FromSeconds(10));
+                    fall?.Join(TimeSpan.FromSeconds(10));
+                    // The writers this test holds at the gate are slow writes by
+                    // construction, and the #434 slow-write marker allows itself
+                    // one a minute. Give that budget back, or a later test that
+                    // measures the marker inherits this one's stall.
+                    typeof(Tracing).GetField("lastSlowMarkerStamp", BindingFlags.NonPublic | BindingFlags.Static)
+                        ?.SetValue(null, 0L);
+                }
+
+                // Now let the worker run: it writes the deferred lines first,
+                // then seals.
+                Action work;
+                lock (queued) work = queued[0];
+                work();
+
+                Assert.Equal(1, Volatile.Read(ref _seals));
+                Assert.NotNull(sealedTicket);
+                Assert.True(sealedTicket.Completion.Wait(TimeSpan.FromSeconds(60)), "the archive worker never finished");
+                TraceArchiveCompletion done = sealedTicket.Completion.Result;
+                Assert.True(done.ArchiveCommitted, "the archive was not committed: " + done.FailureStage);
+                string text = File.ReadAllText(SessionArchive.ExtractTraceText(
+                    done.ArchiveFullPath, Path.Combine(dir, "extract")));
+
+                // The reader is looking at the sealed part, the one that began
+                // after the checkpoint...
+                Assert.Contains("--- trace continues from part 001", text, StringComparison.Ordinal);
+                // ...and the lines the fall wrote on FlexLib's thread are in it:
+                // the session they describe, not a successor.
+                Assert.Contains("Connected:False", text, StringComparison.Ordinal);
+                Assert.Contains("our connection dropped without us asking", text, StringComparison.Ordinal);
+            }
+            finally
+            {
+                if (TraceCoordinator.Recording)
+                {
+                    TraceCoordinator.TrySeal(new TraceSealRequest
+                    {
+                        ShutdownAuthority = true,
+                        Outcome = TraceSessionOutcome.CleanExit,
+                        Resume = TraceResumeIntent.None,
+                        OperationId = Guid.NewGuid(),
+                    });
+                }
+                TraceCoordinator.DrainArchives(TimeSpan.FromSeconds(20));
+                TraceCoordinator.ArchiveRootDir = savedRoot;
+                Tracing.TheSwitch.Level = savedLevel;
+                Tracing.On = savedOn;
+                Release(rig);
+                try { Directory.Delete(dir, recursive: true); } catch { }
+            }
         }
 
         // ────────────────────────────────────────────────────────────────

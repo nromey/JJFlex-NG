@@ -213,6 +213,14 @@ namespace Radios
         {
             // One immutable read, on this thread. A handle, not a pointer into
             // anything the worker could find changed.
+            //
+            // AND NOTHING ON THIS THREAD WAITS ON THE TRACE GATE (Sol's review
+            // of H3, finding 1). CurrentHandle is a published snapshot read
+            // without the gate, and every line this method writes is DEFERRED:
+            // an ordinary TraceLine passes the same gate that is held across a
+            // transition's flush, close, move and successor open, so one line
+            // here would have made FlexLib's transport thread wait out a
+            // stalled disk — and made the claim below wait with it.
             TraceSessionHandle expected = TraceCoordinator.CurrentHandle;
             if (expected == null)
             {
@@ -220,7 +228,7 @@ namespace Radios
                 // there is no evidence to seal. Said out loud because "no
                 // connection_dropped archive appeared" needs to be answerable
                 // afterwards, and "logging was off" is one of the answers.
-                Tracing.TraceLine(
+                Tracing.TraceLineDeferred(
                     "CaptureSeal: the radio's connection dropped but nothing was recording — no session to seal",
                     TraceLevel.Warning);
                 return;
@@ -235,7 +243,7 @@ namespace Radios
                 // class exists to fix. The claim is deliberately NOT taken: an
                 // unwired call seals nothing, so it must not also consume the
                 // drop and refuse a later, correctly wired one.
-                Tracing.TraceLine(
+                Tracing.TraceLineDeferred(
                     "CaptureSeal: the radio's connection dropped but no seal hook is installed — "
                     + "the session will be archived as an ordinary one (wiring defect)",
                     TraceLevel.Warning);
@@ -247,7 +255,7 @@ namespace Radios
                 // Logged as a refusal, naming what was refused — never as a
                 // statement that the current session suffered a drop. And
                 // nothing has been written anywhere: the flush below has not run.
-                Tracing.TraceLine(
+                Tracing.TraceLineDeferred(
                     "CaptureSeal: this connection's loss was already claimed — not sealing again, "
                     + "and no partial meter line was written",
                     TraceLevel.Info);
@@ -264,8 +272,8 @@ namespace Radios
             {
                 // The drop path must survive anything. A radio has just died; an
                 // exception here would take the seal with it.
-                Tracing.TraceLine("CaptureSeal: collecting the partial meter window failed: " + ex.Message,
-                                  TraceLevel.Warning);
+                Tracing.TraceLineDeferred("CaptureSeal: collecting the partial meter window failed: " + ex.Message,
+                                          TraceLevel.Warning);
             }
 
             var request = new CaptureSealRequest
@@ -365,6 +373,12 @@ namespace Radios
             CaptureSealResult result = null;
             try
             {
+                // The lines the fall wrote on FlexLib's thread were deferred so
+                // that thread never waited on the trace gate. Write them NOW,
+                // before anything seals, so they land in the session they
+                // describe rather than in its successor. This thread may wait;
+                // it is the worker, and waiting is its job.
+                Tracing.FlushDeferred();
                 Tracing.TraceLine(
                     "CaptureSeal: sealing the running capture as " + TraceSessionOutcome.ConnectionDropped
                     + " — " + request.OutcomeDetail,

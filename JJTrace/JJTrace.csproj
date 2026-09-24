@@ -26,6 +26,7 @@
     <Compile Include="TraceArchiveWorker.cs" />
     <Compile Include="TraceBoundary.cs" />
     <Compile Include="TraceCoordinator.cs" />
+    <Compile Include="TraceDeferred.cs" />
     <Compile Include="TraceFileNaming.cs" />
     <Compile Include="TraceOutcomeLabels.cs" />
     <Compile Include="TraceRotation.cs" />

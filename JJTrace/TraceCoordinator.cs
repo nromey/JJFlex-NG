@@ -117,6 +117,46 @@ namespace JJTrace
         private static RotatingTraceListener _sink;
         private static TraceSession _session;
         private static TraceSessionHandle _handle;
+
+        /// <summary>
+        /// The current handle as last PUBLISHED, readable without the gate.
+        ///
+        /// <para><b>Why a second field.</b> The gate is held across a
+        /// transition's flush, close, move, pending-record write and successor
+        /// open — file I/O, which can stall. The drop callback runs on FlexLib's
+        /// transport thread and has to name the session it is about at the
+        /// moment of the drop; reading <see cref="_handle"/> under the gate made
+        /// that thread wait out whatever the disk was doing (Sol's review of
+        /// H3, finding 1; Astra's design asked for exactly this snapshot).</para>
+        ///
+        /// <para><b>Published at the END of a transition, never part way
+        /// through.</b> A seal nulls <see cref="_handle"/> before it opens the
+        /// successor; a reader that could see that intermediate null would
+        /// report "nothing was recording" during a perfectly ordinary restart.
+        /// So a lock-free reader sees the handle from before a transition or the
+        /// one after it, nothing in between. A handle is immutable, so reading
+        /// the reference is reading the whole value.</para>
+        ///
+        /// <para>It is a request TARGET, not permission: whoever acts on it
+        /// still goes through the boundary, which compares it against the real
+        /// current session under the gate.</para>
+        /// </summary>
+        private static volatile TraceSessionHandle _published;
+
+        /// <summary>Caller must hold the gate. Called on the way OUT of every
+        /// gated operation that can change the current handle.</summary>
+        private static void PublishLocked() => _published = _handle;
+
+        /// <summary>
+        /// Tests only: called at named points INSIDE a transition, with the gate
+        /// held, so a test can hold the gate through a slow transition on a
+        /// barrier and race something against it. Null in production, and the
+        /// one exception to the rule that nothing runs a caller's delegate under
+        /// the gate — which is why it is internal and named for tests.
+        /// </summary>
+        internal static Action<string> TransitionProbeForTests;
+
+        private static void Probe(string point) => TransitionProbeForTests?.Invoke(point);
         private static TraceSinkStamp _stamp;
         private static string _livePath;
         private static TraceLevel _level = TraceLevel.Off;
@@ -157,11 +197,14 @@ namespace JJTrace
             get { lock (_gate) { return _session; } }
         }
 
-        /// <summary>The live session's handle, or null.</summary>
-        public static TraceSessionHandle CurrentHandle
-        {
-            get { lock (_gate) { return _handle; } }
-        }
+        /// <summary>
+        /// The live session's handle, or null — as last published, WITHOUT
+        /// taking the gate. Safe on a thread that must not wait on a file: the
+        /// drop callback reads this on FlexLib's transport thread. A transition
+        /// in progress is reported as the state before it; see
+        /// <see cref="_published"/>.
+        /// </summary>
+        public static TraceSessionHandle CurrentHandle => _published;
 
         /// <summary>Where lines are landing right now, or null.</summary>
         public static string LivePath
@@ -266,6 +309,7 @@ namespace JJTrace
                 // session it could seal.
                 _session = null;
                 _handle = null;
+                PublishLocked();
             }
         }
 
@@ -337,6 +381,7 @@ namespace JJTrace
             var faults = new List<string>();
             TraceTransitionResult result;
             lock (_gate)
+            try
             {
                 if (_shuttingDown)
                 {
@@ -362,6 +407,7 @@ namespace JJTrace
                 }
                 result.TracingOn = _sink != null && !_sink.IsClosed;
             }
+            finally { PublishLocked(); }
             result.DeferredFaults = faults;
             return result;
         }
@@ -398,6 +444,7 @@ namespace JJTrace
                 _session = new TraceSession();
                 _handle = new TraceSessionHandle(_session);
                 _session.VerbosityLevel = _level.ToString();
+                PublishLocked();
                 return _session;
             }
         }
@@ -415,6 +462,7 @@ namespace JJTrace
                 _session = null;
                 _handle = null;
                 _stamp = null;
+                PublishLocked();
                 return ending;
             }
         }
@@ -431,6 +479,7 @@ namespace JJTrace
                 _session = session;
                 _handle = session == null ? null : new TraceSessionHandle(session);
                 if (session == null) _stamp = null;
+                PublishLocked();
             }
         }
 
@@ -564,7 +613,8 @@ namespace JJTrace
 
             lock (_gate)
             {
-                result = SealLocked(request, faults, out queued);
+                try { result = SealLocked(request, faults, out queued); }
+                finally { PublishLocked(); }
             }
 
             // Outside the gate, deliberately: queueing touches a Task chain and
@@ -692,6 +742,7 @@ namespace JJTrace
                 : TraceFileNaming.StampedPath(_livePath, sealing.BootTimeUtc);
             string detached = TraceFileNaming.Detach(sourcePath, target, deleteOnFailure: false,
                                                      out string moveFailure);
+            Probe("seal:detached");
 
             // Whatever happened to the file, this session is over as far as
             // every writer is concerned.
@@ -876,6 +927,7 @@ namespace JJTrace
                 {
                     result = CheckpointLocked(faults, out queued);
                 }
+                PublishLocked();
             }
 
             if (queued != null) TraceArchiveWorker.Queue(queued);
@@ -909,6 +961,7 @@ namespace JJTrace
             string target = TraceFileNaming.StampedPartPath(_livePath, session.BootTimeUtc, part);
             string detached = TraceFileNaming.Detach(sourcePath, target, deleteOnFailure: false,
                                                      out string moveFailure);
+            Probe("checkpoint:detached");
 
             if (detached == null)
             {

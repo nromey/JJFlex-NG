@@ -108,7 +108,9 @@ namespace Radios
             {
                 // The drop path must survive anything. A radio has just died;
                 // an exception here would take the seal with it.
-                Tracing.TraceLine("collectCaptureMeterFlush: " + ex.Message, TraceLevel.Warning);
+                // Deferred: this runs on FlexLib's transport thread, on the
+                // drop path, which must not wait on the trace gate.
+                Tracing.TraceLineDeferred("collectCaptureMeterFlush: " + ex.Message, TraceLevel.Warning);
                 return null;
             }
         }

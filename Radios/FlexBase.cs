@@ -807,9 +807,12 @@ namespace Radios
                 sameObject: ReferenceEquals(r, theRadio));
             bool firmware = _firmwareUpdateSent;
 
+            // Deferred, both of them: this is FlexLib's transport thread, and
+            // nothing on it may wait on the trace gate before the claim. See
+            // onRadioConnectedChanged.
             if (!ConnectionFallSealsTheCapture(kind, firmware))
             {
-                Tracing.TraceLine(
+                Tracing.TraceLineDeferred(
                     $"connection fell: {r.Serial} ({r.Nickname}) — {kind}"
                     + (firmware ? ", firmware update sent" : "")
                     + "; not a drop, nothing sealed",
@@ -817,7 +820,7 @@ namespace Radios
                 return;
             }
 
-            Tracing.TraceLine(
+            Tracing.TraceLineDeferred(
                 $"connection fell: {r.Serial} ({r.Nickname}) — our connection dropped without us asking; sealing the capture",
                 TraceLevel.Warning);
 
@@ -7804,10 +7807,81 @@ namespace Radios
         {
             FeatureLicenseChanged?.Invoke(this, EventArgs.Empty);
         }
+        /// <summary>
+        /// Our Radio's <c>Connected</c> property changed. Reached from
+        /// <see cref="radioPropertyChangedHandler"/> before anything else it
+        /// does.
+        ///
+        /// <para><b>On a fall, nothing here waits on the trace gate before the
+        /// drop is claimed</b> (Sprint 45 Track H6, Sol's review of H3, finding
+        /// 1). FlexLib raises this on its own transport thread, mid-teardown.
+        /// An ordinary <c>Tracing.TraceLine</c> passes the trace coordinator's
+        /// gate, and that gate is held across a lifecycle transition's flush,
+        /// close, move and successor open — so a disk that stalled under a
+        /// capture stop would have stalled FlexLib's teardown, and the drop's
+        /// claim with it. The lines a fall writes are therefore DEFERRED:
+        /// formatted now, with this moment's timestamp and thread, and written
+        /// by the seal worker before it seals, so they still land in the
+        /// session they describe. A rise is not a loss path and traces
+        /// normally.</para>
+        ///
+        /// <para>What runs AFTER the seal is queued — the
+        /// <see cref="ConnectionStateChanged"/> subscribers — is ordinary
+        /// application code and traces as it always has.</para>
+        /// </summary>
+        private void onRadioConnectedChanged(Radio r)
+        {
+            // Read once: every use below must describe the same transition.
+            bool nowConnected = r.Connected;
+            Action<string, TraceLevel> trace = nowConnected
+                ? (Action<string, TraceLevel>)Tracing.TraceLine
+                : Tracing.TraceLineDeferred;
+
+            trace("propertyChanged:Radio:Connected", TraceLevel.Verbose);
+            if (!(r.ClientHandle != 0) & myClient(r.ClientHandle))
+            {
+                // TraceLevel.Off passes every switch level: this line was
+                // unconditional before it moved here, and still is.
+                trace("propertyChanged:Radio:NotMine:Connected", TraceLevel.Off);
+            }
+            trace("Connected:" + nowConnected.ToString(), TraceLevel.Error);
+
+            _IsConnected = nowConnected;
+            // The seal is taken BEFORE ConnectionStateChanged, so a subscriber
+            // that throws cannot cost the evidence.
+            if (!nowConnected) sealIfOurConnectionDropped(r);
+            ConnectionStateChanged?.Invoke(nowConnected);
+#if zero
+            bool justReconnected = false;
+            if (!r.Connected &&
+                !Disconnecting &&
+                !string.IsNullOrEmpty(clientID))
+            {
+                justReconnected = true;
+                theRadio.Connect(clientID);
+            }
+            else
+            {
+                raiseConnectedEvent(r.Connected);
+            }
+#endif
+            //raiseConnectedEvent(r.Connected);
+        }
+
         private void radioPropertyChangedHandler(object sender, PropertyChangedEventArgs e)
         {
-            Tracing.TraceLine("propertyChanged:Radio:" + e.PropertyName, TraceLevel.Verbose);
             Radio r = (Radio)sender;
+            // THE CONNECTION CHANGING IS HANDLED BEFORE ANY ORDINARY TRACE LINE.
+            // FlexLib raises it on its transport thread in the middle of a
+            // teardown, and an ordinary line waits on the trace gate, which a
+            // lifecycle transition holds across file I/O. See
+            // onRadioConnectedChanged.
+            if (e.PropertyName == "Connected")
+            {
+                onRadioConnectedChanged(r);
+                return;
+            }
+            Tracing.TraceLine("propertyChanged:Radio:" + e.PropertyName, TraceLevel.Verbose);
             if (!(r.ClientHandle != 0) & myClient(r.ClientHandle))
             {
                 Tracing.TraceLine("propertyChanged:Radio:NotMine:" + e.PropertyName);
@@ -7936,34 +8010,8 @@ namespace Radios
                     }
                     break;
 #endif
-                case "Connected":
-                    {
-                        // Read once: every use below must describe the same
-                        // transition.
-                        bool nowConnected = r.Connected;
-                        Tracing.TraceLine("Connected:" + nowConnected.ToString(), TraceLevel.Error);
-                        _IsConnected = nowConnected;
-                        // The seal is taken BEFORE ConnectionStateChanged, so a
-                        // subscriber that throws cannot cost the evidence.
-                        if (!nowConnected) sealIfOurConnectionDropped(r);
-                        ConnectionStateChanged?.Invoke(nowConnected);
-#if zero
-                        bool justReconnected = false;
-                        if (!r.Connected &&
-                            !Disconnecting &&
-                            !string.IsNullOrEmpty(clientID))
-                        {
-                            justReconnected = true;
-                            theRadio.Connect(clientID);
-                        }
-                        else
-                        {
-                            raiseConnectedEvent(r.Connected);
-                        }
-#endif
-                        //raiseConnectedEvent(r.Connected);
-                    }
-                    break;
+                // "Connected" is not handled here: it returns early, above,
+                // into onRadioConnectedChanged.
                 case "CWBreakIn":
                     Tracing.TraceLine("CWBreakIn:" + r.CWBreakIn.ToString(), TraceLevel.Info);
                     break;
