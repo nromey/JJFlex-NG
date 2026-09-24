@@ -137,6 +137,9 @@ namespace Radios
 
         private static LexiconLoadReport _report = LexiconLoadReport.Empty;
 
+        /// <summary>Starts at one so a pinned generation of zero reads as "never pinned".</summary>
+        private static long _catalogGeneration = 1;
+
         /// <summary>
         /// What the last load found — how many keys, which partitions, and
         /// every problem. Never null.
@@ -217,6 +220,69 @@ namespace Radios
         public static string Get(string key, VerbosityLevel level, params (string Name, object? Value)[] args)
         {
             return Fill(Get(key, level), args);
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        //  The typed lookup
+        // ────────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// The key, its delivery contract and its unrendered arguments —
+        /// everything <see cref="Get(string)"/> throws away.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Use this wherever a message will be published as a fact.</b> A
+        /// string already returned by <see cref="Get(string)"/> has lost its
+        /// key and its metadata, and there is no recovering them: matching the
+        /// text back against the catalog is guessing, a second dictionary from
+        /// sentence to descriptor is the same dictionary twice, and editing the
+        /// JSON alone cannot change behaviour that never saw the key.
+        /// </para>
+        /// <para>
+        /// <b>It never throws and never refuses to answer.</b> An unknown key
+        /// comes back as an unclassified message whose text is the key itself —
+        /// the same visible fallback the plain API has always given — so a
+        /// caller that has already admitted a fact does not lose it because a
+        /// lookup failed. What an unclassified message may NOT do is be
+        /// presented automatically; that is
+        /// <see cref="LexiconMessage.IsPresentableMessage"/>, and the refusal
+        /// belongs to the delivery side rather than here.
+        /// </para>
+        /// </remarks>
+        public static LexiconMessage Message(string key, params (string Name, object? Value)[] args)
+        {
+            IReadOnlyList<(string Name, object? Value)> arguments =
+                args == null || args.Length == 0
+                    ? Array.Empty<(string, object?)>()
+                    : (IReadOnlyList<(string, object?)>)args;
+
+            if (string.IsNullOrEmpty(key))
+                return new LexiconMessage(string.Empty, null, arguments, CatalogGeneration);
+
+            EnsureLoadedFor(key);
+
+            lock (Gate)
+            {
+                Entries.TryGetValue(key, out LexiconEntry? entry);
+                return new LexiconMessage(key, entry, arguments, _catalogGeneration);
+            }
+        }
+
+        /// <summary>
+        /// Which wording catalog is in force. Advanced by every load and every
+        /// <see cref="Forget"/>.
+        /// </summary>
+        /// <remarks>
+        /// A prepared presentation plan pins this. A wording reload therefore
+        /// invalidates plans that have not started, so a sentence renders from
+        /// one coherent catalog rather than half from each — and a
+        /// classification changed by a later software version cannot
+        /// retroactively reinterpret evidence stored under the old one.
+        /// </remarks>
+        public static long CatalogGeneration
+        {
+            get { lock (Gate) return _catalogGeneration; }
         }
 
         /// <summary>Is this key resolvable right now?</summary>
@@ -341,7 +407,7 @@ namespace Radios
                 if (overlay != null)
                 {
                     overlays++;
-                    Merge(baseline, overlay);
+                    Merge(baseline, overlay, problems, partition);
                 }
 
                 lock (Gate)
@@ -351,6 +417,7 @@ namespace Radios
                         Entries[pair.Key] = pair.Value;
                     }
                     LoadedPartitions.Add(partition);
+                    _catalogGeneration++;
                 }
             }
 
@@ -384,6 +451,7 @@ namespace Radios
                 Entries.Clear();
                 LoadedPartitions.Clear();
                 _report = LexiconLoadReport.Empty;
+                _catalogGeneration++;
             }
         }
 
@@ -543,10 +611,85 @@ namespace Radios
             Dictionary<string, LexiconEntry> baseline,
             Dictionary<string, LexiconEntry> overlay)
         {
+            Merge(baseline, overlay, problems: null, partition: string.Empty);
+        }
+
+        /// <summary>
+        /// Layer an overlay onto a baseline, KEY BY KEY, keeping the shipped
+        /// DELIVERY contract on every key the operator rewords.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>This is the migration's sharpest edge.</b> Before the envelope
+        /// existed, this method replaced the whole entry for an overridden key,
+        /// which was exactly right when an entry was only words. Under the new
+        /// shape the same line would strip a safety message's shelf life, its
+        /// validity contract, its history key and its receipt policy — and the
+        /// result would still speak, so nothing would look broken. An operator
+        /// who changes a sentence would silently turn a persistent warning into
+        /// an unclassified one.
+        /// </para>
+        /// <para>
+        /// <b>The split is: words are his, lifecycle is not.</b> An overlay
+        /// that only gives text takes the shipped contract. An overlay that
+        /// declares an IDENTICAL contract is accepted, because restating
+        /// something true is not an error. An overlay that declares a DIFFERENT
+        /// contract keeps its words, keeps the shipped contract, and is
+        /// reported — refusing his words outright over a metadata mistake would
+        /// punish the wrong half of the file.
+        /// </para>
+        /// <para>
+        /// <b>A key the baseline does not have stays unclassified</b> whatever
+        /// it declares. It remains readable, so nothing an operator added stops
+        /// working, but it carries no authority for an automatic retained
+        /// message: a wording file must not be able to mint a new safety
+        /// message.
+        /// </para>
+        /// </remarks>
+        internal static void Merge(
+            Dictionary<string, LexiconEntry> baseline,
+            Dictionary<string, LexiconEntry> overlay,
+            List<LexiconProblem>? problems,
+            string partition)
+        {
             foreach (KeyValuePair<string, LexiconEntry> pair in overlay)
             {
-                baseline[pair.Key] = pair.Value;
+                if (!baseline.TryGetValue(pair.Key, out LexiconEntry? shipped))
+                {
+                    LexiconEntry added = pair.Value;
+                    if (added.Classification != DeliveryClassification.Unclassified)
+                    {
+                        added = added.WithDelivery(DeliveryClassification.Unclassified, null);
+                        problems?.Add(new LexiconProblem(partition, OverlayPath(partition),
+                            "'" + pair.Key + "' is not a key this release ships, so its wording is " +
+                            "readable but its delivery classification was not applied. A wording " +
+                            "file cannot introduce a new message the application will announce on " +
+                            "its own account."));
+                    }
+                    baseline[pair.Key] = added;
+                    continue;
+                }
+
+                if (pair.Value.Classification != DeliveryClassification.Unclassified
+                    && !SameContract(shipped, pair.Value))
+                {
+                    problems?.Add(new LexiconProblem(partition, OverlayPath(partition),
+                        "'" + pair.Key + "' tried to change its delivery classification, which is " +
+                        "not wording — it decides how long the information stays worth saying and " +
+                        "what makes it true. The new words were kept and the shipped classification " +
+                        "was retained."));
+                }
+
+                // The shipped entry's contract, wearing the operator's words.
+                baseline[pair.Key] = shipped.WithTextFrom(pair.Value);
             }
+        }
+
+        private static bool SameContract(LexiconEntry shipped, LexiconEntry overlay)
+        {
+            if (shipped.Classification != overlay.Classification) return false;
+            if (shipped.Delivery == null) return overlay.Delivery == null;
+            return shipped.Delivery.Equals(overlay.Delivery);
         }
 
         /// <summary>
@@ -632,13 +775,15 @@ namespace Radios
                             break;
 
                         case JsonValueKind.Object:
-                            result[property.Name] = ReadLadder(property.Name, property.Value);
+                            result[property.Name] = IsEnvelope(property.Value)
+                                ? ReadEnvelope(property.Name, property.Value)
+                                : ReadLadder(property.Name, property.Value);
                             break;
 
                         default:
                             throw new JsonException(
-                                "Key '" + property.Name + "' must be either a string or a verbosity " +
-                                "ladder object, but was " + property.Value.ValueKind + ".");
+                                "Key '" + property.Name + "' must be a string, a verbosity ladder " +
+                                "object or a delivery envelope, but was " + property.Value.ValueKind + ".");
                     }
                 }
                 catch (JsonException) when (!strict)
@@ -653,12 +798,264 @@ namespace Radios
             return result;
         }
 
+        // ────────────────────────────────────────────────────────────────
+        //  The version-2 envelope
+        // ────────────────────────────────────────────────────────────────
+
+        private const string TextField = "text";
+        private const string DeliveryField = "delivery";
+        private const string ShelfLifeField = "shelfLife";
+        private const string ValidityField = "validity";
+        private const string HistoryKeyField = "historyKey";
+        private const string ReceiptField = "receipt";
+
+        /// <summary>
+        /// Is this object an envelope rather than a legacy ladder?
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The question has to be answered before either reader runs, because
+        /// the two shapes are both JSON objects and the wrong reader gives a
+        /// misleading error. An object naming <c>text</c> or <c>delivery</c> is
+        /// an envelope; anything else is read as a ladder and is held to the
+        /// ladder's own rules.
+        /// </para>
+        /// <para>
+        /// <b>Naming <c>delivery</c> alone is enough</b>, deliberately, so that
+        /// an envelope with a missing or misspelled <c>text</c> fails as a
+        /// broken envelope rather than as an object full of unknown verbosity
+        /// tiers. A misspelled metadata field must never be read as a tier —
+        /// that is the reading that would silently discard a classification.
+        /// </para>
+        /// </remarks>
+        private static bool IsEnvelope(JsonElement element)
+        {
+            foreach (JsonProperty field in element.EnumerateObject())
+            {
+                if (string.Equals(field.Name, TextField, StringComparison.Ordinal)) return true;
+                if (string.Equals(field.Name, DeliveryField, StringComparison.Ordinal)) return true;
+            }
+            return false;
+        }
+
+        private static LexiconEntry ReadEnvelope(string key, JsonElement element)
+        {
+            JsonElement? text = null;
+            JsonElement? delivery = null;
+            bool deliveryPresent = false;
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (JsonProperty field in element.EnumerateObject())
+            {
+                // JSON permits a duplicate field and System.Text.Json hands us
+                // both. Every parser resolves it silently to one of the two, so
+                // an entry with two shelf lives would classify as whichever one
+                // happened to win. That cannot be allowed to be quiet.
+                if (!seen.Add(field.Name))
+                {
+                    throw new JsonException(
+                        "Key '" + key + "' names '" + field.Name + "' more than once in its envelope. " +
+                        "A duplicate field is silently resolved by every JSON parser, so one of the " +
+                        "two values would take effect with nothing to show for it.");
+                }
+
+                if (string.Equals(field.Name, TextField, StringComparison.Ordinal))
+                {
+                    text = field.Value;
+                }
+                else if (string.Equals(field.Name, DeliveryField, StringComparison.Ordinal))
+                {
+                    deliveryPresent = true;
+                    delivery = field.Value;
+                }
+                else
+                {
+                    throw new JsonException(
+                        "Key '" + key + "' has an unknown envelope field '" + field.Name +
+                        "'. An envelope holds 'text' and 'delivery' and nothing else — a misspelled " +
+                        "field here would otherwise be discarded, taking a delivery classification " +
+                        "with it.");
+                }
+            }
+
+            if (text == null)
+            {
+                throw new JsonException(
+                    "Key '" + key + "' has a delivery envelope with no 'text'. The words are the one " +
+                    "part that is never optional.");
+            }
+
+            LexiconEntry entry = text.Value.ValueKind switch
+            {
+                JsonValueKind.String => LexiconEntry.Plain(RequireText(key, text.Value)),
+                JsonValueKind.Object => ReadLadder(key, text.Value),
+                _ => throw new JsonException(
+                    "Key '" + key + "' has 'text' that is neither a string nor a verbosity ladder, " +
+                    "but " + text.Value.ValueKind + "."),
+            };
+
+            if (!deliveryPresent)
+            {
+                // An envelope that carries text and says nothing about delivery
+                // is still unclassified. Silence here is the same silence as a
+                // bare legacy string, and gets the same answer: not a default,
+                // an error state the gate refuses.
+                return entry;
+            }
+
+            if (delivery!.Value.ValueKind == JsonValueKind.Null)
+            {
+                // "delivery": null is an ANSWER: this string is interface text
+                // or a fragment, never something the application says on its
+                // own account. It is not the same as saying nothing.
+                return entry.WithDelivery(DeliveryClassification.TextOnly, null);
+            }
+
+            if (delivery.Value.ValueKind != JsonValueKind.Object)
+            {
+                throw new JsonException(
+                    "Key '" + key + "' has a 'delivery' that is neither null nor an object, but " +
+                    delivery.Value.ValueKind + ". Null means 'not a standalone message'; an object " +
+                    "is the delivery contract.");
+            }
+
+            return entry.WithDelivery(DeliveryClassification.Message, ReadDescriptor(key, delivery.Value));
+        }
+
+        private static DeliveryDescriptor ReadDescriptor(string key, JsonElement element)
+        {
+            string? shelfLife = null, validity = null, historyKey = null, receipt = null;
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (JsonProperty field in element.EnumerateObject())
+            {
+                if (!seen.Add(field.Name))
+                {
+                    throw new JsonException(
+                        "Key '" + key + "' names '" + field.Name + "' more than once in its delivery " +
+                        "contract, so one of the two values would silently take effect.");
+                }
+
+                if (field.Value.ValueKind != JsonValueKind.String)
+                {
+                    throw new JsonException(
+                        "Key '" + key + "' has a delivery field '" + field.Name + "' that is not a " +
+                        "string, but " + field.Value.ValueKind + ".");
+                }
+
+                string value = field.Value.GetString() ?? string.Empty;
+
+                if (string.Equals(field.Name, ShelfLifeField, StringComparison.Ordinal)) shelfLife = value;
+                else if (string.Equals(field.Name, ValidityField, StringComparison.Ordinal)) validity = value;
+                else if (string.Equals(field.Name, HistoryKeyField, StringComparison.Ordinal)) historyKey = value;
+                else if (string.Equals(field.Name, ReceiptField, StringComparison.Ordinal)) receipt = value;
+                else
+                {
+                    throw new JsonException(
+                        "Key '" + key + "' has an unknown delivery field '" + field.Name +
+                        "'. A delivery contract holds shelfLife, validity, historyKey and receipt. " +
+                        "In particular there is NO age or lifetime field: nothing decides staleness " +
+                        "by counting seconds, and a TTL here would be exactly that.");
+                }
+            }
+
+            if (shelfLife == null)
+            {
+                throw new JsonException(
+                    "Key '" + key + "' has a delivery contract with no 'shelfLife'. There is no " +
+                    "default: a message is perishable, persistent or forgettable, and guessing one " +
+                    "of the three for a message nobody classified is the expensive mistake this " +
+                    "field exists to prevent.");
+            }
+
+            ShelfLife life = shelfLife switch
+            {
+                "perishable" => ShelfLife.Perishable,
+                "persistent" => ShelfLife.Persistent,
+                "forgettable" => ShelfLife.Forgettable,
+                _ => throw new JsonException(
+                    "Key '" + key + "' has shelfLife '" + shelfLife + "'. The only legal values are " +
+                    "perishable, persistent and forgettable, spelled in lower case. There is no " +
+                    "fourth value and no default."),
+            };
+
+            if (string.IsNullOrWhiteSpace(validity))
+            {
+                throw new JsonException(
+                    "Key '" + key + "' has a delivery contract with no 'validity'. Every classified " +
+                    "message names the condition that makes it true — including a forgettable one, " +
+                    "because no replay policy makes an obsolete FIRST presentation truthful. A " +
+                    "message whose premise is its own asking names '" + ValidityContracts.RequestScoped +
+                    "' explicitly.");
+            }
+
+            ReceiptPolicy policy;
+            if (receipt == null)
+            {
+                throw new JsonException(
+                    "Key '" + key + "' has a delivery contract with no 'receipt'. The earcon is the " +
+                    "receipt, so whether this message has one is a decision somebody makes rather " +
+                    "than an omission — say 'none' to decide it has none.");
+            }
+
+            switch (receipt)
+            {
+                case "none": policy = ReceiptPolicy.None; break;
+                case "warning": policy = ReceiptPolicy.Warning; break;
+                case "capture": policy = ReceiptPolicy.Capture; break;
+                default:
+                    throw new JsonException(
+                        "Key '" + key + "' names receipt policy '" + receipt + "', which is not one " +
+                        "of the established tone identities. The legal values are none, warning and " +
+                        "capture — deliberately only the tones the operator already knows. Adding a " +
+                        "new one is an accessibility decision, not a wording change.");
+            }
+
+            if (life != ShelfLife.Forgettable && string.IsNullOrWhiteSpace(historyKey))
+            {
+                throw new JsonException(
+                    "Key '" + key + "' is " + shelfLife + ", so its information is retained after a " +
+                    "failed attempt and has to be readable afterwards — it needs a 'historyKey' " +
+                    "naming a past-tense rendering. A perishable event that missed its moment and a " +
+                    "persistent condition that resolved unheard must both be readable without " +
+                    "replaying a present-tense assurance under a history heading.");
+            }
+
+            return new DeliveryDescriptor(life, validity!, historyKey, policy);
+        }
+
+        /// <summary>
+        /// A string value that is really there. Same rule as the bare legacy
+        /// string: empty text is silence, and silence is invisible to exactly
+        /// the operator who most needs the words.
+        /// </summary>
+        private static string RequireText(string key, JsonElement element)
+        {
+            string text = element.GetString() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                throw new JsonException(
+                    "Key '" + key + "' has no text. An empty value would make the app say nothing " +
+                    "at all, which is never the right answer — delete the key to fall back to the " +
+                    "built-in wording, or give it words.");
+            }
+            return text;
+        }
+
         private static LexiconEntry ReadLadder(string key, JsonElement element)
         {
             string? critical = null, terse = null, chatty = null, diagnostic = null;
+            var seenTiers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (JsonProperty tier in element.EnumerateObject())
             {
+                if (!seenTiers.Add(tier.Name))
+                {
+                    throw new JsonException(
+                        "Key '" + key + "' names the '" + tier.Name + "' tier more than once, so one " +
+                        "of the two wordings would vanish with nothing to show for it.");
+                }
+
                 if (tier.Value.ValueKind != JsonValueKind.String)
                 {
                     throw new JsonException(
@@ -700,8 +1097,17 @@ namespace Radios
     }
 
     /// <summary>
-    /// One entry: either a plain string, or a ladder across verbosity tiers.
+    /// One entry: text — either a plain string or a ladder across verbosity
+    /// tiers — plus what the entry says about itself as a unit of delivery.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Text and delivery are separate halves on purpose.</b> The text is
+    /// editable language; the delivery contract is an executable lifecycle
+    /// policy. An operator overlay may replace the first and may never replace
+    /// the second — see <see cref="Lexicon.Merge(Dictionary{string, LexiconEntry}, Dictionary{string, LexiconEntry}, List{LexiconProblem}?, string)"/>.
+    /// </para>
+    /// </remarks>
     public sealed class LexiconEntry
     {
         private readonly string? _plain;
@@ -710,21 +1116,65 @@ namespace Radios
         private readonly string? _chatty;
         private readonly string? _diagnostic;
 
-        private LexiconEntry(string? plain, string? critical, string? terse, string? chatty, string? diagnostic)
+        private LexiconEntry(string? plain, string? critical, string? terse, string? chatty, string? diagnostic,
+                             DeliveryClassification classification, DeliveryDescriptor? delivery)
         {
             _plain = plain;
             _critical = critical;
             _terse = terse;
             _chatty = chatty;
             _diagnostic = diagnostic;
+            Classification = classification;
+            Delivery = delivery;
         }
 
         /// <summary>A single string, the same at every verbosity.</summary>
-        public static LexiconEntry Plain(string text) => new LexiconEntry(text, null, null, null, null);
+        public static LexiconEntry Plain(string text) =>
+            new LexiconEntry(text, null, null, null, null, DeliveryClassification.Unclassified, null);
 
         /// <summary>A ladder. Any tier may be null; resolution falls downward.</summary>
         public static LexiconEntry Ladder(string? critical, string? terse, string? chatty, string? diagnostic = null)
-            => new LexiconEntry(null, critical, terse, chatty, diagnostic);
+            => new LexiconEntry(null, critical, terse, chatty, diagnostic, DeliveryClassification.Unclassified, null);
+
+        /// <summary>
+        /// How this key is classified as a unit of delivery. Every entry
+        /// parsed from a legacy string or ladder is
+        /// <see cref="DeliveryClassification.Unclassified"/>, which is an
+        /// error state gated by tests — never a fourth shelf life and never a
+        /// silent default.
+        /// </summary>
+        public DeliveryClassification Classification { get; }
+
+        /// <summary>
+        /// The delivery contract, non-null exactly when
+        /// <see cref="Classification"/> is
+        /// <see cref="DeliveryClassification.Message"/>.
+        /// </summary>
+        public DeliveryDescriptor? Delivery { get; }
+
+        /// <summary>
+        /// The same text, carrying a delivery classification. Used by the
+        /// parser once it has read an envelope.
+        /// </summary>
+        public LexiconEntry WithDelivery(DeliveryClassification classification, DeliveryDescriptor? delivery)
+            => new LexiconEntry(_plain, _critical, _terse, _chatty, _diagnostic, classification, delivery);
+
+        /// <summary>
+        /// THIS entry's delivery contract, wearing <paramref name="text"/>'s
+        /// words.
+        /// </summary>
+        /// <remarks>
+        /// The overlay merge in one method. An operator who rewrites a
+        /// sentence keeps the shipped classification — its shelf life, its
+        /// validity contract, its history key and its receipt policy — because
+        /// those are not words and were never his to edit. Replacing the whole
+        /// entry, which is what the merge did before the envelope existed,
+        /// would silently strip a safety message's lifecycle policy and leave
+        /// something that still speaks.
+        /// </remarks>
+        public LexiconEntry WithTextFrom(LexiconEntry text)
+            => new LexiconEntry(text._plain, text._critical, text._terse, text._chatty, text._diagnostic,
+                                Classification, Delivery);
 
         /// <summary>True when this entry varies by verbosity.</summary>
         public bool IsLadder => _plain == null;

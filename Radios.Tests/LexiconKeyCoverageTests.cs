@@ -39,8 +39,20 @@ namespace Radios.Tests
     [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class LexiconKeyCoverageTests
     {
+        /// <summary>
+        /// The lookups that name a key.
+        /// </summary>
+        /// <remarks>
+        /// <b><c>Message</c> is here for the same reason <c>Get</c> is, and
+        /// leaving it out would be worse than never having written this.</b>
+        /// The typed lookup is what migrated speech callers use, so a scanner
+        /// that only knows <c>Get</c> would go green by examining fewer calls
+        /// as the migration progressed — coverage falling while the number
+        /// reported rises. A missing key reached through <c>Message</c> speaks
+        /// the key itself exactly as one reached through <c>Get</c> does.
+        /// </remarks>
         private static readonly Regex CallStart = new Regex(
-            @"Lexicon\s*\.\s*Get\s*\(",
+            @"Lexicon\s*\.\s*(?:Get|Message)\s*\(",
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
         /// <summary>

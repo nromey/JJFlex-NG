@@ -97,15 +97,22 @@ namespace Radios.Tests
             "audio.micprofile.this_radio",
         };
 
+        /// <summary>
+        /// The audio partition's wording, read through the real parser.
+        /// </summary>
+        /// <remarks>
+        /// <b>Skipping non-string values used to be silent narrowing.</b> A key
+        /// that became a verbosity ladder simply vanished from this map, and
+        /// the vocabulary check then passed by not looking at it. Under the
+        /// version-2 envelope every classified entry would have vanished the
+        /// same way. Going through the parser means this sweep widens with the
+        /// shape instead of shrinking against it.
+        /// </remarks>
         private static Dictionary<string, string> Lexicon()
         {
             string path = Path.Combine(RepoRoot(), "Radios", "Lexicon", "audio.json");
-            using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(path));
-            var map = new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (JsonProperty p in doc.RootElement.EnumerateObject())
-                if (p.Value.ValueKind == JsonValueKind.String)
-                    map[p.Name] = p.Value.GetString() ?? "";
-            return map;
+            var entries = LexiconBaseline.Parse(File.ReadAllText(path));
+            return new Dictionary<string, string>(LexiconBaseline.TextByKey(entries), StringComparer.Ordinal);
         }
 
         [Fact]

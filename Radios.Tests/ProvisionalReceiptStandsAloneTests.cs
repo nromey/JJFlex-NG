@@ -120,11 +120,14 @@ namespace Radios.Tests
 
         private static string Receipt()
         {
-            using var doc = JsonDocument.Parse(Read(SettingsJson));
-            Assert.True(doc.RootElement.TryGetProperty(ReceiptKey, out var value),
+            // Through the parser: a ladder or an envelope has no single raw
+            // value, and reading one off the JSON would throw on the shape
+            // rather than report on the sentence.
+            var entries = LexiconBaseline.Parse(Read(SettingsJson));
+            Assert.True(entries.TryGetValue(ReceiptKey, out var entry),
                 "the store has no '" + ReceiptKey + "', so this file is checking nothing");
 
-            string sentence = value.GetString() ?? "";
+            string sentence = entry!.Resolve(VerbosityLevel.Chatty) ?? "";
             Assert.False(string.IsNullOrWhiteSpace(sentence),
                 "the receipt is empty; silence is invisible to the operator who needs it");
             return sentence;
