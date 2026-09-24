@@ -95,8 +95,8 @@ namespace Radios
         /// The undelivered-details surface (#617): the list of things the radio
         /// said that did not land, and the history of the ones that could not
         /// wait. Its own partition because every sentence in it is provisional
-        /// and Noel reviews it as one file, the way the alarms vocabulary was
-        /// reviewed.
+        /// and Noel reviews it as one file, rather than chasing drafts across
+        /// the other seven.
         /// </summary>
         public const string FactsSurface = "facts";
 
@@ -123,10 +123,10 @@ namespace Radios
         /// the moment the operator is waiting to hear whether the chord took.
         /// </remarks>
         /// <remarks>
-        /// The facts surface is eager for the same reason the alarms
-        /// vocabulary is: its words are needed at the moment something failed
-        /// to be delivered, and a first-use file read there happens exactly
-        /// when the machine is least able to oblige.
+        /// The facts surface is eager for a reason of its own: its words are
+        /// needed at the moment something failed to be delivered, and a
+        /// first-use file read there happens exactly when the machine is least
+        /// able to oblige.
         /// </remarks>
         public static IReadOnlyList<string> EagerPartitions { get; } = new[]
         {
