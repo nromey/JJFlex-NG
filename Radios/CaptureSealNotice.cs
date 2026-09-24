@@ -37,13 +37,41 @@ namespace Radios
     public sealed class CaptureSealNotice
     {
         public CaptureSealNotice(string radioName, string archivePath)
+            : this(radioName, archivePath, successorOpened: true, archivedSessionId: null)
+        {
+        }
+
+        /// <summary>
+        /// The facts the trace boundary can now state, added WITHOUT changing a
+        /// sentence of the prose below.
+        ///
+        /// <para>The dialog's "what to do" text says recording has already
+        /// restarted, and that is false in reachable states: a drop that wins
+        /// during a teardown seals its own session and deliberately opens no
+        /// successor, and a restart can fail on its own. Until Noel rules the
+        /// wording, the FACT is at least carried and traceable rather than
+        /// assumed — which is the half of the problem a track can fix.</para>
+        /// </summary>
+        public CaptureSealNotice(string radioName, string archivePath,
+                                 bool successorOpened, Guid? archivedSessionId)
         {
             RadioName = (radioName ?? string.Empty).Trim();
             ArchivePath = archivePath ?? string.Empty;
+            SuccessorOpened = successorOpened;
+            ArchivedSessionId = archivedSessionId;
         }
 
         /// <summary>The radio's nickname, or empty when we never learned one.</summary>
         public string RadioName { get; }
+
+        /// <summary>
+        /// Whether a fresh recording really opened after the seal. Not yet
+        /// spoken anywhere: the sentence that would carry it is Noel's to rule.
+        /// </summary>
+        public bool SuccessorOpened { get; }
+
+        /// <summary>Which trace session was archived.</summary>
+        public Guid? ArchivedSessionId { get; }
 
         /// <summary>The full path of the sealed archive, exactly as it sits on
         /// disk. Shown in full and copied in full — a path the operator can only

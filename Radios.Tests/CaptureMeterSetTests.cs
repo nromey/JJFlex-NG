@@ -331,25 +331,43 @@ namespace Radios.Tests
             Assert.DoesNotContain("partial=", line);
         }
 
+        /// <summary>
+        /// <b>This test used to pin the defect (#618).</b> It asserted that the
+        /// flush happened BEFORE the seal was queued — which was H2's ordering,
+        /// and the ordering Sol's review found wrong: the line was written
+        /// before anything asked whether this removal was already claimed, so a
+        /// repeat notice stamped a false <c>partial=connection_dropped</c>
+        /// record into the fresh standing log the first seal had just started.
+        /// Green, and pinning the wrong behaviour as desired.
+        ///
+        /// <para>The line still has to be in the file before the seal zips it.
+        /// It gets there by a different route: the drop arm hands over a
+        /// FUNCTION, the claim is taken first, the winning removal renders the
+        /// window, and the trace boundary writes it into the accepted session's
+        /// own sink as a terminal record. So the assertion is no longer about
+        /// two statements' order — it is about the flush not being a statement
+        /// at all.</para>
+        /// </summary>
         [Fact]
-        public void The_drop_path_is_what_flushes_and_it_does_so_before_the_seal()
+        public void The_drop_path_renders_its_window_only_after_the_claim()
         {
-            // Order is the whole point: the line has to be in the file BEFORE
-            // the seal zips it. Source-read because the real ordering needs a
-            // live session, a radio and a drop — and because a helper with no
-            // caller is how the first attempt at this flush was lost.
+            // Source-read because the real ordering needs a live session, a
+            // radio and a drop — and because a helper with no caller is how the
+            // first attempt at this flush was lost.
             string source = File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "FlexBase.cs"));
             Assert.Contains("case RadioRemovalKind.ConnectionLostOurRadio:", source, StringComparison.Ordinal);
-            Assert.DoesNotContain("ThisStringIsNotInFlexBaseAnywhere", source, StringComparison.Ordinal);
 
             int arm = source.IndexOf("case RadioRemovalKind.ConnectionLostOurRadio:", StringComparison.Ordinal);
             string body = source.Substring(arm, source.IndexOf("default:", arm, StringComparison.Ordinal) - arm);
 
-            int flush = body.IndexOf("flushCaptureMeters(", StringComparison.Ordinal);
             int seal = body.IndexOf("CaptureSeal.AfterConnectionDrop", StringComparison.Ordinal);
-            Assert.True(flush > 0, "the drop arm does not flush the open temperature window");
-            Assert.True(seal > 0);
-            Assert.True(flush < seal, "the flush must happen before the seal is queued");
+            int collector = body.IndexOf("() => collectCaptureMeterFlush(", StringComparison.Ordinal);
+            Assert.True(seal > 0, "the drop arm no longer queues a seal");
+            Assert.True(collector > seal,
+                "the meter window must be handed to the seal as a function, not rendered ahead of it");
+
+            // Nothing on this arm renders the window as a statement of its own.
+            Assert.DoesNotContain("flushCaptureMeters(", body, StringComparison.Ordinal);
         }
 
         // ────────────────────────────────────────────────────────────────

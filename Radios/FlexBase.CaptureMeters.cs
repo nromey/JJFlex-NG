@@ -58,15 +58,26 @@ namespace Radios
         }
 
         /// <summary>
-        /// Close the open temperature window and write it out, marked with why
-        /// it was cut short.
+        /// Close the open temperature window and RENDER it, marked with why it
+        /// was cut short. Returns the line; it writes nothing.
         ///
-        /// <para>Called synchronously from the connection-drop arm of
-        /// <c>apiRadioRemovedHandler</c>, BEFORE the seal is queued, so the last
-        /// readings are in the file the seal is about to zip. Emitting only on a
-        /// natural window close meant a drop inside the first second saved no
-        /// temperature at all, and every later drop lost the final partial
-        /// window (#598).</para>
+        /// <para><b>Collection and the trace call are split, and that split is
+        /// #618's fix.</b> H2 added a synchronous flush on the drop arm so a
+        /// connection lost inside the first second still recorded a temperature
+        /// line (#598) — and it wrote <c>partial=connection_dropped</c> BEFORE
+        /// asking whether this removal was already claimed, so a repeat notice
+        /// could stamp a false drop line into the fresh standing log the first
+        /// seal had just started.</para>
+        ///
+        /// <para><b>Merely moving the old call after the claim would not have
+        /// been enough.</b> The claim runs on FlexLib's removal thread and the
+        /// seal runs on a worker; a session replacement can land in between, and
+        /// an unqualified <c>Tracing.TraceLine</c> writes to whatever sink is
+        /// current at the moment it runs. So the window is rendered here, by the
+        /// removal that won the claim, and travels as DATA to the trace
+        /// boundary, which writes it into the accepted session's own sink or
+        /// discards it. A rejected duplicate emits no such record anywhere, and
+        /// an old request never emits one in a successor's log.</para>
         ///
         /// <para>Internal rather than private so a test can drive it on a real
         /// rig without reflection; there is one production caller and it is the
@@ -83,22 +94,22 @@ namespace Radios
         /// this same path, which is a ruling rather than a tidy-up and is not
         /// this track's to make.</para>
         /// </summary>
-        internal void flushCaptureMeters(string reason)
+        internal string collectCaptureMeterFlush(string reason)
         {
             try
             {
-                string line = _captureMeters.Flush(
+                return _captureMeters.Flush(
                     readSupplyVoltage(),
                     Transmit || _tuneCycleActive,
                     reason,
                     Environment.TickCount);
-                if (line != null) Tracing.TraceLine(line, TraceLevel.Info);
             }
             catch (Exception ex)
             {
                 // The drop path must survive anything. A radio has just died;
                 // an exception here would take the seal with it.
-                Tracing.TraceLine("flushCaptureMeters: " + ex.Message, TraceLevel.Warning);
+                Tracing.TraceLine("collectCaptureMeterFlush: " + ex.Message, TraceLevel.Warning);
+                return null;
             }
         }
 

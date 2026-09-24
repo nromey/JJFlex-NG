@@ -718,6 +718,13 @@ namespace Radios
         private int _selfDisconnects;
 
         /// <summary>
+        /// This rig's current connection lifetime, minted where the radio
+        /// object is acquired. Held so a deliberate disconnect can retire the
+        /// lifetime without claiming a loss.
+        /// </summary>
+        private ConnectionLifetime.Token _connectionToken;
+
+        /// <summary>
         /// A deliberate teardown disconnect, marked so the synchronous
         /// <c>API.RadioRemoved</c> it triggers is classified as ours
         /// (<see cref="RadioRemovalKind.SelfInitiated"/>) instead of being
@@ -755,6 +762,11 @@ namespace Radios
                     Tracing.TraceLine(
                         $"apiRadioRemovedHandler: {r.Serial} ({r.Nickname}) released by our own disconnect — FlexLib lifecycle removal, NOT a discovery loss; roster keeps the row (#402)",
                         TraceLevel.Info);
+                    // Retired without claiming a loss: the operator hung up, so
+                    // there is no drop to announce and this object must never be
+                    // rebound as a new connection either. A reconnect acquires
+                    // a fresh one.
+                    ConnectionLifetime.Retire(ConnectionLifetime.TokenFor(r));
                     break;
                 case RadioRemovalKind.ConnectionLostOurRadio:
                     Tracing.TraceLine(
@@ -770,21 +782,26 @@ namespace Radios
                     // this thread. See CaptureSeal.
                     if (RemovalSealsTheCapture(kind))
                     {
-                        // Close the open temperature window FIRST, and
-                        // synchronously, so the last thing the radio said is in
-                        // the file the seal is about to zip. Emitting only on a
-                        // window close meant a drop inside the first second
-                        // saved no temperature at all, and every later drop lost
-                        // the final partial window — the moment of death being
-                        // exactly the part that went missing (#598).
-                        flushCaptureMeters(CaptureMeterSet.PartialConnectionDropped);
-
-                        // `r` is the drop's own identity. Two removals carrying
-                        // this same object are one drop, which is what stops a
-                        // repeat announcement sealing the fresh log the first
-                        // seal just started. Exact here, because this arm is
-                        // only reached when r IS theRadio.
-                        CaptureSeal.AfterConnectionDrop(r, r.Nickname ?? "");
+                        // `r` is the drop's own identity, and its CONNECTION
+                        // LIFETIME is what makes two notices one drop — not the
+                        // object alone and not a timer, because the vendor does
+                        // not guarantee a fresh object per reconnect. Exact
+                        // here, because this arm is only reached when r IS
+                        // theRadio.
+                        //
+                        // CLAIM FIRST, THEN COLLECT (#618). The temperature
+                        // window is rendered by the closure below, which
+                        // AfterConnectionDrop calls only after winning the
+                        // claim; the line then travels as data into the trace
+                        // boundary and is written to the accepted session or to
+                        // nothing at all. H2 wrote it before the claim, so a
+                        // repeat notice stamped a false drop line into the fresh
+                        // standing log — and moving the write alone would still
+                        // have let a session replacement land it in a
+                        // successor's file.
+                        CaptureSeal.AfterConnectionDrop(
+                            r, r.Nickname ?? "",
+                            () => collectCaptureMeterFlush(CaptureMeterSet.PartialConnectionDropped));
                     }
                     break;
                 default:
@@ -1953,6 +1970,19 @@ namespace Radios
                 return false;
             }
 
+            // THE ACQUISITION POINT. This is where a Radio object becomes "the
+            // connection", so this is where its lifetime begins — and the one
+            // place that can enforce the rule that a terminally retired object
+            // is never rebound as a new connection. A removal callback carries a
+            // Radio, not a connection generation, so without a lifetime bound
+            // here a delayed duplicate and a genuine second loss are
+            // indistinguishable from the payload alone. See ConnectionLifetime,
+            // including the SmartLink path that cannot guarantee the rule's
+            // premise and is reported rather than decided.
+            _connectionToken = ConnectionLifetime.Bind(
+                theRadio, theRadio.Serial + " " + (theRadio.Nickname ?? ""), out var bindOutcome);
+            ConnectionLifetime.TraceBindOutcome(bindOutcome, _connectionToken, "Connect");
+
             ConnectionProfiler.Current?.RecordEvent("connect_radio_found", new Dictionary<string, object>
             {
                 { "serial", theRadio.Serial },
@@ -2532,6 +2562,16 @@ namespace Radios
                 Tracing.TraceLine("RetryConnect: no radio object", TraceLevel.Error);
                 return false;
             }
+
+            // A retry that has NOT crossed a terminal retirement stays inside
+            // its original lifetime — which is what this is, since it only runs
+            // while a connect attempt is still in progress. Saying so keeps the
+            // rule honest: the object is not being rebound as a NEW connection,
+            // it is the same one, and its loss can still be claimed exactly
+            // once.
+            _connectionToken = ConnectionLifetime.Bind(
+                theRadio, theRadio.Serial + " " + (theRadio.Nickname ?? ""), out var retryBind);
+            ConnectionLifetime.TraceBindOutcome(retryBind, _connectionToken, "RetryConnect");
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
             Tracing.TraceLine($"RetryConnect: BEGIN serial={theRadio.Serial}", TraceLevel.Info);

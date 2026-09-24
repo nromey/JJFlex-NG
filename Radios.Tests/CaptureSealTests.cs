@@ -12,7 +12,7 @@ namespace Radios.Tests
     /// A radio-side connection loss seals the running capture as
     /// <c>connection_dropped</c>, the operator's own disconnect does not, and
     /// the session that gets sealed is the one that was recording AT THE DROP
-    /// (#566's bridge, Sprint 45 Tracks H and H2).
+    /// (#566's bridge, Sprint 45 Tracks H, H2 and H3).
     /// </summary>
     /// <remarks>
     /// <para>
@@ -44,7 +44,7 @@ namespace Radios.Tests
     // SealHook, queue and claim safe to drive here.
     public sealed class CaptureSealTests : IDisposable
     {
-        private readonly Func<Guid, string, string> _savedHook;
+        private readonly Func<CaptureSealRequest, CaptureSealResult> _savedHook;
         private readonly Action<Action> _savedQueue;
         private readonly TraceSession _savedSession;
 
@@ -65,20 +65,24 @@ namespace Radios.Tests
         }
 
         /// <summary>
-        /// Put the real <see cref="TraceSessionContext"/> back the way it was.
-        /// These tests drive the genuine process-wide session pointer, because
-        /// the defect they exist for lives in exactly that pointer being
-        /// replaceable from any thread.
+        /// Put the real trace session pointer back the way it was. These tests
+        /// drive the genuine process-wide pointer, because the defect they exist
+        /// for lives in exactly that pointer being replaceable from any thread.
         /// </summary>
         private static void RestoreSession(TraceSession session)
         {
             // Set the pointer rather than calling EndSession, which would stamp
-            // an end time on a session this test did not open.
-            typeof(TraceSessionContext)
-                .GetField("_current", System.Reflection.BindingFlags.NonPublic
-                                    | System.Reflection.BindingFlags.Static)
-                .SetValue(null, session);
+            // an end time on a session this test did not open. The coordinator
+            // owns the pointer now and exposes a test-only setter, so this no
+            // longer reaches through reflection into a private field.
+            typeof(TraceCoordinator)
+                .GetMethod("RestoreSessionForTests", System.Reflection.BindingFlags.NonPublic
+                                                    | System.Reflection.BindingFlags.Static)
+                .Invoke(null, new object[] { session });
         }
+
+        private static CaptureSealResult Sealed(string path) =>
+            new CaptureSealResult { ArchivePath = path, SuccessorOpened = true };
 
         /// <summary>A stand-in for the FlexLib <c>Radio</c> object a removal
         /// carries. Only its identity matters, which is the point.</summary>
@@ -128,7 +132,6 @@ namespace Radios.Tests
             string source = File.ReadAllText(Path.Combine(
                 CaptureMeterSetTests.RepoRoot(), "Radios", "FlexBase.cs"));
             Assert.Contains("case RadioRemovalKind.ConnectionLostOurRadio:", source, StringComparison.Ordinal);
-            Assert.DoesNotContain("ThisStringIsNotInFlexBaseAnywhere", source, StringComparison.Ordinal);
 
             int drop = source.IndexOf("case RadioRemovalKind.ConnectionLostOurRadio:", StringComparison.Ordinal);
             int selfCase = source.IndexOf("case RadioRemovalKind.SelfInitiated:", StringComparison.Ordinal);
@@ -141,9 +144,42 @@ namespace Radios.Tests
             Assert.DoesNotContain("CaptureSeal.AfterConnectionDrop", selfArm, StringComparison.Ordinal);
 
             // And the removal's own object is what identifies the drop, not
-            // just its nickname — two removals carrying the same object are one
-            // drop, and that is what stops a repeat notice sealing a fresh log.
-            Assert.Contains("CaptureSeal.AfterConnectionDrop(r,", dropArm, StringComparison.Ordinal);
+            // just its nickname — its connection lifetime is what makes two
+            // notices one drop.
+            Assert.Contains("CaptureSeal.AfterConnectionDrop(\r\n                            r,", dropArm,
+                            StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// #618, pinned at the call site: the meter window is handed over as a
+        /// FUNCTION, so it can only be rendered after the claim is won.
+        /// </summary>
+        [Fact]
+        public void The_drop_arm_hands_the_flush_over_as_a_function_rather_than_writing_it()
+        {
+            string source = File.ReadAllText(Path.Combine(
+                CaptureMeterSetTests.RepoRoot(), "Radios", "FlexBase.cs"));
+            int drop = source.IndexOf("case RadioRemovalKind.ConnectionLostOurRadio:", StringComparison.Ordinal);
+            string dropArm = source.Substring(drop, source.IndexOf("default:", drop, StringComparison.Ordinal) - drop);
+
+            // A lambda passed to AfterConnectionDrop, not a statement before it.
+            Assert.Contains("() => collectCaptureMeterFlush(", dropArm, StringComparison.Ordinal);
+
+            // And the old shape is gone: nothing on this arm renders the window
+            // before the claim, and nothing writes it globally.
+            Assert.DoesNotContain("flushCaptureMeters(", dropArm, StringComparison.Ordinal);
+
+            // The collector itself must not trace — its whole job is to return
+            // a line for the boundary to place.
+            string meters = File.ReadAllText(Path.Combine(
+                CaptureMeterSetTests.RepoRoot(), "Radios", "FlexBase.CaptureMeters.cs"));
+            int collector = meters.IndexOf("internal string collectCaptureMeterFlush(", StringComparison.Ordinal);
+            Assert.True(collector > 0, "collectCaptureMeterFlush is gone");
+            string body = meters.Substring(collector);
+            int firstBrace = body.IndexOf('{');
+            int end = body.IndexOf("private SupplyVoltage readSupplyVoltage", StringComparison.Ordinal);
+            string collectorBody = end > firstBrace ? body.Substring(firstBrace, end - firstBrace) : body;
+            Assert.DoesNotContain("Tracing.TraceLine(line", collectorBody, StringComparison.Ordinal);
         }
 
         // ────────────────────────────────────────────────────────────────
@@ -160,12 +196,12 @@ namespace Radios.Tests
             CaptureSealNotice notice = null;
 
             TraceSession session = TraceSessionContext.BeginSession();
-            CaptureSeal.SealHook = (id, detail) =>
+            CaptureSeal.SealHook = req =>
             {
-                sessionSeen = id;
-                detailSeen = detail;
+                sessionSeen = ((TraceSessionHandle)req.ExpectedSession).SessionId;
+                detailSeen = req.OutcomeDetail;
                 sealed_.Set();
-                return @"C:\Traces\2026\09\trace-20260922-201500-connection_dropped.zip";
+                return Sealed(@"C:\Traces\2026\09\trace-20260922-201500-connection_dropped.zip");
             };
 
             void OnSealed(CaptureSealNotice n) { notice = n; told.Set(); }
@@ -209,7 +245,7 @@ namespace Radios.Tests
             CaptureSealNotice notice = null;
 
             TraceSessionContext.BeginSession();
-            CaptureSeal.SealHook = (_, __) => rotated;
+            CaptureSeal.SealHook = _ => Sealed(rotated);
             void OnSealed(CaptureSealNotice n) { notice = n; told.Set(); }
             CaptureSeal.SealedAfterDrop += OnSealed;
             try
@@ -221,6 +257,38 @@ namespace Radios.Tests
 
             Assert.Equal(rotated, notice.ArchivePath);
             Assert.Equal(rotated, notice.ClipboardText);
+        }
+
+        /// <summary>
+        /// The notice carries whether a successor really opened. A drop that
+        /// wins during a teardown seals its own session and opens nothing, and
+        /// the facts have to say so even while the prose still promises a
+        /// restart — that sentence is Noel's to rule.
+        /// </summary>
+        [Fact]
+        public void The_notice_says_whether_recording_actually_resumed()
+        {
+            using var told = new ManualResetEventSlim(false);
+            CaptureSealNotice notice = null;
+
+            TraceSessionContext.BeginSession();
+            CaptureSeal.SealHook = _ => new CaptureSealResult
+            {
+                ArchivePath = @"C:\Traces\one.zip",
+                SuccessorOpened = false,
+                ArchivedSessionId = Guid.NewGuid(),
+            };
+            void OnSealed(CaptureSealNotice n) { notice = n; told.Set(); }
+            CaptureSeal.SealedAfterDrop += OnSealed;
+            try
+            {
+                CaptureSeal.AfterConnectionDrop(new RemovedRadio("A"), "A");
+                Assert.True(told.Wait(TimeSpan.FromSeconds(5)));
+            }
+            finally { CaptureSeal.SealedAfterDrop -= OnSealed; }
+
+            Assert.False(notice.SuccessorOpened);
+            Assert.NotNull(notice.ArchivedSessionId);
         }
 
         [Fact]
@@ -250,11 +318,11 @@ namespace Radios.Tests
 
             int calls = 0;
             using var gate = new ManualResetEventSlim(false);
-            CaptureSeal.SealHook = (_, __) =>
+            CaptureSeal.SealHook = _ =>
             {
                 Interlocked.Increment(ref calls);
                 gate.Set();
-                return @"C:\Traces\one.zip";
+                return Sealed(@"C:\Traces\one.zip");
             };
             CaptureSeal.AfterConnectionDrop(radio, "A");
             Assert.True(gate.Wait(TimeSpan.FromSeconds(5)));
@@ -268,7 +336,7 @@ namespace Radios.Tests
             // window.
             bool told = false;
             TraceSessionContext.BeginSession();
-            CaptureSeal.SealHook = (_, __) => null;
+            CaptureSeal.SealHook = _ => new CaptureSealResult();
             void OnSealed(CaptureSealNotice _) { told = true; }
             CaptureSeal.SealedAfterDrop += OnSealed;
             try
@@ -287,7 +355,7 @@ namespace Radios.Tests
         public void A_hook_that_throws_does_not_take_the_drop_path_down_with_it()
         {
             TraceSessionContext.BeginSession();
-            CaptureSeal.SealHook = (_, __) => throw new InvalidOperationException("disk busy");
+            CaptureSeal.SealHook = _ => throw new InvalidOperationException("disk busy");
             CaptureSeal.AfterConnectionDrop(new RemovedRadio("A"), "A");   // must not throw here
             Thread.Sleep(200);
         }
@@ -299,10 +367,89 @@ namespace Radios.Tests
             // there is no session for it to archive.
             RestoreSession(null);
             int calls = 0;
-            CaptureSeal.SealHook = (_, __) => { Interlocked.Increment(ref calls); return null; };
+            CaptureSeal.SealHook = _ => { Interlocked.Increment(ref calls); return new CaptureSealResult(); };
             CaptureSeal.AfterConnectionDrop(new RemovedRadio("A"), "A");
             Thread.Sleep(200);
             Assert.Equal(0, Volatile.Read(ref calls));
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        //  #618 — claim first, THEN collect
+        // ────────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// The winning removal renders its meter window and the line travels to
+        /// the boundary as data. It is never written through a global trace
+        /// call, so it cannot land in a successor's file.
+        /// </summary>
+        [Fact]
+        public void The_accepted_drop_collects_its_meter_window_and_carries_it_to_the_seal()
+        {
+            string seen = null;
+            using var gate = new ManualResetEventSlim(false);
+            TraceSessionContext.BeginSession();
+            CaptureSeal.SealHook = req =>
+            {
+                seen = req.PartialMeterLine;
+                gate.Set();
+                return Sealed(@"C:\Traces\one.zip");
+            };
+
+            CaptureSeal.AfterConnectionDrop(new RemovedRadio("A"), "A",
+                () => "captureMeters: paTemp none n=0 partial=connection_dropped");
+            Assert.True(gate.Wait(TimeSpan.FromSeconds(5)));
+            Assert.Equal("captureMeters: paTemp none n=0 partial=connection_dropped", seen);
+        }
+
+        /// <summary>
+        /// #618 exactly. A repeat notice for the same connection is refused —
+        /// and the collector is never even CALLED, so no
+        /// <c>partial=connection_dropped</c> record exists to be written
+        /// anywhere, let alone into the fresh standing log the first seal
+        /// started.
+        /// </summary>
+        [Fact]
+        public void A_refused_duplicate_never_renders_a_drop_line_at_all()
+        {
+            int collected = 0;
+            int calls = 0;
+            using var first = new ManualResetEventSlim(false);
+            CaptureSeal.SealHook = _ =>
+            {
+                Interlocked.Increment(ref calls);
+                first.Set();
+                return Sealed(@"C:\Traces\one.zip");
+            };
+
+            var radio = new RemovedRadio("A");
+            TraceSessionContext.BeginSession();
+            CaptureSeal.AfterConnectionDrop(radio, "A", () => { Interlocked.Increment(ref collected); return "line"; });
+            Assert.True(first.Wait(TimeSpan.FromSeconds(5)));
+            Assert.Equal(1, Volatile.Read(ref collected));
+
+            // What the seal itself does next: archive, then restart the log.
+            TraceSessionContext.EndSession();
+            TraceSessionContext.BeginSession();
+
+            // FlexLib raises the removal again, carrying the same object.
+            CaptureSeal.AfterConnectionDrop(radio, "A", () => { Interlocked.Increment(ref collected); return "line"; });
+            Thread.Sleep(250);
+
+            Assert.Equal(1, Volatile.Read(ref calls));
+            Assert.Equal(1, Volatile.Read(ref collected));
+        }
+
+        [Fact]
+        public void A_collector_that_throws_does_not_stop_the_seal()
+        {
+            using var gate = new ManualResetEventSlim(false);
+            string seen = "not null";
+            TraceSessionContext.BeginSession();
+            CaptureSeal.SealHook = req => { seen = req.PartialMeterLine; gate.Set(); return Sealed(@"C:\one.zip"); };
+            CaptureSeal.AfterConnectionDrop(new RemovedRadio("A"), "A",
+                () => throw new InvalidOperationException("meter lock wedged"));
+            Assert.True(gate.Wait(TimeSpan.FromSeconds(5)));
+            Assert.Null(seen);
         }
 
         // ────────────────────────────────────────────────────────────────
@@ -316,31 +463,40 @@ namespace Radios.Tests
         /// word <c>connection_dropped</c>, and nothing said so — the failure
         /// looked like an ordinary evening, which is the symptom this whole
         /// bridge exists to end.
+        ///
+        /// <para>The comparison now lives INSIDE the trace boundary, so what
+        /// this proves is that the expected handle really is carried from the
+        /// removal to the hook: the hook is still called, and the session id it
+        /// is handed is the OLD one, never the replacement's.</para>
         /// </summary>
         [Fact]
-        public void A_worker_that_wakes_to_find_its_session_gone_archives_nothing()
+        public void A_worker_that_wakes_after_a_replacement_still_names_the_old_session()
         {
             var held = new HeldQueue();
             CaptureSeal.Queue = held.Take;
 
-            int calls = 0;
-            CaptureSeal.SealHook = (_, __) =>
+            Guid asked = Guid.Empty;
+            CaptureSeal.SealHook = req =>
             {
-                Interlocked.Increment(ref calls);
-                return @"C:\Traces\wrong.zip";
+                asked = ((TraceSessionHandle)req.ExpectedSession).SessionId;
+                // What the real boundary does with a handle that is no longer
+                // current: refuse, with no lifecycle effect at all.
+                return new CaptureSealResult { Refused = true, RefusalReason = "NotCurrent" };
             };
 
-            TraceSessionContext.BeginSession();
+            TraceSession original = TraceSessionContext.BeginSession();
             CaptureSeal.AfterConnectionDrop(new RemovedRadio("A"), "A");
             Assert.Equal(1, held.Count);
 
             // Everything that can happen between the drop and the worker:
             // the operator stops the capture, and something starts another.
             TraceSessionContext.EndSession();
-            TraceSessionContext.BeginSession();
+            TraceSession replacement = TraceSessionContext.BeginSession();
 
             held.RunAll();
-            Assert.Equal(0, Volatile.Read(ref calls));
+
+            Assert.Equal(original.SessionId, asked);
+            Assert.NotEqual(replacement.SessionId, asked);
         }
 
         [Fact]
@@ -352,7 +508,11 @@ namespace Radios.Tests
             CaptureSeal.Queue = held.Take;
 
             Guid sealed_ = Guid.Empty;
-            CaptureSeal.SealHook = (id, __) => { sealed_ = id; return @"C:\Traces\right.zip"; };
+            CaptureSeal.SealHook = req =>
+            {
+                sealed_ = ((TraceSessionHandle)req.ExpectedSession).SessionId;
+                return Sealed(@"C:\Traces\right.zip");
+            };
 
             TraceSession session = TraceSessionContext.BeginSession();
             CaptureSeal.AfterConnectionDrop(new RemovedRadio("A"), "A");
@@ -361,28 +521,8 @@ namespace Radios.Tests
             Assert.Equal(session.SessionId, sealed_);
         }
 
-        [Fact]
-        public void The_session_ending_altogether_is_refused_too()
-        {
-            // Exit, or a problem-report bundle that takes the log away. There
-            // is no session at all, and the old code would have called the hook
-            // regardless.
-            var held = new HeldQueue();
-            CaptureSeal.Queue = held.Take;
-
-            int calls = 0;
-            CaptureSeal.SealHook = (_, __) => { Interlocked.Increment(ref calls); return null; };
-
-            TraceSessionContext.BeginSession();
-            CaptureSeal.AfterConnectionDrop(new RemovedRadio("A"), "A");
-            TraceSessionContext.EndSession();
-
-            held.RunAll();
-            Assert.Equal(0, Volatile.Read(ref calls));
-        }
-
         // ────────────────────────────────────────────────────────────────
-        //  One seal per DROP, not per session bit
+        //  One seal per CONNECTION, not per session bit and not per timer
         // ────────────────────────────────────────────────────────────────
 
         /// <summary>
@@ -399,11 +539,11 @@ namespace Radios.Tests
         {
             int calls = 0;
             using var first = new ManualResetEventSlim(false);
-            CaptureSeal.SealHook = (_, __) =>
+            CaptureSeal.SealHook = _ =>
             {
                 Interlocked.Increment(ref calls);
                 first.Set();
-                return @"C:\Traces\one.zip";
+                return Sealed(@"C:\Traces\one.zip");
             };
 
             var radio = new RemovedRadio("A");
@@ -421,20 +561,101 @@ namespace Radios.Tests
             Assert.Equal(1, Volatile.Read(ref calls));
         }
 
+        /// <summary>
+        /// <b>The sixty-second bound is gone, and this is what replaced it.</b>
+        /// H2 let a same-object claim lapse after a minute, because nothing had
+        /// verified whether FlexLib hands back a new object after a reconnect —
+        /// so a delayed duplicate arriving later sealed a fresh log and
+        /// announced a second drop. (The subtraction it used could not even
+        /// enforce a true minute across a signed <c>TickCount</c> half-wrap.)
+        /// The claim now belongs to the CONNECTION and is terminal, so time
+        /// plays no part at all.
+        /// </summary>
+        [Fact]
+        public void A_duplicate_arriving_long_after_the_drop_is_still_refused()
+        {
+            int calls = 0;
+            using var first = new ManualResetEventSlim(false);
+            CaptureSeal.SealHook = _ =>
+            {
+                Interlocked.Increment(ref calls);
+                first.Set();
+                return Sealed(@"C:\Traces\one.zip");
+            };
+
+            var radio = new RemovedRadio("A");
+            TraceSessionContext.BeginSession();
+            CaptureSeal.AfterConnectionDrop(radio, "A");
+            Assert.True(first.Wait(TimeSpan.FromSeconds(5)));
+
+            // Two hours of evening, in one line. A wall-clock test would have
+            // to sleep; a lifetime test does not have to be told what time it
+            // is, which is the whole improvement.
+            TraceSessionContext.EndSession();
+            TraceSessionContext.BeginSession();
+
+            CaptureSeal.AfterConnectionDrop(radio, "A");
+            Thread.Sleep(250);
+            Assert.Equal(1, Volatile.Read(ref calls));
+        }
+
+        /// <summary>
+        /// A, B, delayed-A. The claim is kept PER TOKEN rather than as one
+        /// process-global "most recent object", so B's arrival cannot make A's
+        /// late duplicate look new again.
+        /// </summary>
+        [Fact]
+        public void A_then_B_then_a_late_A_does_not_seal_a_third_time()
+        {
+            var sealedFor = new List<string>();
+            using var gate = new ManualResetEventSlim(false);
+            CaptureSeal.SealHook = req =>
+            {
+                lock (sealedFor) { sealedFor.Add(req.OutcomeDetail); }
+                gate.Set();
+                return Sealed(@"C:\Traces\one.zip");
+            };
+
+            var a = new RemovedRadio("A");
+            var b = new RemovedRadio("B");
+
+            TraceSessionContext.BeginSession();
+            CaptureSeal.AfterConnectionDrop(a, "A");
+            Assert.True(gate.Wait(TimeSpan.FromSeconds(5)));
+            gate.Reset();
+
+            TraceSessionContext.EndSession();
+            TraceSessionContext.BeginSession();
+            CaptureSeal.AfterConnectionDrop(b, "B");
+            Assert.True(gate.Wait(TimeSpan.FromSeconds(5)));
+
+            // A's second notice, arriving after B's whole drop.
+            TraceSessionContext.EndSession();
+            TraceSessionContext.BeginSession();
+            CaptureSeal.AfterConnectionDrop(a, "A");
+            Thread.Sleep(300);
+
+            lock (sealedFor)
+            {
+                Assert.Equal(2, sealedFor.Count);
+                Assert.Contains(sealedFor, s => s.Contains("to A dropped", StringComparison.Ordinal));
+                Assert.Contains(sealedFor, s => s.Contains("to B dropped", StringComparison.Ordinal));
+            }
+        }
+
         [Fact]
         public void A_genuinely_new_drop_seals_again()
         {
             // The positive control. A second radio, or the same radio after a
-            // reconnect, arrives as a different object — which is exact,
-            // because a removal is only called a drop of OUR radio when the
-            // object IS theRadio, so a new drop needs a new connection first.
+            // reconnect that acquired a fresh object, arrives as a different
+            // object and therefore a different connection lifetime.
             int calls = 0;
             using var gate = new ManualResetEventSlim(false);
-            CaptureSeal.SealHook = (_, __) =>
+            CaptureSeal.SealHook = _ =>
             {
                 Interlocked.Increment(ref calls);
                 gate.Set();
-                return @"C:\Traces\one.zip";
+                return Sealed(@"C:\Traces\one.zip");
             };
 
             TraceSessionContext.BeginSession();
@@ -459,11 +680,11 @@ namespace Radios.Tests
             // and nothing does that any more.
             int calls = 0;
             using var gate = new ManualResetEventSlim(false);
-            CaptureSeal.SealHook = (_, __) =>
+            CaptureSeal.SealHook = _ =>
             {
                 Interlocked.Increment(ref calls);
                 gate.Set();
-                return @"C:\Traces\one.zip";
+                return Sealed(@"C:\Traces\one.zip");
             };
 
             TraceSessionContext.BeginSession();
@@ -482,25 +703,25 @@ namespace Radios.Tests
         [Fact]
         public void The_application_seals_the_session_the_drop_was_about()
         {
-            // The hook receives the session id and the detail; the OUTCOME is
-            // chosen in globals.vb, and it is the outcome that puts the word on
-            // the zip. Source-read because the sealing needs a live trace
+            // The hook receives the expected handle and the detail; the OUTCOME
+            // is chosen in globals.vb, and it is the outcome that puts the word
+            // on the zip. Source-read because the sealing needs a live trace
             // session and a radio, and reading it is how this track can assert
             // the one thing 231 archives on disk prove nobody ever did.
             string globals = File.ReadAllText(Path.Combine(
                 CaptureMeterSetTests.RepoRoot(), "globals.vb"));
-            Assert.Contains("Friend Function SealCaptureForConnectionDrop(sessionId As Guid, detail As String)",
+            Assert.Contains("Friend Function SealCaptureForConnectionDrop(request As Radios.CaptureSealRequest)",
                 globals, StringComparison.Ordinal);
             Assert.Contains("TraceSessionOutcome.ConnectionDropped", globals, StringComparison.Ordinal);
             Assert.Contains("Radios.CaptureSeal.SealHook =", globals, StringComparison.Ordinal);
 
-            // The guard at the place that actually takes the session: archive
-            // the one the drop was about, or nothing.
-            Assert.Contains("If Not CurrentTraceSessionIs(sessionId) Then", globals, StringComparison.Ordinal);
+            // The ownership comparison is the boundary's, carried by a handle —
+            // not a read of shared state followed by an act on it.
+            Assert.Contains(".Expected = expected", globals, StringComparison.Ordinal);
 
             // And nothing re-arms a seal where a session begins any more. That
             // line WAS the duplicate-seal defect: RestartDiagnosticLog reaches
-            // BeginNewTraceSession, and the seal calls RestartDiagnosticLog.
+            // the session start, and the seal calls RestartDiagnosticLog.
             Assert.DoesNotContain("CaptureSeal.Rearm", globals, StringComparison.Ordinal);
         }
 

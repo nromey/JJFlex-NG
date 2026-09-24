@@ -6,6 +6,65 @@ using JJTrace;
 namespace Radios
 {
     /// <summary>
+    /// What the application's sealing hook is asked to do. Immutable, built at
+    /// the removal and carried to the worker, so nothing downstream has to
+    /// re-read a world that has moved on.
+    /// </summary>
+    public sealed class CaptureSealRequest
+    {
+        /// <summary>
+        /// The recording this drop is ABOUT — a
+        /// <c>JJTrace.TraceSessionHandle</c>, typed as <c>object</c> only so the
+        /// hook's signature does not force every caller to name the type.
+        /// </summary>
+        public object ExpectedSession { get; set; }
+
+        /// <summary>The claim this drop took, used as the boundary's operation
+        /// identity so a repeat gets the same ticket rather than a second
+        /// archive.</summary>
+        public Guid DropOperationId { get; set; }
+
+        /// <summary>The sentence written onto the manifest entry.</summary>
+        public string OutcomeDetail { get; set; }
+
+        /// <summary>
+        /// The meter window this drop closed, already rendered, collected AFTER
+        /// the claim was won. It is written into the accepted session's own file
+        /// by the boundary, or discarded — never emitted globally (#618).
+        /// </summary>
+        public string PartialMeterLine { get; set; }
+    }
+
+    /// <summary>What the sealing hook did. Facts, not prose.</summary>
+    public sealed class CaptureSealResult
+    {
+        /// <summary>Full path of the committed archive, or null when nothing
+        /// is committed yet.</summary>
+        public string ArchivePath { get; set; }
+
+        /// <summary>The session that was archived.</summary>
+        public Guid? ArchivedSessionId { get; set; }
+
+        /// <summary>
+        /// Whether a successor really opened. A drop that wins during a
+        /// teardown seals its own session and opens nothing, and the operator's
+        /// window must be able to say so rather than promising a restart that
+        /// did not happen.
+        /// </summary>
+        public bool SuccessorOpened { get; set; }
+
+        /// <summary>True when the boundary refused this operation.</summary>
+        public bool Refused { get; set; }
+
+        /// <summary>Why it was refused, in trace terms.</summary>
+        public string RefusalReason { get; set; }
+
+        /// <summary>Where the raw trace was retained when no archive is
+        /// committed. Evidence is never deleted to make room.</summary>
+        public string RawRetainedPath { get; set; }
+    }
+
+    /// <summary>
     /// Seals the running diagnostic capture when the RADIO's connection dies,
     /// and tells whoever is listening where the file went.
     ///
@@ -13,13 +72,11 @@ namespace Radios
     /// defined <c>connection_dropped</c> since Sprint 29 and <b>no archive on
     /// this machine has ever carried it</b> — 231 zips, every one of them
     /// <c>clean_exit</c>, <c>killed</c>, <c>no_radios</c> or
-    /// <c>slice_unavailable</c> (counted 2026-09-22). The reason is that
-    /// nothing on the drop path archived anything: <c>ArchiveCurrentTraceSession</c>
-    /// had exactly two callers, <c>ApplicationEvents.vb</c> and
-    /// <c>DebugInfo.vb</c>, and both pass <c>CleanExit</c>. A radio dying
-    /// mid-transmit left the capture open, the operator carried on, and hours
-    /// later the app closed and sealed the whole evening as a normal one. <b>A
-    /// radio death and a quiet evening produced the same file.</b></para>
+    /// <c>slice_unavailable</c> (counted 2026-09-22). Nothing on the drop path
+    /// archived anything: a radio dying mid-transmit left the capture open, the
+    /// operator carried on, and hours later the app closed and sealed the whole
+    /// evening as a normal one. <b>A radio death and a quiet evening produced
+    /// the same file.</b></para>
     ///
     /// <para><b>Why it has to be told rather than inferred.</b> The outcome is
     /// decided by <c>TraceSession.MarkOutcome</c>, first call wins, and
@@ -40,55 +97,61 @@ namespace Radios
     /// would mean the unplanned case — which is every case that matters — keeps
     /// producing files that say <c>clean_exit</c>.</para>
     ///
-    /// <para><b>THE REQUEST IS BOUND AT THE DROP, not resolved at the archive
-    /// (#596's cousin, corrected Sprint 45 Track H2).</b> The first build queued
-    /// only a radio name and let the worker ask, whenever it finally ran, "what
-    /// is the current session?" — so a Stop, a new capture, a log toggle or an
-    /// exit arriving in between made it archive a DIFFERENT session, or none,
-    /// and nothing said so. <c>gpt-6-sol</c> called that the central merge
-    /// blocker (<c>for-claude/2026-09-22-codex-verify-track-h.md</c>). The drop
-    /// now reads <see cref="TraceSessionContext.Current"/> on its own thread,
-    /// carries that session's id to the worker, and the worker seals only if
-    /// that same session is still the one recording. If it has gone, nothing is
-    /// archived and the trace says which session was wanted.</para>
+    /// <para><b>THE REQUEST IS BOUND AT THE DROP, not resolved at the archive.</b>
+    /// The first build queued only a radio name and let the worker ask, whenever
+    /// it finally ran, "what is the current session?" — so a Stop, a new
+    /// capture, a log toggle or an exit arriving in between made it archive a
+    /// DIFFERENT session, or none, and nothing said so. The drop now captures
+    /// the expected trace handle on its own thread, before queueing, and the
+    /// ownership comparison happens INSIDE the trace boundary. A losing caller
+    /// is refused explicitly and may not close a listener, clear capture state
+    /// or restart logging.</para>
     ///
-    /// <para><b>And the duplicate is recognised by the drop, not by a bit.</b>
-    /// The first build spent one process-global flag per trace session — and
-    /// the seal's own restart of the standing log RE-ARMED it, so a second
-    /// removal from the same drop arriving after the restart sealed the fresh,
-    /// empty log and put a second window in front of an operator whose radio
-    /// had just died. The claim is now keyed on the removal itself: the same
-    /// <c>Radio</c> object is the same drop, whatever session is current by
-    /// then. That key is exact, because
-    /// <c>FlexBase.ClassifyRadioRemoval</c> only calls a removal a drop of OUR
-    /// radio when the object IS <c>theRadio</c>, so a genuinely new drop needs
-    /// a new connection first.</para>
+    /// <para><b>The duplicate is recognised by the CONNECTION, not by a bit and
+    /// not by a timer.</b> The first build spent one process-global flag per
+    /// trace session — and the seal's own restart of the standing log RE-ARMED
+    /// it. H2 replaced that with the removal's <c>Radio</c> object plus a
+    /// sixty-second window, because nothing had verified whether FlexLib hands
+    /// back a new object after a reconnect. Astra read the vendor source and
+    /// settled it: it does not guarantee one. So the key is now an
+    /// application-owned connection lifetime
+    /// (<see cref="ConnectionLifetime"/>), claimed terminally, once, per token
+    /// — with no elapsed-time bound at all, which also disposes of the signed
+    /// <c>Environment.TickCount</c> half-wrap that made the sixty seconds
+    /// untrue anyway.</para>
+    ///
+    /// <para><b>And the flush is collected AFTER the claim (#618).</b> H2 wrote
+    /// the <c>partial=connection_dropped</c> meter line before asking whether
+    /// this removal was already claimed, so a repeat notice could stamp a false
+    /// drop line into the fresh standing log the first seal had just started.
+    /// Moving the call after the claim is NOT sufficient on its own: a session
+    /// replacement can still land between the claim and a global
+    /// <c>Tracing.TraceLine</c>. So the collection and the write are split — the
+    /// caller hands over a function that RENDERS the line, this class calls it
+    /// only after winning the claim, and the boundary writes it into the
+    /// accepted session's own sink or discards it.</para>
     /// </summary>
     public static class CaptureSeal
     {
         /// <summary>
         /// Seal the trace session the drop was about, with the
-        /// <c>connection_dropped</c> outcome, and hand back the full path of the
-        /// archive, or null if nothing was sealed. Installed by the application
-        /// at startup; null until then, and a null hook makes every call below a
-        /// no-op that says so in the trace.
+        /// <c>connection_dropped</c> outcome, and hand back what happened.
+        /// Installed by the application at startup; null until then, and a null
+        /// hook makes every call below a no-op that says so in the trace.
         ///
         /// <para>A hook rather than a call, because the sealing lives in the VB
         /// application (<c>globals.vb</c>) and this assembly is referenced BY
         /// it. Same seam, and for the same reason, as
         /// <c>JJFlexWpf.DiagnosticsBridge</c>.</para>
         /// </summary>
-        /// <remarks>First argument is the id of the session that was recording
-        /// when the connection dropped — the hook archives THAT session or
-        /// nothing. Second is the outcome detail recorded on the manifest
-        /// entry.</remarks>
-        public static Func<Guid, string, string> SealHook { get; set; }
+        public static Func<CaptureSealRequest, CaptureSealResult> SealHook { get; set; }
 
         /// <summary>
         /// Raised once a drop has sealed a capture, carrying where it landed.
         /// The WPF layer subscribes and shows the operator the path; anything
         /// else that wants to know may too. Raised on a background thread —
-        /// subscribers marshal for themselves.
+        /// subscribers marshal for themselves. Once per accepted drop ticket,
+        /// after the archive is committed, outside every lock.
         /// </summary>
         public static event Action<CaptureSealNotice> SealedAfterDrop;
 
@@ -101,76 +164,6 @@ namespace Radios
         /// first build's thirty-seven tests.
         /// </summary>
         internal static Action<Action> Queue { get; set; } = work => Task.Run(work);
-
-        /// <summary>
-        /// Two removals carrying the same <c>Radio</c> object are the same drop,
-        /// however far apart — but only within this window, because nothing here
-        /// has been able to verify that FlexLib always hands back a NEW object
-        /// after a reconnect. Beyond it the claim lapses and a second drop of
-        /// what looks like the same radio seals again.
-        ///
-        /// <para>A minute is two orders of magnitude more than the duplicate
-        /// needs: the neighbouring removal work measured a re-added sighting at
-        /// 119 ms. The bound only decides which way an unverified case falls,
-        /// and it falls towards sealing, because a spurious refusal loses the
-        /// file this whole bridge exists to produce.</para>
-        /// </summary>
-        internal const int SameDropWindowMs = 60_000;
-
-        private static readonly object _claimGate = new object();
-        private static WeakReference _claimedRadio;
-        private static Guid _claimedSession;
-        private static int _claimedTick;
-        private static bool _hasClaim;
-
-        /// <summary>
-        /// Claim this drop. Returns true to exactly one removal per drop.
-        ///
-        /// <para>The key is the removal, not the session and not a flag. A
-        /// process-global bit could not do this job: the seal restarts the
-        /// standing log, restarting a log begins a session, and the session is
-        /// what re-armed the bit — so the guard disarmed itself in time for the
-        /// duplicate it existed to refuse.</para>
-        /// </summary>
-        private static bool TryClaimDrop(object dropToken, Guid sessionId, int nowTick)
-        {
-            lock (_claimGate)
-            {
-                if (_hasClaim && IsTheSameDrop(dropToken, sessionId, nowTick)) return false;
-                _hasClaim = true;
-                _claimedRadio = dropToken == null ? null : new WeakReference(dropToken);
-                _claimedSession = sessionId;
-                _claimedTick = nowTick;
-                return true;
-            }
-        }
-
-        private static bool IsTheSameDrop(object dropToken, Guid sessionId, int nowTick)
-        {
-            if ((nowTick - _claimedTick) > SameDropWindowMs) return false;
-
-            object prior = _claimedRadio?.Target;
-            if (dropToken != null && prior != null) return ReferenceEquals(dropToken, prior);
-
-            // No object to compare — a caller that had none, or the radio we
-            // claimed against has been collected. Fall back to the session the
-            // claim was bound to: one seal per session is the old rule, and it
-            // is still the safe answer when identity is unavailable.
-            return _claimedSession == sessionId;
-        }
-
-        /// <summary>Forget the claim. Tests only: production never needs this,
-        /// because a new drop brings a new radio object with it.</summary>
-        internal static void ForgetClaimForTests()
-        {
-            lock (_claimGate)
-            {
-                _hasClaim = false;
-                _claimedRadio = null;
-                _claimedSession = Guid.Empty;
-                _claimedTick = 0;
-            }
-        }
 
         /// <summary>
         /// The outcome detail written onto the manifest entry. A sentence, not a
@@ -191,23 +184,33 @@ namespace Radios
         /// can be megabytes, and this is called from FlexLib's own removal
         /// handler, on FlexLib's thread, in the middle of a teardown. Blocking
         /// that to zip a log would be a hang in the one situation where the
-        /// application most needs to stay responsive.</para>
+        /// application most needs to stay responsive. Nothing here waits for the
+        /// trace boundary, for a file operation, for compression or for a UI
+        /// dispatch.</para>
         ///
-        /// <para>Which is exactly why the session has to be read HERE, on this
+        /// <para>Which is exactly why the handle has to be read HERE, on this
         /// thread, before returning. Everything after this line is running in a
         /// world where the operator may already have stopped the capture,
         /// started another, toggled logging or closed the app.</para>
         /// </summary>
         /// <param name="dropToken">The removal's own identity — the
-        /// <c>Radio</c> object FlexLib handed to the removal handler. Two
-        /// removals carrying the same object are one drop. May be null; the
-        /// claim then falls back to one seal per session.</param>
+        /// <c>Radio</c> object FlexLib handed to the removal handler. Its
+        /// connection lifetime is what makes two notices one drop. May be null;
+        /// the claim then falls back to one seal per session.</param>
         /// <param name="radioName">The radio's nickname, for the sentence on the
         /// manifest entry and in the operator's window.</param>
-        public static void AfterConnectionDrop(object dropToken, string radioName)
+        /// <param name="collectPartialMeterLine">Renders the meter window this
+        /// drop closed. <b>Called only if this removal wins the claim</b>, and
+        /// its result is written to the accepted session or to nothing at all.
+        /// May be null.</param>
+        public static void AfterConnectionDrop(object dropToken,
+                                               string radioName,
+                                               Func<string> collectPartialMeterLine = null)
         {
-            TraceSession session = TraceSessionContext.Current;
-            if (session == null)
+            // One immutable read, on this thread. A handle, not a pointer into
+            // anything the worker could find changed.
+            TraceSessionHandle expected = TraceCoordinator.CurrentHandle;
+            if (expected == null)
             {
                 // Not a defect and not silence: nothing was being recorded, so
                 // there is no evidence to seal. Said out loud because "no
@@ -235,68 +238,161 @@ namespace Radios
                 return;
             }
 
-            Guid sessionId = session.SessionId;
-            if (!TryClaimDrop(dropToken, sessionId, Environment.TickCount))
+            if (!TryClaimDrop(dropToken, expected.SessionId, out Guid operationId))
             {
+                // Logged as a refusal, naming what was refused — never as a
+                // statement that the current session suffered a drop. And
+                // nothing has been written anywhere: the flush below has not run.
                 Tracing.TraceLine(
-                    "CaptureSeal: this is the same drop that already sealed — not sealing again",
+                    "CaptureSeal: this connection's loss was already claimed — not sealing again, "
+                    + "and no partial meter line was written",
                     TraceLevel.Info);
                 return;
             }
 
+            // Claim first, THEN collect. #618 in one line: the window is
+            // rendered only by the removal that owns the drop, and it travels as
+            // data so a session replacement between here and the boundary
+            // cannot land it in a successor's log.
+            string partial = null;
+            try { partial = collectPartialMeterLine?.Invoke(); }
+            catch (Exception ex)
+            {
+                // The drop path must survive anything. A radio has just died; an
+                // exception here would take the seal with it.
+                Tracing.TraceLine("CaptureSeal: collecting the partial meter window failed: " + ex.Message,
+                                  TraceLevel.Warning);
+            }
+
+            var request = new CaptureSealRequest
+            {
+                ExpectedSession = expected,
+                DropOperationId = operationId,
+                OutcomeDetail = OutcomeDetail(radioName ?? string.Empty),
+                PartialMeterLine = partial,
+            };
+
             string name = radioName ?? string.Empty;
-            Queue(() => SealNow(hook, name, sessionId));
+            Queue(() => SealNow(hook, name, request));
         }
 
-        private static void SealNow(Func<Guid, string, string> hook, string radioName, Guid sessionId)
+        // ── The claim ──────────────────────────────────────────────────────
+
+        private static readonly object _claimGate = new object();
+        private static Guid _sessionFallbackClaim;
+        private static bool _hasSessionFallbackClaim;
+
+        /// <summary>
+        /// Claim this drop. Returns true to exactly one removal per connection.
+        ///
+        /// <para>The key is the CONNECTION's lifetime, not a flag, not the
+        /// object alone and not a timer. A process-global bit could not do this
+        /// job: the seal restarts the standing log, restarting a log begins a
+        /// session, and the session is what re-armed the bit — so the guard
+        /// disarmed itself in time for the duplicate it existed to refuse. An
+        /// object plus a window could not either: the vendor does not guarantee
+        /// a fresh object per reconnect, so the comparison is only as good as
+        /// the lifetime behind it.</para>
+        ///
+        /// <para>With no object to compare, it falls back to one seal per trace
+        /// session. That is the old rule, and it is still the safe answer when
+        /// identity is unavailable — it was only ever wrong because a session
+        /// event re-armed it, and nothing does that now.</para>
+        /// </summary>
+        private static bool TryClaimDrop(object dropToken, Guid sessionId, out Guid operationId)
         {
-            string path = null;
+            operationId = Guid.Empty;
+            if (dropToken != null)
+            {
+                ConnectionLifetime.Token token = ConnectionLifetime.TokenFor(dropToken);
+                if (token == null)
+                {
+                    // A removal carrying an object this process never bound. It
+                    // still identifies one drop, so give it a lifetime of its
+                    // own rather than falling all the way back to the session.
+                    token = ConnectionLifetime.Bind(dropToken, "unbound removal", out _);
+                }
+                if (!ConnectionLifetime.TryClaimLoss(token)) return false;
+                operationId = OperationIdFor(token);
+                return true;
+            }
+
+            lock (_claimGate)
+            {
+                if (_hasSessionFallbackClaim && _sessionFallbackClaim == sessionId) return false;
+                _hasSessionFallbackClaim = true;
+                _sessionFallbackClaim = sessionId;
+            }
+            operationId = sessionId;
+            return true;
+        }
+
+        /// <summary>
+        /// A stable operation identity for one connection's loss, so the trace
+        /// boundary answers a second attempt with the first one's ticket. Built
+        /// from the token's ordinal, which is unique within the process.
+        /// </summary>
+        private static Guid OperationIdFor(ConnectionLifetime.Token token)
+        {
+            var bytes = new byte[16];
+            BitConverter.GetBytes(token.Ordinal).CopyTo(bytes, 0);
+            bytes[15] = 0xD0; // "drop", so it cannot collide with a session id
+            return new Guid(bytes);
+        }
+
+        /// <summary>Forget the claim. Tests only: production never needs this,
+        /// because a new drop brings a new connection with it.</summary>
+        internal static void ForgetClaimForTests()
+        {
+            lock (_claimGate)
+            {
+                _hasSessionFallbackClaim = false;
+                _sessionFallbackClaim = Guid.Empty;
+            }
+            ConnectionLifetime.ResetForTests();
+        }
+
+        // ── The worker ─────────────────────────────────────────────────────
+
+        private static void SealNow(Func<CaptureSealRequest, CaptureSealResult> hook,
+                                    string radioName,
+                                    CaptureSealRequest request)
+        {
+            CaptureSealResult result = null;
             try
             {
-                // The session this drop is ABOUT, checked against the one
-                // recording now. Anything that ended or replaced it between the
-                // drop and this moment means the evidence has already been
-                // archived — or thrown — by somebody else, and sealing whatever
-                // happens to be open instead would put the wrong file in front
-                // of the operator under the right name.
-                TraceSession live = TraceSessionContext.Current;
-                if (live == null || live.SessionId != sessionId)
-                {
-                    Tracing.TraceLine(
-                        "CaptureSeal: the recording that was running when the connection dropped ("
-                        + sessionId + ") has already ended — nothing was archived for this drop",
-                        TraceLevel.Warning);
-                    return;
-                }
-
                 Tracing.TraceLine(
                     "CaptureSeal: sealing the running capture as " + TraceSessionOutcome.ConnectionDropped
-                    + " — " + OutcomeDetail(radioName),
+                    + " — " + request.OutcomeDetail,
                     TraceLevel.Warning);
-                path = hook(sessionId, OutcomeDetail(radioName));
+                result = hook(request);
             }
             catch (Exception ex)
             {
                 Tracing.TraceLine("CaptureSeal: sealing failed: " + ex.Message, TraceLevel.Error);
             }
 
-            if (string.IsNullOrEmpty(path))
+            if (result == null || string.IsNullOrEmpty(result.ArchivePath))
             {
                 // Nothing to point the operator at. Saying nothing is right
                 // here: a dialog offering a path that does not exist is worse
                 // than no dialog, and the standing log — restarted by the hook —
                 // carries this line.
                 Tracing.TraceLine(
-                    "CaptureSeal: no archive was produced, so there is no path to show the operator",
+                    "CaptureSeal: no archive was produced, so there is no path to show the operator"
+                    + (result != null && !string.IsNullOrEmpty(result.RawRetainedPath)
+                        ? "; the raw trace is retained at " + result.RawRetainedPath
+                        : string.Empty),
                     TraceLevel.Warning);
                 return;
             }
 
-            Tracing.TraceLine("CaptureSeal: sealed to " + path, TraceLevel.Warning);
+            Tracing.TraceLine("CaptureSeal: sealed to " + result.ArchivePath, TraceLevel.Warning);
 
             try
             {
-                SealedAfterDrop?.Invoke(new CaptureSealNotice(radioName, path));
+                SealedAfterDrop?.Invoke(new CaptureSealNotice(
+                    radioName, result.ArchivePath, result.SuccessorOpened, result.ArchivedSessionId));
             }
             catch (Exception ex)
             {
