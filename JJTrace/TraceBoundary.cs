@@ -125,6 +125,14 @@ namespace JJTrace
         /// <summary>When that capture started, local clock, or null.</summary>
         public DateTime? EndedCaptureStartedLocal { get; internal set; }
 
+        /// <summary>
+        /// The detailed capture this transition STARTED, or
+        /// <see cref="Guid.Empty"/>. A fact of the transition, so a caller never
+        /// has to re-read "is a capture running?" afterwards — by which time a
+        /// drop may already have sealed it.
+        /// </summary>
+        public Guid StartedCaptureId { get; internal set; }
+
         public string FailedStage { get; internal set; }
         public string RetainedSourcePath { get; internal set; }
 

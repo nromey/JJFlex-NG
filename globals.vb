@@ -528,8 +528,20 @@ Module globals
     ''' Where the capture that just STOPPED was archived to, so the surface can
     ''' offer "Export this capture..." without walking the archive. Cleared when
     ''' the next capture starts.
+    '''
+    ''' <para><b>A read of the coordinator's completed-capture slot, not a field
+    ''' of its own.</b> The slot and its path used to be two module fields: a
+    ''' completion checked the slot and then wrote the path in a second
+    ''' statement, while a new capture reset both — so an old completion could
+    ''' write its path into the new capture's slot (Sol's review of H3,
+    ''' finding 3). They are one value under one lock now, claimed inside the
+    ''' transition that starts a capture.</para>
     ''' </summary>
-    Friend LastCaptureArchivePath As String = Nothing
+    Friend ReadOnly Property LastCaptureArchivePath As String
+        Get
+            Return TraceCoordinator.CompletedCaptureArchivePath
+        End Get
+    End Property
 
     ''' <summary>
     ''' Tell every diagnostics surface that the log's state changed — on, off,
@@ -1078,20 +1090,20 @@ Module globals
             Tracing.TheSwitch.Level = TraceLevel.Verbose
             Dim opened As TraceTransitionResult = BeginCaptureSession(reason)
             ReportTraceTransition(opened)
-            ' Ask whether a CAPTURE is running, not whether tracing is on. A
-            ' refusal because something was already recording reports tracing on
-            ' perfectly truthfully, and proceeding on that would speak "capture
-            ' started" over a capture that does not exist.
-            If Not TraceCoordinator.CaptureRunning Then
+            ' Ask whether THIS TRANSITION started a capture — a fact it reports —
+            ' not whether tracing is on, and not whether a capture is running
+            ' now. A refusal because something was already recording reports
+            ' tracing on perfectly truthfully; and a capture that started and was
+            ' then sealed by a drop a moment later really did start, so re-reading
+            ' "is one running?" would call a real start a failure.
+            If opened.StartedCaptureId = Guid.Empty Then
                 Throw New InvalidOperationException(
                     "the detailed capture's trace session did not open (" & opened.Status.ToString() & ")")
             End If
 
-            ' A new capture owns the completed-capture slot from this moment, so
-            ' a late completion belonging to the PREVIOUS capture cannot write
-            ' its path back over this reset.
-            _lastCaptureSlot = TraceCoordinator.CaptureId
-            LastCaptureArchivePath = Nothing
+            ' The completed-capture slot was claimed INSIDE that transition, so a
+            ' late completion belonging to the PREVIOUS capture cannot write its
+            ' path over this one — there is no reset here to undo.
             LastUserTraceFile = Tracing.TraceFile
             Tracing.TraceLine(
                 $"Detailed capture started {Date.Now:O} reason={reason} level={Tracing.TheSwitch.Level}")
@@ -1211,13 +1223,6 @@ Module globals
     End Sub
 
     ''' <summary>
-    ''' Identity of the capture whose archive path <see cref="LastCaptureArchivePath"/>
-    ''' currently describes, so a late completion can tell whether it is still
-    ''' talking about the slot the operator is looking at.
-    ''' </summary>
-    Private _lastCaptureSlot As Guid = Guid.Empty
-
-    ''' <summary>
     ''' Write the archive path back when — and only when — the archive is
     ''' really committed AND the completed-capture slot still refers to this
     ''' capture. An old completion must not undo a newly started capture's
@@ -1225,15 +1230,16 @@ Module globals
     ''' </summary>
     Private Sub RememberCaptureArchiveWhenCommitted(result As TraceTransitionResult, captureId As Guid)
         If result?.Ticket Is Nothing Then Return
-        _lastCaptureSlot = captureId
         Dim ticket = result.Ticket
         ticket.Completion?.ContinueWith(
             Sub(t)
                 Try
                     Dim done As TraceArchiveCompletion = t.Result
                     If done Is Nothing OrElse Not done.ArchiveCommitted Then Return
-                    If _lastCaptureSlot <> captureId Then Return
-                    LastCaptureArchivePath = done.ArchiveFullPath
+                    ' Check and write are ONE step, inside the coordinator: the
+                    ' slot either still belongs to this capture and takes the
+                    ' path, or it has moved on and nothing is written.
+                    If Not TraceCoordinator.RecordCaptureArchive(captureId, done.ArchiveFullPath) Then Return
                     RaiseDiagnosticLogStateChanged()
                 Catch ex As Exception
                     Tracing.ErrTraceOnly(ex)
@@ -1255,13 +1261,13 @@ Module globals
                     .Outcome = TraceSessionOutcome.CleanExit,
                     .OutcomeDetail = "Standing diagnostic log closed to begin a detailed capture",
                     .Resume = TraceResumeIntent.Explicit,
-                    .ResumeLevel = TraceLevel.Verbose
+                    .ResumeLevel = TraceLevel.Verbose,
+                    .SuccessorIsCapture = True
                 })
             ReportTraceTransition(sealed_)
-            If sealed_.Owned AndAlso sealed_.SuccessorOpened Then
-                TraceCoordinator.MarkSuccessorAsCapture(sealed_.Successor)
-                Return sealed_
-            End If
+            ' The successor was made the capture INSIDE that transition — there
+            ' is no second step for a drop or a Stop to land in front of.
+            If sealed_.Owned AndAlso sealed_.SuccessorOpened Then Return sealed_
         End If
         Return TraceCoordinator.Begin(BootTraceFileName, TraceLevel.Verbose, asDetailedCapture:=True)
     End Function
@@ -1578,10 +1584,9 @@ Module globals
 
             If Not result.Owned Then Return outcome
 
-            If result.EndedDetailedCapture Then
-                _lastCaptureSlot = result.EndedCaptureId
-                RaiseDiagnosticLogStateChanged()
-            End If
+            ' The completed-capture slot already belongs to the capture this drop
+            ' ended: it was claimed when that capture started. Nothing to set.
+            If result.EndedDetailedCapture Then RaiseDiagnosticLogStateChanged()
 
             If result.TracingOn Then
                 Tracing.TraceLine("Diagnostic log resumed after the radio's connection dropped")
@@ -1596,8 +1601,8 @@ Module globals
             Dim completion As TraceArchiveCompletion = AwaitArchive(result.Ticket, DropArchiveWait)
             If completion IsNot Nothing AndAlso completion.ArchiveCommitted Then
                 outcome.ArchivePath = completion.ArchiveFullPath
-                If result.EndedDetailedCapture AndAlso _lastCaptureSlot = result.EndedCaptureId Then
-                    LastCaptureArchivePath = completion.ArchiveFullPath
+                If result.EndedDetailedCapture AndAlso
+                   TraceCoordinator.RecordCaptureArchive(result.EndedCaptureId, completion.ArchiveFullPath) Then
                     RaiseDiagnosticLogStateChanged()
                 End If
             Else

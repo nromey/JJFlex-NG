@@ -87,6 +87,22 @@ namespace Radios.Tests
             Invoke("UnlatchShutdownForTests");
             Invoke("ResetClaimsForTests");
             TraceCoordinator.SetStandingIntent(true, TraceLevel.Info);
+            TraceCoordinator.TransitionProbeForTests = null;
+            TraceCoordinator.BeforeCaptureSlotWriteForTests = null;
+        }
+
+        /// <summary>
+        /// Wait until <paramref name="t"/> is either blocked or finished —
+        /// "it has had its chance to act". A thread still runnable after the
+        /// bound means the test machine is starved, not that the code is wrong,
+        /// so the bound is generous and never asserted on.
+        /// </summary>
+        private static void UntilBlockedOrDone(Thread t)
+        {
+            SpinWait.SpinUntil(() =>
+                (t.ThreadState & (System.Threading.ThreadState.WaitSleepJoin
+                                  | System.Threading.ThreadState.Stopped)) != 0,
+                TimeSpan.FromSeconds(5));
         }
 
         private void ForceCloseAnySession()
@@ -667,9 +683,19 @@ namespace Radios.Tests
             });
             Assert.True(stop.EndedDetailedCapture);
 
-            // The operator starts another capture immediately.
-            TraceCoordinator.MarkSuccessorAsCapture(stop.Successor);
+            // The operator starts another capture immediately — as one
+            // transition, the way the application does since Track H6.
+            TraceTransitionResult second = TraceCoordinator.TrySeal(new TraceSealRequest
+            {
+                Expected = stop.Successor,
+                OperationId = Guid.NewGuid(),
+                Outcome = TraceSessionOutcome.CleanExit,
+                Resume = TraceResumeIntent.Explicit,
+                ResumeLevel = TraceLevel.Verbose,
+                SuccessorIsCapture = true,
+            });
             Guid secondId = TraceCoordinator.CaptureId;
+            Assert.Equal(second.StartedCaptureId, secondId);
             Assert.NotEqual(firstId, secondId);
 
             // The first capture's completion arrives now.
@@ -678,6 +704,263 @@ namespace Radios.Tests
             // The new capture is untouched: still running, still its own id.
             Assert.True(TraceCoordinator.CaptureRunning);
             Assert.Equal(secondId, TraceCoordinator.CaptureId);
+        }
+
+        // ── Track H6: capture start is one transition ──────────────────────
+
+        /// <summary>
+        /// <b>A drop or a Stop racing a capture start meets either the session
+        /// before it or the finished capture — never the successor half
+        /// made.</b> Sol's review of H3, finding 2: capture start sealed, opened
+        /// a successor, released the gate, and only then marked that successor
+        /// as the capture. A drop landing in between sealed it as an ordinary
+        /// session; a Stop found no capture running.
+        ///
+        /// <para>The start is held on a barrier INSIDE its transition, at the
+        /// exact point the old code released the gate: the successor open, the
+        /// capture not yet marked. A drop reads the current session the way the
+        /// fall does — without the gate — and asks to seal it; a Stop takes its
+        /// observation. Both get their chance while the start is held.</para>
+        ///
+        /// <para>Positive control, run by hand at H6: with the gate released
+        /// and the handle published at that barrier — the old two-step shape —
+        /// the drop reads the successor, seals it as an ordinary session, and
+        /// this test goes red.</para>
+        /// </summary>
+        [Fact]
+        public void A_drop_racing_a_capture_start_never_meets_the_capture_half_made()
+        {
+            TraceSessionHandle standing = Open(TraceLevel.Info);
+            Write("the standing log");
+
+            var inside = new ManualResetEventSlim(false);
+            var release = new ManualResetEventSlim(false);
+            TraceTransitionResult start = null, drop = null;
+            TraceObservation stopSaw = null;
+            TraceSessionHandle dropSaw = null;
+            Thread starter = null, dropper = null, stopper = null;
+
+            TraceCoordinator.TransitionProbeForTests = point =>
+            {
+                if (point != "seal:successor-opened") return;
+                inside.Set();
+                release.Wait(TimeSpan.FromSeconds(30));
+            };
+            try
+            {
+                starter = new Thread(() => start = TraceCoordinator.TrySeal(new TraceSealRequest
+                {
+                    Expected = standing,
+                    OperationId = Guid.NewGuid(),
+                    Outcome = TraceSessionOutcome.CleanExit,
+                    OutcomeDetail = "Standing diagnostic log closed to begin a detailed capture",
+                    Resume = TraceResumeIntent.Explicit,
+                    ResumeLevel = TraceLevel.Verbose,
+                    SuccessorIsCapture = true,
+                })) { IsBackground = true };
+                starter.Start();
+                Assert.True(inside.Wait(TimeSpan.FromSeconds(10)), "the capture start never reached its barrier");
+
+                dropper = new Thread(() =>
+                {
+                    dropSaw = TraceCoordinator.CurrentHandle;
+                    drop = TraceCoordinator.TrySeal(new TraceSealRequest
+                    {
+                        Expected = dropSaw,
+                        OperationId = Guid.NewGuid(),
+                        Outcome = TraceSessionOutcome.ConnectionDropped,
+                        Resume = TraceResumeIntent.Standing,
+                    });
+                }) { IsBackground = true };
+                stopper = new Thread(() => stopSaw = TraceCoordinator.Observe()) { IsBackground = true };
+                dropper.Start();
+                stopper.Start();
+                UntilBlockedOrDone(dropper);
+                UntilBlockedOrDone(stopper);
+            }
+            finally
+            {
+                release.Set();
+                TraceCoordinator.TransitionProbeForTests = null;
+                starter?.Join(TimeSpan.FromSeconds(10));
+                dropper?.Join(TimeSpan.FromSeconds(10));
+                stopper?.Join(TimeSpan.FromSeconds(10));
+            }
+
+            Assert.Equal(TraceTransition.Accepted, start.Status);
+            Assert.NotEqual(Guid.Empty, start.StartedCaptureId);
+
+            // While the start was in flight, the published session was still
+            // the standing log — the successor was invisible until complete...
+            Assert.Equal(standing.SessionId, dropSaw.SessionId);
+            // ...so the drop named the standing log, which the start had
+            // already sealed: refused, touching nothing.
+            Assert.Equal(TraceTransition.NotCurrent, drop.Status);
+
+            // The Stop's observation is of the finished capture: running, with
+            // the identity the start reported, on the session it opened.
+            Assert.True(stopSaw.CaptureRunning, "a Stop observed the capture's session before it was a capture");
+            Assert.Equal(start.StartedCaptureId, stopSaw.CaptureId);
+            Assert.Equal(start.Successor.SessionId, stopSaw.SessionId);
+
+            // And a drop that reads now ends it AS a capture.
+            TraceTransitionResult later = TraceCoordinator.TrySeal(new TraceSealRequest
+            {
+                Expected = TraceCoordinator.CurrentHandle,
+                OperationId = Guid.NewGuid(),
+                Outcome = TraceSessionOutcome.ConnectionDropped,
+                Resume = TraceResumeIntent.Standing,
+            });
+            Assert.Equal(TraceTransition.Accepted, later.Status);
+            Assert.True(later.EndedDetailedCapture);
+            Assert.Equal(start.StartedCaptureId, later.EndedCaptureId);
+        }
+
+        /// <summary>
+        /// Capture start reports what it started, so a caller never re-reads
+        /// "is a capture running?" afterwards — by which time a drop may already
+        /// have ended it, and a real start would be spoken as a failure.
+        /// </summary>
+        [Fact]
+        public void A_capture_start_reports_the_capture_it_started()
+        {
+            TraceSessionHandle standing = Open(TraceLevel.Info);
+            TraceTransitionResult start = TraceCoordinator.TrySeal(new TraceSealRequest
+            {
+                Expected = standing,
+                OperationId = Guid.NewGuid(),
+                Outcome = TraceSessionOutcome.CleanExit,
+                Resume = TraceResumeIntent.Explicit,
+                ResumeLevel = TraceLevel.Verbose,
+                SuccessorIsCapture = true,
+            });
+            Assert.NotEqual(Guid.Empty, start.StartedCaptureId);
+            Assert.Equal(start.StartedCaptureId, TraceCoordinator.CaptureId);
+            Assert.Equal(start.StartedCaptureId, TraceCoordinator.CompletedCaptureSlotId);
+
+            // An ordinary restart starts none.
+            TraceTransitionResult restart = TraceCoordinator.TrySeal(new TraceSealRequest
+            {
+                Expected = start.Successor,
+                ExpectedCaptureId = start.StartedCaptureId,
+                OperationId = start.StartedCaptureId,
+                Outcome = TraceSessionOutcome.CleanExit,
+                Resume = TraceResumeIntent.Standing,
+            });
+            Assert.Equal(Guid.Empty, restart.StartedCaptureId);
+            Assert.False(TraceCoordinator.CaptureRunning);
+
+            // And a start during shutdown opens nothing, so it starts nothing.
+            TraceCoordinator.LatchShutdown();
+            TraceTransitionResult refused = TraceCoordinator.TrySeal(new TraceSealRequest
+            {
+                Expected = restart.Successor,
+                OperationId = Guid.NewGuid(),
+                Outcome = TraceSessionOutcome.CleanExit,
+                Resume = TraceResumeIntent.Explicit,
+                SuccessorIsCapture = true,
+            });
+            Assert.Null(refused.Successor);
+            Assert.Equal(Guid.Empty, refused.StartedCaptureId);
+            Assert.False(TraceCoordinator.CaptureRunning);
+        }
+
+        // ── Track H6: the completed-capture slot is one value ──────────────
+
+        /// <summary>
+        /// <b>An old capture's path cannot land in a new capture's slot.</b>
+        /// Sol's review of H3, finding 3: the application checked the slot, then
+        /// assigned the path in a second statement, while starting a capture
+        /// reset both — so an old completion could pass its check, lose the
+        /// processor to the reset, and write the old path over the new slot.
+        ///
+        /// <para>This tests the ACTUAL path field — the value the application's
+        /// <c>LastCaptureArchivePath</c> now reads — with the old completion held
+        /// on a barrier between its check and its write, which is exactly the
+        /// interleaving point of the defect. A new capture then gets every chance
+        /// to finish its reset first.</para>
+        ///
+        /// <para>Positive control, run by hand at H6: with the lock taken out of
+        /// the record, the new capture finishes its reset during the barrier,
+        /// the old path lands on top of it, and this test goes red.</para>
+        /// </summary>
+        [Fact]
+        public void An_old_capture_path_cannot_land_in_a_new_capture_slot()
+        {
+            TraceSessionHandle a = Open(TraceLevel.Verbose, asCapture: true);
+            Guid aId = TraceCoordinator.CaptureId;
+            Write("capture A");
+            TraceTransitionResult stopA = TraceCoordinator.TrySeal(new TraceSealRequest
+            {
+                Expected = a,
+                ExpectedCaptureId = aId,
+                OperationId = aId,
+                Outcome = TraceSessionOutcome.CleanExit,
+                Resume = TraceResumeIntent.Standing,
+            });
+            Assert.True(stopA.Ticket.Completion.Wait(TimeSpan.FromSeconds(60)));
+            string aPath = stopA.Ticket.Completion.Result.ArchiveFullPath;
+            Assert.False(string.IsNullOrEmpty(aPath));
+            Assert.Equal(aId, TraceCoordinator.CompletedCaptureSlotId);
+            Assert.Null(TraceCoordinator.CompletedCaptureArchivePath);
+
+            var inside = new ManualResetEventSlim(false);
+            var release = new ManualResetEventSlim(false);
+            bool recorded = false;
+            TraceTransitionResult startB = null;
+            Thread completer = null, starter = null;
+
+            TraceCoordinator.BeforeCaptureSlotWriteForTests = id =>
+            {
+                if (id != aId) return;
+                inside.Set();
+                release.Wait(TimeSpan.FromSeconds(30));
+            };
+            try
+            {
+                // A's completion has checked the slot and is about to write.
+                completer = new Thread(() => recorded = TraceCoordinator.RecordCaptureArchive(aId, aPath))
+                    { IsBackground = true };
+                completer.Start();
+                Assert.True(inside.Wait(TimeSpan.FromSeconds(10)), "the completion never reached its barrier");
+
+                // Capture B starts, and is given every chance to finish first.
+                TraceSessionHandle standing = TraceCoordinator.CurrentHandle;
+                starter = new Thread(() => startB = TraceCoordinator.TrySeal(new TraceSealRequest
+                {
+                    Expected = standing,
+                    OperationId = Guid.NewGuid(),
+                    Outcome = TraceSessionOutcome.CleanExit,
+                    Resume = TraceResumeIntent.Explicit,
+                    ResumeLevel = TraceLevel.Verbose,
+                    SuccessorIsCapture = true,
+                })) { IsBackground = true };
+                starter.Start();
+                starter.Join(TimeSpan.FromMilliseconds(500));
+            }
+            finally
+            {
+                release.Set();
+                TraceCoordinator.BeforeCaptureSlotWriteForTests = null;
+                completer?.Join(TimeSpan.FromSeconds(10));
+                starter?.Join(TimeSpan.FromSeconds(10));
+            }
+
+            // A's completion was entitled to write when it checked...
+            Assert.True(recorded);
+            // ...and B's start still ends with B owning an EMPTY slot. The old
+            // path did not land in it.
+            Assert.NotEqual(Guid.Empty, startB.StartedCaptureId);
+            Assert.Equal(startB.StartedCaptureId, TraceCoordinator.CompletedCaptureSlotId);
+            Assert.Null(TraceCoordinator.CompletedCaptureArchivePath);
+
+            // A completion arriving now for A is refused outright.
+            Assert.False(TraceCoordinator.RecordCaptureArchive(aId, aPath));
+            Assert.Null(TraceCoordinator.CompletedCaptureArchivePath);
+
+            // Positive control for the slot itself: B's own completion does land.
+            Assert.True(TraceCoordinator.RecordCaptureArchive(startB.StartedCaptureId, @"C:\b.zip"));
+            Assert.Equal(@"C:\b.zip", TraceCoordinator.CompletedCaptureArchivePath);
         }
 
         // ── The bundler's checkpoint ───────────────────────────────────────

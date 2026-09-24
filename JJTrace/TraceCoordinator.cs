@@ -73,6 +73,27 @@ namespace JJTrace
         /// <summary>True when the caller requires a capture to be running —
         /// Stop, and only Stop.</summary>
         public bool RequireCaptureRunning { get; set; }
+
+        /// <summary>
+        /// The successor this transition opens IS the operator's detailed
+        /// capture. Its identity, start time and completed-capture slot are
+        /// set inside the same transition that opens it.
+        ///
+        /// <para><b>Why this is not a second call.</b> Capture start used to
+        /// seal, open a successor, release the gate, and THEN mark that
+        /// successor as the capture. Anything landing in between — a drop, a
+        /// Stop, a settings change, an exit — acted on a session that was about
+        /// to become a capture but was not one yet: a drop sealed it as an
+        /// ordinary session and the capture was then marked on nothing, or a
+        /// Stop found no capture running (Sol's review of H3, finding 2). A
+        /// successor is published only once it is complete, so nobody can see
+        /// it half made.</para>
+        /// </summary>
+        public bool SuccessorIsCapture { get; set; }
+
+        /// <summary>Start time for that capture, local clock; now when
+        /// null.</summary>
+        public DateTime? CaptureStartedLocal { get; set; }
     }
 
     /// <summary>
@@ -167,6 +188,34 @@ namespace JJTrace
         private static Guid _captureSessionId;
         private static DateTime? _captureStartedLocal;
 
+        // ── The completed-capture slot ─────────────────────────────────────
+        //
+        // Which capture the operator's "export this capture" surface is about,
+        // and the archive path it can offer. ONE value, under ONE lock (Sol's
+        // review of H3, finding 3). The application used to keep these as two
+        // fields: a completion checked the slot, then assigned the path in a
+        // separate statement, while starting a capture reset both. So an old
+        // completion could pass its check, lose the processor to a new capture's
+        // reset, and then write the OLD capture's path into the NEW capture's
+        // slot — pointing Export at the wrong evening.
+        //
+        // Its own small lock rather than the gate: a completion arrives on the
+        // archive worker and has no business waiting on a transition's file I/O.
+        // Lock order is gate, then this — a capture start claims the slot from
+        // inside its transition — and nothing holding this lock ever takes the
+        // gate.
+        private static readonly object _slotLock = new object();
+        private static Guid _slotCaptureId;
+        private static string _slotArchivePath;
+
+        /// <summary>
+        /// Tests only: runs INSIDE <see cref="RecordCaptureArchive"/>, between
+        /// the check that the slot still names this capture and the write of
+        /// its path — the exact interleaving point of the defect this lock
+        /// closes. Null in production.
+        /// </summary>
+        internal static Action<Guid> BeforeCaptureSlotWriteForTests;
+
         private static bool _standingKeep;
         private static TraceLevel _standingLevel = TraceLevel.Info;
 
@@ -235,6 +284,44 @@ namespace JJTrace
         public static Guid CaptureId
         {
             get { lock (_gate) { return _captureId; } }
+        }
+
+        /// <summary>
+        /// The archive path of the capture that owns the completed-capture
+        /// slot, or null — cleared the moment a new capture starts, and filled
+        /// only by that capture's own committed archive. What the "export this
+        /// capture" surface offers.
+        /// </summary>
+        public static string CompletedCaptureArchivePath
+        {
+            get { lock (_slotLock) { return _slotArchivePath; } }
+        }
+
+        /// <summary>The capture the completed-capture slot belongs to, or
+        /// <see cref="Guid.Empty"/>.</summary>
+        public static Guid CompletedCaptureSlotId
+        {
+            get { lock (_slotLock) { return _slotCaptureId; } }
+        }
+
+        /// <summary>
+        /// Record a capture's committed archive in the completed-capture slot —
+        /// if, and only if, the slot still belongs to that capture. The check
+        /// and the write are one step, so a newly started capture's reset
+        /// cannot fall between them.
+        /// </summary>
+        /// <returns>True when the path was recorded; false when the slot has
+        /// moved on to another capture, which is not a failure.</returns>
+        public static bool RecordCaptureArchive(Guid captureId, string archivePath)
+        {
+            if (captureId == Guid.Empty) return false;
+            lock (_slotLock)
+            {
+                if (_slotCaptureId != captureId) return false;
+                BeforeCaptureSlotWriteForTests?.Invoke(captureId);
+                _slotArchivePath = archivePath;
+                return true;
+            }
         }
 
         /// <summary>One immutable snapshot of everything above, taken together.
@@ -401,9 +488,7 @@ namespace JJTrace
                 result = OpenSessionLocked(livePath, level, faults);
                 if (result.Status == TraceTransition.Accepted && asDetailedCapture)
                 {
-                    _captureId = Guid.NewGuid();
-                    _captureSessionId = _session.SessionId;
-                    _captureStartedLocal = captureStartedLocal ?? DateTime.Now;
+                    result.StartedCaptureId = StartCaptureLocked(captureStartedLocal);
                 }
                 result.TracingOn = _sink != null && !_sink.IsClosed;
             }
@@ -413,22 +498,26 @@ namespace JJTrace
         }
 
         /// <summary>
-        /// Mark a session the boundary just opened as the operator's detailed
-        /// capture. Only legal for the session that is current right now, so a
-        /// capture identity can never be attached to a session that has already
-        /// been replaced.
+        /// Make the session just opened the operator's detailed capture, and
+        /// give that capture the completed-capture slot. Caller must hold the
+        /// gate, and must call this in the SAME transition that opened the
+        /// session — there is deliberately no public way to mark a session as a
+        /// capture after the fact, because that gap is where a drop or a Stop
+        /// used to land (Sol's review of H3, finding 2; this replaces H3's
+        /// <c>MarkSuccessorAsCapture</c>).
         /// </summary>
-        public static bool MarkSuccessorAsCapture(TraceSessionHandle handle,
-                                                  DateTime? startedLocal = null)
+        /// <returns>The new capture's identity.</returns>
+        private static Guid StartCaptureLocked(DateTime? startedLocal)
         {
-            lock (_gate)
+            _captureId = Guid.NewGuid();
+            _captureSessionId = _session.SessionId;
+            _captureStartedLocal = startedLocal ?? DateTime.Now;
+            lock (_slotLock)
             {
-                if (handle == null || _session == null || handle.SessionId != _session.SessionId) return false;
-                _captureId = Guid.NewGuid();
-                _captureSessionId = _session.SessionId;
-                _captureStartedLocal = startedLocal ?? DateTime.Now;
-                return true;
+                _slotCaptureId = _captureId;
+                _slotArchivePath = null;
             }
+            return _captureId;
         }
 
         /// <summary>
@@ -493,6 +582,11 @@ namespace JJTrace
                 _captureId = Guid.Empty;
                 _captureSessionId = Guid.Empty;
                 _captureStartedLocal = null;
+                lock (_slotLock)
+                {
+                    _slotCaptureId = Guid.Empty;
+                    _slotArchivePath = null;
+                }
             }
         }
 
@@ -844,6 +938,14 @@ namespace JJTrace
                 {
                     result.Successor = opened.Successor;
                     result.TracingOn = true;
+                    Probe("seal:successor-opened");
+                    // Still inside the gate, and before the successor is
+                    // published: nobody can see this session until it is
+                    // already the capture.
+                    if (request.SuccessorIsCapture)
+                    {
+                        result.StartedCaptureId = StartCaptureLocked(request.CaptureStartedLocal);
+                    }
                 }
                 else
                 {
