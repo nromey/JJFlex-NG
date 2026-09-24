@@ -28,8 +28,25 @@ namespace Radios.Tests
     //  never spoken once in the whole run.
     //
     //  THE ACCEPTANCE CONDITION IS NOT "IT STOPS REPEATING." It is that the
-    //  clause he has never heard reaches him whole, which is
-    //  TheClauseHeHasNeverHeard_IsSpokenWhole below.
+    //  clause he has never heard reaches him whole.
+    //
+    //  **And that is not what the test below proves, which is why it was
+    //  renamed on 2026-09-23.** It was called
+    //  TheClauseHeHasNeverHeard_IsSpokenWhole, and a name that states a
+    //  contract is the hardest kind of claim to disagree with — but it drives
+    //  no pump, no reader and no window transition, and it supplies the
+    //  completion itself. What it really establishes is that the ARBITER
+    //  hands the clause over whole, once, spending no rescue, on a sink this
+    //  test answers for. That is worth having and it is not the acceptance
+    //  condition. The name says so now.
+    //
+    //  The test that earns the old name lives in SafetySpeechBoundaryTests:
+    //  TheClauseHeHasNeverHeard_ReachesTheBackendWhole_ThroughTheRealPump
+    //  drives the real paced delivery, so the clause reaches the backend and
+    //  the completion comes back from the transport rather than from the
+    //  test. What no unit test can reach is the last two steps — NVDA
+    //  actually voicing it, and Noel hearing it — and those stay in the
+    //  report's press.
     // ────────────────────────────────────────────────────────────────
     public class SpeechRecoveryRuleTests
     {
@@ -97,10 +114,10 @@ namespace Radios.Tests
             a.OnOutcome(t, message, SpeechOutcome.Cancelled(at, of, byUs: false, ms));
         }
 
-        // ── The acceptance case ──
+        // ── The arbiter's half of the acceptance case ──
 
         [Fact]
-        public void TheClauseHeHasNeverHeard_IsSpokenWhole()
+        public void TheClauseHeHasNeverHeard_IsHandedOverWholeByTheArbiter_OnASinkThisTestAnswersFor()
         {
             var a = NewArbiter();
 
