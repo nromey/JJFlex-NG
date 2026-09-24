@@ -4022,9 +4022,10 @@ namespace Radios
             // that is connected now CONTAINS this serial. Answer without
             // touching the network. A disconnected session's list is history
             // and the judge sets it aside, and absence in any held list is not
-            // an observation, so both fall through to the ask below. Only held lists are passed here, never this
-            // instance's captured push, because that capture belongs to
-            // whichever ConnectToSmartLink ran last and not to this call.
+            // an observation, so both fall through to the ask below. Only held
+            // lists are passed here, never this instance's captured push,
+            // because that capture belongs to whichever ConnectToSmartLink ran
+            // last and not to this call.
             var fromCache = SmartLinkRegistrationEvidence.Judge(
                 serial, arrivedOverSmartLink: false, anySavedAccount: true,
                 anAccountIsInHand: true, listsInHand: HeldAccountLists());
@@ -5474,12 +5475,11 @@ namespace Radios
         /// <remarks>
         /// <para><b>Why this is not <see cref="wanListReceived"/>.</b> That
         /// latch answers the connect flow's question, "is there a list to work
-        /// with yet?", and three things legitimately satisfy it: a push, a
-        /// replay of a held session's cached copy, and a rebuild from
-        /// <see cref="myRadioList"/>. The registration query asks a different
-        /// question — "did the SERVER speak during this call?" — and only a
-        /// push answers it. Track L read the latch for that question, and the
-        /// replay set it (#619).</para>
+        /// with yet?", and a replay of a held session's cached copy sets it as
+        /// legitimately as a push does. The registration query asks a
+        /// different question — "did the SERVER speak during this call?" — and
+        /// only a push answers it. Track L read the latch for that question,
+        /// and the replay set it (#619).</para>
         ///
         /// <para>Written only by <see cref="wanRadioListReceivedHandler"/> for
         /// a <see cref="WanListArrival.ServerPush"/>, which only the

@@ -204,10 +204,10 @@ namespace Radios
                         false, 0, string.Empty);
 
             // Positive evidence first, from any CURRENT list of any account we
-            // hold — this is #352's ask. A radio in another of the operator's own accounts is
-            // registered; saying "not registered" because the wrong account was
-            // asked is the 2026-08-05 incident, and refusing to answer at all
-            // is only the polite version of the same gap.
+            // hold — this is #352's ask. A radio in another of the operator's
+            // own accounts is registered; saying "not registered" because the
+            // wrong account was asked is the 2026-08-05 incident, and refusing
+            // to answer at all is only the polite version of the same gap.
             foreach (var list in lists)
             {
                 if (list.Serials == null) continue;
