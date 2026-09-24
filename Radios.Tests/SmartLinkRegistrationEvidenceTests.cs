@@ -331,7 +331,8 @@ namespace Radios.Tests
     /// What the query's two WPF callers do with a finding, read from source
     /// because this project cannot construct either window: the connect
     /// advisory's write refuses a premise that cannot carry an answer, and
-    /// Radio Setup names the account that listed the radio (#619).
+    /// Radio Setup names the account that listed the radio (#619 for the
+    /// first; the second is from Sol's review of Track L, 2026-09-23).
     /// </summary>
     public sealed class SmartLinkRegistrationCallerSourceTests
     {
@@ -383,7 +384,8 @@ namespace Radios.Tests
         /// Radio Setup's step-2 status said a radio found under ANOTHER of the
         /// operator's accounts was registered to the signed-in one, and cached
         /// only the verdict — so the listing account was gone and the wrong
-        /// attribution lasted until the dialog reopened (#619). The whole
+        /// attribution lasted until the dialog reopened (Sol's review of Track
+        /// L, 2026-09-23). The whole
         /// finding is cached now, and the Registered line names the account
         /// that listed the radio.
         /// </summary>

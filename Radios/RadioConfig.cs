@@ -128,7 +128,7 @@ namespace Radios
     /// To rename one, keep the old name on the wire with
     /// <c>[XmlEnum("OldName")]</c>. <c>SmartLinkIntentSerializationTests</c>
     /// reads a hand-built config in the old shape and fails on a rename
-    /// (#619).</para>
+    /// (#352).</para>
     /// </summary>
     public enum SmartLinkIntents
     {

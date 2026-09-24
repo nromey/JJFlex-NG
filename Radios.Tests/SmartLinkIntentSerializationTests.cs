@@ -20,9 +20,10 @@ namespace Radios.Tests
     /// — so the "numeric values are stable" note on
     /// <see cref="SmartLinkIntents"/> protects nothing here. Renaming a member
     /// to match nicer button text orphans every stored answer with that
-    /// name. Sol's review of Track L named the risk (#619); Track L did not
-    /// rename anything — the enum has been unchanged since Sprint 30 — so these
-    /// exist to catch the NEXT rename, including a rename of the default.</para>
+    /// name. #352 records the trap, and Sol's review of Track L named it
+    /// again. Track L did not rename anything — the enum has been unchanged
+    /// since Sprint 30 — so these exist to catch the NEXT rename, including a
+    /// rename of the default.</para>
     ///
     /// <para><b>The fixture is written by hand</b>, in the shape the
     /// pre-Track-L build wrote it, and read from a temporary folder. No

@@ -85,11 +85,12 @@ namespace JJFlexWpf.Dialogs
         // instance because the answer only changes when registration itself runs
         // (and RegistrationSucceeded covers that case before this text is used).
         //
-        // The whole finding is kept, not just its verdict (#619). A Registered
-        // verdict can come from ANOTHER of the operator's accounts, and the
-        // account that listed the radio is part of the answer; caching the
-        // verdict alone threw it away, and every refresh then attributed the
-        // radio to whichever account was signed in.
+        // The whole finding is kept, not just its verdict (Sol's review of
+        // Track L, 2026-09-23). A Registered verdict can come from ANOTHER of
+        // the operator's accounts, and the account that listed the radio is
+        // part of the answer; caching the verdict alone threw it away, and
+        // every refresh then attributed the radio to whichever account was
+        // signed in.
         private string? _registrationQuerySerial;
         private SmartLinkRegistrationEvidence.Finding? _registrationQueryResult;
         private bool _registrationQueryInFlight;
@@ -193,7 +194,7 @@ namespace JJFlexWpf.Dialogs
                 {
                     // The account that LISTED the radio, never the signed-in
                     // one: the query consults every held account, and a radio
-                    // found under another of them is registered THERE (#619).
+                    // found under another of them is registered THERE.
                     // A Registered finding with no listing account cannot say
                     // whose it is, so it falls through to the neutral line
                     // rather than guessing.
