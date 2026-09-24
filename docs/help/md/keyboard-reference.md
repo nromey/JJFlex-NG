@@ -714,9 +714,19 @@ interrupts everyone on a MultiFlex radio, and the confirmation naming the other
 stations connected is the point of the slower route.
 
 **Waiting in the Command Finder on purpose.** Start scan, saved scan, switch S
-meter units, collect debug info, and start audio check. Each is either rare, or
-better reached where you already are — the Audio Check has `Ctrl+Enter` inside
-the Audio Workshop, which is where you are when you want it.
+meter units, collect debug info, start audio check, and undelivered details.
+Most of these are either rare, or better reached where you already are — the
+Audio Check has `Ctrl+Enter` inside the Audio Workshop, which is where you are
+when you want it. Undelivered details is the odd one out: it is new, and it has
+no key yet because which chord it deserves is still being decided rather than
+because it does not want one. It opens the list of things the radio told you
+that did not land — a warning that got cut off, something that arrived while
+your screen reader was busy, anything you asked to be quiet — and it opens with
+no radio connected and with a radio that has just dropped, which is the point,
+because that is exactly when you go looking for something you think you missed.
+The Status dialog (`Ctrl+Alt+S`) has a button for it that is always there,
+whether or not a radio is on the other end. Bind a key of your own in the
+Hotkey Editor if you want one now.
 
 **Deliberately empty.** The six audio-level slots (`Alt+Page Up` and friends)
 are held open rather than reassigned, so a future feature has to make its case

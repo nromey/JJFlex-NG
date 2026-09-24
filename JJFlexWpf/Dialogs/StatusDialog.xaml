@@ -12,6 +12,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <!-- Read-only TextBox, not a ListBox (Phase 0.5d, 2026-08-10):
@@ -39,7 +40,21 @@
         <controls:NetworkIdentityCard x:Name="IdentityCard" Grid.Row="2"
                  Margin="4,2,4,0" MaxHeight="150"/>
 
-        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+        <!-- The undelivered-details entry (#617). Deliberately OUTSIDE the
+             status readout: RefreshStatus returns early when there is no
+             radio, again when the radio is disconnected, and again while the
+             operator is reading — so anything built inside it is missing in
+             exactly the situations where somebody comes looking for a warning
+             they think they missed. The button is in the layout rather than in
+             the text, and the count below it refreshes on its own path. -->
+        <TextBlock x:Name="PendingSummary" Grid.Row="3" Margin="4,8,4,0"
+                   TextWrapping="Wrap"
+                   AutomationProperties.Name="Undelivered details"/>
+
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+            <Button x:Name="UndeliveredButton" MinWidth="150" Height="28" Margin="0,0,8,0"
+                    Click="UndeliveredButton_Click"
+                    local:JJFlexHelp.Text="Opens the list of things the radio told you that were not delivered. It works whether or not a radio is connected."/>
             <Button Content="_Copy to Clipboard" MinWidth="130" Height="28" Margin="0,0,8,0"
                     AutomationProperties.Name="Copy to Clipboard"
                     AutomationProperties.AcceleratorKey="Alt+C"
