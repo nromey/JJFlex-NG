@@ -1073,11 +1073,19 @@ Module globals
             Tracing.TheSwitch.Level = TraceLevel.Verbose
             Dim opened As TraceTransitionResult = BeginCaptureSession(reason)
             ReportTraceTransition(opened)
-            If Not opened.TracingOn Then
+            ' Ask whether a CAPTURE is running, not whether tracing is on. A
+            ' refusal because something was already recording reports tracing on
+            ' perfectly truthfully, and proceeding on that would speak "capture
+            ' started" over a capture that does not exist.
+            If Not TraceCoordinator.CaptureRunning Then
                 Throw New InvalidOperationException(
                     "the detailed capture's trace session did not open (" & opened.Status.ToString() & ")")
             End If
 
+            ' A new capture owns the completed-capture slot from this moment, so
+            ' a late completion belonging to the PREVIOUS capture cannot write
+            ' its path back over this reset.
+            _lastCaptureSlot = TraceCoordinator.CaptureId
             LastCaptureArchivePath = Nothing
             LastUserTraceFile = Tracing.TraceFile
             Tracing.TraceLine(
@@ -1793,6 +1801,13 @@ Module globals
                     If item.Item2 > highest Then highest = item.Item2
                     Dim fileName As String = Path.GetFileName(item.Item1)
                     If SessionArchive.IsSourceArchived(TraceArchiveDir, fileName) Then Continue For
+                    ' A part that already has a pending record belongs to a real
+                    ' session whose own archive is outstanding. Adopting it here
+                    ' would file it under a fabricated "killed" session instead
+                    ' of its own — the dedup downstream would stop it being
+                    ' archived twice, but the surviving entry would be the wrong
+                    ' one. Recovery picks these up later in this same boot.
+                    If TraceArchiveWorker.IsPendingWork(item.Item1) Then Continue For
                     SessionArchive.ArchiveSession(TraceArchiveDir, item.Item1, session,
                         deleteSourceAfter:=False, partNumber:=item.Item2, isFinalPart:=False)
                 Next
@@ -2112,7 +2127,18 @@ Module globals
     End Function
 
     Friend Power As Boolean = False
-    Friend LastUserTraceFile As String ' Last user-started trace file (see DebugInfo)
+    ''' <summary>
+    ''' The file a detailed capture opened, recorded when it starts.
+    '''
+    ''' <para><b>Nothing reads it any more.</b> Its one reader was the
+    ''' problem-report bundler, which attached it — and that was the defect:
+    ''' the path names the LIVE file, so the bundle was copying a trace that
+    ''' was being written while the zip was built. The bundler now attaches the
+    ''' frozen snapshot the trace boundary hands it instead. Left in place
+    ''' rather than deleted because removing a shared field is a merge-time
+    ''' change, and reported as a candidate for removal.</para>
+    ''' </summary>
+    Friend LastUserTraceFile As String
     Friend WithEvents Operators As PersonalData = Nothing
     Friend WithEvents Knob As FlexKnob = Nothing
     ''' <summary>

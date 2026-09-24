@@ -451,7 +451,8 @@ namespace JJTrace
         private static TraceTransitionResult OpenSessionLocked(string livePath, TraceLevel level,
                                                                List<string> faults,
                                                                int startPartNumber = 1,
-                                                               TraceSession continuing = null)
+                                                               TraceSession continuing = null,
+                                                               bool append = false)
         {
             var result = new TraceTransitionResult();
             try
@@ -464,7 +465,8 @@ namespace JJTrace
                     partNumber => ResolvePartPathFor(stamp, partNumber),
                     (path, part) => OnPartClosedFor(stamp, path, part),
                     stamp,
-                    startPartNumber);
+                    startPartNumber,
+                    append);
 
                 _sink = sink;
                 _session = session;
@@ -898,13 +900,16 @@ namespace JJTrace
             {
                 // Nothing was taken away, but the file is closed and has to be
                 // reopened or the session goes dark for the rest of the run.
-                // Appending is right here: the bytes are still the session's own.
+                // APPEND, not create: the bytes are still the session's own, and
+                // a FileMode.Create here would destroy the evidence in the
+                // course of failing to preserve it.
                 faults.Add("TraceCoordinator: could not freeze a snapshot of " + sourcePath
                            + " (" + moveFailure + ")");
                 _sink = null;
                 TraceTransitionResult reopened = OpenSessionLocked(_livePath, _level, faults,
                                                                    startPartNumber: part,
-                                                                   continuing: session);
+                                                                   continuing: session,
+                                                                   append: true);
                 return new TraceTransitionResult
                 {
                     Status = TraceTransition.Failed,

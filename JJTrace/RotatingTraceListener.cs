@@ -99,7 +99,8 @@ namespace JJTrace
                                      Func<int, string> resolvePartPath,
                                      Action<string, int> onPartClosed,
                                      TraceSinkStamp stamp = null,
-                                     int startPartNumber = 1)
+                                     int startPartNumber = 1,
+                                     bool append = false)
         {
             FilePath = path;
             RotationThresholdBytes = rotationThresholdBytes;
@@ -109,7 +110,12 @@ namespace JJTrace
             _partNumber = startPartNumber < 1 ? 1 : startPartNumber;
             _startPartNumber = _partNumber;
             _nextRotateAt = rotationThresholdBytes;
-            Open(path, append: false);
+            // Append exists for exactly one caller: a checkpoint whose detach
+            // failed and has to get the session writing again. Opening that
+            // path with FileMode.Create would truncate the very bytes the move
+            // could not take away — destroying the evidence in the course of
+            // failing to preserve it.
+            Open(path, append);
         }
 
         /// <summary>The part number this sink opened at. A sink that opens at

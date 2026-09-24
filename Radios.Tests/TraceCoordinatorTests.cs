@@ -715,6 +715,52 @@ namespace Radios.Tests
             Assert.True(TraceCoordinator.Recording);
         }
 
+        /// <summary>
+        /// A checkpoint whose detach fails must not destroy the evidence in the
+        /// course of failing to preserve it. The session has to get writing
+        /// again or it goes dark for the rest of the run, and reopening the
+        /// live path with <c>FileMode.Create</c> would truncate the very bytes
+        /// the move could not take away.
+        /// </summary>
+        [Fact]
+        public void A_snapshot_that_cannot_detach_keeps_the_bytes_and_keeps_recording()
+        {
+            TraceSessionHandle live = Open();
+            Write("bytes that must survive a failed move");
+
+            // Put a DIRECTORY where the part file wants to go. A file there
+            // would not do it: the naming is collision-safe on purpose — it
+            // must never overwrite existing evidence — so it would simply pick
+            // the next name and succeed. A directory is invisible to that
+            // guard's File.Exists and fatal to the move, which is exactly the
+            // shape of a real detach failure.
+            string blocked = TraceFileNaming.StampedPartPath(
+                _livePath, TraceCoordinator.Observe().SessionBootTimeUtc.Value, 1);
+            Directory.CreateDirectory(blocked);
+            try
+            {
+                TraceTransitionResult snap = TraceCoordinator.SnapshotForBundle(live);
+
+                Assert.Equal(TraceTransition.Failed, snap.Status);
+                Assert.Equal("detach", snap.FailedStage);
+                Assert.Null(snap.Ticket);
+
+                // Still the same session, still recording, and the old bytes
+                // are still in the live file.
+                Assert.True(snap.TracingOn);
+                Assert.Equal(live.SessionId, TraceCoordinator.CurrentHandle.SessionId);
+                Write("and recording carried on");
+            }
+            finally
+            {
+                try { Directory.Delete(blocked); } catch { }
+            }
+
+            string text = ReadLiveText(_livePath);
+            Assert.Contains("bytes that must survive a failed move", text, StringComparison.Ordinal);
+            Assert.Contains("and recording carried on", text, StringComparison.Ordinal);
+        }
+
         // ── Rotation against a seal, and direct Trace writers ──────────────
 
         /// <summary>
