@@ -35,18 +35,24 @@ namespace Radios.Tests
         private const string Mine = "operator@example.com";
         private const string Other = "friend@example.com";
 
-        private static IReadOnlyCollection<Evidence.AccountList> Lists(
-            params (string account, string[] serials)[] rows) =>
-            rows.Select(r => new Evidence.AccountList(r.account, r.serials)).ToList();
+        /// <summary>A list the server pushed during the call being judged.</summary>
+        private static Evidence.AccountList Pushed(string account, params string[] serials) =>
+            new(account, serials, Evidence.ListSource.ServerPushThisCall);
+
+        /// <summary>The list a held session is carrying.</summary>
+        private static Evidence.AccountList Held(string account, params string[] serials) =>
+            new(account, serials, Evidence.ListSource.HeldBySession);
+
+        private static IReadOnlyCollection<Evidence.AccountList> Lists(params Evidence.AccountList[] lists) =>
+            lists.ToList();
 
         private static Evidence.Finding Ask(
             IReadOnlyCollection<Evidence.AccountList> lists,
-            bool serverAnswered,
             string serial = Serial,
             bool overSmartLink = false,
             bool accountInHand = true,
             bool anySaved = true) =>
-            Evidence.Judge(serial, overSmartLink, anySaved, accountInHand, lists, serverAnswered);
+            Evidence.Judge(serial, overSmartLink, anySaved, accountInHand, lists);
 
         // ------------------------------------------------------------------
         // The vocabulary
@@ -81,7 +87,7 @@ namespace Radios.Tests
         [Fact]
         public void A_serial_found_in_a_stale_list_is_still_proof()
         {
-            var f = Ask(Lists((Mine, new[] { Serial })), serverAnswered: false);
+            var f = Ask(Lists(Held(Mine, Serial)));
 
             Assert.Equal(Verdict.Registered, f.Verdict);
             Assert.Equal(Mine, f.ListedUnderAccount);
@@ -96,8 +102,8 @@ namespace Radios.Tests
         public void A_radio_listed_under_another_of_the_operators_accounts_is_registered()
         {
             var f = Ask(Lists(
-                (Mine, Array.Empty<string>()),
-                (Other, new[] { Serial })), serverAnswered: true);
+                Pushed(Mine),
+                Held(Other, Serial)));
 
             Assert.Equal(Verdict.Registered, f.Verdict);
             Assert.Equal(Other, f.ListedUnderAccount);
@@ -107,8 +113,8 @@ namespace Radios.Tests
         [Fact]
         public void A_serial_matches_whatever_case_the_server_sent_it_in()
         {
-            var f = Ask(Lists((Mine, new[] { Serial.ToLowerInvariant() })),
-                serverAnswered: true, serial: Serial.ToUpperInvariant());
+            var f = Ask(Lists(Pushed(Mine, Serial.ToLowerInvariant())),
+                serial: Serial.ToUpperInvariant());
 
             Assert.Equal(Verdict.Registered, f.Verdict);
         }
@@ -120,8 +126,7 @@ namespace Radios.Tests
         [Fact]
         public void Arriving_over_smartlink_outranks_an_empty_list()
         {
-            var f = Ask(Lists((Mine, Array.Empty<string>())),
-                serverAnswered: true, overSmartLink: true);
+            var f = Ask(Lists(Pushed(Mine)), overSmartLink: true);
 
             Assert.Equal(Verdict.Registered, f.Verdict);
         }
@@ -139,7 +144,7 @@ namespace Radios.Tests
         [Fact]
         public void An_absence_in_a_cache_is_not_an_answer()
         {
-            var f = Ask(Lists((Mine, new[] { "9999-0000-6400-0001" })), serverAnswered: false);
+            var f = Ask(Lists(Held(Mine, "9999-0000-6400-0001")));
 
             Assert.Equal(Verdict.Unknown, f.Verdict);
             Assert.False(f.FromALiveServerAnswer);
@@ -157,13 +162,13 @@ namespace Radios.Tests
             var shapes = new[]
             {
                 Lists(),
-                Lists((Mine, Array.Empty<string>())),
-                Lists((Mine, new[] { "9999-0000-6400-0001" })),
-                Lists((Mine, Array.Empty<string>()), (Other, Array.Empty<string>())),
+                Lists(Held(Mine)),
+                Lists(Held(Mine, "9999-0000-6400-0001")),
+                Lists(Held(Mine), Held(Other)),
             };
 
             foreach (var shape in shapes)
-                Assert.NotEqual(Verdict.NotInAccountList, Ask(shape, serverAnswered: false).Verdict);
+                Assert.NotEqual(Verdict.NotInAccountList, Ask(shape).Verdict);
         }
 
         /// <summary>
@@ -174,7 +179,7 @@ namespace Radios.Tests
         [Fact]
         public void A_live_empty_answer_reports_absence_from_the_list_and_nothing_more()
         {
-            var f = Ask(Lists((Mine, Array.Empty<string>())), serverAnswered: true);
+            var f = Ask(Lists(Pushed(Mine)));
 
             Assert.Equal(Verdict.NotInAccountList, f.Verdict);
             Assert.True(f.FromALiveServerAnswer);
@@ -190,7 +195,7 @@ namespace Radios.Tests
         public void A_radio_with_no_serial_never_produces_a_negative(string serial)
         {
             Assert.Equal(Verdict.Unknown,
-                Ask(Lists((Mine, Array.Empty<string>())), serverAnswered: true, serial: serial).Verdict);
+                Ask(Lists(Pushed(Mine)), serial: serial).Verdict);
         }
 
         // ------------------------------------------------------------------
@@ -207,10 +212,10 @@ namespace Radios.Tests
         public void Never_having_had_an_account_is_distinct_from_not_being_able_to_ask()
         {
             Assert.Equal(Verdict.NoAccount,
-                Ask(Lists(), serverAnswered: false, accountInHand: false, anySaved: false).Verdict);
+                Ask(Lists(), accountInHand: false, anySaved: false).Verdict);
 
             Assert.Equal(Verdict.Unknown,
-                Ask(Lists(), serverAnswered: false, accountInHand: false, anySaved: true).Verdict);
+                Ask(Lists(), accountInHand: false, anySaved: true).Verdict);
         }
 
         // ------------------------------------------------------------------

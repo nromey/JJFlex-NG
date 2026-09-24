@@ -924,7 +924,7 @@ namespace Radios
             }
             radios = null;
             wanListReceived = false;
-            wanListAccount = null;
+            lock (_wanIntakeLock) { _serverListThisCall = null; }
             // The WAN Radio objects belong to the session being cycled; a fresh
             // list repopulates them. Keeping them would let a path-choice
             // connect dial a handle the server has already forgotten. With no
@@ -3991,8 +3991,7 @@ namespace Radios
             if (theRadio.IsWan)
                 return Task.FromResult(SmartLinkRegistrationEvidence.Judge(
                     serial, arrivedOverSmartLink: true, anySavedAccount: true,
-                    anAccountIsInHand: true, listsInHand: null,
-                    aServerAnsweredThisCall: false));
+                    anAccountIsInHand: true, listsInHand: null));
 
             // A local connection never loads the account on its own — fall back
             // to the saved one so the query can give a real answer instead of
@@ -4005,19 +4004,19 @@ namespace Radios
                 Tracing.TraceLine($"QuerySmartLinkRegistration: no current account, savedAccounts={anySaved}", TraceLevel.Info);
                 return Task.FromResult(SmartLinkRegistrationEvidence.Judge(
                     serial, arrivedOverSmartLink: false, anySavedAccount: anySaved,
-                    anAccountIsInHand: false, listsInHand: null,
-                    aServerAnsweredThisCall: false));
+                    anAccountIsInHand: false, listsInHand: null));
             }
 
-            // Positive evidence already in hand — a list we are holding
-            // CONTAINS this serial. Answer without touching the network. The
-            // reverse is deliberately not a fast path: absence in a cache is
-            // not an observation, so it falls through to the ask below.
-            var cached = AccountListsInHand(account.Email);
+            // Positive evidence already in hand — a list a held session is
+            // carrying CONTAINS this serial. Answer without touching the
+            // network. The reverse is deliberately not a fast path: absence in
+            // a held list is not an observation, so it falls through to the
+            // ask below. Only held lists are passed here, never this
+            // instance's captured push, because that capture belongs to
+            // whichever ConnectToSmartLink ran last and not to this call.
             var fromCache = SmartLinkRegistrationEvidence.Judge(
                 serial, arrivedOverSmartLink: false, anySavedAccount: true,
-                anAccountIsInHand: true, listsInHand: cached,
-                aServerAnsweredThisCall: false);
+                anAccountIsInHand: true, listsInHand: HeldAccountLists());
             if (fromCache.Verdict == SmartLinkRegistrationQuery.Registered)
             {
                 Tracing.TraceLine(
@@ -4046,41 +4045,7 @@ namespace Radios
                         return SmartLinkRegistrationEvidence.Finding.Unknown();
                     }
 
-                    var result = ConnectToSmartLink(jwt);
-
-                    // A server answered when it produced a list — Success, or
-                    // NoRadios, which IS a list and an explicitly empty one.
-                    //
-                    // AND the list has to have come from the server. Two
-                    // branches inside ConnectToSmartLink return Success after
-                    // rebuilding `radios` from `myRadioList`, which is a
-                    // client-side accumulation fed by discovery and the disk
-                    // cache as well as by pushes. A radio missing from THAT is
-                    // missing from our bookkeeping, not from the account.
-                    // `wanListReceived` is cleared at the top of every
-                    // ConnectToSmartLink and set only by the push handler, so
-                    // it is exactly the flag for "the server spoke this call".
-                    bool answered =
-                        (result == SmartLinkConnectResult.Success
-                         || result == SmartLinkConnectResult.NoRadios)
-                        && wanListReceived;
-                    if (!answered)
-                        Tracing.TraceLine(
-                            $"QuerySmartLinkRegistration: SmartLink connect result={result}, serverListThisCall={wanListReceived}"
-                            + " — no absence can be concluded from that",
-                            TraceLevel.Info);
-
-                    var finding = SmartLinkRegistrationEvidence.Judge(
-                        serial, arrivedOverSmartLink: false, anySavedAccount: true,
-                        anAccountIsInHand: true,
-                        listsInHand: AccountListsInHand(account.Email),
-                        aServerAnsweredThisCall: answered);
-
-                    Tracing.TraceLine(
-                        $"QuerySmartLinkRegistration: {serial} -> {finding.Verdict}"
-                        + $" (live={finding.FromALiveServerAnswer}, accounts consulted={finding.AccountsConsulted})",
-                        TraceLevel.Info);
-                    return finding;
+                    return AskSmartLinkAboutSerial(serial, account.Email, jwt);
                 }
                 catch (Exception ex)
                 {
@@ -4091,62 +4056,75 @@ namespace Radios
         }
 
         /// <summary>
-        /// Every SmartLink account list this process is holding: this
-        /// instance's own latch for <paramref name="askedAccount"/>, plus each
-        /// held session's cached AvailableRadios.
+        /// Run the SmartLink connect flow for <paramref name="askedAccount"/>
+        /// and judge <paramref name="serial"/> against what came back — the
+        /// network half of <see cref="QuerySmartLinkRegistrationAsync"/>, split
+        /// out so the suite can drive the real connect flow, replay and all,
+        /// against a mock server (#619).
         /// </summary>
         /// <remarks>
-        /// <para>The latch is included only when it belongs to the account
-        /// being asked about. It is a bare pair of fields — <c>radios</c> and
-        /// <c>wanListReceived</c> — and nothing used to check whose list had
-        /// landed in them at the moment of reading, so a picker switch between
-        /// the push and the read could answer one account's question with
-        /// another's radios. <c>wanListAccount</c> is stamped alongside them
-        /// for exactly this.</para>
-        ///
-        /// <para>Every entry here is used for positive evidence only. Absence
-        /// from the union of these lists is never a conclusion — see
-        /// <see cref="SmartLinkRegistrationEvidence.Judge"/>.</para>
+        /// <para><b>Whether a server answered is read from where the list came
+        /// from, not from whether the connect flow succeeded.</b> The flow can
+        /// return Success on three kinds of list: one the server pushed during
+        /// this call, a held copy it replayed through the intake, and a list it
+        /// rebuilt from <c>myRadioList</c>, which is this client's own
+        /// bookkeeping. Only the first is the server speaking. Track L told
+        /// them apart with the <c>wanListReceived</c> latch, and the replay
+        /// sets that latch — so a replayed list read as a live answer and could
+        /// produce the negative verdict from held state, which is exactly what
+        /// the design forbids. The push is now captured at the one entry point
+        /// that only a server push reaches, and the replay cannot reach it.</para>
         /// </remarks>
-        private IReadOnlyCollection<SmartLinkRegistrationEvidence.AccountList> AccountListsInHand(string askedAccount)
+        internal SmartLinkRegistrationEvidence.Finding AskSmartLinkAboutSerial(
+            string serial, string askedAccount, string jwt)
         {
-            var lists = new List<SmartLinkRegistrationEvidence.AccountList>();
+            var result = ConnectToSmartLink(jwt);
 
-            lock (_wanIntakeLock)
-            {
-                if (wanListReceived && radios != null
-                    && string.Equals(wanListAccount, askedAccount, StringComparison.OrdinalIgnoreCase))
-                {
-                    lists.Add(new SmartLinkRegistrationEvidence.AccountList(
-                        wanListAccount ?? askedAccount,
-                        radios.Select(r => r.Serial).Where(s => !string.IsNullOrEmpty(s)).ToList()));
-                }
-            }
+            var lists = new List<SmartLinkRegistrationEvidence.AccountList>(HeldAccountLists());
+            SmartLinkRegistrationEvidence.AccountList? pushed;
+            lock (_wanIntakeLock) { pushed = _serverListThisCall; }
+            // The capture belongs to the account the connect flow waited on. A
+            // picker switch between the push and this read would otherwise
+            // answer one account's question with another's list — the #342
+            // shape in a place the #342 guard cannot see.
+            if (pushed is { } p
+                && string.Equals(p.Account, askedAccount, StringComparison.OrdinalIgnoreCase))
+                lists.Add(p);
 
+            var finding = SmartLinkRegistrationEvidence.Judge(
+                serial, arrivedOverSmartLink: false, anySavedAccount: true,
+                anAccountIsInHand: true, listsInHand: lists);
+
+            Tracing.TraceLine(
+                $"QuerySmartLinkRegistration: {serial} -> {finding.Verdict}"
+                + $" (connect result={result}, server list this call={(pushed.HasValue ? "yes" : "no")}"
+                + $", live={finding.FromALiveServerAnswer}, accounts consulted={finding.AccountsConsulted})",
+                TraceLevel.Info);
+            return finding;
+        }
+
+        /// <summary>
+        /// The list each held SmartLink session is carrying, labelled as held.
+        /// </summary>
+        /// <remarks>
+        /// Every entry here is positive evidence only. Absence from the union
+        /// of these lists is never a conclusion — see
+        /// <see cref="SmartLinkRegistrationEvidence.Judge"/>. A sweep that fails
+        /// leaves the lists already gathered; it can only ever remove positive
+        /// evidence, never manufacture an absence.
+        /// </remarks>
+        private static IReadOnlyCollection<SmartLinkRegistrationEvidence.AccountList> HeldAccountLists()
+        {
             try
             {
-                foreach (var held in Radios.SmartLink.SmartLinkServices.Coordinator.AllSessions)
-                {
-                    if (held == null) continue;
-                    var available = held.AvailableRadios;
-                    // An EMPTY list still counts as an account examined. Skipping
-                    // it would make "we asked three of your accounts" read as
-                    // "we asked one", and that sentence is the whole point of
-                    // consulting them.
-                    if (available == null) continue;
-                    lists.Add(new SmartLinkRegistrationEvidence.AccountList(
-                        held.AccountId ?? string.Empty,
-                        available.Select(r => r.Serial).Where(s => !string.IsNullOrEmpty(s)).ToList()));
-                }
+                return SmartLinkRegistrationEvidence.HeldLists(
+                    Radios.SmartLink.SmartLinkServices.Coordinator.AllSessions);
             }
             catch (Exception ex)
             {
-                // A sweep that fails leaves the lists we did gather. It can only
-                // ever remove positive evidence, never manufacture an absence.
-                Tracing.TraceLine($"AccountListsInHand: held-session sweep failed: {ex.Message}", TraceLevel.Warning);
+                Tracing.TraceLine($"HeldAccountLists: held-session sweep failed: {ex.Message}", TraceLevel.Warning);
+                return Array.Empty<SmartLinkRegistrationEvidence.AccountList>();
             }
-
-            return lists;
         }
 
         /// <summary>
@@ -5475,19 +5453,45 @@ namespace Radios
         private bool wanListReceived = false;
 
         /// <summary>
-        /// Whose list is sitting in <see cref="radios"/> right now.
+        /// The list the SmartLink server pushed for the account this
+        /// instance's connect flow is waiting on, captured at the moment of
+        /// receipt — or null when no server push has landed since the last
+        /// <see cref="ConnectToSmartLink"/> began.
         /// </summary>
         /// <remarks>
-        /// The pair above is a one-shot latch for the connect flow, and the
-        /// connect flow knows which account it is waiting on. Anything reading
-        /// the latch LATER does not — and the registration query is exactly
-        /// that reader. Without this stamp a picker switch or a "Use Now"
-        /// between the push and the read answers one account's question with
-        /// another account's radios, silently, which is the #342 shape in a
-        /// place the #342 guard cannot see. Assigned wherever
-        /// <see cref="radios"/> is.
+        /// <para><b>Why this is not <see cref="wanListReceived"/>.</b> That
+        /// latch answers the connect flow's question, "is there a list to work
+        /// with yet?", and three things legitimately satisfy it: a push, a
+        /// replay of a held session's cached copy, and a rebuild from
+        /// <see cref="myRadioList"/>. The registration query asks a different
+        /// question — "did the SERVER speak during this call?" — and only a
+        /// push answers it. Track L read the latch for that question, and the
+        /// replay set it (#619).</para>
+        ///
+        /// <para>Written only by <see cref="wanRadioListReceivedHandler"/> for
+        /// a <see cref="WanListArrival.ServerPush"/>, which only the
+        /// coordinator's live event reaches. Guarded by
+        /// <see cref="_wanIntakeLock"/>.</para>
         /// </remarks>
-        private string wanListAccount;
+        private SmartLinkRegistrationEvidence.AccountList? _serverListThisCall;
+
+        /// <summary>
+        /// How a list reached <see cref="wanRadioListReceivedHandler"/>. Named
+        /// at every call site, so a list is labelled where it is received and
+        /// not reconstructed later from a flag something else can set.
+        /// </summary>
+        private enum WanListArrival
+        {
+            /// <summary>The server pushed it, through the coordinator's
+            /// attributed event. The only arrival that is an answer.</summary>
+            ServerPush,
+
+            /// <summary>A held session's cached copy, replayed by
+            /// <see cref="ConnectToSmartLink"/> so a new instance's bookkeeping
+            /// catches up. The same data a server once sent, but nobody spoke
+            /// during this call.</summary>
+            ReplayOfHeldCopy,
+        }
 
         /// <summary>
         /// Serializes list intake across sessions: with one held session per
@@ -5515,7 +5519,7 @@ namespace Radios
         /// </summary>
         private void sessionRadioListReceivedHandler(object sender, Radios.SmartLink.SessionRadioListEventArgs e)
         {
-            wanRadioListReceivedHandler(e.AccountId ?? "", e.Radios);
+            wanRadioListReceivedHandler(e.AccountId ?? "", e.Radios, WanListArrival.ServerPush);
         }
 
         #region the one presence intake (#386)
@@ -5744,13 +5748,13 @@ namespace Radios
 
         #endregion
 
-        private void wanRadioListReceivedHandler(string accountId, IReadOnlyList<Radio> lst)
+        private void wanRadioListReceivedHandler(string accountId, IReadOnlyList<Radio> lst, WanListArrival arrival)
         {
             try
             {
               lock (_wanIntakeLock)
               {
-                Tracing.TraceLine($"wanRadioListReceivedHandler: account={accountId} count={lst.Count}", TraceLevel.Info);
+                Tracing.TraceLine($"wanRadioListReceivedHandler: account={accountId} count={lst.Count} arrival={arrival}", TraceLevel.Info);
 
                 // The connect flow's one-shot latch belongs to the account it
                 // is waiting on; a push from another held session must not
@@ -5759,7 +5763,15 @@ namespace Radios
                 {
                     radios = lst.ToList();
                     wanListReceived = true;
-                    wanListAccount = accountId;
+
+                    // The server spoke. Captured HERE, where the arrival is
+                    // known, because nothing downstream can tell a replayed
+                    // list from a pushed one — they are the same objects.
+                    if (arrival == WanListArrival.ServerPush)
+                        _serverListThisCall = new SmartLinkRegistrationEvidence.AccountList(
+                            accountId,
+                            lst.Select(r => r.Serial).Where(x => !string.IsNullOrEmpty(x)).ToList(),
+                            SmartLinkRegistrationEvidence.ListSource.ServerPushThisCall);
                 }
 
                 // Ghost sweep, scoped to THIS account: the list is the
@@ -6927,6 +6939,7 @@ namespace Radios
                 // re-entering ConnectToSmartLink after a successful previous call), Connect
                 // is a cheap no-op because _wan.IsConnected is already true.
                 wanListReceived = false;
+                lock (_wanIntakeLock) { _serverListThisCall = null; }
                 session.Connect();
 
                 Tracing.TraceLine($"ConnectToSmartLink: waiting up to 10s for session IsConnected ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
@@ -6997,7 +7010,7 @@ namespace Radios
                         Tracing.TraceLine(
                             $"ConnectToSmartLink: replaying held session's cached list for {held.AccountId} ({cached.Count} radio(s)) through the intake ({sw.ElapsedMilliseconds}ms)",
                             TraceLevel.Info);
-                        wanRadioListReceivedHandler(held.AccountId, cached);
+                        wanRadioListReceivedHandler(held.AccountId, cached, WanListArrival.ReplayOfHeldCopy);
                     }
                     catch (Exception replayEx)
                     {
@@ -7027,7 +7040,6 @@ namespace Radios
                 if (sessionWasAlreadyConnected && haveCachedList)
                 {
                     radios = myRadioList.Where(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail)).ToList();
-                    wanListAccount = accountEmail;
                     Tracing.TraceLine(
                         $"ConnectToSmartLink: session was already live — satisfied immediately from {radios.Count} cached WAN radio(s), no list wait ({sw.ElapsedMilliseconds}ms)",
                         TraceLevel.Info);
@@ -7065,8 +7077,7 @@ namespace Radios
                         // these entries already fired via radioAddedHandler at
                         // apiInit, so no re-announce is needed here.
                         radios = myRadioList.Where(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail)).ToList();
-                        wanListAccount = accountEmail;
-                        Tracing.TraceLine(
+                            Tracing.TraceLine(
                             $"ConnectToSmartLink: no new radio list, session live with {radios.Count} cached WAN radio(s) — using those ({sw.ElapsedMilliseconds}ms)",
                             TraceLevel.Info);
                     }

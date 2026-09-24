@@ -69,10 +69,44 @@ namespace Radios
         }
 
         /// <summary>
-        /// One account's list as we hold it: whose it is, and which serials
-        /// are in it.
+        /// Where a list came from. The verdict is derived from THIS, and never
+        /// from a flag a caller sets by hand.
         /// </summary>
-        public readonly record struct AccountList(string Account, IReadOnlyCollection<string> Serials);
+        /// <remarks>
+        /// <para><b>Why the source travels with the list.</b> Track L gave
+        /// <see cref="Judge"/> a boolean — "a server answered this call" — and
+        /// the caller built it from a latch. Sol's review of 2026-09-23 found
+        /// the latch could be set by something that was not a server: the
+        /// connect flow replays a held copy of an account's list through the
+        /// same handler a live push uses, and that handler set the latch. The
+        /// flag was therefore set and substantively false, and the negative
+        /// verdict could be built from held state (#619). A flag constructed
+        /// away from the evidence can always drift from it; a label attached
+        /// at the moment the list is received cannot.</para>
+        /// </remarks>
+        public enum ListSource
+        {
+            /// <summary>
+            /// The SmartLink server pushed this list during the call being
+            /// judged, and it was captured by the live-push entry point at the
+            /// moment of receipt. The only source that can establish an
+            /// absence. A replay of a held copy is never labelled this.
+            /// </summary>
+            ServerPushThisCall,
+
+            /// <summary>
+            /// The most recent list a server pushed to a session this process
+            /// is holding. Positive evidence only.
+            /// </summary>
+            HeldBySession,
+        }
+
+        /// <summary>
+        /// One account's list as we hold it: whose it is, which serials are in
+        /// it, and where it came from.
+        /// </summary>
+        public readonly record struct AccountList(
+            string Account, IReadOnlyCollection<string> Serials, ListSource Source);
 
         /// <summary>
         /// Turn what was observed into a verdict, with its provenance
@@ -87,21 +121,21 @@ namespace Radios
         /// operator has never been told SmartLink exists".</param>
         /// <param name="anAccountIsInHand">An account was resolved to ask
         /// about.</param>
-        /// <param name="listsInHand">Every account list available, cached or
-        /// fresh.</param>
-        /// <param name="aServerAnsweredThisCall">A SmartLink server produced a
-        /// list during this call — Success or an explicit empty list. False
-        /// when everything here came out of a cache, or when the session could
-        /// not be reached.</param>
+        /// <param name="listsInHand">Every account list available, each
+        /// labelled with where it came from. Whether a server answered during
+        /// this call is read from those labels — a
+        /// <see cref="ListSource.ServerPushThisCall"/> list is the answer — and
+        /// is deliberately not a parameter, so no caller can assert it.</param>
         public static Finding Judge(
             string? serial,
             bool arrivedOverSmartLink,
             bool anySavedAccount,
             bool anAccountIsInHand,
-            IReadOnlyCollection<AccountList>? listsInHand,
-            bool aServerAnsweredThisCall)
+            IReadOnlyCollection<AccountList>? listsInHand)
         {
             var lists = listsInHand ?? Array.Empty<AccountList>();
+            bool aServerAnsweredThisCall =
+                lists.Any(l => l.Source == ListSource.ServerPushThisCall);
 
             // No serial means no question. Never a negative: a radio we cannot
             // name has not been found absent from anything.
@@ -143,6 +177,28 @@ namespace Radios
             return new Finding(
                 FlexBase.SmartLinkRegistrationQuery.NotInAccountList,
                 true, lists.Count, string.Empty);
+        }
+
+        /// <summary>
+        /// The list each held SmartLink session is carrying, labelled
+        /// <see cref="ListSource.HeldBySession"/>.
+        /// </summary>
+        internal static IReadOnlyCollection<AccountList> HeldLists(
+            IEnumerable<Radios.SmartLink.IWanSessionOwner?>? sessions)
+        {
+            var lists = new List<AccountList>();
+            if (sessions == null) return lists;
+            foreach (var held in sessions)
+            {
+                if (held == null) continue;
+                var available = held.AvailableRadios;
+                if (available == null) continue;
+                lists.Add(new AccountList(
+                    held.AccountId ?? string.Empty,
+                    available.Select(r => r.Serial).Where(s => !string.IsNullOrEmpty(s)).ToList(),
+                    ListSource.HeldBySession));
+            }
+            return lists;
         }
 
         /// <summary>
