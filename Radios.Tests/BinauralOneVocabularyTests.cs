@@ -191,24 +191,32 @@ namespace Radios.Tests
         // ────────────────────────────────────────────────────────────────
 
         /// <summary>
-        /// The value of a plain <c>"key": "value"</c> line in a lexicon
-        /// partition. Enough for these entries, which are all plain strings —
-        /// a verbosity ladder would come back empty and fail loudly rather
-        /// than quietly comparing nothing.
+        /// What a key actually says, read through the real parser.
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>This used to take the next quoted run after the colon, and its
+        /// own comment was wrong about what that does.</b> It claimed a
+        /// verbosity ladder would "come back empty and fail loudly"; in fact
+        /// the next quote after <c>"key": {</c> opens the word
+        /// <c>"critical"</c>, so it returned the literal string
+        /// <b>critical</b> — a confident wrong answer. One caller then sweeps
+        /// every shipped source file for whatever comes back, so the failure
+        /// would have arrived as hundreds of matches for the word "critical"
+        /// and no clue why.
+        /// </para>
+        /// <para>
+        /// It also had no escape handling and assumed the key and its value sat
+        /// in the same textual run. A delivery envelope breaks every one of
+        /// those assumptions; parsing breaks none of them.
+        /// </para>
+        /// </remarks>
         private static string ValueOf(string json, string key)
         {
-            string needle = "\"" + key + "\":";
-            int at = json.IndexOf(needle, StringComparison.Ordinal);
-            Assert.True(at >= 0, "no lexicon entry for " + key);
+            var entries = LexiconBaseline.Parse(json);
+            Assert.True(entries.TryGetValue(key, out var entry), "no lexicon entry for " + key);
 
-            int open = json.IndexOf('"', at + needle.Length);
-            Assert.True(open >= 0, "no value for " + key);
-
-            int close = json.IndexOf('"', open + 1);
-            Assert.True(close > open, "unterminated value for " + key);
-
-            string value = json[(open + 1)..close];
+            string value = entry!.Resolve(VerbosityLevel.Chatty) ?? "";
             Assert.False(string.IsNullOrWhiteSpace(value), key + " resolves to nothing");
             return value;
         }
