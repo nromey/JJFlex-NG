@@ -276,20 +276,46 @@ namespace Radios
         /// outlives the prompt.
         /// </summary>
         /// <remarks>
-        /// <para><b>The rule, and it is general.</b> A prompt may record a
-        /// durable answer only when the premise it states is a fact the
-        /// application positively observed, from the authority for that fact,
-        /// about the exact radio being asked about. A premise that rests on an
-        /// absence, a timeout, a cache, or one account's view of a
-        /// multi-account world may be spoken — but it may not be
-        /// <i>collected on</i>.</para>
+        /// <para><b>The rule, and it is general: the premise a prompt states
+        /// must be supported at the scope and time it claims.</b> Before a
+        /// prompt may record a durable answer, what it says it observed has to
+        /// have been observed — by the authority for that fact, about the exact
+        /// radio asked about, for the account it names, at the moment it
+        /// implies. Wording is part of the premise: a sentence that claims more
+        /// than the evidence carries is a false premise even when the evidence
+        /// is live.</para>
         ///
-        /// <para><b>Why the two are different.</b> An advisory that is wrong is
-        /// ignored, and the next run corrects it; being wrong costs one
-        /// sighting. An offer that is wrong collects a permanent answer to a
-        /// false premise, and the operator's own click then suppresses the
-        /// correction forever. That is the ruling in #352, arrived at the hard
-        /// way on 2026-09-23.</para>
+        /// <para><b>What each verdict supports, at its own scope.</b>
+        /// <see cref="FlexBase.SmartLinkRegistrationQuery.Registered"/>: this
+        /// account's current list carried the radio, so it is registered to
+        /// that account now.
+        /// <see cref="FlexBase.SmartLinkRegistrationQuery.NoAccount"/>: this
+        /// computer holds no SmartLink account, read from this computer.
+        /// <see cref="FlexBase.SmartLinkRegistrationQuery.NotInAccountList"/>,
+        /// from a live push, supports ONLY "this account's server list omitted
+        /// the radio at that moment". It does not establish that the radio is
+        /// unregistered, or unreachable for any other account, or that it will
+        /// still be missing a minute later. A held absence supports nothing at
+        /// all.</para>
+        ///
+        /// <para><b>So a live absence may carry one kind of durable answer and
+        /// not another.</b> The operator is the authority on their own use of
+        /// the radio, so a prompt whose words state only the narrow observation
+        /// may ask them for a preference about that use and keep the answer.
+        /// It may never record a conclusion of ours about the radio, and its
+        /// words may not claim more than the observation. That is why this
+        /// returns true for a live absence: the permission is for the
+        /// operator's preference, and it is only as good as the sentence
+        /// beside the button. (Track L's version of this rule said an absence
+        /// could never be collected on while this very method allowed a live
+        /// one — the two now say the same thing.)</para>
+        ///
+        /// <para><b>Why a prompt is held to more than an advisory.</b> An
+        /// advisory that is wrong is ignored, and the next run corrects it;
+        /// being wrong costs one sighting. An offer that is wrong collects a
+        /// permanent answer to a false premise, and the operator's own click
+        /// then suppresses the correction forever. That is the ruling in #352,
+        /// arrived at the hard way on 2026-09-23.</para>
         ///
         /// <para><b>What this does not forbid.</b> A "do not show me this
         /// again" checkbox is fine on any advisory, true premise or false: the
@@ -298,6 +324,12 @@ namespace Radios
         /// every silenced message back in its own words. The line is between
         /// silencing a MESSAGE and asserting a FACT — or switching off a class
         /// of future help on the strength of one.</para>
+        ///
+        /// <para><b>Where it is enforced.</b> At the write, not only before the
+        /// prompt: the connect advisory's recording method takes the finding
+        /// its prompt was built on and refuses to write without this, so a
+        /// caller added later cannot record a durable answer on a premise
+        /// nobody checked (#619).</para>
         /// </remarks>
         public static bool CanCarryADurableAnswer(Finding finding) =>
             finding.Verdict switch
@@ -310,10 +342,11 @@ namespace Radios
                 FlexBase.SmartLinkRegistrationQuery.NoAccount => true,
 
                 // An absence, and only when a server actually produced it this
-                // call. Even then it is evidence of unreachability, never of
-                // non-registration — so a prompt may say what was seen, and may
-                // ask the operator about their OWN intent, which they are the
-                // authority on. It may never record a conclusion of ours.
+                // call. It supports "this account's list omitted the radio at
+                // that moment" and nothing wider — so a prompt may say exactly
+                // that, and may ask the operator about their OWN use, which
+                // they are the authority on. It may never record a conclusion
+                // of ours about the radio.
                 FlexBase.SmartLinkRegistrationQuery.NotInAccountList =>
                     finding.FromALiveServerAnswer,
 

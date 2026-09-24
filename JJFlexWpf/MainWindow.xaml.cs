@@ -3243,9 +3243,11 @@ public partial class MainWindow : UserControl
             // The gate below is the rule in one line. An absence has to have
             // come from a server during this call before anything durable may
             // be built on it; a cached absence is not an observation at all.
-            // Judge already refuses to return NotInAccountList without that, so
-            // this is the second lock on the same door — and it is the one
-            // standing where the disk write happens.
+            // Judge already refuses to return NotInAccountList without that.
+            // This gate decides whether the offer is SHOWN; the write itself
+            // checks again, in RecordSmartLinkIntent, against the same finding
+            // — so the lock stands where the disk write happens, and a caller
+            // added later cannot skip it (#619).
             //
             // A REMOTE connect keeps the plain advisory: the operator is
             // already using SmartLink, so "I only use this radio here" is not
@@ -3258,7 +3260,7 @@ public partial class MainWindow : UserControl
             {
                 if (localConnect && undecided && mayCollect)
                 {
-                    ShowLocalOnlyOffer(serial, account, otherAccounts, otherAccountsUnasked);
+                    ShowLocalOnlyOffer(serial, account, otherAccounts, otherAccountsUnasked, finding);
                     return;
                 }
 
@@ -3339,7 +3341,8 @@ public partial class MainWindow : UserControl
     /// passing a verdict. The premise has to be true before the button beside
     /// it may write to disk; that is the whole of #352.</para>
     /// </remarks>
-    private void ShowLocalOnlyOffer(string serial, string account, int otherAccounts, bool otherAccountsUnasked)
+    private void ShowLocalOnlyOffer(string serial, string account, int otherAccounts, bool otherAccountsUnasked,
+        Radios.SmartLinkRegistrationEvidence.Finding premise)
     {
         string msg = Radios.Lexicon.Get("connect.smartlink.reach_from_away_body",
             ("account", account),
@@ -3350,7 +3353,7 @@ public partial class MainWindow : UserControl
         var actions = new List<Dialogs.AdvisoryDialog.AdvisoryAction>
         {
             new(Radios.Lexicon.Get("connect.smartlink.action_local_only"), () => RecordSmartLinkIntent(
-                serial, Radios.SmartLinkIntents.LocalOnly)),
+                serial, Radios.SmartLinkIntents.LocalOnly, premise)),
             new(Radios.Lexicon.Get("connect.smartlink.action_open_radio_setup"), () =>
             {
                 // Opening setup IS the answer to the question, so record it.
@@ -3358,7 +3361,7 @@ public partial class MainWindow : UserControl
                 // operator who has plainly said they want SmartLink — and the
                 // registration reminder, which is help once the intent is
                 // known, would never take over from the offer.
-                RecordSmartLinkIntent(serial, Radios.SmartLinkIntents.WantsSmartLink, quiet: true);
+                RecordSmartLinkIntent(serial, Radios.SmartLinkIntents.WantsSmartLink, premise, quiet: true);
                 OpenSettingsCallback?.Invoke("Radio Setup");
             }),
         };
@@ -3387,9 +3390,33 @@ public partial class MainWindow : UserControl
     /// the operator's choice still stands for the session — telling them
     /// otherwise, or telling them nothing, is how a setting silently
     /// evaporates overnight.</para>
+    ///
+    /// <para><b>It checks the premise itself</b> (#619). A durable answer
+    /// is only as good as the observation the prompt stated when it asked
+    /// for it, so <paramref name="premise"/> — the finding the prompt was
+    /// built on — is required, and the write is refused unless
+    /// <see cref="Radios.SmartLinkRegistrationEvidence.CanCarryADurableAnswer"/>
+    /// allows it. The offer is also gated before it is shown; this is the
+    /// same rule enforced where the disk write happens, so that any future
+    /// caller meets it too.</para>
     /// </summary>
-    private void RecordSmartLinkIntent(string serial, Radios.SmartLinkIntents intent, bool quiet = false)
+    private void RecordSmartLinkIntent(string serial, Radios.SmartLinkIntents intent,
+        Radios.SmartLinkRegistrationEvidence.Finding premise, bool quiet = false)
     {
+        if (!Radios.SmartLinkRegistrationEvidence.CanCarryADurableAnswer(premise))
+        {
+            // Unreachable while the only callers are the gated offer's
+            // buttons. If it is ever reached, a prompt was shown on a premise
+            // that could not carry an answer, and recording one would be
+            // worse than recording nothing: the trace is the evidence, and
+            // the operator is asked again on a later run.
+            Tracing.TraceLine(
+                $"RecordSmartLinkIntent({serial}): REFUSED {intent} — the prompt's premise "
+                + $"({premise.Verdict}, live={premise.FromALiveServerAnswer}) cannot carry a durable answer",
+                TraceLevel.Error);
+            return;
+        }
+
         bool saved = false;
         try
         {

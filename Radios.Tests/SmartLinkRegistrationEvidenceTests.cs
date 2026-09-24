@@ -328,6 +328,58 @@ namespace Radios.Tests
     }
 
     /// <summary>
+    /// The durable-answer rule is enforced where the answer is WRITTEN, not only
+    /// where the prompt is shown (#619). Read from source, because the write
+    /// lives in the WPF main window, which this project cannot construct.
+    /// </summary>
+    public sealed class SmartLinkIntentWriteGateTests
+    {
+        private static string RepoRoot()
+        {
+            var dir = new System.IO.DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null)
+            {
+                if (System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "JJFlexRadio.sln")))
+                    return dir.FullName;
+                dir = dir.Parent;
+            }
+            return AppContext.BaseDirectory;
+        }
+
+        /// <summary>
+        /// Sol found the gate evaluated before the dialog and nothing at the
+        /// write: <c>RecordSmartLinkIntent</c> checked no premise, so a caller
+        /// added later could record a durable answer on a premise nobody had
+        /// checked. The recording method now takes the finding its prompt was
+        /// built on and refuses before it touches the config.
+        /// </summary>
+        [Fact]
+        public void Recording_an_intent_checks_the_premise_before_it_writes()
+        {
+            string src = System.IO.File.ReadAllText(System.IO.Path.Combine(
+                RepoRoot(), "JJFlexWpf", "MainWindow.xaml.cs"));
+
+            int decl = src.IndexOf("private void RecordSmartLinkIntent(", StringComparison.Ordinal);
+            Assert.True(decl >= 0,
+                "RecordSmartLinkIntent is not where this test looks for it, so nothing below would be checking it.");
+
+            int write = src.IndexOf(".SaveForRadio(serial)", decl, StringComparison.Ordinal);
+            Assert.True(write > decl,
+                "RecordSmartLinkIntent no longer saves where this test expects, so the ordering check below would be vacuous.");
+
+            string head = src.Substring(decl, write - decl);
+
+            // The premise is a required parameter, so no caller can leave it out.
+            Assert.Contains("SmartLinkRegistrationEvidence.Finding premise", head, StringComparison.Ordinal);
+            // And it is checked, with a refusal, before the save.
+            int check = head.IndexOf("CanCarryADurableAnswer(premise)", StringComparison.Ordinal);
+            Assert.True(check >= 0, "RecordSmartLinkIntent writes without checking its premise (#619).");
+            Assert.True(head.IndexOf("return;", check, StringComparison.Ordinal) > check,
+                "RecordSmartLinkIntent checks its premise but does not refuse the write when it fails.");
+        }
+    }
+
+    /// <summary>
     /// What a held session contributes to the registration query, read from a
     /// real <see cref="Radios.SmartLink.WanSessionOwner"/> behind a mock server.
     /// </summary>
