@@ -45,8 +45,10 @@ namespace Radios
     /// are present-tense claims, and nothing asks the historical question
     /// "was this radio ever listed". So only a CURRENT list may answer
     /// Registered: one the server pushed during the call, or the latest list
-    /// held by a session that is connected now. A list held by a session that
-    /// is no longer connected is history, and is set aside rather than
+    /// held by a session that is connected now AND that arrived on the
+    /// connection that is live now. A list held by a session that is no longer
+    /// connected is history, and so is one a reconnected session carried over
+    /// from its previous connection; both are set aside rather than
     /// reported.</para>
     ///
     /// <para><b>An absence is weaker still.</b> A serial missing from a list
@@ -118,19 +120,21 @@ namespace Radios
 
             /// <summary>
             /// The most recent list a server pushed to a session that is
-            /// connected now. Positive evidence of the present, and positive
-            /// only: it can say the radio is listed, never that it is not.
+            /// connected now, and pushed on the connection that is live now.
+            /// Positive evidence of the present, and positive only: it can say
+            /// the radio is listed, never that it is not.
             /// </summary>
             /// <remarks>
-            /// Current because the session that received it is still the live
-            /// one — a list from before this session connected is not in play.
-            /// One gap, stated rather than hidden: a session keeps its list
-            /// across a drop, and records neither when it reconnected nor
-            /// whether the list predates that, so between a reconnect and the
-            /// new connection's first list (79 ms after registration in the
-            /// 2026-09-23 trace) a connected session still carries the previous
-            /// connection's list. Closing that needs the session owner to reset
-            /// or stamp its list per connection, which is outside the query.
+            /// Both halves are needed. Track L2 checked only that the session
+            /// was connected, and wrote down the gap that left: a session keeps
+            /// its list across a drop, so after a reconnect and before the new
+            /// connection's first list, a connected session still carries the
+            /// previous connection's. Sol's review of Track L2 (2026-09-24)
+            /// named it: "The 79 ms measured in one trace is not a bound" — if
+            /// no new list arrives, the old one stands for as long as the
+            /// session does. The session now records which connection each
+            /// list arrived on, and a list from an earlier one is
+            /// <see cref="HeldFromAnEarlierConnection"/> instead (#619).
             /// </remarks>
             HeldByAConnectedSession,
 
@@ -141,7 +145,28 @@ namespace Radios
             /// consulted.
             /// </summary>
             HeldByADisconnectedSession,
+
+            /// <summary>
+            /// A list held by a session that IS connected now, but that arrived
+            /// on an earlier connection: the session dropped and reconnected,
+            /// and the new connection has not sent its own list yet. History,
+            /// exactly as <see cref="HeldByADisconnectedSession"/> is — the
+            /// radio was listed then, and may have been unregistered or moved
+            /// to another account since — so the judge sets it aside the same
+            /// way. Labelled separately because the session is connected, and a
+            /// label that said otherwise would be a flag set and substantively
+            /// false, which is the defect #619 began with.
+            /// </summary>
+            HeldFromAnEarlierConnection,
         }
+
+        /// <summary>
+        /// Whether a list is history rather than a current answer. History is
+        /// neither proof of the present nor an account consulted.
+        /// </summary>
+        internal static bool IsHistory(ListSource source) =>
+            source is ListSource.HeldByADisconnectedSession
+                   or ListSource.HeldFromAnEarlierConnection;
 
         /// <summary>
         /// One account's list as we hold it: whose it is, which serials are in
@@ -179,7 +204,7 @@ namespace Radios
             // is not proof of the present, and an account whose only list is
             // history has not answered this question.
             var lists = (listsInHand ?? Array.Empty<AccountList>())
-                .Where(l => l.Source != ListSource.HeldByADisconnectedSession)
+                .Where(l => !IsHistory(l.Source))
                 .ToList();
             bool aServerAnsweredThisCall =
                 lists.Any(l => l.Source == ListSource.ServerPushThisCall);
@@ -240,15 +265,21 @@ namespace Radios
         /// <summary>
         /// The list each held SmartLink session is carrying — from every
         /// session the server has actually sent a list to, and from no other —
-        /// labelled by whether that session is connected now.
+        /// labelled by whether it arrived on a connection that is live now.
         /// </summary>
         /// <remarks>
-        /// A session is created holding an EMPTY radio array, and keeps it
-        /// until the server's first list arrives. That array is the owner's
+        /// <para>A session is created holding an EMPTY radio array, and keeps
+        /// it until the server's first list arrives. That array is the owner's
         /// initial value, not an answer: it looks exactly like "this account
         /// has no radios", and counting it made an account that had said
-        /// nothing read as consulted. <c>LastRadioListUtc</c> is null until
-        /// the first list lands, so it is what tells the two apart.
+        /// nothing read as consulted. The received time is null until the
+        /// first list lands, so it is what tells the two apart.</para>
+        ///
+        /// <para>A non-null received time proves the session heard SOME list,
+        /// not that its current connection did. Everything is read from one
+        /// <see cref="Radios.SmartLink.IWanSessionOwner.RadioListSnapshot"/>,
+        /// so the list, the time and the two connection facts all describe the
+        /// same moment (#619).</para>
         /// </remarks>
         internal static IReadOnlyCollection<AccountList> HeldLists(
             IEnumerable<Radios.SmartLink.IWanSessionOwner?>? sessions)
@@ -258,15 +289,18 @@ namespace Radios
             foreach (var held in sessions)
             {
                 if (held == null) continue;
-                if (held.LastRadioListUtc == null) continue;
-                var available = held.AvailableRadios;
+                var snapshot = held.RadioListSnapshot;
+                if (snapshot.ReceivedUtc == null) continue;
+                var available = snapshot.Radios;
                 if (available == null) continue;
                 lists.Add(new AccountList(
                     held.AccountId ?? string.Empty,
                     available.Select(r => r.Serial).Where(s => !string.IsNullOrEmpty(s)).ToList(),
-                    held.IsConnected
-                        ? ListSource.HeldByAConnectedSession
-                        : ListSource.HeldByADisconnectedSession));
+                    !snapshot.SessionConnected
+                        ? ListSource.HeldByADisconnectedSession
+                        : snapshot.ArrivedOnTheLiveConnection
+                            ? ListSource.HeldByAConnectedSession
+                            : ListSource.HeldFromAnEarlierConnection));
             }
             return lists;
         }

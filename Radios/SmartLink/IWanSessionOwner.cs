@@ -86,6 +86,30 @@ namespace Radios.SmartLink
         /// </summary>
         DateTime? LastRadioListUtc { get; }
 
+        /// <summary>
+        /// The latest radio list together with the two facts that say whether
+        /// it describes the present — is the session connected, and did the
+        /// list arrive on the connection that is live now — read under one
+        /// lock, so the three can never come from different moments.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Why <see cref="LastRadioListUtc"/> is not enough.</b> A
+        /// session keeps its list across a drop, on purpose: the post-drop
+        /// diagnostic probe reads it to choose which radio to test, and the
+        /// connect flow replays it for discovery. So after a reconnect, and
+        /// before the new connection's first list, a connected session is
+        /// still carrying the previous connection's list with a non-null
+        /// timestamp. A non-null timestamp proves the session received SOME
+        /// list, not that its current connection did — and a reader asking
+        /// about now could take a listing the radio has since left as a
+        /// current answer (#619).</para>
+        ///
+        /// <para>This does not replace <see cref="AvailableRadios"/> or
+        /// <see cref="LastRadioListUtc"/>, whose meanings are unchanged. It is
+        /// for a reader whose sentence is in the present tense.</para>
+        /// </remarks>
+        SessionRadioListSnapshot RadioListSnapshot { get; }
+
         /// <summary>Audio output primitive for this session (D2 discipline).</summary>
         ISessionAudioSink AudioSink { get; }
 
@@ -210,6 +234,25 @@ namespace Radios.SmartLink
         /// </summary>
         event EventHandler<NetworkDiagnosticReport>? NetworkReportReady;
     }
+
+    /// <summary>
+    /// A session's latest radio list and how current it is, read together —
+    /// see <see cref="IWanSessionOwner.RadioListSnapshot"/>.
+    /// </summary>
+    /// <param name="Radios">The latest list the server sent this session, on
+    /// any connection. Empty before the first list.</param>
+    /// <param name="ReceivedUtc">When it arrived, or null if no list ever
+    /// has. Same value as <see cref="IWanSessionOwner.LastRadioListUtc"/>.</param>
+    /// <param name="SessionConnected">The session is connected now.</param>
+    /// <param name="ArrivedOnTheLiveConnection">The list arrived on the
+    /// connection that is live now. False whenever the session is not
+    /// connected, and false after a reconnect until the new connection's
+    /// first list lands.</param>
+    public readonly record struct SessionRadioListSnapshot(
+        IReadOnlyList<Radio> Radios,
+        DateTime? ReceivedUtc,
+        bool SessionConnected,
+        bool ArrivedOnTheLiveConnection);
 
     /// <summary>Event payload for signal-strength threshold crossings.</summary>
     public sealed class SignalThresholdEventArgs : EventArgs

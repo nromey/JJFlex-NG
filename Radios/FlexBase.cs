@@ -3914,14 +3914,17 @@ namespace Radios
             /// The radio is registered and reachable NOW: we arrived over
             /// SmartLink, or the serial is in a CURRENT account list — one the
             /// server pushed during this query, or the latest list held by a
-            /// session that is connected now. A radio the broker will route to
+            /// session that is connected now, pushed on its live connection. A
+            /// radio the broker will route to
             /// is a radio registered to that account at that moment.
             ///
             /// <para>Present tense on purpose. Every caller reads it as a claim
             /// about now, and a listing only proves the moment it was sent — a
             /// radio can be unregistered, and a new registration replaces an
             /// old account's (#619). A list held by a session that has since
-            /// disconnected never produces this.</para>
+            /// disconnected never produces this, and neither does one a
+            /// reconnected session carried over from its previous
+            /// connection.</para>
             /// </summary>
             Registered,
             /// <summary>
@@ -3967,11 +3970,14 @@ namespace Radios
         ///
         /// <para><b>A held list may answer yes only if it is current; it may
         /// never answer no.</b> A serial in the latest list of a session that
-        /// is connected now answers Registered without touching the network.
-        /// A serial in a list held by a session that has disconnected is
-        /// history — the radio was listed then, which says nothing certain
-        /// about now — so it is set aside and the query goes and asks, exactly
-        /// as it does for a serial missing from a held list (#619). An
+        /// is connected now, pushed on the connection that is live now,
+        /// answers Registered without touching the network. A serial in a
+        /// list held by a session that has disconnected is history — the radio
+        /// was listed then, which says nothing certain about now — and so is
+        /// one a reconnected session carried over from its previous connection
+        /// before the new one sent its own. Both are set aside and the query
+        /// goes and asks, exactly as it does for a serial missing from a held
+        /// list (#619). An
         /// absence is reported only from a list the server pushed during this
         /// call. Until 2026-09-23 none of this held, and a cached empty list
         /// produced a permanent wrong answer in under a millisecond
@@ -4019,10 +4025,12 @@ namespace Radios
             }
 
             // Positive evidence already in hand — the latest list of a session
-            // that is connected now CONTAINS this serial. Answer without
-            // touching the network. A disconnected session's list is history
-            // and the judge sets it aside, and absence in any held list is not
-            // an observation, so both fall through to the ask below. Only held
+            // that is connected now, pushed on its live connection, CONTAINS
+            // this serial. Answer without touching the network. A disconnected
+            // session's list is history, and so is one a reconnected session
+            // carried over from its previous connection; the judge sets both
+            // aside. Absence in any held list is not an observation. All three
+            // fall through to the ask below. Only held
             // lists are passed here, never this instance's captured push,
             // because that capture belongs to whichever ConnectToSmartLink ran
             // last and not to this call.
@@ -4117,7 +4125,7 @@ namespace Radios
 
         /// <summary>
         /// The list each held SmartLink session is carrying, labelled by
-        /// whether that session is connected now — see
+        /// whether it arrived on a connection that is live now — see
         /// <see cref="SmartLinkRegistrationEvidence.HeldLists"/>.
         /// </summary>
         /// <remarks>

@@ -123,7 +123,7 @@ namespace Radios.Tests
         /// vendor's constructors and the IsWan setter are internal, so this
         /// reaches them by reflection rather than widening FlexLib.
         /// </summary>
-        private static Radio WanRadio(string serial)
+        internal static Radio WanRadio(string serial)
         {
             var ctor = typeof(Radio).GetConstructor(
                 BindingFlags.NonPublic | BindingFlags.Instance, null,
@@ -228,6 +228,79 @@ namespace Radios.Tests
             // session now carries the same list, and Track L counted those as
             // two — which is how the caller's "only the signed-in account was
             // asked" caveat could be suppressed after hearing from one account.
+            Assert.Equal(1, finding.AccountsConsulted);
+        }
+
+        // ------------------------------------------------------------------
+        // The reconnect Sol found in Track L2
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// A held session connects, hears a list carrying the radio, drops, and
+        /// the monitor dials a new connection — and the server has not yet
+        /// sent that connection anything.
+        /// </summary>
+        private static void ReconnectWithoutANewList(IWanSessionOwner session, MockWanServer wan)
+        {
+            session.Connect();
+            WaitUntil(() => session.IsConnected, "the mock session never reported connected");
+            wan.RaiseWanRadioRadioListReceived(new[] { WanRadio(Asked) });
+
+            int dialsBefore = wan.ConnectCallCount;
+            wan.ForceIsConnected(false);
+            WaitUntil(() => wan.ConnectCallCount > dialsBefore && session.IsConnected,
+                "the session never dialled a new connection after the drop");
+        }
+
+        /// <summary>
+        /// Through the real connect flow: between a reconnect and the new
+        /// connection's first list, the old connection's listing must not
+        /// answer Registered, and the account must not count as consulted
+        /// (#619). The same held lists feed the query's no-round-trip fast
+        /// path, so this is the path that could answer before any network
+        /// ask.
+        /// </summary>
+        /// <remarks>
+        /// The connect flow still REPLAYS the old list here, and the latch
+        /// assertion proves it ran: the replay is discovery for the selector's
+        /// rows, not evidence, and it is deliberately left alone.
+        /// </remarks>
+        [Fact]
+        public void A_listing_from_before_a_reconnect_does_not_answer_for_the_new_connection()
+        {
+            var (session, wan) = NewSession();
+            ReconnectWithoutANewList(session, wan);
+
+            // The trap: connected, and holding a list that names the radio.
+            Assert.NotNull(session.LastRadioListUtc);
+            Assert.Contains(session.AvailableRadios, r => r.Serial == Asked);
+
+            var rig = NewRig();
+            var finding = rig.AskSmartLinkAboutSerial(Asked, Account, "test-jwt");
+
+            Assert.True(Latched(rig),
+                "The list-received latch is not set, so the connect flow did not walk the held-list path.");
+            Assert.NotEqual(Verdict.Registered, finding.Verdict);
+            Assert.Equal(string.Empty, finding.ListedUnderAccount);
+            Assert.Equal(0, finding.AccountsConsulted);
+        }
+
+        /// <summary>
+        /// The partner: once the new connection has sent its own list, the
+        /// same flow answers Registered, under the account that listed it.
+        /// </summary>
+        [Fact]
+        public void The_new_connections_own_list_answers_through_the_connect_flow()
+        {
+            var (session, wan) = NewSession();
+            ReconnectWithoutANewList(session, wan);
+            wan.RaiseWanRadioRadioListReceived(new[] { WanRadio(Asked) });
+
+            var rig = NewRig();
+            var finding = rig.AskSmartLinkAboutSerial(Asked, Account, "test-jwt");
+
+            Assert.Equal(Verdict.Registered, finding.Verdict);
+            Assert.Equal(Account, finding.ListedUnderAccount);
             Assert.Equal(1, finding.AccountsConsulted);
         }
     }

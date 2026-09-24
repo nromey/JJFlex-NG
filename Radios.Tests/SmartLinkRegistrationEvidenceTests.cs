@@ -497,6 +497,126 @@ namespace Radios.Tests
                 owner.Dispose();
             }
         }
+
+        private const string Account = "friend@example.com";
+        private const string Listed = "4925-1213-8600-6245";
+
+        /// <summary>
+        /// Connect, hear a list carrying <see cref="Listed"/>, then lose the
+        /// connection and let the monitor dial a new one — without the server
+        /// sending the new connection anything. This is the moment Sol's
+        /// review of Track L2 named: the session is connected again and still
+        /// holds the old connection's list.
+        /// </summary>
+        private static void ReconnectWithoutANewList(
+            Radios.SmartLink.WanSessionOwner owner, MockWanServer wan)
+        {
+            owner.Connect();
+            WaitUntil(() => owner.IsConnected, "the mock session never reported connected");
+            wan.RaiseWanRadioRadioListReceived(new[] { SmartLinkRegistrationReplayTests.WanRadio(Listed) });
+
+            // Before the drop the list IS current. Without this, the assertions
+            // after the reconnect could pass because the harness never
+            // produces a current label at all.
+            Assert.Equal(Evidence.ListSource.HeldByAConnectedSession,
+                Evidence.HeldLists(new[] { owner }).Single().Source);
+
+            int dialsBefore = wan.ConnectCallCount;
+            wan.ForceIsConnected(false);
+            WaitUntil(() => wan.ConnectCallCount > dialsBefore && owner.IsConnected,
+                "the session never dialled a new connection after the drop");
+        }
+
+        /// <summary>
+        /// The reconnect Sol found in Track L2 (#619). After a drop and a
+        /// reconnect, before the new connection's first list, the session is
+        /// connected and still carries the previous connection's list with a
+        /// non-null timestamp. Track L2 read that as a current answer, so the
+        /// query could say Registered — possibly naming an account the radio
+        /// has since left — and count the account as consulted, on nothing the
+        /// live connection had said.
+        /// </summary>
+        [Fact]
+        public void A_list_carried_across_a_reconnect_is_history_until_the_new_connection_sends_one()
+        {
+            var (owner, wan) = Build(Account);
+            try
+            {
+                ReconnectWithoutANewList(owner, wan);
+
+                // The trap, stated: every older signal says "current".
+                Assert.True(owner.IsConnected);
+                Assert.NotNull(owner.LastRadioListUtc);
+                Assert.Contains(owner.AvailableRadios, r => r.Serial == Listed);
+
+                var lists = Evidence.HeldLists(new[] { owner });
+                Assert.Equal(Evidence.ListSource.HeldFromAnEarlierConnection, lists.Single().Source);
+
+                var finding = Evidence.Judge(Listed, false, true, true, lists);
+                Assert.NotEqual(Verdict.Registered, finding.Verdict);
+                Assert.Equal(string.Empty, finding.ListedUnderAccount);
+                Assert.Equal(0, finding.AccountsConsulted);
+            }
+            finally
+            {
+                owner.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// The partner: the same reconnect, then the new connection's own list
+        /// arrives, and the answer is current again. Without this, the test
+        /// above could be passing because a reconnected session can never
+        /// answer at all.
+        /// </summary>
+        [Fact]
+        public void The_new_connections_own_list_answers_again()
+        {
+            var (owner, wan) = Build(Account);
+            try
+            {
+                ReconnectWithoutANewList(owner, wan);
+                wan.RaiseWanRadioRadioListReceived(new[] { SmartLinkRegistrationReplayTests.WanRadio(Listed) });
+
+                var lists = Evidence.HeldLists(new[] { owner });
+                Assert.Equal(Evidence.ListSource.HeldByAConnectedSession, lists.Single().Source);
+
+                var finding = Evidence.Judge(Listed, false, true, true, lists);
+                Assert.Equal(Verdict.Registered, finding.Verdict);
+                Assert.Equal(Account, finding.ListedUnderAccount);
+                Assert.Equal(1, finding.AccountsConsulted);
+            }
+            finally
+            {
+                owner.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// Why the fix stamps the list instead of emptying it at the boundary.
+        /// The session's post-drop diagnostic probe fires on the way INTO
+        /// Reconnecting and reads the held list to choose which radio to test;
+        /// a list emptied when the connection drops would leave it nothing,
+        /// and the probe would skip silently. This pins that consumer, so a
+        /// later "simpler" fix that clears the list shows up here rather than
+        /// as a quieter reconnect announcement nobody notices.
+        /// </summary>
+        [Fact]
+        public void A_drop_still_leaves_the_probe_a_radio_to_test()
+        {
+            var (owner, wan) = Build(Account);
+            try
+            {
+                ReconnectWithoutANewList(owner, wan);
+                WaitUntil(() => wan.SendTestConnectionCallCount > 0,
+                    "the post-drop diagnostic probe never ran, so it found no radio in the held list");
+                Assert.Equal(Listed, wan.LastSendTestConnectionSerial);
+            }
+            finally
+            {
+                owner.Dispose();
+            }
+        }
     }
 
     /// <summary>

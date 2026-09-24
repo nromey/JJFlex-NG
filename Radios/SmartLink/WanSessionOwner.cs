@@ -54,6 +54,18 @@ namespace Radios.SmartLink
         private IReadOnlyList<Radio> _availableRadios = Array.Empty<Radio>();
         private DateTime? _lastRadioListUtc;
 
+        // Which connection the list above arrived on (#619). The list is kept
+        // across a drop on purpose — the post-drop diagnostic probe reads it,
+        // and the connect flow replays it — so emptying it at the boundary
+        // would break both. Instead the boundary advances a number, and a
+        // list is from the live connection only while its number matches.
+        // Advanced wherever a connection starts or ends: in AttemptConnect,
+        // which is the only place the monitor dials, and on every IsConnected
+        // edge the server raises, which also closes the moment between a drop
+        // and the monitor waking to notice it.
+        private long _connectionNumber;
+        private long _radioListConnectionNumber = -1;
+
         private volatile bool _userWantsConnected;
         private volatile bool _shutdownRequested;
         private volatile bool _started;
@@ -164,6 +176,24 @@ namespace Radios.SmartLink
         public DateTime? LastRadioListUtc
         {
             get { lock (_stateGate) return _lastRadioListUtc; }
+        }
+
+        public SessionRadioListSnapshot RadioListSnapshot
+        {
+            get
+            {
+                lock (_stateGate)
+                {
+                    bool connected = _status == SessionStatus.Connected;
+                    return new SessionRadioListSnapshot(
+                        _availableRadios,
+                        _lastRadioListUtc,
+                        connected,
+                        connected
+                            && _lastRadioListUtc != null
+                            && _radioListConnectionNumber == _connectionNumber);
+                }
+            }
         }
 
         // --- Public commands ---
@@ -425,6 +455,9 @@ namespace Radios.SmartLink
                 // dropped; the one we are about to dial needs its own.
                 _registeredThisConnection = false;
                 _registrationRecoveryTried = false;
+                // And so did any list: it stays held, but no longer describes
+                // the connection that is live (#619).
+                _connectionNumber++;
             }
             _registrationInvalidPending = false;
             _registrationRetryCount = 0;
@@ -645,6 +678,12 @@ namespace Radios.SmartLink
         {
             if (e.PropertyName == nameof(IWanServer.IsConnected))
             {
+                // Either edge ends the connection the held list arrived on, or
+                // starts one it did not arrive on (#619). Deliberately does not
+                // read _wan.IsConnected here: this can run on the receive
+                // thread, and the adapter's getter takes a lock the monitor
+                // may be holding.
+                lock (_stateGate) _connectionNumber++;
                 // Wake monitor to re-evaluate whether to reconnect or settle into connected state.
                 _wakeEvent.Set();
             }
@@ -656,6 +695,7 @@ namespace Radios.SmartLink
             {
                 _availableRadios = e.Radios;
                 _lastRadioListUtc = DateTime.UtcNow;
+                _radioListConnectionNumber = _connectionNumber;
                 // A list arriving is proof the registration works, so a MUCH
                 // later registration-invalid gets its own recovery attempt.
                 _registrationRecoveryTried = false;
