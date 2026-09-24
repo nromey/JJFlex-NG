@@ -205,7 +205,7 @@ namespace JJTrace
             };
             if (ticket == null) { completion.FailureStage = "ticket"; return completion; }
 
-            completion.RawRetained = SafeExists(ticket.SourcePath);
+            completion.RawRetained = TraceArchiveWorker.SafeExists(ticket.SourcePath);
 
             if (string.IsNullOrEmpty(ticket.ArchiveRootDir))
             {
@@ -314,7 +314,7 @@ namespace JJTrace
                 completion.ArchiveFullPath = fullPath;
                 completion.ArchiveRelativeName = relativeFilename;
                 completion.ArchiveCommitted = committed;
-                completion.RawRetained = SafeExists(ticket.SourcePath);
+                completion.RawRetained = TraceArchiveWorker.SafeExists(ticket.SourcePath);
                 if (!committed)
                 {
                     // Keep the pending record: the zip exists but nothing indexes
@@ -333,16 +333,10 @@ namespace JJTrace
                 completion.ArchiveCommitted = false;
                 completion.FailureStage = completion.FailureStage ?? "compress";
                 completion.FailureMessage = ex.Message;
-                completion.RawRetained = SafeExists(ticket.SourcePath);
+                completion.RawRetained = TraceArchiveWorker.SafeExists(ticket.SourcePath);
                 try { if (tempPath != null && File.Exists(tempPath)) File.Delete(tempPath); } catch { }
                 return completion;
             }
-        }
-
-        private static bool SafeExists(string path)
-        {
-            try { return !string.IsNullOrEmpty(path) && File.Exists(path); }
-            catch { return false; }
         }
 
         /// <summary>

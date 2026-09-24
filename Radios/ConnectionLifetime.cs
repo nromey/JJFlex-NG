@@ -201,7 +201,13 @@ namespace Radios
             if (token == null) return false;
             lock (_sync)
             {
-                if (token.LossClaimed) return false;
+                // RETIRED, not merely already-claimed. A lifetime retired by a
+                // deliberate disconnect was never lost — the operator hung up —
+                // and a removal arriving for it afterwards must not become a
+                // drop notice. Testing LossClaimed alone let exactly that
+                // through, and the test that caught it is
+                // A_deliberate_disconnect_retires_without_announcing_anything.
+                if (token.Retired) return false;
                 token.LossClaimed = true;
                 token.Retired = true;
                 return true;

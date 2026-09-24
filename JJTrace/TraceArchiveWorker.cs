@@ -240,7 +240,18 @@ namespace JJTrace
             return found;
         }
 
-        private static bool SafeExists(string path)
+        /// <summary>
+        /// Does this detached file still exist? Asked on the failure paths,
+        /// where the answer is the difference between "the evidence is
+        /// retained" and "the evidence is gone" — so it must never throw on the
+        /// way to reporting.
+        ///
+        /// <para>One copy, shared with <see cref="SessionArchive"/>. It was
+        /// written twice and the integration pass caught it: two identical
+        /// private helpers do not conflict, do not fail to build and both work,
+        /// right up until one of them is corrected.</para>
+        /// </summary>
+        internal static bool SafeExists(string path)
         {
             try { return !string.IsNullOrEmpty(path) && File.Exists(path); }
             catch { return false; }
