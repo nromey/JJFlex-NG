@@ -6903,6 +6903,101 @@ namespace Radios
         }
 
         /// <summary>
+        /// Replay each held session's latest list through the intake, so a
+        /// new instance's bookkeeping catches up with what the server has
+        /// already told a session that outlives it — but only a list that
+        /// describes the present. Returns how many lists were replayed.
+        /// </summary>
+        /// <remarks>
+        /// <para>Sprint 35 Track K (#259): a held session KEEPS its account's
+        /// last list across this instance's whole lifetime — but a NEW
+        /// FlexBase's own bookkeeping starts empty and the next spontaneous
+        /// push could be minutes away. Replaying the cached lists through the
+        /// intake gives this instance — and the selector's rows — the current
+        /// truth immediately instead of a 10s timeout followed by a needless
+        /// session cycle.</para>
+        ///
+        /// <para>EVERY held session's list, not only the current account's
+        /// (#402). The server sends one list per TLS session, so a rig created
+        /// after that list landed can only ever get the cached copy — and
+        /// replaying just <c>_currentAccount</c>'s meant a foreign radio
+        /// (Don's, owned by another account) never entered <c>myRadioList</c>
+        /// at all. The 2026-08-29 18:18 trace shows the cost: the mid-connect
+        /// push for the very radio being connected took the add-branch
+        /// instead of merging into <c>theRadio</c>, and the silent GuiClients
+        /// merge — the channel that satisfied the station-name wait in every
+        /// successful trace — was dead for the whole 42-second hang. Each list
+        /// is attributed to ITS OWN account; the ghost sweep inside the
+        /// handler is account-scoped, so replaying A's list still says nothing
+        /// about B's radios.</para>
+        ///
+        /// <para><b>A list from an earlier connection is not replayed at all
+        /// (#619).</b> A session keeps its list across a drop, so after a
+        /// reconnect and before the new connection's first push a connected
+        /// session still carries the previous connection's list. Track L3
+        /// left the replay reading it, on the reasoning that the replay is
+        /// discovery rather than evidence and the next push corrects it; Sol's
+        /// review of L3 listed what the replay actually does with a list —
+        /// sets the connect flow's latch, assigns <c>radios</c>, adds to
+        /// <c>myRadioList</c>, rewrites the WAN object bank, runs the
+        /// account-wide ghost sweep, writes the account-list display cache,
+        /// and can satisfy the connect wait on the spot — and every one of
+        /// those treats the list as the server's FULL CURRENT list for the
+        /// account. The previous connection's list is not that, so it is not
+        /// given to the handler. It stays held in the session, where the
+        /// post-drop diagnostic probe reads it, and the flow waits for the
+        /// live connection's own push exactly as it does for a session that
+        /// has just connected. One read, from
+        /// <see cref="Radios.SmartLink.IWanSessionOwner.RadioListSnapshot"/>,
+        /// so the list and the fact about it come from the same moment.</para>
+        /// </remarks>
+        /// <param name="accountEmail">The account this connect flow is
+        /// working with — the one whose session it will wait on.</param>
+        /// <param name="sessionWasAlreadyConnected">Whether that account's
+        /// session was live before the flow began. Its own list is replayed
+        /// only then: a session that just connected will push its list
+        /// itself, and the flow's latch waits for it.</param>
+        /// <param name="sw">The connect flow's stopwatch, for the trace
+        /// timings; null outside the flow.</param>
+        internal int ReplayHeldListsIntoTheIntake(
+            string accountEmail, bool sessionWasAlreadyConnected, System.Diagnostics.Stopwatch sw = null)
+        {
+            int replayed = 0;
+            string at() => sw == null ? "" : $" ({sw.ElapsedMilliseconds}ms)";
+            foreach (var held in Radios.SmartLink.SmartLinkServices.Coordinator.AllSessions)
+            {
+                try
+                {
+                    if (held == null) continue;
+                    var snapshot = held.RadioListSnapshot;
+                    if (!snapshot.SessionConnected) continue;
+                    if (string.Equals(held.AccountId, accountEmail, StringComparison.OrdinalIgnoreCase)
+                        && !sessionWasAlreadyConnected) continue;
+                    var cached = snapshot.Radios;
+                    if (cached == null || cached.Count == 0) continue;
+                    if (!snapshot.ArrivedOnTheLiveConnection)
+                    {
+                        Tracing.TraceLine(
+                            $"ConnectToSmartLink: not replaying {held.AccountId}'s held list ({cached.Count} radio(s)) — it arrived on an earlier connection and the live one has not sent its own yet (#619){at()}",
+                            TraceLevel.Info);
+                        continue;
+                    }
+                    if (myRadioList.Any(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, held.AccountId))) continue;
+                    Tracing.TraceLine(
+                        $"ConnectToSmartLink: replaying held session's cached list for {held.AccountId} ({cached.Count} radio(s)) through the intake{at()}",
+                        TraceLevel.Info);
+                    wanRadioListReceivedHandler(held.AccountId, cached, WanListArrival.ReplayOfHeldCopy);
+                    replayed++;
+                }
+                catch (Exception replayEx)
+                {
+                    Tracing.TraceLine($"ConnectToSmartLink: cached-list replay for {held?.AccountId ?? "?"} failed: {replayEx.Message}", TraceLevel.Warning);
+                }
+            }
+            return replayed;
+        }
+
+        /// <summary>
         /// Connects to SmartLink server with the given JWT.
         ///
         /// <para>
@@ -6991,53 +7086,7 @@ namespace Radios
                     Tracing.TraceLine($"ConnectToSmartLink: session already registered this connection — skipping duplicate registration ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 }
 
-                // Sprint 35 Track K (#259): a held session KEEPS its account's
-                // last list (owner.AvailableRadios) across this instance's
-                // whole lifetime — but a NEW FlexBase's own bookkeeping starts
-                // empty and the next spontaneous push could be minutes away.
-                // Replay the cached lists through the intake so this instance
-                // — and the selector's rows — get the current truth
-                // immediately instead of a 10s timeout followed by a needless
-                // session cycle.
-                //
-                // EVERY held session's list, not only the current account's
-                // (#402). The server sends one list per TLS session, so a rig
-                // created after that list landed can only ever get the cached
-                // copy — and replaying just _currentAccount's meant a foreign
-                // radio (Don's, owned by another account) never entered
-                // myRadioList at all. The 2026-08-29 18:18 trace shows the
-                // cost: the mid-connect push for the very radio being
-                // connected took the add-branch instead of merging into
-                // theRadio, and the silent GuiClients merge — the channel
-                // that satisfied the station-name wait in every successful
-                // trace — was dead for the whole 42-second hang. Each list is
-                // attributed to ITS OWN account; the ghost sweep inside the
-                // handler is account-scoped, so replaying A's list still says
-                // nothing about B's radios.
-                foreach (var held in Radios.SmartLink.SmartLinkServices.Coordinator.AllSessions)
-                {
-                    try
-                    {
-                        if (held == null || !held.IsConnected) continue;
-                        // The current account's session is replayed under the
-                        // same condition as always: only when it was already
-                        // live (a session that JUST connected will push its
-                        // list itself, and the latch below waits for it).
-                        if (string.Equals(held.AccountId, accountEmail, StringComparison.OrdinalIgnoreCase)
-                            && !sessionWasAlreadyConnected) continue;
-                        var cached = held.AvailableRadios;
-                        if (cached == null || cached.Count == 0) continue;
-                        if (myRadioList.Any(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, held.AccountId))) continue;
-                        Tracing.TraceLine(
-                            $"ConnectToSmartLink: replaying held session's cached list for {held.AccountId} ({cached.Count} radio(s)) through the intake ({sw.ElapsedMilliseconds}ms)",
-                            TraceLevel.Info);
-                        wanRadioListReceivedHandler(held.AccountId, cached, WanListArrival.ReplayOfHeldCopy);
-                    }
-                    catch (Exception replayEx)
-                    {
-                        Tracing.TraceLine($"ConnectToSmartLink: cached-list replay for {held?.AccountId ?? "?"} failed: {replayEx.Message}", TraceLevel.Warning);
-                    }
-                }
+                ReplayHeldListsIntoTheIntake(accountEmail, sessionWasAlreadyConnected, sw);
 
                 // When we already hold a radio list from this session, don't make
                 // the user sit through the full 10s window on the off chance the
