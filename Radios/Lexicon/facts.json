@@ -1,0 +1,60 @@
+{
+  "_note": "The undelivered-details surface (#617, Sprint 45 Track M). EVERY sentence in this file is marked for Noel's review; NONE is approved copy. 'Undelivered details' and 'event history' are the working descriptions Astra's design used for the two views, and the design says outright that Noel chooses the labels and the wording. They are here so the surface can be built and read; they are not a proposal that this is what it should say. Placeholders are named, never positional: {count} is how many items, {station} the radio's own identity, {when} the observation time, {reason} a short plain-English cause.",
+
+  "_schema": 2,
+
+  "_classification": "Every entry here is an envelope with 'delivery': null - an affirmative statement that these are interface text and labels rather than things the application announces on its own account. They are the first classified entries in the shipped corpus, and they are deliberately the easy case: a window's own labels are exactly the kind of string that IS text and nothing more. Nothing here is a standalone message, so nothing here has a shelf life.",
+
+  "facts.window.title": { "text": "Undelivered details", "delivery": null },
+  "facts.window.pending_label": { "text": "Details that were not delivered", "delivery": null },
+  "facts.window.history_label": { "text": "Event history", "delivery": null },
+  "facts.window.detail_label": { "text": "Detail", "delivery": null },
+  "facts.window.nothing_pending": { "text": "Nothing is waiting. Everything the radio had to tell you was delivered.", "delivery": null },
+  "facts.window.nothing_historical": { "text": "No events have been recorded yet in this session.", "delivery": null },
+  "facts.window.close": { "text": "Close", "delivery": null },
+
+  "facts.action.read": { "text": "Read this one", "delivery": null },
+  "facts.action.reviewed": { "text": "Mark as read", "delivery": null },
+  "facts.action.resume": { "text": "Let this speak again", "delivery": null },
+
+  "facts.state.current": { "text": "still true now", "delivery": null },
+  "facts.state.historical": { "text": "no longer current", "delivery": null },
+  "facts.state.unknown": { "text": "not known now", "delivery": null },
+  "facts.state.resolved": { "text": "resolved", "delivery": null },
+  "facts.state.paused": { "text": "paused, because you asked for quiet", "delivery": null },
+  "facts.state.silent_no_metadata": { "text": "kept, but not announced, because the information about how to present it is missing", "delivery": null },
+
+  "facts.delivery.not_attempted": { "text": "not attempted", "delivery": null },
+  "facts.delivery.refused": { "text": "the screen reader refused it", "delivery": null },
+  "facts.delivery.unknown": { "text": "it stopped and nobody can say how much was said", "delivery": null },
+  "facts.delivery.partial": { "text": "part of it was read out", "delivery": null },
+  "facts.delivery.withdrawn": { "text": "withdrawn, because what it described had ended", "delivery": null },
+  "facts.delivery.completed": { "text": "read out in full", "delivery": null },
+
+  "facts.receipt.requested": { "text": "the tone was played", "delivery": null },
+  "facts.receipt.unavailable": { "text": "no tone could be played", "delivery": null },
+  "facts.receipt.suppressed": { "text": "the tone was turned off", "delivery": null },
+
+  "facts.row.summary": { "text": "{station}, {when}: {state}", "delivery": null },
+  "facts.row.no_station": { "text": "This radio", "delivery": null },
+  "facts.row.unknown_station": { "text": "Radio not identified", "delivery": null },
+
+  "facts.status.button": { "text": "Undelivered details", "delivery": null },
+  "facts.status.pending_summary": { "text": "{count} thing the radio told you was not delivered.", "delivery": null },
+  "facts.status.pending_summary_plural": { "text": "{count} things the radio told you were not delivered.", "delivery": null },
+  "facts.status.nothing_pending": { "text": "Nothing undelivered.", "delivery": null },
+
+  "facts.capacity.slot_refused": { "text": "There is no room to keep track of this condition: {count} are already being tracked, which is the limit. It will not be monitored, and anything it might have reported would not be kept.", "delivery": null },
+  "facts.capacity.overflow": { "text": "There was no room to keep the details of this one. It is counted in the record of what was lost, with the time it happened.", "delivery": null },
+  "facts.capacity.overflow_summary": { "text": "{count} things could not be kept at all, between {when} and now.", "delivery": null },
+
+  "facts.storage.recovery_gap": { "text": "{count} saved record files could not be read, so some earlier events are missing from this list. Nothing was deleted.", "delivery": null },
+  "facts.storage.unsaved": { "text": "Recent items have not been saved to disk yet, so they would be lost if the program stopped now.", "delivery": null },
+
+  "facts.channel.failed_title": { "text": "Speech is not reaching your screen reader", "delivery": null },
+  "facts.channel.failed_body": { "text": "The radio has things to tell you and they are being kept, but they cannot be spoken. Open Undelivered details to read them.", "delivery": null },
+
+  "facts.detail.no_selection": { "text": "Nothing selected.", "delivery": null },
+  "facts.detail.restored": { "text": "This was saved before the program last closed. Whether it is still true now is not known.", "delivery": null },
+  "facts.detail.truncated": { "text": "The rest of this detail was too long to keep.", "delivery": null }
+}

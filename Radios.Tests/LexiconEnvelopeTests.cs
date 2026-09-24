@@ -567,24 +567,43 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void EveryShippedKeyIsCurrentlyUnclassifiedAndSaysSo()
+        public void TheMigrationHasClassifiedExactlyTheFactsSurfaceSoFar()
         {
-            // The state of the migration, pinned. When the classification pass
-            // runs this number falls, and this test is the thing that notices
-            // if a key acquires a classification without the manifest and the
-            // gate agreeing.
-            int unclassified = 0, classified = 0;
+            // The state of the migration, pinned. 2,979 legacy entries — 2,970
+            // strings and nine ladders — carry no classification and are frozen
+            // in the manifest; the facts surface is classified, and is the
+            // shipped corpus's positive control that an envelope really loads.
+            int unclassified = 0;
+            var classified = new List<string>();
+
             foreach (string partition in Lexicon.Partitions)
             {
                 foreach (var pair in LexiconBaseline.FromShipped(partition))
                 {
                     if (pair.Value.Classification == DeliveryClassification.Unclassified) unclassified++;
-                    else classified++;
+                    else classified.Add(pair.Key);
                 }
             }
 
-            Assert.Equal(0, classified);
             Assert.Equal(2979, unclassified);
+            Assert.All(classified, key =>
+                Assert.StartsWith("facts.", key, StringComparison.Ordinal));
+            Assert.True(classified.Count > 30,
+                "only " + classified.Count + " classified entries were found");
+        }
+
+        [Fact]
+        public void TheFactsSurfaceIsAffirmativelyTextAndNotAccidentallySilent()
+        {
+            // Every one of these is "delivery": null — somebody looked and said
+            // a window's own labels are text. The distinction that matters is
+            // that none of them is UNCLASSIFIED, which would mean nobody had
+            // looked at all.
+            foreach (var pair in LexiconBaseline.FromShipped(Lexicon.FactsSurface))
+            {
+                Assert.Equal(DeliveryClassification.TextOnly, pair.Value.Classification);
+                Assert.Null(pair.Value.Delivery);
+            }
         }
 
         [Fact]

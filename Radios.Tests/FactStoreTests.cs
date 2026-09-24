@@ -25,6 +25,10 @@ namespace Radios.Tests
     /// elapsed time this store responds to.
     /// </para>
     /// </remarks>
+    // In the RadioConfig statics collection because the store's operator-facing
+    // sentences come from the lexicon, which loads its partitions into
+    // process-wide state on first use.
+    [Collection(RadioConfigStaticsCollection.Name)]
     public class FactStoreTests
     {
         private static readonly DateTime T0 = new DateTime(2026, 9, 24, 12, 0, 0, DateTimeKind.Utc);
@@ -489,7 +493,12 @@ namespace Radios.Tests
             // failed." The refusal has to be something an operator can be told.
             Assert.Equal(RegistrationOutcome.Exhausted, refused.Outcome);
             Assert.False(string.IsNullOrWhiteSpace(refused.Explanation));
-            Assert.Contains("not be monitored", refused.Explanation, StringComparison.Ordinal);
+
+            // Real words, not the key spoken back. Deliberately not an
+            // assertion about WHICH words: every sentence on this surface is
+            // provisional until Noel rules on it, and a test that pins
+            // unapproved prose makes changing it look like breaking something.
+            Assert.False(Lexicon.LooksLikeKey(refused.Explanation));
         }
 
         [Fact]
@@ -746,7 +755,7 @@ namespace Radios.Tests
             Assert.Equal(0, restored);
             Assert.Equal(PersistenceStatus.RecoveryGap, store.Persistence);
             Assert.NotNull(store.PersistenceNote);
-            Assert.Contains("could not be read", store.PersistenceNote!, StringComparison.Ordinal);
+            Assert.False(Lexicon.LooksLikeKey(store.PersistenceNote));
         }
 
         [Fact]
