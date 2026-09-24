@@ -101,7 +101,9 @@ namespace Radios.Facts
         /// once — every historical record, every attempt, every event line,
         /// every unit, the longest detail — renders it, and asserts it fits here
         /// with room to spare. If that test fails, a bound grew; change the
-        /// bound or this number deliberately, never by guessing.
+        /// bound or this number deliberately, never by guessing. Measured
+        /// 2026-09-24 (Sprint 45 Track M2): 4,572,586 bytes, about 57 percent
+        /// of this allowance.
         /// </para>
         /// <para>
         /// Hitting it at run time means something is wrong rather than busy,
