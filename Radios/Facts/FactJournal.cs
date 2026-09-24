@@ -139,7 +139,12 @@ namespace Radios.Facts
                 try
                 {
                     System.IO.Directory.CreateDirectory(_directory);
-                    _lease = new FileStream(_shardPath + ".lease", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                    // Deleted when released — by Dispose, or by Windows when the
+                    // process ends however it ends — so launches do not leave a
+                    // trail of empty lease files. A missing lease file means
+                    // "released", which is exactly what the loader needs.
+                    _lease = new FileStream(_shardPath + ".lease", FileMode.OpenOrCreate, FileAccess.ReadWrite,
+                                            FileShare.None, 1, FileOptions.DeleteOnClose);
                     _store.NoteJournalAttached();
                     return true;
                 }

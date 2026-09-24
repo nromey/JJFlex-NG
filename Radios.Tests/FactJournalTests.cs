@@ -506,6 +506,23 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void ALaunchLeavesNoLeaseFileBehindOnceItsWriterIsReleased()
+        {
+            using var dir = new TempFactDir();
+            var kit = new FactKit();
+            var journal = new FactJournal(kit.Store, dir.Path);
+            Assert.True(journal.TakeLease());
+            string lease = journal.ShardPath + ".lease";
+
+            // POSITIVE CONTROL: while held, the lease is there and refuses a second holder.
+            Assert.True(File.Exists(lease));
+            Assert.Throws<IOException>(() => new FileStream(lease, FileMode.Open, FileAccess.Read, FileShare.None).Dispose());
+
+            journal.Dispose();
+            Assert.False(File.Exists(lease));
+        }
+
+        [Fact]
         public void FactJournalCapacity_TheFullestBoundedImageFitsTheDiskAllowance()
         {
             // The measurement MaxJournalBytes is sized from: every bound at
