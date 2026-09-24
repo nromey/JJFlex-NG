@@ -328,11 +328,12 @@ namespace Radios.Tests
     }
 
     /// <summary>
-    /// The durable-answer rule is enforced where the answer is WRITTEN, not only
-    /// where the prompt is shown (#619). Read from source, because the write
-    /// lives in the WPF main window, which this project cannot construct.
+    /// What the query's two WPF callers do with a finding, read from source
+    /// because this project cannot construct either window: the connect
+    /// advisory's write refuses a premise that cannot carry an answer, and
+    /// Radio Setup names the account that listed the radio (#619).
     /// </summary>
-    public sealed class SmartLinkIntentWriteGateTests
+    public sealed class SmartLinkRegistrationCallerSourceTests
     {
         private static string RepoRoot()
         {
@@ -376,6 +377,37 @@ namespace Radios.Tests
             Assert.True(check >= 0, "RecordSmartLinkIntent writes without checking its premise (#619).");
             Assert.True(head.IndexOf("return;", check, StringComparison.Ordinal) > check,
                 "RecordSmartLinkIntent checks its premise but does not refuse the write when it fails.");
+        }
+
+        /// <summary>
+        /// Radio Setup's step-2 status said a radio found under ANOTHER of the
+        /// operator's accounts was registered to the signed-in one, and cached
+        /// only the verdict — so the listing account was gone and the wrong
+        /// attribution lasted until the dialog reopened (#619). The whole
+        /// finding is cached now, and the Registered line names the account
+        /// that listed the radio.
+        /// </summary>
+        [Fact]
+        public void Radio_setup_names_the_account_that_listed_the_radio()
+        {
+            string src = System.IO.File.ReadAllText(System.IO.Path.Combine(
+                RepoRoot(), "JJFlexWpf", "Dialogs", "SettingsDialog.RadioSetup.cs"));
+
+            Assert.Contains("private SmartLinkRegistrationEvidence.Finding? _registrationQueryResult;",
+                src, StringComparison.Ordinal);
+
+            int line = src.IndexOf("\"settings.radio.register.already_registered\"", StringComparison.Ordinal);
+            Assert.True(line >= 0,
+                "The already-registered status line is not where this test looks for it, so the check below would be vacuous.");
+
+            // The value interpolated into that line, and only that line.
+            int argEnd = src.IndexOf(")),", line, StringComparison.Ordinal);
+            string args = src.Substring(line, argEnd - line);
+            Assert.DoesNotContain("regCheck.AccountEmail", args, StringComparison.Ordinal);
+            Assert.Contains("listedUnder", args, StringComparison.Ordinal);
+
+            // And listedUnder is bound from the finding's listing account.
+            Assert.Contains("ListedUnderAccount: { Length: > 0 } listedUnder", src, StringComparison.Ordinal);
         }
     }
 

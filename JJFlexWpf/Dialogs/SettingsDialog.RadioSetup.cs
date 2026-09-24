@@ -84,8 +84,14 @@ namespace JJFlexWpf.Dialogs
         // serial so a different radio re-asks; refreshed at most once per dialog
         // instance because the answer only changes when registration itself runs
         // (and RegistrationSucceeded covers that case before this text is used).
+        //
+        // The whole finding is kept, not just its verdict (#619). A Registered
+        // verdict can come from ANOTHER of the operator's accounts, and the
+        // account that listed the radio is part of the answer; caching the
+        // verdict alone threw it away, and every refresh then attributed the
+        // radio to whichever account was signed in.
         private string? _registrationQuerySerial;
-        private FlexBase.SmartLinkRegistrationQuery? _registrationQueryResult;
+        private SmartLinkRegistrationEvidence.Finding? _registrationQueryResult;
         private bool _registrationQueryInFlight;
 
         private async void KickRegistrationQuery()
@@ -110,7 +116,7 @@ namespace JJFlexWpf.Dialogs
                     finding.Verdict is FlexBase.SmartLinkRegistrationQuery.Unknown
                                     or FlexBase.SmartLinkRegistrationQuery.NoAccount
                     ? null
-                    : finding.Verdict;
+                    : finding;
                 if (_registrationQueryResult != null && IsLoaded)
                     RefreshSetupStatuses();
             }
@@ -185,15 +191,21 @@ namespace JJFlexWpf.Dialogs
                 // take seconds; the text upgrades in place when the answer lands.
                 SetupRegisterStatus.Text = _registrationQueryResult switch
                 {
-                    FlexBase.SmartLinkRegistrationQuery.Registered =>
+                    // The account that LISTED the radio, never the signed-in
+                    // one: the query consults every held account, and a radio
+                    // found under another of them is registered THERE (#619).
+                    // A Registered finding with no listing account cannot say
+                    // whose it is, so it falls through to the neutral line
+                    // rather than guessing.
+                    { Verdict: FlexBase.SmartLinkRegistrationQuery.Registered, ListedUnderAccount: { Length: > 0 } listedUnder } =>
                         Lexicon.Get("settings.radio.register.already_registered",
-                            ("accountEmail", regCheck.AccountEmail)),
+                            ("accountEmail", listedUnder)),
                     // Deliberately not "not registered". The server said only
                     // that it cannot route to this radio for this account right
                     // now, and a step-2 status line that turns that into a
                     // verdict is the same overreach the connect advisory made
                     // (#352).
-                    FlexBase.SmartLinkRegistrationQuery.NotInAccountList =>
+                    { Verdict: FlexBase.SmartLinkRegistrationQuery.NotInAccountList } =>
                         Lexicon.Get("settings.radio.register.not_in_account_list",
                             ("accountEmail", regCheck.AccountEmail)),
                     _ =>
