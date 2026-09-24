@@ -648,6 +648,61 @@ namespace Radios.Tests
             Assert.True(result.Fact.IsPending);
             Assert.True(store.IsEligibleForAutomaticDelivery(result.Fact));
         }
+
+        [Fact]
+        public void TheWholeFactLayerContainsNoClockAtAll()
+        {
+            // The behavioural test above shows the rules in place today do not
+            // count seconds. This one is about the rules that come next: a
+            // timer added here would be a TTL under another name, and it would
+            // be added by somebody solving a real scheduling problem in the
+            // wrong file. Scheduling belongs to the scheduler; the store holds
+            // what is true.
+            string root = RepoRoot();
+            string dir = Path.Combine(root, "Radios", "Facts");
+            Assert.True(Directory.Exists(dir), "Radios/Facts was not found at " + dir);
+
+            string[] files = Directory.GetFiles(dir, "*.cs");
+            Assert.True(files.Length >= 7, "only " + files.Length + " files were scanned");
+
+            var offenders = new List<string>();
+            foreach (string file in files)
+            {
+                foreach (string raw in File.ReadAllLines(file))
+                {
+                    string line = raw.Trim();
+                    if (line.StartsWith("//", StringComparison.Ordinal)) continue;
+                    if (line.StartsWith("///", StringComparison.Ordinal)) continue;
+                    if (line.StartsWith("*", StringComparison.Ordinal)) continue;
+
+                    foreach (string clock in new[]
+                             {
+                                 "Timer", "Stopwatch", "Elapsed", "TimeSpan",
+                                 "AddSeconds", "AddMinutes", "AddMilliseconds",
+                             })
+                    {
+                        if (line.Contains(clock, StringComparison.Ordinal))
+                            offenders.Add(Path.GetFileName(file) + ": " + line);
+                    }
+                }
+            }
+
+            Assert.True(offenders.Count == 0,
+                "The fact store has grown a clock. Nothing here decides staleness by counting "
+                + "seconds — the condition governs, and a timer in this layer is a shelf life "
+                + "under another name:\n  " + string.Join("\n  ", offenders));
+        }
+
+        private static string RepoRoot()
+        {
+            var dir = new DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null)
+            {
+                if (File.Exists(Path.Combine(dir.FullName, "JJFlexRadio.sln"))) return dir.FullName;
+                dir = dir.Parent;
+            }
+            return AppContext.BaseDirectory;
+        }
     }
 
     /// <summary>The store's disk half.</summary>
