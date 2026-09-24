@@ -17,8 +17,8 @@ namespace Radios.Tests
     /// application connected locally to a FLEX-8600, read an empty SmartLink
     /// list for the operator's own account, and told him the radio was not
     /// registered. It was. The same serial appears in that same account's list,
-    /// as <c>status=Available</c>, in the trace from two days earlier;
-    /// registration lives in the radio and does not lapse. Worse, the same
+    /// as <c>status=Available</c>, in the trace from two days earlier, and one
+    /// empty list cannot say which of four causes removed it. Worse, the same
     /// empty push had been announced 660 ms earlier on the Remote path as "No
     /// SmartLink radios available. The remote radio may be turned off" — the
     /// application held both readings of one fact and shipped the wrong one
@@ -39,9 +39,13 @@ namespace Radios.Tests
         private static Evidence.AccountList Pushed(string account, params string[] serials) =>
             new(account, serials, Evidence.ListSource.ServerPushThisCall);
 
-        /// <summary>The list a held session is carrying.</summary>
+        /// <summary>The latest list of a held session that is connected now.</summary>
         private static Evidence.AccountList Held(string account, params string[] serials) =>
-            new(account, serials, Evidence.ListSource.HeldBySession);
+            new(account, serials, Evidence.ListSource.HeldByAConnectedSession);
+
+        /// <summary>A list held by a session that has since disconnected.</summary>
+        private static Evidence.AccountList History(string account, params string[] serials) =>
+            new(account, serials, Evidence.ListSource.HeldByADisconnectedSession);
 
         private static IReadOnlyCollection<Evidence.AccountList> Lists(params Evidence.AccountList[] lists) =>
             lists.ToList();
@@ -75,22 +79,52 @@ namespace Radios.Tests
         }
 
         // ------------------------------------------------------------------
-        // Positive evidence is keepable
+        // Positive evidence answers for the present only when it is current
         // ------------------------------------------------------------------
 
         /// <summary>
-        /// A serial in a list is proof however old the list is: a radio the
-        /// broker once offered is a radio that completed registration, and
-        /// registration does not expire. This is what lets the query answer
-        /// "registered" without a round trip.
+        /// The latest list of a session that is connected now is the server's
+        /// current word, so a serial in it answers Registered without a round
+        /// trip.
         /// </summary>
         [Fact]
-        public void A_serial_found_in_a_stale_list_is_still_proof()
+        public void A_serial_in_a_connected_sessions_list_is_a_current_answer()
         {
             var f = Ask(Lists(Held(Mine, Serial)));
 
             Assert.Equal(Verdict.Registered, f.Verdict);
             Assert.Equal(Mine, f.ListedUnderAccount);
+        }
+
+        /// <summary>
+        /// Replaces Track L's <c>A_serial_found_in_a_stale_list_is_still_proof</c>,
+        /// which asserted a present-tense verdict from a list of any age. A
+        /// listing proves the radio was registered to that account WHEN it was
+        /// sent; it can be unregistered since, and a new registration replaces
+        /// an old account's (#619). Every caller reads Registered as "now", so
+        /// history is set aside: not proof, and not an account consulted.
+        /// </summary>
+        [Fact]
+        public void A_serial_found_only_in_a_disconnected_sessions_list_is_history_not_a_current_answer()
+        {
+            var f = Ask(Lists(History(Mine, Serial)));
+
+            Assert.Equal(Verdict.Unknown, f.Verdict);
+            Assert.Equal(string.Empty, f.ListedUnderAccount);
+            Assert.Equal(0, f.AccountsConsulted);
+        }
+
+        /// <summary>
+        /// History does not become proof by sitting beside a live answer: a
+        /// live push that omits the radio still wins over an old listing.
+        /// </summary>
+        [Fact]
+        public void An_old_listing_does_not_outvote_a_live_list_that_omits_the_radio()
+        {
+            var f = Ask(Lists(Pushed(Mine), History(Mine, Serial)));
+
+            Assert.Equal(Verdict.NotInAccountList, f.Verdict);
+            Assert.Equal(1, f.AccountsConsulted);
         }
 
         /// <summary>
@@ -339,6 +373,38 @@ namespace Radios.Tests
                 var lists = Evidence.HeldLists(new[] { owner });
                 Assert.Single(lists);
                 Assert.Empty(lists.First().Serials);
+                Assert.Equal(Evidence.ListSource.HeldByAConnectedSession, lists.First().Source);
+            }
+            finally
+            {
+                owner.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// A session keeps its last list after it disconnects. That list is
+        /// history — the radio was listed then — and must be labelled so,
+        /// because every caller of the query reads Registered as "now" (#619).
+        /// </summary>
+        [Fact]
+        public void A_disconnected_sessions_list_is_labelled_history()
+        {
+            var (owner, wan) = Build("friend@example.com");
+            try
+            {
+                owner.Connect();
+                WaitUntil(() => owner.IsConnected, "the mock session never reported connected");
+                wan.RaiseWanRadioRadioListReceived(Array.Empty<Flex.Smoothlake.FlexLib.Radio>());
+                Assert.Equal(Evidence.ListSource.HeldByAConnectedSession,
+                    Evidence.HeldLists(new[] { owner }).Single().Source);
+
+                owner.Disconnect();
+                WaitUntil(() => !owner.IsConnected, "the mock session never reported disconnected");
+
+                // The list is still there — the trap is that it looks current.
+                Assert.NotNull(owner.LastRadioListUtc);
+                Assert.Equal(Evidence.ListSource.HeldByADisconnectedSession,
+                    Evidence.HeldLists(new[] { owner }).Single().Source);
             }
             finally
             {

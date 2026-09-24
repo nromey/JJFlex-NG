@@ -22,19 +22,37 @@ namespace Radios
     /// <para><b>The defect this class exists to end.</b> On 2026-09-23 the same
     /// empty list, from the same push, was rendered twice 660 ms apart — once
     /// as "the remote radio may be turned off" and once as "this radio is not
-    /// registered". The second reading was wrong: the radio in question had
-    /// been in that very account's list two days earlier, as
-    /// <c>status=Available</c>. Registration lives in the radio and does not
-    /// lapse. The query's own comment had called an empty list "a definitive
-    /// answer", which is <i>absence is not evidence</i> written down as
-    /// intent.</para>
+    /// registered". The second reading claimed more than an empty list can
+    /// carry: the radio in question had been in that very account's list two
+    /// days earlier, as <c>status=Available</c>, and one empty list cannot say
+    /// which of the four causes removed it. The query's own comment had called
+    /// an empty list "a definitive answer", which is <i>absence is not
+    /// evidence</i> written down as intent.</para>
     ///
-    /// <para><b>Positive evidence is keepable; absence is not.</b> Hence the
-    /// asymmetry in <see cref="Judge"/>: a serial found in a list we are
-    /// holding is proof, however old that list is, because a radio that was
-    /// once listed was once registered and registration does not expire. A
-    /// serial missing from a list we are holding proves nothing at all, so it
-    /// is never the final word — the caller must go and ask.</para>
+    /// <para><b>What a listing proves, and for how long.</b> A serial in a list
+    /// proves the radio was registered to that account, and reachable, at the
+    /// moment the list was sent. It does NOT prove either is still true later:
+    /// a radio can be unregistered — this application has a command for it —
+    /// and FlexRadio documents that registering a radio to a new account
+    /// replaces the old account's registration. Track L treated a listing as
+    /// proof "however old", on the reasoning that registration does not lapse;
+    /// Sol's review of 2026-09-23 found that reasoning omits both (#619).</para>
+    ///
+    /// <para><b>Every caller asks about NOW.</b> The connect advisory stays
+    /// silent on Registered because it concludes the operator has nothing to
+    /// gain from being told about SmartLink for this radio; the Radio Setup
+    /// checklist prints "Done. This radio is already registered to …". Both
+    /// are present-tense claims, and nothing asks the historical question
+    /// "was this radio ever listed". So only a CURRENT list may answer
+    /// Registered: one the server pushed during the call, or the latest list
+    /// held by a session that is connected now. A list held by a session that
+    /// is no longer connected is history, and is set aside rather than
+    /// reported.</para>
+    ///
+    /// <para><b>An absence is weaker still.</b> A serial missing from a list
+    /// is never the final word unless the server sent that list during this
+    /// call — and even then it says only that this account's list omitted the
+    /// radio at that moment.</para>
     ///
     /// <para>Pure on purpose. Every rule here is decided without a radio, a
     /// network or a FlexBase, which is what lets the suite hold it.</para>
@@ -99,10 +117,30 @@ namespace Radios
             ServerPushThisCall,
 
             /// <summary>
-            /// The most recent list a server pushed to a session this process
-            /// is holding. Positive evidence only.
+            /// The most recent list a server pushed to a session that is
+            /// connected now. Positive evidence of the present, and positive
+            /// only: it can say the radio is listed, never that it is not.
             /// </summary>
-            HeldBySession,
+            /// <remarks>
+            /// Current because the session that received it is still the live
+            /// one — a list from before this session connected is not in play.
+            /// One gap, stated rather than hidden: a session keeps its list
+            /// across a drop, and records neither when it reconnected nor
+            /// whether the list predates that, so between a reconnect and the
+            /// new connection's first list (79 ms after registration in the
+            /// 2026-09-23 trace) a connected session still carries the previous
+            /// connection's list. Closing that needs the session owner to reset
+            /// or stamp its list per connection, which is outside the query.
+            /// </remarks>
+            HeldByAConnectedSession,
+
+            /// <summary>
+            /// A list held by a session that is not connected now. History:
+            /// the radio was listed then. No caller asks that question, so the
+            /// judge sets these aside — they are neither proof nor an account
+            /// consulted.
+            /// </summary>
+            HeldByADisconnectedSession,
         }
 
         /// <summary>
@@ -137,7 +175,12 @@ namespace Radios
             bool anAccountIsInHand,
             IReadOnlyCollection<AccountList>? listsInHand)
         {
-            var lists = listsInHand ?? Array.Empty<AccountList>();
+            // History is set aside before anything else reads the lists: it
+            // is not proof of the present, and an account whose only list is
+            // history has not answered this question.
+            var lists = (listsInHand ?? Array.Empty<AccountList>())
+                .Where(l => l.Source != ListSource.HeldByADisconnectedSession)
+                .ToList();
             bool aServerAnsweredThisCall =
                 lists.Any(l => l.Source == ListSource.ServerPushThisCall);
             int accounts = DistinctAccounts(lists);
@@ -160,8 +203,8 @@ namespace Radios
                     : new Finding(FlexBase.SmartLinkRegistrationQuery.NoAccount,
                         false, 0, string.Empty);
 
-            // Positive evidence first, and from ANY account we hold — this is
-            // #352's ask. A radio in another of the operator's own accounts is
+            // Positive evidence first, from any CURRENT list of any account we
+            // hold — this is #352's ask. A radio in another of the operator's own accounts is
             // registered; saying "not registered" because the wrong account was
             // asked is the 2026-08-05 incident, and refusing to answer at all
             // is only the polite version of the same gap.
@@ -195,9 +238,9 @@ namespace Radios
                  .Count();
 
         /// <summary>
-        /// The list each held SmartLink session is carrying, labelled
-        /// <see cref="ListSource.HeldBySession"/> — from every session the
-        /// server has actually sent a list to, and from no other.
+        /// The list each held SmartLink session is carrying — from every
+        /// session the server has actually sent a list to, and from no other —
+        /// labelled by whether that session is connected now.
         /// </summary>
         /// <remarks>
         /// A session is created holding an EMPTY radio array, and keeps it
@@ -221,7 +264,9 @@ namespace Radios
                 lists.Add(new AccountList(
                     held.AccountId ?? string.Empty,
                     available.Select(r => r.Serial).Where(s => !string.IsNullOrEmpty(s)).ToList(),
-                    ListSource.HeldBySession));
+                    held.IsConnected
+                        ? ListSource.HeldByAConnectedSession
+                        : ListSource.HeldByADisconnectedSession));
             }
             return lists;
         }

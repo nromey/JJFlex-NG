@@ -3911,9 +3911,17 @@ namespace Radios
             /// <summary>Cannot be determined — accounts exist but none is signed in, or SmartLink unreachable.</summary>
             Unknown,
             /// <summary>
-            /// The serial is in a SmartLink account's radio list, or we arrived
-            /// over SmartLink. Either is proof: a radio the broker will route
-            /// to is a radio that completed registration.
+            /// The radio is registered and reachable NOW: we arrived over
+            /// SmartLink, or the serial is in a CURRENT account list — one the
+            /// server pushed during this query, or the latest list held by a
+            /// session that is connected now. A radio the broker will route to
+            /// is a radio registered to that account at that moment.
+            ///
+            /// <para>Present tense on purpose. Every caller reads it as a claim
+            /// about now, and a listing only proves the moment it was sent — a
+            /// radio can be unregistered, and a new registration replaces an
+            /// old account's (#619). A list held by a session that has since
+            /// disconnected never produces this.</para>
             /// </summary>
             Registered,
             /// <summary>
@@ -3957,14 +3965,17 @@ namespace Radios
         /// <see cref="SmartLinkRegistrationEvidence"/> for the whole
         /// argument.</para>
         ///
-        /// <para><b>Positive evidence may come from a cache; an absence may
-        /// not.</b> A serial sitting in a list we are already holding is proof,
-        /// however old the list, because registration lives in the radio and
-        /// does not lapse — so that answer is returned without touching the
-        /// network. A serial <i>missing</i> from a held list is nothing at all,
-        /// so this always goes and asks before reporting an absence. Until
-        /// 2026-09-23 it did not, and a cached empty list produced a permanent
-        /// wrong answer in under a millisecond (#352).</para>
+        /// <para><b>A held list may answer yes only if it is current; it may
+        /// never answer no.</b> A serial in the latest list of a session that
+        /// is connected now answers Registered without touching the network.
+        /// A serial in a list held by a session that has disconnected is
+        /// history — the radio was listed then, which says nothing certain
+        /// about now — so it is set aside and the query goes and asks, exactly
+        /// as it does for a serial missing from a held list (#619). An
+        /// absence is reported only from a list the server pushed during this
+        /// call. Until 2026-09-23 none of this held, and a cached empty list
+        /// produced a permanent wrong answer in under a millisecond
+        /// (#352).</para>
         ///
         /// <para><b>Every account we hold, not just the signed-in one</b>
         /// (#352). SmartLinkPresence keeps one live session per silently
@@ -4007,11 +4018,11 @@ namespace Radios
                     anAccountIsInHand: false, listsInHand: null));
             }
 
-            // Positive evidence already in hand — a list a held session is
-            // carrying CONTAINS this serial. Answer without touching the
-            // network. The reverse is deliberately not a fast path: absence in
-            // a held list is not an observation, so it falls through to the
-            // ask below. Only held lists are passed here, never this
+            // Positive evidence already in hand — the latest list of a session
+            // that is connected now CONTAINS this serial. Answer without
+            // touching the network. A disconnected session's list is history
+            // and the judge sets it aside, and absence in any held list is not
+            // an observation, so both fall through to the ask below. Only held lists are passed here, never this
             // instance's captured push, because that capture belongs to
             // whichever ConnectToSmartLink ran last and not to this call.
             var fromCache = SmartLinkRegistrationEvidence.Judge(
@@ -4104,7 +4115,9 @@ namespace Radios
         }
 
         /// <summary>
-        /// The list each held SmartLink session is carrying, labelled as held.
+        /// The list each held SmartLink session is carrying, labelled by
+        /// whether that session is connected now — see
+        /// <see cref="SmartLinkRegistrationEvidence.HeldLists"/>.
         /// </summary>
         /// <remarks>
         /// Every entry here is positive evidence only. Absence from the union
