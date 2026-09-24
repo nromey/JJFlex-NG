@@ -1179,6 +1179,10 @@ namespace Radios.Tests
             TraceTransitionResult known = TraceCoordinator.SnapshotForBundle(stale);
             Assert.Equal(TraceTransition.AlreadyClaimed, known.Status);
             Assert.Same(sealed_.Ticket, known.Ticket);
+            // Pinned for the bundle like any snapshot (Track H6); the bundler's
+            // Finally is what releases it.
+            Assert.True(TraceEvidencePins.IsPinned(known.Ticket.SourcePath));
+            TraceEvidencePins.Release(known.Ticket.SourcePath);
 
             // A session this process never sealed: an explicit refusal, with no
             // ticket at all.
@@ -1202,6 +1206,61 @@ namespace Radios.Tests
         /// live path with <c>FileMode.Create</c> would truncate the very bytes
         /// the move could not take away.
         /// </summary>
+        /// <summary>
+        /// <b>A bundle keeps the evidence of a session that was sealed with
+        /// nothing after it.</b> Sol's review of H3, finding 5: the checkpoint
+        /// answered NoSession before looking up an already sealed session's
+        /// ticket, so a Stop or logging switched off between the bundler reading
+        /// its handle and arriving at the checkpoint — sealing the session with
+        /// no successor — made the bundle leave out a trace that was sealed,
+        /// detached and sitting on disk.
+        ///
+        /// <para>Positive control, run by hand at H6: with the old order
+        /// restored, the answer is NoSession and this test goes red.</para>
+        /// </summary>
+        [Fact]
+        public void A_bundle_keeps_a_session_sealed_with_nothing_after_it()
+        {
+            TraceSessionHandle expected = Open();          // what the bundler read
+            Write("the evening the operator is reporting");
+
+            // Logging switched off before the bundler reaches the checkpoint.
+            TraceTransitionResult off = TraceCoordinator.TrySeal(new TraceSealRequest
+            {
+                Expected = expected,
+                OperationId = Guid.NewGuid(),
+                Outcome = TraceSessionOutcome.CleanExit,
+                Resume = TraceResumeIntent.None,
+            });
+            Assert.False(off.SuccessorOpened);
+            Assert.False(TraceCoordinator.Recording);
+
+            TraceTransitionResult snap = TraceCoordinator.SnapshotForBundle(expected);
+
+            Assert.Equal(TraceTransition.AlreadyClaimed, snap.Status);
+            Assert.Same(off.Ticket, snap.Ticket);
+            Assert.False(snap.TracingOn);
+            Assert.Null(snap.Successor);
+            // The bytes are there, and pinned while the bundle is built.
+            Assert.True(File.Exists(snap.Ticket.SourcePath));
+            Assert.Contains("the evening the operator is reporting",
+                            File.ReadAllText(snap.Ticket.SourcePath), StringComparison.Ordinal);
+            Assert.True(TraceEvidencePins.IsPinned(snap.Ticket.SourcePath));
+
+            // The bundler's Finally releases what it was handed — and that is
+            // the only pin, so the file is free again.
+            TraceEvidencePins.Release(snap.Ticket.SourcePath);
+            Assert.False(TraceEvidencePins.IsPinned(snap.Ticket.SourcePath));
+
+            // Positive control for the order: a session this process never
+            // sealed, with nothing recording, is still NoSession.
+            var neverSeen = (TraceSessionHandle)typeof(TraceSessionHandle)
+                .GetConstructors(System.Reflection.BindingFlags.NonPublic
+                               | System.Reflection.BindingFlags.Instance)[0]
+                .Invoke(new object[] { new TraceSession() });
+            Assert.Equal(TraceTransition.NoSession, TraceCoordinator.SnapshotForBundle(neverSeen).Status);
+        }
+
         [Fact]
         public void A_snapshot_that_cannot_detach_keeps_the_bytes_and_keeps_recording()
         {

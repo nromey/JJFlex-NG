@@ -989,46 +989,54 @@ namespace JJTrace
             {
                 Guid expectedId = expected?.SessionId ?? Guid.Empty;
                 Guid observedId = _session?.SessionId ?? Guid.Empty;
+                bool recording = _session != null && _sink != null && !_sink.IsClosed;
 
-                if (_session == null || _sink == null || _sink.IsClosed)
+                if (recording && expected != null && expected.SessionId == _session.SessionId)
+                {
+                    result = CheckpointLocked(faults, out queued);
+                }
+                // THE SEALED SESSION'S OWN TICKET IS ASKED FOR BEFORE "NOTHING IS
+                // RECORDING" (Sol's review of H3, finding 5). A Stop, or logging
+                // switched off, can seal the expected session with no successor
+                // between the bundler reading its handle and arriving here. That
+                // session's evidence exists — sealed, detached, retained — and
+                // the old order answered NoSession because nothing was recording
+                // NOW, so the bundle dropped a trace it had every right to carry.
+                else if (expectedId != Guid.Empty
+                         && _ticketsBySession.TryGetValue(expectedId, out TraceArchiveTicket sealedTicket))
+                {
+                    // Pinned while the bundle is built, exactly as a fresh
+                    // checkpoint is: the bundler's Finally releases whichever it
+                    // was handed, so an unpinned hand-over would also have
+                    // released somebody else's pin on the same file.
+                    TraceEvidencePins.Pin(sealedTicket.SourcePath);
+                    result = new TraceTransitionResult
+                    {
+                        Status = TraceTransition.AlreadyClaimed,
+                        Ticket = sealedTicket,
+                        ExpectedSessionId = expectedId,
+                        ObservedSessionId = observedId,
+                        TracingOn = recording,
+                        Successor = _handle,
+                        Explanation = "TraceCoordinator: session " + expectedId
+                                      + " was already sealed; the bundle uses that session's own evidence",
+                    };
+                }
+                else if (!recording)
                 {
                     result = TraceTransitionResult.Refusal(TraceTransition.NoSession,
                         expectedId, observedId,
                         "TraceCoordinator: nothing was recording, so there is no snapshot to take", false);
                 }
-                else if (expected == null || expected.SessionId != _session.SessionId)
-                {
-                    // If that session was already sealed, its own ticket IS the
-                    // evidence and the bundler may use it. Otherwise say plainly
-                    // that no snapshot is available — never silently substitute
-                    // a later session's trace.
-                    if (expectedId != Guid.Empty
-                        && _ticketsBySession.TryGetValue(expectedId, out TraceArchiveTicket sealedTicket))
-                    {
-                        result = new TraceTransitionResult
-                        {
-                            Status = TraceTransition.AlreadyClaimed,
-                            Ticket = sealedTicket,
-                            ExpectedSessionId = expectedId,
-                            ObservedSessionId = observedId,
-                            TracingOn = true,
-                            Successor = _handle,
-                            Explanation = "TraceCoordinator: session " + expectedId
-                                          + " was already sealed; the bundle uses that session's own evidence",
-                        };
-                    }
-                    else
-                    {
-                        result = TraceTransitionResult.Refusal(TraceTransition.NotCurrent,
-                            expectedId, observedId,
-                            "TraceCoordinator: refused — expected session " + expectedId
-                            + ", observed " + observedId + "; no trace snapshot is available for the bundle",
-                            true);
-                    }
-                }
                 else
                 {
-                    result = CheckpointLocked(faults, out queued);
+                    // Say plainly that no snapshot is available — never silently
+                    // substitute a later session's trace.
+                    result = TraceTransitionResult.Refusal(TraceTransition.NotCurrent,
+                        expectedId, observedId,
+                        "TraceCoordinator: refused — expected session " + expectedId
+                        + ", observed " + observedId + "; no trace snapshot is available for the bundle",
+                        true);
                 }
                 PublishLocked();
             }
