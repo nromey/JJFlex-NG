@@ -433,5 +433,114 @@ namespace Radios.Tests
             Assert.Equal(Account, finding.ListedUnderAccount);
             Assert.Equal(1, finding.AccountsConsulted);
         }
+
+        // ------------------------------------------------------------------
+        // A re-entered rig (Sol's review of Track L4)
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// The rig that received the first list, REUSED — every test above
+        /// built a fresh one. Its myRadioList keeps the rows it took on
+        /// connection 1 across a SmartLink-only drop: nothing removes them,
+        /// and FlexLib's RadioRemoved never fires for a WAN-only radio. So
+        /// after the reconnect, with no push yet, the connect flow's shortcut
+        /// read "session connected, rows in hand" and answered on the spot
+        /// from rows that describe the previous connection, while a fresh
+        /// rig — whose replay Track L4 made wait — waited for the push. The
+        /// decision, driven directly: the rows may answer only once the live
+        /// connection has listed the account.
+        /// </summary>
+        [Fact]
+        public void A_re_entered_rigs_own_rows_may_answer_only_once_the_live_connection_has_listed()
+        {
+            var (session, wan) = NewSession();
+            session.Connect();
+            WaitUntil(() => session.IsConnected, "the mock session never reported connected");
+            wan.RaiseWanRadioRadioListReceived(new[] { WanRadio(Asked) });
+
+            var rig = NewRig();
+            Assert.Equal(1, rig.ReplayHeldListsIntoTheIntake(Account, sessionWasAlreadyConnected: true));
+            Assert.Contains(Asked, WanSerialsInMyRadioList(rig));
+
+            // Positive control: with the live connection's list in hand, the
+            // rows may answer. Without this, "may not" below could be passing
+            // because the harness can never produce "may".
+            Assert.True(rig.OwnRowsMayAnswerTheConnect(session, Account));
+
+            // The drop and the redial, with no push. The trap, stated: the
+            // session is connected again and the rig's rows survived.
+            int dialsBefore = wan.ConnectCallCount;
+            wan.ForceIsConnected(false);
+            WaitUntil(() => wan.ConnectCallCount > dialsBefore && session.IsConnected,
+                "the session never dialled a new connection after the drop");
+            Assert.Contains(Asked, WanSerialsInMyRadioList(rig));
+
+            Assert.False(rig.OwnRowsMayAnswerTheConnect(session, Account),
+                "A re-entered rig's rows from before the reconnect were allowed to answer the connect " +
+                "as if they were the live connection's list (#619).");
+
+            // The live connection lists the account: the rows may answer again.
+            wan.RaiseWanRadioRadioListReceived(new[] { WanRadio(Asked) });
+            Assert.True(rig.OwnRowsMayAnswerTheConnect(session, Account));
+        }
+
+        /// <summary>
+        /// The same rig through the real connect flow, twice. First over
+        /// connection 1, where it takes the account's rows and answers
+        /// Registered; then after a drop and a reconnect the server has not
+        /// yet answered, where the old flow answered instantly from those
+        /// rows. The server sends the new connection's list half a second
+        /// after the re-entered flow registers, and the finding comes from
+        /// that push — which proves the flow was waiting for it rather than
+        /// satisfied by its own rows.
+        /// </summary>
+        /// <remarks>
+        /// The same timing caveat as the fresh-rig test above: on a machine
+        /// stalled longer than half a second between registration and the
+        /// shortcut decision, the push would land first and this would pass
+        /// for the wrong reason. It cannot fail for the wrong reason, and the
+        /// deterministic test above drives the decision itself.
+        /// </remarks>
+        [Fact]
+        public async Task A_re_entered_rig_waits_for_the_new_connections_list_instead_of_answering_from_its_own_rows()
+        {
+            var (session, wan) = NewSession();
+            session.Connect();
+            WaitUntil(() => session.IsConnected, "the mock session never reported connected");
+            wan.RaiseWanRadioRadioListReceived(new[] { WanRadio(Asked) });
+
+            var rig = NewRig();
+            var first = rig.AskSmartLinkAboutSerial(Asked, Account, "test-jwt");
+            Assert.Equal(Verdict.Registered, first.Verdict);
+            Assert.Contains(Asked, WanSerialsInMyRadioList(rig));
+
+            int dialsBefore = wan.ConnectCallCount;
+            wan.ForceIsConnected(false);
+            WaitUntil(() => wan.ConnectCallCount > dialsBefore && session.IsConnected,
+                "the session never dialled a new connection after the drop");
+            // The trap: connected again, rows still in hand — the old
+            // shortcut's whole condition.
+            Assert.Contains(Asked, WanSerialsInMyRadioList(rig));
+
+            int registrationsBefore = wan.SendRegisterCallCount;
+            var server = Task.Run(() =>
+            {
+                WaitUntil(() => wan.SendRegisterCallCount > registrationsBefore,
+                    "the re-entered connect flow never registered on the new connection");
+                Thread.Sleep(500);
+                wan.RaiseWanRadioRadioListReceived(Array.Empty<Radio>());
+            });
+
+            var second = rig.AskSmartLinkAboutSerial(Asked, Account, "test-jwt");
+            await server;
+
+            Assert.True(second.FromALiveServerAnswer,
+                "The re-entered connect flow returned before the new connection's list arrived, so it " +
+                "answered from the rows it took on the previous connection (#619).");
+            Assert.NotEqual(Verdict.Registered, second.Verdict);
+            // The live connection's list is the account's whole current
+            // list, and it is empty: the intake swept the old row.
+            Assert.DoesNotContain(Asked, WanSerialsInMyRadioList(rig));
+        }
     }
 }

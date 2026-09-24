@@ -6998,6 +6998,61 @@ namespace Radios
         }
 
         /// <summary>
+        /// Whether the connect flow may answer from this instance's own WAN
+        /// rows for <paramref name="accountEmail"/> — satisfying itself on the
+        /// spot on a re-entry, or accepting them when the list wait times
+        /// out — instead of insisting on the server's list.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Only when the live connection has listed the account
+        /// (#619).</b> The shortcut exists because the server sends its list
+        /// once per TLS session, so on a re-entry over a session that has
+        /// already been listed, no new list is coming and waiting for one is
+        /// dead time (QB Track A). That premise is false in exactly one
+        /// window: after a SmartLink drop and reconnect, before the new
+        /// connection's first push. The session is connected, and an
+        /// EXISTING rig still holds the rows it took on the previous
+        /// connection — nothing removes them on a SmartLink-only drop, and
+        /// FlexLib's RadioRemoved never fires for a WAN-only radio — so a
+        /// re-entered rig answered instantly from rows that describe the
+        /// connection before this one, while a fresh rig, whose replay Track
+        /// L4 had already made wait, waited for the push. Sol's review of L4
+        /// named the asymmetry. In that window the list IS coming, within
+        /// about a hundred milliseconds of the registration in every trace
+        /// L2 and L3 cited, so the flow waits for it as a fresh rig does.</para>
+        ///
+        /// <para>Outside that window nothing changes: a session whose live
+        /// connection has listed the account still answers instantly from the
+        /// rows, which the intake kept current from that same push. And the
+        /// wait is bounded as it always was — ten seconds, then the flow
+        /// fails as it does for a fresh rig, so there is no path that waits
+        /// forever.</para>
+        /// </remarks>
+        internal bool OwnRowsMayAnswerTheConnect(
+            Radios.SmartLink.IWanSessionOwner session, string accountEmail, System.Diagnostics.Stopwatch sw = null)
+        {
+            // WAN entries only: myRadioList also accumulates LAN radios, and a
+            // LAN-only cache says nothing about this SmartLink session. Scoped
+            // to THIS account: with presence holding every account's sessions,
+            // another account's radios in myRadioList say nothing about the
+            // account this flow is connecting.
+            int rows = myRadioList.Count(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail));
+            if (rows == 0) return false;
+
+            // One read, so the connected fact and the arrived-on-the-live-
+            // connection fact describe the same moment.
+            var snapshot = session.RadioListSnapshot;
+            if (!snapshot.SessionConnected) return false;
+            if (snapshot.ArrivedOnTheLiveConnection) return true;
+
+            Tracing.TraceLine(
+                $"ConnectToSmartLink: {rows} cached WAN radio(s) for {accountEmail} were taken before the live connection listed this account — waiting for its list rather than answering from them (#619)"
+                + (sw == null ? "" : $" ({sw.ElapsedMilliseconds}ms)"),
+                TraceLevel.Info);
+            return false;
+        }
+
+        /// <summary>
         /// Connects to SmartLink server with the given JWT.
         ///
         /// <para>
@@ -7091,22 +7146,20 @@ namespace Radios
                 // When we already hold a radio list from this session, don't make
                 // the user sit through the full 10s window on the off chance the
                 // server volunteers a new one — it does not resend per session.
-                // WAN entries only: myRadioList also accumulates LAN radios, and
-                // a LAN-only cache says nothing about this SmartLink session.
-                // Scoped to THIS account: with presence holding every account's
-                // sessions, another account's radios in myRadioList say nothing
-                // about the account this flow is connecting.
-                bool haveCachedList = session.IsConnected
-                    && myRadioList.Any(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail));
+                // "From this session" means from the connection that is live
+                // now: rows taken on the connection before a reconnect are
+                // not this session's list, and the live connection's push is
+                // still coming (#619) — see OwnRowsMayAnswerTheConnect.
+                bool haveCachedList = OwnRowsMayAnswerTheConnect(session, accountEmail, sw);
 
                 // Re-entry over a session that was ALREADY live when this call
-                // began: the one list this TLS session will ever send arrived
-                // long ago, so satisfy the wait from the cache IMMEDIATELY
-                // instead of burning even the short window (QB Track A). The
-                // attributed SessionRadioListReceived subscription stays
-                // active, so pushes keep landing as refreshes through
-                // wanRadioListReceivedHandler exactly as the 2026-08-06
-                // refresh/morph flow expects.
+                // began and has been listed on its live connection: the one
+                // list this TLS session will ever send arrived long ago, so
+                // satisfy the wait from the cache IMMEDIATELY instead of
+                // burning even the short window (QB Track A). The attributed
+                // SessionRadioListReceived subscription stays active, so pushes
+                // keep landing as refreshes through wanRadioListReceivedHandler
+                // exactly as the 2026-08-06 refresh/morph flow expects.
                 if (sessionWasAlreadyConnected && haveCachedList)
                 {
                     radios = myRadioList.Where(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail)).ToList();
