@@ -149,7 +149,8 @@ namespace Radios.Tests
 
             Assert.Contains("ClassifyRadioRemoval(", sealMethod, StringComparison.Ordinal);
             Assert.Contains("ConnectionFallSealsTheCapture(kind,", sealMethod, StringComparison.Ordinal);
-            Assert.Contains("=> RemovalSealsTheCapture(kind) && !firmwareUpdateSent;", source, StringComparison.Ordinal);
+            // Track H6: a firmware restart is our flag AND FlexLib's confirmation.
+            Assert.Contains("=> RemovalSealsTheCapture(kind) && !(firmwareUpdateSent && radioUpdating);", source, StringComparison.Ordinal);
 
             // Neither removal arm asks for a seal any more.
             int drop = source.IndexOf("case RadioRemovalKind.ConnectionLostOurRadio:", StringComparison.Ordinal);

@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
+using System.Threading.Tasks;
 using Flex.Smoothlake.FlexLib;
 using JJTrace;
 using Radios;
@@ -384,12 +385,28 @@ namespace Radios.Tests
             }
         }
 
+        private static FieldInfo FirmwareSentField =>
+            typeof(FlexBase).GetField("_firmwareUpdateSent", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+        /// <summary>FlexLib's own updating flag, set the way SendUpdateFile
+        /// sets it once the radio has handed back an upgrade port.</summary>
+        private static void MarkFlexLibUpdating(Radio radio, bool updating)
+        {
+            FieldInfo f = typeof(Radio).GetField("_updating", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.True(f != null, "Radio._updating moved");
+            f!.SetValue(radio, updating);
+        }
+
         /// <summary>
         /// A radio restarting because we sent it firmware is not a drop. While
         /// the seal lived on <c>RadioRemoved</c> it was never reached here —
         /// FlexLib's <c>RemoveRadio</c> returns early for an updating radio — and
         /// moving the trigger must not start sealing every firmware update the
         /// operator asked for.
+        ///
+        /// <para>Track H6: the exemption now needs FlexLib's confirmation as
+        /// well as our flag, so this sets both — the state a real transfer
+        /// leaves — and it checks the exemption is SPENT by the restart.</para>
         /// </summary>
         [Fact]
         public void A_radio_restarting_after_we_sent_it_firmware_does_not_seal()
@@ -401,14 +418,16 @@ namespace Radios.Tests
                 rig.theRadio = radio;
                 WireAsConnectDoes(rig, radio);
                 MarkLive(radio, rig);
-                typeof(FlexBase).GetField("_firmwareUpdateSent", BindingFlags.Instance | BindingFlags.NonPublic)!
-                    .SetValue(rig, true);
+                FirmwareSentField.SetValue(rig, true);
+                MarkFlexLibUpdating(radio, true);
 
                 LoseTheTransport(radio);
 
                 Assert.False(radio.Connected);
                 AssertTheRigSawTheFall(rig);
                 Assert.Equal(0, Volatile.Read(ref _seals));
+                // One restart, one exemption.
+                Assert.False((bool)FirmwareSentField.GetValue(rig)!);
             }
             finally
             {
@@ -416,18 +435,129 @@ namespace Radios.Tests
             }
         }
 
+        /// <summary>
+        /// <b>A firmware transfer that failed does not hide a later real
+        /// drop.</b> Sol's review of H3, finding 6: the flag was set before
+        /// <c>SendUpdateFile</c> and cleared only at the next Connect, but
+        /// FlexLib's <c>SendUpdateFile</c> returns WITHOUT THROWING on a missing
+        /// file — and on an upgrade port it cannot parse, and after catching a
+        /// failed transfer. After any of those, a genuine loss of that same
+        /// connection was misfiled as a firmware restart and sealed nothing.
+        ///
+        /// <para>Driven through the real <c>BeginFirmwareUpdate</c> and the real
+        /// FlexLib <c>SendUpdateFile</c>, with an image that does not exist:
+        /// FlexLib returns a completed task and reports nothing wrong. Then the
+        /// link genuinely drops, entering where a real loss does.</para>
+        ///
+        /// <para>Positive control, run by hand at H6: with the exemption keyed
+        /// to the flag alone and nothing clearing it, this test goes red — no
+        /// seal.</para>
+        /// </summary>
+        [Fact]
+        public void A_failed_firmware_transfer_does_not_hide_a_later_real_drop()
+        {
+            var rig = NewRig();
+            var radio = NewWanRadio(UniqueSerial(), "A");
+            // Firmware is LAN only; BeginFirmwareUpdate refuses a SmartLink
+            // connection before it sends anything.
+            SetInternal(radio, nameof(Radio.IsWan), false);
+            try
+            {
+                rig.theRadio = radio;
+                WireAsConnectDoes(rig, radio);
+                MarkLive(radio, rig);
+
+                string missing = Path.Combine(Path.GetTempPath(),
+                    "jjflex-h6-no-such-image-" + Guid.NewGuid().ToString("N") + ".ssdr");
+                Assert.False(File.Exists(missing));
+
+                // FlexLib says nothing is wrong...
+                Assert.True(rig.BeginFirmwareUpdate(missing));
+                Task settled = (Task)typeof(FlexBase)
+                    .GetField("_firmwareTransferSettled", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .GetValue(rig)!;
+                Assert.True(settled.Wait(TimeSpan.FromSeconds(10)), "the transfer never settled");
+                // ...but it is not updating, so the exemption is gone.
+                Assert.False(FlexBase.RadioReportsUpdating(radio));
+                Assert.False((bool)FirmwareSentField.GetValue(rig)!);
+
+                // A genuine drop on this same connection.
+                LoseTheTransport(radio);
+
+                Assert.False(radio.Connected);
+                AssertTheRigSawTheFall(rig);
+                Assert.Equal(1, Volatile.Read(ref _seals));
+            }
+            finally
+            {
+                Release(rig);
+            }
+        }
+
+        /// <summary>
+        /// Our flag alone — an image handed to FlexLib whose transfer then
+        /// failed inside FlexLib, which clears its own updating flag — is not a
+        /// firmware restart. The fall seals, even with the flag still set (the
+        /// transfer's settle has not run yet, say).
+        /// </summary>
+        [Fact]
+        public void Our_flag_without_FlexLib_updating_is_a_drop()
+        {
+            var rig = NewRig();
+            var radio = NewWanRadio(UniqueSerial(), "A");
+            try
+            {
+                rig.theRadio = radio;
+                WireAsConnectDoes(rig, radio);
+                MarkLive(radio, rig);
+                FirmwareSentField.SetValue(rig, true);
+                MarkFlexLibUpdating(radio, false);
+
+                LoseTheTransport(radio);
+
+                AssertTheRigSawTheFall(rig);
+                Assert.Equal(1, Volatile.Read(ref _seals));
+            }
+            finally
+            {
+                Release(rig);
+            }
+        }
+
+        /// <summary>
+        /// The exemption reads FlexLib's internal <c>Radio.Updating</c> by
+        /// reflection. If a FlexLib upgrade renames it, the reader answers false
+        /// — firmware restarts would start sealing as drops — and THIS goes red
+        /// the same day, rather than the bench finding it.
+        /// </summary>
+        [Fact]
+        public void The_FlexLib_updating_flag_is_still_where_the_exemption_reads_it()
+        {
+            var radio = NewWanRadio(UniqueSerial(), "A");
+            Assert.False(FlexBase.RadioReportsUpdating(radio));
+            MarkFlexLibUpdating(radio, true);
+            Assert.True(FlexBase.RadioReportsUpdating(radio));
+        }
+
         [Fact]
         public void The_fall_seals_only_for_our_own_unasked_loss()
         {
             Assert.True(FlexBase.ConnectionFallSealsTheCapture(
-                FlexBase.RadioRemovalKind.ConnectionLostOurRadio, firmwareUpdateSent: false));
+                FlexBase.RadioRemovalKind.ConnectionLostOurRadio, firmwareUpdateSent: false, radioUpdating: false));
+
+            // A firmware restart is our flag AND FlexLib's; either alone is a
+            // drop (Track H6).
+            Assert.False(FlexBase.ConnectionFallSealsTheCapture(
+                FlexBase.RadioRemovalKind.ConnectionLostOurRadio, firmwareUpdateSent: true, radioUpdating: true));
+            Assert.True(FlexBase.ConnectionFallSealsTheCapture(
+                FlexBase.RadioRemovalKind.ConnectionLostOurRadio, firmwareUpdateSent: true, radioUpdating: false));
+            Assert.True(FlexBase.ConnectionFallSealsTheCapture(
+                FlexBase.RadioRemovalKind.ConnectionLostOurRadio, firmwareUpdateSent: false, radioUpdating: true));
 
             Assert.False(FlexBase.ConnectionFallSealsTheCapture(
-                FlexBase.RadioRemovalKind.ConnectionLostOurRadio, firmwareUpdateSent: true));
+                FlexBase.RadioRemovalKind.SelfInitiated, firmwareUpdateSent: false, radioUpdating: false));
             Assert.False(FlexBase.ConnectionFallSealsTheCapture(
-                FlexBase.RadioRemovalKind.SelfInitiated, firmwareUpdateSent: false));
-            Assert.False(FlexBase.ConnectionFallSealsTheCapture(
-                FlexBase.RadioRemovalKind.DiscoveryLoss, firmwareUpdateSent: false));
+                FlexBase.RadioRemovalKind.DiscoveryLoss, firmwareUpdateSent: false, radioUpdating: false));
         }
 
         /// <summary>

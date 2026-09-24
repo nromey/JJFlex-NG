@@ -744,8 +744,22 @@ namespace Radios
 
         /// <summary>
         /// Set when we have handed the radio a firmware image, so the
-        /// connection falling while it restarts is not read as a drop. Cleared
-        /// by the next <see cref="Connect"/>.
+        /// connection falling while it restarts is not read as a drop.
+        ///
+        /// <para><b>On its own it proves nothing, and it no longer exempts
+        /// anything on its own</b> (Sprint 45 Track H6, Sol's review finding
+        /// 6). It is set before <c>SendUpdateFile</c>, and FlexLib's
+        /// <c>SendUpdateFile</c> returns WITHOUT THROWING when the file is
+        /// missing or the upgrade port will not parse, and catches a failed
+        /// transfer itself — so a completed task is not evidence an image went
+        /// anywhere. Kept only until the next <see cref="Connect"/>, the flag
+        /// used to misfile a genuine later drop on the same connection as a
+        /// firmware restart and seal nothing. So the exemption now needs BOTH
+        /// this and FlexLib's own confirmation that an update is in progress
+        /// (<see cref="RadioReportsUpdating"/>), and this is cleared on every
+        /// path that ends without one: the transfer settling with FlexLib not
+        /// updating, the transfer faulting, the call throwing, the exempted
+        /// restart itself, and the next <see cref="Connect"/>.</para>
         ///
         /// <para><b>Why this exists at all.</b> While the seal hung off
         /// <c>API.RadioRemoved</c>, a firmware update never reached it:
@@ -759,14 +773,52 @@ namespace Radios
         private volatile bool _firmwareUpdateSent;
 
         /// <summary>
+        /// Completes when the last firmware transfer's outcome has been
+        /// settled against <see cref="_firmwareUpdateSent"/>. Tests await it;
+        /// nothing in production does.
+        /// </summary>
+        private Task _firmwareTransferSettled = Task.CompletedTask;
+
+        /// <summary>
+        /// FlexLib's own "this radio is updating" flag: <c>Radio.Updating</c>,
+        /// which is internal. Set only once the radio has handed back an
+        /// upgrade port and the image is about to go; cleared by FlexLib itself
+        /// when the transfer throws. It is the exact condition the OLD trigger
+        /// honoured — <c>API.RemoveRadio</c> returns early for an updating
+        /// radio — so it is the confirmation the exemption was missing.
+        ///
+        /// <para>Read by reflection because it is internal and vendor files are
+        /// not edited without a ruling. If a FlexLib upgrade renames it this
+        /// answers false — no exemption, so a firmware restart would be sealed
+        /// as a drop, the visible and recoverable failure rather than a silent
+        /// one — and <c>ConnectionFallSealTests</c> goes red the same
+        /// day.</para>
+        /// </summary>
+        private static readonly System.Reflection.PropertyInfo _flexLibUpdating =
+            typeof(Radio).GetProperty("Updating",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+        /// <summary>True when FlexLib reports this radio mid-update.</summary>
+        internal static bool RadioReportsUpdating(Radio r)
+        {
+            if (r == null || _flexLibUpdating == null) return false;
+            try { return (bool)_flexLibUpdating.GetValue(r); }
+            catch { return false; }
+        }
+
+        /// <summary>
         /// Whether our connection falling seals the capture. The same
         /// classification the removal handler uses — a hang-up is ours and
         /// does not seal, another object's fall says nothing about our
         /// session — with one more deliberate case: a radio restarting because
-        /// we sent it firmware. Pure, so the truth table is pinned by tests.
+        /// we sent it firmware AND FlexLib confirms it is updating. Either half
+        /// alone is not a firmware restart. Pure, so the truth table is pinned
+        /// by tests.
         /// </summary>
-        internal static bool ConnectionFallSealsTheCapture(RadioRemovalKind kind, bool firmwareUpdateSent)
-            => RemovalSealsTheCapture(kind) && !firmwareUpdateSent;
+        internal static bool ConnectionFallSealsTheCapture(RadioRemovalKind kind,
+                                                           bool firmwareUpdateSent,
+                                                           bool radioUpdating)
+            => RemovalSealsTheCapture(kind) && !(firmwareUpdateSent && radioUpdating);
 
         /// <summary>
         /// The Radio's <c>Connected</c> property has just gone false. If it was
@@ -805,19 +857,35 @@ namespace Radios
                 selfDisconnectActive: System.Threading.Volatile.Read(ref _selfDisconnects) > 0,
                 disconnectingFlag: Disconnecting,
                 sameObject: ReferenceEquals(r, theRadio));
-            bool firmware = _firmwareUpdateSent;
+            bool firmwareSent = _firmwareUpdateSent;
+            bool updating = firmwareSent && RadioReportsUpdating(r);
 
-            // Deferred, both of them: this is FlexLib's transport thread, and
+            // Deferred, all of them: this is FlexLib's transport thread, and
             // nothing on it may wait on the trace gate before the claim. See
             // onRadioConnectedChanged.
-            if (!ConnectionFallSealsTheCapture(kind, firmware))
+            if (!ConnectionFallSealsTheCapture(kind, firmwareSent, updating))
             {
+                bool firmwareRestart = RemovalSealsTheCapture(kind);
+                // The exemption covers ONE restart. Used here, it is spent: a
+                // later fall of this object is a drop again.
+                if (firmwareRestart) _firmwareUpdateSent = false;
                 Tracing.TraceLineDeferred(
                     $"connection fell: {r.Serial} ({r.Nickname}) — {kind}"
-                    + (firmware ? ", firmware update sent" : "")
+                    + (firmwareRestart ? ", the radio restarting for the firmware update we sent (FlexLib reports it updating)" : "")
                     + "; not a drop, nothing sealed",
                     TraceLevel.Info);
                 return;
+            }
+
+            if (firmwareSent)
+            {
+                // Said out loud because it is exactly the case the old flag got
+                // wrong: an image was handed over, but FlexLib says no update is
+                // in progress, so this is a real drop and it seals.
+                Tracing.TraceLineDeferred(
+                    $"connection fell: {r.Serial} — a firmware image was sent on this connection, but FlexLib"
+                    + " reports no update in progress, so this is a drop, not a restart",
+                    TraceLevel.Warning);
             }
 
             Tracing.TraceLineDeferred(
@@ -5233,33 +5301,75 @@ namespace Radios
             {
                 Tracing.TraceLine($"BeginFirmwareUpdate: sending {path}", TraceLevel.Info);
                 // Before the send, so the restart it causes is never read as a
-                // drop. See _firmwareUpdateSent.
+                // drop. It exempts nothing on its own: FlexLib must ALSO report
+                // the radio updating. See _firmwareUpdateSent.
                 _firmwareUpdateSent = true;
+                Radio sending = theRadio;
                 // FlexLib 4.2.x made this async Task where 4.1.x was fire-and-forget
                 // void. Completion is still watched via discovery, not this task —
                 // but a faulted transfer means the image never arrived, and that
                 // must be said out loud instead of letting the UI sit on "sending"
                 // (live run 2026-08-05: radio RST the upload socket 1.4s in and
                 // the flow sailed on to "waiting for restart").
-                theRadio.SendUpdateFile(path).ContinueWith(
+                //
+                // One continuation for EVERY outcome now, not only a fault: a
+                // task that completes successfully is not evidence an image was
+                // sent, and each completion has to settle the exemption flag.
+                _firmwareTransferSettled = sending.SendUpdateFile(path).ContinueWith(
                     t =>
                     {
-                        string detail = t.Exception?.GetBaseException().Message ?? Lexicon.Get("settings.firmware.unknown_error");
-                        Tracing.TraceLine($"BeginFirmwareUpdate: transfer task faulted: {detail}", TraceLevel.Error);
-                        ScreenReaderOutput.Speak(
-                            Lexicon.Get("settings.firmware.transfer_fault"),
-                            VerbosityLevel.Critical, true);
-                        try { onTransferFault?.Invoke(detail); }
-                        catch (Exception cbEx) { Tracing.TraceLine($"BeginFirmwareUpdate: fault callback threw: {cbEx.Message}", TraceLevel.Error); }
+                        if (t.IsFaulted)
+                        {
+                            string detail = t.Exception?.GetBaseException().Message ?? Lexicon.Get("settings.firmware.unknown_error");
+                            Tracing.TraceLine($"BeginFirmwareUpdate: transfer task faulted: {detail}", TraceLevel.Error);
+                            ScreenReaderOutput.Speak(
+                                Lexicon.Get("settings.firmware.transfer_fault"),
+                                VerbosityLevel.Critical, true);
+                            try { onTransferFault?.Invoke(detail); }
+                            catch (Exception cbEx) { Tracing.TraceLine($"BeginFirmwareUpdate: fault callback threw: {cbEx.Message}", TraceLevel.Error); }
+                        }
+                        settleFirmwareExemption(sending, t.IsFaulted);
                     },
-                    TaskContinuationOptions.OnlyOnFaulted);
+                    TaskScheduler.Default);
                 return true;
             }
             catch (Exception ex)
             {
+                // Nothing was sent, so nothing is restarting.
+                _firmwareUpdateSent = false;
                 Tracing.TraceLine($"BeginFirmwareUpdate: {ex.Message}", TraceLevel.Error);
                 return false;
             }
+        }
+
+        /// <summary>
+        /// The firmware transfer's task has completed, one way or another.
+        /// Keep the exemption only if FlexLib confirms the radio is updating;
+        /// otherwise nothing is restarting and a later fall of this connection
+        /// is a drop (Sol's review of H3, finding 6).
+        ///
+        /// <para>FlexLib's task completes SUCCESSFULLY on a missing file, on an
+        /// upgrade port it cannot parse, and after catching a failed transfer —
+        /// in the last case clearing its own updating flag first. Only a real
+        /// transfer leaves that flag set, and then the restart that follows
+        /// spends the exemption in <see cref="sealIfOurConnectionDropped"/>.</para>
+        /// </summary>
+        private void settleFirmwareExemption(Radio sending, bool faulted)
+        {
+            if (!faulted && RadioReportsUpdating(sending))
+            {
+                Tracing.TraceLine(
+                    "BeginFirmwareUpdate: transfer finished and FlexLib reports the radio updating — its restart will not be sealed as a drop",
+                    TraceLevel.Info);
+                return;
+            }
+            if (!_firmwareUpdateSent) return;
+            _firmwareUpdateSent = false;
+            Tracing.TraceLine(
+                "BeginFirmwareUpdate: the transfer ended without an update in progress ("
+                + (faulted ? "it faulted" : "FlexLib returned without sending, or caught a failed send")
+                + ") — a later loss of this connection is a drop again",
+                TraceLevel.Warning);
         }
 
         /// <summary>
