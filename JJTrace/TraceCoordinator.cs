@@ -340,6 +340,34 @@ namespace JJTrace
             new Dictionary<string, RetainedSeal>(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
+        /// True only when <paramref name="path"/> is KNOWN to hold no file: the
+        /// file system says nothing is there, or what is there is a directory.
+        /// Anything it cannot tell — access denied, a sharing violation, an I/O
+        /// error — answers false, so a doubtful path is treated as holding
+        /// evidence and stays protected.
+        ///
+        /// <para><b>Why a failed detach has to ask</b> (Sol's review of H14).
+        /// After a rotation's move succeeds, the old part is its own file with
+        /// its own ticket, and the live path may hold nothing at all. A seal
+        /// that then failed to move that nothing recorded it as retained
+        /// evidence, the retry's move failed forever for want of a source, and
+        /// every later Begin refused the path on the claim that it still held
+        /// a raw trace — which it did not. Retention protects bytes; with no
+        /// bytes there is nothing to protect, and a record of them is only a
+        /// permanent false refusal.</para>
+        /// </summary>
+        private static bool NoFileAt(string path)
+        {
+            try
+            {
+                return (File.GetAttributes(path) & FileAttributes.Directory) != 0;
+            }
+            catch (FileNotFoundException) { return true; }
+            catch (DirectoryNotFoundException) { return true; }
+            catch { return false; }
+        }
+
+        /// <summary>
         /// Tests only: the paths at which a failed detach left a sealed
         /// session's bytes, and that no open may truncate.
         /// </summary>
@@ -775,6 +803,20 @@ namespace JJTrace
             string detached = TraceFileNaming.Detach(r.SourcePath, target, deleteOnFailure: false,
                                                      out string moveFailure);
             Probe("reclaim:detached");
+            if (detached == null && NoFileAt(r.SourcePath))
+            {
+                // The retained file is no longer there — moved or deleted by
+                // something outside this process since the seal recorded it.
+                // There is nothing left to protect and nothing to move, so
+                // the record goes, and the open that follows is an ordinary
+                // one. Keeping it would refuse this path for the rest of the
+                // run over a file that does not exist.
+                _retainedAtPath.Remove(livePath);
+                faults.Add("TraceCoordinator: the raw trace of session " + r.Session.SessionId
+                           + " that an earlier seal could not move (" + r.MoveFailure + ") is no longer at "
+                           + r.SourcePath + "; nothing was reclaimed, and the path is no longer held for it");
+                return false;
+            }
             if (detached == null)
             {
                 r.MoveFailure = moveFailure;
@@ -1671,6 +1713,43 @@ namespace JJTrace
                 _captureStartedLocal = null;
                 _captureId = Guid.Empty;
                 _captureSessionId = Guid.Empty;
+            }
+
+            if (detached == null && NoFileAt(sourcePath))
+            {
+                // Nothing to detach because nothing is there. The case that
+                // reaches here: a rotation moved its part aside — that part
+                // has its own ticket already — and then could open nothing at
+                // the live path, so the sink closed with no file of its own.
+                // Recording this as retained evidence would make every later
+                // Begin refuse the path over a file that does not exist, with
+                // the reclaim retrying a move from nowhere for the rest of the
+                // process (Sol's review of H14). So nothing is retained,
+                // nothing is claimed kept, and the next Begin opens normally.
+                // The seal still failed at the detach: this session has no
+                // final part to archive, and that is what it reports.
+                faults.Add("TraceCoordinator: could not detach " + sourcePath + " (" + moveFailure
+                           + "); no trace file is there to keep, so nothing was retained and nothing"
+                           + " was archived for this seal, and the next Begin opens the path normally");
+                return new TraceTransitionResult
+                {
+                    Status = TraceTransition.Failed,
+                    FailedStage = "detach",
+                    RetainedSourcePath = null,
+                    ExpectedSessionId = expectedId,
+                    ObservedSessionId = observedId,
+                    TracingOn = false,
+                    TailUncertain = tailUncertain,
+                    SinkFault = sinkFault,
+                    SinkFailedBeforeSeal = sinkFailedBeforeSeal,
+                    FileFacts = fileFacts,
+                    EndedDetailedCapture = endedCapture,
+                    EndedCaptureId = endedCaptureId,
+                    EndedCaptureStartedLocal = endedCaptureStarted,
+                    Explanation = "TraceCoordinator: seal of " + sealing.SessionId
+                                  + " failed at detach; no trace file was at " + sourcePath
+                                  + ", so nothing was retained",
+                };
             }
 
             if (detached == null)

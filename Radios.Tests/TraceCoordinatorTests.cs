@@ -2408,10 +2408,107 @@ namespace Radios.Tests
                 Assert.False(TraceCoordinator.RecordingWithoutWaiting());
 
                 AssertPartOneArchived(part, a.SessionId, partPath, firstLine);
+
+                // ── Sol's review of H14: the retry must be able to open ──
+                // The retirement's seal could not detach the live path —
+                // but there is no trace file there, only the obstacle. It
+                // must not be recorded as retained evidence, or every later
+                // Begin refuses the path over a file that does not exist.
+                Assert.False(File.Exists(_livePath), "the precondition: no trace file at the live path");
+                Assert.DoesNotContain(_livePath, TraceCoordinator.RetainedEvidencePathsForTests);
+
+                // The obstacle goes, and the operator's off-and-on opens a
+                // fresh file: no refusal, no reclaim of a phantom, recording.
+                Directory.Delete(_livePath);
+                TraceTransitionResult on = TraceCoordinator.Begin(_livePath, TraceLevel.Info, asDetailedCapture: false);
+                Assert.Equal(TraceTransition.Accepted, on.Status);   // was Failed at "retained-evidence"
+                Assert.NotEqual("retained-evidence", on.FailedStage);
+                Assert.Null(on.RetainedSourcePath);
+                Assert.Null(on.Reclaimed);
+                Assert.True(on.TracingOn);
+                Assert.DoesNotContain("still holds the raw trace", on.SinkFault ?? "", StringComparison.Ordinal);
+                Assert.DoesNotContain(on.DeferredFaults ?? new List<string>(),
+                    f => f.Contains("still holds the raw trace", StringComparison.Ordinal)
+                         || f.Contains("still could not be moved aside", StringComparison.Ordinal));
+                TraceSessionHandle b = on.Successor;
+                Assert.NotNull(b);
+                Assert.NotEqual(a.SessionId, b.SessionId);
+                Assert.Equal(b.SessionId, TraceCoordinator.CurrentHandle?.SessionId);
+                Assert.Empty(TraceCoordinator.RetainedEvidencePathsForTests);
+
+                Write("a line after the retry");
+                Trace.Flush();
+                Assert.True(File.Exists(_livePath), "the retry opened no file at the live path");
+                Assert.Contains("a line after the retry", ReadLiveText(_livePath), StringComparison.Ordinal);
+                Assert.True(TraceCoordinator.Recording);
+                Assert.Equal(TraceSinkState.Recording, TraceRecordingHealth.Snapshot().SinkState);
+                Assert.Equal(b.SessionId, TraceRecordingHealth.Snapshot().LiveSessionId);
             }
             finally
             {
                 Tracing.RotationThresholdBytes = savedThreshold;
+            }
+        }
+
+        /// <summary>
+        /// <b>Sol's review of H14, the reclaim half.</b> A genuine retained
+        /// file — the detach failed with the bytes present — whose file then
+        /// disappears from outside the process. The reclaim's move now fails
+        /// for want of a source, not for the obstacle, and must clear the
+        /// record rather than refuse the path forever. The stamped target is
+        /// kept blocked throughout, so what clears the record is the absence,
+        /// not a move that succeeded.
+        ///
+        /// <para>The positive control is the first half: with the file still
+        /// there, the open is refused and the bytes are untouched — H9's guard,
+        /// unchanged.</para>
+        /// </summary>
+        [Fact]
+        public void A_retained_file_that_disappears_is_released_by_the_next_Begin_instead_of_refused_forever()
+        {
+            TraceSessionHandle a = Open();
+            Write("what A managed to write");
+            string aTarget = TraceFileNaming.StampedPath(_livePath, TraceCoordinator.Observe().SessionBootTimeUtc.Value);
+            Directory.CreateDirectory(aTarget);
+            try
+            {
+                using var held = new HeldFaultRetire();
+                BreakTheLiveSink();
+                Write("the write that fails");
+                held.Run();   // seals A, cannot move it: the bytes are REAL, so they are retained
+                Assert.Contains(_livePath, TraceCoordinator.RetainedEvidencePathsForTests);
+                string retained = File.ReadAllText(_livePath);
+                Assert.Contains("what A managed to write", retained, StringComparison.Ordinal);
+
+                // Positive control: real bytes still refuse a truncating open.
+                TraceTransitionResult refused = TraceCoordinator.Begin(_livePath, TraceLevel.Info, asDetailedCapture: false);
+                Assert.Equal(TraceTransition.Failed, refused.Status);
+                Assert.Equal("retained-evidence", refused.FailedStage);
+                Assert.Equal(retained, File.ReadAllText(_livePath));
+                Assert.Contains(_livePath, TraceCoordinator.RetainedEvidencePathsForTests);
+
+                // The file goes, from outside; the target is still blocked.
+                File.Delete(_livePath);
+
+                TraceTransitionResult on = TraceCoordinator.Begin(_livePath, TraceLevel.Info, asDetailedCapture: false);
+                Assert.Equal(TraceTransition.Accepted, on.Status);   // was Failed at "retained-evidence", forever
+                Assert.Null(on.Reclaimed);
+                Assert.True(on.TracingOn);
+                Assert.Empty(TraceCoordinator.RetainedEvidencePathsForTests);
+                Assert.Contains(on.DeferredFaults, f => f.Contains(a.SessionId.ToString(), StringComparison.Ordinal)
+                                                        && f.Contains("is no longer at", StringComparison.Ordinal));
+                Assert.DoesNotContain(on.DeferredFaults,
+                    f => f.Contains("still could not be moved aside", StringComparison.Ordinal));
+                Assert.True(Directory.Exists(aTarget), "the target was unblocked, so this proves nothing about absence");
+
+                Write("a line after the release");
+                Trace.Flush();
+                Assert.Contains("a line after the release", ReadLiveText(_livePath), StringComparison.Ordinal);
+                Assert.Equal(on.Successor.SessionId, TraceCoordinator.CurrentHandle?.SessionId);
+            }
+            finally
+            {
+                try { Directory.Delete(aTarget); } catch { }
             }
         }
 
