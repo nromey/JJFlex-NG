@@ -74,6 +74,17 @@ namespace JJTrace
         /// <summary>A ticket that was at risk has its record or its archive.</summary>
         ConditionResolved,
 
+        /// <summary>
+        /// A ticket that was already at risk has got worse in a way the
+        /// operator's entry must follow: its archive has now failed. Raised so
+        /// a Problems entry composed while the archive was still pending —
+        /// "still filing it in the background" — is replaced rather than left
+        /// standing over a worker that has stopped (Sol's review of H7,
+        /// finding 4). Not a new problem: whoever reports these must update,
+        /// not announce.
+        /// </summary>
+        ConditionUpdated,
+
         /// <summary>The live sink failed: nothing is being written.</summary>
         SinkFailed,
 
@@ -312,16 +323,21 @@ namespace JJTrace
                     _unresolved[ticket.TicketId] = condition;
                     _order.Add(ticket.TicketId);
                 }
+                bool becameArchiveFailure = condition.ArchiveFailureStage == null;
                 condition.RawRetained = completion.RawRetained;
-                condition.ArchiveFailureStage = completion.FailureStage;
+                condition.ArchiveFailureStage = completion.FailureStage ?? "unknown";
                 condition.ArchiveFailureMessage = completion.FailureMessage;
                 RecordFailureLocked("archive not committed (" + (completion.FailureStage ?? "unknown")
                                     + ") for " + ticket.SourcePath);
-                if (isNew)
+                if (isNew || becameArchiveFailure)
                 {
+                    // New: the operator has not heard of this ticket. Existing
+                    // and newly failed: they have, and what they were told —
+                    // that it is still being filed — is no longer true.
                     change = new TraceRecordingHealthChange
                     {
-                        Kind = TraceRecordingHealthChangeKind.ConditionRaised,
+                        Kind = isNew ? TraceRecordingHealthChangeKind.ConditionRaised
+                                     : TraceRecordingHealthChangeKind.ConditionUpdated,
                         Condition = condition.Clone(),
                         Snapshot = SnapshotLocked(),
                     };

@@ -39,6 +39,7 @@ namespace Radios
             switch (change.Kind)
             {
                 case TraceRecordingHealthChangeKind.ConditionRaised:
+                case TraceRecordingHealthChangeKind.ConditionUpdated:
                     {
                         TraceRecoveryCondition c = change.Condition;
                         if (c == null) return null;
@@ -242,16 +243,26 @@ namespace Radios
     /// The Problems list IS the arriving surface: a missed announcement costs
     /// nothing, because the entry is there to be read afterwards.</para>
     ///
-    /// <para><b>Deduplicated twice.</b> The health model raises a change only
-    /// when a condition is raised or the sink's state moves; this watch then
-    /// reports each ticket's condition at most once, whatever the model says
-    /// later about the same ticket.</para>
+    /// <para><b>Deduplicated as a NOTIFICATION, not frozen as a sentence.</b>
+    /// The health model raises a change when a condition is raised, when it
+    /// is updated, when it resolves, and when the sink's state moves. This
+    /// watch reports each ticket ONCE as a new problem — that is the
+    /// announcement — and thereafter UPDATES that ticket's entry in place, so
+    /// what the operator reads follows the ticket. Track H7 reported each
+    /// ticket once and then ignored it, so an entry composed while the
+    /// archive was pending ("still filing it in the background") stood for
+    /// the rest of the session after the worker had given up (Sol's review of
+    /// H7, finding 4). The key that ties the entry to the ticket is
+    /// <see cref="KeyFor"/>.</para>
     /// </summary>
     public static class RecordingHealthWatch
     {
         private static readonly object _gate = new object();
         private static readonly HashSet<Guid> _reportedTickets = new HashSet<Guid>();
         private static bool _installed;
+
+        /// <summary>The Problems-list key for one ticket.</summary>
+        public static string KeyFor(Guid ticketId) => "recording-recovery:" + ticketId.ToString("N");
 
         /// <summary>Wire the watch. Idempotent.</summary>
         public static void Install()
@@ -277,12 +288,23 @@ namespace Radios
                 var announcement = RecordingHealthNotice.Announcement(change);
                 if (announcement == null) return;
 
-                if (change.Kind == TraceRecordingHealthChangeKind.ConditionRaised && change.Condition != null)
+                if ((change.Kind == TraceRecordingHealthChangeKind.ConditionRaised
+                     || change.Kind == TraceRecordingHealthChangeKind.ConditionUpdated)
+                    && change.Condition != null)
                 {
-                    lock (_gate)
-                    {
-                        if (!_reportedTickets.Add(change.Condition.TicketId)) return;
-                    }
+                    // First time for this ticket: a new problem, keyed so it
+                    // can be followed. Any later time — an update, or a fresh
+                    // raise for a ticket whose earlier condition had resolved
+                    // and whose archive has now failed — replaces the entry
+                    // and is not announced again.
+                    bool first;
+                    lock (_gate) { first = _reportedTickets.Add(change.Condition.TicketId); }
+                    string key = KeyFor(change.Condition.TicketId);
+                    if (first)
+                        OperationFailure.ReportKeyed(announcement.Value.Kind, announcement.Value.What, announcement.Value.Detail, key);
+                    else
+                        OperationFailure.UpdateKeyed(announcement.Value.Kind, announcement.Value.What, announcement.Value.Detail, key);
+                    return;
                 }
 
                 OperationFailure.Report(announcement.Value.Kind, announcement.Value.What, announcement.Value.Detail);

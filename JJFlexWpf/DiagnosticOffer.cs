@@ -161,7 +161,16 @@ namespace JJFlexWpf
                 // RECORD FIRST, unconditionally, before any judgement about
                 // whether to speak. Everything below can decide to stay quiet;
                 // none of it may decide to forget.
-                ProblemLog.Record(e.Kind, e.What, e.Detail);
+                //
+                // An UPDATE replaces the entry for its key and is never spoken:
+                // the operator already heard there was a problem with this
+                // thing, and what changed is what to do about it, which they
+                // read on demand. Only if there is no entry to replace — the
+                // original was pushed out, or reported before this was
+                // listening — is it new to the list, and then it is treated
+                // as such (Sprint 45 Track H8, Sol's review of H7, finding 4).
+                if (e.IsUpdate && ProblemLog.Update(e.Key!, e.What, e.Detail)) return;
+                ProblemLog.Record(e.Kind, e.What, e.Detail, e.Key);
 
                 if (!ShouldAnnounce(e.Kind)) return;
 

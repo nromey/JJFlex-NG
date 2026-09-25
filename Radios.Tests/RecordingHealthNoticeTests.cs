@@ -165,6 +165,85 @@ namespace Radios.Tests
         }
 
         /// <summary>
+        /// <b>Sol's review of H7, finding 4.</b> A ticket reported while its
+        /// archive was pending is reported ONCE as a new problem, keyed; when
+        /// the archive then fails, the same key is UPDATED with the
+        /// archive-failed sentences — "still filing it in the background" is
+        /// gone, "could not be filed" is there — and nothing is reported as
+        /// new a second time. The same holds when the earlier condition had
+        /// resolved (the worker's retry wrote the record) and the archive
+        /// failed afterwards: under H7 that second raise was swallowed by the
+        /// once-per-ticket rule and the operator's entry never learned of it.
+        /// </summary>
+        [Fact]
+        public void A_pending_entry_follows_its_ticket_into_archive_failure_without_a_second_announcement()
+        {
+            var reports = new List<OperationFailureEventArgs>();
+            void OnReported(object s, OperationFailureEventArgs e) { lock (reports) reports.Add(e); }
+            OperationFailure.Reported += OnReported;
+            RecordingHealthWatch.Install();
+            try
+            {
+                TraceArchiveTicket ticket = TicketAt(@"C:\t\a.txt", recordWritten: false);
+                Invoke("NoteDetached", ticket);
+                Invoke("NoteArchiveOutcome", ticket, new TraceArchiveCompletion
+                {
+                    TicketId = ticket.TicketId,
+                    ArchiveCommitted = false,
+                    RawRetained = true,
+                    RawPath = ticket.SourcePath,
+                    FailureStage = "compress",
+                    FailureMessage = "disk full",
+                });
+
+                OperationFailureEventArgs first, second;
+                lock (reports)
+                {
+                    Assert.Equal(2, reports.Count);
+                    first = reports[0];
+                    second = reports[1];
+                }
+                _out.WriteLine(first.What + " — " + first.Detail);
+                _out.WriteLine(second.What + " — " + second.Detail);
+
+                Assert.False(first.IsUpdate);
+                Assert.Equal(RecordingHealthWatch.KeyFor(ticket.TicketId), first.Key);
+                Assert.Contains("still filing", first.Detail, StringComparison.Ordinal);
+
+                Assert.True(second.IsUpdate);
+                Assert.Equal(first.Key, second.Key);
+                Assert.Equal(FailureKind.RecordingRecoveryAtRisk, second.Kind);
+                Assert.Contains("could not be filed", second.What, StringComparison.Ordinal);
+                Assert.Contains("compressed", second.Detail, StringComparison.Ordinal);
+                Assert.Contains(@"C:\t\a.txt", second.Detail, StringComparison.Ordinal);
+                Assert.DoesNotContain("still filing", second.Detail, StringComparison.Ordinal);
+                Assert.DoesNotContain("will not be filed", second.Detail, StringComparison.Ordinal);
+
+                // Resolved, then failed: the fresh raise is an update too.
+                TraceArchiveTicket later = TicketAt(@"C:\t\b.txt", recordWritten: false);
+                Invoke("NoteDetached", later);
+                Invoke("NoteRecoveryRecordPersisted", later);
+                Assert.DoesNotContain(TraceRecordingHealth.Snapshot().Unresolved, c => c.TicketId == later.TicketId);
+                Invoke("NoteArchiveOutcome", later, new TraceArchiveCompletion
+                {
+                    TicketId = later.TicketId, ArchiveCommitted = false, RawRetained = true,
+                    RawPath = later.SourcePath, FailureStage = "manifest", FailureMessage = "locked",
+                });
+                lock (reports)
+                {
+                    Assert.Equal(4, reports.Count);
+                    Assert.False(reports[2].IsUpdate);
+                    Assert.True(reports[3].IsUpdate);
+                    Assert.Equal(reports[2].Key, reports[3].Key);
+                    Assert.Contains("could not be filed", reports[3].What, StringComparison.Ordinal);
+                    // Exactly one NEW report per ticket, ever.
+                    Assert.Equal(2, reports.Count(r => !r.IsUpdate));
+                }
+            }
+            finally { OperationFailure.Reported -= OnReported; }
+        }
+
+        /// <summary>
         /// The drop dialog's notice carries ONE caveat, the tail, as one more
         /// paragraph, only when it holds — the ordinary window's prose is
         /// untouched — and that paragraph claims neither that the index file
