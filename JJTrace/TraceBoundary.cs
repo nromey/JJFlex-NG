@@ -301,6 +301,21 @@ namespace JJTrace
         /// <summary>The sink's latched fault, when <see cref="TailUncertain"/>.</summary>
         public string SinkFault { get; internal set; }
 
+        /// <summary>
+        /// The committed archive's full path, or null until the manifest
+        /// commit has happened. Set by <see cref="SessionArchive"/> under its
+        /// late-evidence gate, in the same locked step that moves any
+        /// late-evidence file from beside <see cref="SourcePath"/> to beside
+        /// the zip — and BEFORE <see cref="Completion"/> is published, which
+        /// is why it exists apart from the completion: a late-evidence writer
+        /// whose wait has just expired reads THIS under the same gate, so it
+        /// either sees the archive and writes beside it, or wrote beside the
+        /// raw file before the commit and that same locked step carries the
+        /// file across. Nothing else should read it (Sol's review of H10,
+        /// blocker 3).
+        /// </summary>
+        public string CommittedArchivePath { get; internal set; }
+
         /// <summary>Completes when the archive worker has finished with this
         /// ticket, one way or the other.</summary>
         public Task<TraceArchiveCompletion> Completion { get; internal set; }

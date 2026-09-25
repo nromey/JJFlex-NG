@@ -47,6 +47,15 @@ namespace JJTrace
         /// <summary>Past the ordinary window, but no archive holds it, so it is
         /// still the only copy. Kept, and worth reporting.</summary>
         KeptBecauseUnarchived,
+
+        /// <summary>
+        /// A late-evidence file beside a raw trace whose archive has
+        /// committed. It is not aged out and not left: the sweep carries it
+        /// beside that archive (<see cref="SessionArchive.ReHomeLateEvidence"/>),
+        /// where the zip's delete, prune and KeptForever cover it from then
+        /// on (Sol's review of H10, blocker 3).
+        /// </summary>
+        FollowsArchive,
     }
 
     /// <summary>
@@ -252,6 +261,18 @@ namespace JJTrace
         ///
         /// <para>Pinned files and files with pending work are always kept, as
         /// before.</para>
+        ///
+        /// <para><b>A late-evidence file has no lifetime of its own</b> (Sol's
+        /// review of H10, blocker 3). It matches the sweep's glob, is in no
+        /// manifest, and so read as an unarchived trace that ages out at
+        /// thirty days — while the archive it describes might be kept for
+        /// ever. It now takes its verdict from the file it sits beside: the
+        /// owner pinned or pending, keep; the owner archived, carry the file
+        /// to the archive's side rather than delete it; the owner still on
+        /// disk and unarchived, keep for as long as the owner is; only an
+        /// orphan — owner gone, no archive — is judged on its own age, by the
+        /// unarchived rule, because it is then the only copy of whatever it
+        /// holds.</para>
         /// </summary>
         /// <param name="archivedSourceNames">File names the manifest already
         /// archives. Null (the manifest could not be read) is treated as
@@ -263,6 +284,19 @@ namespace JJTrace
                                                                    ISet<string> archivedSourceNames)
         {
             if (string.IsNullOrEmpty(fullPath) || retentionDays <= 0) return PlainTextTraceVerdict.Keep;
+            if (SessionArchive.IsLateEvidencePath(fullPath))
+            {
+                string owner = SessionArchive.LateEvidenceOwnerOf(fullPath);
+                if (owner != null)
+                {
+                    if (TraceEvidencePins.IsPinned(owner) || IsPendingWork(owner)) return PlainTextTraceVerdict.Keep;
+                    if (archivedSourceNames != null && archivedSourceNames.Contains(Path.GetFileName(owner)))
+                        return PlainTextTraceVerdict.FollowsArchive;
+                    if (SafeExists(owner)) return PlainTextTraceVerdict.Keep;
+                }
+                // An orphan: judged below on its own age, as the unarchived
+                // trace it now effectively is.
+            }
             if (TraceEvidencePins.IsPinned(fullPath) || IsPendingWork(fullPath)) return PlainTextTraceVerdict.Keep;
             if (lastWriteUtc >= nowUtc.AddDays(-retentionDays)) return PlainTextTraceVerdict.Keep;
 

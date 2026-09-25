@@ -1877,6 +1877,7 @@ Module globals
             ' itself would be (Sol's review of H3, finding 4).
             Dim archived As HashSet(Of String) = SessionArchive.ArchivedSourceNames(TraceArchiveDir)
             Dim keptUnarchived As Integer = 0
+            Dim reHomed As Integer = 0
             Dim patterns As New List(Of String) From {$"{DailyTraceFilePrefix}-*.txt"}
             Dim instanceStem As String = $"{LiveTraceStem}-*.txt"
             If Not patterns.Contains(instanceStem) Then patterns.Add(instanceStem)
@@ -1898,6 +1899,12 @@ Module globals
                                 File.Delete(path)
                             Case PlainTextTraceVerdict.KeptBecauseUnarchived
                                 keptUnarchived += 1
+                            Case PlainTextTraceVerdict.FollowsArchive
+                                ' A late-evidence file beside a raw trace whose archive has
+                                ' committed. It belongs beside that archive, where the zip's
+                                ' delete, prune and KeptForever cover it, and is carried there
+                                ' rather than aged out here (Sol's review of H10, blocker 3).
+                                If SessionArchive.ReHomeLateEvidence(TraceArchiveDir, path) Then reHomed += 1
                         End Select
                     Catch ex As Exception
                         Tracing.ErrTraceOnly(ex)
@@ -1909,6 +1916,12 @@ Module globals
                     $"PrunePlainTextTracesOlderThan: kept {keptUnarchived} plain-text trace(s) past the " &
                     $"{retentionDays}-day window because no archive holds them — they are the only copy",
                     TraceLevel.Warning)
+            End If
+            If reHomed > 0 Then
+                Tracing.TraceLine(
+                    $"PrunePlainTextTracesOlderThan: moved {reHomed} late-evidence file(s) from beside their raw " &
+                    "trace to beside its committed archive, so they live and die with it",
+                    TraceLevel.Info)
             End If
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)

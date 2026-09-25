@@ -732,16 +732,11 @@ namespace JJTrace
             _retainedAtPath.Remove(livePath);
             // Late evidence written beside the retained file while it sat at
             // the live path goes with it, so it stays beside the session it
-            // describes. Best effort: the reclaim is the operation.
-            try
-            {
-                string side = SessionArchive.LateEvidencePathFor(r.SourcePath);
-                if (side != null && File.Exists(side))
-                {
-                    File.Move(side, SessionArchive.LateEvidencePathFor(detached));
-                }
-            }
-            catch (Exception ex) { faults.Add("TraceCoordinator: the late-evidence file beside the reclaimed trace could not be moved with it: " + ex.Message); }
+            // describes — and when this ticket's archive commits, the same
+            // file is carried on to the zip's side by the archive-completion
+            // step (Sol's review of H10, blocker 3). Best effort: the
+            // reclaim is the operation.
+            SessionArchive.MoveLateEvidenceBeside(r.SourcePath, detached);
             var ticket = new TraceArchiveTicket
             {
                 SessionId = r.Session.SessionId,
@@ -797,6 +792,20 @@ namespace JJTrace
         /// place. Called from the drop's seal worker, which may wait — it is
         /// the thread whose job that is — and never from a transport
         /// thread.</para>
+        ///
+        /// <para><b>And a file written beside the raw trace follows its
+        /// archive for the rest of its life</b> (Sol's review of H10,
+        /// blocker 3). H10 left it where it was written: when the wait ran
+        /// out, or the detach had failed and the reclaim had carried it to
+        /// the raw path, a commit that came later never moved it, so the
+        /// plain-text sweep aged it out at thirty days while the zip was kept
+        /// — forever, if the operator had said so. Now the archive commit
+        /// itself carries the file across (<c>SessionArchive.NoteArchiveCommitted</c>),
+        /// the write and that move share one gate so neither can miss the
+        /// other, and the sweep, if it ever meets a raw-side file whose
+        /// archive has committed, re-homes it instead of deleting it. Where
+        /// the file is written is now only a question of WHEN; where it ends
+        /// up is not.</para>
         /// </summary>
         /// <param name="session">The session the line describes.</param>
         /// <param name="text">The line, without its trace prefix; one is
@@ -821,53 +830,24 @@ namespace JJTrace
                 }
             }
 
-            string beside;
+            string line = Tracing.TracePrefix() + text;
             if (ticket != null)
             {
-                TraceArchiveCompletion done = null;
                 try
                 {
-                    if (ticket.Completion != null && ticket.Completion.Wait(archiveWait)) done = ticket.Completion.Result;
+                    if (ticket.Completion != null) ticket.Completion.Wait(archiveWait);
                 }
-                catch { /* not committed as far as this caller can tell */ }
-                beside = done != null && done.ArchiveCommitted && !string.IsNullOrEmpty(done.ArchiveFullPath)
-                    ? done.ArchiveFullPath
-                    : ticket.SourcePath;
+                catch { /* failed or not committed as far as this caller can tell; the ticket's own stamp decides below */ }
+                // Which side is decided under the late-evidence gate from
+                // the ticket's commit stamp — not from the completion, which
+                // is published only after the stamp and the move.
+                return SessionArchive.KeepLateEvidence(ticket, session.SessionId, line);
             }
-            else if (retained != null)
+            if (retained != null)
             {
-                beside = retained.SourcePath;
+                return SessionArchive.KeepLateEvidenceBeside(retained.SourcePath, session.SessionId, line);
             }
-            else
-            {
-                return null;
-            }
-
-            string path = SessionArchive.LateEvidencePathFor(beside);
-            if (path == null) return null;
-            try
-            {
-                bool fresh = !File.Exists(path);
-                using (var fs = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read))
-                using (var w = new StreamWriter(fs, new System.Text.UTF8Encoding(false)))
-                {
-                    if (fresh)
-                    {
-                        w.WriteLine("Late evidence for trace session " + session.SessionId + ". The lines below were"
-                                    + " formatted while that session was recording and arrived after another operation"
-                                    + " had already sealed it, so they could not be written into its own file ("
-                                    + Path.GetFileName(beside) + ") and are kept here beside it. Each carries its own"
-                                    + " trace prefix.");
-                    }
-                    w.WriteLine(Tracing.TracePrefix() + text);
-                }
-                return path;
-            }
-            catch (Exception ex)
-            {
-                Tracing.ErrTraceOnly(ex);
-                return null;
-            }
+            return null;
         }
 
         // ── Draining deferred lines ────────────────────────────────────────

@@ -324,6 +324,18 @@ namespace JJTrace
                     return completion;
                 }
 
+                // THE ARCHIVE-COMPLETION TRANSITION FOR LATE EVIDENCE (Sol's
+                // review of H10, blocker 3). A late-evidence file written
+                // beside the raw source — because its writer's wait expired,
+                // or the seal's detach had failed and the reclaim carried it
+                // to the raw path — now follows the archive it belongs to,
+                // in the same locked step that stamps the ticket, so from
+                // here on the zip's delete, prune and KeptForever cover it
+                // and the plain-text sweep never sees it as a stray. Before
+                // the completion is published, on purpose: see the stamp's
+                // own note on the ticket.
+                NoteArchiveCommitted(ticket, fullPath);
+
                 TraceArchiveWorker.ReleasePendingRecord(ticket.SourcePath);
                 return completion;
             }
@@ -578,6 +590,25 @@ namespace JJTrace
         /// </summary>
         public const string LateEvidenceSuffix = ".late-evidence.txt";
 
+        /// <summary>The first line of every late-evidence file, which names
+        /// the session. A merge recognises a second copy of it by this.</summary>
+        private const string LateEvidenceHeaderPrefix = "Late evidence for trace session ";
+
+        /// <summary>
+        /// One gate for every append to, move of, or merge of a late-evidence
+        /// file, process-wide (Sol's review of H10, blocker 3). The archive
+        /// commit and a writer whose wait has just expired race at exactly
+        /// the moment that matters: without one gate the writer could create
+        /// a raw-side file an instant after the commit's move looked and
+        /// found nothing, or the move could fail on a file the writer still
+        /// held open — and either way the evidence sat beside a raw trace
+        /// that the sweep would age out. Under the gate the writer reads the
+        /// ticket's commit stamp and the mover sees the writer's finished
+        /// file; there is no third case. It also serialises two appends for
+        /// one session, which Sol noted as a follow-up.
+        /// </summary>
+        private static readonly object _lateEvidenceGate = new object();
+
         /// <summary>
         /// Where late evidence for the session archived at, or retained at,
         /// <paramref name="archiveOrRawPath"/> lives: the zip's name with
@@ -594,6 +625,194 @@ namespace JJTrace
                 : archiveOrRawPath + LateEvidenceSuffix;
         }
 
+        /// <summary>True for a path named by <see cref="LateEvidencePathFor"/>.</summary>
+        public static bool IsLateEvidencePath(string path) =>
+            !string.IsNullOrEmpty(path) && path.EndsWith(LateEvidenceSuffix, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// The file a late-evidence file sits beside — the inverse of
+        /// <see cref="LateEvidencePathFor"/>: a raw trace when the stem still
+        /// ends in <c>.txt</c>, otherwise the zip. Null for a path that is not
+        /// a late-evidence file.
+        /// </summary>
+        public static string LateEvidenceOwnerOf(string lateEvidencePath)
+        {
+            if (!IsLateEvidencePath(lateEvidencePath)) return null;
+            string stem = lateEvidencePath.Substring(0, lateEvidencePath.Length - LateEvidenceSuffix.Length);
+            return stem.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) ? stem : stem + ".zip";
+        }
+
+        /// <summary>
+        /// Keep one line of late evidence for a ticketed session, beside its
+        /// committed archive if the commit has happened and beside its raw
+        /// file if not — decided under the gate from the ticket's own stamp,
+        /// never from its completion task, which is published only after the
+        /// stamp and the move. Returns the path written, or null on failure.
+        /// </summary>
+        /// <param name="prefixedLine">The line, trace prefix included.</param>
+        internal static string KeepLateEvidence(TraceArchiveTicket ticket, Guid sessionId, string prefixedLine)
+        {
+            if (ticket == null || string.IsNullOrEmpty(prefixedLine)) return null;
+            lock (_lateEvidenceGate)
+            {
+                return AppendLateEvidenceLocked(ticket.CommittedArchivePath ?? ticket.SourcePath, sessionId, prefixedLine);
+            }
+        }
+
+        /// <summary>
+        /// Keep one line of late evidence beside a file that has no ticket:
+        /// a retained seal's file, still at the live path because its
+        /// detach failed. The reclaim carries the file to the raw path and
+        /// the archive commit carries it on from there.
+        /// </summary>
+        internal static string KeepLateEvidenceBeside(string besidePath, Guid sessionId, string prefixedLine)
+        {
+            if (string.IsNullOrEmpty(besidePath) || string.IsNullOrEmpty(prefixedLine)) return null;
+            lock (_lateEvidenceGate)
+            {
+                return AppendLateEvidenceLocked(besidePath, sessionId, prefixedLine);
+            }
+        }
+
+        /// <summary>Caller holds the gate. Append, writing the header first
+        /// when the file is new.</summary>
+        private static string AppendLateEvidenceLocked(string beside, Guid sessionId, string prefixedLine)
+        {
+            string path = LateEvidencePathFor(beside);
+            if (path == null) return null;
+            try
+            {
+                bool fresh = !File.Exists(path);
+                using (var fs = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read))
+                using (var w = new StreamWriter(fs, new System.Text.UTF8Encoding(false)))
+                {
+                    if (fresh)
+                    {
+                        w.WriteLine(LateEvidenceHeaderPrefix + sessionId + ". The lines below were"
+                                    + " formatted while that session was recording and arrived after another operation"
+                                    + " had already sealed it, so they could not be written into its own file ("
+                                    + Path.GetFileName(beside) + ") and are kept here beside it. Each carries its own"
+                                    + " trace prefix.");
+                    }
+                    w.WriteLine(prefixedLine);
+                }
+                return path;
+            }
+            catch (Exception ex)
+            {
+                Tracing.ErrTraceOnly(ex);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// The archive-completion transition: stamp the ticket with its
+        /// committed archive and carry any late-evidence file from beside the
+        /// raw source to beside the zip, as one locked step. Called by
+        /// <see cref="ArchiveTicket"/> the moment the manifest commit
+        /// succeeds, before the completion is published.
+        /// </summary>
+        internal static void NoteArchiveCommitted(TraceArchiveTicket ticket, string archiveFullPath)
+        {
+            if (ticket == null || string.IsNullOrEmpty(archiveFullPath)) return;
+            lock (_lateEvidenceGate)
+            {
+                ticket.CommittedArchivePath = archiveFullPath;
+                MoveLateEvidenceLocked(LateEvidencePathFor(ticket.SourcePath), LateEvidencePathFor(archiveFullPath));
+            }
+        }
+
+        /// <summary>
+        /// Carry the late-evidence file beside <paramref name="fromOwner"/>
+        /// to beside <paramref name="toOwner"/>, if there is one. Used by the
+        /// coordinator when a reclaim moves a retained file from the live
+        /// path to its raw path. True when a file was moved or merged.
+        /// </summary>
+        internal static bool MoveLateEvidenceBeside(string fromOwner, string toOwner)
+        {
+            lock (_lateEvidenceGate)
+            {
+                return MoveLateEvidenceLocked(LateEvidencePathFor(fromOwner), LateEvidencePathFor(toOwner));
+            }
+        }
+
+        /// <summary>
+        /// Caller holds the gate. Move <paramref name="from"/> to
+        /// <paramref name="to"/>; when both exist — a line arrived beside the
+        /// zip after the commit and a raw-side file from before it turns up
+        /// later — the raw-side lines are appended under the existing header,
+        /// with one line saying where they came from, and the raw-side file
+        /// is deleted. One file, one header, nothing dropped.
+        /// </summary>
+        private static bool MoveLateEvidenceLocked(string from, string to)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(from) || string.IsNullOrEmpty(to)) return false;
+                if (string.Equals(from, to, StringComparison.OrdinalIgnoreCase)) return false;
+                if (!File.Exists(from)) return false;
+                if (!File.Exists(to))
+                {
+                    File.Move(from, to);
+                    return true;
+                }
+                string[] lines = File.ReadAllLines(from);
+                using (var fs = new FileStream(to, FileMode.Append, FileAccess.Write, FileShare.Read))
+                using (var w = new StreamWriter(fs, new System.Text.UTF8Encoding(false)))
+                {
+                    w.WriteLine("(the lines below were first kept beside " + Path.GetFileName(from)
+                                + " and moved here to follow the session's archive)");
+                    for (int i = 0; i < lines.Length; i++)
+                    {
+                        if (i == 0 && lines[i].StartsWith(LateEvidenceHeaderPrefix, StringComparison.Ordinal)) continue;
+                        w.WriteLine(lines[i]);
+                    }
+                }
+                File.Delete(from);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Tracing.ErrTraceOnly(ex);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// For the plain-text sweep: a late-evidence file found beside a raw
+        /// trace whose archive has committed (a crash between the commit and
+        /// <see cref="NoteArchiveCommitted"/>'s move, say) is carried beside
+        /// that archive, found through the manifest by the raw file's name.
+        /// True when it was moved or merged; false when its owner is not
+        /// archived, the zip is missing, or there was nothing to move.
+        /// </summary>
+        public static bool ReHomeLateEvidence(string archiveRootDir, string lateEvidencePath)
+        {
+            try
+            {
+                string owner = LateEvidenceOwnerOf(lateEvidencePath);
+                if (owner == null || owner.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) return false;
+                if (string.IsNullOrEmpty(archiveRootDir) || !File.Exists(lateEvidencePath)) return false;
+                string manifestPath = Path.Combine(archiveRootDir, ManifestFileName);
+                if (!File.Exists(manifestPath)) return false;
+                TraceManifest manifest = TraceManifest.Load(manifestPath);
+                if (manifest?.Entries == null) return false;
+                string ownerName = Path.GetFileName(owner);
+                TraceSessionEntry entry = manifest.Entries.FirstOrDefault(e =>
+                    e != null && !string.IsNullOrEmpty(e.Filename)
+                    && string.Equals(e.SourceName, ownerName, StringComparison.OrdinalIgnoreCase));
+                if (entry == null) return false;
+                string zip = Path.Combine(archiveRootDir, entry.Filename.Replace('/', Path.DirectorySeparatorChar));
+                if (!File.Exists(zip)) return false;
+                return MoveLateEvidenceBeside(owner, zip);
+            }
+            catch (Exception ex)
+            {
+                Tracing.ErrTraceOnly(ex);
+                return false;
+            }
+        }
+
         /// <summary>Delete the late-evidence file beside an archive that is
         /// being deleted, if there is one. Best effort; the archive's own
         /// deletion is the operation, this is tidying after it.</summary>
@@ -602,7 +821,11 @@ namespace JJTrace
             try
             {
                 string side = LateEvidencePathFor(archiveFullPath);
-                if (side != null && File.Exists(side)) File.Delete(side);
+                if (side == null) return;
+                lock (_lateEvidenceGate)
+                {
+                    if (File.Exists(side)) File.Delete(side);
+                }
             }
             catch (Exception ex) { Tracing.ErrTraceOnly(ex); }
         }
