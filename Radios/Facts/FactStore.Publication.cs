@@ -669,11 +669,31 @@ namespace Radios.Facts
             if (!decision.SameProcess)
             {
                 // Across a restart the grant is history. The record says what
-                // it was: paused, or simply not re-granted.
-                decision.Pause = prior.Pause != PauseCause.None ? PauseCause.ContinuityInherited : PauseCause.ContinuityAcrossRestart;
+                // it was: PAUSED — by the operator, by an attempt that stopped
+                // for no known reason, or by an older format that recorded a
+                // pause without its cause — or simply not re-granted. A hold
+                // for unknown, lost or unestablished continuity is not a pause,
+                // and "when it had been paused" must not be said of it.
+                decision.Pause = EstablishedPause(prior.Pause) ? PauseCause.ContinuityInherited : PauseCause.ContinuityAcrossRestart;
+            }
+            else if (decision.Predecessor!.Grants.Count == 0)
+            {
+                // In the same process a predecessor that held no permission
+                // at all passes on the reason it held none, so the successor's
+                // row can still say why it is not announced.
+                decision.Pause = decision.Predecessor.ContinuityPause;
             }
             return null;
         }
+
+        /// <summary>
+        /// The causes that mean automatic presentation WAS paused — as opposed
+        /// to held for want of an established continuity or onset. Only these
+        /// let a restart continuation say "when it had been paused".
+        /// </summary>
+        private static bool EstablishedPause(PauseCause cause) => cause is
+            PauseCause.OperatorQuiet or PauseCause.UnknownCancellation
+            or PauseCause.LegacyUnknownCause or PauseCause.ContinuityInherited;
 
         private PublicationResult? CheckPredecessorLocked(ContinuityRecord prior, ContinuityReference reference)
         {

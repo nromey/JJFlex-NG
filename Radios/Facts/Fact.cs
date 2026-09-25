@@ -546,6 +546,19 @@ namespace Radios.Facts
             return reviewed;
         }
 
+        /// <summary>
+        /// Every required unit has THIS record's own presentation evidence —
+        /// as opposed to evidence found through the occurrence. A continuation
+        /// whose predecessor was read out is complete without this being true.
+        /// </summary>
+        public bool PresentedByItself()
+        {
+            HashSet<long> own = DirectCovered();
+            foreach (MaterialUnit unit in Required())
+                if (!own.Contains(unit.Id)) return false;
+            return true;
+        }
+
         /// <summary>Required information with neither confirmed presentation nor explicit review.</summary>
         public HashSet<long> Unpresented()
         {

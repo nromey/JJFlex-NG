@@ -300,6 +300,170 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void E6_Presenter_ARoleThatClaimsAPauseIsChosenOnlyWhenSomethingWasPaused()
+        {
+            // Sol, E (M3 review): three chosen roles claimed a pause where
+            // nothing establishes one, and the recorded-delivered sentence was
+            // chosen for a continuation never spoken. These are his
+            // counterexamples, each with the truth condition on the SENTENCE
+            // the code chose — not a check that some role exists.
+            static bool ClaimsAPause(string role) => Lexicon.Get(role).Contains("paused", StringComparison.Ordinal);
+            static IReadOnlyList<string> Roles(FactStore store) => FactListPresenter.EmptyStateRoles(store.Project(FactView.Pending, null));
+
+            // POSITIVE CONTROL for the instrument: the pause roles do say so.
+            Assert.True(ClaimsAPause("facts.state.paused"));
+            Assert.True(ClaimsAPause("facts.state.paused_continuity"));
+            Assert.True(ClaimsAPause("facts.state.paused_continuity_unknown"));
+            Assert.True(ClaimsAPause("facts.state.held_continuity_lost"));
+
+            // (a) ContinuityLost: the record was lost to capacity. Nothing on
+            // that station was ever paused, so the row must not say "paused".
+            using var lostDir = new TempFactDir();
+            var before = new FactKit();
+            var stations = new List<string>();
+            for (int i = 0; i <= FactStoreCapacity.MaxContinuityRecords; i++)
+            {
+                string radio = "SERIAL-" + i.ToString("000", System.Globalization.CultureInfo.InvariantCulture);
+                FactSession s = before.Session(radio);
+                FactKit.OpenHot(before.HotSlot(s), 70m);
+                s.End(T0, "gone");
+                stations.Add(radio);
+            }
+            Save(before, lostDir.Path);
+            var (afterLoss, _) = Load(lostDir.Path);
+            string? lost = null;
+            foreach (string radio in stations)
+            {
+                FactSession probe = afterLoss.Session(radio);
+                if (afterLoss.HotSlot(probe).Continuity == null) { lost = radio; break; }
+                probe.End(T0, "survived; not needed");
+            }
+            Assert.NotNull(lost);
+            PublicationResult lostOne = FactKit.OpenHot(afterLoss.HotSlot(afterLoss.Session(lost!)), 70m,
+                options: new OpenOptions { Continuity = ContinuityClaim.Continuation });
+            Assert.Equal(PauseCause.ContinuityLost, lostOne.Fact!.Pause);
+            string lostRole = FactListPresenter.StateRole(lostOne.Fact);
+            Assert.Equal("facts.state.held_record_lost", lostRole);
+            Assert.False(ClaimsAPause(lostRole));
+
+            // (b) ContinuityUnknown from a missing predecessor: a claimed
+            // continuation with no reference. No pause evidence either.
+            var kitM = new FactKit();
+            FactSession sM = kitM.Session("SERIAL-M");
+            FactKit.OnsetHot(kitM.HotSlot(sM), 70m);
+            sM.End(T0, "gone");
+            PublicationResult missing = FactKit.OpenHot(kitM.HotSlot(kitM.Session("SERIAL-M")), 70m,
+                options: new OpenOptions { Continuity = ContinuityClaim.Continuation });
+            Assert.Equal(PauseCause.ContinuityUnknown, missing.Fact!.Pause);
+            string unknownRole = FactListPresenter.StateRole(missing.Fact);
+            Assert.Equal("facts.state.held_continuity_unknown", unknownRole);
+            Assert.False(ClaimsAPause(unknownRole));
+
+            // (c) A restart continuation of a condition whose prior HOLD was
+            // not a pause — unknown continuity, or an unestablished onset —
+            // must not become "paused, ... when it had been paused".
+            using var restartDir = new TempFactDir();
+            var writer = new FactKit();
+            FactSession sU = writer.Session("SERIAL-U");
+            FactKit.OpenHot(writer.HotSlot(sU), 70m, options: new OpenOptions { Continuity = ContinuityClaim.ContinuityUnknown });
+            sU.End(T0, "closing");
+            FactSession sO = writer.Session("SERIAL-O");
+            FactKit.OpenHot(writer.HotSlot(sO), 70m);                                   // OnsetNotEstablished
+            sO.End(T0, "closing");
+            FactSession sQ = writer.Session("SERIAL-Q");
+            FactKit.OnsetHot(writer.HotSlot(sQ), 70m);
+            writer.Registry.Quiet.Observe("ctrl");                                      // genuinely paused by the operator
+            sQ.End(T0, "closing");
+            Save(writer, restartDir.Path);
+            var (restarted, _) = Load(restartDir.Path);
+            foreach (string station in new[] { "SERIAL-U", "SERIAL-O" })
+            {
+                SlotPublisher p = restarted.HotSlot(restarted.Session(station));
+                Assert.True(p.Continuity!.Paused);                                      // the VIEW says held; the cause decides the words
+                PublicationResult held = FactKit.ContinueHot(p, 70m, 3);
+                Assert.Equal(PublicationOutcome.Accepted, held.Outcome);
+                Assert.Equal(PauseCause.ContinuityAcrossRestart, held.Fact!.Pause);
+                string role = FactListPresenter.StateRole(held.Fact);
+                Assert.Equal("facts.state.held_continuity_restart", role);
+                Assert.False(ClaimsAPause(role));
+            }
+            // POSITIVE CONTROL: the operator's own quiet before the close IS a
+            // pause, and "when it had been paused" is true of it.
+            PublicationResult wasPaused = FactKit.ContinueHot(restarted.HotSlot(restarted.Session("SERIAL-Q")), 70m, 3);
+            Assert.Equal(PauseCause.ContinuityInherited, wasPaused.Fact!.Pause);
+            Assert.Equal("facts.state.paused_continuity", FactListPresenter.StateRole(wasPaused.Fact));
+            Assert.True(ClaimsAPause("facts.state.paused_continuity"));
+
+            // In the same process a predecessor that held no permission passes
+            // its reason on, so the successor's row is not left saying only
+            // "still true now".
+            var same = new FactKit();
+            FactSession sS = same.Session("SERIAL-S");
+            FactKit.OpenHot(same.HotSlot(sS), 70m);
+            sS.End(T0, "disconnected");
+            PublicationResult carried = FactKit.ContinueHot(same.HotSlot(same.Session("SERIAL-S")), 70m, 3);
+            Assert.Empty(carried.Fact!.Grants);
+            Assert.Equal(PauseCause.OnsetNotEstablished, carried.Fact.Pause);
+            Assert.Equal("facts.state.held_onset_not_established", FactListPresenter.StateRole(carried.Fact));
+
+            // (d) An unchanged, fully covered continuation: complete through
+            // its predecessor, never spoken itself. "Every item on record was
+            // read out in full" is not chosen; the sentence that says some of
+            // it carries on from one that was, is.
+            using var dir = new TempFactDir();
+            var kit = new FactKit();
+            var journal = new FactJournal(kit.Store, dir.Path);
+            journal.TakeLease();
+            journal.LoadHistory();
+            var tracked = new RecordingTransport(kit.Registry, "t", TransportCapability.ReportsCompletion);
+            FactSession s1 = kit.Session("SERIAL-K");
+            EpisodeId first = FactKit.OnsetHot(kit.HotSlot(s1), 70m, 3).Handle!.Id;
+            AttemptHandle a = kit.Allocate(kit.PlanAutomatic(first), tracked.Binding);
+            AttemptRunner.Run(a, tracked.Submit);
+            a.Report(TransportEvidence.Completed(5));
+            journal.Write();
+            Assert.Equal(new[] { "facts.window.nothing_pending_recorded" }, Roles(kit.Store));   // POSITIVE CONTROL: it WAS read out
+            s1.End(T0, "disconnected");
+            PublicationResult continued = FactKit.ContinueHot(kit.HotSlot(kit.Session("SERIAL-K")), 70m, 3);
+            Assert.Equal(PublicationOutcome.Accepted, continued.Outcome);
+            Assert.True(continued.Fact!.PresentationComplete);
+            Assert.Empty(continued.Fact.Attempts);
+            journal.Write();
+            FactListSnapshot list = kit.Store.Project(FactView.Pending, null);
+            Assert.True(list.Predicates.PresentationComplete);
+            Assert.Equal(1, list.Predicates.PresentedInEarlierEpisode);
+            IReadOnlyList<string> roles = FactListPresenter.EmptyStateRoles(list);
+            Assert.Equal(new[] { "facts.window.nothing_pending_recorded_continued" }, roles);
+            Assert.DoesNotContain("facts.window.nothing_pending_recorded", roles);
+            Assert.Equal(1, tracked.NativeCalls);                                        // never spoken again
+            journal.Dispose();
+
+            // The two M3 drafts whose words claim a pause are still in the
+            // file, unchanged, for Noel — and chosen nowhere.
+            Assert.True(Lexicon.Contains("facts.state.paused_continuity_unknown"));
+            Assert.True(Lexicon.Contains("facts.state.held_continuity_lost"));
+            Assert.DoesNotContain("facts.state.paused_continuity_unknown", AllRoleKeys());
+            Assert.DoesNotContain("facts.state.held_continuity_lost", AllRoleKeys());
+        }
+
+        private static void Save(FactKit kit, string dir)
+        {
+            using var journal = new FactJournal(kit.Store, dir);
+            Assert.True(journal.TakeLease());
+            Assert.True(journal.Write());
+        }
+
+        private static (FactKit Kit, LoadReport Report) Load(string dir)
+        {
+            var kit = new FactKit();
+            var journal = new FactJournal(kit.Store, dir);
+            Assert.True(journal.TakeLease());
+            LoadReport report = journal.LoadHistory();
+            journal.Dispose();
+            return (kit, report);
+        }
+
+        [Fact]
         public void E5_Presenter_OpeningFocusQuietAndBackgroundUpdatesNeverReview()
         {
             var kit = new FactKit();
@@ -353,8 +517,8 @@ namespace Radios.Tests
                     PauseCause.OperatorQuiet => "facts.state.paused",
                     PauseCause.UnknownCancellation => "facts.state.paused_unknown_cause",
                     PauseCause.ContinuityInherited => "facts.state.paused_continuity",
-                    PauseCause.ContinuityUnknown => "facts.state.paused_continuity_unknown",
-                    PauseCause.ContinuityLost => "facts.state.held_continuity_lost",
+                    PauseCause.ContinuityUnknown => "facts.state.held_continuity_unknown",
+                    PauseCause.ContinuityLost => "facts.state.held_record_lost",
                     PauseCause.ContinuityAcrossRestart => "facts.state.held_continuity_restart",
                     PauseCause.OnsetNotEstablished => "facts.state.held_onset_not_established",
                     PauseCause.LegacyUnknownCause => "facts.state.paused_cause_not_recorded",
@@ -367,6 +531,7 @@ namespace Radios.Tests
                          "facts.state.silent_no_metadata", "facts.state.not_a_message", "facts.state.conflicting",
                          "facts.delivery.legacy_claimed_delivered", "facts.delivery.legacy_claimed_undelivered",
                          "facts.detail.legacy_claimed", "facts.window.nothing_pending_recorded",
+                         "facts.window.nothing_pending_recorded_continued",
                          "facts.delivery.not_attempted", "facts.delivery.legacy_unverified", "facts.delivery.not_started_quiet",
                          "facts.delivery.not_started_paused", "facts.delivery.withdrawn_superseded", "facts.delivery.withdrawn",
                          "facts.delivery.withdrawn_context_ended", "facts.delivery.started", "facts.delivery.requested_only",

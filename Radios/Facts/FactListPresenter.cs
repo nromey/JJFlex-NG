@@ -48,15 +48,18 @@ namespace Radios.Facts
 
             // A pause is described only with its OWN cause. "Because you asked
             // for quiet" is said only when the operator did; "it had been
-            // paused" only when it had; and a lost record is not a pause at
-            // all, so it does not borrow the word.
+            // paused" only when it had (the store establishes that before it
+            // chooses ContinuityInherited); and an unknown, lost or
+            // unestablished continuity is not a pause at all, so none of those
+            // rows borrows the word — the two M3 drafts that did are no longer
+            // chosen anywhere.
             switch (fact.Pause)
             {
                 case PauseCause.OperatorQuiet: return "facts.state.paused";
                 case PauseCause.UnknownCancellation: return "facts.state.paused_unknown_cause";
                 case PauseCause.ContinuityInherited: return "facts.state.paused_continuity";
-                case PauseCause.ContinuityUnknown: return "facts.state.paused_continuity_unknown";
-                case PauseCause.ContinuityLost: return "facts.state.held_continuity_lost";
+                case PauseCause.ContinuityUnknown: return "facts.state.held_continuity_unknown";
+                case PauseCause.ContinuityLost: return "facts.state.held_record_lost";
                 case PauseCause.ContinuityAcrossRestart: return "facts.state.held_continuity_restart";
                 case PauseCause.OnsetNotEstablished: return "facts.state.held_onset_not_established";
                 case PauseCause.LegacyUnknownCause: return "facts.state.paused_cause_not_recorded";
@@ -177,7 +180,13 @@ namespace Radios.Facts
 
             bool recordedDelivered = p.EmptyPendingInScope && p.PresentationComplete && p.CompleteInventory
                                      && !p.Filtered && p.ReviewedNotDelivered == 0 && p.ForgettableUnpresented == 0;
-            roles.Add(recordedDelivered ? "facts.window.nothing_pending_recorded" : "facts.window.nothing_pending_unverified");
+            // "Every item on record was read out in full" only when every item
+            // was itself read out. A continuation that carries on unchanged
+            // from an episode that WAS read out is complete without ever being
+            // spoken, and the sentence for that says so.
+            roles.Add(!recordedDelivered ? "facts.window.nothing_pending_unverified"
+                      : p.PresentedInEarlierEpisode > 0 ? "facts.window.nothing_pending_recorded_continued"
+                      : "facts.window.nothing_pending_recorded");
             if (p.ReviewedNotDelivered > 0) roles.Add("facts.window.nothing_pending_reviewed");
             if (p.ForgettableUnpresented > 0) roles.Add("facts.window.nothing_pending_forgettable");
             if (p.JournalAttached && !p.SavedThroughCurrent) roles.Add("facts.storage.unsaved");

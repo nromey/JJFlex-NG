@@ -237,7 +237,8 @@ namespace Radios.Facts
         internal FactListPredicates(
             bool loading, bool journalAttached, bool filtered, int excludedOutstanding, int pendingFactsInScope,
             int outstandingIssues, bool emptyPendingInScope, bool completeInventory, bool savedThroughCurrent,
-            bool presentationComplete, int reviewedNotDelivered, int forgettableUnpresented, bool unaccountedLoss)
+            bool presentationComplete, int presentedInEarlierEpisode, int reviewedNotDelivered, int forgettableUnpresented,
+            bool unaccountedLoss)
         {
             Loading = loading;
             JournalAttached = journalAttached;
@@ -249,6 +250,7 @@ namespace Radios.Facts
             CompleteInventory = completeInventory;
             SavedThroughCurrent = savedThroughCurrent;
             PresentationComplete = presentationComplete;
+            PresentedInEarlierEpisode = presentedInEarlierEpisode;
             ReviewedNotDelivered = reviewedNotDelivered;
             ForgettableUnpresented = forgettableUnpresented;
             UnaccountedLoss = unaccountedLoss;
@@ -296,6 +298,15 @@ namespace Radios.Facts
         /// attempt, a forgettable omission and lost detail do not count.
         /// </summary>
         public bool PresentationComplete { get; }
+
+        /// <summary>
+        /// Facts in scope whose presentation is complete only through their
+        /// occurrence — an earlier episode was read out, and this one carries
+        /// on unchanged from it without ever having been spoken itself. Counts
+        /// toward <see cref="PresentationComplete"/>; not toward "every item
+        /// was read out".
+        /// </summary>
+        public int PresentedInEarlierEpisode { get; }
 
         /// <summary>Facts in scope discharged by review rather than presentation.</summary>
         public int ReviewedNotDelivered { get; }

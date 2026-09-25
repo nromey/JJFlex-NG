@@ -827,7 +827,7 @@ namespace Radios.Facts
                     if (view == FactView.History || issue.Outstanding)
                         items.Add(new ItemSnapshot(ItemSnapshot.IdFor(issue.Id), issue));
 
-                int excluded = 0, pendingFacts = 0, reviewedOnly = 0, forgettableMissed = 0;
+                int excluded = 0, pendingFacts = 0, reviewedOnly = 0, forgettableMissed = 0, continuedCoverage = 0;
                 bool allPresented = true;
                 foreach (var pair in _byId)
                 {
@@ -852,6 +852,12 @@ namespace Radios.Facts
                         else if (!fact.PresentationComplete)
                         {
                             allPresented = false;
+                        }
+                        else if (!record.PresentedByItself())
+                        {
+                            // Complete through the occurrence: an earlier
+                            // episode was read out, this one never was.
+                            continuedCoverage++;
                         }
 
                         bool show = view == FactView.Pending ? fact.IsPending : IsHistoryRow(record);
@@ -896,6 +902,7 @@ namespace Radios.Facts
                     completeInventory: completeInventory,
                     savedThroughCurrent: saved,
                     presentationComplete: presentationComplete,
+                    presentedInEarlierEpisode: continuedCoverage,
                     reviewedNotDelivered: reviewedOnly,
                     forgettableUnpresented: forgettableMissed,
                     unaccountedLoss: loss);
