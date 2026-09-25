@@ -233,26 +233,50 @@ namespace Radios.Facts
 
     /// <summary>How an owner classifies the first observation of a condition in a new session.</summary>
     /// <remarks>
-    /// <b>A new episode ID is not evidence of a new hazard.</b> Reconnect gets new
-    /// live authority, not a fresh warning; the owner says what this observation
-    /// is, and the store keeps the earlier pause unless the owner has positive
-    /// evidence otherwise.
+    /// <para>
+    /// <b>A session and an occurrence are different identities.</b> A reconnect
+    /// gives the owner a new observation context; it does not create another
+    /// occurrence of the condition, another obligation for identical
+    /// information, another onset grant, or another receipt. The owner says
+    /// what this observation is; the store checks the claim against what it
+    /// retained, and reconnect alone supplies no permission of any kind.
+    /// </para>
+    /// <para>
+    /// <b>Absence is not evidence.</b> <see cref="NoPriorRecord"/> is honoured
+    /// as a first occurrence only when the store can corroborate it: no record
+    /// for the condition on that station, nothing lost for it, and a complete
+    /// inventory of saved history. When the inventory is partial, or a record
+    /// may have been lost, it is treated as <see cref="ContinuityUnknown"/>; a
+    /// genuinely first occurrence then needs the owner's positive onset
+    /// evidence through <see cref="NewOccurrence"/>.
+    /// </para>
     /// </remarks>
     public enum ContinuityClaim
     {
-        /// <summary>The owner knows of no earlier record. If the store does, it is treated as unknown continuity.</summary>
+        /// <summary>The owner knows of no earlier record. Corroborated by the store, or treated as unknown continuity.</summary>
         NoPriorRecord = 0,
 
-        /// <summary>The same condition, carried on. Inherits any earlier pause.</summary>
+        /// <summary>
+        /// The same condition, carried on. Needs the issued predecessor
+        /// reference and, for each declared unit that reuses an earlier
+        /// assertion, a checked link. Inherits the predecessor's evidence for
+        /// exactly those assertions, its permission at its ORIGINAL causal
+        /// position in the same process, and its receipt consequence. Never a
+        /// fresh grant, never a fresh tone.
+        /// </summary>
         Continuation = 1,
 
         /// <summary>A new onset, with positive domain evidence supplied. Not inferred from a disconnect.</summary>
         NewOccurrence = 2,
 
-        /// <summary>The owner cannot say. Retains the uncertainty; does not re-arm the old warning.</summary>
+        /// <summary>The owner cannot say. Retains the uncertainty; grants nothing and re-arms nothing.</summary>
         ContinuityUnknown = 3,
 
-        /// <summary>Worse than a supported baseline from before the reconnect, through an owner-issued worsening.</summary>
+        /// <summary>
+        /// Worse than a supported baseline from before the reconnect, through
+        /// an owner-issued worsening. Continues the occurrence; the grant
+        /// covers the worse material only, and there is no second tone.
+        /// </summary>
         WorseningOfPrior = 4,
     }
 
@@ -273,8 +297,90 @@ namespace Radios.Facts
         /// <summary>Required for <see cref="ContinuityClaim.WorseningOfPrior"/>.</summary>
         public WorseningTransition? WorseningOfPrior { get; init; }
 
+        /// <summary>
+        /// The predecessor this continues, as the store issued it through
+        /// <see cref="SlotPublisher.Continuity"/>. Required for
+        /// <see cref="ContinuityClaim.Continuation"/> and
+        /// <see cref="ContinuityClaim.WorseningOfPrior"/>; a continuation
+        /// without one has no supported predecessor and is retained as
+        /// unknown continuity. A reference whose revision has moved on is
+        /// refused, so the owner reconciles against the current view.
+        /// </summary>
+        public ContinuityReference? Predecessor { get; init; }
+
+        /// <summary>
+        /// Which declared units reuse which predecessor assertions. A unit
+        /// with no link is new information: owed, and never automatically
+        /// permitted by the reconnect. The occurrence itself is linked by the
+        /// store when the message is the same.
+        /// </summary>
+        public IReadOnlyList<MaterialLink>? Carried { get; init; }
+
         /// <summary>Free detail text, bounded and truncated with a marker when too long.</summary>
         public string? Detail { get; init; }
+    }
+
+    /// <summary>
+    /// An issued reference to the continuity a condition has on a station:
+    /// the occurrence root, the newest episode that holds it, and the
+    /// revision of that record. Compared, never trusted.
+    /// </summary>
+    public sealed class ContinuityReference
+    {
+        internal ContinuityReference(FactStore store, EpisodeId root, EpisodeId lastEpisode, long revision)
+        {
+            Store = store;
+            Root = root;
+            LastEpisode = lastEpisode;
+            Revision = revision;
+        }
+
+        internal FactStore Store { get; }
+
+        /// <summary>The first episode of the occurrence. The occurrence's identity.</summary>
+        public EpisodeId Root { get; }
+
+        /// <summary>The episode the continuity was derived from — the predecessor a continuation follows.</summary>
+        public EpisodeId LastEpisode { get; }
+
+        /// <summary>Advances whenever the continuity changes meaning; a stale reference is refused.</summary>
+        public long Revision { get; }
+
+        public override string ToString() => Root + " via " + LastEpisode + " r" + Revision;
+    }
+
+    /// <summary>
+    /// One assertion the predecessor holds, with the evidence the store has
+    /// for it — so a continuing owner can say which of its units are the
+    /// same information, and see what that information already earned.
+    /// </summary>
+    public sealed class ContinuityAssertion
+    {
+        internal ContinuityAssertion(AssertionRef reference, string name, FactValue value, MaterialKind kind,
+                                     bool covered, bool reviewed)
+        {
+            Reference = reference;
+            Name = name;
+            Value = value;
+            Kind = kind;
+            Covered = covered;
+            Reviewed = reviewed;
+        }
+
+        /// <summary>The assertion's identity across the occurrence.</summary>
+        public AssertionRef Reference { get; }
+        public string Name { get; }
+        public FactValue Value { get; }
+        public MaterialKind Kind { get; }
+
+        /// <summary>Attributable, undisputed presentation evidence exists for it.</summary>
+        public bool Covered { get; }
+
+        /// <summary>The operator explicitly reviewed it on a displayed snapshot.</summary>
+        public bool Reviewed { get; }
+
+        public override string ToString() => Reference + " " + Name + "=" + Value.Invariant
+            + (Covered ? " covered" : "") + (Reviewed ? " reviewed" : "");
     }
 
     /// <summary>A domain transition an owner publishes against an open episode.</summary>
@@ -467,18 +573,36 @@ namespace Radios.Facts
     }
 
     /// <summary>The continuity an owner may consult on a reconnect.</summary>
+    /// <remarks>
+    /// A bounded evidence summary and a reference — not authority, not a
+    /// runnable plan, not a permit. What it offers is exactly what a
+    /// continuation may claim: the predecessor and its assertions.
+    /// </remarks>
     public sealed class ContinuityView
     {
-        internal ContinuityView(bool paused, PauseCause cause, FactObservation baseline, int definitionRevision,
-                                bool fromPreviousProcess)
+        internal ContinuityView(ContinuityReference? reference, bool paused, PauseCause cause, FactObservation baseline,
+                                int definitionRevision, bool fromPreviousProcess, bool deliveryEvidenceSupported,
+                                bool conflicted, IReadOnlyList<ContinuityAssertion> assertions, ReceiptSnapshot receipt)
         {
+            Reference = reference;
             Paused = paused;
             Cause = cause;
             Baseline = baseline;
             BaselineFingerprint = baseline.Fingerprint;
             DefinitionRevision = definitionRevision;
             FromPreviousProcess = fromPreviousProcess;
+            DeliveryEvidenceSupported = deliveryEvidenceSupported;
+            Conflicted = conflicted;
+            Assertions = assertions;
+            Receipt = receipt;
         }
+
+        /// <summary>
+        /// The reference a continuation or a reconnect worsening must supply.
+        /// Null when the record cannot support one: a conflicted continuity,
+        /// or one saved by a format that kept no delivery evidence.
+        /// </summary>
+        public ContinuityReference? Reference { get; }
 
         public bool Paused { get; }
         public PauseCause Cause { get; }
@@ -486,6 +610,23 @@ namespace Radios.Facts
         public string BaselineFingerprint { get; }
         public int DefinitionRevision { get; }
         public bool FromPreviousProcess { get; }
+
+        /// <summary>
+        /// False when the continuity was saved by a format that recorded no
+        /// per-assertion evidence. Such a continuity has UNSUPPORTED delivery
+        /// continuity — not empty coverage plus an available receipt — and a
+        /// continuation against it is retained as unknown.
+        /// </summary>
+        public bool DeliveryEvidenceSupported { get; }
+
+        /// <summary>Two saved sources disagreed about this continuity. Neither candidate is chosen.</summary>
+        public bool Conflicted { get; }
+
+        /// <summary>The predecessor's required assertions, with their evidence. Empty when unsupported or conflicted.</summary>
+        public IReadOnlyList<ContinuityAssertion> Assertions { get; }
+
+        /// <summary>The occurrence's receipt consequence: what was spent, and what became of it.</summary>
+        public ReceiptSnapshot Receipt { get; }
     }
 
     /// <summary>

@@ -47,14 +47,17 @@ namespace Radios.Facts
             if (fact.ConflictVariant) return "facts.state.conflicting";
 
             // A pause is described only with its OWN cause. "Because you asked
-            // for quiet" is said only when the operator did.
+            // for quiet" is said only when the operator did; "it had been
+            // paused" only when it had; and a lost record is not a pause at
+            // all, so it does not borrow the word.
             switch (fact.Pause)
             {
                 case PauseCause.OperatorQuiet: return "facts.state.paused";
                 case PauseCause.UnknownCancellation: return "facts.state.paused_unknown_cause";
-                case PauseCause.ContinuityInherited:
-                case PauseCause.ContinuityUnknown:
-                case PauseCause.ContinuityLost: return "facts.state.paused_continuity";
+                case PauseCause.ContinuityInherited: return "facts.state.paused_continuity";
+                case PauseCause.ContinuityUnknown: return "facts.state.paused_continuity_unknown";
+                case PauseCause.ContinuityLost: return "facts.state.held_continuity_lost";
+                case PauseCause.ContinuityAcrossRestart: return "facts.state.held_continuity_restart";
                 case PauseCause.LegacyUnknownCause: return "facts.state.paused_cause_not_recorded";
             }
 
@@ -79,7 +82,18 @@ namespace Radios.Facts
         public static string DeliveryRole(FactSnapshot fact)
         {
             if (fact.Attempts.Count == 0)
-                return fact.Legacy ? "facts.delivery.legacy_unverified" : "facts.delivery.not_attempted";
+            {
+                // A schema-1 record: what the old aggregate said is stated as
+                // its claim, and none of the three readings is verified.
+                if (fact.Legacy)
+                    return fact.LegacyClaim switch
+                    {
+                        LegacyDeliveryClaim.ClaimedDelivered => "facts.delivery.legacy_claimed_delivered",
+                        LegacyDeliveryClaim.ClaimedUndelivered => "facts.delivery.legacy_claimed_undelivered",
+                        _ => "facts.delivery.legacy_unverified",
+                    };
+                return "facts.delivery.not_attempted";
+            }
 
             AttemptSnapshot last = fact.Attempts[fact.Attempts.Count - 1];
             switch (last.Disposition)
@@ -137,8 +151,10 @@ namespace Radios.Facts
         /// <summary>
         /// The empty-state wording roles for a projection, in order. Empty when
         /// the list has rows. <b>A zero row count never becomes a claim of
-        /// universal delivery</b>; that sentence is chosen only when the
-        /// predicates establish it.
+        /// universal delivery</b> — and neither does anything else: the store
+        /// can establish that every item on RECORD was read out, and cannot
+        /// establish that the radio had nothing else to say, so the sentence
+        /// that claims the latter is never chosen by this code.
         /// </summary>
         public static IReadOnlyList<string> EmptyStateRoles(FactListSnapshot snapshot)
         {
@@ -158,9 +174,9 @@ namespace Radios.Facts
                 return roles;
             }
 
-            bool everything = p.EmptyPendingInScope && p.PresentationComplete && p.CompleteInventory
-                              && !p.Filtered && p.ReviewedNotDelivered == 0 && p.ForgettableUnpresented == 0;
-            roles.Add(everything ? "facts.window.nothing_pending" : "facts.window.nothing_pending_unverified");
+            bool recordedDelivered = p.EmptyPendingInScope && p.PresentationComplete && p.CompleteInventory
+                                     && !p.Filtered && p.ReviewedNotDelivered == 0 && p.ForgettableUnpresented == 0;
+            roles.Add(recordedDelivered ? "facts.window.nothing_pending_recorded" : "facts.window.nothing_pending_unverified");
             if (p.ReviewedNotDelivered > 0) roles.Add("facts.window.nothing_pending_reviewed");
             if (p.ForgettableUnpresented > 0) roles.Add("facts.window.nothing_pending_forgettable");
             if (p.JournalAttached && !p.SavedThroughCurrent) roles.Add("facts.storage.unsaved");
@@ -221,6 +237,14 @@ namespace Radios.Facts
         //  Rows and detail
         // ────────────────────────────────────────────────────────────────
 
+        /// <summary>Which state wording an issue row may truthfully use: happening, no longer, or a standing limitation.</summary>
+        public static string IssueStateRole(IssueState state) => state switch
+        {
+            IssueState.Active => "facts.issue.state.active",
+            IssueState.Limitation => "facts.issue.state.limitation",
+            _ => "facts.issue.state.resolved",
+        };
+
         internal static string RowText(ItemSnapshot item)
         {
             if (item.Kind == ItemKind.Issue)
@@ -228,7 +252,7 @@ namespace Radios.Facts
                 StoreIssueSnapshot issue = item.Issue!;
                 return Lexicon.Get("facts.row.issue_summary",
                     ("problem", Lexicon.Get(IssueKindRole(issue.Kind))),
-                    ("state", Lexicon.Get(issue.State == IssueState.Active ? "facts.issue.state.active" : "facts.issue.state.resolved")));
+                    ("state", Lexicon.Get(IssueStateRole(issue.State))));
             }
 
             FactSnapshot fact = item.Fact!;
@@ -288,7 +312,9 @@ namespace Radios.Facts
             if (omitted) lines.Add(Lexicon.Get("facts.detail.more_not_shown", ("count", unlisted.Count - shown)));
 
             if (fact.RestoredFromDisk) lines.Add(Lexicon.Get("facts.detail.restored"));
-            if (fact.Legacy) lines.Add(Lexicon.Get("facts.detail.legacy"));
+            if (fact.Legacy)
+                lines.Add(Lexicon.Get(fact.LegacyClaim == LegacyDeliveryClaim.ClaimedDelivered
+                    ? "facts.detail.legacy_claimed" : "facts.detail.legacy"));
             if (fact.ConflictVariant) lines.Add(Lexicon.Get("facts.detail.conflict"));
 
             lines.Add(Lexicon.Get(DeliveryRole(fact)));
@@ -303,7 +329,7 @@ namespace Radios.Facts
             var lines = new List<string>
             {
                 Lexicon.Get(IssueKindRole(issue.Kind)),
-                Lexicon.Get(issue.State == IssueState.Active ? "facts.issue.state.active" : "facts.issue.state.resolved"),
+                Lexicon.Get(IssueStateRole(issue.State)),
                 issue.Extent switch
                 {
                     ExtentCertainty.Exact => Lexicon.Get("facts.issue.count.exact", ("count", issue.Count)),
@@ -363,9 +389,9 @@ namespace Radios.Facts
             {
                 StoreIssueSnapshot? issue = Store.FindIssue(item.Issue!.Id);
                 if (issue == null) return null;
+                string signature = "issue:" + issue.Id + ":" + issue.Revision;
                 DisplayToken? token = Store.IssueToken(_viewId, item.ItemId, null, 0, issue.Id, Array.Empty<long>(),
-                                                       issue.Revision, "issue:" + issue.Id + ":" + issue.Revision,
-                                                       issue.ProjectionRevision);
+                                                       issue.Revision, signature, signature, issue.ProjectionRevision);
                 return token == null ? null
                     : new RenderedDetailSnapshot(item.ItemId, FactListPresenter.IssueDetail(issue), token, false, false);
             }
@@ -374,7 +400,7 @@ namespace Radios.Facts
             if (fact == null) return null;
             var (text, represented, omitted, historical) = _presenter.FactDetail(fact);
             DisplayToken? factToken = Store.IssueToken(_viewId, item.ItemId, fact.Id, fact.VariantIndex, null, represented,
-                                                       0, fact.ContentFingerprint, fact.ProjectionRevision);
+                                                       0, fact.ContentFingerprint, fact.MaterialFingerprint, fact.ProjectionRevision);
             return factToken == null ? null : new RenderedDetailSnapshot(item.ItemId, text, factToken, historical, omitted);
         }
 

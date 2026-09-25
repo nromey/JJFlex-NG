@@ -258,6 +258,79 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void D5_ASelectedReadIsBoundToTheShownSnapshot()
+        {
+            // Sol, D: RequestRead captured the shown material, PreparePlan
+            // rendered the current fact without comparing. Now it compares.
+            var kit = new FactKit();
+            var tracked = new RecordingTransport(kit.Registry, "t", TransportCapability.ReportsCompletion);
+            FactSession session = kit.Session("SERIAL-D");
+            SlotPublisher publisher = kit.HotSlot(session);
+            PublicationResult opened = FactKit.OpenHot(publisher, 70m, 3);
+            EpisodeId id = opened.Handle!.Id;
+            using FactListView view = new FactListPresenter(kit.Store).OpenView();
+
+            // Selected, then a NON-MATERIAL sample changes the value the words
+            // would use, before the plan is prepared. The unit set is the same;
+            // only the material fingerprint can tell the words moved.
+            RenderedDetailSnapshot shown = view.RenderDetail(view.Snapshot(FactView.Pending).Items.Single(i => i.Fact?.Id == id))!;
+            Assert.True(view.Installed(shown));
+            SelectedReadGrant read = view.RequestRead(shown.Token, out _)!;
+            publisher.Update(opened.Handle, FactKit.Capture(publisher, FactKit.Temp(71m)), FactTransition.Sample(), kit.Store.Find(id)!.Revision);
+            PlanPreparation moved = kit.Presentation.Prepare(id, PlanRequest.SelectedRead(read, VerbosityLevel.Chatty));
+            Assert.Equal(PreparationOutcome.ShownSnapshotChanged, moved.Outcome);
+            Assert.Null(moved.Plan);
+
+            // Selected again, then the MATERIAL changes before the plan is prepared.
+            RenderedDetailSnapshot shown71 = view.RenderDetail(view.Snapshot(FactView.Pending).Items.Single(i => i.Fact?.Id == id))!;
+            Assert.True(view.Installed(shown71));
+            SelectedReadGrant read71 = view.RequestRead(shown71.Token, out _)!;
+            publisher.Update(opened.Handle, FactKit.Capture(publisher, FactKit.Temp(72m)),
+                FactTransition.Correction(new[] { new MaterialDeclaration("temperature", FactValue.Of(72m)) }),
+                kit.Store.Find(id)!.Revision);
+            PlanPreparation stale = kit.Presentation.Prepare(id, PlanRequest.SelectedRead(read71, VerbosityLevel.Chatty));
+            Assert.Equal(PreparationOutcome.ShownSnapshotChanged, stale.Outcome);
+            Assert.Null(stale.Plan);
+            Assert.Equal(0, tracked.NativeCalls);
+
+            // POSITIVE CONTROL: a fresh token on the refreshed detail reads,
+            // and the words are the value that was shown.
+            RenderedDetailSnapshot refreshed = view.RenderDetail(view.Snapshot(FactView.Pending).Items.Single(i => i.Fact?.Id == id))!;
+            Assert.Contains("72", refreshed.Text, StringComparison.Ordinal);
+            Assert.True(view.Installed(refreshed));
+            SelectedReadGrant current = view.RequestRead(refreshed.Token, out _)!;
+            PlanPreparation ok = kit.Presentation.Prepare(id, PlanRequest.SelectedRead(current, VerbosityLevel.Chatty));
+            Assert.True(ok.Prepared);
+            Assert.Equal("PA at 72 degrees for 3 minutes.", ok.Plan!.Text);
+            Assert.Equal(AttemptRunOutcome.Requested, AttemptRunner.Run(kit.Allocate(ok.Plan, tracked.Binding), tracked.Submit));
+
+            // A non-material sample after preparation is still caught at the
+            // final start gate: the words would be wrong.
+            RenderedDetailSnapshot again = view.RenderDetail(view.Snapshot(FactView.Pending).Items.Single(i => i.Fact?.Id == id))!;
+            view.Installed(again);
+            SelectedReadGrant later = view.RequestRead(again.Token, out _)!;
+            PresentationPlan prepared = kit.Presentation.Prepare(id, PlanRequest.SelectedRead(later, VerbosityLevel.Chatty)).Plan!;
+            publisher.Update(opened.Handle, FactKit.Capture(publisher, FactKit.Temp(73m)), FactTransition.Sample(), kit.Store.Find(id)!.Revision);
+            Assert.Equal(NotStartedReason.Superseded, kit.Allocate(prepared, tracked.Binding).TryCommitStart().Reason);
+
+            // With G2: a token bound to the predecessor stays bound to it
+            // across a reconnect. The successor is never substituted; the same
+            // material is read honestly as history.
+            RenderedDetailSnapshot beforeReconnect = view.RenderDetail(view.Snapshot(FactView.Pending).Items.Single(i => i.Fact?.Id == id))!;
+            view.Installed(beforeReconnect);
+            SelectedReadGrant bound = view.RequestRead(beforeReconnect.Token, out _)!;
+            session.End(FactKit.T0, "disconnected");
+            PublicationResult successor = FactKit.ContinueHot(kit.HotSlot(kit.Session("SERIAL-D")), 72m, 3);
+            Assert.Equal(PublicationOutcome.Accepted, successor.Outcome);
+            PlanPreparation historical = kit.Presentation.Prepare(id, PlanRequest.SelectedRead(bound, VerbosityLevel.Chatty));
+            Assert.True(historical.Prepared);
+            Assert.Equal(id, historical.Plan!.Episode);
+            Assert.NotEqual(successor.Handle!.Id, historical.Plan.Episode);
+            Assert.True(historical.Plan.Historical);
+            Assert.Equal("Earlier the PA was at 72 degrees.", historical.Plan.Text);
+        }
+
+        [Fact]
         public void D_UnclassifiedPreparationReturnsATypedUnresolvedResultAndKeepsTheFact()
         {
             // The unclassified-key decision is still with Noel. The binding

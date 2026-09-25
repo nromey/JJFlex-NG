@@ -272,6 +272,17 @@ namespace Radios.Facts
             get { lock (Gate) return _persistedThrough; }
         }
 
+        /// <summary>
+        /// The counts of compacted history are lower bounds: a count saturated,
+        /// or a loaded source said its own were. Round-tripped with the counts,
+        /// because a count whose certainty was dropped on load would read as
+        /// exact.
+        /// </summary>
+        public bool CompactedCountsLowerBound
+        {
+            get { lock (Gate) return _compactedCountsLowerBound; }
+        }
+
         public HistoryLoadState Load
         {
             get { lock (Gate) return _load; }
@@ -424,7 +435,8 @@ namespace Radios.Facts
         /// </summary>
         internal IssueRecord NoteIssueLocked(
             IssueKind kind, string sourceKey, string source, string reason, long count,
-            ExtentCertainty extent, string? exemplar, string? dedupeKey, bool persist = true)
+            ExtentCertainty extent, string? exemplar, string? dedupeKey, bool persist = true,
+            IssueState state = IssueState.Active)
         {
             string key = (int)kind + "|" + sourceKey;
             if (!_issues.TryGetValue(key, out IssueRecord? issue))
@@ -470,9 +482,9 @@ namespace Radios.Facts
                     // The same corrupt generation, the same refused event: not
                     // new loss, so no new revision. Unless it had been
                     // resolved, in which case it is active again.
-                    if (issue.State != IssueState.Active)
+                    if (issue.State == IssueState.ResolvedWithHistory)
                     {
-                        issue.State = IssueState.Active;
+                        issue.State = state;
                         TouchLocked(persist);
                     }
                     return issue;
@@ -487,7 +499,7 @@ namespace Radios.Facts
             if (extent == ExtentCertainty.Unknown) issue.Extent = ExtentCertainty.Unknown;
             issue.Reason = reason;
             if (exemplar != null) AddExemplar(issue, exemplar);
-            issue.State = IssueState.Active;
+            issue.State = state;
             issue.Revision++;
             TouchLocked(persist);
 
@@ -576,9 +588,10 @@ namespace Radios.Facts
         }
 
         internal void NoteIssue(IssueKind kind, string sourceKey, string source, string reason, long count,
-                                ExtentCertainty extent, string? exemplar, string? dedupeKey)
+                                ExtentCertainty extent, string? exemplar, string? dedupeKey,
+                                IssueState state = IssueState.Active)
         {
-            lock (Gate) NoteIssueLocked(kind, sourceKey, source, reason, count, extent, exemplar, dedupeKey);
+            lock (Gate) NoteIssueLocked(kind, sourceKey, source, reason, count, extent, exemplar, dedupeKey, state: state);
             RaiseSignals();
         }
 

@@ -103,7 +103,13 @@ namespace Radios.Facts
         /// with room to spare. If that test fails, a bound grew; change the
         /// bound or this number deliberately, never by guessing. Measured
         /// 2026-09-24 (Sprint 45 Track M2): 4,572,586 bytes, about 57 percent
-        /// of this allowance.
+        /// of the 8 MB allowance that then held. Measured again the same day
+        /// (Sprint 45 Track M3), after schema 3 gave every material unit its
+        /// origin and root assertion references and every continuity entry a
+        /// per-assertion evidence summary: 11,041,622 bytes, about 66 percent
+        /// of this 16 MB allowance. The growth is the lineage itself — the
+        /// references a continuation resolves its evidence through — and it
+        /// was measured, not estimated, before this number moved.
         /// </para>
         /// <para>
         /// Hitting it at run time means something is wrong rather than busy,
@@ -111,7 +117,7 @@ namespace Radios.Facts
         /// anything it cannot safely compact.
         /// </para>
         /// </remarks>
-        public const int MaxJournalBytes = 8 * 1024 * 1024;
+        public const int MaxJournalBytes = 16 * 1024 * 1024;
 
         /// <summary>
         /// How many automatic attempts a fact makes in one burst before

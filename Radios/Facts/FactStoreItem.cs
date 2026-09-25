@@ -58,6 +58,15 @@ namespace Radios.Facts
 
         /// <summary>No longer true, and kept so the history of it stays readable.</summary>
         ResolvedWithHistory = 1,
+
+        /// <summary>
+        /// A standing limitation of the saved record — history from an older
+        /// format that lacks evidence this one keeps. It does not change, so
+        /// it is neither "still happening" nor "no longer happening": once
+        /// the operator has reviewed it, it leaves the default view and stays
+        /// in history, and it keeps qualifying every claim about the record.
+        /// </summary>
+        Limitation = 2,
     }
 
     /// <summary>One store issue as the store holds it. Mutable only under the store's gate.</summary>
@@ -147,9 +156,13 @@ namespace Radios.Facts
         /// <summary>On the default view: still active, or carrying information nobody has reviewed.</summary>
         public bool Outstanding => State == IssueState.Active || Unreviewed;
 
-        /// <summary>Kinds that mean some history is missing or uncertain, so the inventory is not complete.</summary>
+        /// <summary>
+        /// Kinds that mean some history is missing or uncertain, so the
+        /// inventory is not complete. A standing limitation keeps affecting it
+        /// after review: reading about missing evidence does not supply it.
+        /// </summary>
         public bool AffectsInventory =>
-            State == IssueState.Active
+            State != IssueState.ResolvedWithHistory
             && Kind is IssueKind.RecoveryGap or IssueKind.IdentityConflict or IssueKind.IncompleteInventory
                 or IssueKind.MigrationGap;
 
@@ -332,7 +345,7 @@ namespace Radios.Facts
     {
         internal DisplayToken(FactStore store, long viewId, long id, string itemId, EpisodeId? episode, int variant,
                               long? issueId, IReadOnlyCollection<long> represented, long issueRevision,
-                              string contentFingerprint, long projectionRevision)
+                              string contentFingerprint, string materialFingerprint, long projectionRevision)
         {
             Store = store;
             ViewId = viewId;
@@ -344,6 +357,7 @@ namespace Radios.Facts
             Represented = represented;
             IssueRevision = issueRevision;
             ContentFingerprint = contentFingerprint;
+            MaterialFingerprint = materialFingerprint;
             ProjectionRevision = projectionRevision;
         }
 
@@ -354,6 +368,9 @@ namespace Radios.Facts
         internal long? IssueId { get; }
         internal long IssueRevision { get; }
         internal string ContentFingerprint { get; }
+
+        /// <summary>The material the shown text was rendered from. A selected read is bound to this.</summary>
+        internal string MaterialFingerprint { get; }
 
         public long Id { get; }
         public string ItemId { get; }

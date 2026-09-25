@@ -41,11 +41,20 @@ namespace Radios.Facts
         public Guid HeaderWriter;
         public long Generation;
         public bool Legacy;
+        public int SchemaVersion;
         public List<FactRecord> Facts = new();
         public List<OverlayImage> Overlays = new();
         public List<ContinuityRecord> Continuity = new();
         public List<IssueRecord> Issues = new();
         public long CompactedCovered, CompactedReviewedOnly, CompactedForgettable;
+        public bool CompactedLowerBound;
+
+        /// <summary>
+        /// A schema-2 payload: its records are valid history, but its
+        /// continuity kept no per-assertion evidence, so a reconnect cannot
+        /// continue anything from it — unsupported, not empty.
+        /// </summary>
+        public bool DeliveryContinuityUnsupported => !Legacy && SchemaVersion < FactJournal.SchemaVersion;
     }
 
     /// <summary>What hydration did, counted separately — a silently ignored restore is never counted as success.</summary>
@@ -67,6 +76,14 @@ namespace Radios.Facts
 
     public sealed partial class FactStore
     {
+        /// <summary>
+        /// Review overlays for imported records that were since compacted out
+        /// of this store. The review must survive the next restart even though
+        /// the record it names is gone from memory: the origin file still holds
+        /// the record, and without the overlay it would come back owed.
+        /// </summary>
+        private readonly List<OverlayImage> _compactedOverlays = new();
+
         /// <summary>
         /// Capture one immutable image and the mutation sequence it contains.
         /// Only this writer's own facts go in; imported history is represented
@@ -90,25 +107,54 @@ namespace Radios.Facts
                 {
                     if (record.Restored)
                     {
-                        if (record.ReviewedLocal.Count > 0)
-                            image.Overlays.Add(new OverlayImage
-                            {
-                                Episode = record.Id,
-                                ContentFingerprint = record.ContentFingerprint(),
-                                Reviewed = record.ReviewedLocal.OrderBy(x => x).ToArray(),
-                            });
+                        if (record.ReviewedLocal.Count > 0) image.Overlays.Add(OverlayOf(record));
                         continue;
                     }
                     image.Facts.Add(CloneForImage(record));
-                    if (record.RadioIdentity != null) image.Continuity.Add(DeriveContinuity(record, false));
                 }
+                image.Overlays.AddRange(_compactedOverlays);
 
+                // One continuity entry per key: the NEWEST episode this process
+                // holds for it, otherwise what the table remembers.
+                var keys = new HashSet<string>(StringComparer.Ordinal);
+                for (int i = _order.Count - 1; i >= 0; i--)
+                {
+                    FactRecord record = _order[i];
+                    if (record.Restored || record.RadioIdentity == null) continue;
+                    ContinuityRecord entry = DeriveContinuity(record, fromPreviousProcess: false);
+                    if (keys.Add(entry.Key)) image.Continuity.Add(entry);
+                }
                 foreach (ContinuityRecord entry in _continuity.Values)
-                    if (!image.Continuity.Any(c => c.Key == entry.Key)) image.Continuity.Add(entry);
+                    if (keys.Add(entry.Key)) image.Continuity.Add(entry);
 
                 foreach (IssueRecord issue in AllIssuesLocked()) image.Issues.Add(CloneIssue(issue));
                 return image;
             }
+        }
+
+        private static OverlayImage OverlayOf(FactRecord record) => new OverlayImage
+        {
+            Episode = record.Id,
+            ContentFingerprint = record.ContentFingerprint(),
+            Reviewed = record.ReviewedLocal.OrderBy(x => x).ToArray(),
+        };
+
+        /// <summary>
+        /// A reviewed imported record is leaving memory. Keep its overlay so
+        /// the review outlives the record here, bounded; past the bound the
+        /// loss is a row, never a silent return to owed.
+        /// </summary>
+        private void RetainOverlayLocked(FactRecord record)
+        {
+            if (!record.Restored || record.ReviewedLocal.Count == 0) return;
+            if (_compactedOverlays.Count >= FactStoreCapacity.MaxHistoricalRecords)
+            {
+                NoteIssueLocked(IssueKind.DetailLoss, "overlays", "reviews of imported history",
+                    "a review of imported history could not be kept after its record was compacted; it may come back as owed",
+                    1, ExtentCertainty.Exact, record.Id.ToString(), "overlay:" + record.Id);
+                return;
+            }
+            _compactedOverlays.Add(OverlayOf(record));
         }
 
         private FactRecord CloneForImage(FactRecord r)
@@ -119,18 +165,19 @@ namespace Radios.Facts
                 Id = r.Id, OwnerName = r.OwnerName, ContractName = r.ContractName, ContractRevision = r.ContractRevision,
                 Condition = r.Condition, Claim = r.Claim, ScopeId = r.ScopeId, ScopeKind = r.ScopeKind,
                 RadioIdentity = r.RadioIdentity, OccurrenceLabel = r.OccurrenceLabel, Priority = r.Priority,
+                LineageRoot = r.LineageRoot, PredecessorEpisode = r.PredecessorEpisode,
                 MessageKey = r.MessageKey, Classification = r.Classification, Delivery = r.Delivery,
                 CatalogGeneration = r.CatalogGeneration, Validity = r.Validity, ObservedUtc = r.ObservedUtc,
                 LastEventSequence = r.LastEventSequence, Revision = r.Revision, ObservationRevision = r.ObservationRevision,
                 MaterialRevision = r.MaterialRevision, CurrentValues = r.CurrentValues, Baseline = r.Baseline,
                 HistoryDropped = r.HistoryDropped, NextMaterialId = r.NextMaterialId,
-                LegacyUnverifiedOwed = r.LegacyUnverifiedOwed, RestoredPause = pause,
+                RestoredPause = pause,
                 CompactedAttempts = r.CompactedAttempts, CompactedAttemptsLowerBound = r.CompactedAttemptsLowerBound,
                 Detail = r.Detail, DetailTruncated = r.DetailTruncated,
                 Receipt = new ReceiptRecord
                 {
                     Policy = r.Receipt.Policy, State = r.Receipt.State, Consumed = r.Receipt.Consumed,
-                    ReceiptId = r.Receipt.ReceiptId,
+                    ReceiptId = r.Receipt.ReceiptId, Closed = r.Receipt.Closed,
                 },
             };
             c.Events.AddRange(r.Events.Select(e => new EventRecord
@@ -139,7 +186,10 @@ namespace Radios.Facts
                 ObservedUtc = e.ObservedUtc, Effect = e.Effect,
             }));
             c.Materials.AddRange(r.Materials);
-            c.CoveredLedger.UnionWith(r.Covered());
+            // This record's OWN presentation evidence. What it earned through
+            // its occurrence is found again on reload through the links and
+            // the continuity summary, attributed to the episode that earned it.
+            c.CoveredLedger.UnionWith(r.DirectCovered());
             c.ReviewedLocal.UnionWith(r.ReviewedLocal);
             foreach (AttemptRecord a in r.Attempts.Concat(r.RetiredAttempts)) c.Attempts.Add(CloneAttempt(a, c));
             return c;
@@ -204,9 +254,17 @@ namespace Radios.Facts
                         foreach (ContinuityRecord entry in source.Continuity) MergeContinuityLocked(entry);
                         foreach (IssueRecord issue in source.Issues) MergeIssueLocked(issue);
 
-                        _compactedCovered = Saturate(_compactedCovered, source.CompactedCovered, out _);
-                        _compactedReviewedOnly = Saturate(_compactedReviewedOnly, source.CompactedReviewedOnly, out _);
-                        _compactedForgettableUnpresented = Saturate(_compactedForgettableUnpresented, source.CompactedForgettable, out _);
+                        // The counts and their certainty travel together: a
+                        // count that saturates here, or was a lower bound
+                        // where it was written, is a lower bound here.
+                        bool sat;
+                        _compactedCovered = Saturate(_compactedCovered, source.CompactedCovered, out sat);
+                        if (sat) _compactedCountsLowerBound = true;
+                        _compactedReviewedOnly = Saturate(_compactedReviewedOnly, source.CompactedReviewedOnly, out sat);
+                        if (sat) _compactedCountsLowerBound = true;
+                        _compactedForgettableUnpresented = Saturate(_compactedForgettableUnpresented, source.CompactedForgettable, out sat);
+                        if (sat) _compactedCountsLowerBound = true;
+                        if (source.CompactedLowerBound) _compactedCountsLowerBound = true;
                     }
 
                     // Overlays last, so they can find whichever variant they reviewed.
@@ -229,6 +287,7 @@ namespace Radios.Facts
             incoming.Publisher = null;
             incoming.Scope = null;
             incoming.Grants.Clear();
+            incoming.ContinuityPause = PauseCause.None;
             incoming.Receipt.FromPreviousProcess = true;
             incoming.Receipt.OutstandingPermit = null;
             foreach (AttemptRecord a in incoming.Attempts) a.FromPreviousProcess = true;
@@ -264,6 +323,8 @@ namespace Radios.Facts
                         int at = _order.IndexOf(current);
                         _order[at] = incoming;
                         existing[0] = incoming;
+                        current.Lineage?.Members.Remove(current);
+                        AttachLineageLocked(incoming);
                         counts.Superseded++;
                         return;
                     }
@@ -298,6 +359,7 @@ namespace Radios.Facts
                 if (!RoomForHistoryLocked(incoming, counts)) return;
                 existing.Add(incoming);
                 _order.Add(incoming);
+                AttachLineageLocked(incoming);
                 counts.Conflicts++;
                 NoteIssueLocked(IssueKind.IdentityConflict, "identity:" + incoming.Id, incoming.Id.ToString(),
                     "two saved records claim the same identity with different content; both are kept",
@@ -325,6 +387,7 @@ namespace Radios.Facts
                 counts.Accepted++;
             }
             AddRecordLocked(incoming);
+            AttachLineageLocked(incoming);
         }
 
         private bool RoomForHistoryLocked(FactRecord incoming, HydrationCounts counts)
@@ -361,20 +424,115 @@ namespace Radios.Facts
             else counts.OverlaysUnmatched++;
         }
 
+        /// <summary>
+        /// Two sources naming the same station and condition: the same
+        /// occurrence combines by exact lineage; an established successor
+        /// replaces what it superseded; anything else is a conflict, and a
+        /// conflicted continuity supports no continuation. Nothing chooses an
+        /// unpaused candidate or unions unrelated coverage.
+        /// </summary>
         private void MergeContinuityLocked(ContinuityRecord entry)
         {
             entry.FromPreviousProcess = true;
-            if (_continuity.TryGetValue(entry.Key, out ContinuityRecord? existing))
+            if (!_continuity.TryGetValue(entry.Key, out ContinuityRecord? existing))
             {
-                // A pause anywhere wins; disagreeing baselines become unknown,
-                // so no worsening can be measured against a guess.
-                existing.Pause = existing.Pause != PauseCause.None ? existing.Pause : entry.Pause;
-                if (!existing.Baseline.Equals(entry.Baseline)) existing.Baseline = FactObservation.Empty;
+                PutContinuityLocked(entry);
                 return;
             }
-            PutContinuityLocked(entry);
+
+            bool sameOccurrence = existing.Root != null && existing.Root == entry.Root;
+            if (sameOccurrence && !existing.Conflicted)
+            {
+                if (entry.Revision > existing.Revision)
+                {
+                    existing.LastEpisode = entry.LastEpisode;
+                    existing.Revision = entry.Revision;
+                    existing.Baseline = entry.Baseline;
+                    existing.DefinitionRevision = entry.DefinitionRevision;
+                    existing.ReceiptState = entry.ReceiptState;
+                    existing.ReceiptId = entry.ReceiptId;
+                    existing.ReceiptPolicy = entry.ReceiptPolicy;
+                }
+                else if (!existing.Baseline.Equals(entry.Baseline))
+                {
+                    // Disagreeing baselines become unknown, so no worsening can
+                    // be measured against a guess.
+                    existing.Baseline = FactObservation.Empty;
+                }
+                // A pause anywhere wins; a spent receipt stays spent.
+                existing.Pause = existing.Pause != PauseCause.None ? existing.Pause : entry.Pause;
+                existing.ReceiptConsumed |= entry.ReceiptConsumed;
+                existing.ReceiptClosed |= entry.ReceiptClosed;
+                existing.DeliveryEvidenceSupported &= entry.DeliveryEvidenceSupported;
+                foreach (ContinuityAssertionRecord a in entry.Assertions)
+                {
+                    ContinuityAssertionRecord? have = existing.Assertions.FirstOrDefault(x => x.Root == a.Root);
+                    if (have == null) existing.Assertions.Add(a);
+                    else { have.Covered |= a.Covered; have.Reviewed |= a.Reviewed; }
+                }
+                foreach (EpisodeId r in entry.SupersededRoots) if (!existing.SupersededRoots.Contains(r)) existing.SupersededRoots.Add(r);
+                PutContinuityLocked(existing);
+                return;
+            }
+
+            // Different occurrences for one key: established succession
+            // decides, and nothing else does.
+            if (entry.Root != null && existing.Root != null)
+            {
+                bool entrySupersedes = entry.SupersededRoots.Contains(existing.Root.Value)
+                                       && existing.SeenRoots.All(r => r == entry.Root || entry.SupersededRoots.Contains(r));
+                bool existingSupersedes = existing.SupersededRoots.Contains(entry.Root.Value);
+                if (entrySupersedes)
+                {
+                    foreach (EpisodeId r in existing.SeenRoots) if (!entry.SeenRoots.Contains(r)) entry.SeenRoots.Add(r);
+                    if (existing.Root is EpisodeId gone) PruneLineageLocked(gone);
+                    PutContinuityLocked(entry);
+                    return;
+                }
+                if (existingSupersedes)
+                {
+                    if (!existing.SeenRoots.Contains(entry.Root.Value)) existing.SeenRoots.Add(entry.Root.Value);
+                    return;
+                }
+            }
+
+            existing.Conflicted = true;
+            existing.DeliveryEvidenceSupported = false;
+            existing.Assertions.Clear();
+            existing.Pause = existing.Pause != PauseCause.None ? existing.Pause : entry.Pause;
+            if (!existing.Baseline.Equals(entry.Baseline)) existing.Baseline = FactObservation.Empty;
+            if (entry.Root is EpisodeId other && !existing.SeenRoots.Contains(other)) existing.SeenRoots.Add(other);
+            NoteIssueLocked(IssueKind.IdentityConflict, "continuity:" + entry.Key, entry.Radio + " / " + entry.Condition,
+                "two saved records disagree about which occurrence this condition continues; a reconnect cannot continue either",
+                1, ExtentCertainty.Exact, entry.Radio + " / " + entry.Condition,
+                "cont-conflict:" + entry.Key + ":" + entry.Root, persist: false);
         }
 
+        /// <summary>
+        /// The same problem observed twice — by two writers, or by this
+        /// loader and a saved copy of its own earlier observation. Three
+        /// cases, and only two of them keep an exact count:
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>The same information:</b> equal, non-empty deduplication keys
+        /// and an equal count are one observation described twice. Nothing
+        /// changes, and a review of either copy was a review of it — the
+        /// loader re-noting a migration gap it saved as reviewed must not
+        /// un-review it.
+        /// </para>
+        /// <para>
+        /// <b>Complete evidence on both sides:</b> every observation keyed,
+        /// none overflowed, both exact — so the union of keys IS the set of
+        /// distinct observations, and its size is the count.
+        /// </para>
+        /// <para>
+        /// <b>Anything else is a lower bound.</b> Two writers that each saw
+        /// ten losses and kept four keys apiece did not see the same ten; the
+        /// larger count is all that can be said, and it is said as at least.
+        /// A merge never marks unreviewed information reviewed.
+        /// </para>
+        /// </remarks>
         private void MergeIssueLocked(IssueRecord incoming)
         {
             incoming.FromPreviousProcess = true;
@@ -384,7 +542,7 @@ namespace Radios.Facts
                 if (_issues.Count >= FactStoreCapacity.MaxIssues)
                 {
                     NoteIssueLocked(incoming.Kind, incoming.SourceKey, incoming.Source, incoming.Reason,
-                                    Math.Max(1, incoming.Count), incoming.Extent, null, null, persist: false);
+                                    Math.Max(1, incoming.Count), incoming.Extent, null, null, persist: false, state: incoming.State);
                     return;
                 }
                 incoming.Id = Checked(ref _nextIssue);
@@ -392,17 +550,51 @@ namespace Radios.Facts
                 return;
             }
 
-            int before = existing.Seen.Count;
+            bool existingReviewed = existing.ReviewedRevision >= existing.Revision && existing.ReviewedRevision > 0;
+            bool incomingReviewed = incoming.ReviewedRevision >= incoming.Revision && incoming.ReviewedRevision > 0;
+            bool sameInformation = existing.Seen.Count > 0 && incoming.Seen.SetEquals(existing.Seen)
+                                   && incoming.Count == existing.Count && !existing.SeenOverflowed && !incoming.SeenOverflowed;
+
+            if (sameInformation)
+            {
+                if (incoming.Extent == ExtentCertainty.Unknown) existing.Extent = ExtentCertainty.Unknown;
+                else if (incoming.Extent == ExtentCertainty.LowerBound && existing.Extent == ExtentCertainty.Exact) existing.Extent = ExtentCertainty.LowerBound;
+                existing.Revision = Math.Max(existing.Revision, incoming.Revision);
+                existing.ReviewedRevision = existingReviewed || incomingReviewed ? existing.Revision : Math.Min(existing.ReviewedRevision, incoming.ReviewedRevision);
+                if (incoming.State == IssueState.Active) existing.State = IssueState.Active;
+                else if (incoming.State == IssueState.Limitation && existing.State == IssueState.ResolvedWithHistory) existing.State = IssueState.Limitation;
+                foreach (string e in incoming.Exemplars) if (!existing.Exemplars.Contains(e)) AddExemplar(existing, e);
+                return;
+            }
+
+            bool existingComplete = existing.Extent == ExtentCertainty.Exact && !existing.SeenOverflowed
+                                    && existing.Seen.Count == existing.Count;
+            bool incomingComplete = incoming.Extent == ExtentCertainty.Exact && !incoming.SeenOverflowed
+                                    && incoming.Seen.Count == incoming.Count;
+
             existing.Seen.UnionWith(incoming.Seen);
-            bool grew = existing.Seen.Count > before || incoming.Count > existing.Count;
-            bool bothReviewed = existing.ReviewedRevision >= existing.Revision && incoming.ReviewedRevision >= incoming.Revision;
-            existing.Count = Math.Max(Math.Max(existing.Count, incoming.Count), existing.Seen.Count);
-            if (incoming.Extent != ExtentCertainty.Exact || incoming.SeenOverflowed) existing.Extent = ExtentCertainty.LowerBound;
-            existing.Revision = Math.Max(existing.Revision, incoming.Revision) + (grew ? 1 : 0);
-            // Reviewed only if every copy had been reviewed through its own
-            // information. A merge never marks unreviewed information reviewed.
-            existing.ReviewedRevision = bothReviewed && !grew ? existing.Revision : Math.Min(existing.ReviewedRevision, incoming.ReviewedRevision);
+            if (incoming.SeenOverflowed) existing.SeenOverflowed = true;
+            bool bothReviewed = existingReviewed && incomingReviewed;
+
+            if (existingComplete && incomingComplete)
+            {
+                existing.Count = existing.Seen.Count;
+                existing.Extent = ExtentCertainty.Exact;
+            }
+            else
+            {
+                existing.Count = Math.Max(Math.Max(existing.Count, incoming.Count), existing.Seen.Count);
+                existing.Extent = existing.Extent == ExtentCertainty.Unknown || incoming.Extent == ExtentCertainty.Unknown
+                    ? ExtentCertainty.Unknown
+                    : ExtentCertainty.LowerBound;
+            }
+
+            // Different information, combined: new to whoever reviewed only
+            // one side of it.
+            existing.Revision = Math.Max(existing.Revision, incoming.Revision) + 1;
+            existing.ReviewedRevision = bothReviewed ? existing.Revision - 1 : Math.Min(existing.ReviewedRevision, incoming.ReviewedRevision);
             if (incoming.State == IssueState.Active) existing.State = IssueState.Active;
+            else if (incoming.State == IssueState.Limitation && existing.State == IssueState.ResolvedWithHistory) existing.State = IssueState.Limitation;
             foreach (string e in incoming.Exemplars) if (!existing.Exemplars.Contains(e)) AddExemplar(existing, e);
         }
     }

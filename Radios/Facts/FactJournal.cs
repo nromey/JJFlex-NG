@@ -92,8 +92,13 @@ namespace Radios.Facts
     /// </remarks>
     public sealed class FactJournal : IDisposable
     {
-        /// <summary>The on-disk format. Bumped when the shape changes, never reused.</summary>
-        public const int SchemaVersion = 2;
+        /// <summary>
+        /// The on-disk format. Bumped when the shape changes, never reused.
+        /// Schema 3 added the occurrence lineage and the per-assertion
+        /// continuity evidence; a schema-2 file still loads, with its
+        /// continuity marked unsupported.
+        /// </summary>
+        public const int SchemaVersion = 3;
 
         private readonly FactStore _store;
         private readonly string _directory;
@@ -317,10 +322,22 @@ namespace Radios.Facts
                     NoteRejected(name, rejected);
                     if (source.Legacy)
                     {
+                        // A standing limitation of the record, not a fault
+                        // that is happening: it leaves the default view once
+                        // read, stays in history, and keeps qualifying every
+                        // claim about the saved record.
                         _store.NoteIssue(IssueKind.MigrationGap, "legacy:" + name, name,
                             "this history was saved by an older format; its delivery evidence is unverified and incomplete",
-                            source.Facts.Count, ExtentCertainty.Exact, name, "legacy:" + contentHash);
+                            source.Facts.Count, ExtentCertainty.Exact, name, "legacy:" + contentHash, IssueState.Limitation);
                         return new SourceInventoryEntry(name, SourceStatus.Legacy, source.Facts.Count, null);
+                    }
+                    if (source.DeliveryContinuityUnsupported)
+                    {
+                        _store.NoteIssue(IssueKind.MigrationGap, "schema2:" + name, name,
+                            "this history was saved by an earlier build; its records are usable, but a reconnect cannot continue a condition from it",
+                            source.Continuity.Count, ExtentCertainty.Exact, name, "schema2:" + contentHash, IssueState.Limitation);
+                        return new SourceInventoryEntry(name, SourceStatus.Loaded, source.Facts.Count,
+                                                        "schema 2: delivery continuity unsupported");
                     }
                     return new SourceInventoryEntry(name, SourceStatus.Loaded, source.Facts.Count, null);
                 }

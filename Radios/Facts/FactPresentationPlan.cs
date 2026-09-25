@@ -178,6 +178,14 @@ namespace Radios.Facts
         NotEligible = 2,
         NotFound = 3,
         ReadGrantInvalid = 4,
+
+        /// <summary>
+        /// The record's material is no longer what the operator was shown when
+        /// the read was requested, so a plan would say something unseen. The
+        /// surface shows the newer detail and the operator selects again;
+        /// nothing is substituted for the snapshot he chose.
+        /// </summary>
+        ShownSnapshotChanged = 5,
     }
 
     /// <summary>The result of preparing a plan.</summary>
@@ -248,6 +256,8 @@ namespace Radios.Facts
 
         internal FactStore Store { get; }
         internal SelectedReadGrant? Read { get; }
+
+        /// <summary>The material fingerprint of the snapshot this plan was rendered from.</summary>
         internal string FactFingerprint { get; }
 
         public long PlanId { get; }
@@ -294,14 +304,24 @@ namespace Radios.Facts
     /// was taken.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// It authorises ONE attributable attempt at that snapshot. It does not
     /// resume automatic speech, and a newer quiet observed before its attempt
     /// starts wins.
+    /// </para>
+    /// <para>
+    /// <b>It is bound to the material the operator was shown.</b> Preparing a
+    /// plan compares the record's material fingerprint with the one this
+    /// grant carries; if the material moved on between the selection and the
+    /// preparation, the read is refused rather than saying something unseen.
+    /// The binding survives a reconnect: the grant names its episode, and a
+    /// successor episode is never substituted for it.
+    /// </para>
     /// </remarks>
     public sealed class SelectedReadGrant
     {
         internal SelectedReadGrant(FactStore store, long id, EpisodeId episode, int variant, long actionSequence,
-                                   IReadOnlyCollection<long> represented, string contentFingerprint)
+                                   IReadOnlyCollection<long> represented, string materialFingerprint)
         {
             Store = store;
             Id = id;
@@ -309,13 +329,13 @@ namespace Radios.Facts
             Variant = variant;
             ActionSequence = actionSequence;
             Represented = represented;
-            ContentFingerprint = contentFingerprint;
+            MaterialFingerprint = materialFingerprint;
         }
 
         internal FactStore Store { get; }
         internal bool ConsumedLocked;
         internal IReadOnlyCollection<long> Represented { get; }
-        internal string ContentFingerprint { get; }
+        internal string MaterialFingerprint { get; }
 
         public long Id { get; }
         public EpisodeId Episode { get; }

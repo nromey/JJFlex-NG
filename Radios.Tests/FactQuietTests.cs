@@ -204,12 +204,15 @@ namespace Radios.Tests
             kit.Registry.Quiet.Observe("ctrl");
             first.End(T0, "disconnected");
 
-            // Unchanged first observation, classified a continuation: paused.
+            // Unchanged first observation, classified a continuation: the
+            // predecessor's permission is carried at its ORIGINAL position,
+            // which is before the operator's quiet — so the successor is
+            // paused for the reason the predecessor was, his own Ctrl.
             SlotPublisher again = kit.HotSlot(kit.Session("SERIAL-1"));
             Assert.True(again.Continuity!.Paused);
-            PublicationResult continued = FactKit.OpenHot(again, 70m,
-                options: new OpenOptions { Continuity = ContinuityClaim.Continuation });
-            Assert.Equal(PauseCause.ContinuityInherited, continued.Fact!.Pause);
+            PublicationResult continued = FactKit.ContinueHot(again, 70m);
+            Assert.Equal(PublicationOutcome.Accepted, continued.Outcome);
+            Assert.Equal(PauseCause.OperatorQuiet, continued.Fact!.Pause);
             Assert.False(kit.Store.IsEligibleForAutomaticDelivery(continued.Fact));
 
             // The owner cannot say: the uncertainty is kept, not re-armed.
@@ -226,15 +229,9 @@ namespace Radios.Tests
             // A supported worse case: permission for the worse material only.
             SlotPublisher worse = kit.HotSlot(kit.Session("SERIAL-1"));
             ContinuityView prior = worse.Continuity!;
-            CapturedFactEvent ev = FactKit.Capture(worse, FactKit.Temp(74m));
-            PublicationResult worsened = worse.Open(ev, "condition.hot", FactKit.HotKey,
-                new[] { new MaterialDeclaration("temperature", FactValue.Of(70m)) },
-                new OpenOptions
-                {
-                    Continuity = ContinuityClaim.WorseningOfPrior,
-                    WorseningOfPrior = new WorseningTransition("reconnect-w", prior.BaselineFingerprint,
-                        new[] { new MaterialDeclaration("temperature", FactValue.Of(74m)) }, "worse than before the reconnect"),
-                });
+            PublicationResult worsened = FactKit.ContinueHot(worse, 70m, claim: ContinuityClaim.WorseningOfPrior,
+                worsening: new WorseningTransition("reconnect-w", prior.BaselineFingerprint,
+                    new[] { new MaterialDeclaration("temperature", FactValue.Of(74m)) }, "worse than before the reconnect"));
             Assert.Equal(PublicationOutcome.Accepted, worsened.Outcome);
             Assert.True(kit.Store.IsEligibleForAutomaticDelivery(worsened.Fact!));
 
@@ -261,15 +258,25 @@ namespace Radios.Tests
 
             SlotPublisher afterRestart = restarted.HotSlot(restarted.Session("SERIAL-9"));
             Assert.True(afterRestart.Continuity!.FromPreviousProcess);
-            PublicationResult resumedSession = FactKit.OpenHot(afterRestart, 70m,
-                options: new OpenOptions { Continuity = ContinuityClaim.Continuation });
+            PublicationResult resumedSession = FactKit.ContinueHot(afterRestart, 70m);
+            Assert.Equal(PublicationOutcome.Accepted, resumedSession.Outcome);
             Assert.Equal(PauseCause.ContinuityInherited, resumedSession.Fact!.Pause);
             Assert.False(restarted.Store.IsEligibleForAutomaticDelivery(resumedSession.Fact));
 
-            // POSITIVE CONTROL: a radio with no recorded pause speaks.
-            PublicationResult unrelated = FactKit.OpenHot(restarted.HotSlot(restarted.Session("SERIAL-NEW")), 70m,
-                options: new OpenOptions { Continuity = ContinuityClaim.Continuation });
+            // POSITIVE CONTROL: an EVIDENCED new onset on another radio speaks.
+            // This control used to open an unrelated station as a continuation
+            // with no predecessor and expect eligibility — which would have
+            // pinned "no record means permission", the error the unknown
+            // branch exists to prevent. Absence is not evidence; an onset is.
+            PublicationResult unrelated = FactKit.OnsetHot(restarted.HotSlot(restarted.Session("SERIAL-NEW")), 70m);
             Assert.True(restarted.Store.IsEligibleForAutomaticDelivery(unrelated.Fact!));
+
+            // And the same station with NO evidence and no predecessor is
+            // retained as unknown, not spoken.
+            PublicationResult bare = FactKit.OpenHot(restarted.HotSlot(restarted.Session("SERIAL-NEW-2")), 70m,
+                options: new OpenOptions { Continuity = ContinuityClaim.Continuation });
+            Assert.Equal(PauseCause.ContinuityUnknown, bare.Fact!.Pause);
+            Assert.False(restarted.Store.IsEligibleForAutomaticDelivery(bare.Fact));
         }
 
         [Fact]
@@ -317,10 +324,13 @@ namespace Radios.Tests
             }
             Assert.Equal(new[] { PauseCause.ContinuityLost }, lostOnes);
 
-            // POSITIVE CONTROL: a station that never had a record is not "lost".
-            PublicationResult unseen = FactKit.OpenHot(after.HotSlot(after.Session("SERIAL-NEVER")), 70m,
-                options: new OpenOptions { Continuity = ContinuityClaim.Continuation });
-            Assert.True(after.Store.IsEligibleForAutomaticDelivery(unseen.Fact!));
+            // POSITIVE CONTROL: a station that never had a record is not "lost"
+            // — its first observation, corroborated by the store, speaks. (It
+            // used to be opened as a continuation with no predecessor, which
+            // would pin missing-record-as-permission; Astra's G2 corrected it.)
+            PublicationResult unseen = FactKit.OpenHot(after.HotSlot(after.Session("SERIAL-NEVER")), 70m);
+            Assert.NotEqual(PauseCause.ContinuityLost, unseen.Fact!.Pause);
+            Assert.True(after.Store.IsEligibleForAutomaticDelivery(unseen.Fact));
 
             // And positive onset evidence is what re-arms a lost one.
             string lostRadio = sessions.Select(s => s.RadioIdentity!).First(r =>

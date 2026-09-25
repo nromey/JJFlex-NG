@@ -121,5 +121,19 @@
   "facts.issue.count.lower_bound": { "text": "At least {count} affected.", "delivery": null },
   "facts.issue.count.unknown": { "text": "How much is affected is not known.", "delivery": null },
   "facts.issue.source": { "text": "Where: {source}", "delivery": null },
-  "facts.issue.exemplars_more": { "text": "There were more examples than are shown.", "delivery": null }
+  "facts.issue.exemplars_more": { "text": "There were more examples than are shown.", "delivery": null },
+
+  "_note_m3": "Sprint 45 Track M3 added every entry below this note. EVERY ONE IS A FIRST DRAFT FOR NOEL'S REVIEW and none is approved copy. Sol's review found two of the earlier sentences could be false: 'Everything the radio had to tell you was delivered' claims more than the record can prove, and 'paused ... when it had been paused' was chosen for cases where nothing establishes it had been. Neither sentence was changed; the code now chooses these instead where they are the truthful ones. Astra's continuity and legacy design added the rest: a condition continued across a restart, a legacy record whose old format said delivered, and a limitation of the saved record that is neither happening nor over. The list of every key, where the operator meets it and what it must be able to say truthfully is in the private planning folder, for-noel/priority/2026-09-24-fact-store-issue-wording.md, section 7.",
+
+  "facts.window.nothing_pending_recorded": { "text": "Nothing is waiting. Every item on record was read out in full.", "delivery": null },
+
+  "facts.state.paused_continuity_unknown": { "text": "not announced, because after the radio reconnected it could not be established whether this is the condition you had paused", "delivery": null },
+  "facts.state.held_continuity_lost": { "text": "not announced, because the record of what was paused before the radio reconnected was lost, so this cannot be told apart from something new", "delivery": null },
+  "facts.state.held_continuity_restart": { "text": "not announced, because it carries on from before the program last closed and nothing since has allowed it to speak", "delivery": null },
+
+  "facts.delivery.legacy_claimed_delivered": { "text": "an older version saved this as read out, but did not record which of these details were", "delivery": null },
+  "facts.delivery.legacy_claimed_undelivered": { "text": "an older version saved this as not read out", "delivery": null },
+  "facts.detail.legacy_claimed": { "text": "An older version of the program saved this and said it was read out, but it did not record which of the details above were.", "delivery": null },
+
+  "facts.issue.state.limitation": { "text": "a limitation of the saved record", "delivery": null }
 }

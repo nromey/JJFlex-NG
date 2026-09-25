@@ -73,6 +73,16 @@ namespace Radios.Facts
                         || read.Episode != id || read.Variant != variant)
                         return new PlanPreparation(PreparationOutcome.ReadGrantInvalid, null, null, snapshot,
                                                    "the read permission does not name this record, or was used");
+
+                    // Bound to the material the operator was shown. If it
+                    // moved on between the selection and now, a plan would say
+                    // something unseen: refuse, and let the surface show the
+                    // newer detail for him to select again. The grant names
+                    // its episode, so a successor is never substituted; the
+                    // same material may still be read honestly as history.
+                    if (record.MaterialFingerprint() != read.MaterialFingerprint)
+                        return new PlanPreparation(PreparationOutcome.ShownSnapshotChanged, null, null, snapshot,
+                                                   "the record's information changed since it was shown");
                     historical = !record.IsLive || !record.Validity.IsCurrent;
                 }
                 else
@@ -116,11 +126,23 @@ namespace Radios.Facts
 
             var (coverage, values) = PlanCoverage(snapshot, rendering);
 
+            // A selected read may only carry information the shown detail
+            // represented. The fingerprint check above makes this hold; it is
+            // checked anyway, because the words are what get said.
+            if (request.Kind == PlanRequestKind.SelectedRead)
+            {
+                var represented = new HashSet<long>(request.Read!.Represented);
+                foreach (long unit in coverage.Keys)
+                    if (!represented.Contains(unit))
+                        return new PlanPreparation(PreparationOutcome.ShownSnapshotChanged, null, null, snapshot,
+                                                   "the words would carry information the shown detail did not");
+            }
+
             var plan = new PresentationPlan(
                 this, planId, id, variant, request.Kind, historical, coverage, values,
                 snapshot.Revision, snapshot.ObservationRevision, snapshot.OwnerName, snapshot.ScopeId,
                 snapshot.ContractName, snapshot.ContractRevision, rendering, request.Tier, snapshot.Priority,
-                grantId, request.Read, snapshot.ContentFingerprint);
+                grantId, request.Read, snapshot.MaterialFingerprint);
             return new PlanPreparation(PreparationOutcome.Prepared, plan, null, snapshot, "prepared");
         }
 
@@ -320,19 +342,19 @@ namespace Radios.Facts
                 if (!record.Validity.IsCurrent) return NotStartedReason.NotCurrent;
                 AutomaticGrant? grant = record.Grants.FirstOrDefault(g => g.Id == plan.GrantId);
                 if (grant == null) return NotStartedReason.QuietAfterPermission;
-                if (grant.UnknownCancelledBy != null) return NotStartedReason.PausedUnknownCause;
-                if (grant.InheritedPause != PauseCause.None || grant.SourceSequence <= _latestQuiet)
-                    return NotStartedReason.QuietAfterPermission;
+                if (grant.EffectiveUnknownCancellation != null) return NotStartedReason.PausedUnknownCause;
+                if (grant.SourceSequence <= _latestQuiet) return NotStartedReason.QuietAfterPermission;
             }
             else
             {
                 if (plan.Read == null || plan.Read.ActionSequence <= _latestQuiet)
                     return NotStartedReason.QuietAfterPermission;
+                // The material the plan was rendered from must still be the
+                // record's material. The shown snapshot is what was selected.
+                if (record.MaterialFingerprint() != plan.FactFingerprint)
+                    return plan.Historical ? NotStartedReason.HistoricalRecordChanged : NotStartedReason.Superseded;
                 if (plan.Historical)
-                {
-                    if (record.ContentFingerprint() != plan.FactFingerprint) return NotStartedReason.HistoricalRecordChanged;
                     return Catalog.Generation != plan.CatalogGeneration ? NotStartedReason.CatalogChanged : null;
-                }
                 if (!record.IsLive) return NotStartedReason.ScopeEnded;
                 if (!record.Validity.IsCurrent) return NotStartedReason.NotCurrent;
             }
@@ -604,13 +626,14 @@ namespace Radios.Facts
 
         internal DisplayToken? IssueToken(long viewId, string itemId, EpisodeId? episode, int variant, long? issueId,
                                           IReadOnlyCollection<long> represented, long issueRevision, string fingerprint,
-                                          long projectionRevision)
+                                          string materialFingerprint, long projectionRevision)
         {
             lock (Gate)
             {
                 if (!_views.TryGetValue(viewId, out ViewState? view) || view.Closed) return null;
                 var token = new DisplayToken(this, viewId, Checked(ref _nextToken), itemId, episode, variant, issueId,
-                                             represented.ToArray(), issueRevision, fingerprint, projectionRevision);
+                                             represented.ToArray(), issueRevision, fingerprint, materialFingerprint,
+                                             projectionRevision);
                 view.Issued.Add(token);
                 while (view.Issued.Count > FactStoreCapacity.MaxTokensPerView)
                 {
@@ -784,7 +807,7 @@ namespace Radios.Facts
                 if (sequence == null) { outcome = ReviewOutcome.StaleTarget; return null; }
                 outcome = ReviewOutcome.Reviewed;
                 return new SelectedReadGrant(this, Checked(ref _nextReadGrant), record.Id, token.Variant, sequence.Value,
-                                             token.Represented, token.ContentFingerprint);
+                                             token.Represented, token.MaterialFingerprint);
             }
         }
 

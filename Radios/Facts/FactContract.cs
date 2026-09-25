@@ -223,6 +223,71 @@ namespace Radios.Facts
     }
 
     /// <summary>
+    /// A reference to one immutable assertion: the episode that holds it and
+    /// the unit's identity within that episode.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is how continuing information keeps its identity across a
+    /// reconnect.</b> A successor episode that represents an assertion its
+    /// predecessor already held names it by this reference, and evidence for
+    /// the assertion — a completion, a review — is found through the
+    /// reference rather than copied once at the moment of reconnect. Matching
+    /// by clause name, by raw unit number, by material revision or by equal
+    /// rendered text is exactly what this exists to forbid.
+    /// </para>
+    /// </remarks>
+    public readonly struct AssertionRef : IEquatable<AssertionRef>
+    {
+        public AssertionRef(EpisodeId episode, long unit)
+        {
+            if (episode.IsDefault) throw new ArgumentException("an assertion needs its episode", nameof(episode));
+            if (unit <= 0) throw new ArgumentOutOfRangeException(nameof(unit));
+            Episode = episode;
+            Unit = unit;
+        }
+
+        public EpisodeId Episode { get; }
+        public long Unit { get; }
+
+        public bool Equals(AssertionRef other) => Episode == other.Episode && Unit == other.Unit;
+        public override bool Equals(object? obj) => obj is AssertionRef other && Equals(other);
+        public override int GetHashCode() => HashCode.Combine(Episode, Unit);
+        public static bool operator ==(AssertionRef a, AssertionRef b) => a.Equals(b);
+        public static bool operator !=(AssertionRef a, AssertionRef b) => !a.Equals(b);
+        public override string ToString() => Episode + "/" + Unit;
+    }
+
+    /// <summary>
+    /// An owner's declaration that one of the units it is declaring on a
+    /// continuation IS an assertion the predecessor already held.
+    /// </summary>
+    /// <remarks>
+    /// The store checks the link: the named unit must be declared with exactly
+    /// the assertion's recorded value, and the assertion must be one the
+    /// continuity view offered. A link that does not check is refused — an
+    /// unproved equivalence transfers neither coverage nor permission.
+    /// </remarks>
+    public sealed class MaterialLink
+    {
+        public MaterialLink(string name, AssertionRef assertion)
+        {
+            if (string.IsNullOrWhiteSpace(name)) throw new ArgumentNullException(nameof(name));
+            Name = name;
+            Assertion = assertion;
+        }
+
+        /// <summary>The clause name of the declared unit, on the successor.</summary>
+        public string Name { get; }
+
+        /// <summary>The predecessor assertion it reuses, as the continuity view named it.</summary>
+        public AssertionRef Assertion { get; }
+
+        internal string Fingerprint => Name + "->" + Assertion;
+        public override string ToString() => Name + " reuses " + Assertion;
+    }
+
+    /// <summary>
     /// One immutable owed assertion. Its identity is allocated by the store and
     /// never reused, so a late completion can only ever discharge what its plan
     /// actually carried.
@@ -230,7 +295,8 @@ namespace Radios.Facts
     public sealed class MaterialUnit
     {
         internal MaterialUnit(long id, string name, FactValue value, MaterialKind kind,
-                              long? supersedes, long? relatesTo, long introducedAtRevision)
+                              long? supersedes, long? relatesTo, long introducedAtRevision,
+                              AssertionRef? origin, AssertionRef root)
         {
             Id = id;
             Name = name;
@@ -239,6 +305,8 @@ namespace Radios.Facts
             Supersedes = supersedes;
             RelatesTo = relatesTo;
             IntroducedAtRevision = introducedAtRevision;
+            Origin = origin;
+            Root = root;
         }
 
         /// <summary>Unique within its episode, allocated in order, never reused.</summary>
@@ -254,6 +322,20 @@ namespace Radios.Facts
         public long? RelatesTo { get; }
 
         public long IntroducedAtRevision { get; }
+
+        /// <summary>
+        /// The predecessor assertion this unit continues, when a reconnect's
+        /// owner declared it as the same information; null for information
+        /// this episode introduced.
+        /// </summary>
+        public AssertionRef? Origin { get; }
+
+        /// <summary>
+        /// The assertion's identity across the whole occurrence: the first
+        /// episode and unit that introduced it. Evidence for the assertion is
+        /// resolved by this, in every episode that carries it.
+        /// </summary>
+        public AssertionRef Root { get; }
 
         /// <summary>The reserved clause name of the occurrence itself.</summary>
         public const string CoreName = "core";

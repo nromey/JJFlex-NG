@@ -136,13 +136,16 @@ namespace Radios.Tests
             var detached = new FactKit();
             Assert.Equal(new[] { "facts.window.nothing_pending_unverified" }, Roles(detached.Store));
 
-            // First run: attached, loaded, saved, genuinely nothing.
+            // First run: attached, loaded, saved, genuinely nothing ON RECORD.
+            // The sentence chosen says every recorded item was read out; the
+            // one claiming the radio had nothing else to say is never chosen,
+            // because an unrecorded event is unknowable (Sol, E).
             var first = new FactKit();
             var journal = new FactJournal(first.Store, dir.Path);
             journal.TakeLease();
             journal.LoadHistory();
             journal.Write();
-            Assert.Equal(new[] { "facts.window.nothing_pending" }, Roles(first.Store));
+            Assert.Equal(new[] { "facts.window.nothing_pending_recorded" }, Roles(first.Store));
 
             // Loading is its own state.
             first.Store.SetLoadState(HistoryLoadState.Loading);
@@ -156,7 +159,7 @@ namespace Radios.Tests
             AttemptRunner.Run(a, tracked.Submit);
             a.Report(TransportEvidence.Completed(5));
             journal.Write();
-            Assert.Equal(new[] { "facts.window.nothing_pending" }, Roles(first.Store));
+            Assert.Equal(new[] { "facts.window.nothing_pending_recorded" }, Roles(first.Store));
 
             // Newer unsaved mutation: the unsaved line joins it.
             EpisodeId brief = FactKit.OpenNote(first.NotesSlot(first.Session("SERIAL-2")), FactKit.BriefKey).Handle!.Id;
@@ -168,7 +171,7 @@ namespace Radios.Tests
             IReadOnlyList<string> forgot = Roles(first.Store);
             Assert.Contains("facts.window.nothing_pending_unverified", forgot);
             Assert.Contains("facts.window.nothing_pending_forgettable", forgot);
-            Assert.DoesNotContain("facts.window.nothing_pending", forgot);
+            Assert.DoesNotContain("facts.window.nothing_pending_recorded", forgot);
             _ = brief;
 
             // All reviewed but not delivered.
@@ -186,7 +189,7 @@ namespace Radios.Tests
             rj.Write();
             IReadOnlyList<string> reviewedRoles = Roles(reviewedKit.Store);
             Assert.Contains("facts.window.nothing_pending_reviewed", reviewedRoles);
-            Assert.DoesNotContain("facts.window.nothing_pending", reviewedRoles);
+            Assert.DoesNotContain("facts.window.nothing_pending_recorded", reviewedRoles);
             rj.Dispose();
 
             // Filtered-out pending detail: empty in scope, and says what it hides.
@@ -196,7 +199,13 @@ namespace Radios.Tests
             Assert.Empty(scoped.Items);
             Assert.Equal(1, scoped.Predicates.ExcludedOutstanding);
             Assert.NotNull(FactListView.ExcludedText(scoped));
-            Assert.DoesNotContain("facts.window.nothing_pending", FactListPresenter.EmptyStateRoles(scoped));
+            Assert.DoesNotContain("facts.window.nothing_pending_recorded", FactListPresenter.EmptyStateRoles(scoped));
+
+            // THE UNIVERSAL-DELIVERY SENTENCE IS NEVER CHOSEN. Not on a first
+            // run, not after full coverage, not anywhere: no predicate can
+            // establish that the radio had nothing else to say.
+            Assert.DoesNotContain("facts.window.nothing_pending", Roles(first.Store));
+            Assert.DoesNotContain("facts.window.nothing_pending", AllRoleKeys());
 
             // An active issue that was reviewed stays a row; so does unresolved loss.
             var issues = new FactKit();
@@ -343,14 +352,20 @@ namespace Radios.Tests
                 {
                     PauseCause.OperatorQuiet => "facts.state.paused",
                     PauseCause.UnknownCancellation => "facts.state.paused_unknown_cause",
-                    PauseCause.ContinuityInherited or PauseCause.ContinuityUnknown or PauseCause.ContinuityLost => "facts.state.paused_continuity",
+                    PauseCause.ContinuityInherited => "facts.state.paused_continuity",
+                    PauseCause.ContinuityUnknown => "facts.state.paused_continuity_unknown",
+                    PauseCause.ContinuityLost => "facts.state.held_continuity_lost",
+                    PauseCause.ContinuityAcrossRestart => "facts.state.held_continuity_restart",
                     PauseCause.LegacyUnknownCause => "facts.state.paused_cause_not_recorded",
                     _ => "facts.state.current",
                 };
+            foreach (IssueState state in Enum.GetValues<IssueState>()) yield return FactListPresenter.IssueStateRole(state);
             foreach (string k in new[]
                      {
                          "facts.state.current", "facts.state.historical", "facts.state.unknown", "facts.state.resolved",
                          "facts.state.silent_no_metadata", "facts.state.not_a_message", "facts.state.conflicting",
+                         "facts.delivery.legacy_claimed_delivered", "facts.delivery.legacy_claimed_undelivered",
+                         "facts.detail.legacy_claimed", "facts.window.nothing_pending_recorded",
                          "facts.delivery.not_attempted", "facts.delivery.legacy_unverified", "facts.delivery.not_started_quiet",
                          "facts.delivery.not_started_paused", "facts.delivery.withdrawn_superseded", "facts.delivery.withdrawn",
                          "facts.delivery.withdrawn_context_ended", "facts.delivery.started", "facts.delivery.requested_only",
@@ -360,7 +375,7 @@ namespace Radios.Tests
                          "facts.delivery.interrupted", "facts.receipt.request_issued", "facts.receipt.requested",
                          "facts.receipt.unavailable", "facts.receipt.suppressed", "facts.receipt.withheld",
                          "facts.receipt.outcome_unknown", "facts.window.loading", "facts.window.nothing_historical",
-                         "facts.window.nothing_pending", "facts.window.nothing_pending_unverified",
+                         "facts.window.nothing_pending_unverified",
                          "facts.window.nothing_pending_reviewed", "facts.window.nothing_pending_forgettable",
                          "facts.storage.unsaved", "facts.window.excluded_by_filter", "facts.status.problems_present",
                          "facts.status.pending_summary", "facts.status.pending_summary_plural", "facts.status.nothing_pending",

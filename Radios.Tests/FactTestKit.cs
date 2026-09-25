@@ -191,6 +191,58 @@ namespace Radios.Tests
             new WorseningTransition(id, current.Baseline.Fingerprint,
                 new[] { new MaterialDeclaration("temperature", FactValue.Of(temperature)) }, "worse by owner rule");
 
+        /// <summary>
+        /// The links a continuing owner declares: each declared unit that the
+        /// continuity view offers at the SAME name and value is the same
+        /// assertion. Anything else is new information.
+        /// </summary>
+        public static MaterialLink[] Links(ContinuityView? view, params MaterialDeclaration[] declared)
+        {
+            if (view == null) return Array.Empty<MaterialLink>();
+            var links = new List<MaterialLink>();
+            foreach (MaterialDeclaration d in declared)
+            {
+                ContinuityAssertion? same = view.Assertions.FirstOrDefault(a => a.Name == d.Name && a.Value == d.Value);
+                if (same != null) links.Add(new MaterialLink(d.Name, same.Reference));
+            }
+            return links.ToArray();
+        }
+
+        /// <summary>
+        /// Open a hot-PA occurrence as a CONTINUATION of what the store holds
+        /// for this station: the issued predecessor reference, and a link for
+        /// every declared unit the predecessor already held at that value.
+        /// </summary>
+        public static PublicationResult ContinueHot(SlotPublisher publisher, decimal temperature = 70m, long minutes = 3,
+                                                    ContinuityClaim claim = ContinuityClaim.Continuation,
+                                                    WorseningTransition? worsening = null, decimal? observedTemperature = null)
+        {
+            ContinuityView? view = publisher.Continuity;
+            var declared = new[]
+            {
+                new MaterialDeclaration("temperature", FactValue.Of(temperature)),
+                new MaterialDeclaration("duration", FactValue.Of(minutes)),
+            };
+            // On a reconnect worsening the carried declaration is the earlier
+            // value and the observation is the worse one.
+            CapturedFactEvent ev = Capture(publisher, Temp(observedTemperature ?? temperature, minutes));
+            return publisher.Open(ev, "condition.hot", HotKey, declared, new OpenOptions
+            {
+                Continuity = claim,
+                Predecessor = view?.Reference,
+                Carried = Links(view, declared),
+                WorseningOfPrior = worsening,
+            });
+        }
+
+        /// <summary>Open a hot-PA occurrence as an evidenced NEW ONSET: the owner witnessed the rise.</summary>
+        public static PublicationResult OnsetHot(SlotPublisher publisher, decimal temperature = 70m, long minutes = 3) =>
+            OpenHot(publisher, temperature, minutes, new OpenOptions
+            {
+                Continuity = ContinuityClaim.NewOccurrence,
+                NewOnsetEvidence = FactObservation.Of(("onset", FactValue.Of("sensor reported a fresh rise"))),
+            });
+
         public PresentationPlan PlanAutomatic(EpisodeId id, VerbosityLevel tier = VerbosityLevel.Chatty)
         {
             PlanPreparation prepared = Presentation.Prepare(id, PlanRequest.Automatic(tier));

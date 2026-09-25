@@ -316,13 +316,14 @@ namespace Radios.Facts
     public sealed class ReceiptSnapshot
     {
         internal ReceiptSnapshot(ReceiptPolicy policy, ReceiptState state, bool allowanceConsumed,
-                                 long receiptId, bool fromPreviousProcess)
+                                 long receiptId, bool fromPreviousProcess, bool closed)
         {
             Policy = policy;
             State = state;
             AllowanceConsumed = allowanceConsumed;
             ReceiptId = receiptId;
             FromPreviousProcess = fromPreviousProcess;
+            Closed = closed;
         }
 
         public ReceiptPolicy Policy { get; }
@@ -339,6 +340,14 @@ namespace Radios.Facts
         /// <summary>Evidence about a previous process's occurrence. Never a fresh tone, never a replay permit.</summary>
         public bool FromPreviousProcess { get; }
 
-        public override string ToString() => Policy + " " + State + (AllowanceConsumed ? " (spent)" : "");
+        /// <summary>
+        /// The observation scope ended before any request was made, so the
+        /// allowance closed unused. Not requested, not played — and a
+        /// continuation of the occurrence never reissues it.
+        /// </summary>
+        public bool Closed { get; }
+
+        public override string ToString() =>
+            Policy + " " + State + (AllowanceConsumed ? " (spent)" : "") + (Closed ? " (closed)" : "");
     }
 }

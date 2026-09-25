@@ -118,11 +118,16 @@ namespace Radios.Facts
                             Tracing.TraceLine("ApplicationFacts: history loaded — " + report, TraceLevel.Info);
                             _writer = new FactJournalWriter(_registry.Store, _journal);
                         }
+                        else
+                        {
+                            HistoryNotRead(_registry.Store, "the fact store's file could not be reserved");
+                        }
                     }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
                     {
                         _registry.Store.NotePersistFailure("shard:startup", "fact store",
                             "the fact store's folder could not be opened: " + ex.Message);
+                        HistoryNotRead(_registry.Store, "the fact store's folder could not be opened: " + ex.Message);
                     }
                 }
 
@@ -131,6 +136,16 @@ namespace Radios.Facts
                 return _registry;
             }
         }
+
+        /// <summary>
+        /// Saved history was never read. That is a partial inventory, not an
+        /// empty one: a reconnect cannot tell a continuation from a first
+        /// occurrence when the record that would say so may exist unread.
+        /// </summary>
+        private static void HistoryNotRead(FactStore store, string why) =>
+            store.NoteIssue(IssueKind.IncompleteInventory, "startup", "saved history",
+                "saved history was not read at startup, so this list may be missing some of it: " + why,
+                1, ExtentCertainty.Unknown, why, "startup");
 
         /// <summary>The journal, when one was started. For diagnostics and tests.</summary>
         public static FactJournal? Journal

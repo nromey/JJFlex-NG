@@ -121,6 +121,7 @@ namespace Radios.Tests
                          typeof(FactOwner), typeof(FactSession), typeof(FactActivity), typeof(PresentationPlan),
                          typeof(AttemptHandle), typeof(TransportBinding), typeof(ReceiptPermit), typeof(DisplayToken),
                          typeof(SelectedReadGrant), typeof(FactPresentation), typeof(ReceiptEndpoint),
+                         typeof(ContinuityReference), typeof(ContinuityView), typeof(ContinuityAssertion),
                      })
             {
                 Assert.Empty(type.GetConstructors(BindingFlags.Public | BindingFlags.Instance));

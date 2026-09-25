@@ -23,10 +23,18 @@ namespace Radios.Facts
         /// <summary>An attempt was cancelled and nobody can say why.</summary>
         UnknownCancellation = 2,
 
-        /// <summary>A reconnect's owner said this continues a condition that was paused before.</summary>
+        /// <summary>
+        /// A continuation after the program was restarted, of a condition that
+        /// had been paused before it closed. The earlier permission is history;
+        /// the pause it carried is what the record still says.
+        /// </summary>
         ContinuityInherited = 3,
 
-        /// <summary>A reconnect's owner could not say whether this continues a paused condition.</summary>
+        /// <summary>
+        /// A reconnect's owner could not say whether this continues an earlier
+        /// condition — or claimed a continuation the store could not support.
+        /// The uncertainty is kept; nothing is granted and nothing re-armed.
+        /// </summary>
         ContinuityUnknown = 4,
 
         /// <summary>The continuity record this would be compared with was lost to capacity.</summary>
@@ -40,14 +48,48 @@ namespace Radios.Facts
 
         /// <summary>A schema-1 record said "paused" and never recorded why.</summary>
         LegacyUnknownCause = 7,
+
+        /// <summary>
+        /// A continuation after the program was restarted, of a condition that
+        /// was NOT paused when it closed. Its permission did not survive the
+        /// restart — a grant is live authority, and live authority is not
+        /// restored — so nothing speaks it until a supported worsening, a new
+        /// evidenced onset, or the operator's explicit resume.
+        /// </summary>
+        ContinuityAcrossRestart = 8,
     }
 
     /// <summary>Where a grant of automatic permission came from.</summary>
-    internal enum GrantOrigin
+    public enum GrantOrigin
     {
         Occurrence = 0,
         Worsening = 1,
         ExplicitResume = 2,
+
+        /// <summary>
+        /// Carried into a successor episode from its predecessor's grant, in
+        /// the same process, at the ORIGINAL causal position. A reconnect
+        /// rebinds eligibility to the new live publisher; it does not renew
+        /// it.
+        /// </summary>
+        Inherited = 3,
+    }
+
+    /// <summary>
+    /// What a schema-1 record's aggregate delivery field said. Kept as the
+    /// writer's claim, never as verified coverage and never as a reason to
+    /// leave the pending list.
+    /// </summary>
+    public enum LegacyDeliveryClaim
+    {
+        /// <summary>The field was absent or unreadable.</summary>
+        Absent = 0,
+
+        /// <summary>The old format said it was delivered. It did not say which retained details were.</summary>
+        ClaimedDelivered = 1,
+
+        /// <summary>The old format said it was not delivered.</summary>
+        ClaimedUndelivered = 2,
     }
 
     /// <summary>
@@ -59,7 +101,11 @@ namespace Radios.Facts
     /// <b>Effective only while its source position is after the latest quiet</b>
     /// — derived at the moment anyone asks, never materialised as a Boolean
     /// that could go stale. A late event cannot earn fresh permission because
-    /// its grant inherits the event's captured position.
+    /// its grant inherits the event's captured position, and a successor
+    /// episode's inherited grant keeps its predecessor's position for the same
+    /// reason. An unknown-cause cancellation reported against the predecessor's
+    /// attempt follows the lineage: the constraint is read through
+    /// <see cref="InheritedFrom"/>, never copied once at reconnect.
     /// </remarks>
     internal sealed class AutomaticGrant
     {
@@ -67,9 +113,27 @@ namespace Radios.Facts
         public long SourceSequence;
         public GrantOrigin Origin;
         public readonly HashSet<long> Covers = new();
-        public PauseCause InheritedPause;               // None unless continuity says otherwise
         public AttemptId? UnknownCancelledBy;
         public long? UnknownCancelledAtSequence;
+
+        /// <summary>The predecessor's grant this one was carried from, when inherited.</summary>
+        public AutomaticGrant? InheritedFrom;
+
+        /// <summary>The unknown-cause cancellation constraint, read through the whole lineage.</summary>
+        public AttemptId? EffectiveUnknownCancellation
+        {
+            get
+            {
+                AutomaticGrant? g = this;
+                int guard = 0;
+                while (g != null && guard++ < 64)
+                {
+                    if (g.UnknownCancelledBy != null) return g.UnknownCancelledBy;
+                    g = g.InheritedFrom;
+                }
+                return null;
+            }
+        }
     }
 
     /// <summary>One bounded history line about an event the episode received.</summary>
@@ -82,7 +146,11 @@ namespace Radios.Facts
         public string Effect = string.Empty;
     }
 
-    /// <summary>The receipt allowance and evidence for one occurrence.</summary>
+    /// <summary>
+    /// The receipt allowance and evidence for one occurrence. Shared by every
+    /// episode of the occurrence in the same process: a reconnect does not
+    /// buy another tone.
+    /// </summary>
     internal sealed class ReceiptRecord
     {
         public ReceiptPolicy Policy;
@@ -91,6 +159,15 @@ namespace Radios.Facts
         public long ReceiptId;
         public ReceiptPermit? OutstandingPermit;
         public bool FromPreviousProcess;
+
+        /// <summary>
+        /// The occurrence's observation scope ended before any request was
+        /// made, so the allowance closed without one. Not "requested", not
+        /// "played": closed. A continuation never reissues it.
+        /// </summary>
+        public bool Closed;
+
+        public ReceiptSnapshot Freeze() => new ReceiptSnapshot(Policy, State, Consumed, ReceiptId, FromPreviousProcess, Closed);
     }
 
     /// <summary>Where a restored record came from.</summary>
@@ -103,6 +180,103 @@ namespace Radios.Facts
         public bool ConflictVariant;
         public int VariantIndex;
         public string RecordFingerprint = string.Empty;
+    }
+
+    /// <summary>
+    /// The bounded evidence an occurrence keeps for an assertion whose
+    /// episode record has been compacted or was never loaded.
+    /// </summary>
+    internal sealed class AssertionEvidence
+    {
+        public string Name = string.Empty;
+        public FactValue Value;
+        public MaterialKind Kind;
+        public bool Covered;
+        public bool Reviewed;
+    }
+
+    /// <summary>
+    /// One logical occurrence across every episode that observed it: the
+    /// place evidence for a continuing assertion is resolved.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A session episode and a logical occurrence are different
+    /// identities.</b> The first episode's identity is the occurrence root;
+    /// later episodes that continue it are members. An assertion is owed once
+    /// across the occurrence: a completion for the predecessor's plan or a
+    /// review of its displayed detail credits the assertion for every member
+    /// that carries it, found through the units' <see cref="MaterialUnit.Root"/>
+    /// rather than copied at the moment of reconnect. Evidence from a
+    /// conflicted variant credits nothing.
+    /// </para>
+    /// <para>
+    /// <b>Compaction cannot strand a reference.</b> When a member is compacted
+    /// its per-assertion evidence folds into <see cref="Compacted"/>, and a
+    /// continuity record saved to disk carries the same summary, so a
+    /// successor still finds what its predecessor earned.
+    /// </para>
+    /// </remarks>
+    internal sealed class OccurrenceLineage
+    {
+        public EpisodeId Root;
+        public long Revision;
+        public readonly List<FactRecord> Members = new();
+        public readonly Dictionary<AssertionRef, AssertionEvidence> Compacted = new();
+
+        /// <summary>
+        /// The occurrence roots this one replaced for its key, oldest first
+        /// and bounded — so two saved sources naming different occurrences for
+        /// one condition can be ordered by established succession rather than
+        /// by guess, and unordered candidates stay unknown.
+        /// </summary>
+        public readonly List<EpisodeId> SupersededRoots = new();
+
+        public const int MaxSupersededRoots = 16;
+
+        public void Supersede(EpisodeId root, IEnumerable<EpisodeId> itsChain)
+        {
+            foreach (EpisodeId r in itsChain) if (!SupersededRoots.Contains(r)) SupersededRoots.Add(r);
+            if (!SupersededRoots.Contains(root)) SupersededRoots.Add(root);
+            while (SupersededRoots.Count > MaxSupersededRoots) SupersededRoots.RemoveAt(0);
+        }
+
+        public bool CoveredElsewhere(FactRecord self, AssertionRef root)
+        {
+            foreach (FactRecord m in Members)
+            {
+                if (ReferenceEquals(m, self) || m.Origin?.ConflictVariant == true) continue;
+                if (m.DirectlyCovers(root)) return true;
+            }
+            return Compacted.TryGetValue(root, out AssertionEvidence? e) && e.Covered;
+        }
+
+        public bool ReviewedElsewhere(FactRecord self, AssertionRef root)
+        {
+            foreach (FactRecord m in Members)
+            {
+                if (ReferenceEquals(m, self) || m.Origin?.ConflictVariant == true) continue;
+                if (m.DirectlyReviewed(root)) return true;
+            }
+            return Compacted.TryGetValue(root, out AssertionEvidence? e) && e.Reviewed;
+        }
+
+        /// <summary>Fold a member's own evidence into the durable summary before it is dropped.</summary>
+        public void Absorb(FactRecord member)
+        {
+            HashSet<long> covered = member.DirectCovered();
+            HashSet<long> reviewed = member.DirectReviewed();
+            foreach (MaterialUnit unit in member.Required())
+                Absorb(unit.Root, unit.Name, unit.Value, unit.Kind, covered.Contains(unit.Id), reviewed.Contains(unit.Id));
+        }
+
+        public void Absorb(AssertionRef root, string name, FactValue value, MaterialKind kind, bool covered, bool reviewed)
+        {
+            if (!Compacted.TryGetValue(root, out AssertionEvidence? e))
+                Compacted[root] = e = new AssertionEvidence { Name = name, Value = value, Kind = kind };
+            e.Covered |= covered;
+            e.Reviewed |= reviewed;
+        }
     }
 
     /// <summary>
@@ -230,6 +404,11 @@ namespace Radios.Facts
         public string? OccurrenceLabel;
         public DeliveryPriority Priority;
 
+        // ── occurrence lineage: the identity across episodes ──
+        public EpisodeId LineageRoot;
+        public EpisodeId? PredecessorEpisode;
+        public OccurrenceLineage? Lineage;                          // the live link; null only before the store attached it
+
         // ── live authority: null on anything restored ──
         public SlotPublisher? Publisher;
         public FactScope? Scope;
@@ -260,11 +439,18 @@ namespace Radios.Facts
         public readonly HashSet<long> CoveredLedger = new();      // durable coverage of compacted attempts
         public readonly HashSet<long> ReviewedLocal = new();
         public readonly HashSet<long> ReviewedImported = new();
-        public bool LegacyUnverifiedOwed;                          // schema-1 aggregate claim, never upgraded
+        public LegacyDeliveryClaim LegacyClaim;                    // schema-1 aggregate claim, never upgraded
 
         // ── permission ──
         public readonly List<AutomaticGrant> Grants = new();
         public PauseCause RestoredPause;
+
+        /// <summary>
+        /// Why a live episode with no grant is not automatically permitted:
+        /// the continuity outcome of its reconnect. None for an episode whose
+        /// permission is decided by its grants.
+        /// </summary>
+        public PauseCause ContinuityPause;
 
         // ── attempts ──
         public readonly List<AttemptRecord> Attempts = new();
@@ -272,7 +458,7 @@ namespace Radios.Facts
         public long CompactedAttempts;
         public bool CompactedAttemptsLowerBound;
 
-        // ── receipt ──
+        // ── receipt: shared across the occurrence's episodes ──
         public ReceiptRecord Receipt = new();
 
         // ── detail ──
@@ -295,7 +481,8 @@ namespace Radios.Facts
             foreach (MaterialUnit unit in Materials) if (!superseded.Contains(unit.Id)) yield return unit;
         }
 
-        public HashSet<long> Covered()
+        /// <summary>This record's own presentation evidence: its attempts, tombstones and durable ledger.</summary>
+        public HashSet<long> DirectCovered()
         {
             var covered = new HashSet<long>(CoveredLedger);
             foreach (AttemptRecord attempt in Attempts) covered.UnionWith(attempt.EstablishedCoverage());
@@ -303,10 +490,47 @@ namespace Radios.Facts
             return covered;
         }
 
-        public HashSet<long> Reviewed()
+        public HashSet<long> DirectReviewed()
         {
             var reviewed = new HashSet<long>(ReviewedLocal);
             reviewed.UnionWith(ReviewedImported);
+            return reviewed;
+        }
+
+        public bool DirectlyCovers(AssertionRef root)
+        {
+            HashSet<long> covered = DirectCovered();
+            foreach (MaterialUnit unit in Materials) if (unit.Root == root && covered.Contains(unit.Id)) return true;
+            return false;
+        }
+
+        public bool DirectlyReviewed(AssertionRef root)
+        {
+            HashSet<long> reviewed = DirectReviewed();
+            foreach (MaterialUnit unit in Materials) if (unit.Root == root && reviewed.Contains(unit.Id)) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Units with attributable, undisputed presentation evidence — this
+        /// record's own, or another episode's for the same assertion, found
+        /// through the occurrence.
+        /// </summary>
+        public HashSet<long> Covered()
+        {
+            HashSet<long> covered = DirectCovered();
+            if (Lineage != null)
+                foreach (MaterialUnit unit in Materials)
+                    if (!covered.Contains(unit.Id) && Lineage.CoveredElsewhere(this, unit.Root)) covered.Add(unit.Id);
+            return covered;
+        }
+
+        public HashSet<long> Reviewed()
+        {
+            HashSet<long> reviewed = DirectReviewed();
+            if (Lineage != null)
+                foreach (MaterialUnit unit in Materials)
+                    if (!reviewed.Contains(unit.Id) && Lineage.ReviewedElsewhere(this, unit.Root)) reviewed.Add(unit.Id);
             return reviewed;
         }
 
@@ -345,19 +569,13 @@ namespace Radios.Facts
 
         /// <summary>
         /// True when this fact carries a retained delivery debt. Forgettable
-        /// information never does; a schema-1 record's unverified aggregate
-        /// claim does until somebody reviews it.
+        /// information never does. A schema-1 record's aggregate delivery
+        /// claim is NOT sufficient coverage: it is owed until its retained
+        /// detail is explicitly reviewed, whatever the old flag said.
         /// </summary>
         public bool HasRetainedDebt()
         {
             if (IsForgettable) return false;
-
-            // A schema-1 record carries only an aggregate claim. It is kept as
-            // the writer's historical record: owed if it said undelivered and
-            // nobody has reviewed it, not owed if it claimed delivery — and in
-            // neither case upgraded into verified coverage.
-            if (Origin?.Legacy == true) return LegacyUnverifiedOwed && ReviewedLocal.Count == 0 && ReviewedImported.Count == 0;
-
             return Unpresented().Count > 0;
         }
 
@@ -368,9 +586,12 @@ namespace Radios.Facts
             return null;
         }
 
-        public MaterialUnit AddMaterial(string name, FactValue value, MaterialKind kind, long? supersedes, long? relatesTo)
+        public MaterialUnit AddMaterial(string name, FactValue value, MaterialKind kind, long? supersedes, long? relatesTo,
+                                        AssertionRef? origin = null, AssertionRef? root = null)
         {
-            var unit = new MaterialUnit(NextMaterialId++, name, value, kind, supersedes, relatesTo, Revision);
+            long id = NextMaterialId++;
+            var unit = new MaterialUnit(id, name, value, kind, supersedes, relatesTo, Revision,
+                                        origin, root ?? new AssertionRef(Id, id));
             Materials.Add(unit);
             return unit;
         }
@@ -425,6 +646,24 @@ namespace Radios.Facts
             return FactHash.Of(sb.ToString());
         }
 
+        /// <summary>
+        /// A fingerprint of the MATERIAL a rendering is made from — the
+        /// information, its values and its detail — without the validity
+        /// state. A selected read is bound to this: the same material may be
+        /// read honestly as history after its premise ended, but material
+        /// that changed is something the operator has not seen.
+        /// </summary>
+        public string MaterialFingerprint()
+        {
+            var sb = new StringBuilder();
+            sb.Append(Id).Append('|').Append(MessageKey).Append('|').Append((int)Classification).Append('|')
+              .Append(Detail).Append('|').Append(CurrentValues.Fingerprint);
+            foreach (MaterialUnit unit in Materials)
+                sb.Append('|').Append(unit.Id).Append(':').Append(unit.Name).Append('=').Append(unit.Value.Invariant)
+                  .Append(':').Append(unit.Supersedes);
+            return FactHash.Of(sb.ToString());
+        }
+
         public FactSnapshot Freeze(long latestQuiet, long projectionRevision)
         {
             HashSet<long> covered = Covered();
@@ -434,6 +673,14 @@ namespace Radios.Facts
 
             HashSet<long> presentable = PresentableUnpresented(unpresented);
             (bool permitted, PauseCause pause) = FactPermission.Evaluate(this, presentable, latestQuiet);
+
+            var grants = new GrantSnapshot[Grants.Count];
+            for (int i = 0; i < Grants.Count; i++)
+            {
+                AutomaticGrant g = Grants[i];
+                grants[i] = new GrantSnapshot(g.Id, g.Origin, g.SourceSequence, g.Covers.ToArray(),
+                                              FactPermission.Blocker(g, latestQuiet), g.InheritedFrom?.Id);
+            }
 
             return new FactSnapshot(
                 id: Id,
@@ -447,6 +694,8 @@ namespace Radios.Facts
                 radioIdentity: RadioIdentity,
                 occurrenceLabel: OccurrenceLabel,
                 priority: Priority,
+                lineageRoot: LineageRoot,
+                predecessorEpisode: PredecessorEpisode,
                 messageKey: MessageKey,
                 classification: Classification,
                 delivery: Delivery,
@@ -467,21 +716,22 @@ namespace Radios.Facts
                 hasRetainedDebt: HasRetainedDebt(),
                 pause: pause,
                 permitted: permitted,
+                grants: grants,
                 attempts: Attempts.Select(a => a.Freeze()).ToArray(),
                 compactedAttempts: CompactedAttempts,
                 compactedAttemptsLowerBound: CompactedAttemptsLowerBound,
-                receipt: new ReceiptSnapshot(Receipt.Policy, Receipt.State, Receipt.Consumed,
-                                             Receipt.ReceiptId, Receipt.FromPreviousProcess),
+                receipt: Receipt.Freeze(),
                 detail: Detail,
                 detailTruncated: DetailTruncated,
                 isLive: IsLive,
                 restored: Restored,
                 restoredFrom: Origin?.Source,
                 legacy: Origin?.Legacy ?? false,
-                legacyUnverifiedOwed: LegacyUnverifiedOwed || (Origin?.Legacy ?? false),
+                legacyClaim: LegacyClaim,
                 conflictVariant: Origin?.ConflictVariant ?? false,
                 variantIndex: Origin?.VariantIndex ?? 0,
                 contentFingerprint: ContentFingerprint(),
+                materialFingerprint: MaterialFingerprint(),
                 projectionRevision: projectionRevision);
         }
     }
@@ -503,7 +753,7 @@ namespace Radios.Facts
                 return (false, record.RestoredPause != PauseCause.None ? record.RestoredPause : PauseCause.NoLivePermission);
 
             AutomaticGrant? blocking = null;
-            PauseCause cause = PauseCause.NoLivePermission;
+            PauseCause cause = record.ContinuityPause != PauseCause.None ? record.ContinuityPause : PauseCause.NoLivePermission;
             for (int i = record.Grants.Count - 1; i >= 0; i--)
             {
                 AutomaticGrant grant = record.Grants[i];
@@ -518,14 +768,47 @@ namespace Radios.Facts
         /// <summary>What stops this one grant, or None when it is effective.</summary>
         public static PauseCause Blocker(AutomaticGrant grant, long latestQuiet)
         {
-            if (grant.UnknownCancelledBy != null) return PauseCause.UnknownCancellation;
-            if (grant.InheritedPause != PauseCause.None) return grant.InheritedPause;
+            if (grant.EffectiveUnknownCancellation != null) return PauseCause.UnknownCancellation;
             if (grant.SourceSequence <= latestQuiet) return PauseCause.OperatorQuiet;
             return PauseCause.None;
         }
 
         public static bool Effective(AutomaticGrant grant, long latestQuiet) =>
             Blocker(grant, latestQuiet) == PauseCause.None;
+    }
+
+    /// <summary>An immutable view of one grant of automatic permission.</summary>
+    public sealed class GrantSnapshot
+    {
+        internal GrantSnapshot(long id, GrantOrigin origin, long sourceSequence, IReadOnlyCollection<long> covers,
+                               PauseCause blocker, long? inheritedFromId)
+        {
+            Id = id;
+            Origin = origin;
+            SourceSequence = sourceSequence;
+            Covers = covers;
+            Blocker = blocker;
+            InheritedFromId = inheritedFromId;
+        }
+
+        public long Id { get; }
+        public GrantOrigin Origin { get; }
+
+        /// <summary>The causal position of the event or action that granted it. Inherited grants keep their predecessor's.</summary>
+        public long SourceSequence { get; }
+
+        /// <summary>Exactly which material units it permits.</summary>
+        public IReadOnlyCollection<long> Covers { get; }
+
+        /// <summary>What stops it right now, or None when it is effective.</summary>
+        public PauseCause Blocker { get; }
+
+        /// <summary>The predecessor grant this one was carried from, when inherited.</summary>
+        public long? InheritedFromId { get; }
+
+        public bool Effective => Blocker == PauseCause.None;
+
+        public override string ToString() => Origin + " grant " + Id + " at " + SourceSequence + (Effective ? "" : " (" + Blocker + ")");
     }
 
     /// <summary>
@@ -546,16 +829,18 @@ namespace Radios.Facts
         internal FactSnapshot(
             EpisodeId id, string ownerName, string contractName, int contractRevision, ConditionKey condition,
             string claim, long scopeId, FactScopeKind scopeKind, string? radioIdentity, string? occurrenceLabel,
-            DeliveryPriority priority, string messageKey, DeliveryClassification classification,
-            DeliveryDescriptor? delivery, long catalogGeneration, ValiditySnapshot validity, DateTime observedUtc,
-            long revision, long observationRevision, long materialRevision, FactObservation currentValues,
-            FactObservation baseline, IReadOnlyList<MaterialUnit> materials, IReadOnlyCollection<long> required,
+            DeliveryPriority priority, EpisodeId lineageRoot, EpisodeId? predecessorEpisode, string messageKey,
+            DeliveryClassification classification, DeliveryDescriptor? delivery, long catalogGeneration,
+            ValiditySnapshot validity, DateTime observedUtc, long revision, long observationRevision,
+            long materialRevision, FactObservation currentValues, FactObservation baseline,
+            IReadOnlyList<MaterialUnit> materials, IReadOnlyCollection<long> required,
             IReadOnlyCollection<long> covered, IReadOnlyCollection<long> reviewed, IReadOnlyCollection<long> unpresented,
-            IReadOnlyCollection<long> presentable, bool hasRetainedDebt, PauseCause pause, bool permitted, IReadOnlyList<AttemptSnapshot> attempts,
+            IReadOnlyCollection<long> presentable, bool hasRetainedDebt, PauseCause pause, bool permitted,
+            IReadOnlyList<GrantSnapshot> grants, IReadOnlyList<AttemptSnapshot> attempts,
             long compactedAttempts, bool compactedAttemptsLowerBound, ReceiptSnapshot receipt, string detail,
             bool detailTruncated, bool isLive, bool restored, string? restoredFrom, bool legacy,
-            bool legacyUnverifiedOwed, bool conflictVariant, int variantIndex, string contentFingerprint,
-            long projectionRevision)
+            LegacyDeliveryClaim legacyClaim, bool conflictVariant, int variantIndex, string contentFingerprint,
+            string materialFingerprint, long projectionRevision)
         {
             Id = id;
             OwnerName = ownerName;
@@ -568,6 +853,8 @@ namespace Radios.Facts
             RadioIdentity = radioIdentity;
             OccurrenceLabel = occurrenceLabel;
             Priority = priority;
+            LineageRoot = lineageRoot;
+            PredecessorEpisode = predecessorEpisode;
             MessageKey = messageKey;
             Classification = classification;
             Delivery = delivery;
@@ -588,6 +875,7 @@ namespace Radios.Facts
             HasUndeliveredDetail = hasRetainedDebt;
             Pause = pause;
             PermittedNow = permitted;
+            Grants = grants;
             Attempts = attempts;
             CompactedAttempts = compactedAttempts;
             CompactedAttemptsLowerBound = compactedAttemptsLowerBound;
@@ -598,10 +886,11 @@ namespace Radios.Facts
             RestoredFromDisk = restored;
             RestoredFrom = restoredFrom;
             Legacy = legacy;
-            LegacyUnverifiedCoverage = legacyUnverifiedOwed;
+            LegacyClaim = legacyClaim;
             ConflictVariant = conflictVariant;
             VariantIndex = variantIndex;
             ContentFingerprint = contentFingerprint;
+            MaterialFingerprint = materialFingerprint;
             ProjectionRevision = projectionRevision;
         }
 
@@ -621,6 +910,15 @@ namespace Radios.Facts
 
         /// <summary>From the contract. A message key cannot raise it.</summary>
         public DeliveryPriority Priority { get; }
+
+        /// <summary>
+        /// The occurrence this episode belongs to: the first episode that
+        /// observed it. Equal to <see cref="Id"/> for a first episode.
+        /// </summary>
+        public EpisodeId LineageRoot { get; }
+
+        /// <summary>The episode this one continues across a reconnect, or null.</summary>
+        public EpisodeId? PredecessorEpisode { get; }
 
         /// <summary>The lexicon key: the identity of the wording, never the wording.</summary>
         public string MessageKey { get; }
@@ -653,10 +951,10 @@ namespace Radios.Facts
         /// <summary>Units nothing has superseded.</summary>
         public IReadOnlyCollection<long> Required { get; }
 
-        /// <summary>Units with attributable, undisputed presentation evidence.</summary>
+        /// <summary>Units with attributable, undisputed presentation evidence — this episode's or a predecessor's, for the same assertion.</summary>
         public IReadOnlyCollection<long> Covered { get; }
 
-        /// <summary>Units the operator explicitly reviewed on a displayed snapshot.</summary>
+        /// <summary>Units the operator explicitly reviewed on a displayed snapshot, in this episode or for the same assertion elsewhere.</summary>
         public IReadOnlyCollection<long> Reviewed { get; }
 
         /// <summary>Required units with neither presentation nor review.</summary>
@@ -688,6 +986,9 @@ namespace Radios.Facts
         /// </summary>
         public bool AutomaticPaused => Presentable.Count > 0 && !PermittedNow;
 
+        /// <summary>Every grant of automatic permission this episode holds, in the order they were made.</summary>
+        public IReadOnlyList<GrantSnapshot> Grants { get; }
+
         public IReadOnlyList<AttemptSnapshot> Attempts { get; }
 
         /// <summary>Attempts coalesced into the durable coverage ledger. Never decreases.</summary>
@@ -710,14 +1011,24 @@ namespace Radios.Facts
         /// <summary>From a schema-1 file: legacy evidence, never proof the current contract existed.</summary>
         public bool Legacy { get; }
 
-        /// <summary>A schema-1 aggregate delivery claim, kept as unverified rather than upgraded into proof.</summary>
-        public bool LegacyUnverifiedCoverage { get; }
+        /// <summary>What the schema-1 aggregate field said. A claim, kept; never verified coverage.</summary>
+        public LegacyDeliveryClaim LegacyClaim { get; }
+
+        /// <summary>
+        /// A schema-1 record: whatever its aggregate field claimed, nothing
+        /// establishes which retained details were presented.
+        /// </summary>
+        public bool LegacyUnverifiedCoverage => Legacy;
 
         /// <summary>One of several incompatible variants of the same identity, preserved side by side.</summary>
         public bool ConflictVariant { get; }
         public int VariantIndex { get; }
 
         public string ContentFingerprint { get; }
+
+        /// <summary>The material this record's rendering is made from, without its validity state.</summary>
+        public string MaterialFingerprint { get; }
+
         public long ProjectionRevision { get; }
 
         /// <summary>On the operator's default list: a retained debt.</summary>
