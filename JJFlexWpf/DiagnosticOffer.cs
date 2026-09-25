@@ -162,6 +162,19 @@ namespace JJFlexWpf
                 // whether to speak. Everything below can decide to stay quiet;
                 // none of it may decide to forget.
                 //
+                // A RESOLUTION replaces the entry for its key with the
+                // sentence that is true now — the thing came right — and
+                // that is ALL it does. It is never spoken, and if no entry
+                // carries the key there is nothing to record: a resolution
+                // is not a problem, and recording it as one would announce
+                // good news with the problem earcon (Sprint 45 Track H9,
+                // Sol's review of H8, blocker 3).
+                if (e.IsResolution)
+                {
+                    ProblemLog.Update(e.Key!, e.What, e.Detail);
+                    return;
+                }
+
                 // An UPDATE replaces the entry for its key and is never spoken:
                 // the operator already heard there was a problem with this
                 // thing, and what changed is what to do about it, which they

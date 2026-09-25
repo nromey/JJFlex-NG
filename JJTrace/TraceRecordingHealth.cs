@@ -61,6 +61,29 @@ namespace JJTrace
         /// <summary>The sink's own latched fault, when the tail is uncertain.</summary>
         public string SinkFault { get; internal set; }
 
+        /// <summary>
+        /// True on the clone carried by a
+        /// <see cref="TraceRecordingHealthChangeKind.ConditionResolved"/>
+        /// change when what resolved it was the archive committing. False
+        /// there when it was the worker's retry writing the recovery record
+        /// (the archive is still being made). Never true on an unresolved
+        /// condition. The two resolutions are different sentences for the
+        /// operator (Sol's review of H8, blocker 3).
+        /// </summary>
+        public bool ArchiveCommitted { get; internal set; }
+
+        /// <summary>
+        /// True on the clone carried by a
+        /// <see cref="TraceRecordingHealthChangeKind.ConditionResolved"/>
+        /// change when what resolved it was the worker's retry writing the
+        /// recovery record. <see cref="RecoveryRecordWritten"/> on that clone
+        /// is left AS IT WAS — false — so the clone still says what was
+        /// wrong; the first cut flipped it and the operator's entry then
+        /// read "what went wrong at the time: its recovery is not yet
+        /// confirmed", which was neither what went wrong nor true.
+        /// </summary>
+        public bool RecoveryRecordPersisted { get; internal set; }
+
         internal TraceRecoveryCondition Clone() => (TraceRecoveryCondition)MemberwiseClone();
     }
 
@@ -71,7 +94,15 @@ namespace JJTrace
         /// <summary>A ticket's recovery is newly at risk.</summary>
         ConditionRaised,
 
-        /// <summary>A ticket that was at risk has its record or its archive.</summary>
+        /// <summary>
+        /// A ticket that was at risk has its record or its archive. Which
+        /// one is on the carried condition's
+        /// <see cref="TraceRecoveryCondition.ArchiveCommitted"/>. Whoever
+        /// keeps an operator-facing entry for the ticket must UPDATE it — the
+        /// sentence it was told ("still filing it in the background") has
+        /// stopped being true — and must not announce (Sol's review of H8,
+        /// blocker 3).
+        /// </summary>
         ConditionResolved,
 
         /// <summary>
@@ -281,12 +312,15 @@ namespace JJTrace
         /// <summary>
         /// The worker's retry wrote the durable record. That ticket's recovery
         /// is assured by the next launch, so its condition clears — even if
-        /// its tail was uncertain, which stays in the historical record.
+        /// its tail was uncertain, which stays in the historical record. The
+        /// resolved clone keeps <see cref="TraceRecoveryCondition.RecoveryRecordWritten"/>
+        /// false (what was wrong) and says how it resolved on
+        /// <see cref="TraceRecoveryCondition.RecoveryRecordPersisted"/>.
         /// </summary>
         internal static void NoteRecoveryRecordPersisted(TraceArchiveTicket ticket)
         {
             if (ticket == null) return;
-            Resolve(ticket.TicketId, c => c.RecoveryRecordWritten = true);
+            Resolve(ticket.TicketId, c => c.RecoveryRecordPersisted = true);
         }
 
         /// <summary>
@@ -298,7 +332,7 @@ namespace JJTrace
             if (ticket == null || completion == null) return;
             if (completion.ArchiveCommitted)
             {
-                Resolve(ticket.TicketId, null);
+                Resolve(ticket.TicketId, c => c.ArchiveCommitted = true);
                 return;
             }
 

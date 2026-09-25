@@ -75,13 +75,32 @@ namespace Radios
 
         public OperationFailureEventArgs(FailureKind kind, string what, string detail,
                                          string? key, bool isUpdate)
+            : this(kind, what, detail, key, isUpdate, isResolution: false)
+        {
+        }
+
+        public OperationFailureEventArgs(FailureKind kind, string what, string detail,
+                                         string? key, bool isUpdate, bool isResolution)
         {
             Kind = kind;
             What = what ?? "";
             Detail = detail ?? "";
             Key = key;
             IsUpdate = isUpdate;
+            IsResolution = isResolution;
         }
+
+        /// <summary>
+        /// True when the thing <see cref="Key"/> names has come RIGHT, and
+        /// this is the sentence that replaces what the entry said while it
+        /// was wrong. Implies <see cref="IsUpdate"/>. It differs from an
+        /// ordinary update in what a subscriber does when it finds no entry
+        /// to replace: nothing. A resolution is never a new problem, so it
+        /// is never recorded as one and never announced (Sol's review of H8,
+        /// blocker 3: a successful retry left "still filing it in the
+        /// background" standing for the session).
+        /// </summary>
+        public bool IsResolution { get; }
 
         /// <summary>Which policy bucket this failure falls in.</summary>
         public FailureKind Kind { get; }
@@ -211,6 +230,34 @@ namespace Radios
             catch { }
 
             try { Reported?.Invoke(null, new OperationFailureEventArgs(kind, what, detail, key, isUpdate: true)); }
+            catch { /* never let the offer path break the failing path */ }
+        }
+
+        /// <summary>
+        /// The thing <paramref name="key"/> names has come right: replace
+        /// what the Problems entry says about it with the sentence that is
+        /// true now, keeping the entry (and its clock time) because the
+        /// problem WAS announced and a list that loses the entry loses the
+        /// answer to "what was that about". Never announced, and — unlike
+        /// <see cref="UpdateKeyed"/> — never recorded as new when no entry
+        /// carries the key: a resolution is not a problem. Sprint 45 Track
+        /// H9 (Sol's review of H8, blocker 3).
+        /// </summary>
+        public static void ResolveKeyed(FailureKind kind, string what, string detail, string key)
+        {
+            try
+            {
+                JJTrace.Tracing.TraceLine(
+                    $"OperationFailure[{kind}] ({key}) resolved: {what} — {detail}",
+                    System.Diagnostics.TraceLevel.Info);
+            }
+            catch { }
+
+            try
+            {
+                Reported?.Invoke(null, new OperationFailureEventArgs(kind, what, detail, key,
+                                                                     isUpdate: true, isResolution: true));
+            }
             catch { /* never let the offer path break the failing path */ }
         }
     }

@@ -68,4 +68,41 @@ public sealed class ProblemLogUpdateTests : IDisposable
         Assert.False(ProblemLog.Update("anything", "what", "detail"));
         Assert.Equal("Connection failed", ProblemLog.NewestFirst()[0].What);
     }
+
+    /// <summary>
+    /// <b>Written and compiled in Track H9; NOT RUN</b> (same reason as the
+    /// class remark). A RESOLUTION through the offer replaces the keyed
+    /// entry in place and, when no entry carries the key, records NOTHING —
+    /// unlike an ordinary update, which is treated as new. The offer's
+    /// announcement policy is never reached: nothing is spoken for a
+    /// resolution, and this test constructs no window and plays no earcon
+    /// because the return happens before either (Sol's review of H8,
+    /// blocker 3). The reporting side is pinned and RUN in
+    /// <c>Radios.Tests.RecordingHealthNoticeTests</c>.
+    /// </summary>
+    [Fact]
+    public void A_resolution_replaces_the_keyed_entry_and_records_nothing_when_there_is_none()
+    {
+        DiagnosticOffer.Install();
+        ProblemLog.Record(FailureKind.RecordingRecoveryAtRisk, "An earlier recording is not yet safely filed",
+                          "still filing it in the background", key: "recording-recovery:abc");
+        DateTime when = ProblemLog.NewestFirst()[0].WhenLocal;
+
+        OperationFailure.ResolveKeyed(FailureKind.RecordingRecoveryAtRisk,
+            "An earlier recording has now been filed", "filed", "recording-recovery:abc");
+
+        Assert.Equal(1, ProblemLog.Count);
+        ProblemEntry entry = ProblemLog.NewestFirst()[0];
+        Assert.Equal("An earlier recording has now been filed", entry.What);
+        Assert.Equal("filed", entry.Detail);
+        Assert.Equal(when, entry.WhenLocal);
+        Assert.Equal("recording-recovery:abc", entry.Key);
+
+        // No entry for the key: nothing is recorded, because a resolution is
+        // not a problem. (An ordinary update WOULD be recorded as new here.)
+        OperationFailure.ResolveKeyed(FailureKind.RecordingRecoveryAtRisk,
+            "An earlier recording has now been filed", "filed", "recording-recovery:never");
+        Assert.Equal(1, ProblemLog.Count);
+        Assert.DoesNotContain(ProblemLog.NewestFirst(), e => e.Key == "recording-recovery:never");
+    }
 }

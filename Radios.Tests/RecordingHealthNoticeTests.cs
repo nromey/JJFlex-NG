@@ -126,8 +126,10 @@ namespace Radios.Tests
         /// <summary>
         /// The change reaches <see cref="OperationFailure"/> — the route the
         /// Problems list, the Diagnostics count and the one queued announcement
-        /// all hang off — once per condition, with its own kind; a resolution
-        /// is not reported; a sink failure is its own kind.
+        /// all hang off — once per condition as NEW, with its own kind; a
+        /// resolution arrives marked as a resolution and never as new (since
+        /// H9; H8 did not report it at all, which is Sol's blocker 3); a sink
+        /// failure is its own kind.
         /// </summary>
         [Fact]
         public void The_watch_reports_each_condition_once_through_the_failure_route()
@@ -141,17 +143,22 @@ namespace Radios.Tests
                 TraceArchiveTicket ticket = TicketAt(@"C:\t\a.txt", recordWritten: false);
                 Invoke("NoteDetached", ticket);
                 Invoke("NoteDetached", ticket);                  // a repeat of the same ticket
-                Invoke("NoteRecoveryRecordPersisted", ticket);   // resolved: not announced
+                Invoke("NoteRecoveryRecordPersisted", ticket);   // resolved: a resolution, never new
                 Invoke("NoteSink", TraceSinkState.Failed, "disk full", @"C:\t\JJFlexRadioTrace.txt", Guid.NewGuid(), 1L);
                 Invoke("NoteSink", TraceSinkState.Failed, "disk full", @"C:\t\JJFlexRadioTrace.txt", Guid.NewGuid(), 1L); // same state again
 
                 lock (reports)
                 {
-                    Assert.Equal(2, reports.Count);
+                    Assert.Equal(3, reports.Count);
+                    Assert.Equal(2, reports.Count(r => !r.IsUpdate));
                     Assert.Equal(FailureKind.RecordingRecoveryAtRisk, reports[0].Kind);
+                    Assert.False(reports[0].IsUpdate);
                     Assert.Contains(@"C:\t\a.txt", reports[0].Detail, StringComparison.Ordinal);
-                    Assert.Equal(FailureKind.RecordingStopped, reports[1].Kind);
-                    Assert.Contains("disk full", reports[1].Detail, StringComparison.Ordinal);
+                    Assert.True(reports[1].IsResolution);
+                    Assert.Equal(reports[0].Key, reports[1].Key);
+                    Assert.Equal(FailureKind.RecordingStopped, reports[2].Kind);
+                    Assert.False(reports[2].IsUpdate);
+                    Assert.Contains("disk full", reports[2].Detail, StringComparison.Ordinal);
                     foreach (OperationFailureEventArgs e in reports)
                     {
                         _out.WriteLine(e.What + " — " + e.Detail);
@@ -219,7 +226,9 @@ namespace Radios.Tests
                 Assert.DoesNotContain("still filing", second.Detail, StringComparison.Ordinal);
                 Assert.DoesNotContain("will not be filed", second.Detail, StringComparison.Ordinal);
 
-                // Resolved, then failed: the fresh raise is an update too.
+                // Resolved, then failed: the resolution replaces the entry
+                // (since H9), and the fresh raise is an update too — three
+                // sentences on one key, one of them announced.
                 TraceArchiveTicket later = TicketAt(@"C:\t\b.txt", recordWritten: false);
                 Invoke("NoteDetached", later);
                 Invoke("NoteRecoveryRecordPersisted", later);
@@ -231,11 +240,15 @@ namespace Radios.Tests
                 });
                 lock (reports)
                 {
-                    Assert.Equal(4, reports.Count);
+                    Assert.Equal(5, reports.Count);
                     Assert.False(reports[2].IsUpdate);
-                    Assert.True(reports[3].IsUpdate);
+                    Assert.True(reports[3].IsResolution);
+                    Assert.Contains("will now be filed on its own", reports[3].What, StringComparison.Ordinal);
+                    Assert.True(reports[4].IsUpdate);
+                    Assert.False(reports[4].IsResolution);
                     Assert.Equal(reports[2].Key, reports[3].Key);
-                    Assert.Contains("could not be filed", reports[3].What, StringComparison.Ordinal);
+                    Assert.Equal(reports[2].Key, reports[4].Key);
+                    Assert.Contains("could not be filed", reports[4].What, StringComparison.Ordinal);
                     // Exactly one NEW report per ticket, ever.
                     Assert.Equal(2, reports.Count(r => !r.IsUpdate));
                 }
@@ -359,7 +372,7 @@ namespace Radios.Tests
             Invoke("NoteDetached", ticket);
             TraceRecoveryCondition c = Assert.Single(TraceRecordingHealth.Snapshot().Unresolved);
             string what = RecordingHealthNotice.ConditionWhat(c);
-            string detail = RecordingHealthNotice.ConditionDetail(c);
+            string detail = RecordingHealthNotice.ConditionDetail(c, TraceSinkState.Recording);
             _out.WriteLine(what + " — " + detail);
             Assert.Contains("last lines", what, StringComparison.Ordinal);
             Assert.Contains(@"C:\t\a.txt", detail, StringComparison.Ordinal);
@@ -374,7 +387,147 @@ namespace Radios.Tests
             Invoke("NoteDetached", TicketAt(@"C:\t\b.txt", recordWritten: false, tailUncertain: true));
             TraceRecoveryCondition r = Assert.Single(TraceRecordingHealth.Snapshot().Unresolved);
             Assert.Contains("not yet safely filed", RecordingHealthNotice.ConditionWhat(r), StringComparison.Ordinal);
-            Assert.Contains("still filing", RecordingHealthNotice.ConditionDetail(r), StringComparison.Ordinal);
+            Assert.Contains("still filing", RecordingHealthNotice.ConditionDetail(r, TraceSinkState.Recording), StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// <b>Sol's review of H8, blocker 3.</b> A ticket reported while its
+        /// filing was pending, and then filed after all, has its Problems
+        /// entry REPLACED — through a route that is marked as a resolution,
+        /// keyed to the same entry, never a new report — with the sentence
+        /// that is true now. Both resolutions are driven: the worker's retry
+        /// writing the recovery record ("will now be filed on its own"), and
+        /// the archive committing ("has now been filed"). "Still filing" is
+        /// gone from both. Exactly one non-update report per ticket, ever,
+        /// and no report at all for a resolution of a ticket this watch never
+        /// reported (positive control that the route is keyed to reporting,
+        /// not to resolving).
+        /// </summary>
+        [Fact]
+        public void A_resolved_condition_replaces_its_Problems_entry_and_is_never_reported_as_new()
+        {
+            var reports = new List<OperationFailureEventArgs>();
+            void OnReported(object s, OperationFailureEventArgs e) { lock (reports) reports.Add(e); }
+            OperationFailure.Reported += OnReported;
+            RecordingHealthWatch.Install();
+            try
+            {
+                // Route one: the record failed at the seal, the worker's retry writes it.
+                TraceArchiveTicket indexed = TicketAt(@"C:\t\a.txt", recordWritten: false);
+                Invoke("NoteDetached", indexed);
+                Invoke("NoteRecoveryRecordPersisted", indexed);
+                Assert.DoesNotContain(TraceRecordingHealth.Snapshot().Unresolved, c => c.TicketId == indexed.TicketId);
+
+                // Route two: the tail was short, the archive then commits.
+                TraceArchiveTicket filed = TicketAt(@"C:\t\b.txt", recordWritten: true, tailUncertain: true);
+                Invoke("NoteDetached", filed);
+                Invoke("NoteArchiveOutcome", filed, new TraceArchiveCompletion
+                {
+                    TicketId = filed.TicketId, ArchiveCommitted = true,
+                    ArchiveFullPath = @"C:\Traces\b.zip", RawRetained = false,
+                });
+                Assert.DoesNotContain(TraceRecordingHealth.Snapshot().Unresolved, c => c.TicketId == filed.TicketId);
+
+                // Positive control: a resolution for a ticket never reported
+                // produces no event of any kind.
+                TraceArchiveTicket never = TicketAt(@"C:\t\c.txt", recordWritten: true);
+                Invoke("NoteArchiveOutcome", never, new TraceArchiveCompletion { TicketId = never.TicketId, ArchiveCommitted = true });
+
+                OperationFailureEventArgs[] all;
+                lock (reports) all = reports.ToArray();
+                foreach (OperationFailureEventArgs e in all) _out.WriteLine((e.IsResolution ? "[resolved] " : e.IsUpdate ? "[update] " : "[new] ") + e.What + " — " + e.Detail);
+
+                Assert.Equal(4, all.Length);
+                Assert.Equal(2, all.Count(r => !r.IsUpdate));
+                Assert.DoesNotContain(all, e => (e.Detail + e.What).Contains(@"C:\t\c.txt", StringComparison.Ordinal));
+
+                OperationFailureEventArgs a0 = all[0], a1 = all[1], b0 = all[2], b1 = all[3];
+                Assert.False(a0.IsUpdate);
+                Assert.Contains("still filing", a0.Detail, StringComparison.Ordinal);
+                Assert.True(a1.IsResolution);
+                Assert.True(a1.IsUpdate);
+                Assert.Equal(a0.Key, a1.Key);
+                Assert.Equal(RecordingHealthWatch.KeyFor(indexed.TicketId), a1.Key);
+                Assert.Equal(FailureKind.RecordingRecoveryAtRisk, a1.Kind);
+                Assert.Contains("will now be filed on its own", a1.What, StringComparison.Ordinal);
+                Assert.Contains(@"C:\t\a.txt", a1.Detail, StringComparison.Ordinal);
+                Assert.Contains("recovery index could not be written", a1.Detail, StringComparison.Ordinal);
+                Assert.DoesNotContain("still filing", a1.Detail, StringComparison.Ordinal);
+                Assert.DoesNotContain("has now been filed", a1.What, StringComparison.Ordinal);
+
+                Assert.False(b0.IsUpdate);
+                Assert.Contains("last lines", b0.What, StringComparison.Ordinal);
+                Assert.True(b1.IsResolution);
+                Assert.Equal(b0.Key, b1.Key);
+                Assert.Contains("has now been filed", b1.What, StringComparison.Ordinal);
+                Assert.Contains(@"C:\t\b.txt", b1.Detail, StringComparison.Ordinal);
+                Assert.Contains("last lines may not have reached the disk", b1.Detail, StringComparison.Ordinal);   // the tail is still short
+                Assert.DoesNotContain("still filing", b1.Detail, StringComparison.Ordinal);
+                Assert.DoesNotContain("will finish filing", b1.Detail, StringComparison.Ordinal);
+                foreach (OperationFailureEventArgs e in new[] { a1, b1 })
+                {
+                    Assert.DoesNotContain("logging.recording", e.What + e.Detail, StringComparison.Ordinal);
+                    Assert.False(e.What.EndsWith(".", StringComparison.Ordinal));
+                    Assert.EndsWith(".", e.Detail.TrimEnd(), StringComparison.Ordinal);
+                }
+            }
+            finally { OperationFailure.Reported -= OnReported; }
+        }
+
+        /// <summary>
+        /// <b>Sol's review of H8, blocker 3, second half.</b> The
+        /// archive-failed detail says the log running now is not affected
+        /// only when a log is running now; with the sink off or failed it
+        /// says nothing about a live log. Driven through the real change so
+        /// the sink state is the one the change carries, then directly.
+        /// </summary>
+        [Fact]
+        public void The_archive_failed_detail_claims_a_running_log_only_when_one_is_running()
+        {
+            TraceArchiveTicket ticket = TicketAt(@"C:\t\a.txt", recordWritten: true);
+            var failed = new TraceArchiveCompletion
+            {
+                TicketId = ticket.TicketId, ArchiveCommitted = false, RawRetained = true,
+                RawPath = ticket.SourcePath, FailureStage = "compress", FailureMessage = "disk full",
+            };
+
+            // No sink note at all: the model's state is Off.
+            var changes = new List<TraceRecordingHealthChange>();
+            void OnChanged(TraceRecordingHealthChange c) { lock (changes) changes.Add(c); }
+            TraceRecordingHealth.Changed += OnChanged;
+            try
+            {
+                Invoke("NoteArchiveOutcome", ticket, failed);
+                TraceRecordingHealthChange raised = Assert.Single(changes);
+                Assert.Equal(TraceSinkState.Off, raised.Snapshot.SinkState);
+                var off = RecordingHealthNotice.Announcement(raised).Value;
+                _out.WriteLine("[sink off] " + off.What + " — " + off.Detail);
+                Assert.Contains("could not be filed", off.What, StringComparison.Ordinal);
+                Assert.Contains(@"C:\t\a.txt", off.Detail, StringComparison.Ordinal);
+                Assert.Contains("compressed", off.Detail, StringComparison.Ordinal);
+                Assert.DoesNotContain("running now", off.Detail, StringComparison.Ordinal);
+                Assert.DoesNotContain("not affected", off.Detail, StringComparison.Ordinal);
+
+                // Positive control: with a live sink published, the same
+                // ticket's detail does say so.
+                changes.Clear();
+                TraceRecordingHealth.ResetForTests();
+                Invoke("NoteSink", TraceSinkState.Recording, null, @"C:\t\JJFlexRadioTrace.txt", Guid.NewGuid(), 1L);
+                Invoke("NoteArchiveOutcome", ticket, failed);
+                TraceRecordingHealthChange live = changes.Single(c => c.Kind == TraceRecordingHealthChangeKind.ConditionRaised);
+                Assert.Equal(TraceSinkState.Recording, live.Snapshot.SinkState);
+                var on = RecordingHealthNotice.Announcement(live).Value;
+                _out.WriteLine("[sink recording] " + on.What + " — " + on.Detail);
+                Assert.Contains("The log that is running now is not affected", on.Detail, StringComparison.Ordinal);
+            }
+            finally { TraceRecordingHealth.Changed -= OnChanged; }
+
+            // And directly, for a FAILED sink.
+            TraceRecoveryCondition c = Assert.Single(TraceRecordingHealth.Snapshot().Unresolved);
+            string failedSink = RecordingHealthNotice.ConditionDetail(c, TraceSinkState.Failed);
+            Assert.DoesNotContain("running now", failedSink, StringComparison.Ordinal);
+            Assert.Contains("If you are sending evidence to Noel", failedSink, StringComparison.Ordinal);
+            Assert.DoesNotContain("logging.recording", failedSink, StringComparison.Ordinal);
         }
     }
 }

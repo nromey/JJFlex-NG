@@ -31,7 +31,12 @@ namespace Radios
         /// <summary>
         /// The short clause spoken once, and the detail the Problems list
         /// keeps, for one change. Null for a change the operator is not told
-        /// about (a condition resolving, a healthy sink opening).
+        /// about (a healthy sink opening). A condition RESOLVING is not
+        /// announced either, but it does have sentences — the ones that
+        /// replace its Problems entry — and they come from
+        /// <see cref="Resolution"/>, not from here, so nothing that treats
+        /// this method's answer as "something to report" can report a
+        /// resolution as a problem.
         /// </summary>
         public static (FailureKind Kind, string What, string Detail)? Announcement(TraceRecordingHealthChange change)
         {
@@ -43,7 +48,11 @@ namespace Radios
                     {
                         TraceRecoveryCondition c = change.Condition;
                         if (c == null) return null;
-                        return (FailureKind.RecordingRecoveryAtRisk, ConditionWhat(c), ConditionDetail(c));
+                        // The sink state travels with the change, so the
+                        // detail can say "the log running now is not
+                        // affected" only when a log is running now.
+                        TraceSinkState sink = change.Snapshot?.SinkState ?? TraceSinkState.Off;
+                        return (FailureKind.RecordingRecoveryAtRisk, ConditionWhat(c), ConditionDetail(c, sink));
                     }
                 case TraceRecordingHealthChangeKind.SinkFailed:
                     {
@@ -88,8 +97,38 @@ namespace Radios
                     : "logging.recording.health.record_failed_what");
         }
 
-        /// <summary>The consequence and next step for one unresolved ticket.</summary>
-        public static string ConditionDetail(TraceRecoveryCondition c)
+        /// <summary>
+        /// The sentences that REPLACE a ticket's Problems entry once it has
+        /// resolved: the recovery record was written after all (the archive
+        /// is still being made, but the next launch can finish it alone), or
+        /// the archive committed. Both keep "what went wrong at the time" so
+        /// the entry still says what the announcement was about. Never
+        /// spoken. DRAFTS — Noel's to rule; in the recording-health wording
+        /// file.
+        /// </summary>
+        public static (string What, string Detail) Resolution(TraceRecoveryCondition c)
+        {
+            if (c == null) return (string.Empty, string.Empty);
+            string path = string.IsNullOrEmpty(c.RawPath)
+                ? Lexicon.Get("logging.recording.health.unknown_path")
+                : c.RawPath;
+            string why = ConditionSummary(c);
+            return c.ArchiveCommitted
+                ? (Lexicon.Get("logging.recording.health.resolved_filed_what"),
+                   Lexicon.Get("logging.recording.health.resolved_filed_detail", ("path", path), ("why", why)))
+                : (Lexicon.Get("logging.recording.health.resolved_indexed_what"),
+                   Lexicon.Get("logging.recording.health.resolved_indexed_detail", ("path", path), ("why", why)));
+        }
+
+        /// <summary>
+        /// The consequence and next step for one unresolved ticket.
+        /// <paramref name="sinkState"/> is what the live sink was doing when
+        /// the change was raised: the archive-failed detail says "the log
+        /// that is running now is not affected" only when one is running
+        /// (Sol's review of H8, blocker 3), and says nothing about a live
+        /// log otherwise.
+        /// </summary>
+        public static string ConditionDetail(TraceRecoveryCondition c, TraceSinkState sinkState)
         {
             if (c == null) return string.Empty;
             string path = string.IsNullOrEmpty(c.RawPath)
@@ -98,11 +137,14 @@ namespace Radios
             string why = ConditionSummary(c);
             if (c.ArchiveFailureStage != null)
             {
-                return Lexicon.Get("logging.recording.health.archive_failed_detail",
-                    ("path", path), ("why", why),
-                    ("retained", c.RawRetained
-                        ? Lexicon.Get("logging.recording.health.raw_present")
-                        : Lexicon.Get("logging.recording.health.raw_missing")));
+                string retained = c.RawRetained
+                    ? Lexicon.Get("logging.recording.health.raw_present")
+                    : Lexicon.Get("logging.recording.health.raw_missing");
+                return sinkState == TraceSinkState.Recording
+                    ? Lexicon.Get("logging.recording.health.archive_failed_detail",
+                        ("path", path), ("why", why), ("retained", retained))
+                    : Lexicon.Get("logging.recording.health.archive_failed_detail_no_log",
+                        ("path", path), ("why", why), ("retained", retained));
             }
             if (TailIsTheWholeStory(c))
             {
@@ -252,8 +294,12 @@ namespace Radios
     /// ticket once and then ignored it, so an entry composed while the
     /// archive was pending ("still filing it in the background") stood for
     /// the rest of the session after the worker had given up (Sol's review of
-    /// H7, finding 4). The key that ties the entry to the ticket is
-    /// <see cref="KeyFor"/>.</para>
+    /// H7, finding 4). Track H8 followed the ticket into FAILURE and ignored
+    /// its SUCCESS, so the same sentence stood after the worker's retry had
+    /// written the record or the archive had committed (Sol's review of H8,
+    /// blocker 3); a resolution now replaces the entry too, through a route
+    /// that can never record it as a new problem. The key that ties the
+    /// entry to the ticket is <see cref="KeyFor"/>.</para>
     /// </summary>
     public static class RecordingHealthWatch
     {
@@ -285,6 +331,24 @@ namespace Radios
         {
             try
             {
+                if (change?.Kind == TraceRecordingHealthChangeKind.ConditionResolved)
+                {
+                    // The ticket came right. Its entry — if this watch ever
+                    // made one — is replaced with what is true now, and
+                    // nothing is spoken. A ticket this watch never reported
+                    // has no entry to replace, and a resolution is not a
+                    // problem to record.
+                    TraceRecoveryCondition resolved = change.Condition;
+                    if (resolved == null) return;
+                    bool reported;
+                    lock (_gate) { reported = _reportedTickets.Contains(resolved.TicketId); }
+                    if (!reported) return;
+                    var (what, detail) = RecordingHealthNotice.Resolution(resolved);
+                    OperationFailure.ResolveKeyed(FailureKind.RecordingRecoveryAtRisk, what, detail,
+                                                  KeyFor(resolved.TicketId));
+                    return;
+                }
+
                 var announcement = RecordingHealthNotice.Announcement(change);
                 if (announcement == null) return;
 
