@@ -45,7 +45,7 @@ namespace Radios.Tests
             EpisodeHandle? opened = null;
             CaptureResult captured = adapter.OnSourceEvent(FactKit.Temp(70m), T0, "src-1", ev =>
                 opened = publisher.Open(ev, "condition.hot", FactKit.HotKey,
-                    new[] { new MaterialDeclaration("temperature", FactValue.Of(70m)) }).Handle);
+                    new[] { new MaterialDeclaration("temperature", FactValue.Of(70m)) }, FactKit.Onset()).Handle);
             Assert.True(captured.Captured);
             Assert.Null(opened);   // nothing admitted yet: the evaluation is still queued
 
@@ -72,7 +72,7 @@ namespace Radios.Tests
             EpisodeHandle? second = null;
             later.OnSourceEvent(FactKit.Temp(80m), T0, "src-2", ev =>
                 second = other.Open(ev, "condition.hot", FactKit.HotKey,
-                    new[] { new MaterialDeclaration("temperature", FactValue.Of(80m)) }).Handle);
+                    new[] { new MaterialDeclaration("temperature", FactValue.Of(80m)) }, FactKit.Onset()).Handle);
             held.Dequeue()();
 
             FactSnapshot fresh = kit.Store.Find(second!.Id)!;
@@ -94,8 +94,8 @@ namespace Radios.Tests
             int tones = 0;
             var receipts = new ReceiptRequestAdapter(kit.Registry.RegisterReceiptAdapter("r"), _ => { tones++; return ToneRequestResult.Requested; });
 
-            PublicationResult opened = FactKit.OpenHot(publisher, 70m);
-            PublicationResult bystander = FactKit.OpenHot(bystanderSlot, 60m);
+            PublicationResult opened = FactKit.OnsetHot(publisher, 70m);
+            PublicationResult bystander = FactKit.OnsetHot(bystanderSlot, 60m);
             EpisodeHandle handle = opened.Handle!;
             Assert.Equal(ReceiptAttemptOutcome.ToneRequested, receipts.RequestFor(handle.Id));
 
@@ -163,7 +163,7 @@ namespace Radios.Tests
         {
             var kit = new FactKit();
             SlotPublisher publisher = kit.HotSlot(kit.Session());
-            PublicationResult opened = FactKit.OpenHot(publisher);
+            PublicationResult opened = FactKit.OnsetHot(publisher);
             EpisodeHandle handle = opened.Handle!;
 
             kit.Registry.Quiet.Observe("Q1");
@@ -200,7 +200,7 @@ namespace Radios.Tests
             var kit = new FactKit();
 
             FactSession first = kit.Session("SERIAL-1");
-            PublicationResult opened = FactKit.OpenHot(kit.HotSlot(first), 70m);
+            PublicationResult opened = FactKit.OnsetHot(kit.HotSlot(first), 70m);
             kit.Registry.Quiet.Observe("ctrl");
             first.End(T0, "disconnected");
 
@@ -241,7 +241,7 @@ namespace Radios.Tests
             // After a restart, the saved continuity still constrains permission.
             var saved = new FactKit();
             FactSession s = saved.Session("SERIAL-9");
-            FactKit.OpenHot(saved.HotSlot(s), 70m);
+            FactKit.OnsetHot(saved.HotSlot(s), 70m);
             saved.Registry.Quiet.Observe("ctrl");
             s.End(T0, "application closing");
             using (var journal = new FactJournal(saved.Store, dir.Path))
@@ -291,7 +291,7 @@ namespace Radios.Tests
             for (int i = 0; i <= FactStoreCapacity.MaxContinuityRecords; i++)
             {
                 FactSession s = before.Session("SERIAL-" + i.ToString("000", System.Globalization.CultureInfo.InvariantCulture));
-                FactKit.OpenHot(before.HotSlot(s), 70m);
+                FactKit.OnsetHot(before.HotSlot(s), 70m);
                 before.Registry.Quiet.Observe("ctrl");
                 s.End(T0, "gone");
                 sessions.Add(s);
@@ -324,13 +324,21 @@ namespace Radios.Tests
             }
             Assert.Equal(new[] { PauseCause.ContinuityLost }, lostOnes);
 
-            // POSITIVE CONTROL: a station that never had a record is not "lost"
-            // — its first observation, corroborated by the store, speaks. (It
-            // used to be opened as a continuation with no predecessor, which
-            // would pin missing-record-as-permission; Astra's G2 corrected it.)
+            // A station that never had a record is not "lost" either. Nor is
+            // nothing-on-record evidence of an onset (Astra's first-onset
+            // ruling, 2026-09-24): its first observation is held with the
+            // onset unestablished — not lost, not paused, not spoken. (This
+            // control once expected the store to corroborate a first
+            // occurrence from a complete record, which would pin
+            // absence-as-onset; before that it opened a continuation with no
+            // predecessor, which would pin missing-record-as-permission.)
             PublicationResult unseen = FactKit.OpenHot(after.HotSlot(after.Session("SERIAL-NEVER")), 70m);
-            Assert.NotEqual(PauseCause.ContinuityLost, unseen.Fact!.Pause);
-            Assert.True(after.Store.IsEligibleForAutomaticDelivery(unseen.Fact));
+            Assert.Equal(PauseCause.OnsetNotEstablished, unseen.Fact!.Pause);
+            Assert.False(after.Store.IsEligibleForAutomaticDelivery(unseen.Fact));
+
+            // POSITIVE CONTROL: an evidenced onset on that never-seen station speaks.
+            PublicationResult unseenOnset = FactKit.OnsetHot(after.HotSlot(after.Session("SERIAL-NEVER"), "psu"), 70m);
+            Assert.True(after.Store.IsEligibleForAutomaticDelivery(unseenOnset.Fact!));
 
             // And positive onset evidence is what re-arms a lost one.
             string lostRadio = sessions.Select(s => s.RadioIdentity!).First(r =>
@@ -352,7 +360,7 @@ namespace Radios.Tests
             var transport = new RecordingTransport(kit.Registry, "t", TransportCapability.RequestOnly);
 
             // Quiet wins first: zero native requests, a retained reason.
-            PublicationResult one = FactKit.OpenHot(publisher);
+            PublicationResult one = FactKit.OnsetHot(publisher);
             AttemptHandle blocked = kit.Allocate(kit.PlanAutomatic(one.Handle!.Id), transport.Binding);
             kit.Registry.Quiet.Observe("ctrl");
             Assert.Equal(AttemptRunOutcome.NotStarted, AttemptRunner.Run(blocked, transport.Submit));
@@ -364,7 +372,7 @@ namespace Radios.Tests
             // Start wins first: in flight, and a later quiet records
             // cancellation REQUESTED — never a claim that sound stopped.
             SlotPublisher other = kit.HotSlot(kit.Session("SERIAL-2"));
-            PublicationResult two = FactKit.OpenHot(other);
+            PublicationResult two = FactKit.OnsetHot(other);
             AttemptHandle running = kit.Allocate(kit.PlanAutomatic(two.Handle!.Id), transport.Binding);
             AttemptRunner.Run(running, (plan, attempt) =>
             {
@@ -379,7 +387,7 @@ namespace Radios.Tests
 
             // A selected READ crossing a newer quiet does not start.
             SlotPublisher third = kit.HotSlot(kit.Session("SERIAL-3"));
-            PublicationResult three = FactKit.OpenHot(third);
+            PublicationResult three = FactKit.OnsetHot(third);
             using FactListView view = new FactListPresenter(kit.Store).OpenView();
             RenderedDetailSnapshot shown = view.RenderDetail(view.Snapshot(FactView.Pending).Items.First(i => i.Fact?.Id == three.Handle!.Id))!;
             Assert.True(view.Installed(shown));

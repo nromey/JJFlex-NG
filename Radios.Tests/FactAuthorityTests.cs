@@ -134,7 +134,7 @@ namespace Radios.Tests
             var kit = new FactKit();
             FactSession session = kit.Session();
             SlotPublisher publisher = kit.HotSlot(session);
-            PublicationResult opened = FactKit.OpenHot(publisher);
+            PublicationResult opened = FactKit.OnsetHot(publisher);
             EpisodeHandle handle = opened.Handle!;
 
             // A presentation allocated before retirement...
@@ -176,7 +176,7 @@ namespace Radios.Tests
             var kit3 = new FactKit();
             FactSession a = kit3.Session("SERIAL-A");
             FactSession b = kit3.Session("SERIAL-B");
-            PublicationResult onA = FactKit.OpenHot(kit3.HotSlot(a));
+            PublicationResult onA = FactKit.OnsetHot(kit3.HotSlot(a));
             FactKit.OpenHot(kit3.HotSlot(b));
             b.End(T0, "B went away");
             FactSnapshot stillA = kit3.Store.Find(onA.Handle!.Id)!;
@@ -195,7 +195,7 @@ namespace Radios.Tests
                 var kit = new FactKit();
                 FactSession session = kit.Session();
                 SlotPublisher publisher = kit.HotSlot(session);
-                PublicationResult opened = FactKit.OpenHot(publisher);
+                PublicationResult opened = FactKit.OnsetHot(publisher);
                 long revision = opened.Fact!.Revision;
                 var accepted = new List<long>();
                 using var start = new Barrier(2);

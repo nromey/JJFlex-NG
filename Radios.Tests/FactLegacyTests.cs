@@ -258,7 +258,7 @@ namespace Radios.Tests
             for (int i = 0; i < FactStoreCapacity.MaxHistoricalRecords + 2; i++)
             {
                 FactSession s = kit.Session("SERIAL-" + i.ToString("000", System.Globalization.CultureInfo.InvariantCulture));
-                EpisodeId id = FactKit.OpenHot(kit.HotSlot(s, "c"), 70m).Handle!.Id;
+                EpisodeId id = FactKit.OnsetHot(kit.HotSlot(s, "c"), 70m).Handle!.Id;
                 AttemptHandle presented = kit.Allocate(kit.PlanAutomatic(id), filler.Binding);
                 AttemptRunner.Run(presented, filler.Submit);
                 presented.Report(TransportEvidence.Completed(5));
@@ -299,7 +299,7 @@ namespace Radios.Tests
             rj.TakeLease();
             rj.LoadHistory();
             var tracked = new RecordingTransport(real.Registry, "t", TransportCapability.ReportsCompletion);
-            EpisodeId heard = FactKit.OpenHot(real.HotSlot(real.Session())).Handle!.Id;
+            EpisodeId heard = FactKit.OnsetHot(real.HotSlot(real.Session())).Handle!.Id;
             AttemptHandle a = real.Allocate(real.PlanAutomatic(heard), tracked.Binding);
             AttemptRunner.Run(a, tracked.Submit);
             a.Report(TransportEvidence.Completed(5));

@@ -169,7 +169,20 @@ namespace Radios.Tests
             return result.Event!;
         }
 
-        /// <summary>Open a hot-PA occurrence with its temperature and duration as owed material.</summary>
+        /// <summary>
+        /// Open a hot-PA occurrence with its temperature and duration as owed
+        /// material, under the DEFAULT claim — <see cref="ContinuityClaim.NoPriorRecord"/>.
+        /// </summary>
+        /// <remarks>
+        /// <b>This is a first observation, not an onset.</b> Since Astra's
+        /// first-onset ruling (2026-09-24) a radio condition opened this way is
+        /// retained with <see cref="PauseCause.OnsetNotEstablished"/>: no grant,
+        /// no receipt allowance, not eligible. A fixture that means "the PA
+        /// just got hot" uses <see cref="OnsetHot"/>; this helper is for
+        /// fixtures about retention, history and the first-observation case
+        /// itself. Deliberately NOT changed to inject evidence, so the
+        /// distinction stays visible at every call site.
+        /// </remarks>
         public static PublicationResult OpenHot(SlotPublisher publisher, decimal temperature = 70m, long minutes = 3,
                                                 OpenOptions? options = null)
         {
@@ -180,11 +193,31 @@ namespace Radios.Tests
                 options);
         }
 
+        /// <summary>A note under the default claim. See <see cref="OpenHot"/> for what that means; <see cref="OnsetNote"/> is the evidenced form.</summary>
         public static PublicationResult OpenNote(SlotPublisher publisher, string key, string? detail = null,
                                                  IEnumerable<MaterialDeclaration>? materials = null)
         {
             CapturedFactEvent ev = Capture(publisher);
             return publisher.Open(ev, "note", key, materials, new OpenOptions { Detail = detail });
+        }
+
+        /// <summary>The synthetic onset evidence every evidenced fixture supplies. Synthetic: it proves the CLAIM was made, not that a sensor rose.</summary>
+        public static FactObservation OnsetEvidence => FactObservation.Of(("onset", FactValue.Of("sensor reported a fresh rise")));
+
+        /// <summary>Open options for an evidenced new onset, for fixtures that call <see cref="SlotPublisher.Open"/> directly.</summary>
+        public static OpenOptions Onset(string? detail = null) => new OpenOptions
+        {
+            Continuity = ContinuityClaim.NewOccurrence,
+            NewOnsetEvidence = OnsetEvidence,
+            Detail = detail,
+        };
+
+        /// <summary>Open a note as an evidenced new onset: the owner witnessed the event it reports.</summary>
+        public static PublicationResult OnsetNote(SlotPublisher publisher, string key, string? detail = null,
+                                                  IEnumerable<MaterialDeclaration>? materials = null)
+        {
+            CapturedFactEvent ev = Capture(publisher);
+            return publisher.Open(ev, "note", key, materials, Onset(detail));
         }
 
         public static WorseningTransition Worse(FactSnapshot current, string id, decimal temperature) =>
@@ -237,11 +270,7 @@ namespace Radios.Tests
 
         /// <summary>Open a hot-PA occurrence as an evidenced NEW ONSET: the owner witnessed the rise.</summary>
         public static PublicationResult OnsetHot(SlotPublisher publisher, decimal temperature = 70m, long minutes = 3) =>
-            OpenHot(publisher, temperature, minutes, new OpenOptions
-            {
-                Continuity = ContinuityClaim.NewOccurrence,
-                NewOnsetEvidence = FactObservation.Of(("onset", FactValue.Of("sensor reported a fresh rise"))),
-            });
+            OpenHot(publisher, temperature, minutes, Onset());
 
         public PresentationPlan PlanAutomatic(EpisodeId id, VerbosityLevel tier = VerbosityLevel.Chatty)
         {

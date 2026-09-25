@@ -135,5 +135,9 @@
   "facts.delivery.legacy_claimed_undelivered": { "text": "an older version saved this as not read out", "delivery": null },
   "facts.detail.legacy_claimed": { "text": "An older version of the program saved this and said it was read out, but it did not record which of the details above were.", "delivery": null },
 
-  "facts.issue.state.limitation": { "text": "a limitation of the saved record", "delivery": null }
+  "facts.issue.state.limitation": { "text": "a limitation of the saved record", "delivery": null },
+
+  "_note_m4": "Sprint 45 Track M4 added every entry below this note. EVERY ONE IS A FIRST DRAFT FOR NOEL'S REVIEW and none is approved copy. Astra ruled that a first observation of a radio condition with nothing on record is not evidence that the condition began now, so such a record is held, not announced, and needs a line that says so without claiming a pause or a reconnect. Sol's review of M3 found three more chosen sentences that could be false: two of the M3 drafts above claim a pause where nothing establishes one ('paused_continuity_unknown' and 'held_continuity_lost'), and the recorded-delivered empty-list sentence was chosen for a condition that carried on unchanged after a reconnect and was read out only in its earlier episode. None of those sentences was changed; the code no longer chooses them there, and chooses these instead. The list of every key, where the operator meets it and what it must be able to say truthfully is in the private planning folder, for-noel/priority/2026-09-24-fact-store-issue-wording.md, section 8.",
+
+  "facts.state.held_onset_not_established": { "text": "not announced, because the program cannot tell whether this began while it was watching or was already the case when it first connected", "delivery": null }
 }

@@ -242,18 +242,37 @@ namespace Radios.Facts
     /// retained, and reconnect alone supplies no permission of any kind.
     /// </para>
     /// <para>
-    /// <b>Absence is not evidence.</b> <see cref="NoPriorRecord"/> is honoured
-    /// as a first occurrence only when the store can corroborate it: no record
-    /// for the condition on that station, nothing lost for it, and a complete
-    /// inventory of saved history. When the inventory is partial, or a record
-    /// may have been lost, it is treated as <see cref="ContinuityUnknown"/>; a
-    /// genuinely first occurrence then needs the owner's positive onset
-    /// evidence through <see cref="NewOccurrence"/>.
+    /// <b>Absence is not evidence.</b> <see cref="NoPriorRecord"/> describes
+    /// the owner's knowledge of the RECORD: it knows of nothing earlier. The
+    /// store checks that — no record for the condition on that station,
+    /// nothing lost for it, a complete inventory of saved history — and even
+    /// when all of it holds, the observation is retained with its onset
+    /// unestablished and no automatic permission. A complete record proves
+    /// that nothing came before it was written; it cannot prove that the
+    /// condition began now rather than being already active when the session
+    /// first observed it. When the inventory is partial, or a record may have
+    /// been lost, the claim is treated as <see cref="ContinuityUnknown"/> or
+    /// as lost continuity instead. A genuinely first occurrence is claimed
+    /// through <see cref="NewOccurrence"/> with the owner's positive onset
+    /// evidence — an owner-established inactive-to-active transition or an
+    /// attributable onset event. The non-empty check on that evidence is
+    /// structural; what it means is the registered owner's responsibility.
+    /// The one first observation that needs no evidence is an application
+    /// activity's, because there is no station it could already have been
+    /// true on. Ruled 2026-09-24 (Astra's first-onset design). Whether a
+    /// condition found already active at first connect should speak or sound
+    /// is an operator-policy question filed with Noel, and would be a distinct
+    /// permission if he grants it, never this claim.
     /// </para>
     /// </remarks>
     public enum ContinuityClaim
     {
-        /// <summary>The owner knows of no earlier record. Corroborated by the store, or treated as unknown continuity.</summary>
+        /// <summary>
+        /// The owner knows of no earlier record. Record knowledge only: the
+        /// observation is retained with its onset unestablished and no
+        /// automatic permission, or as unknown or lost continuity when the
+        /// store cannot even establish the record.
+        /// </summary>
         NoPriorRecord = 0,
 
         /// <summary>

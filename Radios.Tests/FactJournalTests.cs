@@ -107,34 +107,34 @@ namespace Radios.Tests
             var receipts = new ReceiptRequestAdapter(kit.Registry.RegisterReceiptAdapter("r"), _ => { tones++; return ToneRequestResult.PlaybackReported; });
 
             // Fully covered.
-            EpisodeId full = FactKit.OpenHot(kit.HotSlot(session, "full")).Handle!.Id;
+            EpisodeId full = FactKit.OnsetHot(kit.HotSlot(session, "full")).Handle!.Id;
             AttemptHandle fa = kit.Allocate(kit.PlanAutomatic(full), tracked.Binding);
             AttemptRunner.Run(fa, tracked.Submit);
             fa.Report(TransportEvidence.Completed(5));
             receipts.RequestFor(full);
 
             // Short tier completed: the duration stays owed.
-            EpisodeId shortTier = FactKit.OpenHot(kit.HotSlot(session, "short")).Handle!.Id;
+            EpisodeId shortTier = FactKit.OnsetHot(kit.HotSlot(session, "short")).Handle!.Id;
             AttemptHandle sa = kit.Allocate(kit.PlanAutomatic(shortTier, VerbosityLevel.Terse), tracked.Binding);
             AttemptRunner.Run(sa, tracked.Submit);
             sa.Report(TransportEvidence.Completed(5));
 
             // Partial, requested-only, unknown-cancelled.
-            EpisodeId partial = FactKit.OpenHot(kit.HotSlot(session, "partial")).Handle!.Id;
+            EpisodeId partial = FactKit.OnsetHot(kit.HotSlot(session, "partial")).Handle!.Id;
             AttemptHandle pa = kit.Allocate(kit.PlanAutomatic(partial), tracked.Binding);
             AttemptRunner.Run(pa, tracked.Submit);
             pa.Report(TransportEvidence.Progress(5, new[] { "temperature" }));
 
-            EpisodeId requested = FactKit.OpenHot(kit.HotSlot(session, "requested")).Handle!.Id;
+            EpisodeId requested = FactKit.OnsetHot(kit.HotSlot(session, "requested")).Handle!.Id;
             AttemptRunner.Run(kit.Allocate(kit.PlanAutomatic(requested), plain.Binding), plain.Submit);
 
-            EpisodeId cancelled = FactKit.OpenHot(kit.HotSlot(session, "cancelled")).Handle!.Id;
+            EpisodeId cancelled = FactKit.OnsetHot(kit.HotSlot(session, "cancelled")).Handle!.Id;
             AttemptHandle ca = kit.Allocate(kit.PlanAutomatic(cancelled), tracked.Binding);
             AttemptRunner.Run(ca, tracked.Submit);
             ca.Report(TransportEvidence.Cancelled(5, CancelCause.Unknown));
 
             // Reviewed-only, through a displayed snapshot.
-            EpisodeId reviewed = FactKit.OpenHot(kit.HotSlot(session, "reviewed")).Handle!.Id;
+            EpisodeId reviewed = FactKit.OnsetHot(kit.HotSlot(session, "reviewed")).Handle!.Id;
             using (FactListView view = new FactListPresenter(kit.Store).OpenView())
             {
                 RenderedDetailSnapshot d = view.RenderDetail(view.Snapshot(FactView.Pending).Items.First(i => i.Fact?.Id == reviewed))!;
@@ -144,8 +144,8 @@ namespace Radios.Tests
 
             // Perishable, forgettable, unclassified, truncated.
             SlotPublisher notes = kit.NotesSlot(session);
-            EpisodeId perishable = FactKit.OpenNote(notes, FactKit.CutKey).Handle!.Id;
-            EpisodeId forgettable = FactKit.OpenNote(kit.NotesSlot(session, "n2"), FactKit.BriefKey).Handle!.Id;
+            EpisodeId perishable = FactKit.OnsetNote(notes, FactKit.CutKey).Handle!.Id;
+            EpisodeId forgettable = FactKit.OnsetNote(kit.NotesSlot(session, "n2"), FactKit.BriefKey).Handle!.Id;
             EpisodeId unclassified = FactKit.OpenNote(kit.NotesSlot(session, "n3"), FactKit.MysteryKey).Handle!.Id;
             EpisodeId truncated = FactKit.OpenNote(kit.NotesSlot(session, "n4"), FactKit.CutKey,
                 detail: new string('x', FactStoreCapacity.MaxDetailBytes + 50)).Handle!.Id;
@@ -432,7 +432,7 @@ namespace Radios.Tests
                 new MaterialDeclaration("temperature", FactValue.Of(70m)),
                 new MaterialDeclaration("duration", FactValue.Of(3L)),
                 new MaterialDeclaration("zone", FactValue.Of("north")),
-            }).Handle!.Id;
+            }, FactKit.Onset()).Handle!.Id;
             var tracked = new RecordingTransport(busy.Registry, "tracked",
                 TransportCapability.ReportsCompletion | TransportCapability.ReportsProgress);
 
@@ -536,7 +536,7 @@ namespace Radios.Tests
             {
                 FactSession session = kit.Session("SERIAL-" + f);
                 SlotPublisher p = kit.NotesSlot(session, "c" + f);
-                PublicationResult opened = FactKit.OpenNote(p, FactKit.CutKey, detail, extras);
+                PublicationResult opened = FactKit.OnsetNote(p, FactKit.CutKey, detail, extras);
                 Assert.Equal(PublicationOutcome.Accepted, opened.Outcome);
                 if (f % 16 == 0)
                 {

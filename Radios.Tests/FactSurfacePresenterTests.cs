@@ -154,7 +154,7 @@ namespace Radios.Tests
 
             // Full confirmed coverage: still the delivered sentence.
             var tracked = new RecordingTransport(first.Registry, "t", TransportCapability.ReportsCompletion);
-            EpisodeId heard = FactKit.OpenHot(first.HotSlot(first.Session())).Handle!.Id;
+            EpisodeId heard = FactKit.OnsetHot(first.HotSlot(first.Session())).Handle!.Id;
             AttemptHandle a = first.Allocate(first.PlanAutomatic(heard), tracked.Binding);
             AttemptRunner.Run(a, tracked.Submit);
             a.Report(TransportEvidence.Completed(5));
@@ -162,7 +162,7 @@ namespace Radios.Tests
             Assert.Equal(new[] { "facts.window.nothing_pending_recorded" }, Roles(first.Store));
 
             // Newer unsaved mutation: the unsaved line joins it.
-            EpisodeId brief = FactKit.OpenNote(first.NotesSlot(first.Session("SERIAL-2")), FactKit.BriefKey).Handle!.Id;
+            EpisodeId brief = FactKit.OnsetNote(first.NotesSlot(first.Session("SERIAL-2")), FactKit.BriefKey).Handle!.Id;
             Assert.Contains("facts.storage.unsaved", Roles(first.Store));
 
             // A forgettable omission: not owed, not delivered either.
@@ -250,17 +250,17 @@ namespace Radios.Tests
             var kit = new FactKit();
             SlotPublisher publisher = kit.HotSlot(kit.Session());
 
-            EpisodeId requested = FactKit.OpenHot(publisher).Handle!.Id;
+            EpisodeId requested = FactKit.OnsetHot(publisher).Handle!.Id;
             new ReceiptRequestAdapter(kit.Registry.RegisterReceiptAdapter("a"), _ => ToneRequestResult.Requested).RequestFor(requested);
             Assert.Equal("facts.receipt.request_issued", FactListPresenter.ReceiptRole(kit.Store.Find(requested)!));
 
-            EpisodeId played = FactKit.OpenHot(kit.HotSlot(kit.Session("SERIAL-2"))).Handle!.Id;
+            EpisodeId played = FactKit.OnsetHot(kit.HotSlot(kit.Session("SERIAL-2"))).Handle!.Id;
             new ReceiptRequestAdapter(kit.Registry.RegisterReceiptAdapter("b"), _ => ToneRequestResult.PlaybackReported).RequestFor(played);
             Assert.Equal("facts.receipt.requested", FactListPresenter.ReceiptRole(kit.Store.Find(played)!));   // "the tone was played"
 
             // Unknown-cause pause is not "because you asked for quiet".
             var tracked = new RecordingTransport(kit.Registry, "t", TransportCapability.ReportsCompletion);
-            EpisodeId cancelled = FactKit.OpenHot(kit.HotSlot(kit.Session("SERIAL-3"))).Handle!.Id;
+            EpisodeId cancelled = FactKit.OnsetHot(kit.HotSlot(kit.Session("SERIAL-3"))).Handle!.Id;
             AttemptHandle c = kit.Allocate(kit.PlanAutomatic(cancelled), tracked.Binding);
             AttemptRunner.Run(c, tracked.Submit);
             c.Report(TransportEvidence.Cancelled(5, CancelCause.Unknown));
@@ -270,7 +270,7 @@ namespace Radios.Tests
             Assert.Equal("facts.state.paused", FactListPresenter.StateRole(kit.Store.Find(quiet)!));
 
             // "Read out in full" only when the words carried every required unit.
-            EpisodeId shortOne = FactKit.OpenHot(kit.HotSlot(kit.Session("SERIAL-4"))).Handle!.Id;
+            EpisodeId shortOne = FactKit.OnsetHot(kit.HotSlot(kit.Session("SERIAL-4"))).Handle!.Id;
             AttemptHandle s = kit.Allocate(kit.PlanAutomatic(shortOne, VerbosityLevel.Terse), tracked.Binding);
             AttemptRunner.Run(s, tracked.Submit);
             s.Report(TransportEvidence.Completed(5));
@@ -282,14 +282,14 @@ namespace Radios.Tests
 
             // "Withdrawn because what it described had ended" only on an owner resolution.
             SlotPublisher p5 = kit.HotSlot(kit.Session("SERIAL-5"));
-            PublicationResult o5 = FactKit.OpenHot(p5);
+            PublicationResult o5 = FactKit.OnsetHot(p5);
             AttemptHandle w = kit.Allocate(kit.PlanAutomatic(o5.Handle!.Id), tracked.Binding);
             p5.Update(o5.Handle, FactKit.Capture(p5, FactKit.Temp(70m)), FactTransition.ObservationUnknown(UnknownReason.ObservationFailed), o5.Fact!.Revision);
             AttemptRunner.Run(w, tracked.Submit);
             Assert.Equal("facts.delivery.withdrawn_context_ended", FactListPresenter.DeliveryRole(kit.Store.Find(o5.Handle.Id)!));
 
             SlotPublisher p6 = kit.HotSlot(kit.Session("SERIAL-6"));
-            PublicationResult o6 = FactKit.OpenHot(p6);
+            PublicationResult o6 = FactKit.OnsetHot(p6);
             AttemptHandle r = kit.Allocate(kit.PlanAutomatic(o6.Handle!.Id), tracked.Binding);
             p6.Resolve(o6.Handle, FactKit.Capture(p6, FactKit.Temp(60m)), o6.Fact!.Revision);
             AttemptRunner.Run(r, tracked.Submit);
@@ -304,7 +304,7 @@ namespace Radios.Tests
         {
             var kit = new FactKit();
             SlotPublisher publisher = kit.HotSlot(kit.Session());
-            PublicationResult opened = FactKit.OpenHot(publisher);
+            PublicationResult opened = FactKit.OnsetHot(publisher);
             EpisodeId id = opened.Handle!.Id;
             var presenter = new FactListPresenter(kit.Store);
 
@@ -356,6 +356,7 @@ namespace Radios.Tests
                     PauseCause.ContinuityUnknown => "facts.state.paused_continuity_unknown",
                     PauseCause.ContinuityLost => "facts.state.held_continuity_lost",
                     PauseCause.ContinuityAcrossRestart => "facts.state.held_continuity_restart",
+                    PauseCause.OnsetNotEstablished => "facts.state.held_onset_not_established",
                     PauseCause.LegacyUnknownCause => "facts.state.paused_cause_not_recorded",
                     _ => "facts.state.current",
                 };

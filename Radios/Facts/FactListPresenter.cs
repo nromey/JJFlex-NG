@@ -58,6 +58,7 @@ namespace Radios.Facts
                 case PauseCause.ContinuityUnknown: return "facts.state.paused_continuity_unknown";
                 case PauseCause.ContinuityLost: return "facts.state.held_continuity_lost";
                 case PauseCause.ContinuityAcrossRestart: return "facts.state.held_continuity_restart";
+                case PauseCause.OnsetNotEstablished: return "facts.state.held_onset_not_established";
                 case PauseCause.LegacyUnknownCause: return "facts.state.paused_cause_not_recorded";
             }
 

@@ -46,7 +46,7 @@ namespace Radios.Tests
             source.OnSourceEvent(FactKit.Temp(70m), FactKit.T0, "meter-1", ev =>
                 opened = publisher.Open(ev, "condition.hot", FactKit.HotKey,
                     new[] { new MaterialDeclaration("temperature", FactValue.Of(70m)),
-                            new MaterialDeclaration("duration", FactValue.Of(3L)) }));
+                            new MaterialDeclaration("duration", FactValue.Of(3L)) }, FactKit.Onset()));
             one.Registry.Quiet.Observe("ctrl");
             queue.Dequeue()();
             EpisodeId id = opened!.Handle!.Id;

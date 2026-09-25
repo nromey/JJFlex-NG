@@ -31,7 +31,7 @@ namespace Radios.Tests
         public void AFactIsRetainedBeforeAnyToneOrSentence()
         {
             var kit = new FactKit();
-            FactSnapshot fact = FactKit.OpenHot(kit.HotSlot(kit.Session())).Fact!;
+            FactSnapshot fact = FactKit.OnsetHot(kit.HotSlot(kit.Session())).Fact!;
 
             Assert.Equal(ReceiptState.NotRequested, fact.Receipt.State);
             Assert.Empty(fact.Attempts);
@@ -47,7 +47,7 @@ namespace Radios.Tests
         {
             var kit = new FactKit();
             SlotPublisher publisher = kit.HotSlot(kit.Session());
-            PublicationResult opened = FactKit.OpenHot(publisher);
+            PublicationResult opened = FactKit.OnsetHot(publisher);
 
             publisher.Update(opened.Handle!, FactKit.Capture(publisher, FactKit.Temp(70m)),
                              FactTransition.ObservationUnknown(reason), opened.Fact!.Revision);
@@ -79,7 +79,7 @@ namespace Radios.Tests
         {
             var kit = new FactKit();
             SlotPublisher publisher = kit.HotSlot(kit.Session());
-            PublicationResult opened = FactKit.OpenHot(publisher);
+            PublicationResult opened = FactKit.OnsetHot(publisher);
 
             publisher.Resolve(opened.Handle!, FactKit.Capture(publisher, FactKit.Temp(50m)), opened.Fact!.Revision);
 
@@ -113,7 +113,7 @@ namespace Radios.Tests
         public void QuietPausesWithoutAcknowledgingOrClearingAnything()
         {
             var kit = new FactKit();
-            EpisodeId id = FactKit.OpenHot(kit.HotSlot(kit.Session())).Handle!.Id;
+            EpisodeId id = FactKit.OnsetHot(kit.HotSlot(kit.Session())).Handle!.Id;
 
             kit.Registry.Quiet.Observe("the operator pressed Ctrl");
 
@@ -130,7 +130,7 @@ namespace Radios.Tests
         public void APersistentConditionIsStillEligibleAfterMoreThanTwoFailedAttempts()
         {
             var kit = new FactKit();
-            EpisodeId id = FactKit.OpenHot(kit.HotSlot(kit.Session())).Handle!.Id;
+            EpisodeId id = FactKit.OnsetHot(kit.HotSlot(kit.Session())).Handle!.Id;
             var refusing = new RecordingTransport(kit.Registry, "refuses", TransportCapability.ReportsAcceptance);
 
             for (int i = 0; i < 5; i++)
@@ -150,7 +150,7 @@ namespace Radios.Tests
         public void TheBurstLimitIsTwoAndItOnlyYields()
         {
             var kit = new FactKit();
-            EpisodeId id = FactKit.OpenHot(kit.HotSlot(kit.Session())).Handle!.Id;
+            EpisodeId id = FactKit.OnsetHot(kit.HotSlot(kit.Session())).Handle!.Id;
             var refusing = new RecordingTransport(kit.Registry, "refuses", TransportCapability.ReportsAcceptance);
             Assert.Equal(2, FactStoreCapacity.AutomaticBurstAttempts);
             Assert.False(kit.Store.ShouldYieldToWaitingRequest(kit.Store.Find(id)!));
@@ -169,7 +169,7 @@ namespace Radios.Tests
         public void AForgettableMessageGetsExactlyOnePresentationAndNoContinuingDebt()
         {
             var kit = new FactKit();
-            EpisodeId id = FactKit.OpenNote(kit.NotesSlot(kit.Session()), FactKit.BriefKey).Handle!.Id;
+            EpisodeId id = FactKit.OnsetNote(kit.NotesSlot(kit.Session()), FactKit.BriefKey).Handle!.Id;
             var refusing = new RecordingTransport(kit.Registry, "refuses", TransportCapability.ReportsAcceptance);
 
             // Track M never made it eligible even once: its eligibility ended
@@ -193,7 +193,7 @@ namespace Radios.Tests
         public void APerishableEventKeepsItsHistoryEvenWhenTheSpeechCompleted()
         {
             var kit = new FactKit();
-            EpisodeId id = FactKit.OpenNote(kit.NotesSlot(kit.Session()), FactKit.CutKey).Handle!.Id;
+            EpisodeId id = FactKit.OnsetNote(kit.NotesSlot(kit.Session()), FactKit.CutKey).Handle!.Id;
             var tracked = new RecordingTransport(kit.Registry, "t", TransportCapability.ReportsCompletion);
             AttemptHandle a = kit.Allocate(kit.PlanAutomatic(id), tracked.Binding);
             AttemptRunner.Run(a, tracked.Submit);
@@ -208,7 +208,7 @@ namespace Radios.Tests
         {
             var kit = new FactKit();
             SlotPublisher publisher = kit.HotSlot(kit.Session());
-            PublicationResult opened = FactKit.OpenHot(publisher);
+            PublicationResult opened = FactKit.OnsetHot(publisher);
             EpisodeId id = opened.Handle!.Id;
             var tracked = new RecordingTransport(kit.Registry, "t", TransportCapability.ReportsCompletion);
             AttemptHandle a = kit.Allocate(kit.PlanAutomatic(id), tracked.Binding);
@@ -333,7 +333,7 @@ namespace Radios.Tests
         public void NoReceiptOutcomeMeansHeardAndNoneOfThemClearsTheDebt(ToneRequestResult result)
         {
             var kit = new FactKit();
-            EpisodeId id = FactKit.OpenHot(kit.HotSlot(kit.Session())).Handle!.Id;
+            EpisodeId id = FactKit.OnsetHot(kit.HotSlot(kit.Session())).Handle!.Id;
             new ReceiptRequestAdapter(kit.Registry.RegisterReceiptAdapter("r"), _ => result).RequestFor(id);
             Assert.True(kit.Store.Find(id)!.IsPending);
         }
@@ -358,7 +358,7 @@ namespace Radios.Tests
             SlotPublisher publisher = kit.HotSlot(kit.Session());
             CapturedFactEvent ancient = publisher.Capture(FactKit.Temp(70m), new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc)).Event!;
             PublicationResult opened = publisher.Open(ancient, "condition.hot", FactKit.HotKey,
-                new[] { new MaterialDeclaration("temperature", FactValue.Of(70m)) });
+                new[] { new MaterialDeclaration("temperature", FactValue.Of(70m)) }, FactKit.Onset());
 
             Assert.True(opened.Fact!.Validity.IsCurrent);
             Assert.True(kit.Store.IsEligibleForAutomaticDelivery(opened.Fact));

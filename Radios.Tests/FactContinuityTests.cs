@@ -71,7 +71,7 @@ namespace Radios.Tests
 
             FactSession s1 = kit.Session("SERIAL-C");
             SlotPublisher p1 = kit.HotSlot(s1);
-            EpisodeId first = FactKit.OpenHot(p1, 70m, 3).Handle!.Id;
+            EpisodeId first = FactKit.OnsetHot(p1, 70m, 3).Handle!.Id;
 
             switch (how)
             {
@@ -237,7 +237,7 @@ namespace Radios.Tests
             var kit = new FactKit();
             var tracked = new RecordingTransport(kit.Registry, "t", TransportCapability.ReportsCompletion);
             FactSession s1 = kit.Session("SERIAL-R");
-            PublicationResult first = FactKit.OpenHot(kit.HotSlot(s1), 70m, 3);
+            PublicationResult first = FactKit.OnsetHot(kit.HotSlot(s1), 70m, 3);
             long originalPosition = first.Fact!.Grants.Single().SourceSequence;
             s1.End(T0, "disconnected");
 
@@ -256,7 +256,7 @@ namespace Radios.Tests
             var kit2 = new FactKit();
             var tracked2 = new RecordingTransport(kit2.Registry, "t", TransportCapability.ReportsCompletion);
             FactSession s2 = kit2.Session("SERIAL-R");
-            FactKit.OpenHot(kit2.HotSlot(s2), 70m, 3);
+            FactKit.OnsetHot(kit2.HotSlot(s2), 70m, 3);
             s2.End(T0, "disconnected");
             kit2.Registry.Quiet.Observe("ctrl during the gap");
             PublicationResult paused = FactKit.ContinueHot(kit2.HotSlot(kit2.Session("SERIAL-R")), 70m, 3);
@@ -274,7 +274,7 @@ namespace Radios.Tests
             var kit3 = new FactKit();
             var tracked3 = new RecordingTransport(kit3.Registry, "t", TransportCapability.ReportsCompletion);
             FactSession s3 = kit3.Session("SERIAL-R");
-            FactKit.OpenHot(kit3.HotSlot(s3), 70m, 3);
+            FactKit.OnsetHot(kit3.HotSlot(s3), 70m, 3);
             s3.End(T0, "disconnected");
             kit3.Registry.Quiet.Observe("ctrl before the reconnect");
             SlotPublisher p3 = kit3.HotSlot(kit3.Session("SERIAL-R"));
@@ -304,7 +304,7 @@ namespace Radios.Tests
             using var dir = new TempFactDir();
             var writer = new FactKit();
             FactSession s4 = writer.Session("SERIAL-R");
-            FactKit.OpenHot(writer.HotSlot(s4), 70m, 3);
+            FactKit.OnsetHot(writer.HotSlot(s4), 70m, 3);
             s4.End(T0, "application closing");
             Save(writer, dir.Path);
 
@@ -340,7 +340,7 @@ namespace Radios.Tests
             var tracked = new RecordingTransport(kit.Registry, "t", TransportCapability.ReportsCompletion);
             FactSession s1 = kit.Session("SERIAL-E");
             SlotPublisher p1 = kit.HotSlot(s1);
-            EpisodeId first = FactKit.OpenHot(p1, 70m, 3).Handle!.Id;
+            EpisodeId first = FactKit.OnsetHot(p1, 70m, 3).Handle!.Id;
             AttemptHandle old = kit.Allocate(kit.PlanAutomatic(first, VerbosityLevel.Terse), tracked.Binding);
             AttemptRunner.Run(old, tracked.Submit);
             Assert.Equal("PA at 70 degrees.", tracked.Sent.Single());
@@ -382,7 +382,7 @@ namespace Radios.Tests
             var kit2 = new FactKit();
             var tracked2 = new RecordingTransport(kit2.Registry, "t", TransportCapability.ReportsCompletion);
             FactSession s2 = kit2.Session("SERIAL-E");
-            EpisodeId first2 = FactKit.OpenHot(kit2.HotSlot(s2), 70m, 3).Handle!.Id;
+            EpisodeId first2 = FactKit.OnsetHot(kit2.HotSlot(s2), 70m, 3).Handle!.Id;
             AttemptHandle old2 = kit2.Allocate(kit2.PlanAutomatic(first2), tracked2.Binding);
             AttemptRunner.Run(old2, tracked2.Submit);
             s2.End(T0, "disconnected");
@@ -397,7 +397,7 @@ namespace Radios.Tests
             var kit3 = new FactKit();
             var tracked3 = new RecordingTransport(kit3.Registry, "t", TransportCapability.ReportsCompletion);
             FactSession s3 = kit3.Session("SERIAL-E");
-            EpisodeId first3 = FactKit.OpenHot(kit3.HotSlot(s3), 70m, 3).Handle!.Id;
+            EpisodeId first3 = FactKit.OnsetHot(kit3.HotSlot(s3), 70m, 3).Handle!.Id;
             AttemptHandle old3 = kit3.Allocate(kit3.PlanAutomatic(first3), tracked3.Binding);
             AttemptRunner.Run(old3, tracked3.Submit);
             s3.End(T0, "disconnected");
@@ -416,7 +416,7 @@ namespace Radios.Tests
             var tracked4 = new RecordingTransport(kit4.Registry, "t", TransportCapability.ReportsCompletion);
             FactSession s4 = kit4.Session("SERIAL-E");
             SlotPublisher p4 = kit4.HotSlot(s4);
-            PublicationResult opened4 = FactKit.OpenHot(p4, 70m, 3);
+            PublicationResult opened4 = FactKit.OnsetHot(p4, 70m, 3);
             EpisodeId first4 = opened4.Handle!.Id;
             AttemptHandle carrier = kit4.Allocate(kit4.PlanAutomatic(first4, VerbosityLevel.Chatty), tracked4.Binding);
             AttemptRunner.Run(carrier, tracked4.Submit);
@@ -462,7 +462,7 @@ namespace Radios.Tests
 
             // Previously presented material, and an earlier receipt.
             FactSession s1 = kit.Session("SERIAL-W");
-            EpisodeId first = FactKit.OpenHot(kit.HotSlot(s1), 70m, 3).Handle!.Id;
+            EpisodeId first = FactKit.OnsetHot(kit.HotSlot(s1), 70m, 3).Handle!.Id;
             AttemptHandle a = kit.Allocate(kit.PlanAutomatic(first), tracked.Binding);
             AttemptRunner.Run(a, tracked.Submit);
             a.Report(TransportEvidence.Completed(5));
@@ -597,6 +597,113 @@ namespace Radios.Tests
             Assert.True(afterLoss.Store.IsEligibleForAutomaticDelivery(onset.Fact));
             Assert.Equal(ReceiptAttemptOutcome.ToneRequested, lostReceipts.RequestFor(onset.Handle!.Id));
             Assert.Equal(1, lostTones);
+        }
+
+        [Fact]
+        public void CompleteInventoryDoesNotProveOnset()
+        {
+            // Astra's first-onset ruling (2026-09-24): a complete inventory
+            // establishes that nothing is on record; it cannot establish that
+            // the condition began now rather than being already active when
+            // the session first observed it. A first observation with
+            // NoPriorRecord is retained, listed and held — no grant, no plan,
+            // no native call, no receipt — until the owner supplies onset
+            // evidence. Whether such a condition SHOULD speak is Noel's open
+            // question; this test pins the current contract, not a decision.
+            using var dir = new TempFactDir();
+            var kit = new FactKit();
+            var journal = new FactJournal(kit.Store, dir.Path);
+            Assert.True(journal.TakeLease());
+            journal.LoadHistory();
+            Assert.Equal(HistoryLoadState.Loaded, kit.Store.Load);
+            Assert.True(kit.Store.Project(FactView.Pending, null).Predicates.CompleteInventory);   // the inventory IS complete
+
+            var tracked = new RecordingTransport(kit.Registry, "t", TransportCapability.ReportsCompletion);
+            int tones = 0;
+            var receipts = new ReceiptRequestAdapter(kit.Registry.RegisterReceiptAdapter("r"),
+                                                     _ => { tones++; return ToneRequestResult.PlaybackReported; });
+
+            FactSession session = kit.Session("SERIAL-FIRST");
+            SlotPublisher pa = kit.HotSlot(session);
+            PublicationResult found = FactKit.OpenHot(pa, 74m, 3);              // already hot; the owner knows of no record
+            Assert.Equal(PublicationOutcome.Accepted, found.Outcome);
+            FactSnapshot fact = found.Fact!;
+            Assert.True(fact.Validity.IsCurrent);
+            Assert.True(fact.IsLive);
+            Assert.True(fact.IsPending);                                          // retained, listed, reachable
+            Assert.Equal(3, fact.Unpresented.Count);
+            Assert.Equal(PauseCause.OnsetNotEstablished, fact.Pause);
+            Assert.Empty(fact.Grants);                                            // no occurrence grant
+            Assert.Equal(ReceiptPolicy.None, fact.Receipt.Policy);                // no receipt allowance
+            Assert.False(kit.Store.IsEligibleForAutomaticDelivery(fact));
+            Assert.Equal(PreparationOutcome.NotEligible,
+                kit.Presentation.Prepare(fact.Id, PlanRequest.Automatic(VerbosityLevel.Chatty)).Outcome);
+            Assert.Equal(ReceiptAttemptOutcome.NotClaimed, receipts.RequestFor(fact.Id));
+            Assert.Equal(0, tracked.NativeCalls);
+            Assert.Equal(0, tones);
+
+            // The row says what is true: held, not paused, not a reconnect.
+            Assert.Equal("facts.state.held_onset_not_established", FactListPresenter.StateRole(fact));
+            Assert.True(Lexicon.Contains("facts.state.held_onset_not_established"));
+
+            // A later sample changes none of that: still the same information,
+            // still no grant.
+            Assert.Equal(PublicationOutcome.Accepted,
+                pa.Update(found.Handle!, FactKit.Capture(pa, FactKit.Temp(74m)), FactTransition.Sample(), fact.Revision).Outcome);
+            FactSnapshot sampled = kit.Store.Find(fact.Id)!;
+            Assert.Empty(sampled.Grants);
+            Assert.Equal(PauseCause.OnsetNotEstablished, sampled.Pause);
+            Assert.False(kit.Store.IsEligibleForAutomaticDelivery(sampled));
+            Assert.Equal(0, tracked.NativeCalls);
+            Assert.Equal(0, tones);
+
+            // POSITIVE CONTROL: an explicitly evidenced onset, captured AFTER a
+            // quiet boundary, permits an automatic attempt and exactly one
+            // policy-authorized receipt.
+            kit.Registry.Quiet.Observe("ctrl before the rise");
+            PublicationResult onset = FactKit.OnsetHot(kit.HotSlot(session, "psu"), 74m, 3);
+            Assert.Equal(PublicationOutcome.Accepted, onset.Outcome);
+            Assert.Equal(GrantOrigin.Occurrence, Assert.Single(onset.Fact!.Grants).Origin);
+            Assert.True(kit.Store.IsEligibleForAutomaticDelivery(onset.Fact));
+            Assert.Equal(AttemptRunOutcome.Requested,
+                AttemptRunner.Run(kit.Allocate(kit.PlanAutomatic(onset.Handle!.Id), tracked.Binding), tracked.Submit));
+            Assert.Equal(1, tracked.NativeCalls);
+            Assert.Equal(ReceiptAttemptOutcome.ToneRequested, receipts.RequestFor(onset.Handle.Id));
+            Assert.Equal(ReceiptAttemptOutcome.NotClaimed, receipts.RequestFor(onset.Handle.Id));
+            Assert.Equal(1, tones);
+            // And the first observation is still held, whatever its neighbour earned.
+            Assert.False(kit.Store.IsEligibleForAutomaticDelivery(kit.Store.Find(fact.Id)!));
+            journal.Dispose();
+
+            // PARTIAL inventory: another instance holds a live shard, so a
+            // record for this condition may exist unread. That is unknown
+            // continuity — a different truth from an established empty
+            // record, and held for a different reason, so fixing one branch
+            // cannot quietly weaken the other. Both are silent.
+            using var shared = new TempFactDir();
+            var other = new FactKit();
+            using var holder = new FactJournal(other.Store, shared.Path);
+            Assert.True(holder.TakeLease());
+            FactKit.OnsetHot(other.HotSlot(other.Session("SERIAL-ELSEWHERE")));
+            Assert.True(holder.Write());
+            var mine = new FactKit();
+            var mj = new FactJournal(mine.Store, shared.Path);
+            Assert.True(mj.TakeLease());
+            mj.LoadHistory();
+            Assert.False(mine.Store.Project(FactView.Pending, null).Predicates.CompleteInventory);
+            int partialTones = 0;
+            var partialReceipts = new ReceiptRequestAdapter(mine.Registry.RegisterReceiptAdapter("r"),
+                                                            _ => { partialTones++; return ToneRequestResult.Requested; });
+            PublicationResult partial = FactKit.OpenHot(mine.HotSlot(mine.Session("SERIAL-FIRST")), 74m, 3);
+            Assert.Equal(PublicationOutcome.Accepted, partial.Outcome);
+            Assert.Equal(PauseCause.ContinuityUnknown, partial.Fact!.Pause);
+            Assert.NotEqual(fact.Pause, partial.Fact.Pause);
+            Assert.Empty(partial.Fact.Grants);
+            Assert.True(partial.Fact.IsPending);
+            Assert.False(mine.Store.IsEligibleForAutomaticDelivery(partial.Fact));
+            Assert.Equal(ReceiptAttemptOutcome.NotClaimed, partialReceipts.RequestFor(partial.Handle!.Id));
+            Assert.Equal(0, partialTones);
+            mj.Dispose();
         }
 
         /// <summary>

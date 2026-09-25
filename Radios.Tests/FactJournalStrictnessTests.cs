@@ -35,7 +35,7 @@ namespace Radios.Tests
             var kit = new FactKit();
             var tracked = new RecordingTransport(kit.Registry, "t", TransportCapability.ReportsCompletion);
             FactSession session = kit.Session("SERIAL-S");
-            EpisodeId id = FactKit.OpenHot(kit.HotSlot(session), 70m, 3).Handle!.Id;
+            EpisodeId id = FactKit.OnsetHot(kit.HotSlot(session), 70m, 3).Handle!.Id;
             AttemptHandle a = kit.Allocate(kit.PlanAutomatic(id), tracked.Binding);
             AttemptRunner.Run(a, tracked.Submit);
             a.Report(TransportEvidence.Completed(5));

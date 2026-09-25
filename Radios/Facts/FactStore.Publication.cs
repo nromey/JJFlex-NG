@@ -260,7 +260,12 @@ namespace Radios.Facts
         /// </summary>
         private sealed class ContinuityDecision
         {
-            /// <summary>A corroborated first occurrence or an evidenced new onset: a fresh occurrence grant and a fresh receipt.</summary>
+            /// <summary>
+            /// An evidenced new onset, or an application activity's first
+            /// observation: a fresh occurrence grant and a fresh receipt. A
+            /// radio condition's first observation with nothing on record is
+            /// NOT this — see <see cref="PauseCause.OnsetNotEstablished"/>.
+            /// </summary>
             public bool FreshOccurrence;
 
             /// <summary>The continuity this observation continues, when it does.</summary>
@@ -407,8 +412,8 @@ namespace Radios.Facts
             foreach (MaterialDeclaration d in declared)
                 AddLinkedMaterial(record, d.Name, d.Value, MaterialKind.Initial, decision);
 
-            // Permission. A corroborated first occurrence or an evidenced
-            // onset earns its own grant from its own event. A continuation in
+            // Permission. An evidenced onset (or an activity's first
+            // observation) earns its own grant from its own event. A continuation in
             // the same process rebinds the predecessor's grants at their
             // ORIGINAL positions, over exactly the carried units. Everything
             // else — unknown, lost, a continuation across a restart — gets no
@@ -583,7 +588,19 @@ namespace Radios.Facts
                         decision.Pause = PauseCause.ContinuityUnknown;
                         return null;
                     }
-                    decision.FreshOccurrence = true;
+                    // A complete inventory establishes that nothing is on
+                    // record. It does not establish that the condition began
+                    // now rather than being already active when this session
+                    // first observed it: a fresh onset and a PA that was hot
+                    // before the connection both produce an empty history
+                    // followed by the same hot reading. So no grant and no
+                    // receipt — the owner's onset path (NewOccurrence, with
+                    // positive evidence) is what a first occurrence needs.
+                    // Ruled by Astra's first-onset design, 2026-09-24. Whether
+                    // a condition found already active at first connect should
+                    // speak or sound is Noel's question, filed and open; when
+                    // he rules, that is a distinct permission, not this branch.
+                    decision.Pause = PauseCause.OnsetNotEstablished;
                     return null;
 
                 case ContinuityClaim.ContinuityUnknown:

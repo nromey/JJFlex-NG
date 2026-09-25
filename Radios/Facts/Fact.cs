@@ -57,6 +57,18 @@ namespace Radios.Facts
         /// evidenced onset, or the operator's explicit resume.
         /// </summary>
         ContinuityAcrossRestart = 8,
+
+        /// <summary>
+        /// A first observation of a condition on a station with nothing
+        /// earlier on record. The record is complete and says nothing came
+        /// before it; it cannot say whether the condition began now or was
+        /// already active when this session first observed it — a fresh onset
+        /// and a PA that was hot before the connection both produce an empty
+        /// history followed by the same hot reading. So nothing is granted
+        /// until the owner establishes the onset. Distinct from
+        /// <see cref="ContinuityUnknown"/>, where a record may exist unread.
+        /// </summary>
+        OnsetNotEstablished = 9,
     }
 
     /// <summary>Where a grant of automatic permission came from.</summary>

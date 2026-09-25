@@ -30,7 +30,7 @@ namespace Radios.Tests
             var kit = new FactKit();
             SlotPublisher publisher = kit.HotSlot(kit.Session());
             var tracked = new RecordingTransport(kit.Registry, "tracked", TransportCapability.ReportsCompletion);
-            EpisodeId id = FactKit.OpenHot(publisher, 70m, 3).Handle!.Id;
+            EpisodeId id = FactKit.OnsetHot(publisher, 70m, 3).Handle!.Id;
             FactSnapshot opened = kit.Store.Find(id)!;
 
             // The short tier: its words leave the duration out.
@@ -60,7 +60,7 @@ namespace Radios.Tests
 
             // A correction published before the old callback stays owed.
             SlotPublisher publisher2 = kit.HotSlot(kit.Session("SERIAL-2"));
-            PublicationResult openedSecond = FactKit.OpenHot(publisher2, 70m, 3);
+            PublicationResult openedSecond = FactKit.OnsetHot(publisher2, 70m, 3);
             EpisodeId second = openedSecond.Handle!.Id;
             AttemptHandle before = kit.Allocate(kit.PlanAutomatic(second), tracked.Binding);
             AttemptRunner.Run(before, tracked.Submit);
@@ -81,7 +81,7 @@ namespace Radios.Tests
         {
             var kit = new FactKit();
             var requestOnly = new RecordingTransport(kit.Registry, "plain", TransportCapability.RequestOnly);
-            EpisodeId id = FactKit.OpenHot(kit.HotSlot(kit.Session())).Handle!.Id;
+            EpisodeId id = FactKit.OnsetHot(kit.HotSlot(kit.Session())).Handle!.Id;
 
             AttemptHandle attempt = kit.Allocate(kit.PlanAutomatic(id), requestOnly.Binding);
             Assert.Equal(AttemptRunOutcome.Requested, AttemptRunner.Run(attempt, requestOnly.Submit));
@@ -103,7 +103,7 @@ namespace Radios.Tests
             Assert.True(kit.Store.Find(id)!.IsPending);
 
             // A throwing request: the exact failure, no coverage.
-            EpisodeId other = FactKit.OpenHot(kit.HotSlot(kit.Session("SERIAL-2"))).Handle!.Id;
+            EpisodeId other = FactKit.OnsetHot(kit.HotSlot(kit.Session("SERIAL-2"))).Handle!.Id;
             AttemptHandle throws = kit.Allocate(kit.PlanAutomatic(other), requestOnly.Binding);
             Assert.Equal(AttemptRunOutcome.RequestThrew,
                 AttemptRunner.Run(throws, (_, _) => throw new InvalidOperationException("reader gone")));
@@ -126,7 +126,7 @@ namespace Radios.Tests
             var reader1 = new RecordingTransport(kit.Registry, "reader 1", TransportCapability.ReportsCompletion);
             var impostor = new RecordingTransport(kit.Registry, "impostor", TransportCapability.ReportsCompletion);
             SlotPublisher publisher = kit.HotSlot(kit.Session());
-            PublicationResult opened = FactKit.OpenHot(publisher);
+            PublicationResult opened = FactKit.OnsetHot(publisher);
             EpisodeId id = opened.Handle!.Id;
 
             // Completion reported synchronously INSIDE submission, then again.
@@ -167,7 +167,7 @@ namespace Radios.Tests
                 afterLate.Attempts.Single(a => a.Id == fresh.Id).Disposition);   // the newer attempt is untouched
 
             // Cancellation requested, then a valid completion: both kept.
-            EpisodeId other = FactKit.OpenHot(kit.HotSlot(kit.Session("SERIAL-2"))).Handle!.Id;
+            EpisodeId other = FactKit.OnsetHot(kit.HotSlot(kit.Session("SERIAL-2"))).Handle!.Id;
             AttemptHandle both = kit.Allocate(kit.PlanAutomatic(other), reader2.Binding);
             AttemptRunner.Run(both, reader2.Submit);
             both.Report(TransportEvidence.CancellationRequested(3, "quiet", "operator pressed Ctrl"));
@@ -177,7 +177,7 @@ namespace Radios.Tests
             Assert.Equal(AttemptDisposition.Completed, bothSnap.Disposition);
 
             // A contradictory terminal pair: disputed, discharges nothing.
-            EpisodeId third = FactKit.OpenHot(kit.HotSlot(kit.Session("SERIAL-3"))).Handle!.Id;
+            EpisodeId third = FactKit.OnsetHot(kit.HotSlot(kit.Session("SERIAL-3"))).Handle!.Id;
             AttemptHandle contradicted = kit.Allocate(kit.PlanAutomatic(third), reader2.Binding);
             AttemptRunner.Run(contradicted, reader2.Submit);
             Assert.Equal(EvidenceResult.Recorded, contradicted.Report(TransportEvidence.Completed(3)));
@@ -199,7 +199,8 @@ namespace Radios.Tests
             SlotPublisher publisher = kit.HotSlot(kit.Session());
             CapturedFactEvent ev = FactKit.Capture(publisher, FactKit.Temp(70m));
             var materials = new[] { new MaterialDeclaration("temperature", FactValue.Of(70m)) };
-            PublicationResult opened = publisher.Open(ev, "condition.hot", FactKit.HotKey, materials);
+            OpenOptions onset = FactKit.Onset();
+            PublicationResult opened = publisher.Open(ev, "condition.hot", FactKit.HotKey, materials, onset);
             EpisodeId id = opened.Handle!.Id;
 
             // Two callers race for one occurrence's tone.
@@ -216,17 +217,17 @@ namespace Radios.Tests
             Assert.Single(outcomes, o => o == ReceiptAttemptOutcome.ToneRequested);
 
             // Repeated admission, a speech retry, another request: still one.
-            Assert.Equal(PublicationOutcome.Duplicate, publisher.Open(ev, "condition.hot", FactKit.HotKey, materials).Outcome);
+            Assert.Equal(PublicationOutcome.Duplicate, publisher.Open(ev, "condition.hot", FactKit.HotKey, materials, onset).Outcome);
             Assert.Equal(ReceiptAttemptOutcome.NotClaimed, adapter.RequestFor(id));
             Assert.Equal(1, tones);
 
             // A genuinely new occurrence gets its own.
-            EpisodeId other = FactKit.OpenHot(kit.HotSlot(kit.Session("SERIAL-2"))).Handle!.Id;
+            EpisodeId other = FactKit.OnsetHot(kit.HotSlot(kit.Session("SERIAL-2"))).Handle!.Id;
             Assert.Equal(ReceiptAttemptOutcome.ToneRequested, adapter.RequestFor(other));
             Assert.Equal(2, tones);
 
             // A permit claimed before Ctrl, used after it: the stale cue is refused.
-            EpisodeId cued = FactKit.OpenHot(kit.HotSlot(kit.Session("SERIAL-3"))).Handle!.Id;
+            EpisodeId cued = FactKit.OnsetHot(kit.HotSlot(kit.Session("SERIAL-3"))).Handle!.Id;
             ReceiptEndpoint endpoint = kit.Registry.RegisterReceiptAdapter("cue timer");
             ReceiptPermit held = endpoint.TryClaim(cued).Permit!;
             kit.Registry.Quiet.Observe("ctrl during the lead-in");
@@ -236,7 +237,7 @@ namespace Radios.Tests
 
             // Claimed, then the process ends before the request: no replay after restart.
             var crash = new FactKit();
-            EpisodeId interrupted = FactKit.OpenHot(crash.HotSlot(crash.Session("SERIAL-4"))).Handle!.Id;
+            EpisodeId interrupted = FactKit.OnsetHot(crash.HotSlot(crash.Session("SERIAL-4"))).Handle!.Id;
             Assert.NotNull(crash.Registry.RegisterReceiptAdapter("r").TryClaim(interrupted).Permit);
             using (var journal = new FactJournal(crash.Store, dir.Path))
             {
@@ -354,7 +355,7 @@ namespace Radios.Tests
             Assert.False(kit.Store.IsEligibleForAutomaticDelivery(kit.Store.Find(mystery)!));
 
             // POSITIVE CONTROL: a classified message on the same slot prepares.
-            EpisodeId cut = FactKit.OpenNote(kit.NotesSlot(kit.Session("SERIAL-3")), FactKit.CutKey).Handle!.Id;
+            EpisodeId cut = FactKit.OnsetNote(kit.NotesSlot(kit.Session("SERIAL-3")), FactKit.CutKey).Handle!.Id;
             Assert.True(kit.Presentation.Prepare(cut, PlanRequest.Automatic(VerbosityLevel.Chatty)).Prepared);
         }
     }
