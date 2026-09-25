@@ -7897,6 +7897,25 @@ namespace Radios
                         Tracing.TraceLine("LineoutMute:" + r.LineoutMute.ToString(), TraceLevel.Info);
                     }
                     break;
+                case "MaxPowerLevel":
+                    // #608. The radio reports a transmit power CEILING, and
+                    // until 2026-09-24 we discarded it: FlexLib raised this
+                    // property, the switch had no case, and it fell through in
+                    // silence. So the Power dialog offered nought to a hundred
+                    // watts whatever the radio was prepared to deliver.
+                    //
+                    // Don, on a 6300: switching to AM leaves the reading at a
+                    // hundred while the radio transmits about twenty-five. This
+                    // case is the instrument that says which of three things is
+                    // happening — the radio lowers rfpower, the radio lowers
+                    // this ceiling, or the radio clamps internally and reports
+                    // neither. It is also the fix for the second of those.
+                    //
+                    // Traced unconditionally, because a ceiling that never
+                    // moves is as much of an answer as one that does.
+                    Tracing.TraceLine("MaxPowerLevel:" + theRadio.MaxPowerLevel, TraceLevel.Info);
+                    _MaxXmitPower = theRadio.MaxPowerLevel;
+                    break;
                 case "Mox":
                     {
                         Tracing.TraceLine("Mox:" + r.Mox.ToString(), TraceLevel.Info);
@@ -14366,6 +14385,33 @@ namespace Radios
                 q.Enqueue((FunctionDel)(() => { theRadio.RFPower = value; }));
             }
         }
+
+        // #608. The radio's own transmit power ceiling, as it reports it.
+        //
+        // Seeded from nothing: like _XmitPower above, this is written only by
+        // the property-change case, which fires during the status flood at
+        // connect. Zero therefore means "the radio has not told us yet", NOT
+        // "no power allowed" — so a caller must treat zero as unknown and fall
+        // back to XmitPowerMax rather than believing it. MaxXmitPowerKnown says
+        // which of the two it is, so no caller has to encode that rule twice.
+        //
+        // NOT yet consulted by any display. Deliberately: whether this is the
+        // channel the radio uses to express the AM limit is an open question,
+        // and wiring a display to it before the trace answers that would be
+        // building on a guess. The trace line is the whole point for now.
+        private int _MaxXmitPower;
+
+        /// <summary>
+        /// The transmit power ceiling the radio reports, or
+        /// <see cref="XmitPowerMax"/> when it has reported none.
+        /// </summary>
+        public int MaxXmitPower => _MaxXmitPower > 0 ? _MaxXmitPower : XmitPowerMax;
+
+        /// <summary>
+        /// Whether the radio has actually reported a ceiling, as distinct from
+        /// <see cref="MaxXmitPower"/> having fallen back to the full scale.
+        /// </summary>
+        public bool MaxXmitPowerKnown => _MaxXmitPower > 0;
 
         // Tuning power
         internal const int TunePowerMin = 0;
