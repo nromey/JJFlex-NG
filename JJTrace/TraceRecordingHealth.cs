@@ -175,6 +175,10 @@ namespace JJTrace
         private static string _sinkFault;
         private static string _sinkPath;
         private static Guid _liveSession;
+
+        /// <summary>The sink generation the state above describes. See
+        /// <see cref="NoteSink"/>.</summary>
+        private static long _generation;
         private static int _historicalFailures;
         private static string _lastFailure;
         private static DateTime? _lastFailureUtc;
@@ -351,12 +355,47 @@ namespace JJTrace
         /// What the live sink is doing. Raised as a change only when the state
         /// actually moves, so a hundred seals that each open a healthy
         /// successor say nothing.
+        ///
+        /// <para><b>Notes are applied in sink order, not arrival order.</b>
+        /// Every note carries the coordinator's generation of the sink it
+        /// describes. The coordinator reports a live sink's write fault from a
+        /// pool thread, and a transition can publish a successor's Recording
+        /// state before that thread runs; until Track H8 the late note simply
+        /// overwrote the newer state, so Diagnostics said the log had failed
+        /// while the successor was recording (Sol's review of H7, finding 2).
+        /// Now a note about an OLDER generation than the one held is history —
+        /// a failure is counted and kept as the last failure, visible in the
+        /// support snapshot — and moves neither the state nor a
+        /// <see cref="TraceRecordingHealthChangeKind.SinkFailed"/> change. A
+        /// note about a newer generation replaces the state. Within ONE
+        /// generation Failed is absorbing: a sink that has failed does not
+        /// become Recording again because the transition that opened it
+        /// published its Recording note a moment late.</para>
         /// </summary>
-        internal static void NoteSink(TraceSinkState state, string fault, string path, Guid liveSession)
+        internal static void NoteSink(TraceSinkState state, string fault, string path, Guid liveSession,
+                                      long generation)
         {
             TraceRecordingHealthChange change = null;
             lock (_sync)
             {
+                bool older = generation < _generation;
+                bool sameButAlreadyFailed = generation == _generation
+                                            && _sinkState == TraceSinkState.Failed
+                                            && state != TraceSinkState.Failed;
+                if (older || sameButAlreadyFailed)
+                {
+                    if (state == TraceSinkState.Failed)
+                    {
+                        RecordFailureLocked("the trace sink for session " + liveSession + " failed: "
+                                            + (fault ?? "unknown failure")
+                                            + (string.IsNullOrEmpty(path) ? string.Empty : " at " + path)
+                                            + " (reported after a newer sink was published;"
+                                            + " the live state is unchanged)");
+                    }
+                    return;
+                }
+                _generation = generation;
+
                 bool moved = state != _sinkState
                              || (state == TraceSinkState.Failed && !string.Equals(fault, _sinkFault, StringComparison.Ordinal));
                 _sinkState = state;
@@ -422,6 +461,7 @@ namespace JJTrace
                 _sinkFault = null;
                 _sinkPath = null;
                 _liveSession = Guid.Empty;
+                _generation = 0;
                 _historicalFailures = 0;
                 _lastFailure = null;
                 _lastFailureUtc = null;

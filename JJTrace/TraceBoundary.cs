@@ -163,6 +163,15 @@ namespace JJTrace
         /// </summary>
         public string SinkFault { get; internal set; }
 
+        /// <summary>
+        /// Which generation of the live sink this result describes — the
+        /// coordinator's count of sink changes, read under the gate as the
+        /// transition ended. The health model orders notes by it, so a report
+        /// about an older sink cannot overwrite the state of a newer one
+        /// whatever thread it arrives on (Sol's review of H7, finding 2).
+        /// </summary>
+        public long SinkGeneration { get; internal set; }
+
         /// <summary>One line of trace text describing this result. Never user
         /// prose — a refusal is logged as a refusal, naming both identities,
         /// and never as a statement that the current session suffered

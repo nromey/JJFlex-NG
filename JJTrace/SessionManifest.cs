@@ -23,6 +23,19 @@ namespace JJTrace
         public const string Crashed = "crashed";
         public const string NetworkFailed = "network_failed";
         public const string NoRadios = "no_radios";
+
+        /// <summary>
+        /// The session's own trace file stopped accepting writes, and the
+        /// trace coordinator closed the session because a session with no
+        /// writable file is not recording anything. Nothing the operator did
+        /// and nothing the radio did: the disk, or the path, refused a byte.
+        /// The file's tail is missing whatever failed to land, and the
+        /// outcome detail carries the sink's own fault text. Sprint 45 Track
+        /// H8, so that a faulted sink retires rather than leaving a session
+        /// nothing could seal or replace.
+        /// </summary>
+        public const string RecordingFailed = "recording_failed";
+
         public const string Unknown = "unknown";
     }
 

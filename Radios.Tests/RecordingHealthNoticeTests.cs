@@ -58,7 +58,7 @@ namespace Radios.Tests
         [Fact]
         public void A_healthy_state_adds_nothing_to_the_status_sentence()
         {
-            Invoke("NoteSink", TraceSinkState.Recording, null, @"C:\t\JJFlexRadioTrace.txt", Guid.NewGuid());
+            Invoke("NoteSink", TraceSinkState.Recording, null, @"C:\t\JJFlexRadioTrace.txt", Guid.NewGuid(), 1L);
             TraceRecordingHealthSnapshot s = TraceRecordingHealth.Snapshot();
             Assert.False(s.NeedsAttention);
             Assert.Equal(string.Empty, RecordingHealthNotice.StatusSentence(s));
@@ -98,7 +98,7 @@ namespace Radios.Tests
         [Fact]
         public void A_failed_sink_is_said_as_stopped_not_off()
         {
-            Invoke("NoteSink", TraceSinkState.Failed, "disk full", @"C:\t\JJFlexRadioTrace.txt", Guid.NewGuid());
+            Invoke("NoteSink", TraceSinkState.Failed, "disk full", @"C:\t\JJFlexRadioTrace.txt", Guid.NewGuid(), 1L);
             string sentence = RecordingHealthNotice.StatusSentence(TraceRecordingHealth.Snapshot());
             _out.WriteLine(sentence);
             Assert.Contains("stopped", sentence, StringComparison.OrdinalIgnoreCase);
@@ -109,7 +109,7 @@ namespace Radios.Tests
         [Fact]
         public void The_snapshot_lines_read_as_label_and_value_and_leak_no_key()
         {
-            Invoke("NoteSink", TraceSinkState.Recording, null, @"C:\t\JJFlexRadioTrace.txt", Guid.NewGuid());
+            Invoke("NoteSink", TraceSinkState.Recording, null, @"C:\t\JJFlexRadioTrace.txt", Guid.NewGuid(), 1L);
             Invoke("NoteDetached", TicketAt(@"C:\t\a.txt", recordWritten: false, tailUncertain: true));
             var lines = RecordingHealthNotice.SnapshotLines(TraceRecordingHealth.Snapshot());
             foreach (var (label, value) in lines)
@@ -142,8 +142,8 @@ namespace Radios.Tests
                 Invoke("NoteDetached", ticket);
                 Invoke("NoteDetached", ticket);                  // a repeat of the same ticket
                 Invoke("NoteRecoveryRecordPersisted", ticket);   // resolved: not announced
-                Invoke("NoteSink", TraceSinkState.Failed, "disk full", @"C:\t\JJFlexRadioTrace.txt", Guid.NewGuid());
-                Invoke("NoteSink", TraceSinkState.Failed, "disk full", @"C:\t\JJFlexRadioTrace.txt", Guid.NewGuid()); // same state again
+                Invoke("NoteSink", TraceSinkState.Failed, "disk full", @"C:\t\JJFlexRadioTrace.txt", Guid.NewGuid(), 1L);
+                Invoke("NoteSink", TraceSinkState.Failed, "disk full", @"C:\t\JJFlexRadioTrace.txt", Guid.NewGuid(), 1L); // same state again
 
                 lock (reports)
                 {

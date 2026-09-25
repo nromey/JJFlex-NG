@@ -125,9 +125,34 @@ namespace Radios.Tests
             TraceCoordinator.SetStandingIntent(true, TraceLevel.Info);
             TraceCoordinator.TransitionProbeForTests = null;
             TraceCoordinator.BeforeCaptureSlotWriteForTests = null;
+            TraceCoordinator.FaultRetireQueue = TraceCoordinator.DefaultFaultRetireQueue;
             TraceArchiveWorker.BeforeArchiveForTests = null;
             TraceRecordingHealth.ResetForTests();
             Tracing.ResetDeferredCountersForTests();
+        }
+
+        /// <summary>
+        /// Hold the fault-retire work item so a caller can be raced against
+        /// it. <see cref="Run"/> runs whatever was captured, on this thread.
+        /// </summary>
+        private sealed class HeldFaultRetire : IDisposable
+        {
+            private Action _work;
+            public HeldFaultRetire()
+            {
+                TraceCoordinator.FaultRetireQueue = w => { lock (this) _work = w; };
+            }
+            public bool Captured { get { lock (this) return _work != null; } }
+            public void Run()
+            {
+                Action w;
+                lock (this) { w = _work; _work = null; }
+                w?.Invoke();
+            }
+            public void Dispose()
+            {
+                TraceCoordinator.FaultRetireQueue = TraceCoordinator.DefaultFaultRetireQueue;
+            }
         }
 
         /// <summary>Collect every health change raised while the returned
@@ -1317,15 +1342,27 @@ namespace Radios.Tests
 
         /// <summary>
         /// A write failure on the LIVE sink, mid-session, reaches the health
-        /// model as "the log stopped" — not "off" — and the coordinator says
-        /// what the fault was.
+        /// model as "the log stopped" — not "off" — naming the fault, AND the
+        /// session is retired: its file detached and archived under
+        /// <c>recording_failed</c> with its tail marked uncertain, the
+        /// coordinator left with no session, nothing reopened.
+        ///
+        /// <para>Until Track H8 this test asserted the OPPOSITE of the last
+        /// clause — <c>TraceCoordinator.SinkFault</c> non-null, meaning the
+        /// dead session was still in place — and called that the desired
+        /// state. It was the state Sol's review of H7 (finding 1) showed left
+        /// the process without a log for the rest of its run, because a seal
+        /// refused a closed sink and a Begin refused a present session. The
+        /// old assertion pinned the defect; it is gone.</para>
         /// </summary>
         [Fact]
-        public void A_live_sink_that_fails_a_write_reports_the_log_stopped()
+        public void A_live_sink_that_fails_a_write_reports_the_log_stopped_and_retires_the_session()
         {
             TraceSessionHandle live = Open();
             Write("fine so far");
             Assert.Equal(TraceSinkState.Recording, TraceRecordingHealth.Snapshot().SinkState);
+            DateTime boot = TraceCoordinator.Observe().SessionBootTimeUtc.Value;
+            string target = TraceFileNaming.StampedPath(_livePath, boot);
 
             var failed = new ManualResetEventSlim(false);
             void OnChanged(TraceRecordingHealthChange c)
@@ -1341,12 +1378,36 @@ namespace Radios.Tests
             }
             finally { TraceRecordingHealth.Changed -= OnChanged; }
 
-            Assert.NotNull(TraceCoordinator.SinkFault);
+            // The pool retires the session on its own; wait for it rather
+            // than hoping. A live handle still here after the bound means the
+            // retirement never ran.
+            Assert.True(SpinWait.SpinUntil(() => TraceCoordinator.CurrentHandle == null, TimeSpan.FromSeconds(10)),
+                        "the faulted session was never retired");
             Assert.False(TraceCoordinator.Recording);
+            Assert.False(TraceCoordinator.CaptureRunning);
+
             TraceRecordingHealthSnapshot snap = TraceRecordingHealth.Snapshot();
             Assert.Equal(TraceSinkState.Failed, snap.SinkState);
+            Assert.NotNull(snap.SinkFault);
             Assert.Equal(_livePath, snap.SinkPath);
             Assert.Equal(live.SessionId, snap.LiveSessionId);
+
+            // The file was detached to its stamped path, with what did land in
+            // it, and archived under the coordinator's own outcome.
+            Assert.True(TraceCoordinator.DrainArchives(TimeSpan.FromSeconds(60)));
+            TraceSessionEntry entry = Manifest().Entries.Single(e => e.SessionId == live.SessionId.ToString());
+            Assert.Equal(TraceSessionOutcome.RecordingFailed, entry.Outcome);
+            Assert.Contains("stopped accepting writes", entry.OutcomeDetail, StringComparison.Ordinal);
+            Assert.False(File.Exists(_livePath), "the dead file was left at the live path, where a Begin would truncate it");
+
+            // Nothing reopened by itself: a disk that just refused a write is
+            // not hammered. The operator's own on-again is the retry, and it
+            // works — which is the whole point.
+            TraceTransitionResult again = TraceCoordinator.Begin(_livePath, TraceLevel.Info, asDetailedCapture: false);
+            Assert.Equal(TraceTransition.Accepted, again.Status);
+            Write("after the operator turned it on again");
+            Assert.Contains("after the operator turned it on again", ReadLiveText(_livePath), StringComparison.Ordinal);
+            Assert.Equal(TraceSinkState.Recording, TraceRecordingHealth.Snapshot().SinkState);
         }
 
         /// <summary>
@@ -2142,6 +2203,243 @@ namespace Radios.Tests
                 Resume = TraceResumeIntent.None,
             });
             Assert.Contains("direct, after the seal", ReadArchivedText(end.Ticket), StringComparison.Ordinal);
+        }
+
+        // ── Track H8: a faulted sink can be recovered from ─────────────────
+
+        /// <summary>
+        /// <b>The off-and-on route, after a write fault, with the pool's own
+        /// retirement held back</b> — so the sequence the settings path runs
+        /// (<c>globals.vb</c> <c>ApplyDiagnosticLogSettings</c>: seal the
+        /// observed handle with no successor, then <c>Begin</c>) meets the dead
+        /// session itself. Until H8 the seal answered NoSession over the closed
+        /// sink and the Begin answered AlreadyRecording over the still-present
+        /// session, and no fresh file could ever open (Sol's review of H7,
+        /// finding 1). Now the seal is accepted with an uncertain tail, the
+        /// Begin opens, and a line written afterwards is read back from the
+        /// fresh file.
+        ///
+        /// <para>Then the held work item runs — the stale failure arriving
+        /// AFTER the successor was published, which is Sol's finding 2 — and
+        /// the health state stays Recording for the successor while the old
+        /// sink's failure is kept as history. Positive control at the end: a
+        /// failure naming the LIVE session does move the state.</para>
+        ///
+        /// <para>The VB route itself is not reachable from this project; what
+        /// is tested is the exact boundary sequence it makes, in its order.</para>
+        /// </summary>
+        [Fact]
+        public void After_a_write_fault_the_off_and_on_route_opens_a_fresh_file_and_a_stale_failure_cannot_overwrite_it()
+        {
+            TraceSessionHandle a = Open();
+            Write("what A managed to write");
+            DateTime bootA = TraceCoordinator.Observe().SessionBootTimeUtc.Value;
+            string aTarget = TraceFileNaming.StampedPath(_livePath, bootA);
+
+            using var held = new HeldFaultRetire();
+            using var changes = new HealthChanges();
+            BreakTheLiveSink();
+            Write("the write that fails");
+            Assert.True(held.Captured, "the fault was never noticed — the positive control for everything below");
+            // Still nominally in place: the retirement is held, and this is
+            // the window the settings path can land in.
+            Assert.Equal(a.SessionId, TraceCoordinator.CurrentHandle.SessionId);
+            Assert.False(TraceCoordinator.Recording);
+
+            // OFF: seal the observed handle with no successor — as the
+            // settings path does when the operator turns the log off.
+            TraceTransitionResult off = TraceCoordinator.TrySeal(new TraceSealRequest
+            {
+                Expected = TraceCoordinator.CurrentHandle,
+                OperationId = Guid.NewGuid(),
+                Outcome = TraceSessionOutcome.CleanExit,
+                OutcomeDetail = "User turned diagnostic log off",
+                Resume = TraceResumeIntent.None,
+            });
+            Assert.Equal(TraceTransition.Accepted, off.Status);   // was NoSession
+            Assert.True(off.TailUncertain);
+            Assert.NotNull(off.SinkFault);
+            Assert.NotNull(off.Ticket);
+            Assert.Equal(aTarget, off.Ticket.SourcePath);
+            Assert.Null(TraceCoordinator.CurrentHandle);
+            Assert.False(off.SuccessorOpened);
+
+            // ON: Begin, as the settings path does when the operator turns it
+            // back on.
+            TraceTransitionResult on = TraceCoordinator.Begin(_livePath, TraceLevel.Info, asDetailedCapture: false);
+            Assert.Equal(TraceTransition.Accepted, on.Status);     // was AlreadyRecording
+            Assert.True(on.TracingOn);
+            TraceSessionHandle b = on.Successor;
+            Assert.NotEqual(a.SessionId, b.SessionId);
+            Write("a line for the fresh file");
+            Trace.Flush();
+            string fresh = ReadLiveText(_livePath);
+            Assert.Contains("a line for the fresh file", fresh, StringComparison.Ordinal);
+            Assert.DoesNotContain("what A managed to write", fresh, StringComparison.Ordinal);
+            Assert.Equal(TraceSinkState.Recording, TraceRecordingHealth.Snapshot().SinkState);
+            Assert.Equal(b.SessionId, TraceRecordingHealth.Snapshot().LiveSessionId);
+
+            // Finding 2: A's failure arrives now, after B was published.
+            int historyBefore = TraceRecordingHealth.Snapshot().HistoricalFailures;
+            int sinkFailedBefore = changes.All.Count(c => c.Kind == TraceRecordingHealthChangeKind.SinkFailed);
+            held.Run();
+            TraceRecordingHealthSnapshot snap = TraceRecordingHealth.Snapshot();
+            Assert.Equal(TraceSinkState.Recording, snap.SinkState);
+            Assert.Equal(b.SessionId, snap.LiveSessionId);
+            Assert.Null(snap.SinkFault);
+            Assert.Equal(historyBefore + 1, snap.HistoricalFailures);
+            Assert.Contains(a.SessionId.ToString(), snap.LastFailure, StringComparison.Ordinal);
+            Assert.Contains("after a newer sink was published", snap.LastFailure, StringComparison.Ordinal);
+            Assert.Equal(sinkFailedBefore, changes.All.Count(c => c.Kind == TraceRecordingHealthChangeKind.SinkFailed));
+            // And the held retirement found nothing to retire: B is untouched.
+            Assert.Equal(b.SessionId, TraceCoordinator.CurrentHandle.SessionId);
+            Assert.True(TraceCoordinator.Recording);
+
+            // A's archive carries the OPERATOR's outcome, not the coordinator's.
+            Assert.True(off.Ticket.Completion.Wait(TimeSpan.FromSeconds(60)));
+            Assert.True(off.Ticket.Completion.Result.ArchiveCommitted);
+            TraceSessionEntry entry = Manifest().Entries.Single(e => e.SessionId == a.SessionId.ToString());
+            Assert.Equal(TraceSessionOutcome.CleanExit, entry.Outcome);
+            Assert.Equal("User turned diagnostic log off", entry.OutcomeDetail);
+
+            // Positive controls for the ordering rule. A failure of the LIVE
+            // generation is not stale, and moves the state...
+            long gen = TraceCoordinator.SinkGenerationForTests;
+            var noteSink = typeof(TraceRecordingHealth)
+                .GetMethod("NoteSink", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+            noteSink.Invoke(null, new object[] { TraceSinkState.Failed, "control fault", _livePath, b.SessionId, gen });
+            Assert.Equal(TraceSinkState.Failed, TraceRecordingHealth.Snapshot().SinkState);
+            Assert.Equal("control fault", TraceRecordingHealth.Snapshot().SinkFault);
+            // ...a Recording note for the SAME generation arriving after it
+            // does not resurrect the dead sink...
+            noteSink.Invoke(null, new object[] { TraceSinkState.Recording, null, _livePath, b.SessionId, gen });
+            Assert.Equal(TraceSinkState.Failed, TraceRecordingHealth.Snapshot().SinkState);
+            // ...and a note for a NEWER generation replaces the state.
+            noteSink.Invoke(null, new object[] { TraceSinkState.Recording, null, _livePath, Guid.NewGuid(), gen + 1 });
+            Assert.Equal(TraceSinkState.Recording, TraceRecordingHealth.Snapshot().SinkState);
+        }
+
+        /// <summary>
+        /// <b>Stop after a failed capture sink, arriving BEFORE the pool's
+        /// retirement.</b> The capture's file died; the operator presses Stop.
+        /// The seal is accepted with the operator's own outcome detail, the
+        /// capture ends with its session, the tail is marked uncertain, the
+        /// standing log opens in its place — and the retirement that then runs
+        /// finds nothing to do.
+        /// </summary>
+        [Fact]
+        public void Stop_after_a_failed_capture_sink_seals_the_capture_and_ends_it()
+        {
+            TraceSessionHandle capture = Open(TraceLevel.Verbose, asCapture: true);
+            Guid captureId = TraceCoordinator.CaptureId;
+            Write("captured before the disk went");
+
+            using var held = new HeldFaultRetire();
+            BreakTheLiveSink();
+            Write("the write that fails");
+            Assert.True(held.Captured);
+            Assert.True(TraceCoordinator.CaptureRunning);   // the window Sol described
+
+            TraceTransitionResult stop = TraceCoordinator.TrySeal(new TraceSealRequest
+            {
+                Expected = capture,
+                ExpectedCaptureId = captureId,
+                RequireCaptureRunning = true,
+                OperationId = captureId,
+                Outcome = TraceSessionOutcome.CleanExit,
+                OutcomeDetail = "Detailed capture: 8:14 PM, about 3 minutes",
+                TerminalLines = new[] { "Detailed capture stopped" },
+                Resume = TraceResumeIntent.Standing,
+            });
+            Assert.Equal(TraceTransition.Accepted, stop.Status);   // was NoSession
+            Assert.True(stop.EndedDetailedCapture);
+            Assert.Equal(captureId, stop.EndedCaptureId);
+            Assert.True(stop.TailUncertain);
+            Assert.False(TraceCoordinator.CaptureRunning);
+            Assert.True(stop.SuccessorOpened);
+            Assert.True(TraceCoordinator.Recording);
+
+            held.Run();   // the retirement: nothing left to retire
+            Assert.Equal(stop.Successor.SessionId, TraceCoordinator.CurrentHandle.SessionId);
+            Assert.Equal(TraceSinkState.Recording, TraceRecordingHealth.Snapshot().SinkState);
+
+            Assert.True(stop.Ticket.Completion.Wait(TimeSpan.FromSeconds(60)));
+            Assert.True(stop.Ticket.Completion.Result.ArchiveCommitted);
+            TraceSessionEntry entry = Manifest().Entries.Single(e => e.SessionId == capture.SessionId.ToString());
+            Assert.Equal("Detailed capture: 8:14 PM, about 3 minutes", entry.OutcomeDetail);
+            Assert.Contains("captured before the disk went", ReadArchivedText(stop.Ticket), StringComparison.Ordinal);
+            // The terminal line could not land: the tail is honestly short.
+            Assert.DoesNotContain("Detailed capture stopped", ReadArchivedText(stop.Ticket), StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// <b>Stop after a failed capture sink, arriving AFTER the pool's
+        /// retirement.</b> The capture already ended with its file: Stop finds
+        /// no capture running, Diagnostics no longer says one is in progress,
+        /// and the retired file carries the coordinator's outcome. A new
+        /// capture can then start.
+        /// </summary>
+        [Fact]
+        public void Stop_after_the_retirement_finds_no_capture_and_a_new_one_can_start()
+        {
+            TraceSessionHandle capture = Open(TraceLevel.Verbose, asCapture: true);
+            Guid captureId = TraceCoordinator.CaptureId;
+            Write("captured before the disk went");
+
+            using var held = new HeldFaultRetire();
+            BreakTheLiveSink();
+            Write("the write that fails");
+            held.Run();
+
+            Assert.Null(TraceCoordinator.CurrentHandle);
+            Assert.False(TraceCoordinator.CaptureRunning);
+            Assert.Equal(TraceSinkState.Failed, TraceRecordingHealth.Snapshot().SinkState);
+
+            TraceTransitionResult stop = TraceCoordinator.TrySeal(new TraceSealRequest
+            {
+                Expected = capture,
+                ExpectedCaptureId = captureId,
+                RequireCaptureRunning = true,
+                OperationId = captureId,
+                Outcome = TraceSessionOutcome.CleanExit,
+                Resume = TraceResumeIntent.Standing,
+            });
+            Assert.Equal(TraceTransition.NoSession, stop.Status);
+            Assert.False(stop.TracingOn);
+
+            Assert.True(TraceCoordinator.DrainArchives(TimeSpan.FromSeconds(60)));
+            TraceSessionEntry entry = Manifest().Entries.Single(e => e.SessionId == capture.SessionId.ToString());
+            Assert.Equal(TraceSessionOutcome.RecordingFailed, entry.Outcome);
+
+            TraceTransitionResult next = TraceCoordinator.Begin(_livePath, TraceLevel.Verbose, asDetailedCapture: true);
+            Assert.Equal(TraceTransition.Accepted, next.Status);
+            Assert.NotEqual(Guid.Empty, next.StartedCaptureId);
+            Assert.True(TraceCoordinator.CaptureRunning);
+        }
+
+        /// <summary>
+        /// A problem-report snapshot over a faulted session gets that
+        /// session's own sealed ticket, pinned, rather than "nothing is
+        /// recording" over a file full of evidence.
+        /// </summary>
+        [Fact]
+        public void A_bundle_snapshot_over_a_faulted_session_is_handed_its_sealed_ticket()
+        {
+            TraceSessionHandle live = Open();
+            Write("evidence the bundle wants");
+            using var held = new HeldFaultRetire();
+            BreakTheLiveSink();
+            Write("the write that fails");
+
+            TraceTransitionResult snap = TraceCoordinator.SnapshotForBundle(live);
+            Assert.Equal(TraceTransition.AlreadyClaimed, snap.Status);
+            Assert.NotNull(snap.Ticket);
+            Assert.Equal(live.SessionId, snap.Ticket.SessionId);
+            Assert.True(TraceEvidencePins.IsPinned(snap.Ticket.SourcePath));
+            Assert.Contains("evidence the bundle wants", File.ReadAllText(snap.Ticket.SourcePath), StringComparison.Ordinal);
+            TraceEvidencePins.Release(snap.Ticket.SourcePath);
+            held.Run();
+            Assert.True(snap.Ticket.Completion.Wait(TimeSpan.FromSeconds(60)));
         }
     }
 }
