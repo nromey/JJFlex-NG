@@ -165,23 +165,60 @@ namespace Radios.Tests
         }
 
         /// <summary>
-        /// And the drop dialog's notice carries the same condition, as one
-        /// more paragraph, only when it holds — the ordinary window's prose
-        /// is untouched.
+        /// The drop dialog's notice carries ONE caveat, the tail, as one more
+        /// paragraph, only when it holds — the ordinary window's prose is
+        /// untouched — and that paragraph claims neither that the index file
+        /// failed nor that the file is complete (Sol's review of H7, finding
+        /// 3: the H7 draft said both, and either could be false).
         /// </summary>
         [Fact]
-        public void The_drop_notice_adds_its_caveat_only_when_recovery_is_at_risk()
+        public void The_drop_notice_adds_its_tail_caveat_only_when_the_tail_is_uncertain()
         {
-            var plain = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(), recoveryAtRisk: false);
-            var atRisk = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(), recoveryAtRisk: true);
-            Assert.Equal(string.Empty, plain.RecoveryCaveat);
-            Assert.DoesNotContain("index file", plain.Explanation, StringComparison.Ordinal);
-            _out.WriteLine(atRisk.Explanation);
-            Assert.StartsWith(plain.Explanation, atRisk.Explanation, StringComparison.Ordinal);
-            Assert.Contains(atRisk.RecoveryCaveat, atRisk.Explanation, StringComparison.Ordinal);
-            Assert.EndsWith(".", atRisk.RecoveryCaveat.TrimEnd(), StringComparison.Ordinal);
-            Assert.DoesNotContain("logging.capture", atRisk.RecoveryCaveat, StringComparison.Ordinal);
-            Assert.Contains(atRisk.RecoveryCaveat, atRisk.AsText(), StringComparison.Ordinal);
+            var plain = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(), tailUncertain: false);
+            var shortTail = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(), tailUncertain: true);
+            Assert.Equal(string.Empty, plain.TailCaveat);
+            Assert.DoesNotContain("last lines", plain.Explanation, StringComparison.Ordinal);
+            _out.WriteLine(shortTail.Explanation);
+            Assert.StartsWith(plain.Explanation, shortTail.Explanation, StringComparison.Ordinal);
+            Assert.Contains(shortTail.TailCaveat, shortTail.Explanation, StringComparison.Ordinal);
+            Assert.EndsWith(".", shortTail.TailCaveat.TrimEnd(), StringComparison.Ordinal);
+            Assert.DoesNotContain("logging.capture", shortTail.TailCaveat, StringComparison.Ordinal);
+            Assert.Contains(shortTail.TailCaveat, shortTail.AsText(), StringComparison.Ordinal);
+            // Neither false claim of the H7 draft survives.
+            Assert.DoesNotContain("index file", shortTail.TailCaveat, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("complete", shortTail.TailCaveat, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// A ticket whose ONLY problem is its tail — index file written, the
+        /// archive still to come — is described as that, not as an index
+        /// file that failed. Under H7 it got the record-failed detail, which
+        /// said the index was not written and the recording would not be
+        /// filed automatically; both were false for it.
+        /// </summary>
+        [Fact]
+        public void A_tail_only_condition_is_not_described_as_a_missing_index_file()
+        {
+            TraceArchiveTicket ticket = TicketAt(@"C:\t\a.txt", recordWritten: true, tailUncertain: true);
+            Invoke("NoteDetached", ticket);
+            TraceRecoveryCondition c = Assert.Single(TraceRecordingHealth.Snapshot().Unresolved);
+            string what = RecordingHealthNotice.ConditionWhat(c);
+            string detail = RecordingHealthNotice.ConditionDetail(c);
+            _out.WriteLine(what + " — " + detail);
+            Assert.Contains("last lines", what, StringComparison.Ordinal);
+            Assert.Contains(@"C:\t\a.txt", detail, StringComparison.Ordinal);
+            Assert.Contains("last lines may not have reached the disk", detail, StringComparison.Ordinal);
+            Assert.DoesNotContain("still filing", detail, StringComparison.Ordinal);
+            Assert.DoesNotContain("will not be filed", detail, StringComparison.Ordinal);
+            Assert.DoesNotContain("logging.recording", what + detail, StringComparison.Ordinal);
+
+            // Positive control: with the index file NOT written, the same
+            // ticket gets the record-failed sentences.
+            TraceRecordingHealth.ResetForTests();
+            Invoke("NoteDetached", TicketAt(@"C:\t\b.txt", recordWritten: false, tailUncertain: true));
+            TraceRecoveryCondition r = Assert.Single(TraceRecordingHealth.Snapshot().Unresolved);
+            Assert.Contains("not yet safely filed", RecordingHealthNotice.ConditionWhat(r), StringComparison.Ordinal);
+            Assert.Contains("still filing", RecordingHealthNotice.ConditionDetail(r), StringComparison.Ordinal);
         }
     }
 }

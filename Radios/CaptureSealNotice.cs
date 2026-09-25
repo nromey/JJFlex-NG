@@ -54,40 +54,51 @@ namespace Radios
         /// </summary>
         public CaptureSealNotice(string radioName, string archivePath,
                                  bool successorOpened, Guid? archivedSessionId)
-            : this(radioName, archivePath, successorOpened, archivedSessionId, recoveryAtRisk: false)
+            : this(radioName, archivePath, successorOpened, archivedSessionId, tailUncertain: false)
         {
         }
 
         /// <summary>
-        /// The Track H7 shape: the drop result also says whether the sealed
-        /// session's recovery is at risk, so the window can carry that
-        /// condition rather than a possibly unwritable log being the only
-        /// place it is said (Astra's ruling: the capture/drop result reads the
-        /// same health state Diagnostics does).
+        /// The drop result also says whether the sealed file's last lines
+        /// reached the disk, so the window can carry that fact rather than a
+        /// possibly unwritable log being the only place it is said (Astra's
+        /// ruling: the capture/drop result reads the same health state
+        /// Diagnostics does).
+        ///
+        /// <para><b>One predicate, on purpose.</b> Track H7 gave this window a
+        /// single "recovery at risk" flag that ORed two different facts — the
+        /// index file did not write, the tail is uncertain — and one sentence
+        /// that was false for one of them and overclaimed for the other (Sol's
+        /// review of H7, finding 3). This window opens ONLY with a committed
+        /// archive, and a committed archive needs no index file: that
+        /// predicate cannot be true here, and it is the Problems list's to
+        /// carry when it matters. What CAN be true of a committed archive is
+        /// that the bytes inside it stop short, and that is a property of the
+        /// sealed file which no later retry changes — so it is read from the
+        /// seal result and nowhere else.</para>
         /// </summary>
         public CaptureSealNotice(string radioName, string archivePath,
                                  bool successorOpened, Guid? archivedSessionId,
-                                 bool recoveryAtRisk)
+                                 bool tailUncertain)
         {
             RadioName = (radioName ?? string.Empty).Trim();
             ArchivePath = archivePath ?? string.Empty;
             SuccessorOpened = successorOpened;
             ArchivedSessionId = archivedSessionId;
-            RecoveryAtRisk = recoveryAtRisk;
+            TailUncertain = tailUncertain;
         }
 
         /// <summary>The radio's nickname, or empty when we never learned one.</summary>
         public string RadioName { get; }
 
         /// <summary>
-        /// The sealed session's durable recovery record could not be written,
-        /// or its last lines may not have reached the disk. When this window
-        /// is shown at all an archive path exists, so the archive itself is
-        /// committed — but the condition is still reported, because a
-        /// committed archive of a file whose tail is uncertain is not a
+        /// A terminal record or the close failed as the session was sealed,
+        /// so the archived file's last lines may not have reached the disk.
+        /// The archive is committed — this window does not open otherwise —
+        /// but a committed archive of a file whose tail is uncertain is not a
         /// complete recording, and the operator sending it should know.
         /// </summary>
-        public bool RecoveryAtRisk { get; }
+        public bool TailUncertain { get; }
 
         /// <summary>
         /// Whether a fresh recording really opened after the seal. Not yet
@@ -125,14 +136,13 @@ namespace Radios
         public string WhatToDo => Lexicon.Get("logging.capture.dropped.what_to_do");
 
         /// <summary>
-        /// The extra paragraph when <see cref="RecoveryAtRisk"/>: that this
-        /// recording's details may not be recovered automatically, and that the
-        /// file above is still the one to send. Empty otherwise, so the ordinary
-        /// window's prose is untouched. DRAFT — Noel's to rule; listed in the
-        /// Track H7 wording file.
+        /// The extra paragraph when <see cref="TailUncertain"/>: that the
+        /// file's last lines may be missing, and that it is still the one to
+        /// send. Empty otherwise, so the ordinary window's prose is untouched.
+        /// DRAFT — Noel's to rule; listed in the recording-health wording file.
         /// </summary>
-        public string RecoveryCaveat =>
-            RecoveryAtRisk ? Lexicon.Get("logging.capture.dropped.recovery_at_risk") : string.Empty;
+        public string TailCaveat =>
+            TailUncertain ? Lexicon.Get("logging.capture.dropped.tail_uncertain") : string.Empty;
 
         /// <summary>The Copy path button.</summary>
         public string CopyButtonLabel => Lexicon.Get("logging.capture.dropped.copy_button");
@@ -172,7 +182,7 @@ namespace Radios
             WhatHappened + Environment.NewLine + Environment.NewLine
             + WhatWasSaved + Environment.NewLine + Environment.NewLine
             + WhatToDo
-            + (RecoveryAtRisk ? Environment.NewLine + Environment.NewLine + RecoveryCaveat : string.Empty);
+            + (TailUncertain ? Environment.NewLine + Environment.NewLine + TailCaveat : string.Empty);
 
         /// <summary>
         /// The whole notice as one block, path included — for the trace, and
@@ -183,6 +193,6 @@ namespace Radios
             + WhatWasSaved + Environment.NewLine + Environment.NewLine
             + PathLabel + Environment.NewLine + ArchivePath + Environment.NewLine + Environment.NewLine
             + WhatToDo
-            + (RecoveryAtRisk ? Environment.NewLine + Environment.NewLine + RecoveryCaveat : string.Empty);
+            + (TailUncertain ? Environment.NewLine + Environment.NewLine + TailCaveat : string.Empty);
     }
 }

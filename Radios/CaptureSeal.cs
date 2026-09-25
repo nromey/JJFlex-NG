@@ -430,9 +430,17 @@ namespace Radios
 
             try
             {
+                // The one caveat a committed archive can carry: its bytes may
+                // stop short. That is a property of the sealed file, fixed at
+                // the seal. The index-file failure is NOT read here — this
+                // window opens only with a committed archive, which needs no
+                // index file, and the pre-wait bit could be stale by now anyway
+                // (the worker retries the record before compressing). The
+                // Problems list carries that condition, and clears it when
+                // the archive commits (Sol's review of H7, finding 3).
                 SealedAfterDrop?.Invoke(new CaptureSealNotice(
                     radioName, result.ArchivePath, result.SuccessorOpened, result.ArchivedSessionId,
-                    recoveryAtRisk: result.RecoveryRecordFailed || result.TailUncertain));
+                    tailUncertain: result.TailUncertain));
             }
             catch (Exception ex)
             {

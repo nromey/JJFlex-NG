@@ -42,10 +42,7 @@ namespace Radios
                     {
                         TraceRecoveryCondition c = change.Condition;
                         if (c == null) return null;
-                        string what = c.ArchiveFailureStage != null
-                            ? Lexicon.Get("logging.recording.health.archive_failed_what")
-                            : Lexicon.Get("logging.recording.health.record_failed_what");
-                        return (FailureKind.RecordingRecoveryAtRisk, what, ConditionDetail(c));
+                        return (FailureKind.RecordingRecoveryAtRisk, ConditionWhat(c), ConditionDetail(c));
                     }
                 case TraceRecordingHealthChangeKind.SinkFailed:
                     {
@@ -59,6 +56,35 @@ namespace Radios
                 default:
                     return null;
             }
+        }
+
+        /// <summary>
+        /// Which of the three things is wrong with a ticket decides which
+        /// sentences describe it, and the three are kept apart on purpose: an
+        /// archive that would not commit, an index file that would not write,
+        /// and a tail that may be short are different consequences with
+        /// different next steps. Track H7 folded the third into the second, so
+        /// a ticket whose only problem was its tail was told its index file
+        /// had not been written and that it would not be filed automatically
+        /// — both false (the same conflation Sol's review of H7 found in the
+        /// drop window, finding 3). Precedence: the archive failing is the
+        /// most consequential and is said first; the index file next; the tail
+        /// only when it is the whole story. Every key below is a literal in
+        /// its own call, because the lexicon coverage test reads them from the
+        /// source and a key built from parts is a key it cannot verify.
+        /// </summary>
+        private static bool TailIsTheWholeStory(TraceRecoveryCondition c)
+            => c.ArchiveFailureStage == null && c.RecoveryRecordWritten && c.TailUncertain;
+
+        /// <summary>The short clause spoken once for one unresolved ticket.</summary>
+        public static string ConditionWhat(TraceRecoveryCondition c)
+        {
+            if (c == null) return string.Empty;
+            return Lexicon.Get(c.ArchiveFailureStage != null
+                ? "logging.recording.health.archive_failed_what"
+                : TailIsTheWholeStory(c)
+                    ? "logging.recording.health.tail_uncertain_what"
+                    : "logging.recording.health.record_failed_what");
         }
 
         /// <summary>The consequence and next step for one unresolved ticket.</summary>
@@ -76,6 +102,11 @@ namespace Radios
                     ("retained", c.RawRetained
                         ? Lexicon.Get("logging.recording.health.raw_present")
                         : Lexicon.Get("logging.recording.health.raw_missing")));
+            }
+            if (TailIsTheWholeStory(c))
+            {
+                return Lexicon.Get("logging.recording.health.tail_uncertain_detail",
+                    ("path", path), ("why", why));
             }
             return Lexicon.Get("logging.recording.health.record_failed_detail",
                 ("path", path), ("why", why),
