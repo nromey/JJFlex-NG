@@ -178,6 +178,20 @@ namespace JJTrace
             get { lock (_sync) { return WriteFault != null; } }
         }
 
+        /// <summary>
+        /// What this sink knows it has put in its file: which kinds of meter
+        /// reading were written and flushed, and what a fault took. Kept
+        /// here because nothing else sees every line; read by the seal and
+        /// frozen onto its result (Sol's review of H9, blocker 2).
+        /// </summary>
+        private readonly TraceFileTally _tally = new TraceFileTally();
+
+        /// <summary>A snapshot of <see cref="_tally"/>, under the lock.</summary>
+        public TraceFileFacts Facts
+        {
+            get { lock (_sync) { return _tally.Snapshot(); } }
+        }
+
         /// <summary>Caller holds <c>_sync</c>. Latch the first failure only.</summary>
         private void Fault(Exception ex)
         {
@@ -211,18 +225,23 @@ namespace JJTrace
             if (line == null) return false;
             lock (_sync)
             {
-                if (_closed) return false;
+                if (_closed) { _tally.Refused(line); return false; }
                 _rotationSuppressed = true;
+                bool inBuffer = false;
                 try
                 {
                     _writer.Write(line);
                     _writer.Write(Environment.NewLine);
                     _bytesInPart += line.Length + Environment.NewLine.Length;
+                    _tally.Wrote(line);
+                    inBuffer = true;
                     _writer.Flush();
+                    _tally.Flushed();
                     return true;
                 }
                 catch (Exception ex)
                 {
+                    _tally.FaultedOn(line, failingAlreadyCounted: inBuffer);
                     Fault(ex);
                     CloseInternal();
                     return false;
@@ -257,8 +276,8 @@ namespace JJTrace
                     return WriteFault == null;
                 }
                 bool ok = true;
-                try { _writer?.Flush(); }
-                catch (Exception ex) { ok = false; failure = ex.Message; Fault(ex); }
+                try { _writer?.Flush(); _tally.Flushed(); }
+                catch (Exception ex) { ok = false; failure = ex.Message; _tally.FaultedOn(null, failingAlreadyCounted: false); Fault(ex); }
                 try { _writer?.Dispose(); }
                 catch (Exception ex) { ok = false; failure = failure ?? ex.Message; Fault(ex); }
                 try { _stream?.Dispose(); }
@@ -354,7 +373,7 @@ namespace JJTrace
         {
             lock (_sync)
             {
-                if (_closed) return;
+                if (_closed) { _tally.Refused(message); return; }
                 try
                 {
                     if (NeedIndent) WriteIndent();
@@ -365,6 +384,7 @@ namespace JJTrace
                     // single trace line so a FileInfo syscall per write is out
                     // of the question.
                     _bytesInPart += message.Length;
+                    _tally.Wrote(message);
                 }
                 catch (Exception ex)
                 {
@@ -374,6 +394,7 @@ namespace JJTrace
                     // coordinator reads WriteFault after the write and tells
                     // the operator the log has stopped, which a silent close
                     // never did.
+                    _tally.FaultedOn(message, failingAlreadyCounted: false);
                     Fault(ex);
                     CloseInternal();
                     return;
@@ -460,8 +481,8 @@ namespace JJTrace
                 lock (_sync)
                 {
                     if (_closed) return;
-                    try { _writer.Flush(); }
-                    catch (Exception ex) { Fault(ex); CloseInternal(); }
+                    try { _writer.Flush(); _tally.Flushed(); }
+                    catch (Exception ex) { _tally.FaultedOn(null, failingAlreadyCounted: false); Fault(ex); CloseInternal(); }
                 }
             }
             finally
@@ -531,6 +552,7 @@ namespace JJTrace
                 _partNumber = closedPart + 1;
                 _nextRotateAt = RotationThresholdBytes;
                 LastRotationError = null;
+                _tally.PartRotated();
 
                 // The breadcrumb that makes a chain of parts readable as one
                 // session. Written directly to the fresh writer (not through

@@ -27,6 +27,7 @@
     <Compile Include="TraceBoundary.cs" />
     <Compile Include="TraceCoordinator.cs" />
     <Compile Include="TraceDeferred.cs" />
+    <Compile Include="TraceFileFacts.cs" />
     <Compile Include="TraceFileNaming.cs" />
     <Compile Include="TraceLeftoverAdoption.cs" />
     <Compile Include="TraceOutcomeLabels.cs" />

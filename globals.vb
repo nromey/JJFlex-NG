@@ -1622,6 +1622,7 @@ Module globals
             outcome.RecoveryRecordFailed = result.PendingRecordFailed
             outcome.TailUncertain = result.TailUncertain
             outcome.SinkFailedBeforeDrop = result.SinkFailedBeforeSeal
+            outcome.FileFacts = result.FileFacts
             outcome.Refused = Not result.Owned
             outcome.RefusalReason = If(result.Owned, Nothing, result.Explanation)
 

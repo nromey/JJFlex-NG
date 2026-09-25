@@ -1488,6 +1488,10 @@ namespace JJTrace
                 faults.Add("TraceCoordinator: not every terminal record reached " + sourcePath
                            + " (" + sinkFault + "); the bytes that did land are retained, and the file's tail is uncertain");
             }
+            // What the file is KNOWN to hold, read after the close so the
+            // terminal records and the final flush are in it. The operator's
+            // window promises content from this and from nothing else.
+            TraceFileFacts fileFacts = sink.Facts;
 
             // Close and MOVE before a successor opens. The old path compressed
             // first and renamed afterwards, so the next FileMode.Create at the
@@ -1550,6 +1554,7 @@ namespace JJTrace
                     TailUncertain = tailUncertain,
                     SinkFault = sinkFault,
                     SinkFailedBeforeSeal = sinkFailedBeforeSeal,
+                    FileFacts = fileFacts,
                     EndedDetailedCapture = endedCapture,
                     EndedCaptureId = endedCaptureId,
                     EndedCaptureStartedLocal = endedCaptureStarted,
@@ -1589,13 +1594,14 @@ namespace JJTrace
                 TailUncertain = tailUncertain,
                 SinkFault = sinkFault,
                 SinkFailedBeforeSeal = sinkFailedBeforeSeal,
+                FileFacts = fileFacts,
                 ExpectedSessionId = expectedId,
                 ObservedSessionId = observedId,
                 EndedDetailedCapture = endedCapture,
                 EndedCaptureId = endedCaptureId,
                 EndedCaptureStartedLocal = endedCaptureStarted,
                 Explanation = "TraceCoordinator: sealed session " + sealing.SessionId
-                              + " to " + detached,
+                              + " to " + detached + " (" + fileFacts + ")",
             };
 
             // The successor, decided here and reported as a fact rather than

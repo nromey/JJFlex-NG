@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using JJTrace;
 using Radios;
 using Xunit;
 using Xunit.Abstractions;
@@ -42,8 +43,37 @@ namespace Radios.Tests
         private const string Path0 =
             @"C:\Users\nrome\AppData\Roaming\JJFlexRadio\Traces\2026\09\trace-20260922-201500-connection_dropped.zip";
 
-        private static CaptureSealNotice Named() => new CaptureSealNotice("6300inshack", Path0);
-        private static CaptureSealNotice Unnamed() => new CaptureSealNotice("", Path0);
+        /// <summary>The ordinary window: a certain tail, both kinds of
+        /// reading counted into the file, recording again now. The H7 prose
+        /// is asserted against THIS, because since H10 the content promise
+        /// is made only when the file's facts support it.</summary>
+        private static CaptureSealNotice Full(string name) =>
+            new CaptureSealNotice(name, Path0, successorOpened: true, archivedSessionId: Guid.NewGuid(),
+                                  tailUncertain: false, sinkFailedBeforeDrop: false, recordingNow: true,
+                                  fileFacts: new TraceFileFacts(powerWritten: true, temperatureWritten: true,
+                                                                faulted: false, linesUnflushedAtFault: 0,
+                                                                readingsLostAtFault: false,
+                                                                readingsRefusedAfterFault: false));
+        private static CaptureSealNotice Named() => Full("6300inshack");
+        private static CaptureSealNotice Unnamed() => Full("");
+
+        /// <summary>
+        /// The two-argument constructor carries no facts, so it names no
+        /// readings: "It holds everything up to the moment the connection
+        /// went." and nothing about what those lines are. Until H10 it made
+        /// the full three-reading promise on no evidence (Sol's review of
+        /// H9, blocker 2).
+        /// </summary>
+        [Fact]
+        public void A_notice_without_file_facts_names_no_readings()
+        {
+            var bare = new CaptureSealNotice("6300inshack", Path0);
+            Assert.Null(bare.FileFacts);
+            Assert.Equal("The recording has been closed and saved. It holds everything up to the moment the connection went.",
+                         bare.WhatWasSaved);
+            Assert.DoesNotContain("power", bare.Explanation, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("temperature", bare.Explanation, StringComparison.OrdinalIgnoreCase);
+        }
 
         // ────────────────────────────────────────────────────────────────
         //  The sentences

@@ -93,6 +93,17 @@ namespace Radios
         /// sink's.
         /// </summary>
         public bool SuccessorRecording { get; set; }
+
+        /// <summary>
+        /// What the sealed file is known to contain — which kinds of meter
+        /// reading were written and flushed, and what a fault took — as the
+        /// sink that wrote it counted them
+        /// (<see cref="JJTrace.TraceTransitionResult.FileFacts"/>). Null when
+        /// the seal did not carry them. The operator's window chooses its
+        /// content paragraphs from this and claims nothing it does not
+        /// establish (Sol's review of H9, blocker 2).
+        /// </summary>
+        public TraceFileFacts FileFacts { get; set; }
     }
 
     /// <summary>
@@ -531,7 +542,8 @@ namespace Radios
                     radioName, result.ArchivePath, result.SuccessorOpened, result.ArchivedSessionId,
                     tailUncertain: result.TailUncertain,
                     sinkFailedBeforeDrop: result.SinkFailedBeforeDrop,
-                    recordingNow: recordingNow));
+                    recordingNow: recordingNow,
+                    fileFacts: result.FileFacts));
             }
             catch (Exception ex)
             {

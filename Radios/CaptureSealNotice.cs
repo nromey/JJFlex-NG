@@ -1,4 +1,5 @@
 using System;
+using JJTrace;
 
 namespace Radios
 {
@@ -132,6 +133,33 @@ namespace Radios
                                  bool successorOpened, Guid? archivedSessionId,
                                  bool tailUncertain, bool sinkFailedBeforeDrop,
                                  bool recordingNow)
+            : this(radioName, archivePath, successorOpened, archivedSessionId, tailUncertain,
+                   sinkFailedBeforeDrop, recordingNow, fileFacts: null)
+        {
+        }
+
+        /// <summary>
+        /// <b>The content paragraphs are chosen by what the file is KNOWN to
+        /// hold</b> (Sol's review of H9, blocker 2). The ordinary saved
+        /// paragraph promises forward power, reflected power and amplifier
+        /// temperature; transmit readings exist only while transmitting or
+        /// tuning, and a temperature window can be empty, so that promise
+        /// is made only when the sink counted both kinds into this file.
+        /// The tail caveats claim "everything before that point is in the
+        /// file" only when the fault took nothing that was buffered before
+        /// it, and "the last readings the radio sent are missing" only when
+        /// a reading really was lost at or refused after the fault. Where
+        /// no fact supports a claim, a paragraph that does not make it is
+        /// chosen — including when the facts were not carried at all
+        /// (<paramref name="fileFacts"/> null), which is what the shorter
+        /// constructors mean.
+        /// </summary>
+        /// <param name="fileFacts">What the sealed file's sink counted into
+        /// it, frozen at the seal; null for "not known".</param>
+        public CaptureSealNotice(string radioName, string archivePath,
+                                 bool successorOpened, Guid? archivedSessionId,
+                                 bool tailUncertain, bool sinkFailedBeforeDrop,
+                                 bool recordingNow, TraceFileFacts fileFacts)
         {
             RadioName = (radioName ?? string.Empty).Trim();
             ArchivePath = archivePath ?? string.Empty;
@@ -140,7 +168,21 @@ namespace Radios
             TailUncertain = tailUncertain;
             SinkFailedBeforeDrop = tailUncertain && sinkFailedBeforeDrop;
             RecordingNow = recordingNow;
+            FileFacts = fileFacts;
         }
+
+        /// <summary>What the sealed file is known to contain, or null when
+        /// the seal did not say. See <see cref="TraceFileFacts"/>.</summary>
+        public TraceFileFacts FileFacts { get; }
+
+        /// <summary>
+        /// Whether the fault, if there was one, took nothing that had been
+        /// written before it: the buffer was empty when it hit, so "everything
+        /// before that point is in the file" holds. False when the facts are
+        /// not known.
+        /// </summary>
+        private bool NothingBeforeTheFaultWasLost =>
+            FileFacts != null && FileFacts.LinesUnflushedAtFault == 0;
 
         /// <summary>The radio's nickname, or empty when we never learned one.</summary>
         public string RadioName { get; }
@@ -199,18 +241,28 @@ namespace Radios
                 : Lexicon.Get("logging.capture.dropped.what_named", ("radioName", RadioName));
 
         /// <summary>
-        /// That the recording was kept, and what is in it. The ordinary
-        /// sentence promises everything up to the drop including the last
-        /// readings; with an uncertain tail that promise cannot be made, and
-        /// the alternative says only that the file may stop short — the
-        /// caveat paragraph then says how and what to tell Noel. DRAFT for
-        /// the alternative — Noel's to rule; in the recording-health wording
-        /// file.
+        /// That the recording was kept, and what is in it. With an uncertain
+        /// tail no content promise is made; the caveat paragraph says how it
+        /// stops short and what to tell Noel. With a certain tail the
+        /// paragraph names the readings the sink counted into the file and
+        /// no others: both kinds (the ordinary sentence), power only,
+        /// temperature only, neither — or, when the facts were not carried,
+        /// no readings are named at all. DRAFTS for the alternatives — Noel's
+        /// to rule; in the recording-health wording file.
         /// </summary>
-        public string WhatWasSaved =>
-            TailUncertain
-                ? Lexicon.Get("logging.capture.dropped.saved_tail_uncertain")
-                : Lexicon.Get("logging.capture.dropped.saved");
+        public string WhatWasSaved
+        {
+            get
+            {
+                if (TailUncertain) return Lexicon.Get("logging.capture.dropped.saved_tail_uncertain");
+                if (FileFacts == null) return Lexicon.Get("logging.capture.dropped.saved_contents_unknown");
+                if (FileFacts.PowerReadingsWritten && FileFacts.TemperatureReadingsWritten)
+                    return Lexicon.Get("logging.capture.dropped.saved");
+                if (FileFacts.PowerReadingsWritten) return Lexicon.Get("logging.capture.dropped.saved_power_only");
+                if (FileFacts.TemperatureReadingsWritten) return Lexicon.Get("logging.capture.dropped.saved_temperature_only");
+                return Lexicon.Get("logging.capture.dropped.saved_no_meters");
+            }
+        }
 
         /// <summary>The label above the path.</summary>
         public string PathLabel => Lexicon.Get("logging.capture.dropped.path_label");
@@ -235,18 +287,38 @@ namespace Radios
         /// <summary>
         /// The extra paragraph when <see cref="TailUncertain"/>: that the
         /// file's last lines may be missing, WHY, and that it is still the
-        /// one to send. Two reasons exist and they are different sentences:
+        /// one to send. Two causes exist and they are different sentences —
         /// a write failed as the recording was being closed, or the file had
         /// already stopped taking writes before the drop
-        /// (<see cref="SinkFailedBeforeDrop"/>). Empty when the tail is
-        /// certain, so the ordinary window's prose is untouched. DRAFT —
-        /// Noel's to rule; listed in the recording-health wording file.
+        /// (<see cref="SinkFailedBeforeDrop"/>) — and within each the
+        /// stronger sentence is chosen only when the facts support it:
+        /// "everything before that point is in the file" needs a fault that
+        /// took nothing buffered before it; "the last readings the radio sent
+        /// are missing" needs a reading lost at or refused after the fault;
+        /// "the last readings came before the failure, so they are in the
+        /// file" needs the opposite, plus a reading actually written. Empty
+        /// when the tail is certain, so the ordinary window's prose is
+        /// untouched. DRAFTS — Noel's to rule; listed in the recording-health
+        /// wording file.
         /// </summary>
-        public string TailCaveat =>
-            !TailUncertain ? string.Empty
-            : SinkFailedBeforeDrop
-                ? Lexicon.Get("logging.capture.dropped.tail_uncertain_earlier")
-                : Lexicon.Get("logging.capture.dropped.tail_uncertain");
+        public string TailCaveat
+        {
+            get
+            {
+                if (!TailUncertain) return string.Empty;
+                if (!SinkFailedBeforeDrop)
+                {
+                    return NothingBeforeTheFaultWasLost
+                        ? Lexicon.Get("logging.capture.dropped.tail_uncertain")
+                        : Lexicon.Get("logging.capture.dropped.tail_uncertain_buffered");
+                }
+                if (NothingBeforeTheFaultWasLost && FileFacts.ReadingsMissingSinceFault)
+                    return Lexicon.Get("logging.capture.dropped.tail_uncertain_earlier");
+                if (NothingBeforeTheFaultWasLost && !FileFacts.ReadingsMissingSinceFault && FileFacts.AnyReadingsWritten)
+                    return Lexicon.Get("logging.capture.dropped.tail_uncertain_earlier_readings_kept");
+                return Lexicon.Get("logging.capture.dropped.tail_uncertain_earlier_unqualified");
+            }
+        }
 
         /// <summary>The Copy path button.</summary>
         public string CopyButtonLabel => Lexicon.Get("logging.capture.dropped.copy_button");
