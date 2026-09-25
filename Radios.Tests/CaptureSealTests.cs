@@ -171,7 +171,7 @@ namespace Radios.Tests
         /// <summary>The body of the one method that takes the seal.</summary>
         internal static string SealMethodBody(string flexBaseSource)
         {
-            int at = flexBaseSource.IndexOf("private void sealIfOurConnectionDropped(Radio r)", StringComparison.Ordinal);
+            int at = flexBaseSource.IndexOf("private void sealIfOurConnectionDropped(Radio r, JJTrace.TraceSessionHandle fall)", StringComparison.Ordinal);
             Assert.True(at > 0, "sealIfOurConnectionDropped is gone");
             int end = flexBaseSource.IndexOf("private void wireRadioPropertyHandler(", at, StringComparison.Ordinal);
             Assert.True(end > at, "the member after sealIfOurConnectionDropped moved");

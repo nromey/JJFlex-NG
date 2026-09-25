@@ -829,7 +829,7 @@ namespace Radios.Tests
                 calls++;
             Assert.Equal(1, calls);
 
-            int method = source.IndexOf("private void sealIfOurConnectionDropped(Radio r)", StringComparison.Ordinal);
+            int method = source.IndexOf("private void sealIfOurConnectionDropped(Radio r, JJTrace.TraceSessionHandle fall)", StringComparison.Ordinal);
             Assert.True(method > 0, "the fall's seal method is gone");
             int seal = source.IndexOf("CaptureSeal.AfterConnectionDrop(", StringComparison.Ordinal);
             int methodEnd = source.IndexOf("private void wireRadioPropertyHandler(", method, StringComparison.Ordinal);
@@ -847,7 +847,7 @@ namespace Radios.Tests
             Assert.True(connectedMethod > 0, "the Connected handler moved");
             string connectedBody = source.Substring(connectedMethod,
                 source.IndexOf("private void radioPropertyChangedHandler(", connectedMethod, StringComparison.Ordinal) - connectedMethod);
-            Assert.Contains("if (!nowConnected) sealIfOurConnectionDropped(r);", connectedBody, StringComparison.Ordinal);
+            Assert.Contains("if (!nowConnected) sealIfOurConnectionDropped(r, fall);", connectedBody, StringComparison.Ordinal);
 
             // And the removal handler's drop arm is bookkeeping: no seal there.
             int handler = source.IndexOf("private void apiRadioRemovedHandler(Radio r)", StringComparison.Ordinal);
@@ -1058,6 +1058,194 @@ namespace Radios.Tests
                 TraceCoordinator.ArchiveRootDir = savedRoot;
                 Tracing.TheSwitch.Level = savedLevel;
                 Tracing.On = savedOn;
+                Release(rig);
+                try { Directory.Delete(dir, recursive: true); } catch { }
+            }
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        //  One fall, one session (Track H8)
+        // ────────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// <b>A Stop completes between the fall's first line and its later
+        /// ones, and the fall keeps one identity.</b> Sol's review of H7 (the
+        /// item for a harder reader): each deferred line read the published
+        /// handle for itself, and the seal read it once more, so a Stop
+        /// finishing in the gap bound the first line to the old session and
+        /// the rest — and the seal — to the successor. The real callback is
+        /// held on a probe after its FIRST deferred line, a Stop is run to
+        /// completion on this thread, and the callback is released. Every
+        /// later line and the seal request name the OLD session: the seal is
+        /// refused NotCurrent, and the successor carries the fall's later
+        /// lines only as refusal records, never bare.
+        ///
+        /// <para>Positive controls: the Stop really completed in the gap (the
+        /// published handle is the successor before the release); the first
+        /// line, queued before the Stop, is in the OLD session's archive; and
+        /// a line bound to the successor by hand lands in it bare — so the
+        /// instrument tells bound-to-old from bound-to-current.</para>
+        /// </summary>
+        [Fact]
+        public void A_Stop_between_the_falls_first_line_and_its_seal_does_not_split_the_fall()
+        {
+            string dir = Path.Combine(Path.GetTempPath(), "jjflex-h8-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            string livePath = Path.Combine(dir, "JJFlexRadioTrace.txt");
+            string savedRoot = TraceCoordinator.ArchiveRootDir;
+            bool savedOn = Tracing.On;
+            TraceLevel savedLevel = Tracing.TheSwitch.Level;
+
+            var queued = new List<Action>();
+            var atFirstLine = new ManualResetEventSlim(false);
+            var release = new ManualResetEventSlim(false);
+            int probeHits = 0;
+            TraceSessionHandle sealExpected = null;
+            TraceTransitionResult sealResult = null;
+            Thread fall = null;
+
+            var rig = NewRig();
+            var radio = NewWanRadio(UniqueSerial(), "Don's 6300");
+            try
+            {
+                TraceTransitionResult stop = null;
+                TraceSessionHandle old;
+                try
+                {
+                    typeof(TraceCoordinator)
+                        .GetMethod("RestoreSessionForTests", BindingFlags.NonPublic | BindingFlags.Static)!
+                        .Invoke(null, new object[] { null });
+                    TraceCoordinator.ArchiveRootDir = Path.Combine(dir, "Traces");
+                    TraceCoordinator.SetStandingIntent(true, TraceLevel.Verbose);
+                    Tracing.TheSwitch.Level = TraceLevel.Verbose;
+                    Tracing.On = true;
+                    Tracing.ResetDeferredCountersForTests();
+                    TraceTransitionResult began = TraceCoordinator.Begin(livePath, TraceLevel.Verbose, asDetailedCapture: false);
+                    Assert.Equal(TraceTransition.Accepted, began.Status);
+                    old = began.Successor;
+
+                    CaptureSeal.SealHook = req =>
+                    {
+                        Interlocked.Increment(ref _seals);
+                        sealExpected = (TraceSessionHandle)req.ExpectedSession;
+                        sealResult = TraceCoordinator.TrySeal(new TraceSealRequest
+                        {
+                            Expected = sealExpected,
+                            OperationId = req.DropOperationId,
+                            Outcome = TraceSessionOutcome.ConnectionDropped,
+                            OutcomeDetail = req.OutcomeDetail,
+                            Resume = TraceResumeIntent.Standing,
+                        });
+                        return new CaptureSealResult { Refused = !sealResult.Owned };
+                    };
+                    CaptureSeal.Queue = work => { lock (queued) queued.Add(work); };
+
+                    rig.theRadio = radio;
+                    WireAsConnectDoes(rig, radio);
+                    MarkLive(radio, rig);
+
+                    // Hold the real callback after its first deferred line.
+                    Tracing.DeferredLineProbeForTests = text =>
+                    {
+                        if (!text.Contains("propertyChanged:Radio:Connected", StringComparison.Ordinal)) return;
+                        if (Interlocked.Increment(ref probeHits) != 1) return;
+                        atFirstLine.Set();
+                        release.Wait(TimeSpan.FromSeconds(30));
+                    };
+                    fall = new Thread(() => LoseTheTransport(radio)) { IsBackground = true };
+                    fall.Start();
+                    Assert.True(atFirstLine.Wait(TimeSpan.FromSeconds(10)), "the fall never wrote its first line");
+
+                    // The Stop, run to completion in the gap.
+                    stop = TraceCoordinator.TrySeal(new TraceSealRequest
+                    {
+                        Expected = old, OperationId = Guid.NewGuid(),
+                        Outcome = TraceSessionOutcome.CleanExit, Resume = TraceResumeIntent.Standing,
+                    });
+                    Assert.Equal(TraceTransition.Accepted, stop.Status);
+                    Assert.NotNull(stop.Successor);
+                    // Positive control: the world really moved under the fall.
+                    Assert.Equal(stop.Successor.SessionId, TraceCoordinator.CurrentHandle.SessionId);
+                }
+                finally
+                {
+                    release.Set();
+                    Tracing.DeferredLineProbeForTests = null;
+                    fall?.Join(TimeSpan.FromSeconds(10));
+                    typeof(Tracing).GetField("lastSlowMarkerStamp", BindingFlags.NonPublic | BindingFlags.Static)
+                        ?.SetValue(null, 0L);
+                }
+                Assert.False(fall.IsAlive, "the fall thread did not return");
+                AssertTheRigSawTheFall(rig);
+                lock (queued) Assert.Single(queued);
+
+                // The seal: it names the session the fall began under, and is
+                // refused because that session is gone. Nothing seals the
+                // successor as dropped — it was not recording when the
+                // connection fell.
+                Action work;
+                lock (queued) work = queued[0];
+                work();
+                Assert.Equal(1, Volatile.Read(ref _seals));
+                Assert.NotNull(sealExpected);
+                Assert.Equal(old.SessionId, sealExpected.SessionId);
+                Assert.Equal(TraceTransition.NotCurrent, sealResult.Status);
+                Assert.Equal(stop.Successor.SessionId, TraceCoordinator.CurrentHandle.SessionId);
+
+                // The fall's later lines were bound to the OLD session and
+                // refused into the successor as refusal records — never bare.
+                Tracing.FlushDeferred();
+                Assert.True(Tracing.DeferredLinesRefused >= 2,
+                    "expected the fall's later lines to be refused as bound to the old session; refused=" + Tracing.DeferredLinesRefused);
+                string successorText;
+                using (var fs = new FileStream(livePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                using (var sr = new StreamReader(fs)) successorText = sr.ReadToEnd();
+                Assert.Contains("TraceDeferred: REFUSED", successorText, StringComparison.Ordinal);
+                Assert.Contains("our connection dropped without us asking", successorText, StringComparison.Ordinal);
+                foreach (string line in successorText.Split('\n'))
+                {
+                    if (!line.Contains("Connected:False", StringComparison.Ordinal)
+                        && !line.Contains("connection fell", StringComparison.Ordinal)
+                        && !line.Contains("propertyChanged:Radio:Connected", StringComparison.Ordinal)) continue;
+                    Assert.Contains("TraceDeferred: REFUSED", line, StringComparison.Ordinal);
+                }
+
+                // The first line, queued before the Stop, went where it
+                // belonged: the old session's archive.
+                Assert.True(stop.Ticket.Completion.Wait(TimeSpan.FromSeconds(60)));
+                Assert.True(stop.Ticket.Completion.Result.ArchiveCommitted);
+                string oldText = File.ReadAllText(SessionArchive.ExtractTraceText(
+                    stop.Ticket.Completion.Result.ArchiveFullPath, Path.Combine(dir, "extract")));
+                Assert.Contains("propertyChanged:Radio:Connected", oldText, StringComparison.Ordinal);
+                Assert.DoesNotContain("TraceDeferred: REFUSED", oldText, StringComparison.Ordinal);
+
+                // Positive control for the instrument: a line bound to the
+                // successor lands in it bare.
+                Tracing.TraceLineDeferred("H8 control: bound to the successor", TraceLevel.Warning, stop.Successor);
+                Tracing.FlushDeferred();
+                using (var fs = new FileStream(livePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                using (var sr = new StreamReader(fs)) successorText = sr.ReadToEnd();
+                string control = successorText.Split('\n').Single(l => l.Contains("H8 control", StringComparison.Ordinal));
+                Assert.DoesNotContain("REFUSED", control, StringComparison.Ordinal);
+            }
+            finally
+            {
+                if (TraceCoordinator.CurrentHandle != null)
+                {
+                    TraceCoordinator.TrySeal(new TraceSealRequest
+                    {
+                        ShutdownAuthority = true,
+                        Outcome = TraceSessionOutcome.CleanExit,
+                        Resume = TraceResumeIntent.None,
+                        OperationId = Guid.NewGuid(),
+                    });
+                }
+                TraceCoordinator.DrainArchives(TimeSpan.FromSeconds(20));
+                TraceCoordinator.ArchiveRootDir = savedRoot;
+                TraceCoordinator.SetStandingIntent(true, TraceLevel.Info);
+                Tracing.TheSwitch.Level = savedLevel;
+                Tracing.On = savedOn;
+                Tracing.ResetDeferredCountersForTests();
                 Release(rig);
                 try { Directory.Delete(dir, recursive: true); } catch { }
             }

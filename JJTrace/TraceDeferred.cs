@@ -139,18 +139,50 @@ namespace JJTrace
         /// </summary>
         public static void TraceLineDeferred(string str, TraceLevel lvl)
         {
+            TraceSessionHandle bound;
+            try { bound = TraceCoordinator.CurrentHandle; }
+            catch { return; }
+            TraceLineDeferred(str, lvl, bound);
+        }
+
+        /// <summary>
+        /// The same, bound to a handle the CALLER read — so every line one
+        /// event writes can be bound to the one session that event is about.
+        ///
+        /// <para>The two-argument form reads the published handle per call.
+        /// A real fall emits several lines from several methods, and the seal
+        /// request reads the handle once more, so a Stop completing between
+        /// any two of those reads bound the fall's first line to one session
+        /// and its later lines and its seal to the next: one fall, two
+        /// identities (Sol's review of H7, the item for a harder reader).
+        /// The fall now reads the handle ONCE, at its top, and passes it here
+        /// and to the seal. Null binds nothing — the line lands wherever is
+        /// current at the drain — which is what the per-call read did when
+        /// nothing was recording, and is the right answer for a fall that
+        /// began with nothing recording.</para>
+        /// </summary>
+        public static void TraceLineDeferred(string str, TraceLevel lvl, TraceSessionHandle boundTo)
+        {
             if (!On) return;
             if (TheSwitch.Level < lvl) return;
             try
             {
-                TraceSessionHandle bound = TraceCoordinator.CurrentHandle;
-                Enqueue(new DeferredTraceLine(bound?.SessionId ?? Guid.Empty, TracePrefix() + str, newLine: true));
+                Enqueue(new DeferredTraceLine(boundTo?.SessionId ?? Guid.Empty, TracePrefix() + str, newLine: true));
+                DeferredLineProbeForTests?.Invoke(str);
             }
             catch
             {
                 // A trace line must never be the thing that fails a teardown.
             }
         }
+
+        /// <summary>
+        /// Tests only: called with the raw text after each deferred line is
+        /// queued, on the queuing thread, so a test can hold a real callback
+        /// between its first line and its later ones and complete a
+        /// transition in the gap. Null in production.
+        /// </summary>
+        internal static Action<string> DeferredLineProbeForTests;
 
         /// <summary>
         /// Queue an ordinary write that found a transition holding the gate.

@@ -850,7 +850,11 @@ namespace Radios
         /// the same object is in that state. That needs a change inside FlexLib
         /// and is not made here.</para>
         /// </summary>
-        private void sealIfOurConnectionDropped(Radio r)
+        /// <param name="r">The Radio whose <c>Connected</c> fell.</param>
+        /// <param name="fall">The session read ONCE at the top of the fall, or
+        /// null when nothing was recording then. Every line here and the seal
+        /// are bound to it. See onRadioConnectedChanged.</param>
+        private void sealIfOurConnectionDropped(Radio r, JJTrace.TraceSessionHandle fall)
         {
             if (r == null) return;
             var kind = ClassifyRadioRemoval(
@@ -862,7 +866,7 @@ namespace Radios
 
             // Deferred, all of them: this is FlexLib's transport thread, and
             // nothing on it may wait on the trace gate before the claim. See
-            // onRadioConnectedChanged.
+            // onRadioConnectedChanged. And bound to the fall's one handle.
             if (!ConnectionFallSealsTheCapture(kind, firmwareSent, updating))
             {
                 bool firmwareRestart = RemovalSealsTheCapture(kind);
@@ -873,7 +877,7 @@ namespace Radios
                     $"connection fell: {r.Serial} ({r.Nickname}) — {kind}"
                     + (firmwareRestart ? ", the radio restarting for the firmware update we sent (FlexLib reports it updating)" : "")
                     + "; not a drop, nothing sealed",
-                    TraceLevel.Info);
+                    TraceLevel.Info, fall);
                 return;
             }
 
@@ -885,12 +889,12 @@ namespace Radios
                 Tracing.TraceLineDeferred(
                     $"connection fell: {r.Serial} — a firmware image was sent on this connection, but FlexLib"
                     + " reports no update in progress, so this is a drop, not a restart",
-                    TraceLevel.Warning);
+                    TraceLevel.Warning, fall);
             }
 
             Tracing.TraceLineDeferred(
                 $"connection fell: {r.Serial} ({r.Nickname}) — our connection dropped without us asking; sealing the capture",
-                TraceLevel.Warning);
+                TraceLevel.Warning, fall);
 
             // Returns at once; the zip happens off this thread, which is
             // FlexLib's own transport thread in the middle of a teardown.
@@ -902,9 +906,15 @@ namespace Radios
             // the closure, which AfterConnectionDrop calls only after winning
             // the claim; the line then travels as data into the trace boundary
             // and is written to the accepted session or to nothing at all.
+            //
+            // The fall's one handle goes with it, so the seal names the session
+            // the fall's lines were bound to — the four-argument overload,
+            // which never reads the handle again; null means nothing was
+            // recording when the fall began, and nothing is sealed.
             CaptureSeal.AfterConnectionDrop(
                 r, r.Nickname ?? "",
-                () => collectCaptureMeterFlush(CaptureMeterSet.PartialConnectionDropped));
+                () => collectCaptureMeterFlush(CaptureMeterSet.PartialConnectionDropped),
+                fall);
         }
 
         /// <summary>
@@ -7966,9 +7976,21 @@ namespace Radios
         {
             // Read once: every use below must describe the same transition.
             bool nowConnected = r.Connected;
+
+            // AND THE SESSION IS READ ONCE TOO, here, at the top of the fall
+            // (Sprint 45 Track H8; Sol's review of H7, the item for a harder
+            // reader). Every deferred line this fall writes — here, in
+            // sealIfOurConnectionDropped, and inside CaptureSeal — and the
+            // seal request itself are bound to THIS handle. Read per line, as
+            // they were, a Stop completing between two lines bound the first
+            // to the old session and the rest, and the seal, to its
+            // successor: one fall with two identities. Null when nothing is
+            // recording, which binds nothing and seals nothing; a session
+            // that opens during the fall is not this fall's.
+            JJTrace.TraceSessionHandle fall = nowConnected ? null : JJTrace.TraceCoordinator.CurrentHandle;
             Action<string, TraceLevel> trace = nowConnected
                 ? (Action<string, TraceLevel>)Tracing.TraceLine
-                : Tracing.TraceLineDeferred;
+                : (s, l) => Tracing.TraceLineDeferred(s, l, fall);
 
             trace("propertyChanged:Radio:Connected", TraceLevel.Verbose);
             if (!(r.ClientHandle != 0) & myClient(r.ClientHandle))
@@ -8006,7 +8028,7 @@ namespace Radios
             _IsConnected = nowConnected;
             // The seal is taken BEFORE ConnectionStateChanged, so a subscriber
             // that throws cannot cost the evidence.
-            if (!nowConnected) sealIfOurConnectionDropped(r);
+            if (!nowConnected) sealIfOurConnectionDropped(r, fall);
             ConnectionStateChanged?.Invoke(nowConnected);
 #if zero
             bool justReconnected = false;

@@ -235,14 +235,42 @@ namespace Radios
             // One immutable read, on this thread. A handle, not a pointer into
             // anything the worker could find changed.
             //
-            // AND NOTHING ON THIS THREAD WAITS ON THE TRACE GATE (Sol's review
-            // of H3, finding 1). CurrentHandle is a published snapshot read
+            // NOTHING ON THIS THREAD WAITS ON THE TRACE GATE (Sol's review of
+            // H3, finding 1). CurrentHandle is a published snapshot read
             // without the gate, and every line this method writes is DEFERRED:
             // an ordinary TraceLine passes the same gate that is held across a
             // transition's flush, close, move and successor open, so one line
             // here would have made FlexLib's transport thread wait out a
             // stalled disk — and made the claim below wait with it.
-            TraceSessionHandle expected = TraceCoordinator.CurrentHandle;
+            AfterConnectionDrop(dropToken, radioName, collectPartialMeterLine, TraceCoordinator.CurrentHandle);
+        }
+
+        /// <summary>
+        /// The same, for a caller that read the session at the top of ITS
+        /// fall and wants this seal, and every line this writes, bound to
+        /// that one handle. Null means the caller read it and nothing was
+        /// recording: this then seals nothing, and does not read again.
+        ///
+        /// <para><b>One read per fall</b> (Sol's review of H7, the item for a
+        /// harder reader). The fall's handler, its seal method and this method
+        /// each read the published handle for their own lines, and this
+        /// method read it once more for the seal, so a Stop completing between
+        /// any two of those reads split one fall across two sessions: its
+        /// first line bound to the old one, its later lines and its seal to
+        /// the successor. The handler now reads once and passes the handle
+        /// down; everything the fall writes and the session it seals are one
+        /// identity. The consequence in that race is the existing NotCurrent
+        /// refusal rather than a successor sealed as dropped — the same rule
+        /// H7 gave the lines, applied to the seal they belong to.</para>
+        /// </summary>
+        /// <param name="fallSession">The handle the caller read at the top of
+        /// the fall, or null for nothing recording then.</param>
+        public static void AfterConnectionDrop(object dropToken,
+                                               string radioName,
+                                               Func<string> collectPartialMeterLine,
+                                               TraceSessionHandle fallSession)
+        {
+            TraceSessionHandle expected = fallSession;
             if (expected == null)
             {
                 // Not a defect and not silence: nothing was being recorded, so
@@ -251,7 +279,7 @@ namespace Radios
                 // afterwards, and "logging was off" is one of the answers.
                 Tracing.TraceLineDeferred(
                     "CaptureSeal: the radio's connection dropped but nothing was recording — no session to seal",
-                    TraceLevel.Warning);
+                    TraceLevel.Warning, null);
                 return;
             }
 
@@ -267,7 +295,7 @@ namespace Radios
                 Tracing.TraceLineDeferred(
                     "CaptureSeal: the radio's connection dropped but no seal hook is installed — "
                     + "the session will be archived as an ordinary one (wiring defect)",
-                    TraceLevel.Warning);
+                    TraceLevel.Warning, expected);
                 return;
             }
 
@@ -279,7 +307,7 @@ namespace Radios
                 Tracing.TraceLineDeferred(
                     "CaptureSeal: this connection's loss was already claimed — not sealing again, "
                     + "and no partial meter line was written",
-                    TraceLevel.Info);
+                    TraceLevel.Info, expected);
                 return;
             }
 
@@ -294,7 +322,7 @@ namespace Radios
                 // The drop path must survive anything. A radio has just died; an
                 // exception here would take the seal with it.
                 Tracing.TraceLineDeferred("CaptureSeal: collecting the partial meter window failed: " + ex.Message,
-                                          TraceLevel.Warning);
+                                          TraceLevel.Warning, expected);
             }
 
             var request = new CaptureSealRequest
