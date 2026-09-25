@@ -300,6 +300,54 @@ namespace JJTrace
         private static readonly Dictionary<Guid, TraceArchiveTicket> _ticketsBySession =
             new Dictionary<Guid, TraceArchiveTicket>();
 
+        // ── Retained evidence: a seal whose bytes could not be moved aside ──
+        //
+        // A seal that fails at the detach leaves the sealed file at the live
+        // path — the only copy — and returns Failed. Until Track H9 nothing
+        // remembered that: the operator's prescribed off-and-on after a sink
+        // fault called Begin, Begin found no session and nothing recording,
+        // and OpenSessionLocked opened the live path with FileMode.Create,
+        // truncating the evidence the seal had just refused to delete (Sol's
+        // review of H8, blocker 1). The checkpoint path knew better — it
+        // reopens with append and says why — but a seal is not a checkpoint:
+        // the session is over, and a new one must not be appended onto it.
+        //
+        // So the seal records what it could not move, keyed by the path it
+        // left it at; the ONE place a sink opens refuses to open over such a
+        // path; and Begin — the operator's deliberate retry — first tries the
+        // move again, with everything the seal had frozen, so a detach that
+        // was only transiently blocked becomes an ordinary ticket after all.
+        // A retry that fails again refuses the open and says why, and the
+        // file stays where it is. Never open over retained evidence.
+
+        /// <summary>Everything a seal froze about a session whose bytes are
+        /// still at the path they were written to, so the move can be tried
+        /// again later and produce the ticket the seal could not.</summary>
+        private sealed class RetainedSeal
+        {
+            public TraceSession Session;
+            public string SourcePath;
+            public bool HadParts;
+            public int FinalPart;
+            public TraceSessionEntry Entry;
+            public string FileTag;
+            public bool TailUncertain;
+            public string SinkFault;
+            public string MoveFailure;
+        }
+
+        private static readonly Dictionary<string, RetainedSeal> _retainedAtPath =
+            new Dictionary<string, RetainedSeal>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Tests only: the paths at which a failed detach left a sealed
+        /// session's bytes, and that no open may truncate.
+        /// </summary>
+        internal static IReadOnlyCollection<string> RetainedEvidencePathsForTests
+        {
+            get { lock (_gate) { return new List<string>(_retainedAtPath.Keys); } }
+        }
+
         /// <summary>The id both exit hooks share, so the second one gets the
         /// first one's ticket rather than sealing again.</summary>
         internal static readonly Guid ShutdownOperationId =
@@ -646,6 +694,64 @@ namespace JJTrace
                    || retiredResult.Status == TraceTransition.Failed;
         }
 
+        /// <summary>
+        /// Caller holds the gate and is a transition. If a failed detach left
+        /// a sealed session's bytes at <paramref name="livePath"/>, try the
+        /// move again with everything that seal froze. On success the session
+        /// gets the ticket its seal could not make — pending record, session
+        /// index, the lot — and <paramref name="queued"/> carries it for the
+        /// caller to publish and queue OUTSIDE the gate, as every seal does.
+        /// On failure the file stays exactly where it is, the fault says so,
+        /// and the open that follows refuses (see <see cref="OpenSessionLocked"/>).
+        /// Nothing to reclaim is not a failure.
+        /// </summary>
+        private static bool ReclaimRetainedLocked(string livePath, List<string> faults,
+                                                  out TraceArchiveTicket queued)
+        {
+            queued = null;
+            if (string.IsNullOrEmpty(livePath)
+                || !_retainedAtPath.TryGetValue(livePath, out RetainedSeal r)) return false;
+
+            // The same target the seal wanted; the naming is collision-safe,
+            // so a name taken since is simply skipped, never overwritten.
+            string target = r.HadParts
+                ? TraceFileNaming.StampedPartPath(_livePath, r.Session.BootTimeUtc, r.FinalPart)
+                : TraceFileNaming.StampedPath(_livePath, r.Session.BootTimeUtc);
+            string detached = TraceFileNaming.Detach(r.SourcePath, target, deleteOnFailure: false,
+                                                     out string moveFailure);
+            Probe("reclaim:detached");
+            if (detached == null)
+            {
+                r.MoveFailure = moveFailure;
+                faults.Add("TraceCoordinator: the raw trace of session " + r.Session.SessionId
+                           + " is still at " + r.SourcePath + " and still could not be moved aside ("
+                           + moveFailure + "); it is retained where it is, and nothing will open over it");
+                return false;
+            }
+
+            _retainedAtPath.Remove(livePath);
+            var ticket = new TraceArchiveTicket
+            {
+                SessionId = r.Session.SessionId,
+                PartNumber = r.HadParts ? r.FinalPart : 0,
+                IsFinalPart = r.HadParts,
+                SourcePath = detached,
+                ArchiveRootDir = ArchiveRootDir,
+                Entry = r.Entry,
+                OutcomeFileTag = r.FileTag,
+                StampLocal = r.Session.BootTimeUtc.ToLocalTime(),
+                TailUncertain = r.TailUncertain,
+                SinkFault = r.SinkFault,
+            };
+            NotePendingRecord(ticket, faults);
+            _ticketsBySession[ticket.SessionId] = ticket;
+            faults.Add("TraceCoordinator: the raw trace of session " + r.Session.SessionId
+                       + " that an earlier seal could not move (" + r.MoveFailure + ") has now been detached to "
+                       + detached + " and queued for archiving");
+            queued = ticket;
+            return true;
+        }
+
         // ── Draining deferred lines ────────────────────────────────────────
 
         /// <summary>
@@ -826,6 +932,7 @@ namespace JJTrace
             var faults = new List<string>();
             TraceTransitionResult result;
             TraceArchiveTicket retired = null;
+            TraceArchiveTicket reclaimed = null;
             lock (_gate)
             {
                 BeginTransitionLocked();
@@ -841,6 +948,13 @@ namespace JJTrace
                     else
                     {
                         RetireFaultedLocked(faults, out retired);
+                        // The operator's retry is also the retry of a detach
+                        // that failed: a session whose bytes are still at
+                        // this path gets its move tried again, and its ticket
+                        // if the move succeeds, BEFORE anything opens. If it
+                        // fails again the open below refuses rather than
+                        // truncates.
+                        ReclaimRetainedLocked(livePath, faults, out reclaimed);
                         if (_session != null || (_sink != null && !_sink.IsClosed))
                         {
                             // The real sink state, not a constant: a refusal that
@@ -863,6 +977,7 @@ namespace JJTrace
                         }
                     }
                     result.SinkGeneration = _sinkGeneration;
+                    result.Reclaimed = reclaimed;
                 }
                 finally { EndTransitionLocked(); }
             }
@@ -871,6 +986,15 @@ namespace JJTrace
             {
                 TraceRecordingHealth.NoteDetached(retired);
                 TraceArchiveWorker.Queue(retired);
+            }
+            if (reclaimed != null)
+            {
+                // Same order as every seal: the health model first, then the
+                // queue. This ticket is what the failed seal would have
+                // produced; it is a whole session's evidence and its tail is
+                // whatever the seal recorded.
+                TraceRecordingHealth.NoteDetached(reclaimed);
+                TraceArchiveWorker.Queue(reclaimed);
             }
             if (result.Status != TraceTransition.ShuttingDown
                 && result.Status != TraceTransition.AlreadyRecording)
@@ -901,8 +1025,12 @@ namespace JJTrace
                 }
                 else if (result.RestartFailed || result.Status == TraceTransition.Failed)
                 {
+                    // The path, when the result names one: an open refused
+                    // over retained evidence names the file it refused, and
+                    // the operator's entry should say which file that is.
                     TraceRecordingHealth.NoteSink(TraceSinkState.Failed,
-                        result.SinkFault ?? result.Explanation, null, Guid.Empty, result.SinkGeneration);
+                        result.SinkFault ?? result.Explanation, result.RetainedSourcePath,
+                        Guid.Empty, result.SinkGeneration);
                 }
                 else if (result.Status == TraceTransition.Accepted)
                 {
@@ -996,6 +1124,7 @@ namespace JJTrace
             {
                 _ticketsByOperation.Clear();
                 _ticketsBySession.Clear();
+                _retainedAtPath.Clear();
                 _captureId = Guid.Empty;
                 _captureSessionId = Guid.Empty;
                 _captureStartedLocal = null;
@@ -1029,6 +1158,34 @@ namespace JJTrace
                                                                string firstLine = null)
         {
             var result = new TraceTransitionResult();
+
+            // NEVER OPEN OVER RETAINED EVIDENCE. A non-append open here is a
+            // FileMode.Create, and if a failed detach left a sealed session's
+            // only bytes at this path, that create would truncate them in the
+            // course of starting a fresh log (Sol's review of H8, blocker 1).
+            // Guarded at the one place a sink opens rather than at each
+            // caller, so no caller can bypass it; Begin, the operator's
+            // retry, tries the move again BEFORE coming here (see
+            // ReclaimRetainedLocked). An append is the checkpoint's own
+            // continuation of a live session and is not a create.
+            if (!append && _retainedAtPath.TryGetValue(livePath, out RetainedSeal retained))
+            {
+                string reason = "the file still holds the raw trace of session " + retained.Session.SessionId
+                                + ", which could not be moved aside (" + retained.MoveFailure
+                                + "), and nothing was opened over it";
+                faults.Add("TraceCoordinator: refused to open a trace at " + livePath + ": " + reason
+                           + "; turn the log off and on to try the move again");
+                result.Status = TraceTransition.Failed;
+                result.FailedStage = "retained-evidence";
+                result.RetainedSourcePath = livePath;
+                result.SinkFault = reason;
+                result.TracingOn = false;
+                result.Explanation = "TraceCoordinator: nothing opened at " + livePath
+                                     + " because it holds retained evidence of session "
+                                     + retained.Session.SessionId;
+                return result;
+            }
+
             try
             {
                 TraceSession session = continuing ?? new TraceSession();
@@ -1358,9 +1515,25 @@ namespace JJTrace
             {
                 // The raw evidence is still at the live path and it is still the
                 // only copy. Do not reopen there — that would truncate it — and
-                // do not delete it to make room.
+                // do not delete it to make room. REMEMBER it, keyed by the path,
+                // so the one place a sink opens refuses that path and the
+                // operator's retry can try the move again (Sol's review of H8,
+                // blocker 1: without this, the next Begin truncated it).
+                _retainedAtPath[sourcePath] = new RetainedSeal
+                {
+                    Session = sealing,
+                    SourcePath = sourcePath,
+                    HadParts = hadParts,
+                    FinalPart = finalPart,
+                    Entry = entry,
+                    FileTag = fileTag,
+                    TailUncertain = tailUncertain,
+                    SinkFault = sinkFault,
+                    MoveFailure = moveFailure,
+                };
                 faults.Add("TraceCoordinator: could not detach " + sourcePath
-                           + " (" + moveFailure + "); the raw trace is retained where it is and nothing was archived");
+                           + " (" + moveFailure + "); the raw trace is retained where it is and nothing was archived;"
+                           + " nothing will open over it, and the next Begin tries the move again");
                 return new TraceTransitionResult
                 {
                     Status = TraceTransition.Failed,

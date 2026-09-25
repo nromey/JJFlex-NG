@@ -140,6 +140,17 @@ namespace JJTrace
         public string RetainedSourcePath { get; internal set; }
 
         /// <summary>
+        /// The ticket of an EARLIER session whose seal had failed at the
+        /// detach and whose bytes this transition managed to move aside at
+        /// last, or null. Only <see cref="TraceCoordinator.Begin"/> reclaims —
+        /// it is the operator's retry — and it publishes and queues this
+        /// ticket exactly as a seal would its own. A fact of the transition,
+        /// so a caller (or a test) never has to guess whether the retained
+        /// file was taken up or is still sitting where it was.
+        /// </summary>
+        public TraceArchiveTicket Reclaimed { get; internal set; }
+
+        /// <summary>
         /// The session was detached, but its durable pending record could not
         /// be written. Reported as a fact rather than swallowed (Sol's review of
         /// H3, finding 4); <see cref="DeferredFaults"/> says where the raw file

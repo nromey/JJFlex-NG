@@ -2441,5 +2441,177 @@ namespace Radios.Tests
             held.Run();
             Assert.True(snap.Ticket.Completion.Wait(TimeSpan.FromSeconds(60)));
         }
+
+        // ── Track H9: never open over retained evidence ────────────────────
+
+        /// <summary>
+        /// <b>Sol's review of H8, blocker 1.</b> A seal whose detach fails
+        /// leaves the sealed file at the live path as the only copy. The
+        /// operator's prescribed off-and-on then called Begin, which found
+        /// nothing recording and opened that path with FileMode.Create —
+        /// truncating the evidence the seal had refused to delete. Now: the
+        /// seal remembers what it could not move; the open REFUSES that path
+        /// and says why; and the next Begin tries the move again first, so a
+        /// detach that was only transiently blocked becomes the ordinary
+        /// ticket, with the operator's own outcome on it.
+        ///
+        /// <para>The move is blocked the way the checkpoint test blocks it: a
+        /// DIRECTORY at the stamped target. The bytes are compared whole,
+        /// before and after the refused open — a truncating open leaves an
+        /// empty file, which this comparison cannot miss. Mutation control,
+        /// run at H9 and restored: with the guard in OpenSessionLocked taken
+        /// out, both this test and the one below went red at the status
+        /// assertion — the refused open was Accepted, which is the truncating
+        /// open happening.</para>
+        /// </summary>
+        [Fact]
+        public void A_failed_detach_survives_the_off_and_on_retry_and_is_reclaimed_once_the_move_can_succeed()
+        {
+            TraceSessionHandle a = Open();
+            Write("what A managed to write");
+            DateTime bootA = TraceCoordinator.Observe().SessionBootTimeUtc.Value;
+            string aTarget = TraceFileNaming.StampedPath(_livePath, bootA);
+            Directory.CreateDirectory(aTarget);   // the move cannot succeed while this is here
+
+            using var held = new HeldFaultRetire();
+            using var changes = new HealthChanges();
+            BreakTheLiveSink();
+            Write("the write that fails");
+            Assert.True(held.Captured, "the fault was never noticed — the positive control for everything below");
+
+            // OFF: the seal owns A; its terminal records fail; the move fails;
+            // the file stays, and nothing has a ticket for it.
+            TraceTransitionResult off = TraceCoordinator.TrySeal(new TraceSealRequest
+            {
+                Expected = TraceCoordinator.CurrentHandle,
+                OperationId = Guid.NewGuid(),
+                Outcome = TraceSessionOutcome.CleanExit,
+                OutcomeDetail = "User turned diagnostic log off",
+                Resume = TraceResumeIntent.None,
+            });
+            Assert.Equal(TraceTransition.Failed, off.Status);
+            Assert.Equal("detach", off.FailedStage);
+            Assert.Equal(_livePath, off.RetainedSourcePath);
+            Assert.True(off.TailUncertain);
+            Assert.Null(off.Ticket);
+            Assert.Null(TraceCoordinator.CurrentHandle);
+            Assert.Contains(_livePath, TraceCoordinator.RetainedEvidencePathsForTests);
+            string retained = File.ReadAllText(_livePath);
+            Assert.Contains("what A managed to write", retained, StringComparison.Ordinal);
+
+            // ON, with the move still blocked: the open is REFUSED, the
+            // bytes are untouched, and the operator's surface says which
+            // file and why.
+            TraceTransitionResult on1 = TraceCoordinator.Begin(_livePath, TraceLevel.Info, asDetailedCapture: false);
+            Assert.Equal(TraceTransition.Failed, on1.Status);   // was Accepted, over a truncated file
+            Assert.Equal("retained-evidence", on1.FailedStage);
+            Assert.Equal(_livePath, on1.RetainedSourcePath);
+            Assert.False(on1.TracingOn);
+            Assert.Null(on1.Reclaimed);
+            Assert.Null(TraceCoordinator.CurrentHandle);
+            Assert.False(TraceCoordinator.Recording);
+            Assert.Equal(retained, File.ReadAllText(_livePath));   // byte for byte
+            Assert.Contains(a.SessionId.ToString(), on1.SinkFault, StringComparison.Ordinal);
+            Assert.Contains(on1.DeferredFaults, f => f.Contains("still could not be moved aside", StringComparison.Ordinal));
+            TraceRecordingHealthSnapshot refused = TraceRecordingHealth.Snapshot();
+            Assert.Equal(TraceSinkState.Failed, refused.SinkState);
+            Assert.Equal(_livePath, refused.SinkPath);
+            Assert.Contains("moved aside", refused.SinkFault, StringComparison.Ordinal);
+            Assert.Contains(changes.All, c => c.Kind == TraceRecordingHealthChangeKind.SinkFailed);
+
+            // Unblock and ON again: the move succeeds, A gets the ticket its
+            // seal could not make, and B opens fresh beside it.
+            Directory.Delete(aTarget);
+            TraceTransitionResult on2 = TraceCoordinator.Begin(_livePath, TraceLevel.Info, asDetailedCapture: false);
+            Assert.Equal(TraceTransition.Accepted, on2.Status);
+            Assert.True(on2.TracingOn);
+            Assert.NotNull(on2.Reclaimed);
+            Assert.Equal(a.SessionId, on2.Reclaimed.SessionId);
+            Assert.Equal(aTarget, on2.Reclaimed.SourcePath);
+            Assert.True(on2.Reclaimed.TailUncertain);
+            Assert.True(on2.Reclaimed.PendingRecordWritten);
+            Assert.Empty(TraceCoordinator.RetainedEvidencePathsForTests);
+            Assert.Equal(retained, File.ReadAllText(aTarget));   // moved, not copied, not touched
+            TraceSessionHandle b = on2.Successor;
+            Assert.NotEqual(a.SessionId, b.SessionId);
+            Write("a line for the fresh file");
+            Trace.Flush();
+            string fresh = ReadLiveText(_livePath);
+            Assert.Contains("a line for the fresh file", fresh, StringComparison.Ordinal);
+            Assert.DoesNotContain("what A managed to write", fresh, StringComparison.Ordinal);
+            Assert.Equal(TraceSinkState.Recording, TraceRecordingHealth.Snapshot().SinkState);
+            Assert.Equal(b.SessionId, TraceRecordingHealth.Snapshot().LiveSessionId);
+
+            // The reclaimed ticket reached the health model (its tail is
+            // uncertain, so it is a condition) and the worker, and A's
+            // archive carries the OPERATOR's outcome, not a reclaim's.
+            Assert.Contains(changes.All, c => c.Kind == TraceRecordingHealthChangeKind.ConditionRaised
+                                              && c.Condition?.TicketId == on2.Reclaimed.TicketId);
+            Assert.True(on2.Reclaimed.Completion.Wait(TimeSpan.FromSeconds(60)));
+            Assert.True(on2.Reclaimed.Completion.Result.ArchiveCommitted);
+            TraceSessionEntry entry = Manifest().Entries.Single(e => e.SessionId == a.SessionId.ToString());
+            Assert.Equal(TraceSessionOutcome.CleanExit, entry.Outcome);
+            Assert.Equal("User turned diagnostic log off", entry.OutcomeDetail);
+            Assert.Contains("what A managed to write", ReadArchivedText(on2.Reclaimed), StringComparison.Ordinal);
+
+            // The held retirement, running last, finds nothing to retire.
+            held.Run();
+            Assert.Equal(b.SessionId, TraceCoordinator.CurrentHandle.SessionId);
+            Assert.True(TraceCoordinator.Recording);
+        }
+
+        /// <summary>
+        /// The same guard when the pool's retirement — not the operator —
+        /// is what sealed the faulted session and could not move it: the
+        /// operator's off finds nothing to seal, and their on is refused
+        /// rather than truncating. A bundle snapshot over it is NoSession,
+        /// which is the pre-existing limit named in the H9 report.
+        /// </summary>
+        [Fact]
+        public void A_retirement_whose_detach_failed_is_not_truncated_by_the_next_Begin()
+        {
+            TraceSessionHandle a = Open();
+            Write("what A managed to write");
+            string aTarget = TraceFileNaming.StampedPath(_livePath, TraceCoordinator.Observe().SessionBootTimeUtc.Value);
+            Directory.CreateDirectory(aTarget);
+            try
+            {
+                using var held = new HeldFaultRetire();
+                BreakTheLiveSink();
+                Write("the write that fails");
+                held.Run();   // the retirement: seals A as recording_failed, and cannot move it
+                Assert.Null(TraceCoordinator.CurrentHandle);
+                Assert.Contains(_livePath, TraceCoordinator.RetainedEvidencePathsForTests);
+                string retained = File.ReadAllText(_livePath);
+                Assert.Contains("what A managed to write", retained, StringComparison.Ordinal);
+
+                TraceTransitionResult off = TraceCoordinator.TrySeal(new TraceSealRequest
+                {
+                    Expected = a, OperationId = Guid.NewGuid(),
+                    Outcome = TraceSessionOutcome.CleanExit, Resume = TraceResumeIntent.None,
+                });
+                Assert.Equal(TraceTransition.NoSession, off.Status);
+
+                TraceTransitionResult on = TraceCoordinator.Begin(_livePath, TraceLevel.Info, asDetailedCapture: false);
+                Assert.Equal(TraceTransition.Failed, on.Status);
+                Assert.Equal("retained-evidence", on.FailedStage);
+                Assert.Equal(retained, File.ReadAllText(_livePath));
+                Assert.Null(TraceCoordinator.CurrentHandle);
+            }
+            finally
+            {
+                try { Directory.Delete(aTarget); } catch { }
+            }
+
+            // And once the move can succeed, the coordinator's own outcome is
+            // what A's archive carries.
+            TraceTransitionResult on2 = TraceCoordinator.Begin(_livePath, TraceLevel.Info, asDetailedCapture: false);
+            Assert.Equal(TraceTransition.Accepted, on2.Status);
+            Assert.NotNull(on2.Reclaimed);
+            Assert.True(on2.Reclaimed.Completion.Wait(TimeSpan.FromSeconds(60)));
+            Assert.True(on2.Reclaimed.Completion.Result.ArchiveCommitted);
+            Assert.Equal(TraceSessionOutcome.RecordingFailed,
+                Manifest().Entries.Single(e => e.SessionId == a.SessionId.ToString()).Outcome);
+        }
     }
 }
