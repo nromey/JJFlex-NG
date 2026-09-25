@@ -525,36 +525,118 @@ namespace Radios.Tests
         [Fact]
         public void FactJournalCapacity_TheFullestBoundedImageFitsTheDiskAllowance()
         {
-            // The measurement MaxJournalBytes is sized from: every bound at
-            // once. If this fails, a bound grew — change it deliberately.
+            // The measurement MaxJournalBytes is sized from: EVERY bound at
+            // once, in one rendered image — and each bound is asserted full
+            // before anything is measured, because the previous version of
+            // this test filled attempts on one fact in sixteen and no fact's
+            // event history while its comment claimed the worst case (Sol,
+            // M3 review). If this fails, a bound grew: change the bound or
+            // the allowance deliberately, by this measurement, never by guess.
             var kit = new FactKit();
             var transport = new RecordingTransport(kit.Registry, "t", TransportCapability.ReportsCompletion | TransportCapability.ReportsProgress);
             var extras = Enumerable.Range(1, FactStoreCapacity.MaxMaterialUnitsPerFact - 1)
                                    .Select(i => new MaterialDeclaration("m" + i, FactValue.Of(new string('v', 40)))).ToArray();
             string detail = new string('d', FactStoreCapacity.MaxDetailBytes);
+            EpisodeId? heaviest = null;
             for (int f = 0; f < FactStoreCapacity.MaxHistoricalRecords; f++)
             {
                 FactSession session = kit.Session("SERIAL-" + f);
                 SlotPublisher p = kit.NotesSlot(session, "c" + f);
                 PublicationResult opened = FactKit.OnsetNote(p, FactKit.CutKey, detail, extras);
                 Assert.Equal(PublicationOutcome.Accepted, opened.Outcome);
-                if (f % 16 == 0)
+                EpisodeHandle handle = opened.Handle!;
+                heaviest ??= handle.Id;
+
+                // Every event line: the open, then samples up to the bound.
+                long revision = opened.Fact!.Revision;
+                for (int e = 1; e < FactStoreCapacity.MaxEventHistoryPerFact; e++)
                 {
-                    for (int a = 0; a < FactStoreCapacity.MaxAttemptEvidence; a++)
-                    {
-                        AttemptHandle h = kit.Allocate(kit.PlanAutomatic(opened.Handle!.Id), transport.Binding);
-                        AttemptRunner.Run(h, transport.Submit);
-                        h.Report(TransportEvidence.Progress(3, new[] { "core" }));
-                    }
+                    PublicationResult sampled = p.Update(handle, FactKit.Capture(p), FactTransition.Sample(), revision);
+                    Assert.Equal(PublicationOutcome.Accepted, sampled.Outcome);
+                    revision = sampled.Fact!.Revision;
                 }
-                // Release the slot so registration capacity is not what this measures.
+
+                // Every attempt, each terminal with progress and completion
+                // evidence. The first fact also fills the store-wide
+                // tombstones, which the image writes beside its live attempts.
+                int attempts = FactStoreCapacity.MaxAttemptEvidence + (f == 0 ? FactStoreCapacity.MaxAttemptTombstones : 0);
+                for (int a = 0; a < attempts; a++)
+                {
+                    AttemptHandle h = kit.Allocate(kit.PlanAutomatic(handle.Id), transport.Binding);
+                    Assert.Equal(AttemptRunOutcome.Requested, AttemptRunner.Run(h, transport.Submit));
+                    Assert.Equal(EvidenceResult.Recorded, h.Report(TransportEvidence.Progress(3, new[] { "core" })));
+                    Assert.Equal(EvidenceResult.Recorded, h.Report(TransportEvidence.Completed(4)));
+                }
+                // Release the slot so registration capacity is not what this
+                // measures; its continuity entry is written at this moment,
+                // and the table evicts down to its own bound.
                 session.End(FactKit.T0, "measured");
             }
-            Assert.Equal(FactStoreCapacity.MaxHistoricalRecords, kit.Store.All.Count);
-            string json = FactJournalFormat.Render(kit.Store.CaptureImage(), 1);
+
+            // Every issue row, each with every deduplication key and more
+            // exemplars than a row keeps — then more, for the overflow row.
+            for (int i = kit.Store.Issues.Count; i < FactStoreCapacity.MaxIssues; i++)
+                for (int k = 0; k < FactStoreCapacity.MaxIssueDedupeKeys; k++)
+                    kit.Store.NoteIssue(IssueKind.RetentionPressure, "fill-" + i, "source " + i, "a reason", 1, ExtentCertainty.Exact,
+                                        "exemplar " + k, "k" + k);
+            for (int k = 0; k <= FactStoreCapacity.MaxIssueExemplars; k++)
+                kit.Store.NoteIssue(IssueKind.PersistenceFailure, "beyond-" + k, "source", "one too many", 1, ExtentCertainty.Unknown, "x", "k");
+
+            // Every overlay: the reviews of imported records this writer
+            // keeps, each naming every unit of its record. They cannot coexist
+            // with a full set of own records in one store (the record bound is
+            // shared), so they are added to the captured image directly —
+            // this is the image the writer WOULD render, and the parser must
+            // read it whole.
+            StoreImage image = kit.Store.CaptureImage();
+            long[] everyUnit = Enumerable.Range(1, FactStoreCapacity.MaxMaterialUnitsPerFact).Select(i => (long)i).ToArray();
+            for (int o = 0; o < FactStoreCapacity.MaxHistoricalRecords; o++)
+                image.Overlays.Add(new OverlayImage
+                {
+                    Episode = new EpisodeId(Guid.NewGuid(), o + 1),
+                    ContentFingerprint = FactHash.Of("overlay " + o),
+                    Reviewed = everyUnit,
+                });
+
+            // Each bound is FULL before anything is measured.
+            Assert.Equal(FactStoreCapacity.MaxHistoricalRecords, image.Facts.Count);
+            Assert.All(image.Facts, r =>
+            {
+                Assert.Equal(FactStoreCapacity.MaxMaterialUnitsPerFact, r.Materials.Count);
+                Assert.Equal(FactStoreCapacity.MaxEventHistoryPerFact, r.Events.Count);
+                Assert.Equal(FactStoreCapacity.MaxDetailBytes, Encoding.UTF8.GetByteCount(r.Detail));
+                Assert.True(r.Attempts.Count >= FactStoreCapacity.MaxAttemptEvidence);
+                Assert.All(r.Attempts, a => Assert.Equal(3, a.Evidence.Count));
+            });
+            Assert.Equal(FactStoreCapacity.MaxAttemptEvidence + FactStoreCapacity.MaxAttemptTombstones,
+                         image.Facts.Single(r => r.Id == heaviest).Attempts.Count);
+            // The continuity SECTION is bounded by the record bound, not the
+            // table's: the writer derives one entry per own record (the
+            // newest episode for each key) and reads the table only for keys
+            // no own record holds, so a full set of own records on distinct
+            // stations writes one entry each, and the loader evicts back down
+            // to the table's bound with a loss row per drop.
+            Assert.Equal(FactStoreCapacity.MaxHistoricalRecords, image.Continuity.Count);
+            Assert.All(image.Continuity, c => Assert.Equal(FactStoreCapacity.MaxMaterialUnitsPerFact, c.Assertions.Count));
+            Assert.Equal(FactStoreCapacity.MaxIssues + 1, image.Issues.Count);
+            Assert.True(image.Issues.Count(i => i.Seen.Count == FactStoreCapacity.MaxIssueDedupeKeys) >= FactStoreCapacity.MaxIssues - 1);
+            Assert.All(image.Issues, i => Assert.Equal(FactStoreCapacity.MaxIssueExemplars, i.Exemplars.Count));
+            Assert.Contains(image.Issues, i => i.Kind == IssueKind.IssueOverflow && i.ExemplarsOverflowed);
+            Assert.Equal(FactStoreCapacity.MaxHistoricalRecords, image.Overlays.Count);
+
+            string json = FactJournalFormat.Render(image, 1);
             int bytes = Encoding.UTF8.GetByteCount(json);
             Assert.True(bytes < FactStoreCapacity.MaxJournalBytes,
                 "the fullest bounded image is " + bytes + " bytes, over the " + FactStoreCapacity.MaxJournalBytes + " allowance");
+
+            // POSITIVE CONTROL: the fullest image the writer can produce is
+            // one the strict reader takes whole.
+            LoadedSource parsed = FactJournalFormat.Parse(json, "fullest", out List<string> rejected);
+            Assert.Empty(rejected);
+            Assert.Equal(image.Facts.Count, parsed.Facts.Count);
+            Assert.Equal(image.Continuity.Count, parsed.Continuity.Count);
+            Assert.Equal(image.Issues.Count, parsed.Issues.Count);
+            Assert.Equal(image.Overlays.Count, parsed.Overlays.Count);
         }
     }
 }

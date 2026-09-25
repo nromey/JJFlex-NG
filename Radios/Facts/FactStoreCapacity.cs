@@ -107,9 +107,18 @@ namespace Radios.Facts
         /// (Sprint 45 Track M3), after schema 3 gave every material unit its
         /// origin and root assertion references and every continuity entry a
         /// per-assertion evidence summary: 11,041,622 bytes, about 66 percent
-        /// of this 16 MB allowance. The growth is the lineage itself — the
-        /// references a continuation resolves its evidence through — and it
-        /// was measured, not estimated, before this number moved.
+        /// of the 16 MB allowance that then held. <b>Neither of those was the
+        /// fullest image.</b> Sol's review of M3 found the test filled attempts
+        /// on one fact in sixteen and no fact's event history, so both were
+        /// samples. Measured a third time the same day (Sprint 45 Track M4)
+        /// with every bound asserted full first — every record, every unit,
+        /// the longest detail, every event line, every attempt with its
+        /// evidence plus every tombstone, one continuity entry per record with
+        /// every assertion, every issue row with every key and more exemplars
+        /// than it keeps plus the overflow row, and every overlay: 18,160,150
+        /// bytes, over the 16 MB allowance. Hence this 32 MB, about 54 percent
+        /// used. The number moved because the measurement did, not the other
+        /// way round.
         /// </para>
         /// <para>
         /// Hitting it at run time means something is wrong rather than busy,
@@ -117,7 +126,7 @@ namespace Radios.Facts
         /// anything it cannot safely compact.
         /// </para>
         /// </remarks>
-        public const int MaxJournalBytes = 16 * 1024 * 1024;
+        public const int MaxJournalBytes = 32 * 1024 * 1024;
 
         /// <summary>
         /// How many automatic attempts a fact makes in one burst before
