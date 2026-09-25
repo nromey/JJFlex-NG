@@ -517,10 +517,21 @@ namespace Radios
                 // (the worker retries the record before compressing). The
                 // Problems list carries that condition, and clears it when
                 // the archive commits (Sol's review of H7, finding 3).
+                //
+                // WHETHER ANYTHING IS RECORDING IS READ HERE, NOW — not
+                // copied from the seal (Sol's review of H9, blocker 1). The
+                // hook has just waited up to five minutes for the archive,
+                // and the operator may have turned the standing log off in
+                // that time, or the successor's own file may have failed and
+                // retired it. The successor bit says what the seal did; the
+                // coordinator says what is true at the moment the operator
+                // is about to read "what happens next is being kept".
+                bool recordingNow = TraceCoordinator.Observe().Recording;
                 SealedAfterDrop?.Invoke(new CaptureSealNotice(
                     radioName, result.ArchivePath, result.SuccessorOpened, result.ArchivedSessionId,
                     tailUncertain: result.TailUncertain,
-                    sinkFailedBeforeDrop: result.SinkFailedBeforeDrop));
+                    sinkFailedBeforeDrop: result.SinkFailedBeforeDrop,
+                    recordingNow: recordingNow));
             }
             catch (Exception ex)
             {

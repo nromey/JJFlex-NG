@@ -313,12 +313,15 @@ namespace Radios.Tests
             foreach (bool tail in new[] { false, true })
             foreach (bool successor in new[] { false, true })
             foreach (bool diedBefore in new[] { false, true })
+            foreach (bool recordingNow in new[] { false, true })
             {
                 var n = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", successor, Guid.NewGuid(),
-                                              tailUncertain: tail, sinkFailedBeforeDrop: diedBefore);
+                                              tailUncertain: tail, sinkFailedBeforeDrop: diedBefore,
+                                              recordingNow: recordingNow);
                 string text = n.Explanation;
                 _out.WriteLine("--- tail uncertain: " + tail + ", successor opened: " + successor
-                               + ", sink died before the drop: " + diedBefore);
+                               + ", sink died before the drop: " + diedBefore
+                               + ", recording now: " + recordingNow);
                 _out.WriteLine(text);
                 _out.WriteLine(string.Empty);
 
@@ -326,10 +329,16 @@ namespace Radios.Tests
                 Assert.Equal(!tail, text.Contains("including the last readings the radio sent: forward power", StringComparison.Ordinal));
                 Assert.Equal(!tail, text.Contains("It holds everything up to the moment", StringComparison.Ordinal));
                 Assert.Equal(tail, text.Contains("send it anyway", StringComparison.Ordinal));
-                // Recording having restarted is promised only when it did.
-                Assert.Equal(successor, text.Contains("has already started recording again", StringComparison.Ordinal));
-                Assert.Equal(!successor, text.Contains("has not started recording again", StringComparison.Ordinal));
-                Assert.Equal(!successor, text.Contains("Control J then Control R", StringComparison.Ordinal));
+                // What happens next "is being kept" is promised only by the
+                // state NOW (Sol's review of H9, blocker 1); the seal's
+                // successor bit only tells the two not-recording paragraphs
+                // apart.
+                Assert.Equal(recordingNow, text.Contains("has already started recording again", StringComparison.Ordinal));
+                Assert.Equal(recordingNow, text.Contains("is being kept too", StringComparison.Ordinal));
+                Assert.Equal(!recordingNow, text.Contains("what happens next is not being kept", StringComparison.Ordinal));
+                Assert.Equal(!recordingNow && !successor, text.Contains("has not started recording again", StringComparison.Ordinal));
+                Assert.Equal(!recordingNow && successor, text.Contains("did start recording again after the connection went, but it is not recording now", StringComparison.Ordinal));
+                Assert.Equal(!recordingNow, text.Contains("Control J then Control R", StringComparison.Ordinal));
                 // The caveat names the right cause, and only with an uncertain tail.
                 bool atTheClose = tail && !diedBefore;
                 bool earlier = tail && diedBefore;
@@ -351,11 +360,17 @@ namespace Radios.Tests
                 Assert.Contains(@"C:\Traces\one.zip", n.AsText(), StringComparison.Ordinal);
             }
 
-            // The ordinary window is the H7 prose, untouched.
+            // The ordinary window is the H7 prose, untouched — through both
+            // constructors: the six-argument one reads "recording now" as the
+            // successor bit (the H9 meaning), and the seven-argument one is
+            // what production builds.
             var same = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
                                              tailUncertain: false, sinkFailedBeforeDrop: false);
             Assert.Equal(ordinary.Explanation, same.Explanation);
             Assert.Equal(ordinary.AsText(), same.AsText());
+            var built = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
+                                              tailUncertain: false, sinkFailedBeforeDrop: false, recordingNow: true);
+            Assert.Equal(ordinary.Explanation, built.Explanation);
         }
 
         /// <summary>

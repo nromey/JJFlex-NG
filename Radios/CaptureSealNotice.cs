@@ -107,6 +107,31 @@ namespace Radios
         public CaptureSealNotice(string radioName, string archivePath,
                                  bool successorOpened, Guid? archivedSessionId,
                                  bool tailUncertain, bool sinkFailedBeforeDrop)
+            : this(radioName, archivePath, successorOpened, archivedSessionId, tailUncertain,
+                   sinkFailedBeforeDrop, recordingNow: successorOpened)
+        {
+        }
+
+        /// <summary>
+        /// <b>Whether anything is recording is read when the notice is built,
+        /// not when the seal happened</b> (Sol's review of H9, blocker 1).
+        /// The seal's "a successor opened" bit is true the moment the seal
+        /// returns, and the notice is shown up to five minutes later, once
+        /// the archive has committed. In that gap the operator can turn the
+        /// standing log off in Settings, or the successor's own file can
+        /// fail — and "JJ Flexible has already started recording again, so
+        /// the next thing that happens is being kept too" is then false in
+        /// its load-bearing half. So the paragraph that says what is being
+        /// kept NOW is chosen by the coordinator's state NOW, and the seal's
+        /// bit only tells the two not-recording paragraphs apart: nothing
+        /// opened after the seal, or something opened and has since stopped.
+        /// </summary>
+        /// <param name="recordingNow">The coordinator's recording state at the
+        /// moment this notice is composed — a live sink that has not faulted.</param>
+        public CaptureSealNotice(string radioName, string archivePath,
+                                 bool successorOpened, Guid? archivedSessionId,
+                                 bool tailUncertain, bool sinkFailedBeforeDrop,
+                                 bool recordingNow)
         {
             RadioName = (radioName ?? string.Empty).Trim();
             ArchivePath = archivePath ?? string.Empty;
@@ -114,6 +139,7 @@ namespace Radios
             ArchivedSessionId = archivedSessionId;
             TailUncertain = tailUncertain;
             SinkFailedBeforeDrop = tailUncertain && sinkFailedBeforeDrop;
+            RecordingNow = recordingNow;
         }
 
         /// <summary>The radio's nickname, or empty when we never learned one.</summary>
@@ -137,11 +163,20 @@ namespace Radios
         public bool SinkFailedBeforeDrop { get; }
 
         /// <summary>
-        /// Whether a fresh recording really opened after the seal. Chooses
-        /// the what-to-do paragraph: the ordinary one promises recording has
-        /// restarted, and that promise is made only when it is true.
+        /// Whether a fresh recording really opened after the seal. A fact of
+        /// the seal, frozen then. It does NOT choose the "being kept" promise
+        /// — <see cref="RecordingNow"/> does — it only tells the two
+        /// not-recording paragraphs apart.
         /// </summary>
         public bool SuccessorOpened { get; }
+
+        /// <summary>
+        /// Whether something is recording at the moment this notice was
+        /// composed. Chooses the what-to-do paragraph: the ordinary one
+        /// promises that what happens next is being kept, and that promise is
+        /// made only when a live, unfaulted sink exists NOW.
+        /// </summary>
+        public bool RecordingNow { get; }
 
         /// <summary>Which trace session was archived.</summary>
         public Guid? ArchivedSessionId { get; }
@@ -182,14 +217,20 @@ namespace Radios
 
         /// <summary>
         /// What to do with it. The ordinary sentence says JJ Flexible has
-        /// already started recording again; when no successor opened it says
-        /// so instead, and where to read why. DRAFT for the alternative —
-        /// Noel's to rule; in the recording-health wording file.
+        /// already started recording again and what happens next is being
+        /// kept — said only when something is recording NOW. Otherwise one
+        /// of two: nothing opened after the seal, or a fresh log did open and
+        /// has since stopped (the operator turned it off during the archive
+        /// wait, or its file failed); both say where to read why. DRAFTS for
+        /// the alternatives — Noel's to rule; in the recording-health wording
+        /// file.
         /// </summary>
         public string WhatToDo =>
-            SuccessorOpened
+            RecordingNow
                 ? Lexicon.Get("logging.capture.dropped.what_to_do")
-                : Lexicon.Get("logging.capture.dropped.what_to_do_not_recording");
+                : SuccessorOpened
+                    ? Lexicon.Get("logging.capture.dropped.what_to_do_stopped_since")
+                    : Lexicon.Get("logging.capture.dropped.what_to_do_not_recording");
 
         /// <summary>
         /// The extra paragraph when <see cref="TailUncertain"/>: that the
