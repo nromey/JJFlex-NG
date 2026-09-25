@@ -244,6 +244,73 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void EqualPartialKeysDoNotProveTheSameInformation()
+        {
+            // Sol, G5 blocker: the same-information shortcut fired whenever
+            // both key sets were equal and non-empty and the counts agreed —
+            // even with four keys against a count of ten. Two writers that
+            // each keyed the same four losses and each saw six unkeyed ones
+            // merged to ten, Exact, and one writer's review became a review
+            // of both. As many as sixteen distinct losses may have happened.
+            using var dir = new TempFactDir();
+            static void Losses(FactKit kit, int keyed, int unkeyed)
+            {
+                for (int i = 0; i < keyed; i++)
+                    kit.Store.NoteIssue(IssueKind.RetentionPressure, "retention", "facts", "lost", 1, ExtentCertainty.Exact, null, "shared-" + i);
+                for (int i = 0; i < unkeyed; i++)
+                    kit.Store.NoteIssue(IssueKind.RetentionPressure, "retention", "facts", "lost", 1, ExtentCertainty.Exact, null, null);
+            }
+            static void ReviewTheRow(FactKit kit)
+            {
+                using FactListView view = new FactListPresenter(kit.Store).OpenView();
+                ItemSnapshot row = view.Snapshot(FactView.Pending).Items.Single(i => i.Issue?.Kind == IssueKind.RetentionPressure);
+                RenderedDetailSnapshot d = view.RenderDetail(row)!;
+                Assert.True(view.Installed(d));
+                Assert.Equal(ReviewOutcome.Reviewed, view.Review(d.Token));
+            }
+
+            var a = new FactKit();
+            Losses(a, 4, 6);
+            ReviewTheRow(a);                                                         // only A's row was reviewed
+            var b = new FactKit();
+            Losses(b, 4, 6);
+            Assert.False(a.Store.Issues.Single().Unreviewed);
+            Assert.True(b.Store.Issues.Single().Unreviewed);
+            Save(a, dir.Path);
+            Save(b, dir.Path);
+
+            var (merged, _) = Load(dir.Path);
+            StoreIssueSnapshot issue = Assert.Single(merged.Store.Issues, i => i.Kind == IssueKind.RetentionPressure);
+            Assert.True(issue.Count >= 10);
+            Assert.Equal(ExtentCertainty.LowerBound, issue.Extent);                 // ten is all that can be said
+            Assert.True(issue.Unreviewed);                                           // B's ten were never reviewed
+            Assert.Contains(issue, merged.Store.Project(FactView.Pending, null).Items.Select(i => i.Issue).Where(i => i != null)!,
+                            new IssueIdentity());
+
+            // POSITIVE CONTROL: the SAME ten losses, all ten keyed on both
+            // sides, ARE the same information — ten, exact, and A's review
+            // counts for both.
+            using var same = new TempFactDir();
+            var c = new FactKit();
+            Losses(c, 10, 0);
+            ReviewTheRow(c);
+            var d = new FactKit();
+            Losses(d, 10, 0);
+            Save(c, same.Path);
+            Save(d, same.Path);
+            StoreIssueSnapshot ten = Assert.Single(Load(same.Path).Kit.Store.Issues, i => i.Kind == IssueKind.RetentionPressure);
+            Assert.Equal(10, ten.Count);
+            Assert.Equal(ExtentCertainty.Exact, ten.Extent);
+            Assert.False(ten.Unreviewed);
+        }
+
+        private sealed class IssueIdentity : IEqualityComparer<StoreIssueSnapshot?>
+        {
+            public bool Equals(StoreIssueSnapshot? x, StoreIssueSnapshot? y) => x?.Id == y?.Id;
+            public int GetHashCode(StoreIssueSnapshot? obj) => obj?.Id.GetHashCode() ?? 0;
+        }
+
+        [Fact]
         public void IncompatibleSameRootEvidenceIsNotCombined()
         {
             // Sol, G2 blocker 1: the continuity merge took an equal Root as

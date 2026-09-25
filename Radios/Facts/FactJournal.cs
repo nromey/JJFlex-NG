@@ -326,16 +326,14 @@ namespace Radios.Facts
                         // that is happening: it leaves the default view once
                         // read, stays in history, and keeps qualifying every
                         // claim about the saved record.
-                        _store.NoteIssue(IssueKind.MigrationGap, "legacy:" + name, name,
-                            "this history was saved by an older format; its delivery evidence is unverified and incomplete",
-                            source.Facts.Count, ExtentCertainty.Exact, name, "legacy:" + contentHash, IssueState.Limitation);
+                        NoteMigrationGap("legacy:", name, contentHash, source.Facts.Count,
+                            "this history was saved by an older format; its delivery evidence is unverified and incomplete");
                         return new SourceInventoryEntry(name, SourceStatus.Legacy, source.Facts.Count, null);
                     }
                     if (source.DeliveryContinuityUnsupported)
                     {
-                        _store.NoteIssue(IssueKind.MigrationGap, "schema2:" + name, name,
-                            "this history was saved by an earlier build; its records are usable, but a reconnect cannot continue a condition from it",
-                            source.Continuity.Count, ExtentCertainty.Exact, name, "schema2:" + contentHash, IssueState.Limitation);
+                        NoteMigrationGap("schema2:", name, contentHash, source.Continuity.Count,
+                            "this history was saved by an earlier build; its records are usable, but a reconnect cannot continue a condition from it");
                         return new SourceInventoryEntry(name, SourceStatus.Loaded, source.Facts.Count,
                                                         "schema 2: delivery continuity unsupported");
                     }
@@ -403,10 +401,29 @@ namespace Radios.Facts
         {
             if (rejected.Count == 0) return;
             // Record-level salvage: each recovered record passed full
-            // validation, and the remaining gap is explicit.
-            _store.NoteIssue(IssueKind.RecoveryGap, "records:" + name, name,
-                "some saved records failed validation and were not loaded; the file is kept",
-                rejected.Count, ExtentCertainty.Exact, rejected[0], "records:" + name + ":" + FactHash.Of(string.Join("|", rejected)));
+            // validation, and the remaining gap is explicit — one key per
+            // rejected record, so the count is provably what the keys say.
+            for (int i = 0; i < rejected.Count; i++)
+                _store.NoteIssue(IssueKind.RecoveryGap, "records:" + name, name,
+                    "some saved records failed validation and were not loaded; the file is kept",
+                    1, ExtentCertainty.Exact, rejected[i],
+                    "records:" + name + ":" + i.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" + FactHash.Of(rejected[i]));
+        }
+
+        /// <summary>
+        /// Note a migration limitation with one deduplication key per thing it
+        /// counts. A row that counted more than it keyed could never be proved
+        /// the same information as its own saved copy — equal partial keys
+        /// prove nothing — so a review of it was lost at every restart.
+        /// Nothing to count is nothing to be limited by: no row.
+        /// </summary>
+        private void NoteMigrationGap(string prefix, string name, string contentHash, int count, string reason)
+        {
+            for (int i = 0; i < count; i++)
+                _store.NoteIssue(IssueKind.MigrationGap, prefix + name, name, reason, 1, ExtentCertainty.Exact,
+                                 i == 0 ? name : null,
+                                 prefix + contentHash + ":" + i.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                                 IssueState.Limitation);
         }
 
         public void Dispose()

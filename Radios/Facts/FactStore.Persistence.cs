@@ -575,11 +575,15 @@ namespace Radios.Facts
         /// </summary>
         /// <remarks>
         /// <para>
-        /// <b>The same information:</b> equal, non-empty deduplication keys
-        /// and an equal count are one observation described twice. Nothing
-        /// changes, and a review of either copy was a review of it — the
-        /// loader re-noting a migration gap it saved as reviewed must not
-        /// un-review it.
+        /// <b>The same information:</b> complete key evidence on both sides —
+        /// every observation keyed, none overflowed, both exact — and equal
+        /// key sets are one observation described twice. Nothing changes, and
+        /// a review of either copy was a review of it — the loader re-noting a
+        /// migration gap it saved as reviewed must not un-review it. Equal
+        /// PARTIAL keys prove nothing: two writers that each keyed the same
+        /// four of ten losses may have seen sixteen distinct ones between
+        /// them, and a review of one writer's ten was not a review of the
+        /// other's.
         /// </para>
         /// <para>
         /// <b>Complete evidence on both sides:</b> every observation keyed,
@@ -612,8 +616,12 @@ namespace Radios.Facts
 
             bool existingReviewed = existing.ReviewedRevision >= existing.Revision && existing.ReviewedRevision > 0;
             bool incomingReviewed = incoming.ReviewedRevision >= incoming.Revision && incoming.ReviewedRevision > 0;
-            bool sameInformation = existing.Seen.Count > 0 && incoming.Seen.SetEquals(existing.Seen)
-                                   && incoming.Count == existing.Count && !existing.SeenOverflowed && !incoming.SeenOverflowed;
+            bool existingComplete = existing.Extent == ExtentCertainty.Exact && !existing.SeenOverflowed
+                                    && existing.Seen.Count == existing.Count;
+            bool incomingComplete = incoming.Extent == ExtentCertainty.Exact && !incoming.SeenOverflowed
+                                    && incoming.Seen.Count == incoming.Count;
+            bool sameInformation = existingComplete && incomingComplete && existing.Seen.Count > 0
+                                   && incoming.Seen.SetEquals(existing.Seen);
 
             if (sameInformation)
             {
@@ -626,11 +634,6 @@ namespace Radios.Facts
                 foreach (string e in incoming.Exemplars) if (!existing.Exemplars.Contains(e)) AddExemplar(existing, e);
                 return;
             }
-
-            bool existingComplete = existing.Extent == ExtentCertainty.Exact && !existing.SeenOverflowed
-                                    && existing.Seen.Count == existing.Count;
-            bool incomingComplete = incoming.Extent == ExtentCertainty.Exact && !incoming.SeenOverflowed
-                                    && incoming.Seen.Count == incoming.Count;
 
             existing.Seen.UnionWith(incoming.Seen);
             if (incoming.SeenOverflowed) existing.SeenOverflowed = true;
