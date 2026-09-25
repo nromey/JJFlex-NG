@@ -598,15 +598,33 @@ namespace JJTrace
             }
 
             int closedPart = _partNumber;
+            bool moved = false;
             try
             {
                 CloseInternal();
                 File.Move(FilePath, partPath);
-                Open(FilePath, append: false);
+                moved = true;
+
+                // THE MOVED PART IS THE ARCHIVE'S FROM THIS INSTANT, whatever
+                // fails below (Sol's review of H13, both blockers). The hand-off
+                // used to wait until the fresh file had opened and its header
+                // had been written, so a failure in either jumped past it: the
+                // part sat complete at its part path with no ticket and no
+                // pending record, the retirement's seal looked at the empty live
+                // path instead, and the plain-text sweep eventually deleted the
+                // only copy as an orphan. A recovery that DID succeed hid the
+                // same loss while recording carried on. The part number and the
+                // tally move with the part for the same reason: the part is
+                // gone from the live path, and what is open next — if anything
+                // is — starts empty.
                 _partNumber = closedPart + 1;
+                _tally.PartRotated();
+                HandOffClosedPart(partPath, closedPart);
+
+                RotationStepForTests?.Invoke(RotationStepMoved);
+                Open(FilePath, append: false);
                 _nextRotateAt = RotationThresholdBytes;
                 LastRotationError = null;
-                _tally.PartRotated();
 
                 // The breadcrumb that makes a chain of parts readable as one
                 // session. Written directly to the fresh writer (not through
@@ -614,6 +632,7 @@ namespace JJTrace
                 string header = string.Format(
                     "--- trace continues from part {0:D3} ({1}) — this is part {2:D3} ---",
                     closedPart, Path.GetFileName(partPath), _partNumber);
+                RotationStepForTests?.Invoke(RotationStepHeader);
                 _writer.Write(header + Environment.NewLine);
                 _writer.Flush();
                 _bytesInPart = header.Length + Environment.NewLine.Length;
@@ -621,12 +640,31 @@ namespace JJTrace
             catch (Exception ex)
             {
                 LastRotationError = ex.Message;
+
+                // Whatever the failed step left open is closed before anything
+                // is opened over it. A header write or flush that failed after
+                // the fresh open used to leave that stream open while the
+                // recovery's Open overwrote the only reference to it — a leaked
+                // handle on the live path. Closed without publishing: inside a
+                // rotation the drop-window reader sees the end state only.
+                SetClosed(true);
+                try { _writer?.Dispose(); } catch { }
+                try { _stream?.Dispose(); } catch { }
+                _writer = null;
+                _stream = null;
+
                 // Recover: get *some* writable trace file back so the session
-                // keeps tracing. Append to whichever of the two paths exists.
+                // keeps tracing. Once the part has moved it belongs to the
+                // archive worker, which may already be compressing it, so the
+                // live path is the only place to resume: appending to the part
+                // would put lines into a file whose archive has been taken, and
+                // they would be lost with the raw file. Before the move, append
+                // to whichever of the two paths exists, as it always did.
                 try
                 {
-                    Open(File.Exists(FilePath) ? FilePath : partPath, append: true);
-                    FilePath = File.Exists(FilePath) ? FilePath : partPath;
+                    string resumeAt = (moved || File.Exists(FilePath)) ? FilePath : partPath;
+                    Open(resumeAt, append: true);
+                    FilePath = resumeAt;
                 }
                 catch (Exception reopenEx)
                 {
@@ -652,10 +690,31 @@ namespace JJTrace
                 return null;
             }
 
-            try { _onPartClosed?.Invoke(partPath, closedPart); }
-            catch { /* queueing must never break the writer */ }
-
             return partPath;
         }
+
+        /// <summary>Caller holds <c>_sync</c>. Give a part that has been
+        /// closed and moved to its archive: its ticket is queued and its
+        /// pending record follows on the worker.</summary>
+        private void HandOffClosedPart(string partPath, int partNumber)
+        {
+            try { _onPartClosed?.Invoke(partPath, partNumber); }
+            catch { /* queueing must never break the writer */ }
+        }
+
+        internal const string RotationStepMoved = "moved";
+        internal const string RotationStepHeader = "header";
+
+        /// <summary>
+        /// Tests only, null in production. Called inside a rotation, under
+        /// <c>_sync</c>, with <see cref="RotationStepMoved"/> once the part has
+        /// moved and been handed to its archive (before the fresh file opens),
+        /// and with <see cref="RotationStepHeader"/> once the fresh file is
+        /// open (before its continuation header is written). A test uses it to
+        /// put an obstacle on the disk at the one moment that matters, or to
+        /// stand in for a header write that throws. It must not call back into
+        /// tracing.
+        /// </summary>
+        internal Action<string> RotationStepForTests;
     }
 }

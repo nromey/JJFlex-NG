@@ -2286,6 +2286,265 @@ namespace Radios.Tests
             }
         }
 
+        // ── A part that has moved is archived, whatever fails after (H14) ──
+
+        /// <summary>The archive worker's hold for this session's rotated
+        /// part 1, capturing its ticket.</summary>
+        private sealed class HeldPartOne : IDisposable
+        {
+            private readonly HeldWorker _held;
+            public TraceArchiveTicket Ticket { get; private set; }
+
+            public HeldPartOne(Guid sessionId, string partPath)
+            {
+                _held = new HeldWorker(t =>
+                {
+                    if (t.SessionId != sessionId || t.PartNumber != 1 || t.IsFinalPart
+                        || !string.Equals(t.SourcePath, partPath, StringComparison.OrdinalIgnoreCase))
+                        return false;
+                    Ticket = t;
+                    return true;
+                });
+            }
+
+            public bool Reached(TimeSpan wait) => _held.Reached.Wait(wait);
+            public void Release() => _held.Release();
+            public void Dispose() => _held.Dispose();
+        }
+
+        /// <summary>Everything a moved part must have to outlive the
+        /// plain-text sweep: its archive committed, its name in the manifest
+        /// (which is how the sweep tells an archived file from an orphan), and
+        /// the bytes written before the rotation inside the zip.</summary>
+        private void AssertPartOneArchived(HeldPartOne held, Guid sessionId, string partPath, string firstLine)
+        {
+            held.Release();
+            Assert.True(TraceCoordinator.DrainArchives(TimeSpan.FromSeconds(60)), "the archive backlog never drained");
+
+            TraceArchiveTicket ticket = held.Ticket;
+            Assert.NotNull(ticket);
+            Assert.True(ticket.Completion.Result.ArchiveCommitted,
+                        "the moved part's archive was not committed: " + ticket.Completion.Result.FailureStage);
+
+            TraceSessionEntry entry = Assert.Single(Manifest().Entries,
+                e => e.SessionId == sessionId.ToString() && e.PartNumber == 1);
+            Assert.Equal(Path.GetFileName(partPath), entry.SourceName);
+
+            var archivedNames = new HashSet<string>(
+                Manifest().Entries.Where(e => e != null && e.SourceName != null).Select(e => e.SourceName),
+                StringComparer.OrdinalIgnoreCase);
+            Assert.Contains(Path.GetFileName(partPath), archivedNames);
+
+            Assert.Contains(firstLine, ReadArchivedText(ticket), StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// <b>Sol's review of H13, blocker 1.</b> The part moves, then the
+        /// fresh file will not open and neither will the recovery's append.
+        /// The hand-off to the archive used to sit after the whole rotation,
+        /// so this jumped past it: the retirement's seal looked at the empty
+        /// live path, the moved part got no ticket and no pending record, and
+        /// the plain-text sweep eventually deleted the only copy as an orphan.
+        ///
+        /// <para>Both failures are real file operations. The step seam only
+        /// marks the moment: once the part has moved, a directory is created
+        /// at the live path, so the fresh create and the recovery's append
+        /// both fail on the disk.</para>
+        /// </summary>
+        [Fact]
+        public void A_part_that_moved_before_the_fresh_file_failed_to_open_is_archived_and_the_session_retires_as_failed()
+        {
+            long savedThreshold = Tracing.RotationThresholdBytes;
+            try
+            {
+                Tracing.RotationThresholdBytes = 4096;
+                TraceSessionHandle a = Open();
+                RotatingTraceListener sink = Tracing.LiveListener;
+                Assert.NotNull(sink);
+
+                DateTime boot = TraceCoordinator.Observe().SessionBootTimeUtc.Value;
+                string partPath = TraceFileNaming.StampedPartPath(_livePath, boot, 1);
+
+                bool obstacleLaid = false;
+                sink.RotationStepForTests = step =>
+                {
+                    if (step != RotatingTraceListener.RotationStepMoved || obstacleLaid) return;
+                    obstacleLaid = true;
+                    Directory.CreateDirectory(_livePath);
+                };
+
+                using var part = new HeldPartOne(a.SessionId, partPath);
+                using var held = new HeldFaultRetire();
+                using var changes = new HealthChanges();
+                const string firstLine = "moved part filler 0 ";
+                for (int i = 0; i < 400 && !held.Captured; i++)
+                    Write("moved part filler " + i + " " + new string('x', 80));
+                sink.RotationStepForTests = null;
+
+                Assert.True(obstacleLaid, "the part never moved");
+                Assert.True(File.Exists(partPath), "the moved part is not at its part path");
+                Assert.True(Directory.Exists(_livePath));
+
+                // Tracing is down and says so, as H13 made it.
+                Assert.True(sink.IsClosed, "the rotation's recovery reopened something");
+                Assert.NotNull(sink.LastRotationError);
+                Assert.NotNull(sink.WriteFault);
+                Assert.Contains(sink.LastRotationError, sink.WriteFault, StringComparison.Ordinal);
+                Assert.True(held.Captured, "the coordinator never queued the fault retirement");
+                Assert.False(TraceCoordinator.RecordingWithoutWaiting());
+
+                // The moved part was handed to its archive at the move.
+                Assert.True(part.Reached(TimeSpan.FromSeconds(10)),
+                            "the moved part was never given an archive ticket");
+
+                held.Run();
+
+                TraceRecordingHealthSnapshot snap = TraceRecordingHealth.Snapshot();
+                Assert.Equal(TraceSinkState.Failed, snap.SinkState);
+                Assert.Equal(sink.WriteFault, snap.SinkFault);
+                Assert.Single(changes.All, c => c.Kind == TraceRecordingHealthChangeKind.SinkFailed);
+                Assert.Null(TraceCoordinator.CurrentHandle);
+                Assert.False(TraceCoordinator.Recording);
+                Assert.False(TraceCoordinator.RecordingWithoutWaiting());
+
+                AssertPartOneArchived(part, a.SessionId, partPath, firstLine);
+            }
+            finally
+            {
+                Tracing.RotationThresholdBytes = savedThreshold;
+            }
+        }
+
+        /// <summary>
+        /// <b>Sol's review of H13, blocker 2.</b> The part moves and the
+        /// fresh file opens, then the continuation header's write or flush
+        /// throws. The recovery's append succeeds, so recording carries on —
+        /// which used to hide that the moved part had no ticket, and that the
+        /// fresh file's stream was left open while the recovery overwrote the
+        /// only reference to it.
+        ///
+        /// <para>The step seam stands in for the failing header write: it
+        /// throws at the header step, after the fresh open, from inside the
+        /// same try. It also reads the stream that open created, so the test
+        /// can see whether it was closed.</para>
+        /// </summary>
+        [Fact]
+        public void A_part_that_moved_before_the_continuation_header_failed_is_archived_and_the_first_stream_is_closed()
+        {
+            long savedThreshold = Tracing.RotationThresholdBytes;
+            try
+            {
+                Tracing.RotationThresholdBytes = 4096;
+                TraceSessionHandle a = Open();
+                RotatingTraceListener sink = Tracing.LiveListener;
+                Assert.NotNull(sink);
+
+                DateTime boot = TraceCoordinator.Observe().SessionBootTimeUtc.Value;
+                string partPath = TraceFileNaming.StampedPartPath(_livePath, boot, 1);
+                var streamField = typeof(RotatingTraceListener)
+                    .GetField("_stream", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+
+                FileStream first = null;
+                sink.RotationStepForTests = step =>
+                {
+                    if (step != RotatingTraceListener.RotationStepHeader || first != null) return;
+                    first = (FileStream)streamField.GetValue(sink);
+                    throw new IOException("the continuation header would not write (test)");
+                };
+
+                using var part = new HeldPartOne(a.SessionId, partPath);
+                using var held = new HeldFaultRetire();
+                using var changes = new HealthChanges();
+                const string firstLine = "header part filler 0 ";
+                for (int i = 0; i < 400 && first == null; i++)
+                    Write("header part filler " + i + " " + new string('x', 80));
+                sink.RotationStepForTests = null;
+
+                Assert.NotNull(first);
+                Assert.False(first.CanWrite, "the stream the failed header left open was never closed");
+                Assert.NotSame(first, streamField.GetValue(sink));
+
+                // The recovery resumed at the live path, as part 2, and the
+                // session is still recording.
+                Assert.False(sink.IsClosed);
+                Assert.Null(sink.WriteFault);
+                Assert.NotNull(sink.LastRotationError);
+                Assert.Equal(2, sink.PartNumber);
+                Assert.Equal(_livePath, sink.FilePath);
+                Assert.False(held.Captured);
+                Assert.True(TraceCoordinator.RecordingWithoutWaiting());
+                Assert.Equal(TraceSinkState.Recording, TraceRecordingHealth.Snapshot().SinkState);
+                Assert.DoesNotContain(changes.All, c => c.Kind == TraceRecordingHealthChangeKind.SinkFailed);
+                Assert.Equal(a.SessionId, TraceCoordinator.CurrentHandle?.SessionId);
+
+                Write("a line after the failed header");
+                Assert.Contains("a line after the failed header", ReadLiveText(_livePath), StringComparison.Ordinal);
+
+                // The moved part was handed to its archive at the move, and
+                // the recovery did not write into it.
+                Assert.True(part.Reached(TimeSpan.FromSeconds(10)),
+                            "the moved part was never given an archive ticket");
+                AssertPartOneArchived(part, a.SessionId, partPath, firstLine);
+                Assert.DoesNotContain("a line after the failed header", File.ReadAllText(partPath), StringComparison.Ordinal);
+            }
+            finally
+            {
+                Tracing.RotationThresholdBytes = savedThreshold;
+            }
+        }
+
+        /// <summary>
+        /// The positive control for the two tests above: an ordinary rotation
+        /// passes both steps the seam marks, hands part 1 to its archive,
+        /// opens part 2 at the live path with its continuation header, and
+        /// keeps recording with no rotation error.
+        /// </summary>
+        [Fact]
+        public void An_ordinary_rotation_hands_its_part_to_the_archive_and_carries_on()
+        {
+            long savedThreshold = Tracing.RotationThresholdBytes;
+            try
+            {
+                Tracing.RotationThresholdBytes = 4096;
+                TraceSessionHandle a = Open();
+                RotatingTraceListener sink = Tracing.LiveListener;
+                Assert.NotNull(sink);
+
+                DateTime boot = TraceCoordinator.Observe().SessionBootTimeUtc.Value;
+                string partPath = TraceFileNaming.StampedPartPath(_livePath, boot, 1);
+
+                var steps = new List<string>();
+                sink.RotationStepForTests = step => steps.Add(step);
+
+                using var part = new HeldPartOne(a.SessionId, partPath);
+                using var held = new HeldFaultRetire();
+                const string firstLine = "ordinary filler 0 ";
+                for (int i = 0; i < 400 && sink.PartNumber < 2; i++)
+                    Write("ordinary filler " + i + " " + new string('x', 80));
+                sink.RotationStepForTests = null;
+
+                Assert.Equal(new[] { RotatingTraceListener.RotationStepMoved, RotatingTraceListener.RotationStepHeader },
+                             steps);
+                Assert.Equal(2, sink.PartNumber);
+                Assert.False(sink.IsClosed);
+                Assert.Null(sink.WriteFault);
+                Assert.Null(sink.LastRotationError);
+                Assert.Equal(_livePath, sink.FilePath);
+                Assert.False(held.Captured);
+                Assert.True(TraceCoordinator.RecordingWithoutWaiting());
+                Assert.StartsWith("--- trace continues from part 001 (" + Path.GetFileName(partPath) + ")",
+                                  ReadLiveText(_livePath), StringComparison.Ordinal);
+
+                Assert.True(part.Reached(TimeSpan.FromSeconds(10)),
+                            "the rotated part was never given an archive ticket");
+                AssertPartOneArchived(part, a.SessionId, partPath, firstLine);
+            }
+            finally
+            {
+                Tracing.RotationThresholdBytes = savedThreshold;
+            }
+        }
+
         /// <summary>
         /// The router stays in <c>Trace.Listeners</c> for the life of the
         /// process. Sealing a session used to call process-wide
