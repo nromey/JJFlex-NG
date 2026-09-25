@@ -623,6 +623,119 @@ namespace Radios.Tests
             Assert.Contains("but it is not recording now", atTheWindow, StringComparison.Ordinal);
         }
 
+        // ── Sol's review of H11, the blocker: the fault-retire interval ────
+        //
+        // The test above waits for the retirement, so it reads the LATER
+        // state. A write fault closes the sink inside the failing write, and
+        // the health model hears of it only when the queued retirement runs.
+        // Holding that work item leaves the world exactly in the interval a
+        // window can render in: the file closed, the session still current,
+        // the model still saying Recording.
+
+        /// <summary>
+        /// The successor's file fails and its retirement is still queued when
+        /// the window installs its text. The window must not promise that the
+        /// next thing is being kept: the sink has closed, whatever the health
+        /// model has yet to be told.
+        /// </summary>
+        [Fact]
+        public void A_successor_whose_file_has_closed_is_not_called_recording_while_its_retirement_is_still_queued()
+        {
+            CaptureSealNotice notice = OneDrop(duringTheWait: () => { });
+            Assert.Contains("is being kept too", notice.Explanation, StringComparison.Ordinal);   // the worker's moment
+            RotatingTraceListener successorSink = Tracing.LiveListener;
+            Assert.NotNull(successorSink);
+
+            string atTheWindow;
+            using (new HeldFaultRetire())
+            {
+                BreakTheLiveSink();
+                Tracing.TraceLine("the write that fails", TraceLevel.Warning);
+
+                // The interval, pinned. Each of these is a precondition: if
+                // any fails, the read below would not be testing the gap.
+                Assert.True(successorSink.IsClosed, "the failing write did not close the successor's sink");
+                Assert.NotNull(successorSink.WriteFault);
+                Assert.NotNull(TraceCoordinator.CurrentHandle);   // not retired yet: the work item is held
+                Assert.Equal(TraceSinkState.Recording, TraceRecordingHealth.Snapshot().SinkState);   // not told yet
+                Assert.False(TraceCoordinator.Observe().Recording);   // the gated view already knows
+
+                atTheWindow = notice.Explanation;
+                _out.WriteLine("--- at the window, sink closed, retirement still queued:");
+                _out.WriteLine(atTheWindow);
+                Assert.False(notice.RecordingNow);
+                Assert.False(CaptureSealNotice.LiveRecordingState());
+                Assert.True(notice.SuccessorOpened);
+                Assert.DoesNotContain("is being kept too", atTheWindow, StringComparison.Ordinal);
+                Assert.Contains("but it is not recording now", atTheWindow, StringComparison.Ordinal);
+            }
+
+            // The held retirement has now run: the model agrees, and the
+            // sentence does not change back.
+            Assert.Null(TraceCoordinator.CurrentHandle);
+            Assert.Equal(TraceSinkState.Failed, TraceRecordingHealth.Snapshot().SinkState);
+            Assert.False(notice.RecordingNow);
+            Assert.Equal(atTheWindow, notice.Explanation);
+        }
+
+        /// <summary>
+        /// The reader is asked on the UI thread, so it must answer while a
+        /// transition holds the trace gate (H7's rule: no thread waits on a
+        /// transition). A seal is held at its probe, under the gate; the
+        /// reader returns at once, and a gated read, as the control, does not.
+        /// </summary>
+        [Fact]
+        public void The_window_reader_answers_while_a_transition_holds_the_gate()
+        {
+            TraceCoordinator.SetStandingIntent(true, TraceLevel.Verbose);
+            TraceTransitionResult began = TraceCoordinator.Begin(_livePath, TraceLevel.Verbose, asDetailedCapture: false);
+            Assert.Equal(TraceTransition.Accepted, began.Status);
+            Assert.True(CaptureSealNotice.LiveRecordingState(), "a healthy session is not read as recording");   // positive control
+
+            using var inside = new ManualResetEventSlim(false);
+            using var release = new ManualResetEventSlim(false);
+            Thread seal = null, gated = null, reader = null;
+            try
+            {
+                TraceCoordinator.TransitionProbeForTests = point =>
+                {
+                    if (point != "seal:owned") return;
+                    inside.Set();
+                    release.Wait(TimeSpan.FromSeconds(30));
+                };
+                seal = new Thread(() => TraceCoordinator.TrySeal(new TraceSealRequest
+                {
+                    Expected = began.Successor,
+                    OperationId = Guid.NewGuid(),
+                    Outcome = TraceSessionOutcome.CleanExit,
+                    Resume = TraceResumeIntent.None,
+                })) { IsBackground = true };
+                seal.Start();
+                Assert.True(inside.Wait(TimeSpan.FromSeconds(10)), "the seal never reached its probe");
+
+                // Control: the gate really is held.
+                gated = new Thread(() => { _ = TraceCoordinator.Recording; }) { IsBackground = true };
+                gated.Start();
+                Assert.False(gated.Join(TimeSpan.FromMilliseconds(300)),
+                    "a gated read got past the held seal — the gate is not held, and the check below would be vacuous");
+
+                bool answer = false;
+                reader = new Thread(() => { answer = CaptureSealNotice.LiveRecordingState(); }) { IsBackground = true };
+                reader.Start();
+                Assert.True(reader.Join(TimeSpan.FromSeconds(2)), "the window's reader waited on the trace gate");
+                Assert.True(seal.IsAlive, "the seal finished before the reader was measured; nothing was measured");
+                _out.WriteLine("reader answered " + answer + " while the seal held the gate");
+            }
+            finally
+            {
+                release.Set();
+                TraceCoordinator.TransitionProbeForTests = null;
+                seal?.Join(TimeSpan.FromSeconds(10));
+                gated?.Join(TimeSpan.FromSeconds(10));
+                reader?.Join(TimeSpan.FromSeconds(10));
+            }
+        }
+
         /// <summary>
         /// Positive control for the two above: nothing lands in the queue,
         /// and the text at the window is the text at the worker — so the

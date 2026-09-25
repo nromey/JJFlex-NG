@@ -203,20 +203,26 @@ namespace Radios
         }
 
         /// <summary>
-        /// The production reader: what the recording-health model says the
-        /// live sink is doing. Chosen over <c>TraceCoordinator.Observe()</c>
-        /// for two reasons. It never takes the trace gate — it is read under
-        /// the health model's own short lock — so asking it on the UI thread
-        /// cannot wait out a transition stalling on a disk, which is the rule
-        /// every other reader on a thread that must return has kept since
-        /// H7. And it is the model the Problems list reads: the paragraph
-        /// that says "the Problems list says why" and the list itself now
-        /// answer from one place. <c>Recording</c> there also requires the
-        /// successor's first record to have been written and flushed, which
-        /// is a stricter "recording" than an open sink.
+        /// The production reader: <see cref="TraceCoordinator.RecordingWithoutWaiting"/>.
+        /// Chosen over <c>TraceCoordinator.Observe()</c> because it never
+        /// takes the trace gate, so asking it on the UI thread cannot wait out
+        /// a transition stalling on a disk — the rule every other reader on a
+        /// thread that must return has kept since H7. It answers from the
+        /// recording-health model, the model the Problems list reads, so the
+        /// paragraph that says "the Problems list says why" and the list
+        /// itself answer from one place; <c>Recording</c> there also requires
+        /// the successor's first record to have been written and flushed.
+        ///
+        /// <para><b>And it fails closed while that model is behind the
+        /// sink</b> (Sol's review of H11, the blocker). H11 read the health
+        /// model alone. A write fault closes the sink at once, but the model
+        /// hears of it only when the queued fault retirement runs; a window
+        /// rendered in between read the old <c>Recording</c> and promised
+        /// "the next thing that happens is being kept too" over a closed
+        /// file. The reader now also requires the live sink's own closed
+        /// flag, published lock-free the moment it closes, to be clear.</para>
         /// </summary>
-        public static bool LiveRecordingState() =>
-            TraceRecordingHealth.Snapshot().SinkState == TraceSinkState.Recording;
+        public static bool LiveRecordingState() => TraceCoordinator.RecordingWithoutWaiting();
 
         private readonly Func<bool> _recordingNow;
 

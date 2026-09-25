@@ -239,6 +239,19 @@ namespace JJTrace
             lock (_sync) { return SnapshotLocked(); }
         }
 
+        /// <summary>
+        /// True when the state held is <see cref="TraceSinkState.Recording"/>
+        /// AND it describes the sink of <paramref name="generation"/> — not an
+        /// older sink whose Recording note is still standing, nor a newer one.
+        /// Under this model's own short lock, never the trace gate. Read by
+        /// <see cref="TraceCoordinator.RecordingWithoutWaiting"/>, which pairs
+        /// it with the sink's own closed flag.
+        /// </summary>
+        internal static bool IsRecordingSink(long generation)
+        {
+            lock (_sync) { return _sinkState == TraceSinkState.Recording && _generation == generation; }
+        }
+
         private static TraceRecordingHealthSnapshot SnapshotLocked()
         {
             var list = new List<TraceRecoveryCondition>(_order.Count);

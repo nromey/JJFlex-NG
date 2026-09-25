@@ -552,6 +552,61 @@ namespace JJTrace
         {
             _sink = sink;
             _sinkGeneration++;
+            _sinkForReaders = new PublishedSink(sink, _sinkGeneration);
+        }
+
+        /// <summary>The live sink and its generation, taken together, for a
+        /// reader that must not take the gate. Immutable, so one read of
+        /// <see cref="_sinkForReaders"/> can never pair a sink with another
+        /// sink's generation.</summary>
+        private sealed class PublishedSink
+        {
+            public PublishedSink(RotatingTraceListener sink, long generation)
+            {
+                Sink = sink;
+                Generation = generation;
+            }
+
+            public RotatingTraceListener Sink { get; }
+            public long Generation { get; }
+        }
+
+        /// <summary>Written only by <see cref="SetSinkLocked"/>, under the
+        /// gate; read without it by <see cref="RecordingWithoutWaiting"/>.</summary>
+        private static volatile PublishedSink _sinkForReaders;
+
+        /// <summary>
+        /// "Is a live, unfaulted sink recording right now?" — answered WITHOUT
+        /// taking the trace gate or the sink's own lock, for a reader on a
+        /// thread that must not wait on a transition: the drop window's text,
+        /// installed on the UI thread (the rule every such reader has kept
+        /// since H7).
+        ///
+        /// <para><b>Two facts, both required, and it fails closed.</b> The
+        /// recording-health model must say <c>Recording</c> for EXACTLY the
+        /// sink that is live now — its generation, not an older or a newer
+        /// one — AND that sink must not have closed. The second fact is the
+        /// reason this exists (Sol's review of H11). A write fault closes the
+        /// sink inside the failing write, at once; the health model hears of
+        /// it only when the queued fault retirement runs, later, on a pool
+        /// thread. Reading health alone, a window rendered in that interval
+        /// promised the operator that what happens next was being kept, over
+        /// a file that had already stopped. The sink's own closed flag is
+        /// published the moment it closes, so that interval now reads "not
+        /// recording".</para>
+        ///
+        /// <para>The generation match keeps the other in-flight intervals
+        /// closed too. A transition that has put a successor in place but not
+        /// yet published its verified first record reads "not recording"
+        /// until it does, rather than borrowing the previous sink's
+        /// <c>Recording</c>. Every interval between the two facts agreeing
+        /// answers false; none answers true early.</para>
+        /// </summary>
+        public static bool RecordingWithoutWaiting()
+        {
+            PublishedSink live = _sinkForReaders;
+            if (live?.Sink == null || live.Sink.ClosedWithoutWaiting) return false;
+            return TraceRecordingHealth.IsRecordingSink(live.Generation);
         }
 
         /// <summary>Tests only: the current generation, under the gate.</summary>

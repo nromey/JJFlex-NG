@@ -43,6 +43,28 @@ namespace JJTrace
         private bool _closed;
 
         /// <summary>
+        /// <see cref="_closed"/> as a reader on another thread may see it
+        /// WITHOUT taking <c>_sync</c>: set in the same step as every change
+        /// of <see cref="_closed"/>, except inside a rotation, whose close and
+        /// reopen are one operation to anyone outside this lock — a rotation
+        /// publishes its end state, never its middle. See
+        /// <see cref="ClosedWithoutWaiting"/>.
+        /// </summary>
+        private volatile bool _closedForReaders;
+
+        /// <summary>Caller holds <c>_sync</c>. True while
+        /// <see cref="RotateInternal"/> runs.</summary>
+        private bool _rotating;
+
+        /// <summary>Caller holds <c>_sync</c>. The one way <see cref="_closed"/>
+        /// changes, so the lock-free view cannot fall behind it.</summary>
+        private void SetClosed(bool closed)
+        {
+            _closed = closed;
+            if (!_rotating) _closedForReaders = closed;
+        }
+
+        /// <summary>
         /// Immutable identity of the session whose parts this sink produces.
         ///
         /// <para><b>Carried rather than looked up, and that is a correctness
@@ -153,6 +175,18 @@ namespace JJTrace
         {
             get { lock (_sync) { return _closed; } }
         }
+
+        /// <summary>
+        /// True once this sink has closed — over a write fault, a flush fault
+        /// or an ordinary close — read WITHOUT taking this sink's lock, so it
+        /// never waits on a write stalled on the disk. Set at the moment the
+        /// sink closes, which for a write fault is inside the failing write:
+        /// before the coordinator has noticed the fault, and before the
+        /// queued retirement publishes <c>Failed</c> to the health model
+        /// (Sol's review of H11). A rotation's momentary close is not
+        /// published; its end state is.
+        /// </summary>
+        internal bool ClosedWithoutWaiting => _closedForReaders;
 
         /// <summary>
         /// The first write or flush failure this sink hit, or null while every
@@ -284,7 +318,7 @@ namespace JJTrace
                 catch (Exception ex) { ok = false; failure = failure ?? ex.Message; Fault(ex); }
                 _writer = null;
                 _stream = null;
-                _closed = true;
+                SetClosed(true);
                 return ok;
             }
         }
@@ -309,7 +343,7 @@ namespace JJTrace
             // as garbage characters.
             _writer = new StreamWriter(_stream, new UTF8Encoding(false));
             _writer.AutoFlush = false; // Trace.AutoFlush drives Flush() explicitly.
-            _closed = false;
+            SetClosed(false);
             _bytesInPart = append ? SafeLength(path) : 0;
         }
 
@@ -505,7 +539,7 @@ namespace JJTrace
         private void CloseInternal()
         {
             if (_closed) return;
-            _closed = true;
+            SetClosed(true);
             try { _writer?.Flush(); } catch { }
             try { _writer?.Dispose(); } catch { }
             try { _stream?.Dispose(); } catch { }
@@ -523,6 +557,18 @@ namespace JJTrace
         /// trace that next boot would read as evidence of a killed session.
         /// </summary>
         private string RotateInternal()
+        {
+            _rotating = true;
+            try { return RotateCore(); }
+            finally
+            {
+                _rotating = false;
+                _closedForReaders = _closed;
+            }
+        }
+
+        /// <summary>Caller holds <c>_sync</c>, inside <see cref="RotateInternal"/>.</summary>
+        private string RotateCore()
         {
             string partPath = null;
             try
