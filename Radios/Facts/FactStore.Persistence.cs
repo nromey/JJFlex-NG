@@ -443,6 +443,17 @@ namespace Radios.Facts
             bool sameOccurrence = existing.Root != null && existing.Root == entry.Root;
             if (sameOccurrence && !existing.Conflicted)
             {
+                // One assertion identity with two contents means the sources
+                // are not describing one occurrence, whatever their root says.
+                // Coverage earned for one value is never given to the other.
+                List<AssertionRef> incompatible = IncompatibleAssertions(existing, entry);
+                if (incompatible.Count > 0)
+                {
+                    ConflictContinuityLocked(existing, entry, incompatible,
+                        "two saved records describe the same assertion of this occurrence with different content; a reconnect cannot continue either");
+                    return;
+                }
+
                 if (entry.Revision > existing.Revision)
                 {
                     existing.LastEpisode = entry.LastEpisode;
@@ -476,34 +487,83 @@ namespace Radios.Facts
             }
 
             // Different occurrences for one key: established succession
-            // decides, and nothing else does.
+            // decides, and nothing else does. A successor must account for
+            // EVERY root the other side has seen — in either load order — and
+            // a side whose memory of seen roots overflowed cannot be accounted
+            // for at all.
             if (entry.Root != null && existing.Root != null)
             {
-                bool entrySupersedes = entry.SupersededRoots.Contains(existing.Root.Value)
-                                       && existing.SeenRoots.All(r => r == entry.Root || entry.SupersededRoots.Contains(r));
-                bool existingSupersedes = existing.SupersededRoots.Contains(entry.Root.Value);
+                bool entrySupersedes = Supersedes(entry, existing);
+                bool existingSupersedes = Supersedes(existing, entry);
                 if (entrySupersedes)
                 {
-                    foreach (EpisodeId r in existing.SeenRoots) if (!entry.SeenRoots.Contains(r)) entry.SeenRoots.Add(r);
+                    foreach (EpisodeId r in existing.SeenRoots) entry.AddSeenRoot(r);
+                    if (existing.SeenRootsOverflowed) entry.SeenRootsOverflowed = true;
                     if (existing.Root is EpisodeId gone) PruneLineageLocked(gone);
                     PutContinuityLocked(entry);
                     return;
                 }
                 if (existingSupersedes)
                 {
-                    if (!existing.SeenRoots.Contains(entry.Root.Value)) existing.SeenRoots.Add(entry.Root.Value);
+                    existing.AddSeenRoot(entry.Root.Value);
+                    foreach (EpisodeId r in entry.SeenRoots) existing.AddSeenRoot(r);
                     return;
                 }
             }
 
+            ConflictContinuityLocked(existing, entry, Array.Empty<AssertionRef>(),
+                "two saved records disagree about which occurrence this condition continues; a reconnect cannot continue either");
+        }
+
+        /// <summary>Does <paramref name="successor"/> establish succession over everything <paramref name="other"/> has seen?</summary>
+        private static bool Supersedes(ContinuityRecord successor, ContinuityRecord other) =>
+            other.Root is EpisodeId root
+            && successor.SupersededRoots.Contains(root)
+            && !other.SeenRootsOverflowed
+            && other.SeenRoots.All(r => r == successor.Root || successor.SupersededRoots.Contains(r));
+
+        /// <summary>
+        /// The assertion roots the two entries describe with different
+        /// content. Kind and unit number are episode-local — a successor's
+        /// linked unit is always Initial with its own id, whatever the
+        /// predecessor's unit was — so the name and the typed value are what
+        /// identify the content.
+        /// </summary>
+        private static List<AssertionRef> IncompatibleAssertions(ContinuityRecord existing, ContinuityRecord entry)
+        {
+            var roots = new List<AssertionRef>();
+            foreach (ContinuityAssertionRecord a in entry.Assertions)
+            {
+                ContinuityAssertionRecord? have = existing.Assertions.FirstOrDefault(x => x.Root == a.Root);
+                if (have != null && (have.Name != a.Name || have.Value != a.Value)) roots.Add(a.Root);
+            }
+            return roots;
+        }
+
+        /// <summary>
+        /// Two sources cannot be reconciled for one key: the continuity
+        /// supports nothing, its assertions credit nothing, and the lineage's
+        /// already-absorbed evidence for any disputed assertion is marked so,
+        /// because the first source's evidence went in before the second
+        /// source arrived to dispute it.
+        /// </summary>
+        private void ConflictContinuityLocked(ContinuityRecord existing, ContinuityRecord entry,
+                                              IReadOnlyList<AssertionRef> disputed, string why)
+        {
             existing.Conflicted = true;
             existing.DeliveryEvidenceSupported = false;
             existing.Assertions.Clear();
             existing.Pause = existing.Pause != PauseCause.None ? existing.Pause : entry.Pause;
             if (!existing.Baseline.Equals(entry.Baseline)) existing.Baseline = FactObservation.Empty;
-            if (entry.Root is EpisodeId other && !existing.SeenRoots.Contains(other)) existing.SeenRoots.Add(other);
-            NoteIssueLocked(IssueKind.IdentityConflict, "continuity:" + entry.Key, entry.Radio + " / " + entry.Condition,
-                "two saved records disagree about which occurrence this condition continues; a reconnect cannot continue either",
+            if (entry.Root is EpisodeId other) existing.AddSeenRoot(other);
+            foreach (EpisodeId r in entry.SeenRoots) existing.AddSeenRoot(r);
+            if (entry.SeenRootsOverflowed) existing.SeenRootsOverflowed = true;
+            if (disputed.Count > 0 && existing.Root is EpisodeId root)
+            {
+                OccurrenceLineage lineage = LineageLocked(root);
+                foreach (AssertionRef a in disputed) lineage.Dispute(a);
+            }
+            NoteIssueLocked(IssueKind.IdentityConflict, "continuity:" + entry.Key, entry.Radio + " / " + entry.Condition, why,
                 1, ExtentCertainty.Exact, entry.Radio + " / " + entry.Condition,
                 "cont-conflict:" + entry.Key + ":" + entry.Root, persist: false);
         }

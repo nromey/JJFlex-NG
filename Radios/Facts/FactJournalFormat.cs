@@ -88,6 +88,10 @@ namespace Radios.Facts
                     w.WriteStartArray("supersedes");
                     foreach (EpisodeId r in c.SupersededRoots) WriteEpisodeValue(w, r);
                     w.WriteEndArray();
+                    w.WriteStartArray("seenRoots");
+                    foreach (EpisodeId r in c.SeenRoots) WriteEpisodeValue(w, r);
+                    w.WriteEndArray();
+                    w.WriteBoolean("seenRootsOverflowed", c.SeenRootsOverflowed);
                     w.WriteStartArray("assertions");
                     foreach (ContinuityAssertionRecord a in c.Assertions)
                     {
@@ -508,6 +512,10 @@ namespace Radios.Facts
             foreach (JsonElement r in RequireArray(c, "supersedes").EnumerateArray()) entry.SupersededRoots.Add(ReadEpisode(r));
             if (entry.SupersededRoots.Count > OccurrenceLineage.MaxSupersededRoots)
                 throw new InvalidDataException("more superseded roots than any writer keeps");
+            foreach (JsonElement r in RequireArray(c, "seenRoots").EnumerateArray()) entry.SeenRoots.Add(ReadEpisode(r));
+            if (entry.SeenRoots.Count > OccurrenceLineage.MaxSupersededRoots)
+                throw new InvalidDataException("more seen roots than any writer keeps");
+            entry.SeenRootsOverflowed = RequireBool(c, "seenRootsOverflowed");
             foreach (JsonElement a in RequireArray(c, "assertions").EnumerateArray())
             {
                 entry.Assertions.Add(new ContinuityAssertionRecord

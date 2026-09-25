@@ -205,6 +205,35 @@ namespace Radios.Facts
         public MaterialKind Kind;
         public bool Covered;
         public bool Reviewed;
+
+        /// <summary>
+        /// Two sources described this assertion identity with different
+        /// content. Whatever either said was covered or reviewed, it credits
+        /// nothing: the evidence was earned for one value and cannot be given
+        /// to another.
+        /// </summary>
+        public bool Disputed;
+
+        /// <summary>
+        /// The same assertion: same name, same typed value. Kind and unit
+        /// number are episode-local — a successor's linked unit is always
+        /// Initial with its own id, whatever the predecessor's was — so they
+        /// do not identify the content and are not compared.
+        /// </summary>
+        public bool SameAssertionAs(string name, FactValue value) => Name == name && Value == value;
+    }
+
+    /// <summary>What one member of an occurrence knows about an assertion another member carries.</summary>
+    internal enum MemberEvidence
+    {
+        /// <summary>The member does not carry that assertion, or carries it without the evidence asked for.</summary>
+        None = 0,
+
+        /// <summary>The member carries the SAME assertion — same root, name and typed value — with the evidence asked for.</summary>
+        Established = 1,
+
+        /// <summary>The member carries that root with DIFFERENT content. The assertion is disputed and credits nothing.</summary>
+        Disputed = 2,
     }
 
     /// <summary>
@@ -253,41 +282,74 @@ namespace Radios.Facts
             while (SupersededRoots.Count > MaxSupersededRoots) SupersededRoots.RemoveAt(0);
         }
 
-        public bool CoveredElsewhere(FactRecord self, AssertionRef root)
+        /// <summary>
+        /// Another member's, or the compacted summary's, undisputed
+        /// presentation evidence for the SAME assertion as this unit — same
+        /// root, same name, same typed value. A member or a saved source that
+        /// holds the root with different content disputes it, and a disputed
+        /// assertion credits nothing, whichever side earned what.
+        /// </summary>
+        public bool CoveredElsewhere(FactRecord self, MaterialUnit unit) => EvidenceElsewhere(self, unit, reviewed: false);
+
+        public bool ReviewedElsewhere(FactRecord self, MaterialUnit unit) => EvidenceElsewhere(self, unit, reviewed: true);
+
+        private bool EvidenceElsewhere(FactRecord self, MaterialUnit unit, bool reviewed)
         {
+            bool found = false;
             foreach (FactRecord m in Members)
             {
                 if (ReferenceEquals(m, self) || m.Origin?.ConflictVariant == true) continue;
-                if (m.DirectlyCovers(root)) return true;
+                switch (m.EvidenceFor(unit, reviewed))
+                {
+                    case MemberEvidence.Disputed: return false;
+                    case MemberEvidence.Established: found = true; break;
+                }
             }
-            return Compacted.TryGetValue(root, out AssertionEvidence? e) && e.Covered;
-        }
-
-        public bool ReviewedElsewhere(FactRecord self, AssertionRef root)
-        {
-            foreach (FactRecord m in Members)
+            if (Compacted.TryGetValue(unit.Root, out AssertionEvidence? e))
             {
-                if (ReferenceEquals(m, self) || m.Origin?.ConflictVariant == true) continue;
-                if (m.DirectlyReviewed(root)) return true;
+                if (e.Disputed || !e.SameAssertionAs(unit.Name, unit.Value)) return false;
+                if (reviewed ? e.Reviewed : e.Covered) found = true;
             }
-            return Compacted.TryGetValue(root, out AssertionEvidence? e) && e.Reviewed;
+            return found;
         }
 
-        /// <summary>Fold a member's own evidence into the durable summary before it is dropped.</summary>
+        /// <summary>Fold a member's own evidence into the durable summary before it is dropped. A conflict variant folds nothing: its evidence credits nothing.</summary>
         public void Absorb(FactRecord member)
         {
+            if (member.Origin?.ConflictVariant == true) return;
             HashSet<long> covered = member.DirectCovered();
             HashSet<long> reviewed = member.DirectReviewed();
             foreach (MaterialUnit unit in member.Required())
                 Absorb(unit.Root, unit.Name, unit.Value, unit.Kind, covered.Contains(unit.Id), reviewed.Contains(unit.Id));
         }
 
+        /// <summary>
+        /// Combine one source's evidence for an assertion with what is held.
+        /// Compatible content (same name, same typed value) combines; different
+        /// content disputes the assertion, and nothing is ORed across the
+        /// difference.
+        /// </summary>
         public void Absorb(AssertionRef root, string name, FactValue value, MaterialKind kind, bool covered, bool reviewed)
         {
             if (!Compacted.TryGetValue(root, out AssertionEvidence? e))
-                Compacted[root] = e = new AssertionEvidence { Name = name, Value = value, Kind = kind };
+            {
+                Compacted[root] = new AssertionEvidence { Name = name, Value = value, Kind = kind, Covered = covered, Reviewed = reviewed };
+                return;
+            }
+            if (!e.SameAssertionAs(name, value))
+            {
+                e.Disputed = true;
+                return;
+            }
             e.Covered |= covered;
             e.Reviewed |= reviewed;
+        }
+
+        /// <summary>Mark an assertion disputed, whether or not anything was absorbed for it yet.</summary>
+        public void Dispute(AssertionRef root)
+        {
+            if (!Compacted.TryGetValue(root, out AssertionEvidence? e)) Compacted[root] = e = new AssertionEvidence();
+            e.Disputed = true;
         }
     }
 
@@ -509,31 +571,37 @@ namespace Radios.Facts
             return reviewed;
         }
 
-        public bool DirectlyCovers(AssertionRef root)
+        /// <summary>
+        /// What this record's own evidence says about an assertion another
+        /// member of its occurrence carries: established when this record
+        /// carries the SAME assertion with that evidence, disputed when it
+        /// carries the root with different content.
+        /// </summary>
+        public MemberEvidence EvidenceFor(MaterialUnit unit, bool reviewed)
         {
-            HashSet<long> covered = DirectCovered();
-            foreach (MaterialUnit unit in Materials) if (unit.Root == root && covered.Contains(unit.Id)) return true;
-            return false;
-        }
-
-        public bool DirectlyReviewed(AssertionRef root)
-        {
-            HashSet<long> reviewed = DirectReviewed();
-            foreach (MaterialUnit unit in Materials) if (unit.Root == root && reviewed.Contains(unit.Id)) return true;
-            return false;
+            HashSet<long>? have = null;
+            MemberEvidence result = MemberEvidence.None;
+            foreach (MaterialUnit mine in Materials)
+            {
+                if (mine.Root != unit.Root) continue;
+                if (mine.Name != unit.Name || mine.Value != unit.Value) return MemberEvidence.Disputed;
+                have ??= reviewed ? DirectReviewed() : DirectCovered();
+                if (have.Contains(mine.Id)) result = MemberEvidence.Established;
+            }
+            return result;
         }
 
         /// <summary>
         /// Units with attributable, undisputed presentation evidence — this
         /// record's own, or another episode's for the same assertion, found
-        /// through the occurrence.
+        /// through the occurrence and checked for the same content.
         /// </summary>
         public HashSet<long> Covered()
         {
             HashSet<long> covered = DirectCovered();
             if (Lineage != null)
                 foreach (MaterialUnit unit in Materials)
-                    if (!covered.Contains(unit.Id) && Lineage.CoveredElsewhere(this, unit.Root)) covered.Add(unit.Id);
+                    if (!covered.Contains(unit.Id) && Lineage.CoveredElsewhere(this, unit)) covered.Add(unit.Id);
             return covered;
         }
 
@@ -542,7 +610,7 @@ namespace Radios.Facts
             HashSet<long> reviewed = DirectReviewed();
             if (Lineage != null)
                 foreach (MaterialUnit unit in Materials)
-                    if (!reviewed.Contains(unit.Id) && Lineage.ReviewedElsewhere(this, unit.Root)) reviewed.Add(unit.Id);
+                    if (!reviewed.Contains(unit.Id) && Lineage.ReviewedElsewhere(this, unit)) reviewed.Add(unit.Id);
             return reviewed;
         }
 

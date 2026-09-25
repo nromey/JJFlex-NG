@@ -69,8 +69,33 @@ namespace Radios.Facts
         /// <summary>The occurrence roots this occurrence replaced for its key, oldest first. Succession evidence, bounded.</summary>
         public readonly List<EpisodeId> SupersededRoots = new();
 
-        /// <summary>Every root a saved source has named for this key, so a later successor can be checked against all of them.</summary>
+        /// <summary>
+        /// Every root a saved source has named for this key, so a later
+        /// successor can be checked against all of them. Persisted, because a
+        /// process that saw two roots conflict and wrote only one of them
+        /// would otherwise let the next process accept a successor of that
+        /// one as if the other had never existed. Bounded; see
+        /// <see cref="SeenRootsOverflowed"/>.
+        /// </summary>
         public readonly List<EpisodeId> SeenRoots = new();
+
+        /// <summary>
+        /// More roots were named than the list keeps. A successor can then
+        /// never be checked against all of them, so nothing supersedes this
+        /// entry — said, not silently truncated into a check that passes.
+        /// </summary>
+        public bool SeenRootsOverflowed;
+
+        public void AddSeenRoot(EpisodeId root)
+        {
+            if (SeenRoots.Contains(root)) return;
+            if (SeenRoots.Count >= OccurrenceLineage.MaxSupersededRoots)
+            {
+                SeenRootsOverflowed = true;
+                return;
+            }
+            SeenRoots.Add(root);
+        }
 
         public long Order;
 
@@ -482,7 +507,9 @@ namespace Radios.Facts
                 // A new occurrence for a key the store already knew: record the
                 // succession, so two saved sources naming different
                 // occurrences can be ordered by evidence rather than by guess.
-                record.Lineage!.Supersede(replacedRoot, replaced.SupersededRoots);
+                // An evidenced onset supersedes every root the key had seen —
+                // including both sides of a conflict it puts to rest.
+                record.Lineage!.Supersede(replacedRoot, replaced.SupersededRoots.Concat(replaced.SeenRoots));
             }
 
             // A worsening against a baseline from before the reconnect: new
@@ -1246,7 +1273,14 @@ namespace Radios.Facts
                 ReceiptClosed = r.Receipt.Closed,
             };
             if (r.Lineage != null) entry.SupersededRoots.AddRange(r.Lineage.SupersededRoots);
-            entry.SeenRoots.Add(r.LineageRoot);
+            entry.AddSeenRoot(r.LineageRoot);
+            // The table's memory of other roots seen for this key belongs to
+            // the occurrence, not to the episode that happens to be newest.
+            if (_continuity.TryGetValue(entry.Key, out ContinuityRecord? table) && table.Root == entry.Root)
+            {
+                foreach (EpisodeId seen in table.SeenRoots) entry.AddSeenRoot(seen);
+                if (table.SeenRootsOverflowed) entry.SeenRootsOverflowed = true;
+            }
             HashSet<long> covered = r.Covered();
             HashSet<long> reviewed = r.Reviewed();
             foreach (MaterialUnit unit in r.Required())
@@ -1279,7 +1313,7 @@ namespace Radios.Facts
             // The table's evidence summary is also the occurrence's durable
             // memory, so a successor finds it even when the episode records
             // that earned it are gone.
-            if (entry.Root is EpisodeId root && !entry.SeenRoots.Contains(root)) entry.SeenRoots.Add(root);
+            if (entry.Root is EpisodeId root) entry.AddSeenRoot(root);
             if (entry.Supported)
             {
                 OccurrenceLineage lineage = LineageLocked(entry.Root!.Value);
