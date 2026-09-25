@@ -600,6 +600,75 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void AnUnknownCancellationSurvivesAnyNumberOfReconnects()
+        {
+            // Sol, G2 blocker 2: the constraint was read by walking
+            // InheritedFrom with a depth limit of 64, and each same-process
+            // continuation added a link. By the 65th continued grant an
+            // unknown cancellation on the original permission was invisible,
+            // and automatic output could resume with no new permission. The
+            // constraint is now a bounded summary the whole lineage shares.
+            var kit = new FactKit();
+            var tracked = new RecordingTransport(kit.Registry, "t", TransportCapability.ReportsCompletion);
+            FactSession s0 = kit.Session("SERIAL-N");
+            EpisodeId first = FactKit.OnsetHot(kit.HotSlot(s0), 70m, 3).Handle!.Id;
+            AttemptHandle original = kit.Allocate(kit.PlanAutomatic(first), tracked.Binding);
+            Assert.Equal(AttemptRunOutcome.Requested, AttemptRunner.Run(original, tracked.Submit));   // in flight, never finishes
+            s0.End(T0, "disconnected");
+
+            // Well past the old limit, in one process, ending each session
+            // before the next continues it — except the last, which stays live.
+            const int hops = 64 + 6;
+            FactSession? live = null;
+            EpisodeId latest = first;
+            for (int i = 0; i < hops; i++)
+            {
+                FactSession next = kit.Session("SERIAL-N");
+                PublicationResult c = FactKit.ContinueHot(kit.HotSlot(next), 70m, 3);
+                Assert.Equal(PublicationOutcome.Accepted, c.Outcome);
+                GrantSnapshot inherited = Assert.Single(c.Fact!.Grants);
+                Assert.Equal(GrantOrigin.Inherited, inherited.Origin);
+                Assert.NotNull(inherited.InheritedFromId);
+                latest = c.Handle!.Id;
+                if (i < hops - 1) next.End(T0, "disconnected"); else live = next;
+            }
+            Assert.NotNull(live);
+            Assert.True(kit.Store.All.Count > 64);
+
+            // POSITIVE CONTROL: with nothing reported, the last successor's
+            // inherited permission is effective and it is eligible.
+            FactSnapshot before = kit.Store.Find(latest)!;
+            Assert.True(before.IsLive);
+            Assert.Equal(PauseCause.None, before.Pause);
+            Assert.True(kit.Store.IsEligibleForAutomaticDelivery(before));
+
+            // The ORIGINAL attempt, under the original permission, is now
+            // reported cancelled for no known reason — after all those hops.
+            Assert.Equal(EvidenceResult.Recorded, original.Report(TransportEvidence.Cancelled(5, CancelCause.Unknown)));
+
+            FactSnapshot after = kit.Store.Find(latest)!;
+            Assert.Equal(PauseCause.UnknownCancellation, after.Pause);
+            Assert.Equal(PauseCause.UnknownCancellation, Assert.Single(after.Grants).Blocker);
+            Assert.False(kit.Store.IsEligibleForAutomaticDelivery(after));
+            Assert.Equal(PreparationOutcome.NotEligible,
+                kit.Presentation.Prepare(latest, PlanRequest.Automatic(VerbosityLevel.Chatty)).Outcome);
+            Assert.Equal(1, tracked.NativeCalls);                                    // nothing resumed
+
+            // Every episode in the line reads the same constraint — the first,
+            // and one in the middle whose own session ended long ago.
+            Assert.Equal(PauseCause.UnknownCancellation, kit.Store.Find(first)!.Grants.Single().Blocker);
+            FactSnapshot middle = kit.Store.All.Single(f => f.PredecessorEpisode == first);
+            Assert.Equal(PauseCause.UnknownCancellation, middle.Grants.Single().Blocker);
+
+            // And one more continuation, made AFTER the report, is held too.
+            live!.End(T0, "disconnected");
+            PublicationResult later = FactKit.ContinueHot(kit.HotSlot(kit.Session("SERIAL-N")), 70m, 3);
+            Assert.Equal(PublicationOutcome.Accepted, later.Outcome);
+            Assert.Equal(PauseCause.UnknownCancellation, later.Fact!.Pause);
+            Assert.False(kit.Store.IsEligibleForAutomaticDelivery(later.Fact));
+        }
+
+        [Fact]
         public void CompleteInventoryDoesNotProveOnset()
         {
             // Astra's first-onset ruling (2026-09-24): a complete inventory

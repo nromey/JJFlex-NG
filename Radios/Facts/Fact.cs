@@ -115,9 +115,13 @@ namespace Radios.Facts
     /// that could go stale. A late event cannot earn fresh permission because
     /// its grant inherits the event's captured position, and a successor
     /// episode's inherited grant keeps its predecessor's position for the same
-    /// reason. An unknown-cause cancellation reported against the predecessor's
-    /// attempt follows the lineage: the constraint is read through
-    /// <see cref="InheritedFrom"/>, never copied once at reconnect.
+    /// reason. An unknown-cause cancellation reported against any attempt in
+    /// the permission's lineage is written to the ONE <see cref="GrantLineage"/>
+    /// every grant of that lineage shares — a bounded summary carried forward,
+    /// not a walk back through predecessors, so it is read the same way by the
+    /// first grant and by the thousandth, and a late report reaches all of
+    /// them. It used to be a walk with a depth limit of 64, and the 65th
+    /// same-process continuation silently lost the constraint.
     /// </remarks>
     internal sealed class AutomaticGrant
     {
@@ -125,27 +129,33 @@ namespace Radios.Facts
         public long SourceSequence;
         public GrantOrigin Origin;
         public readonly HashSet<long> Covers = new();
+
+        /// <summary>
+        /// The constraints this permission carries across every grant
+        /// inherited from it. An inherited grant SHARES its predecessor's
+        /// object; it never copies it.
+        /// </summary>
+        public GrantLineage Constraint = new();
+
+        /// <summary>The predecessor's grant this one was carried from, when inherited. An identity, for the record — not a link to walk.</summary>
+        public long? InheritedFromId;
+
+        /// <summary>The unknown-cause cancellation constraint, whichever grant of the lineage it was reported against.</summary>
+        public AttemptId? EffectiveUnknownCancellation => Constraint.UnknownCancelledBy;
+    }
+
+    /// <summary>
+    /// What every grant descended from one permission carries in common: the
+    /// constraints that follow the permission, not the episode. One object per
+    /// original grant, shared by reference down the whole line of inherited
+    /// grants, so its size does not grow with the number of reconnects and a
+    /// constraint recorded late is seen by every descendant at once.
+    /// </summary>
+    internal sealed class GrantLineage
+    {
+        /// <summary>The first attempt under this permission that was cancelled and nobody could say why. Never released by a reconnect.</summary>
         public AttemptId? UnknownCancelledBy;
         public long? UnknownCancelledAtSequence;
-
-        /// <summary>The predecessor's grant this one was carried from, when inherited.</summary>
-        public AutomaticGrant? InheritedFrom;
-
-        /// <summary>The unknown-cause cancellation constraint, read through the whole lineage.</summary>
-        public AttemptId? EffectiveUnknownCancellation
-        {
-            get
-            {
-                AutomaticGrant? g = this;
-                int guard = 0;
-                while (g != null && guard++ < 64)
-                {
-                    if (g.UnknownCancelledBy != null) return g.UnknownCancelledBy;
-                    g = g.InheritedFrom;
-                }
-                return null;
-            }
-        }
     }
 
     /// <summary>One bounded history line about an event the episode received.</summary>
@@ -772,7 +782,7 @@ namespace Radios.Facts
             {
                 AutomaticGrant g = Grants[i];
                 grants[i] = new GrantSnapshot(g.Id, g.Origin, g.SourceSequence, g.Covers.ToArray(),
-                                              FactPermission.Blocker(g, latestQuiet), g.InheritedFrom?.Id);
+                                              FactPermission.Blocker(g, latestQuiet), g.InheritedFromId);
             }
 
             return new FactSnapshot(

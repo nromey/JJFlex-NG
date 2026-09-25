@@ -542,8 +542,10 @@ namespace Radios.Facts
         /// Rebind the predecessor's grants to the successor, at their original
         /// causal positions, over exactly the units the successor carries from
         /// them. A Ctrl observed during the gap therefore still blocks them,
-        /// and an unknown-cause cancellation reported against the predecessor
-        /// follows through the lineage.
+        /// and an unknown-cause cancellation reported against any attempt in
+        /// the permission's lineage reaches them through the ONE constraint
+        /// object the whole lineage shares — never a copy taken now, which
+        /// could not receive a report made later.
         /// </summary>
         private void InheritGrantsLocked(FactRecord successor, FactRecord predecessor)
         {
@@ -560,7 +562,8 @@ namespace Radios.Facts
                     Id = Checked(ref _nextGrant),
                     SourceSequence = pg.SourceSequence,
                     Origin = GrantOrigin.Inherited,
-                    InheritedFrom = pg,
+                    InheritedFromId = pg.Id,
+                    Constraint = pg.Constraint,
                 };
                 grant.Covers.UnionWith(carried);
                 successor.Grants.Add(grant);

@@ -431,17 +431,19 @@ namespace Radios.Facts
                         attempt.CancelOperation = evidence.Operation;
                     }
 
-                    // An unknown-cause cancellation pauses the grant involved,
-                    // with its own cause — never mistaken for the operator's
-                    // quiet, and never released by a recovery.
+                    // An unknown-cause cancellation pauses the permission
+                    // involved, with its own cause — never mistaken for the
+                    // operator's quiet, never released by a recovery, and
+                    // written to the lineage the permission shares with every
+                    // grant inherited from it, however many reconnects later.
                     if (evidence.Kind == EvidenceKind.Cancelled && evidence.Cause == CancelCause.Unknown
                         && attempt.Kind == PlanRequestKind.Automatic)
                     {
                         AutomaticGrant? grant = attempt.Fact.Grants.FirstOrDefault(g => g.Id == attempt.GrantId);
-                        if (grant != null && grant.UnknownCancelledBy == null)
+                        if (grant != null && grant.Constraint.UnknownCancelledBy == null)
                         {
-                            grant.UnknownCancelledBy = attempt.Id;
-                            grant.UnknownCancelledAtSequence = _sequence;
+                            grant.Constraint.UnknownCancelledBy = attempt.Id;
+                            grant.Constraint.UnknownCancelledAtSequence = _sequence;
                         }
                     }
 
