@@ -1102,6 +1102,7 @@ namespace Radios.Tests
             int probeHits = 0;
             TraceSessionHandle sealExpected = null;
             TraceTransitionResult sealResult = null;
+            string partialSeen = null;
             Thread fall = null;
 
             var rig = NewRig();
@@ -1128,6 +1129,7 @@ namespace Radios.Tests
                     {
                         Interlocked.Increment(ref _seals);
                         sealExpected = (TraceSessionHandle)req.ExpectedSession;
+                        partialSeen = req.PartialMeterLine;
                         sealResult = TraceCoordinator.TrySeal(new TraceSealRequest
                         {
                             Expected = sealExpected,
@@ -1136,7 +1138,11 @@ namespace Radios.Tests
                             OutcomeDetail = req.OutcomeDetail,
                             Resume = TraceResumeIntent.Standing,
                         });
-                        return new CaptureSealResult { Refused = !sealResult.Owned };
+                        return new CaptureSealResult
+                        {
+                            Refused = !sealResult.Owned,
+                            RefusalReason = sealResult.Owned ? null : sealResult.Explanation,
+                        };
                     };
                     CaptureSeal.Queue = work => { lock (queued) queued.Add(work); };
 
@@ -1202,22 +1208,49 @@ namespace Radios.Tests
                 using (var sr = new StreamReader(fs)) successorText = sr.ReadToEnd();
                 Assert.Contains("TraceDeferred: REFUSED", successorText, StringComparison.Ordinal);
                 Assert.Contains("our connection dropped without us asking", successorText, StringComparison.Ordinal);
+                // Sol's review of H8, blocker 4: the seal WORKER's own lines
+                // — "sealing the running capture as connection_dropped"
+                // before the hook, and the refusal after it — used to be
+                // unbound and landed bare here, so this file claimed its own
+                // capture was being drop-sealed. Positive control first: the
+                // pre-seal claim IS in this file (the instrument sees it);
+                // then: every CaptureSeal line here is a refusal record.
+                Assert.Contains("sealing the running capture as " + TraceSessionOutcome.ConnectionDropped,
+                                successorText, StringComparison.Ordinal);
+                Assert.Contains("CaptureSeal: the seal was refused", successorText, StringComparison.Ordinal);
+                int captureSealLines = 0;
                 foreach (string line in successorText.Split('\n'))
                 {
+                    if (line.Contains("CaptureSeal:", StringComparison.Ordinal)) captureSealLines++;
                     if (!line.Contains("Connected:False", StringComparison.Ordinal)
                         && !line.Contains("connection fell", StringComparison.Ordinal)
-                        && !line.Contains("propertyChanged:Radio:Connected", StringComparison.Ordinal)) continue;
+                        && !line.Contains("propertyChanged:Radio:Connected", StringComparison.Ordinal)
+                        && !line.Contains("CaptureSeal:", StringComparison.Ordinal)) continue;
                     Assert.Contains("TraceDeferred: REFUSED", line, StringComparison.Ordinal);
+                    Assert.Contains("while session " + old.SessionId + " was recording", line, StringComparison.Ordinal);
                 }
+                Assert.True(captureSealLines >= 2, "expected the pre-seal claim and the refusal; saw " + captureSealLines);
+                // The meter window the drop collected is not discarded with
+                // the refused request: it is in this file too, as a refusal
+                // record naming the session it describes. The production
+                // collector renders a line even with no meter data (see
+                // CaptureMeterSet), so this is exercised, not skipped.
+                Assert.False(string.IsNullOrEmpty(partialSeen), "the drop collected no meter window; the recovery below is not exercised");
+                string partialLine = successorText.Split('\n').Single(l => l.Contains(partialSeen, StringComparison.Ordinal));
+                Assert.Contains("TraceDeferred: REFUSED", partialLine, StringComparison.Ordinal);
+                Assert.Contains("kept as evidence because its session had already been sealed", partialLine, StringComparison.Ordinal);
 
                 // The first line, queued before the Stop, went where it
-                // belonged: the old session's archive.
+                // belonged: the old session's archive — and no drop-seal
+                // claim did, because the drop seal never happened.
                 Assert.True(stop.Ticket.Completion.Wait(TimeSpan.FromSeconds(60)));
                 Assert.True(stop.Ticket.Completion.Result.ArchiveCommitted);
                 string oldText = File.ReadAllText(SessionArchive.ExtractTraceText(
                     stop.Ticket.Completion.Result.ArchiveFullPath, Path.Combine(dir, "extract")));
                 Assert.Contains("propertyChanged:Radio:Connected", oldText, StringComparison.Ordinal);
                 Assert.DoesNotContain("TraceDeferred: REFUSED", oldText, StringComparison.Ordinal);
+                Assert.DoesNotContain("CaptureSeal:", oldText, StringComparison.Ordinal);
+                Assert.DoesNotContain(partialSeen, oldText, StringComparison.Ordinal);
 
                 // Positive control for the instrument: a line bound to the
                 // successor lands in it bare.

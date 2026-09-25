@@ -429,6 +429,20 @@ namespace Radios
                                     string radioName,
                                     CaptureSealRequest request)
         {
+            // EVERY LINE THIS WORKER WRITES IS BOUND TO THE FALL'S SESSION
+            // (Sol's review of H8, blocker 4). The fall's own lines were
+            // bound at H7 and its seal at H8, but the worker still wrote
+            // "sealing the running capture as connection_dropped" through the
+            // unbound TraceLine before calling the hook, and "no archive was
+            // produced" after a refusal — so when a Stop had completed in the
+            // gap, both landed BARE in the Stop's successor, and a reader of
+            // that file saw its own capture being drop-sealed when no such
+            // seal happened. Bound, a line lands in the session it describes
+            // if that session is still current — the seal itself drains it
+            // ahead of its terminal records — and otherwise is written into
+            // the current sink as an explicit refusal record naming both
+            // sessions, never as a bare statement about the wrong one.
+            var about = request.ExpectedSession as TraceSessionHandle;
             CaptureSealResult result = null;
             try
             {
@@ -438,33 +452,60 @@ namespace Radios
                 // describe rather than in its successor. This thread may wait;
                 // it is the worker, and waiting is its job.
                 Tracing.FlushDeferred();
-                Tracing.TraceLine(
+                Tracing.TraceLineDeferred(
                     "CaptureSeal: sealing the running capture as " + TraceSessionOutcome.ConnectionDropped
                     + " — " + request.OutcomeDetail,
-                    TraceLevel.Warning);
+                    TraceLevel.Warning, about);
                 result = hook(request);
             }
             catch (Exception ex)
             {
-                Tracing.TraceLine("CaptureSeal: sealing failed: " + ex.Message, TraceLevel.Error);
+                Tracing.TraceLineDeferred("CaptureSeal: sealing failed: " + ex.Message, TraceLevel.Error, about);
+            }
+
+            if (result != null && result.Refused)
+            {
+                // The session the fall was about had already been sealed by
+                // another operation (a Stop, a log toggle, an exit) or was
+                // gone. Nothing was sealed and nothing will be shown. Said as
+                // a refusal, bound — and the meter window this drop collected
+                // is KEPT: it cannot go into the old archive (sealed by
+                // someone else, with their terminal records) and must not
+                // read as the successor's own, so it goes into the successor
+                // as a refusal record naming the session it describes,
+                // rather than being discarded with the request.
+                Tracing.TraceLineDeferred(
+                    "CaptureSeal: the seal was refused (" + (result.RefusalReason ?? "no reason given")
+                    + "); nothing was sealed for this drop and there is no archive path to show the operator",
+                    TraceLevel.Warning, about);
+                if (!string.IsNullOrEmpty(request.PartialMeterLine))
+                {
+                    Tracing.TraceLineDeferred(
+                        "CaptureSeal: the meter window this drop closed, kept as evidence because its session"
+                        + " had already been sealed by another operation: " + request.PartialMeterLine,
+                        TraceLevel.Warning, about);
+                }
+                Tracing.FlushDeferred();
+                return;
             }
 
             if (result == null || string.IsNullOrEmpty(result.ArchivePath))
             {
                 // Nothing to point the operator at. Saying nothing is right
                 // here: a dialog offering a path that does not exist is worse
-                // than no dialog, and the standing log — restarted by the hook —
-                // carries this line.
-                Tracing.TraceLine(
+                // than no dialog, and the Problems list carries the failure.
+                Tracing.TraceLineDeferred(
                     "CaptureSeal: no archive was produced, so there is no path to show the operator"
                     + (result != null && !string.IsNullOrEmpty(result.RawRetainedPath)
                         ? "; the raw trace is retained at " + result.RawRetainedPath
                         : string.Empty),
-                    TraceLevel.Warning);
+                    TraceLevel.Warning, about);
+                Tracing.FlushDeferred();
                 return;
             }
 
-            Tracing.TraceLine("CaptureSeal: sealed to " + result.ArchivePath, TraceLevel.Warning);
+            Tracing.TraceLineDeferred("CaptureSeal: sealed to " + result.ArchivePath, TraceLevel.Warning, about);
+            Tracing.FlushDeferred();
 
             try
             {
