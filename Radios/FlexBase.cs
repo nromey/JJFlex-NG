@@ -14386,7 +14386,20 @@ namespace Radios
             }
         }
 
-        // #608. The radio's own transmit power ceiling, as it reports it.
+        // #608. The radio's own PA cap, as it reports it.
+        //
+        // *** IT IS NOT ON THE SAME SCALE AS XmitPower. DO NOT COMPARE THEM. ***
+        //
+        // #195 established this before #608 existed, and the first version of
+        // this comment ignored it: FlexLib documents MaxPowerLevel as a
+        // RELATIVE, NON-LINEAR scale capping the PA, while RFPower is a level
+        // whose top is the mode's maximum. Both arrive as ints from nought to a
+        // hundred, both look like percentages, and they measure different
+        // things. #195 names that collision as the same species as reading dBm
+        // as watts, which cost a morning on 2026-08-22.
+        //
+        // So this is NOT a ceiling to clamp XmitPower against, NOT a number to
+        // show beside it, and NOT convertible to watts.
         //
         // Seeded from nothing: like _XmitPower above, this is written only by
         // the property-change case, which fires during the status flood at
@@ -14395,21 +14408,27 @@ namespace Radios
         // back to XmitPowerMax rather than believing it. MaxXmitPowerKnown says
         // which of the two it is, so no caller has to encode that rule twice.
         //
-        // NOT yet consulted by any display. Deliberately: whether this is the
-        // channel the radio uses to express the AM limit is an open question,
-        // and wiring a display to it before the trace answers that would be
-        // building on a guess. The trace line is the whole point for now.
+        // NOT consulted by any display, and #608's measurements are why it
+        // should stay that way until somebody has a real use for it: with the
+        // TX slice in AM this value did not move, so it is NOT the channel the
+        // radio uses to express the AM carrier limit. It was captured because
+        // discarding a status the radio sends is indefensible, not because a
+        // display wanted it.
         private int _MaxXmitPower;
 
         /// <summary>
-        /// The transmit power ceiling the radio reports, or
-        /// <see cref="XmitPowerMax"/> when it has reported none.
+        /// The PA cap the radio reports, on its OWN relative and non-linear
+        /// scale — read the comment above before using this for anything.
+        /// <para><b>Not comparable to <see cref="XmitPower"/>, not a clamp for
+        /// it, and not watts.</b> Returns <see cref="XmitPowerMax"/> when the
+        /// radio has reported nothing, which is a "no cap known" sentinel rather
+        /// than a measurement.</para>
         /// </summary>
         public int MaxXmitPower => _MaxXmitPower > 0 ? _MaxXmitPower : XmitPowerMax;
 
         /// <summary>
-        /// Whether the radio has actually reported a ceiling, as distinct from
-        /// <see cref="MaxXmitPower"/> having fallen back to the full scale.
+        /// Whether the radio has actually reported a cap, as distinct from
+        /// <see cref="MaxXmitPower"/> having fallen back to its sentinel.
         /// </summary>
         public bool MaxXmitPowerKnown => _MaxXmitPower > 0;
 
