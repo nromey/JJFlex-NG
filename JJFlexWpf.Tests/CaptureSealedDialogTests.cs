@@ -68,4 +68,44 @@ public sealed class CaptureSealedDialogTests
         Assert.Equal(notice.Explanation, outcome.Explanation);
         Assert.DoesNotContain("last lines", outcome.Explanation, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// <b>Sol's review of H10, blocker 2 — written and compiled in Track
+    /// H11; NOT RUN.</b> The recording state changes after the notice
+    /// exists and before the window is constructed — the dispatcher queue
+    /// between <c>CaptureSealWatch</c>'s BeginInvoke and the constructor —
+    /// and the explanation box carries the sentence for the state at
+    /// construction, not the state the worker saw. The headless half of
+    /// this is <c>Radios.Tests.DropNoticeStateTests</c>; what this adds is
+    /// that the realised control is what carries it.
+    /// </summary>
+    [Fact]
+    public void The_explanation_box_carries_the_recording_state_at_construction_not_at_the_seal()
+    {
+        bool recording = true;
+        var notice = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip",
+            successorOpened: true, archivedSessionId: Guid.NewGuid(),
+            tailUncertain: false, sinkFailedBeforeDrop: false,
+            recordingNow: () => recording, fileFacts: null);
+        // The worker's moment: the ordinary promise. Positive control.
+        Assert.Contains("is being kept too", notice.Explanation, StringComparison.Ordinal);
+
+        // The queue: the log goes off before the dispatched action runs.
+        recording = false;
+
+        var outcome = UiThread.RunWithTimeout(() =>
+        {
+            var dialog = new CaptureSealedDialog(notice);
+            using var realized = RealizedDialog.Realize(dialog, Sweep.Strategy);
+            UiThread.Drain();
+            var panel = (StackPanel)dialog.Content;
+            return (LoadedFired: realized.LoadedFired, Explanation: ((TextBox)panel.Children[0]).Text);
+        }, TimeSpan.FromSeconds(30));
+
+        Assert.True(outcome.LoadedFired, "Loaded never fired, so the tree was not realised and this proves nothing.");
+        Assert.DoesNotContain("is being kept too", outcome.Explanation, StringComparison.Ordinal);
+        Assert.Contains("did start recording again after the connection went, but it is not recording now",
+                        outcome.Explanation, StringComparison.Ordinal);
+        Assert.Equal(notice.Explanation, outcome.Explanation);
+    }
 }

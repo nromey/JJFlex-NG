@@ -537,5 +537,108 @@ namespace Radios.Tests
             Assert.DoesNotContain("not recording now", notice.Explanation, StringComparison.Ordinal);
             Assert.DoesNotContain("Control J then Control R", notice.Explanation, StringComparison.Ordinal);
         }
+
+        // ── Sol's review of H10, blocker 2: the second queue boundary ──────
+        //
+        // OneDrop returns once the worker has raised SealedAfterDrop and
+        // exited — the notice exists, exactly as CaptureSealWatch receives
+        // it, and nothing has composed its text for a window yet. What the
+        // test thread does next is what the dispatcher queue does in
+        // production between the worker's BeginInvoke and the dialog's
+        // constructor. Reading Explanation afterwards IS the constructor's
+        // read.
+
+        /// <summary>
+        /// The operator's Settings "off" lands after the worker composed the
+        /// notice and before the window installs its text. The window says
+        /// nothing is being kept — the same notice that, read a moment
+        /// earlier, promised it was.
+        /// </summary>
+        [Fact]
+        public void The_sentence_is_decided_when_the_text_is_installed_not_when_the_worker_composed_the_notice()
+        {
+            CaptureSealNotice notice = OneDrop(duringTheWait: () => { });
+
+            // The worker's moment: recording, and the notice says so. This is
+            // what H10 froze, and what a window built now would say.
+            Assert.True(TraceRecordingHealth.Snapshot().SinkState == TraceSinkState.Recording);
+            string atTheWorker = notice.Explanation;
+            Assert.Contains("has already started recording again, so the next thing that happens is being kept too",
+                            atTheWorker, StringComparison.Ordinal);
+
+            // The queued Settings action runs first: exactly what
+            // ApplyDiagnosticLogSettings does for "off".
+            TraceSessionHandle successor = TraceCoordinator.CurrentHandle;
+            Assert.NotNull(successor);
+            TraceTransitionResult off = TraceCoordinator.TrySeal(new TraceSealRequest
+            {
+                Expected = successor,
+                OperationId = Guid.NewGuid(),
+                Outcome = TraceSessionOutcome.CleanExit,
+                OutcomeDetail = "User turned diagnostic log off",
+                Resume = TraceResumeIntent.None,
+            });
+            Assert.Equal(TraceTransition.Accepted, off.Status);
+            Assert.False(TraceCoordinator.Observe().Recording);
+            Assert.NotEqual(TraceSinkState.Recording, TraceRecordingHealth.Snapshot().SinkState);
+
+            // The window's moment: the same notice, read as the constructor
+            // reads it.
+            string atTheWindow = notice.Explanation;
+            _out.WriteLine("--- at the window, after the log was turned off in the queue:");
+            _out.WriteLine(atTheWindow);
+            Assert.NotEqual(atTheWorker, atTheWindow);
+            Assert.False(notice.RecordingNow);
+            Assert.True(notice.SuccessorOpened, "the seal's own fact is kept: a successor did open");
+            Assert.DoesNotContain("is being kept too", atTheWindow, StringComparison.Ordinal);
+            Assert.DoesNotContain("has not started recording again", atTheWindow, StringComparison.Ordinal);
+            Assert.Contains("did start recording again after the connection went, but it is not recording now", atTheWindow, StringComparison.Ordinal);
+            Assert.Contains("what happens next is not being kept", atTheWindow, StringComparison.Ordinal);
+            Assert.Contains("Control J then Control R", atTheWindow, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The other way: the successor's file fails after the worker
+        /// composed the notice, and the fault retire runs before the
+        /// window. Same answer at the window.
+        /// </summary>
+        [Fact]
+        public void A_successor_that_fails_after_the_worker_composed_the_notice_is_not_called_a_running_log_at_the_window()
+        {
+            CaptureSealNotice notice = OneDrop(duringTheWait: () => { });
+            Assert.Contains("is being kept too", notice.Explanation, StringComparison.Ordinal);   // the worker's moment
+
+            BreakTheLiveSink();
+            Tracing.TraceLine("the write that fails", TraceLevel.Warning);
+            Assert.True(SpinWait.SpinUntil(() => TraceCoordinator.CurrentHandle == null, TimeSpan.FromSeconds(10)),
+                        "the faulted successor was never retired");
+            Assert.Equal(TraceSinkState.Failed, TraceRecordingHealth.Snapshot().SinkState);
+
+            string atTheWindow = notice.Explanation;
+            _out.WriteLine("--- at the window, after the successor failed in the queue:");
+            _out.WriteLine(atTheWindow);
+            Assert.False(notice.RecordingNow);
+            Assert.True(notice.SuccessorOpened);
+            Assert.DoesNotContain("is being kept too", atTheWindow, StringComparison.Ordinal);
+            Assert.Contains("but it is not recording now", atTheWindow, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Positive control for the two above: nothing lands in the queue,
+        /// and the text at the window is the text at the worker — so the
+        /// change of sentence above is caused by the change of state and
+        /// not by reading twice.
+        /// </summary>
+        [Fact]
+        public void With_nothing_in_the_queue_the_window_reads_what_the_worker_would_have_said()
+        {
+            CaptureSealNotice notice = OneDrop(duringTheWait: () => { });
+            string atTheWorker = notice.Explanation;
+            Assert.Equal(TraceSinkState.Recording, TraceRecordingHealth.Snapshot().SinkState);
+            string atTheWindow = notice.Explanation;
+            Assert.Equal(atTheWorker, atTheWindow);
+            Assert.True(notice.RecordingNow);
+            Assert.Contains("so the next thing that happens is being kept too", atTheWindow, StringComparison.Ordinal);
+        }
     }
 }

@@ -41,6 +41,11 @@ namespace JJFlexWpf
 
         private static void OnSealed(CaptureSealNotice notice)
         {
+            // The notice is handed over unrendered, on purpose (Sol's review
+            // of H10, blocker 2). Its text asks the recording state at the
+            // moment it is composed, and the dialog composes it inside the
+            // dispatched action — so nothing here may read Explanation,
+            // AsText or RecordingNow and carry the answer across the queue.
             try
             {
                 var ui = _ui;

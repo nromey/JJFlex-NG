@@ -72,6 +72,13 @@ public sealed class CaptureSealedDialog : JJFlexDialog
 
         var panel = new StackPanel { Margin = new Thickness(14) };
 
+        // READ HERE, AND NOWHERE EARLIER (Sol's review of H10, blocker 2).
+        // Explanation asks the notice's recording reader at the moment it is
+        // composed, and this constructor runs on the UI thread inside the
+        // action CaptureSealWatch dispatched — so this line is where "the
+        // next thing that happens is being kept too" is decided, after every
+        // Settings action and fault retire that was queued ahead of it has
+        // run. Nothing may compose or cache the text on the worker.
         var explanation = new TextBox
         {
             Text = notice.Explanation,

@@ -551,20 +551,23 @@ namespace Radios
                 // Problems list carries that condition, and clears it when
                 // the archive commits (Sol's review of H7, finding 3).
                 //
-                // WHETHER ANYTHING IS RECORDING IS READ HERE, NOW — not
-                // copied from the seal (Sol's review of H9, blocker 1). The
-                // hook has just waited up to five minutes for the archive,
-                // and the operator may have turned the standing log off in
-                // that time, or the successor's own file may have failed and
-                // retired it. The successor bit says what the seal did; the
-                // coordinator says what is true at the moment the operator
-                // is about to read "what happens next is being kept".
-                bool recordingNow = TraceCoordinator.Observe().Recording;
+                // WHETHER ANYTHING IS RECORDING IS NOT READ HERE AT ALL
+                // (Sol's review of H10, blocker 2). H10 read it here, after
+                // the archive wait, and froze it into the notice — but this
+                // thread is not the one that shows the window. The watch
+                // posts the notice to the UI thread and the window installs
+                // its text when that dispatched action runs, and a queued
+                // Settings "off" or a successor fault can complete between
+                // this line and that one. So the notice carries a READER,
+                // and the paragraph is chosen when the text is composed —
+                // for the window, on the UI thread, at render. The successor
+                // bit is still the seal's own fact and still tells the two
+                // not-recording paragraphs apart.
                 SealedAfterDrop?.Invoke(new CaptureSealNotice(
                     radioName, result.ArchivePath, result.SuccessorOpened, result.ArchivedSessionId,
                     tailUncertain: result.TailUncertain,
                     sinkFailedBeforeDrop: result.SinkFailedBeforeDrop,
-                    recordingNow: recordingNow,
+                    recordingNow: CaptureSealNotice.LiveRecordingState,
                     fileFacts: result.FileFacts));
             }
             catch (Exception ex)

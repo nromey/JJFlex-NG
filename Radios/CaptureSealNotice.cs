@@ -127,8 +127,9 @@ namespace Radios
         /// bit only tells the two not-recording paragraphs apart: nothing
         /// opened after the seal, or something opened and has since stopped.
         /// </summary>
-        /// <param name="recordingNow">The coordinator's recording state at the
-        /// moment this notice is composed — a live sink that has not faulted.</param>
+        /// <param name="recordingNow">A recording state frozen when this
+        /// notice is built. A window must not be built from this overload —
+        /// see the reader overload below, and why.</param>
         public CaptureSealNotice(string radioName, string archivePath,
                                  bool successorOpened, Guid? archivedSessionId,
                                  bool tailUncertain, bool sinkFailedBeforeDrop,
@@ -160,6 +161,36 @@ namespace Radios
                                  bool successorOpened, Guid? archivedSessionId,
                                  bool tailUncertain, bool sinkFailedBeforeDrop,
                                  bool recordingNow, TraceFileFacts fileFacts)
+            : this(radioName, archivePath, successorOpened, archivedSessionId, tailUncertain,
+                   sinkFailedBeforeDrop, () => recordingNow, fileFacts)
+        {
+        }
+
+        /// <summary>
+        /// <b>Whether anything is recording is asked when the TEXT is
+        /// composed, not when the notice was built</b> (Sol's review of H10,
+        /// blocker 2). H10 read the coordinator once, on the seal worker,
+        /// after the archive wait — and then froze that Boolean into this
+        /// notice. The notice is posted to the UI thread with
+        /// <c>Dispatcher.BeginInvoke</c>, and the window copies
+        /// <see cref="Explanation"/> only when that dispatched action runs;
+        /// a queued Settings "off" or a successor fault completing in
+        /// between made "the next thing that happens is being kept too"
+        /// false at the moment the operator read it. So the notice carries a
+        /// READER, not a conclusion: <see cref="RecordingNow"/> asks it every
+        /// time, and <see cref="Explanation"/> asks it once, at the moment
+        /// the paragraph is chosen — which for the window is the moment the
+        /// text is installed, on the UI thread, inside the dispatched
+        /// action. Production passes <see cref="LiveRecordingState"/>.
+        /// </summary>
+        /// <param name="recordingNow">Answers "is a live, unfaulted sink
+        /// recording right now?" at the moment it is asked. Must not wait on
+        /// the trace gate — it is asked on the UI thread. Null is read as
+        /// "not recording", the paragraph that promises nothing.</param>
+        public CaptureSealNotice(string radioName, string archivePath,
+                                 bool successorOpened, Guid? archivedSessionId,
+                                 bool tailUncertain, bool sinkFailedBeforeDrop,
+                                 Func<bool> recordingNow, TraceFileFacts fileFacts)
         {
             RadioName = (radioName ?? string.Empty).Trim();
             ArchivePath = archivePath ?? string.Empty;
@@ -167,9 +198,27 @@ namespace Radios
             ArchivedSessionId = archivedSessionId;
             TailUncertain = tailUncertain;
             SinkFailedBeforeDrop = tailUncertain && sinkFailedBeforeDrop;
-            RecordingNow = recordingNow;
+            _recordingNow = recordingNow ?? (() => false);
             FileFacts = fileFacts;
         }
+
+        /// <summary>
+        /// The production reader: what the recording-health model says the
+        /// live sink is doing. Chosen over <c>TraceCoordinator.Observe()</c>
+        /// for two reasons. It never takes the trace gate — it is read under
+        /// the health model's own short lock — so asking it on the UI thread
+        /// cannot wait out a transition stalling on a disk, which is the rule
+        /// every other reader on a thread that must return has kept since
+        /// H7. And it is the model the Problems list reads: the paragraph
+        /// that says "the Problems list says why" and the list itself now
+        /// answer from one place. <c>Recording</c> there also requires the
+        /// successor's first record to have been written and flushed, which
+        /// is a stricter "recording" than an open sink.
+        /// </summary>
+        public static bool LiveRecordingState() =>
+            TraceRecordingHealth.Snapshot().SinkState == TraceSinkState.Recording;
+
+        private readonly Func<bool> _recordingNow;
 
         /// <summary>What the sealed file is known to contain, or null when
         /// the seal did not say. See <see cref="TraceFileFacts"/>.</summary>
@@ -213,12 +262,23 @@ namespace Radios
         public bool SuccessorOpened { get; }
 
         /// <summary>
-        /// Whether something is recording at the moment this notice was
-        /// composed. Chooses the what-to-do paragraph: the ordinary one
-        /// promises that what happens next is being kept, and that promise is
-        /// made only when a live, unfaulted sink exists NOW.
+        /// Whether something is recording at the moment this is ASKED — the
+        /// reader is consulted on every read, never cached. Chooses the
+        /// what-to-do paragraph: the ordinary one promises that what happens
+        /// next is being kept, and that promise is made only when a live,
+        /// unfaulted sink exists at the moment the paragraph is composed. A
+        /// reader that throws is read as "not recording": the reporting path
+        /// must never fail, and the paragraph that promises nothing is the
+        /// safe one.
         /// </summary>
-        public bool RecordingNow { get; }
+        public bool RecordingNow
+        {
+            get
+            {
+                try { return _recordingNow(); }
+                catch { return false; }
+            }
+        }
 
         /// <summary>Which trace session was archived.</summary>
         public Guid? ArchivedSessionId { get; }
@@ -270,7 +330,9 @@ namespace Radios
         /// <summary>
         /// What to do with it. The ordinary sentence says JJ Flexible has
         /// already started recording again and what happens next is being
-        /// kept — said only when something is recording NOW. Otherwise one
+        /// kept — said only when something is recording at the moment this
+        /// property is read, which is the moment the window installs its
+        /// text. Otherwise one
         /// of two: nothing opened after the seal, or a fresh log did open and
         /// has since stopped (the operator turned it off during the archive
         /// wait, or its file failed); both say where to read why. DRAFTS for

@@ -384,6 +384,78 @@ namespace Radios.Tests
             Assert.Equal(ordinary.Explanation, built.Explanation);
         }
 
+        /// <summary>
+        /// <b>Sol's review of H10, blocker 2.</b> The notice carries a
+        /// READER, and the what-to-do paragraph is chosen by what the reader
+        /// answers at the moment the text is composed — not by what it
+        /// answered when the notice was built. One notice, the world changes
+        /// under it, and its text follows: that is the headless proof of the
+        /// queue boundary between the seal worker and the dispatched window.
+        /// </summary>
+        [Fact]
+        public void The_recording_state_is_asked_when_the_text_is_composed_not_when_the_notice_was_built()
+        {
+            bool recording = true;
+            int asked = 0;
+            var n = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", successorOpened: true,
+                                          archivedSessionId: Guid.NewGuid(), tailUncertain: false,
+                                          sinkFailedBeforeDrop: false,
+                                          recordingNow: () => { asked++; return recording; },
+                                          fileFacts: Facts(true, true));
+            Assert.Equal(0, asked);   // building the notice asks nothing
+
+            // Composed while recording: the ordinary promise — the positive
+            // control, and what the worker would have frozen.
+            string before = n.Explanation;
+            _out.WriteLine("--- composed while recording");
+            _out.WriteLine(before);
+            Assert.Equal(Lexicon.Get("logging.capture.dropped.what_to_do"), n.WhatToDo);
+            Assert.Contains("so the next thing that happens is being kept too", before, StringComparison.Ordinal);
+            Assert.True(asked >= 1);
+
+            // The world changes after the notice exists and before the text
+            // is composed again — a Settings "off" or a fault landing in the
+            // dispatcher queue ahead of the window.
+            recording = false;
+            string after = n.Explanation;
+            _out.WriteLine("--- composed after recording stopped");
+            _out.WriteLine(after);
+            Assert.NotEqual(before, after);
+            Assert.False(n.RecordingNow);
+            Assert.True(n.SuccessorOpened, "the seal's own fact does not move");
+            Assert.Equal(Lexicon.Get("logging.capture.dropped.what_to_do_stopped_since"), n.WhatToDo);
+            Assert.DoesNotContain("is being kept too", after, StringComparison.Ordinal);
+            Assert.Contains("did start recording again after the connection went, but it is not recording now", after, StringComparison.Ordinal);
+            Assert.Contains("Control J then Control R", after, StringComparison.Ordinal);
+            // Every other paragraph is the same text: only the promise moved.
+            Assert.Equal(n.WhatHappened + Environment.NewLine + Environment.NewLine + n.WhatWasSaved,
+                         after.Substring(0, after.IndexOf(n.WhatToDo, StringComparison.Ordinal)).TrimEnd());
+
+            // And it moves back: the reader is consulted every time, never cached.
+            recording = true;
+            Assert.Equal(before, n.Explanation);
+
+            // A reader that throws, and no reader at all, both choose the
+            // paragraph that promises nothing.
+            var throwing = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
+                                                 tailUncertain: false, sinkFailedBeforeDrop: false,
+                                                 recordingNow: () => throw new InvalidOperationException("no"),
+                                                 fileFacts: Facts(true, true));
+            Assert.False(throwing.RecordingNow);
+            Assert.DoesNotContain("is being kept too", throwing.Explanation, StringComparison.Ordinal);
+            var none = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
+                                             tailUncertain: false, sinkFailedBeforeDrop: false,
+                                             recordingNow: (Func<bool>)null, fileFacts: Facts(true, true));
+            Assert.False(none.RecordingNow);
+
+            // The Boolean overloads still mean a frozen fact, so every earlier
+            // test keeps its meaning.
+            var frozen = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
+                                               tailUncertain: false, sinkFailedBeforeDrop: false, recordingNow: true,
+                                               fileFacts: Facts(true, true));
+            Assert.Equal(before, frozen.Explanation);
+        }
+
         private static TraceFileFacts Facts(bool power, bool temperature, bool faulted = false,
                                             int unflushed = 0, bool lost = false, bool refused = false) =>
             new TraceFileFacts(power, temperature, faulted, unflushed, lost, refused);
