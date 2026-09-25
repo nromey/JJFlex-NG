@@ -2170,6 +2170,123 @@ namespace Radios.Tests
         }
 
         /// <summary>
+        /// <b>Sol's review of H12: a rotation whose recovery cannot reopen the
+        /// file is a sink fault like any other.</b> The rotation closes the
+        /// part, the move fails, and the recovery's own open fails too. That
+        /// used to leave a closed sink with no fault latched, so the
+        /// coordinator never queued the retirement, health stayed
+        /// <c>Recording</c>, the Problems list stayed silent, and Diagnostics
+        /// said a capture was in progress while every later line was refused.
+        ///
+        /// <para>Both failures are real file operations, not mocks. The live
+        /// file is deleted under the sink (it opens with
+        /// <c>FileShare.Delete</c>, so it may be), which makes the move fail
+        /// and sends the recovery to the part path; a DIRECTORY sits at the
+        /// part path, so that open fails as well. Rotation is forced through
+        /// the existing <see cref="Tracing.RotationThresholdBytes"/> seam at
+        /// 4096 bytes, which the sink takes as its constructor threshold.</para>
+        /// </summary>
+        [Fact]
+        public void A_rotation_whose_recovery_cannot_reopen_the_file_retires_the_session_as_failed()
+        {
+            long savedThreshold = Tracing.RotationThresholdBytes;
+            try
+            {
+                Tracing.RotationThresholdBytes = 4096;
+                TraceSessionHandle a = Open();
+                RotatingTraceListener sink = Tracing.LiveListener;
+                Assert.NotNull(sink);
+                Assert.True(TraceCoordinator.RecordingWithoutWaiting());
+
+                DateTime boot = TraceCoordinator.Observe().SessionBootTimeUtc.Value;
+                string partPath = TraceFileNaming.StampedPartPath(_livePath, boot, 1);
+                Directory.CreateDirectory(partPath);
+                File.Delete(_livePath);
+
+                using var held = new HeldFaultRetire();
+                using var changes = new HealthChanges();
+                for (int i = 0; i < 400 && !held.Captured; i++)
+                    Write("rotation filler " + i + " " + new string('x', 80));
+
+                // The fault is latched through the same path a failed write
+                // takes, and it carries both causes.
+                Assert.True(sink.IsClosed, "the rotation never ran, or its recovery succeeded");
+                Assert.Equal(1, sink.PartNumber);
+                Assert.NotNull(sink.LastRotationError);
+                Assert.NotNull(sink.WriteFault);
+                Assert.Contains(sink.LastRotationError, sink.WriteFault, StringComparison.Ordinal);
+                Assert.NotEqual(sink.LastRotationError, sink.WriteFault);
+                Assert.True(sink.Facts.Faulted);
+
+                // Retirement queued, and the drop-window reader already reads
+                // the closed file as not recording.
+                Assert.True(held.Captured, "the coordinator never queued the fault retirement");
+                Assert.False(TraceCoordinator.RecordingWithoutWaiting());
+
+                held.Run();
+
+                TraceRecordingHealthSnapshot snap = TraceRecordingHealth.Snapshot();
+                Assert.Equal(TraceSinkState.Failed, snap.SinkState);
+                Assert.Equal(sink.WriteFault, snap.SinkFault);
+                Assert.True(snap.NeedsAttention);
+
+                TraceRecordingHealthChange failed = Assert.Single(
+                    changes.All, c => c.Kind == TraceRecordingHealthChangeKind.SinkFailed);
+                var entry = RecordingHealthNotice.Announcement(failed);
+                Assert.NotNull(entry);
+                Assert.Equal(FailureKind.RecordingStopped, entry.Value.Kind);
+                Assert.Contains(sink.WriteFault, entry.Value.Detail, StringComparison.Ordinal);
+
+                // The session is over: nothing claims to be recording it.
+                Assert.Null(TraceCoordinator.CurrentHandle);
+                Assert.False(TraceCoordinator.Recording);
+                Assert.False(TraceCoordinator.RecordingWithoutWaiting());
+                Assert.NotEqual(Guid.Empty, a.SessionId);
+            }
+            finally
+            {
+                Tracing.RotationThresholdBytes = savedThreshold;
+            }
+        }
+
+        /// <summary>
+        /// The positive control for the test above: the same writes at the
+        /// same threshold, with nothing in the way, rotate cleanly and leave
+        /// the session recording — no fault, no retirement, no Problems entry.
+        /// </summary>
+        [Fact]
+        public void A_rotation_that_succeeds_stays_recording()
+        {
+            long savedThreshold = Tracing.RotationThresholdBytes;
+            try
+            {
+                Tracing.RotationThresholdBytes = 4096;
+                TraceSessionHandle a = Open();
+                RotatingTraceListener sink = Tracing.LiveListener;
+                Assert.NotNull(sink);
+
+                using var held = new HeldFaultRetire();
+                using var changes = new HealthChanges();
+                for (int i = 0; i < 400 && sink.PartNumber < 2; i++)
+                    Write("rotation filler " + i + " " + new string('x', 80));
+
+                Assert.Equal(2, sink.PartNumber);
+                Assert.False(sink.IsClosed);
+                Assert.Null(sink.WriteFault);
+                Assert.Null(sink.LastRotationError);
+                Assert.False(held.Captured);
+                Assert.True(TraceCoordinator.RecordingWithoutWaiting());
+                Assert.Equal(TraceSinkState.Recording, TraceRecordingHealth.Snapshot().SinkState);
+                Assert.DoesNotContain(changes.All, c => c.Kind == TraceRecordingHealthChangeKind.SinkFailed);
+                Assert.Equal(a.SessionId, TraceCoordinator.CurrentHandle?.SessionId);
+            }
+            finally
+            {
+                Tracing.RotationThresholdBytes = savedThreshold;
+            }
+        }
+
+        /// <summary>
         /// The router stays in <c>Trace.Listeners</c> for the life of the
         /// process. Sealing a session used to call process-wide
         /// <c>Trace.Close</c> and remove the listener, so between a close and

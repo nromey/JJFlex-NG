@@ -229,7 +229,15 @@ namespace JJTrace
         /// <summary>Caller holds <c>_sync</c>. Latch the first failure only.</summary>
         private void Fault(Exception ex)
         {
-            if (WriteFault == null) WriteFault = ex == null ? "unknown write failure" : ex.Message;
+            LatchFault(ex == null ? "unknown write failure" : ex.Message);
+        }
+
+        /// <summary>Caller holds <c>_sync</c>. Latch the first failure only,
+        /// for a fault whose text is composed rather than one exception's
+        /// message — a rotation whose recovery also failed has two causes.</summary>
+        private void LatchFault(string text)
+        {
+            if (WriteFault == null) WriteFault = text ?? "unknown write failure";
         }
 
         /// <summary>
@@ -620,7 +628,26 @@ namespace JJTrace
                     Open(File.Exists(FilePath) ? FilePath : partPath, append: true);
                     FilePath = File.Exists(FilePath) ? FilePath : partPath;
                 }
-                catch { /* tracing is down; nothing further we can safely do */ }
+                catch (Exception reopenEx)
+                {
+                    // Tracing is down: the rotation closed the file and the
+                    // recovery could not open one. LATCH it, exactly as a
+                    // failed write does. This catch used to discard the
+                    // exception, and that left a closed sink with no fault —
+                    // so the coordinator never noticed it, never retired the
+                    // session, and the health model kept saying Recording
+                    // while every later line was refused (Sol's review of
+                    // H12). The fault carries BOTH causes: the rotation's,
+                    // which is why the file was closed, and the reopen's,
+                    // which is why it stayed closed. The rotation's own
+                    // buffer was flushed inside CloseInternal, where a failure
+                    // is swallowed, so what was pending is counted as taken —
+                    // the facts may not claim a flush nothing confirmed.
+                    _tally.FaultedOn(null, failingAlreadyCounted: false);
+                    LatchFault("starting a new part of the trace file failed (" + ex.Message
+                               + "), and reopening the file afterwards failed too ("
+                               + reopenEx.Message + ")");
+                }
                 _nextRotateAt = _bytesInPart + Math.Max(RotationThresholdBytes, 1);
                 return null;
             }
