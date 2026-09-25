@@ -61,6 +61,13 @@ namespace Radios.Tests
             _savedQueue = CaptureSeal.Queue;
             _savedSession = TraceSessionContext.Current;
             CaptureSeal.ForgetClaimForTests();
+            // Both claim spaces, together. A drop's operation id is built from
+            // the connection token's ordinal, and forgetting the tokens
+            // restarts the ordinals — so a ticket another class's test left in
+            // the coordinator under that id would answer this class's seals
+            // with AlreadyClaimed and somebody else's session (seen 2026-09-24
+            // once DropNoticeStateTests began leaving real tickets behind).
+            TraceCoordinator.ResetClaimsForTests();
 
             // Count seals, and run the worker inline so a count is a fact the
             // moment the call returns rather than something to wait for.
@@ -1252,6 +1259,19 @@ namespace Radios.Tests
                 Assert.DoesNotContain("CaptureSeal:", oldText, StringComparison.Ordinal);
                 Assert.DoesNotContain(partialSeen, oldText, StringComparison.Ordinal);
 
+                // Since H10 the window ALSO has a destination that needs no
+                // successor: a late-evidence file beside the old session's
+                // archive, which the successor's refusal record points at
+                // (Sol's review of H9, blocker 3). Here the successor exists,
+                // so both hold it; the test below is the case where only the
+                // file does.
+                string beside = SessionArchive.LateEvidencePathFor(stop.Ticket.Completion.Result.ArchiveFullPath);
+                Assert.True(File.Exists(beside), "no late-evidence file beside the old session's archive");
+                string besideText = File.ReadAllText(beside);
+                Assert.Contains(partialSeen, besideText, StringComparison.Ordinal);
+                Assert.Contains(old.SessionId.ToString(), besideText, StringComparison.Ordinal);
+                Assert.Contains("also kept beside that session's archive at " + beside, partialLine, StringComparison.Ordinal);
+
                 // Positive control for the instrument: a line bound to the
                 // successor lands in it bare.
                 Tracing.TraceLineDeferred("H8 control: bound to the successor", TraceLevel.Warning, stop.Successor);
@@ -1260,6 +1280,186 @@ namespace Radios.Tests
                 using (var sr = new StreamReader(fs)) successorText = sr.ReadToEnd();
                 string control = successorText.Split('\n').Single(l => l.Contains("H8 control", StringComparison.Ordinal));
                 Assert.DoesNotContain("REFUSED", control, StringComparison.Ordinal);
+            }
+            finally
+            {
+                if (TraceCoordinator.CurrentHandle != null)
+                {
+                    TraceCoordinator.TrySeal(new TraceSealRequest
+                    {
+                        ShutdownAuthority = true,
+                        Outcome = TraceSessionOutcome.CleanExit,
+                        Resume = TraceResumeIntent.None,
+                        OperationId = Guid.NewGuid(),
+                    });
+                }
+                TraceCoordinator.DrainArchives(TimeSpan.FromSeconds(20));
+                TraceCoordinator.ArchiveRootDir = savedRoot;
+                TraceCoordinator.SetStandingIntent(true, TraceLevel.Info);
+                Tracing.TheSwitch.Level = savedLevel;
+                Tracing.On = savedOn;
+                Tracing.ResetDeferredCountersForTests();
+                Release(rig);
+                try { Directory.Delete(dir, recursive: true); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// <b>Sol's review of H9, blocker 3.</b> The same Stop-in-the-gap
+        /// race with the STANDING LOG OFF: the Stop opens no successor, so
+        /// there is no sink for the drop's bound lines to be refused into,
+        /// and the drain consumes them without writing. H9's refusal record
+        /// was the partial meter window's only destination, and here it
+        /// does not exist. Since H10 the window is kept in a late-evidence
+        /// file beside the old session's archive, which needs no sink: after
+        /// the worker runs, exactly one file on disk holds the window, it is
+        /// that one, it names the old session, and the old session's own
+        /// sealed archive does not contain it.
+        /// </summary>
+        [Fact]
+        public void A_Stop_with_no_standing_log_leaves_the_refused_drops_meter_window_beside_the_old_archive()
+        {
+            string dir = Path.Combine(Path.GetTempPath(), "jjflex-h10-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            string livePath = Path.Combine(dir, "JJFlexRadioTrace.txt");
+            string savedRoot = TraceCoordinator.ArchiveRootDir;
+            bool savedOn = Tracing.On;
+            TraceLevel savedLevel = Tracing.TheSwitch.Level;
+
+            var queued = new List<Action>();
+            var atFirstLine = new ManualResetEventSlim(false);
+            var release = new ManualResetEventSlim(false);
+            int probeHits = 0;
+            TraceTransitionResult sealResult = null;
+            string partialSeen = null;
+            Thread fall = null;
+
+            var rig = NewRig();
+            var radio = NewWanRadio(UniqueSerial(), "Don's 6300");
+            try
+            {
+                TraceTransitionResult stop = null;
+                TraceSessionHandle old;
+                try
+                {
+                    typeof(TraceCoordinator)
+                        .GetMethod("RestoreSessionForTests", BindingFlags.NonPublic | BindingFlags.Static)!
+                        .Invoke(null, new object[] { null });
+                    TraceCoordinator.ArchiveRootDir = Path.Combine(dir, "Traces");
+                    // The drop's operation id is the connection token's
+                    // ordinal; the fixture restarts the ordinals, so a ticket
+                    // an earlier test archived under the same id would answer
+                    // this seal with AlreadyClaimed. Both claim spaces, reset.
+                    TraceCoordinator.ResetClaimsForTests();
+                    // The one difference from the test above.
+                    TraceCoordinator.SetStandingIntent(false, TraceLevel.Verbose);
+                    Tracing.TheSwitch.Level = TraceLevel.Verbose;
+                    Tracing.On = true;
+                    Tracing.ResetDeferredCountersForTests();
+                    TraceTransitionResult began = TraceCoordinator.Begin(livePath, TraceLevel.Verbose, asDetailedCapture: true);
+                    Assert.Equal(TraceTransition.Accepted, began.Status);
+                    old = began.Successor;
+
+                    CaptureSeal.SealHook = req =>
+                    {
+                        Interlocked.Increment(ref _seals);
+                        partialSeen = req.PartialMeterLine;
+                        sealResult = TraceCoordinator.TrySeal(new TraceSealRequest
+                        {
+                            Expected = (TraceSessionHandle)req.ExpectedSession,
+                            OperationId = req.DropOperationId,
+                            Outcome = TraceSessionOutcome.ConnectionDropped,
+                            OutcomeDetail = req.OutcomeDetail,
+                            Resume = TraceResumeIntent.Standing,
+                        });
+                        return new CaptureSealResult
+                        {
+                            Refused = !sealResult.Owned,
+                            RefusalReason = sealResult.Owned ? null : sealResult.Explanation,
+                        };
+                    };
+                    CaptureSeal.Queue = work => { lock (queued) queued.Add(work); };
+
+                    rig.theRadio = radio;
+                    WireAsConnectDoes(rig, radio);
+                    MarkLive(radio, rig);
+
+                    Tracing.DeferredLineProbeForTests = text =>
+                    {
+                        if (!text.Contains("propertyChanged:Radio:Connected", StringComparison.Ordinal)) return;
+                        if (Interlocked.Increment(ref probeHits) != 1) return;
+                        atFirstLine.Set();
+                        release.Wait(TimeSpan.FromSeconds(30));
+                    };
+                    fall = new Thread(() => LoseTheTransport(radio)) { IsBackground = true };
+                    fall.Start();
+                    Assert.True(atFirstLine.Wait(TimeSpan.FromSeconds(10)), "the fall never wrote its first line");
+
+                    // The Stop, in the gap: the capture ends and, with no
+                    // standing log, NOTHING opens after it.
+                    stop = TraceCoordinator.TrySeal(new TraceSealRequest
+                    {
+                        Expected = old, OperationId = Guid.NewGuid(), RequireCaptureRunning = true,
+                        Outcome = TraceSessionOutcome.CleanExit, Resume = TraceResumeIntent.Standing,
+                    });
+                    Assert.Equal(TraceTransition.Accepted, stop.Status);
+                    Assert.Null(stop.Successor);
+                    Assert.False(stop.TracingOn);
+                    Assert.Null(TraceCoordinator.CurrentHandle);
+                }
+                finally
+                {
+                    release.Set();
+                    Tracing.DeferredLineProbeForTests = null;
+                    fall?.Join(TimeSpan.FromSeconds(10));
+                    typeof(Tracing).GetField("lastSlowMarkerStamp", BindingFlags.NonPublic | BindingFlags.Static)
+                        ?.SetValue(null, 0L);
+                }
+                Assert.False(fall.IsAlive, "the fall thread did not return");
+                AssertTheRigSawTheFall(rig);
+                lock (queued) Assert.Single(queued);
+
+                Action work;
+                lock (queued) work = queued[0];
+                Tracing.FlushDeferred();
+                Assert.True(stop.Ticket.Completion.Wait(TimeSpan.FromSeconds(60)));
+                Assert.True(stop.Ticket.Completion.Result.ArchiveCommitted);
+                // Positive control for the instrument below: before the worker
+                // runs, no file in the directory holds a partial window — the
+                // window exists only in the request.
+                Assert.DoesNotContain(Directory.GetFiles(dir, "*", SearchOption.AllDirectories),
+                    f => !f.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
+                         && File.ReadAllText(f).Contains("partial=connection_dropped", StringComparison.Ordinal));
+
+                // The worker: refused (nothing is recording, so nothing to
+                // seal), and the window kept beside the old archive.
+                work();
+                Assert.Equal(1, Volatile.Read(ref _seals));
+                Assert.NotNull(sealResult);
+                Assert.False(sealResult.Owned, "the drop's seal was not refused: " + sealResult.Status + " — " + sealResult.Explanation);
+                Assert.Equal(TraceTransition.NoSession, sealResult.Status);
+                Assert.False(string.IsNullOrEmpty(partialSeen), "the drop collected no meter window; nothing below is exercised");
+                Tracing.FlushDeferred();
+                Assert.Null(TraceCoordinator.CurrentHandle);
+                Assert.False(File.Exists(livePath), "a live file exists, so a successor was opened after all");
+
+                string beside = SessionArchive.LateEvidencePathFor(stop.Ticket.Completion.Result.ArchiveFullPath);
+                Assert.True(File.Exists(beside), "the window was kept nowhere: no late-evidence file beside the old archive");
+                string besideText = File.ReadAllText(beside);
+                Assert.Contains(partialSeen, besideText, StringComparison.Ordinal);
+                Assert.Contains("Late evidence for trace session " + old.SessionId, besideText, StringComparison.Ordinal);
+                Assert.Contains("kept as evidence because its session had already been sealed", besideText, StringComparison.Ordinal);
+
+                // Exactly one file on disk holds the window, and it is that
+                // one — not the sealed archive, not a live trace.
+                string extracted = SessionArchive.ExtractTraceText(
+                    stop.Ticket.Completion.Result.ArchiveFullPath, Path.Combine(dir, "extract"));
+                Assert.DoesNotContain(partialSeen, File.ReadAllText(extracted), StringComparison.Ordinal);
+                var holders = Directory.GetFiles(dir, "*", SearchOption.AllDirectories)
+                    .Where(f => !f.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
+                                && File.ReadAllText(f).Contains(partialSeen, StringComparison.Ordinal))
+                    .ToList();
+                Assert.Equal(new[] { beside }, holders);
             }
             finally
             {

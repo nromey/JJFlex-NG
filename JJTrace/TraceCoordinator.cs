@@ -730,6 +730,18 @@ namespace JJTrace
             }
 
             _retainedAtPath.Remove(livePath);
+            // Late evidence written beside the retained file while it sat at
+            // the live path goes with it, so it stays beside the session it
+            // describes. Best effort: the reclaim is the operation.
+            try
+            {
+                string side = SessionArchive.LateEvidencePathFor(r.SourcePath);
+                if (side != null && File.Exists(side))
+                {
+                    File.Move(side, SessionArchive.LateEvidencePathFor(detached));
+                }
+            }
+            catch (Exception ex) { faults.Add("TraceCoordinator: the late-evidence file beside the reclaimed trace could not be moved with it: " + ex.Message); }
             var ticket = new TraceArchiveTicket
             {
                 SessionId = r.Session.SessionId,
@@ -750,6 +762,112 @@ namespace JJTrace
                        + detached + " and queued for archiving");
             queued = ticket;
             return true;
+        }
+
+        // ── Late evidence: a line about a sealed session, with no sink ─────
+
+        /// <summary>
+        /// Keep <paramref name="text"/> — a line formatted while
+        /// <paramref name="session"/> was recording, which arrived after
+        /// another operation had sealed that session — in a plain-text file
+        /// BESIDE that session's archive, and return the path written, or
+        /// null when the session is unknown here.
+        ///
+        /// <para><b>Why a file beside the archive, and not a sink</b> (Sol's
+        /// review of H9, blocker 3). A refused drop's partial meter window is
+        /// the last thing the radio said before it died. H9 wrote it into
+        /// the current sink as a refusal record naming the old session, and
+        /// that was right as far as it went — but with the standing log off
+        /// a Stop opens no successor, the drain consumes a bound line without
+        /// writing when there is no sink, and the window existed nowhere.
+        /// The old session's file is sealed and may not be written into
+        /// (#618's whole point); its zip is committed and rewriting a
+        /// committed archive is how an archive stops being trustworthy. So
+        /// the line goes into its own small file, named after the archive
+        /// and sitting next to it, once the archive has committed — or next
+        /// to the retained raw file when it has not, or failed, or is still
+        /// waiting when the budget runs out. Both places are durable, need
+        /// no live sink, are copied by the problem-report bundle's walk, are
+        /// pruned with the archive, and are found by a reader looking at the
+        /// session they belong to. A line that reaches a successor as a
+        /// refusal record still does; that record now also says where the
+        /// file is.</para>
+        ///
+        /// <para>Waits for the archive so the common case lands in one
+        /// place. Called from the drop's seal worker, which may wait — it is
+        /// the thread whose job that is — and never from a transport
+        /// thread.</para>
+        /// </summary>
+        /// <param name="session">The session the line describes.</param>
+        /// <param name="text">The line, without its trace prefix; one is
+        /// added, so the file reads like a trace.</param>
+        /// <param name="archiveWait">How long to wait for that session's
+        /// archive before writing beside the raw file instead.</param>
+        public static string KeepLateEvidence(TraceSessionHandle session, string text, TimeSpan archiveWait)
+        {
+            if (session == null || string.IsNullOrEmpty(text)) return null;
+
+            TraceArchiveTicket ticket;
+            RetainedSeal retained = null;
+            lock (_gate)
+            {
+                _ticketsBySession.TryGetValue(session.SessionId, out ticket);
+                if (ticket == null)
+                {
+                    foreach (RetainedSeal r in _retainedAtPath.Values)
+                    {
+                        if (r.Session.SessionId == session.SessionId) { retained = r; break; }
+                    }
+                }
+            }
+
+            string beside;
+            if (ticket != null)
+            {
+                TraceArchiveCompletion done = null;
+                try
+                {
+                    if (ticket.Completion != null && ticket.Completion.Wait(archiveWait)) done = ticket.Completion.Result;
+                }
+                catch { /* not committed as far as this caller can tell */ }
+                beside = done != null && done.ArchiveCommitted && !string.IsNullOrEmpty(done.ArchiveFullPath)
+                    ? done.ArchiveFullPath
+                    : ticket.SourcePath;
+            }
+            else if (retained != null)
+            {
+                beside = retained.SourcePath;
+            }
+            else
+            {
+                return null;
+            }
+
+            string path = SessionArchive.LateEvidencePathFor(beside);
+            if (path == null) return null;
+            try
+            {
+                bool fresh = !File.Exists(path);
+                using (var fs = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read))
+                using (var w = new StreamWriter(fs, new System.Text.UTF8Encoding(false)))
+                {
+                    if (fresh)
+                    {
+                        w.WriteLine("Late evidence for trace session " + session.SessionId + ". The lines below were"
+                                    + " formatted while that session was recording and arrived after another operation"
+                                    + " had already sealed it, so they could not be written into its own file ("
+                                    + Path.GetFileName(beside) + ") and are kept here beside it. Each carries its own"
+                                    + " trace prefix.");
+                    }
+                    w.WriteLine(Tracing.TracePrefix() + text);
+                }
+                return path;
+            }
+            catch (Exception ex)
+            {
+                Tracing.ErrTraceOnly(ex);
+                return null;
+            }
         }
 
         // ── Draining deferred lines ────────────────────────────────────────

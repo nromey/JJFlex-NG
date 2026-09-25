@@ -90,6 +90,9 @@ namespace Radios.Tests
                 });
             }
             TraceCoordinator.DrainArchives(TimeSpan.FromSeconds(20));
+            // Leave no ticket behind under an operation id another class may
+            // rebuild from a restarted token ordinal.
+            TraceCoordinator.ResetClaimsForTests();
             TraceCoordinator.ArchiveRootDir = _savedArchiveRoot;
             TraceCoordinator.SetStandingIntent(true, TraceLevel.Info);
             TraceRecordingHealth.ResetForTests();

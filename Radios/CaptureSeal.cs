@@ -436,6 +436,15 @@ namespace Radios
 
         // ── The worker ─────────────────────────────────────────────────────
 
+        /// <summary>
+        /// How long a refused drop waits for the OTHER operation's archive
+        /// before keeping its meter window beside the raw file instead of
+        /// beside the zip. The same budget the drop's own archive gets in
+        /// <c>globals.vb</c>; this runs on the seal worker, whose job is to
+        /// wait, and a stalled archive must not hold the window forever.
+        /// </summary>
+        internal static TimeSpan LateEvidenceWait { get; set; } = TimeSpan.FromMinutes(5);
+
         private static void SealNow(Func<CaptureSealRequest, CaptureSealResult> hook,
                                     string radioName,
                                     CaptureSealRequest request)
@@ -480,20 +489,33 @@ namespace Radios
                 // another operation (a Stop, a log toggle, an exit) or was
                 // gone. Nothing was sealed and nothing will be shown. Said as
                 // a refusal, bound — and the meter window this drop collected
-                // is KEPT: it cannot go into the old archive (sealed by
+                // is KEPT. It cannot go into the old archive (sealed by
                 // someone else, with their terminal records) and must not
-                // read as the successor's own, so it goes into the successor
-                // as a refusal record naming the session it describes,
-                // rather than being discarded with the request.
+                // read as the successor's own. H9 wrote it into the successor
+                // as a refusal record naming the session it describes, and
+                // that still happens — but a successor is not guaranteed: with
+                // the standing log off, a Stop opens nothing, and a bound line
+                // with no sink to refuse it into is consumed and lost (Sol's
+                // review of H9, blocker 3). So the window's destination is
+                // now a file BESIDE the old session's archive, which needs no
+                // sink at all; the refusal record, where there is a sink to
+                // carry it, says where that file is.
                 Tracing.TraceLineDeferred(
                     "CaptureSeal: the seal was refused (" + (result.RefusalReason ?? "no reason given")
                     + "); nothing was sealed for this drop and there is no archive path to show the operator",
                     TraceLevel.Warning, about);
                 if (!string.IsNullOrEmpty(request.PartialMeterLine))
                 {
-                    Tracing.TraceLineDeferred(
+                    string kept = TraceCoordinator.KeepLateEvidence(about,
                         "CaptureSeal: the meter window this drop closed, kept as evidence because its session"
                         + " had already been sealed by another operation: " + request.PartialMeterLine,
+                        LateEvidenceWait);
+                    Tracing.TraceLineDeferred(
+                        "CaptureSeal: the meter window this drop closed, kept as evidence because its session"
+                        + " had already been sealed by another operation"
+                        + (kept != null ? " (also kept beside that session's archive at " + kept + ")"
+                                        : " (that session has no archive here to keep it beside)")
+                        + ": " + request.PartialMeterLine,
                         TraceLevel.Warning, about);
                 }
                 Tracing.FlushDeferred();

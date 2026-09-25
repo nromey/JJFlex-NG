@@ -460,6 +460,7 @@ namespace JJTrace
                         string fullPath = Path.Combine(archiveRootDir, entry.Filename.Replace('/', Path.DirectorySeparatorChar));
                         try { if (File.Exists(fullPath)) File.Delete(fullPath); }
                         catch (Exception ex) { Tracing.ErrTraceOnly(ex); }
+                        DeleteLateEvidenceBeside(fullPath);
 
                         manifest.Entries.RemoveAt(i);
                         changed = true;
@@ -566,6 +567,46 @@ namespace JJTrace
             }
         }
 
+        // ── Late evidence: lines about a sealed session, kept beside it ────
+
+        /// <summary>
+        /// The suffix of the plain-text file that holds lines about a session
+        /// which arrived after another operation had sealed it — a refused
+        /// drop's partial meter window above all (Sol's review of H9, blocker
+        /// 3). It sits BESIDE the session's archive, named after it, and is
+        /// never written into the sealed file or its zip.
+        /// </summary>
+        public const string LateEvidenceSuffix = ".late-evidence.txt";
+
+        /// <summary>
+        /// Where late evidence for the session archived at, or retained at,
+        /// <paramref name="archiveOrRawPath"/> lives: the zip's name with
+        /// <see cref="LateEvidenceSuffix"/> in place of <c>.zip</c>, or the
+        /// raw file's name with the suffix appended. Neither matches
+        /// <c>trace-*.zip</c>, so the problem-report bundle's walk copies it
+        /// and the trace browser does not list it as a session.
+        /// </summary>
+        public static string LateEvidencePathFor(string archiveOrRawPath)
+        {
+            if (string.IsNullOrEmpty(archiveOrRawPath)) return null;
+            return archiveOrRawPath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
+                ? archiveOrRawPath.Substring(0, archiveOrRawPath.Length - 4) + LateEvidenceSuffix
+                : archiveOrRawPath + LateEvidenceSuffix;
+        }
+
+        /// <summary>Delete the late-evidence file beside an archive that is
+        /// being deleted, if there is one. Best effort; the archive's own
+        /// deletion is the operation, this is tidying after it.</summary>
+        private static void DeleteLateEvidenceBeside(string archiveFullPath)
+        {
+            try
+            {
+                string side = LateEvidencePathFor(archiveFullPath);
+                if (side != null && File.Exists(side)) File.Delete(side);
+            }
+            catch (Exception ex) { Tracing.ErrTraceOnly(ex); }
+        }
+
         /// <summary>
         /// Auto-prune: delete archive files older than <paramref name="retentionDays"/>
         /// (per their boot_time) and remove their manifest entries. KeptForever
@@ -599,6 +640,7 @@ namespace JJTrace
                             if (TraceEvidencePins.IsPinned(fullPath)) continue;
                             try { if (File.Exists(fullPath)) File.Delete(fullPath); }
                             catch (Exception ex) { Tracing.ErrTraceOnly(ex); }
+                            DeleteLateEvidenceBeside(fullPath);
                         }
                         manifest.Entries.RemoveAt(i);
                         pruned++;

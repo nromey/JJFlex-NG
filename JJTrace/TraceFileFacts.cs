@@ -92,9 +92,9 @@ namespace JJTrace
     /// holding the gate is skipped rather than blocked, and the seal's own
     /// drain writes several lines and flushes once. So a fault can lose
     /// lines that were "written" before it — which is why
-    /// <see cref="LinesUnflushedAtFault"/> exists, and why "everything before
-    /// that point is in the file" is a claim these facts have to support
-    /// before the window may make it.</para>
+    /// <see cref="LinesUnflushedAtFault"/> exists, and why the window may
+    /// tell the operator that nothing before the fault was lost only when
+    /// these facts say so.</para>
     ///
     /// <para><b>Per part.</b> A session that rotated has several files and
     /// the window names one of them, the last; the reading facts describe
@@ -137,7 +137,8 @@ namespace JJTrace
         /// and are not in the file, over and above the line whose write
         /// failed (a fault in a flush has no failing line of its own). Zero
         /// means the fault took nothing that came before it, which is what
-        /// "everything before that point is in the file" needs.
+        /// the window needs before it may say that what came before the
+        /// fault is all there.
         /// </summary>
         public int LinesUnflushedAtFault { get; }
 
