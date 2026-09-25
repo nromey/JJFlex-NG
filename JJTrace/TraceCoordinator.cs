@@ -1426,6 +1426,11 @@ namespace JJTrace
 
             TraceSession sealing = _session;
             RotatingTraceListener sink = _sink;
+            // Read BEFORE anything below writes: a sink that closed itself
+            // over a live write refuses every terminal record, and the
+            // operator must be told the tail stops at that earlier fault
+            // rather than that a write failed at the close.
+            bool sinkFailedBeforeSeal = sink.IsClosed;
 
             // This operation owns the session. Everything queued up to this
             // moment — the fall's own bound lines above all — belongs in THIS
@@ -1544,6 +1549,7 @@ namespace JJTrace
                     TracingOn = false,
                     TailUncertain = tailUncertain,
                     SinkFault = sinkFault,
+                    SinkFailedBeforeSeal = sinkFailedBeforeSeal,
                     EndedDetailedCapture = endedCapture,
                     EndedCaptureId = endedCaptureId,
                     EndedCaptureStartedLocal = endedCaptureStarted,
@@ -1582,6 +1588,7 @@ namespace JJTrace
                 PendingRecordFailed = !recordWritten,
                 TailUncertain = tailUncertain,
                 SinkFault = sinkFault,
+                SinkFailedBeforeSeal = sinkFailedBeforeSeal,
                 ExpectedSessionId = expectedId,
                 ObservedSessionId = observedId,
                 EndedDetailedCapture = endedCapture,

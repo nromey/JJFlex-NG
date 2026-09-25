@@ -249,6 +249,14 @@ namespace Radios.Tests
         /// untouched — and that paragraph claims neither that the index file
         /// failed nor that the file is complete (Sol's review of H7, finding
         /// 3: the H7 draft said both, and either could be false).
+        ///
+        /// <para>Track H8's version of this test asserted that the short-tail
+        /// notice STARTED WITH the ordinary one — which pinned the saved
+        /// paragraph's "everything up to the moment the connection went,
+        /// including the last readings" as desired under an uncertain tail.
+        /// That was Sol's blocker 2 against H8. The assertion now is the
+        /// opposite: the ordinary notice's content promise is absent from the
+        /// short-tail one.</para>
         /// </summary>
         [Fact]
         public void The_drop_notice_adds_its_tail_caveat_only_when_the_tail_is_uncertain()
@@ -257,8 +265,11 @@ namespace Radios.Tests
             var shortTail = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(), tailUncertain: true);
             Assert.Equal(string.Empty, plain.TailCaveat);
             Assert.DoesNotContain("last lines", plain.Explanation, StringComparison.Ordinal);
+            Assert.DoesNotContain("stop short", plain.Explanation, StringComparison.Ordinal);
             _out.WriteLine(shortTail.Explanation);
-            Assert.StartsWith(plain.Explanation, shortTail.Explanation, StringComparison.Ordinal);
+            Assert.StartsWith(plain.WhatHappened, shortTail.Explanation, StringComparison.Ordinal);
+            Assert.DoesNotContain(plain.WhatWasSaved, shortTail.Explanation, StringComparison.Ordinal);
+            Assert.DoesNotContain("including the last readings", shortTail.Explanation, StringComparison.Ordinal);
             Assert.Contains(shortTail.TailCaveat, shortTail.Explanation, StringComparison.Ordinal);
             Assert.EndsWith(".", shortTail.TailCaveat.TrimEnd(), StringComparison.Ordinal);
             Assert.DoesNotContain("logging.capture", shortTail.TailCaveat, StringComparison.Ordinal);
@@ -266,6 +277,72 @@ namespace Radios.Tests
             // Neither false claim of the H7 draft survives.
             Assert.DoesNotContain("index file", shortTail.TailCaveat, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("complete", shortTail.TailCaveat, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// <b>Sol's review of H8, blocker 2.</b> The WHOLE assembled notice,
+        /// for every combination of the three facts it is given — the tail is
+        /// uncertain, a successor opened, the sink had died before the drop —
+        /// and the claims each paragraph makes hold under that combination:
+        /// the last readings are promised only with a certain tail; recording
+        /// having restarted is promised only when a successor opened; "a
+        /// write failed as the recording was being closed" appears only when
+        /// the sink was alive until the seal; the earlier-fault sentence only
+        /// when it was not. Every paragraph ends in a full stop and leaks no
+        /// key. The ordinary window (tail certain, successor opened) is the
+        /// H7 prose, unchanged. Each assembled notice is written to the test
+        /// output so a person can read it end to end.
+        /// </summary>
+        [Fact]
+        public void The_assembled_drop_notice_makes_only_the_claims_its_facts_support()
+        {
+            var ordinary = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid());
+            foreach (bool tail in new[] { false, true })
+            foreach (bool successor in new[] { false, true })
+            foreach (bool diedBefore in new[] { false, true })
+            {
+                var n = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", successor, Guid.NewGuid(),
+                                              tailUncertain: tail, sinkFailedBeforeDrop: diedBefore);
+                string text = n.Explanation;
+                _out.WriteLine("--- tail uncertain: " + tail + ", successor opened: " + successor
+                               + ", sink died before the drop: " + diedBefore);
+                _out.WriteLine(text);
+                _out.WriteLine(string.Empty);
+
+                // The absolute promise about content is made only when it holds.
+                Assert.Equal(!tail, text.Contains("including the last readings the radio sent: forward power", StringComparison.Ordinal));
+                Assert.Equal(!tail, text.Contains("It holds everything up to the moment", StringComparison.Ordinal));
+                Assert.Equal(tail, text.Contains("send it anyway", StringComparison.Ordinal));
+                // Recording having restarted is promised only when it did.
+                Assert.Equal(successor, text.Contains("has already started recording again", StringComparison.Ordinal));
+                Assert.Equal(!successor, text.Contains("has not started recording again", StringComparison.Ordinal));
+                Assert.Equal(!successor, text.Contains("Control J then Control R", StringComparison.Ordinal));
+                // The caveat names the right cause, and only with an uncertain tail.
+                bool atTheClose = tail && !diedBefore;
+                bool earlier = tail && diedBefore;
+                Assert.Equal(atTheClose, text.Contains("as the recording was being closed", StringComparison.Ordinal));
+                Assert.Equal(earlier, text.Contains("had already stopped taking new lines", StringComparison.Ordinal));
+                Assert.Equal(earlier, n.SinkFailedBeforeDrop);
+                Assert.Equal(tail, text.Contains("One more thing.", StringComparison.Ordinal));
+                // Every paragraph is a sentence or more, and nothing leaks.
+                foreach (string paragraph in text.Split(new[] { Environment.NewLine + Environment.NewLine }, StringSplitOptions.None))
+                {
+                    Assert.False(string.IsNullOrWhiteSpace(paragraph));
+                    Assert.EndsWith(".", paragraph.TrimEnd(), StringComparison.Ordinal);
+                    Assert.DoesNotContain("logging.capture", paragraph, StringComparison.Ordinal);
+                }
+                Assert.Equal(tail ? 4 : 3, text.Split(new[] { Environment.NewLine + Environment.NewLine }, StringSplitOptions.None).Length);
+                // The errand is always there, and the path is never in the prose.
+                Assert.Contains("Send this file to Noel.", text, StringComparison.Ordinal);
+                Assert.DoesNotContain(@"C:\Traces\one.zip", text, StringComparison.Ordinal);
+                Assert.Contains(@"C:\Traces\one.zip", n.AsText(), StringComparison.Ordinal);
+            }
+
+            // The ordinary window is the H7 prose, untouched.
+            var same = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
+                                             tailUncertain: false, sinkFailedBeforeDrop: false);
+            Assert.Equal(ordinary.Explanation, same.Explanation);
+            Assert.Equal(ordinary.AsText(), same.AsText());
         }
 
         /// <summary>

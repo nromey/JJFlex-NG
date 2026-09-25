@@ -77,6 +77,16 @@ namespace Radios
         public bool TailUncertain { get; set; }
 
         /// <summary>
+        /// The sealed file had ALREADY stopped taking writes before the drop
+        /// — a live write failed and the sink closed itself — so the tail
+        /// stops at that earlier fault, not at the seal. The window's caveat
+        /// says which of the two happened, because "a write failed as the
+        /// recording was being closed" is false for this one (Sol's review of
+        /// H8, blocker 2). Meaningful only with <see cref="TailUncertain"/>.
+        /// </summary>
+        public bool SinkFailedBeforeDrop { get; set; }
+
+        /// <summary>
         /// Whether the successor is VERIFIED recording — its first record
         /// written and flushed — as opposed to merely opened.
         /// <see cref="SuccessorOpened"/> is the transition's fact; this is the
@@ -468,7 +478,8 @@ namespace Radios
                 // the archive commits (Sol's review of H7, finding 3).
                 SealedAfterDrop?.Invoke(new CaptureSealNotice(
                     radioName, result.ArchivePath, result.SuccessorOpened, result.ArchivedSessionId,
-                    tailUncertain: result.TailUncertain));
+                    tailUncertain: result.TailUncertain,
+                    sinkFailedBeforeDrop: result.SinkFailedBeforeDrop));
             }
             catch (Exception ex)
             {

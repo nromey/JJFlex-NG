@@ -175,6 +175,17 @@ namespace JJTrace
         public string SinkFault { get; internal set; }
 
         /// <summary>
+        /// The sealed session's sink had ALREADY closed itself over a write
+        /// fault before this seal began, so every terminal record was refused
+        /// and the tail is uncertain from the moment of that earlier fault,
+        /// not from the seal. Distinct from <see cref="TailUncertain"/> on
+        /// purpose: "a write failed as the recording was being closed" is
+        /// true for the one and false for the other, and the operator's
+        /// window says which (Sol's review of H8, blocker 2).
+        /// </summary>
+        public bool SinkFailedBeforeSeal { get; internal set; }
+
+        /// <summary>
         /// Which generation of the live sink this result describes — the
         /// coordinator's count of sink changes, read under the gate as the
         /// transition ended. The health model orders notes by it, so a report

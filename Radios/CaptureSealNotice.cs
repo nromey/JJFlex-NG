@@ -80,12 +80,40 @@ namespace Radios
         public CaptureSealNotice(string radioName, string archivePath,
                                  bool successorOpened, Guid? archivedSessionId,
                                  bool tailUncertain)
+            : this(radioName, archivePath, successorOpened, archivedSessionId, tailUncertain,
+                   sinkFailedBeforeDrop: false)
+        {
+        }
+
+        /// <summary>
+        /// <b>Every paragraph is chosen so that its claims hold</b> (Sol's
+        /// review of H8, blocker 2). Track H8 appended a truthful tail caveat
+        /// after a saved-paragraph that still promised "everything up to the
+        /// moment the connection went, including the last readings" — and a
+        /// later paragraph cannot cancel an earlier absolute claim; the
+        /// what-to-do paragraph promised recording had restarted whether or
+        /// not a successor opened; and the caveat's "a write failed as the
+        /// recording was being closed" was false when the file had died
+        /// earlier. So the three facts this window can be given — the tail
+        /// is uncertain, a successor opened, the sink had already failed
+        /// before the drop — each select a paragraph, and no paragraph claims
+        /// what its fact does not support. The ordinary window (tail
+        /// certain, successor opened) reads exactly as it did.
+        /// </summary>
+        /// <param name="sinkFailedBeforeDrop">The file had already stopped
+        /// taking writes before the connection went — a live write failed
+        /// and closed it — so the tail stops at that earlier fault, not at
+        /// the seal. Read only when <paramref name="tailUncertain"/>.</param>
+        public CaptureSealNotice(string radioName, string archivePath,
+                                 bool successorOpened, Guid? archivedSessionId,
+                                 bool tailUncertain, bool sinkFailedBeforeDrop)
         {
             RadioName = (radioName ?? string.Empty).Trim();
             ArchivePath = archivePath ?? string.Empty;
             SuccessorOpened = successorOpened;
             ArchivedSessionId = archivedSessionId;
             TailUncertain = tailUncertain;
+            SinkFailedBeforeDrop = tailUncertain && sinkFailedBeforeDrop;
         }
 
         /// <summary>The radio's nickname, or empty when we never learned one.</summary>
@@ -101,8 +129,17 @@ namespace Radios
         public bool TailUncertain { get; }
 
         /// <summary>
-        /// Whether a fresh recording really opened after the seal. Not yet
-        /// spoken anywhere: the sentence that would carry it is Noel's to rule.
+        /// The sealed file had already stopped taking writes before the drop,
+        /// so its tail stops at that earlier fault. Always false when
+        /// <see cref="TailUncertain"/> is false: it qualifies the tail, and a
+        /// certain tail has nothing to qualify.
+        /// </summary>
+        public bool SinkFailedBeforeDrop { get; }
+
+        /// <summary>
+        /// Whether a fresh recording really opened after the seal. Chooses
+        /// the what-to-do paragraph: the ordinary one promises recording has
+        /// restarted, and that promise is made only when it is true.
         /// </summary>
         public bool SuccessorOpened { get; }
 
@@ -126,23 +163,49 @@ namespace Radios
                 ? Lexicon.Get("logging.capture.dropped.what_plain")
                 : Lexicon.Get("logging.capture.dropped.what_named", ("radioName", RadioName));
 
-        /// <summary>That the recording was kept, and what is in it.</summary>
-        public string WhatWasSaved => Lexicon.Get("logging.capture.dropped.saved");
+        /// <summary>
+        /// That the recording was kept, and what is in it. The ordinary
+        /// sentence promises everything up to the drop including the last
+        /// readings; with an uncertain tail that promise cannot be made, and
+        /// the alternative says only that the file may stop short — the
+        /// caveat paragraph then says how and what to tell Noel. DRAFT for
+        /// the alternative — Noel's to rule; in the recording-health wording
+        /// file.
+        /// </summary>
+        public string WhatWasSaved =>
+            TailUncertain
+                ? Lexicon.Get("logging.capture.dropped.saved_tail_uncertain")
+                : Lexicon.Get("logging.capture.dropped.saved");
 
         /// <summary>The label above the path.</summary>
         public string PathLabel => Lexicon.Get("logging.capture.dropped.path_label");
 
-        /// <summary>What to do with it.</summary>
-        public string WhatToDo => Lexicon.Get("logging.capture.dropped.what_to_do");
+        /// <summary>
+        /// What to do with it. The ordinary sentence says JJ Flexible has
+        /// already started recording again; when no successor opened it says
+        /// so instead, and where to read why. DRAFT for the alternative —
+        /// Noel's to rule; in the recording-health wording file.
+        /// </summary>
+        public string WhatToDo =>
+            SuccessorOpened
+                ? Lexicon.Get("logging.capture.dropped.what_to_do")
+                : Lexicon.Get("logging.capture.dropped.what_to_do_not_recording");
 
         /// <summary>
         /// The extra paragraph when <see cref="TailUncertain"/>: that the
-        /// file's last lines may be missing, and that it is still the one to
-        /// send. Empty otherwise, so the ordinary window's prose is untouched.
-        /// DRAFT — Noel's to rule; listed in the recording-health wording file.
+        /// file's last lines may be missing, WHY, and that it is still the
+        /// one to send. Two reasons exist and they are different sentences:
+        /// a write failed as the recording was being closed, or the file had
+        /// already stopped taking writes before the drop
+        /// (<see cref="SinkFailedBeforeDrop"/>). Empty when the tail is
+        /// certain, so the ordinary window's prose is untouched. DRAFT —
+        /// Noel's to rule; listed in the recording-health wording file.
         /// </summary>
         public string TailCaveat =>
-            TailUncertain ? Lexicon.Get("logging.capture.dropped.tail_uncertain") : string.Empty;
+            !TailUncertain ? string.Empty
+            : SinkFailedBeforeDrop
+                ? Lexicon.Get("logging.capture.dropped.tail_uncertain_earlier")
+                : Lexicon.Get("logging.capture.dropped.tail_uncertain");
 
         /// <summary>The Copy path button.</summary>
         public string CopyButtonLabel => Lexicon.Get("logging.capture.dropped.copy_button");

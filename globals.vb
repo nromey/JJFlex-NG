@@ -1621,6 +1621,7 @@ Module globals
             outcome.SuccessorRecording = result.TracingOn
             outcome.RecoveryRecordFailed = result.PendingRecordFailed
             outcome.TailUncertain = result.TailUncertain
+            outcome.SinkFailedBeforeDrop = result.SinkFailedBeforeSeal
             outcome.Refused = Not result.Owned
             outcome.RefusalReason = If(result.Owned, Nothing, result.Explanation)
 
