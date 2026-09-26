@@ -165,10 +165,31 @@ namespace Radios.Tests
             var shipped = Shipped();
             var manifest = LexiconSchema.ParseManifest(ManifestText());
 
-            Assert.True(shipped.Count > 2900,
+            // The floor was > 2900 until 2026-09-25, which is the corpus's own
+            // size and therefore an INVENTORY dressed as a control. Quarantining
+            // Track I's 222 manifest rows (#627) dropped the manifest to 2,757
+            // and this failed — reporting an absent track as a broken read,
+            // which is the one thing a positive control must never do.
+            //
+            // A control answers "did we read the corpus at all". A broken
+            // repository-root walk returns nothing, so any floor well clear of
+            // zero catches it. Pinning that floor to the corpus size buys no
+            // extra detection and guarantees the control breaks every time the
+            // corpus legitimately changes.
+            Assert.True(shipped.Count > 2000,
                 "only " + shipped.Count + " shipped entries were read");
-            Assert.True(manifest.Count > 2900,
+            Assert.True(manifest.Count > 2000,
                 "only " + manifest.Count + " manifest lines were read");
+
+            // What the old number was reaching for, done in the way that
+            // actually holds: every partition contributed. This catches a
+            // partial read — one JSON failing to load — which no single total
+            // ever could, and it needs no maintenance when the corpus grows or
+            // a track's keys come and go.
+            foreach (string partition in Lexicon.Partitions)
+                Assert.True(LexiconBaseline.FromShipped(partition).Count > 0,
+                    "partition '" + partition + "' contributed no entries, so the corpus was " +
+                    "only partly read and every absence check above passed over a hole");
         }
 
         [Fact]

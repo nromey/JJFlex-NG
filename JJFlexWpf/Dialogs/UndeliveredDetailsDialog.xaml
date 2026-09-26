@@ -81,7 +81,7 @@
                     local:JJFlexHelp.Text="Reads the selected record once. It never transmits and never repeats the action the record is about."/>
             <Button x:Name="ReviewedButton" MinWidth="110" Height="32" Margin="0,0,8,0"
                     Click="ReviewedButton_Click"
-                    local:JJFlexHelp.Text="Takes the selected record off this list. It does not acknowledge, snooze or turn off an alarm."/>
+                    local:JJFlexHelp.Text="Finished items leave the list. A problem that is still active stays until it is fixed."/>
             <Button x:Name="ResumeButton" MinWidth="130" Height="32" Margin="0,0,8,0"
                     Click="ResumeButton_Click"
                     local:JJFlexHelp.Text="Lets the selected record be announced again after you asked for quiet. Only this one."/>
