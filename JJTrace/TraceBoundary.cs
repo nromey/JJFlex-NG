@@ -101,7 +101,7 @@ namespace JJTrace
 
         /// <summary>The session that opened in the old one's place, or null
         /// when none did. A caller must read this rather than assuming: a drop
-        /// during shutdown may seal its own session and open nothing.</summary>
+        /// during shutdown may archive its own session and open nothing.</summary>
         public TraceSessionHandle Successor { get; internal set; }
 
         public bool SuccessorOpened => Successor != null;
@@ -132,7 +132,7 @@ namespace JJTrace
         /// The detailed capture this transition STARTED, or
         /// <see cref="Guid.Empty"/>. A fact of the transition, so a caller never
         /// has to re-read "is a capture running?" afterwards — by which time a
-        /// drop may already have sealed it.
+        /// drop may already have archived it.
         /// </summary>
         public Guid StartedCaptureId { get; internal set; }
 
@@ -140,11 +140,11 @@ namespace JJTrace
         public string RetainedSourcePath { get; internal set; }
 
         /// <summary>
-        /// The ticket of an EARLIER session whose seal had failed at the
+        /// The ticket of an EARLIER session whose archive had failed at the
         /// detach and whose bytes this transition managed to move aside at
         /// last, or null. Only <see cref="TraceCoordinator.Begin"/> reclaims —
         /// it is the operator's retry — and it publishes and queues this
-        /// ticket exactly as a seal would its own. A fact of the transition,
+        /// ticket exactly as an archive would its own. A fact of the transition,
         /// so a caller (or a test) never has to guess whether the retained
         /// file was taken up or is still sitting where it was.
         /// </summary>
@@ -162,7 +162,7 @@ namespace JJTrace
 
         /// <summary>
         /// A terminal record or the close reported a failure while the
-        /// session was sealed: the detached file's last lines may not have
+        /// session was archived: the detached file's last lines may not have
         /// reached the disk. The bytes that did land are still retained and
         /// still reported; this says the tail is uncertain.
         /// </summary>
@@ -175,20 +175,20 @@ namespace JJTrace
         public string SinkFault { get; internal set; }
 
         /// <summary>
-        /// The sealed session's sink had ALREADY closed itself over a write
-        /// fault before this seal began, so every terminal record was refused
+        /// The archived session's sink had ALREADY closed itself over a write
+        /// fault before this archive began, so every terminal record was refused
         /// and the tail is uncertain from the moment of that earlier fault,
-        /// not from the seal. Distinct from <see cref="TailUncertain"/> on
+        /// not from the archive. Distinct from <see cref="TailUncertain"/> on
         /// purpose: "a write failed as the recording was being closed" is
         /// true for the one and false for the other, and the operator's
         /// window says which (Sol's review of H8, blocker 2).
         /// </summary>
-        public bool SinkFailedBeforeSeal { get; internal set; }
+        public bool SinkFailedBeforeArchive { get; internal set; }
 
         /// <summary>
-        /// What the sealed file is known to contain, read from its sink after
+        /// What the archived file is known to contain, read from its sink after
         /// the close: which kinds of meter reading were written and flushed,
-        /// and what a fault took. Null when this result sealed nothing (a
+        /// and what a fault took. Null when this result archived nothing (a
         /// refusal, or an earlier ticket handed back). The operator's window
         /// chooses its content paragraphs from this and claims nothing it
         /// does not establish (Sol's review of H9, blocker 2).
@@ -266,8 +266,8 @@ namespace JJTrace
         public string ArchiveRootDir { get; internal set; }
 
         /// <summary>
-        /// Metadata frozen at the seal. Later observations cannot rewrite a
-        /// sealed ticket, which is why this is a snapshot and not the live
+        /// Metadata frozen at the archive. Later observations cannot rewrite a
+        /// archived ticket, which is why this is a snapshot and not the live
         /// <see cref="TraceSession"/>.
         /// </summary>
         public TraceSessionEntry Entry { get; internal set; }
@@ -293,7 +293,7 @@ namespace JJTrace
 
         /// <summary>
         /// True when a terminal write or the close failed as the file was
-        /// sealed, so its tail may be incomplete. The retained bytes are
+        /// archived, so its tail may be incomplete. The retained bytes are
         /// still the evidence; this is the honest label on them.
         /// </summary>
         public bool TailUncertain { get; internal set; }

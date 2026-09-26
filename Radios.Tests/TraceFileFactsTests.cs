@@ -10,7 +10,7 @@ using Xunit.Abstractions;
 namespace Radios.Tests
 {
     /// <summary>
-    /// The facts a sealed file carries about its own contents — what kinds of
+    /// The facts an archived file carries about its own contents — what kinds of
     /// meter reading were written and flushed, and what a fault took — as the
     /// sink counts them (Sol's review of H9, blocker 2). Driven through a
     /// REAL <see cref="RotatingTraceListener"/> on a real file, with the two
@@ -219,11 +219,11 @@ namespace Radios.Tests
         }
 
         /// <summary>
-        /// The seal's result carries the facts: a real session, a real
-        /// reading through <c>Tracing.TraceLine</c>, a real seal.
+        /// The archive's result carries the facts: a real session, a real
+        /// reading through <c>Tracing.TraceLine</c>, a real archive.
         /// </summary>
         [Fact]
-        public void The_seal_result_carries_what_the_file_holds()
+        public void The_archive_result_carries_what_the_file_holds()
         {
             string savedRoot = TraceCoordinator.ArchiveRootDir;
             TraceSession savedSession = TraceSessionContext.Current;
@@ -240,7 +240,7 @@ namespace Radios.Tests
                 Tracing.TraceLine(CaptureMeterSet.Format(40f, 41f, 40.5f, 5, SupplyVoltage.NoMeter(), transmitting: false), TraceLevel.Info);
                 Tracing.TraceLine("a plain line", TraceLevel.Info);
 
-                TraceTransitionResult sealed_ = TraceCoordinator.TrySeal(new TraceSealRequest
+                TraceTransitionResult archived_ = TraceCoordinator.TryArchive(new TraceArchiveRequest
                 {
                     Expected = began.Successor,
                     OperationId = Guid.NewGuid(),
@@ -249,18 +249,18 @@ namespace Radios.Tests
                     // The drop's partial window, as a terminal record: empty here.
                     TerminalLines = new[] { CaptureMeterSet.Format(0f, 0f, 0f, 0, SupplyVoltage.NoMeter(), true, "connection_dropped") },
                 });
-                Assert.Equal(TraceTransition.Accepted, sealed_.Status);
-                Assert.NotNull(sealed_.FileFacts);
-                _out.WriteLine(sealed_.Explanation);
-                Assert.True(sealed_.FileFacts.TemperatureReadingsWritten);
-                Assert.False(sealed_.FileFacts.PowerReadingsWritten);
-                Assert.False(sealed_.FileFacts.Faulted);
-                Assert.False(sealed_.TailUncertain);
-                Assert.Contains("temperature=yes", sealed_.Explanation, StringComparison.Ordinal);
+                Assert.Equal(TraceTransition.Accepted, archived_.Status);
+                Assert.NotNull(archived_.FileFacts);
+                _out.WriteLine(archived_.Explanation);
+                Assert.True(archived_.FileFacts.TemperatureReadingsWritten);
+                Assert.False(archived_.FileFacts.PowerReadingsWritten);
+                Assert.False(archived_.FileFacts.Faulted);
+                Assert.False(archived_.TailUncertain);
+                Assert.Contains("temperature=yes", archived_.Explanation, StringComparison.Ordinal);
                 TraceCoordinator.DrainArchives(TimeSpan.FromSeconds(20));
 
-                // A refusal carries none: it sealed nothing.
-                TraceTransitionResult refused = TraceCoordinator.TrySeal(new TraceSealRequest
+                // A refusal carries none: it archived nothing.
+                TraceTransitionResult refused = TraceCoordinator.TryArchive(new TraceArchiveRequest
                 {
                     Expected = began.Successor, OperationId = Guid.NewGuid(),
                     Outcome = TraceSessionOutcome.CleanExit, Resume = TraceResumeIntent.None,
@@ -272,7 +272,7 @@ namespace Radios.Tests
             {
                 if (TraceCoordinator.CurrentHandle != null)
                 {
-                    TraceCoordinator.TrySeal(new TraceSealRequest
+                    TraceCoordinator.TryArchive(new TraceArchiveRequest
                     {
                         ShutdownAuthority = true, Outcome = TraceSessionOutcome.CleanExit,
                         Resume = TraceResumeIntent.None, OperationId = Guid.NewGuid(),

@@ -205,7 +205,7 @@ namespace Radios.Speech
         public const string TrackingNotch = "tracking-notch";
 
         /// <summary>
-        /// Where the diagnostic recording went after a connection drop sealed
+        /// Where the diagnostic recording went after a connection drop archived
         /// it — the confirmation that its path is now on the clipboard (Sprint
         /// 45 Track H, #566's bridge). One subject because the only utterances
         /// on it are successive answers to "have I got the path?", and only the
@@ -218,7 +218,7 @@ namespace Radios.Speech
         /// pressed a button to get something they intend to paste somewhere
         /// else.</para>
         /// </summary>
-        public const string CaptureSealedPath = "capture-sealed-path";
+        public const string CaptureArchivedPath = "capture-archived-path";
 
         /// <summary>
         /// The value of one field, named by its label — the committed value

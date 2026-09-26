@@ -239,7 +239,7 @@
   "logging.recording.health.snapshot_label_sink": "Recording now",
   "logging.recording.health.snapshot_ok": "no earlier recording is waiting on recovery",
   "logging.recording.health.snapshot_sink_failed": "FAILED — writing to {path} failed: {fault}; nothing is being recorded",
-  "logging.recording.health.snapshot_sink_off": "off (by choice: logging off, exit committed, or a seal that opened nothing)",
+  "logging.recording.health.snapshot_sink_off": "off (by choice: logging off, exit committed, or a save that opened nothing)",
   "logging.recording.health.snapshot_sink_recording": "recording (first record written and flushed, no write failure since)",
   "logging.recording.health.status_sink_failed": "The diagnostic log has stopped: writing to the file failed ({fault}).",
   "logging.recording.health.status_unresolved_many": "{count} earlier recordings are not yet safely filed. Press Control J then Control R for details.",

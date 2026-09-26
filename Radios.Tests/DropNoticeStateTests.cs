@@ -11,22 +11,22 @@ namespace Radios.Tests
 {
     /// <summary>
     /// The drop window's "what happens next is being kept" is decided by the
-    /// coordinator's state at the moment the notice is built, not by the seal
+    /// coordinator's state at the moment the notice is built, not by the archive
     /// (Sol's review of H9, blocker 1). Driven through the REAL coordinator
-    /// and the REAL seal worker, with the archive worker held on a barrier so
+    /// and the REAL archive worker, with the archive worker held on a barrier so
     /// the world can be changed in the five-minute gap the production hook
     /// waits through: the operator turns the log off, or the fresh file
     /// fails. No window, no radio.
     /// </summary>
     /// <remarks>
-    /// <para>The seal hook here mirrors <c>globals.vb</c>'s
-    /// <c>SealCaptureForConnectionDrop</c> in the one respect that matters:
-    /// it seals through <c>TrySeal</c>, then WAITS for the archive before
+    /// <para>The archive hook here mirrors <c>globals.vb</c>'s
+    /// <c>ArchiveCaptureForConnectionDrop</c> in the one respect that matters:
+    /// it archives through <c>TryArchive</c>, then WAITS for the archive before
     /// returning — which is where the operator gets their chance. A hook that
     /// returned at once could not reproduce the blocker.</para>
     /// </remarks>
     // The suite runs sequentially by assembly policy (TestParallelism.cs),
-    // which is what makes the process-wide coordinator, seal hook and queue
+    // which is what makes the process-wide coordinator, archive hook and queue
     // safe to drive here.
     public sealed class DropNoticeStateTests : IDisposable
     {
@@ -37,7 +37,7 @@ namespace Radios.Tests
         private readonly TraceSession _savedSession;
         private readonly bool _savedOn;
         private readonly TraceLevel _savedLevel;
-        private readonly Func<CaptureSealRequest, CaptureSealResult> _savedHook;
+        private readonly Func<CaptureArchiveRequest, CaptureArchiveResult> _savedHook;
         private readonly Action<Action> _savedQueue;
 
         public DropNoticeStateTests(ITestOutputHelper output)
@@ -47,8 +47,8 @@ namespace Radios.Tests
             _savedOn = Tracing.On;
             _savedArchiveRoot = TraceCoordinator.ArchiveRootDir;
             _savedSession = TraceSessionContext.Current;
-            _savedHook = CaptureSeal.SealHook;
-            _savedQueue = CaptureSeal.Queue;
+            _savedHook = CaptureArchive.ArchiveHook;
+            _savedQueue = CaptureArchive.Queue;
 
             _dir = Path.Combine(Path.GetTempPath(), "jjflex-h10-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(_dir);
@@ -67,8 +67,8 @@ namespace Radios.Tests
             // from the connection token's ordinal, and forgetting the tokens
             // restarts the ordinals — so a coordinator still holding an
             // earlier test's ticket under that id would answer this test's
-            // seal with AlreadyClaimed and somebody else's session.
-            CaptureSeal.ForgetClaimForTests();
+            // archive with AlreadyClaimed and somebody else's session.
+            CaptureArchive.ForgetClaimForTests();
             TraceCoordinator.ResetClaimsForTests();
             Tracing.On = true;
         }
@@ -76,12 +76,12 @@ namespace Radios.Tests
         public void Dispose()
         {
             TraceArchiveWorker.BeforeArchiveForTests = null;
-            CaptureSeal.SealHook = _savedHook;
-            CaptureSeal.Queue = _savedQueue;
-            CaptureSeal.ForgetClaimForTests();
+            CaptureArchive.ArchiveHook = _savedHook;
+            CaptureArchive.Queue = _savedQueue;
+            CaptureArchive.ForgetClaimForTests();
             if (TraceCoordinator.CurrentHandle != null)
             {
-                TraceCoordinator.TrySeal(new TraceSealRequest
+                TraceCoordinator.TryArchive(new TraceArchiveRequest
                 {
                     ShutdownAuthority = true,
                     Outcome = TraceSessionOutcome.CleanExit,
@@ -125,7 +125,7 @@ namespace Radios.Tests
 
         /// <summary>
         /// Hold the fault-retire work item so a session whose file has died
-        /// is still current when the drop's seal arrives — the same helper
+        /// is still current when the drop's archive arrives — the same helper
         /// <c>TraceCoordinatorTests</c> uses. Disposing runs what was held.
         /// </summary>
         private sealed class HeldFaultRetire : IDisposable
@@ -151,16 +151,16 @@ namespace Radios.Tests
         /// One drop, end to end: a standing session is recording;
         /// <paramref name="beforeTheDrop"/> writes into it; the radio's
         /// connection falls, collecting <paramref name="partialMeterLine"/>
-        /// as the window it closed; the seal hook seals it and waits for its
+        /// as the window it closed; the archive hook archives it and waits for its
         /// archive, which is held on a barrier; <paramref name="duringTheWait"/>
         /// runs on the test thread while it is held; the barrier lifts; the
         /// notice the operator would be shown is returned.
         /// <paramref name="underTheGate"/>, if given, is the coordinator's
-        /// transition probe for the seal — the one place a fault can be
-        /// injected AFTER the seal has read the sink's state and BEFORE it
+        /// transition probe for the archive — the one place a fault can be
+        /// injected AFTER the archive has read the sink's state and BEFORE it
         /// writes, deterministically.
         /// </summary>
-        private CaptureSealNotice OneDrop(Action duringTheWait, Action beforeTheDrop = null,
+        private CaptureArchiveNotice OneDrop(Action duringTheWait, Action beforeTheDrop = null,
                                           string partialMeterLine = null, Action<string> underTheGate = null)
         {
             TraceCoordinator.SetStandingIntent(true, TraceLevel.Verbose);
@@ -172,8 +172,8 @@ namespace Radios.Tests
             using var atWorker = new ManualResetEventSlim(false);
             using var release = new ManualResetEventSlim(false);
             using var told = new ManualResetEventSlim(false);
-            CaptureSealNotice notice = null;
-            TraceTransitionResult sealResult = null;
+            CaptureArchiveNotice notice = null;
+            TraceTransitionResult archiveResult = null;
             Thread worker = null;
 
             TraceArchiveWorker.BeforeArchiveForTests = t =>
@@ -183,11 +183,11 @@ namespace Radios.Tests
                 release.Wait(TimeSpan.FromSeconds(30));
             };
             TraceCoordinator.TransitionProbeForTests = underTheGate;
-            CaptureSeal.SealHook = req =>
+            CaptureArchive.ArchiveHook = req =>
             {
                 var lines = new System.Collections.Generic.List<string>();
                 if (!string.IsNullOrEmpty(req.PartialMeterLine)) lines.Add(req.PartialMeterLine);
-                sealResult = TraceCoordinator.TrySeal(new TraceSealRequest
+                archiveResult = TraceCoordinator.TryArchive(new TraceArchiveRequest
                 {
                     Expected = (TraceSessionHandle)req.ExpectedSession,
                     OperationId = req.DropOperationId,
@@ -196,46 +196,46 @@ namespace Radios.Tests
                     TerminalLines = lines,
                     Resume = TraceResumeIntent.Standing,
                 });
-                var outcome = new CaptureSealResult
+                var outcome = new CaptureArchiveResult
                 {
-                    Refused = !sealResult.Owned,
-                    RefusalReason = sealResult.Owned ? null : sealResult.Explanation,
-                    ArchivedSessionId = sealResult.Ticket?.SessionId,
-                    SuccessorOpened = sealResult.SuccessorOpened,
-                    SuccessorRecording = sealResult.TracingOn,
-                    TailUncertain = sealResult.TailUncertain,
-                    SinkFailedBeforeDrop = sealResult.SinkFailedBeforeSeal,
-                    FileFacts = sealResult.FileFacts,
+                    Refused = !archiveResult.Owned,
+                    RefusalReason = archiveResult.Owned ? null : archiveResult.Explanation,
+                    ArchivedSessionId = archiveResult.Ticket?.SessionId,
+                    SuccessorOpened = archiveResult.SuccessorOpened,
+                    SuccessorRecording = archiveResult.TracingOn,
+                    TailUncertain = archiveResult.TailUncertain,
+                    SinkFailedBeforeDrop = archiveResult.SinkFailedBeforeArchive,
+                    FileFacts = archiveResult.FileFacts,
                 };
                 // As globals.vb does: the operator is only ever offered a path
                 // that exists, so wait for the archive here, on the worker.
-                if (sealResult.Owned && sealResult.Ticket?.Completion != null
-                    && sealResult.Ticket.Completion.Wait(TimeSpan.FromSeconds(60))
-                    && sealResult.Ticket.Completion.Result.ArchiveCommitted)
+                if (archiveResult.Owned && archiveResult.Ticket?.Completion != null
+                    && archiveResult.Ticket.Completion.Wait(TimeSpan.FromSeconds(60))
+                    && archiveResult.Ticket.Completion.Result.ArchiveCommitted)
                 {
-                    outcome.ArchivePath = sealResult.Ticket.Completion.Result.ArchiveFullPath;
+                    outcome.ArchivePath = archiveResult.Ticket.Completion.Result.ArchiveFullPath;
                 }
                 return outcome;
             };
             // A real background thread, so the test thread is free to be the
             // operator while the worker waits.
-            CaptureSeal.Queue = work => { worker = new Thread(() => work()) { IsBackground = true }; worker.Start(); };
-            void OnSealed(CaptureSealNotice n) { notice = n; told.Set(); }
-            CaptureSeal.SealedAfterDrop += OnSealed;
+            CaptureArchive.Queue = work => { worker = new Thread(() => work()) { IsBackground = true }; worker.Start(); };
+            void OnArchived(CaptureArchiveNotice n) { notice = n; told.Set(); }
+            CaptureArchive.ArchivedAfterDrop += OnArchived;
             try
             {
-                CaptureSeal.AfterConnectionDrop(new object(), "6300inshack",
+                CaptureArchive.AfterConnectionDrop(new object(), "6300inshack",
                                                 partialMeterLine == null ? null : () => partialMeterLine, old);
                 Assert.True(atWorker.Wait(TimeSpan.FromSeconds(10)),
-                    "the archive worker never reached the old session's ticket; seal: "
-                    + (sealResult == null ? "hook not called" : sealResult.Status + " — " + sealResult.Explanation)
+                    "the archive worker never reached the old session's ticket; archive: "
+                    + (archiveResult == null ? "hook not called" : archiveResult.Status + " — " + archiveResult.Explanation)
                     + "; worker alive: " + (worker?.IsAlive));
-                // Positive control on the seal itself: it owned the session
+                // Positive control on the archive itself: it owned the session
                 // and a successor is recording at this moment.
-                Assert.NotNull(sealResult);
-                Assert.True(sealResult.Owned);
-                Assert.True(sealResult.SuccessorOpened, "no successor opened, so nothing can change during the wait");
-                Assert.True(TraceCoordinator.Observe().Recording, "the successor is not recording at the seal");
+                Assert.NotNull(archiveResult);
+                Assert.True(archiveResult.Owned);
+                Assert.True(archiveResult.SuccessorOpened, "no successor opened, so nothing can change during the wait");
+                Assert.True(TraceCoordinator.Observe().Recording, "the successor is not recording at the archive");
 
                 duringTheWait();
 
@@ -248,12 +248,12 @@ namespace Radios.Tests
             finally
             {
                 release.Set();
-                CaptureSeal.SealedAfterDrop -= OnSealed;
+                CaptureArchive.ArchivedAfterDrop -= OnArchived;
                 TraceArchiveWorker.BeforeArchiveForTests = null;
                 TraceCoordinator.TransitionProbeForTests = null;
                 worker?.Join(TimeSpan.FromSeconds(30));
             }
-            _out.WriteLine("seal: " + sealResult.Explanation);
+            _out.WriteLine("archive: " + archiveResult.Explanation);
             _out.WriteLine(notice.Explanation);
             _out.WriteLine(string.Empty);
             return notice;
@@ -280,7 +280,7 @@ namespace Radios.Tests
         [Fact]
         public void A_receive_only_session_is_not_promised_transmit_readings()
         {
-            CaptureSealNotice notice = OneDrop(
+            CaptureArchiveNotice notice = OneDrop(
                 duringTheWait: () => { },
                 beforeTheDrop: () =>
                 {
@@ -307,7 +307,7 @@ namespace Radios.Tests
         [Fact]
         public void A_session_with_no_reading_is_promised_none()
         {
-            CaptureSealNotice notice = OneDrop(
+            CaptureArchiveNotice notice = OneDrop(
                 duringTheWait: () => { },
                 beforeTheDrop: () => Tracing.TraceLine("propertyChanged:Slice:Freq", TraceLevel.Info),
                 partialMeterLine: TemperatureLine(0, "connection_dropped"));
@@ -325,7 +325,7 @@ namespace Radios.Tests
         [Fact]
         public void A_session_with_both_kinds_of_reading_gets_the_ordinary_sentence()
         {
-            CaptureSealNotice notice = OneDrop(
+            CaptureArchiveNotice notice = OneDrop(
                 duringTheWait: () => { },
                 beforeTheDrop: () => Tracing.TraceLine(PowerLine, TraceLevel.Info),
                 partialMeterLine: TemperatureLine(2, "connection_dropped"));
@@ -346,7 +346,7 @@ namespace Radios.Tests
         public void A_reading_written_before_an_earlier_fault_is_said_to_be_in_the_file()
         {
             using var held = new HeldFaultRetire();
-            CaptureSealNotice notice = OneDrop(
+            CaptureArchiveNotice notice = OneDrop(
                 duringTheWait: () => { },
                 beforeTheDrop: () =>
                 {
@@ -378,7 +378,7 @@ namespace Radios.Tests
         public void A_reading_refused_after_an_earlier_fault_is_said_to_be_missing()
         {
             using var held = new HeldFaultRetire();
-            CaptureSealNotice notice = OneDrop(
+            CaptureArchiveNotice notice = OneDrop(
                 duringTheWait: () => { },
                 beforeTheDrop: () =>
                 {
@@ -397,23 +397,23 @@ namespace Radios.Tests
         /// <summary>
         /// Sol's fourth counterexample: a failed flush can leave preceding
         /// buffered text unwritten. Three lines enter the sink's buffer
-        /// under the gate, after the seal has read the sink as alive and
+        /// under the gate, after the archive has read the sink as alive and
         /// before it writes — exactly where a flush skipped behind a
         /// transition leaves them in production — the stream is broken
-        /// there too, and the seal's own flush then fails. "Everything
+        /// there too, and the archive's own flush then fails. "Everything
         /// before that point is in the file above" is NOT said; the window
         /// says the lines just before may be missing as well.
         /// </summary>
         [Fact]
         public void A_close_that_loses_buffered_lines_does_not_claim_everything_before_it_is_in_the_file()
         {
-            CaptureSealNotice notice = OneDrop(
+            CaptureArchiveNotice notice = OneDrop(
                 duringTheWait: () => { },
                 beforeTheDrop: () => Tracing.TraceLine(PowerLine, TraceLevel.Info),
                 partialMeterLine: TemperatureLine(2, "connection_dropped"),
                 underTheGate: point =>
                 {
-                    if (point != "seal:owned") return;
+                    if (point != "archive:owned") return;
                     RotatingTraceListener live = Tracing.LiveListener;
                     live.WriteLine("1 [T1] buffered one");
                     live.WriteLine("2 [T1] buffered two");
@@ -422,7 +422,7 @@ namespace Radios.Tests
                 });
 
             Assert.True(notice.TailUncertain);
-            Assert.False(notice.SinkFailedBeforeDrop, "the sink was alive when the seal read it");
+            Assert.False(notice.SinkFailedBeforeDrop, "the sink was alive when the archive read it");
             Assert.True(notice.FileFacts.Faulted);
             Assert.True(notice.FileFacts.LinesUnflushedAtFault >= 3,
                         "expected at least the three buffered lines to be reported lost; " + notice.FileFacts);
@@ -441,11 +441,11 @@ namespace Radios.Tests
         [Fact]
         public void A_close_whose_fault_took_nothing_before_it_says_everything_before_it_is_in_the_file()
         {
-            CaptureSealNotice notice = OneDrop(
+            CaptureArchiveNotice notice = OneDrop(
                 duringTheWait: () => { },
                 beforeTheDrop: () => Tracing.TraceLine(PowerLine, TraceLevel.Info),
                 partialMeterLine: TemperatureLine(2, "connection_dropped"),
-                underTheGate: point => { if (point == "seal:owned") DisposeLiveField("_writer"); });
+                underTheGate: point => { if (point == "archive:owned") DisposeLiveField("_writer"); });
 
             Assert.True(notice.TailUncertain);
             Assert.False(notice.SinkFailedBeforeDrop);
@@ -457,19 +457,19 @@ namespace Radios.Tests
         /// <summary>
         /// <b>Sol's review of H9, blocker 1.</b> The operator turns the
         /// standing log off in Settings while the drop's archive is being
-        /// made. The seal DID open a successor; by the time the window opens
+        /// made. The archive DID open a successor; by the time the window opens
         /// nothing is recording; and the window says so rather than "the
         /// next thing that happens is being kept too".
         /// </summary>
         [Fact]
-        public void The_window_says_what_is_being_kept_when_it_opens_not_when_the_seal_happened()
+        public void The_window_says_what_is_being_kept_when_it_opens_not_when_the_archive_happened()
         {
-            CaptureSealNotice notice = OneDrop(duringTheWait: () =>
+            CaptureArchiveNotice notice = OneDrop(duringTheWait: () =>
             {
                 // Exactly what ApplyDiagnosticLogSettings does for "off".
                 TraceSessionHandle successor = TraceCoordinator.CurrentHandle;
                 Assert.NotNull(successor);
-                TraceTransitionResult off = TraceCoordinator.TrySeal(new TraceSealRequest
+                TraceTransitionResult off = TraceCoordinator.TryArchive(new TraceArchiveRequest
                 {
                     Expected = successor,
                     OperationId = Guid.NewGuid(),
@@ -481,7 +481,7 @@ namespace Radios.Tests
                 Assert.False(TraceCoordinator.Observe().Recording);
             });
 
-            Assert.True(notice.SuccessorOpened, "the seal's own fact is kept: a successor did open");
+            Assert.True(notice.SuccessorOpened, "the archive's own fact is kept: a successor did open");
             Assert.False(notice.RecordingNow);
             string text = notice.Explanation;
             Assert.DoesNotContain("has already started recording again", text, StringComparison.Ordinal);
@@ -501,7 +501,7 @@ namespace Radios.Tests
         [Fact]
         public void A_successor_that_fails_during_the_archive_wait_is_not_called_a_running_log()
         {
-            CaptureSealNotice notice = OneDrop(duringTheWait: () =>
+            CaptureArchiveNotice notice = OneDrop(duringTheWait: () =>
             {
                 BreakTheLiveSink();
                 Tracing.TraceLine("the write that fails", TraceLevel.Warning);
@@ -525,7 +525,7 @@ namespace Radios.Tests
         [Fact]
         public void A_successor_still_recording_when_the_window_opens_is_said_to_be_keeping_what_happens_next()
         {
-            CaptureSealNotice notice = OneDrop(duringTheWait: () =>
+            CaptureArchiveNotice notice = OneDrop(duringTheWait: () =>
             {
                 Assert.True(TraceCoordinator.Observe().Recording);
             });
@@ -540,8 +540,8 @@ namespace Radios.Tests
 
         // ── Sol's review of H10, blocker 2: the second queue boundary ──────
         //
-        // OneDrop returns once the worker has raised SealedAfterDrop and
-        // exited — the notice exists, exactly as CaptureSealWatch receives
+        // OneDrop returns once the worker has raised ArchivedAfterDrop and
+        // exited — the notice exists, exactly as CaptureArchiveWatch receives
         // it, and nothing has composed its text for a window yet. What the
         // test thread does next is what the dispatcher queue does in
         // production between the worker's BeginInvoke and the dialog's
@@ -557,7 +557,7 @@ namespace Radios.Tests
         [Fact]
         public void The_sentence_is_decided_when_the_text_is_installed_not_when_the_worker_composed_the_notice()
         {
-            CaptureSealNotice notice = OneDrop(duringTheWait: () => { });
+            CaptureArchiveNotice notice = OneDrop(duringTheWait: () => { });
 
             // The worker's moment: recording, and the notice says so. This is
             // what H10 froze, and what a window built now would say.
@@ -570,7 +570,7 @@ namespace Radios.Tests
             // ApplyDiagnosticLogSettings does for "off".
             TraceSessionHandle successor = TraceCoordinator.CurrentHandle;
             Assert.NotNull(successor);
-            TraceTransitionResult off = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult off = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = successor,
                 OperationId = Guid.NewGuid(),
@@ -589,7 +589,7 @@ namespace Radios.Tests
             _out.WriteLine(atTheWindow);
             Assert.NotEqual(atTheWorker, atTheWindow);
             Assert.False(notice.RecordingNow);
-            Assert.True(notice.SuccessorOpened, "the seal's own fact is kept: a successor did open");
+            Assert.True(notice.SuccessorOpened, "the archive's own fact is kept: a successor did open");
             Assert.DoesNotContain("is being kept too", atTheWindow, StringComparison.Ordinal);
             Assert.DoesNotContain("has not started recording again", atTheWindow, StringComparison.Ordinal);
             Assert.Contains("did start recording again after the connection went, but it is not recording now", atTheWindow, StringComparison.Ordinal);
@@ -605,7 +605,7 @@ namespace Radios.Tests
         [Fact]
         public void A_successor_that_fails_after_the_worker_composed_the_notice_is_not_called_a_running_log_at_the_window()
         {
-            CaptureSealNotice notice = OneDrop(duringTheWait: () => { });
+            CaptureArchiveNotice notice = OneDrop(duringTheWait: () => { });
             Assert.Contains("is being kept too", notice.Explanation, StringComparison.Ordinal);   // the worker's moment
 
             BreakTheLiveSink();
@@ -641,7 +641,7 @@ namespace Radios.Tests
         [Fact]
         public void A_successor_whose_file_has_closed_is_not_called_recording_while_its_retirement_is_still_queued()
         {
-            CaptureSealNotice notice = OneDrop(duringTheWait: () => { });
+            CaptureArchiveNotice notice = OneDrop(duringTheWait: () => { });
             Assert.Contains("is being kept too", notice.Explanation, StringComparison.Ordinal);   // the worker's moment
             RotatingTraceListener successorSink = Tracing.LiveListener;
             Assert.NotNull(successorSink);
@@ -664,7 +664,7 @@ namespace Radios.Tests
                 _out.WriteLine("--- at the window, sink closed, retirement still queued:");
                 _out.WriteLine(atTheWindow);
                 Assert.False(notice.RecordingNow);
-                Assert.False(CaptureSealNotice.LiveRecordingState());
+                Assert.False(CaptureArchiveNotice.LiveRecordingState());
                 Assert.True(notice.SuccessorOpened);
                 Assert.DoesNotContain("is being kept too", atTheWindow, StringComparison.Ordinal);
                 Assert.Contains("but it is not recording now", atTheWindow, StringComparison.Ordinal);
@@ -681,7 +681,7 @@ namespace Radios.Tests
         /// <summary>
         /// The reader is asked on the UI thread, so it must answer while a
         /// transition holds the trace gate (H7's rule: no thread waits on a
-        /// transition). A seal is held at its probe, under the gate; the
+        /// transition). An archive is held at its probe, under the gate; the
         /// reader returns at once, and a gated read, as the control, does not.
         /// </summary>
         [Fact]
@@ -690,47 +690,47 @@ namespace Radios.Tests
             TraceCoordinator.SetStandingIntent(true, TraceLevel.Verbose);
             TraceTransitionResult began = TraceCoordinator.Begin(_livePath, TraceLevel.Verbose, asDetailedCapture: false);
             Assert.Equal(TraceTransition.Accepted, began.Status);
-            Assert.True(CaptureSealNotice.LiveRecordingState(), "a healthy session is not read as recording");   // positive control
+            Assert.True(CaptureArchiveNotice.LiveRecordingState(), "a healthy session is not read as recording");   // positive control
 
             using var inside = new ManualResetEventSlim(false);
             using var release = new ManualResetEventSlim(false);
-            Thread seal = null, gated = null, reader = null;
+            Thread archive = null, gated = null, reader = null;
             try
             {
                 TraceCoordinator.TransitionProbeForTests = point =>
                 {
-                    if (point != "seal:owned") return;
+                    if (point != "archive:owned") return;
                     inside.Set();
                     release.Wait(TimeSpan.FromSeconds(30));
                 };
-                seal = new Thread(() => TraceCoordinator.TrySeal(new TraceSealRequest
+                archive = new Thread(() => TraceCoordinator.TryArchive(new TraceArchiveRequest
                 {
                     Expected = began.Successor,
                     OperationId = Guid.NewGuid(),
                     Outcome = TraceSessionOutcome.CleanExit,
                     Resume = TraceResumeIntent.None,
                 })) { IsBackground = true };
-                seal.Start();
-                Assert.True(inside.Wait(TimeSpan.FromSeconds(10)), "the seal never reached its probe");
+                archive.Start();
+                Assert.True(inside.Wait(TimeSpan.FromSeconds(10)), "the archive never reached its probe");
 
                 // Control: the gate really is held.
                 gated = new Thread(() => { _ = TraceCoordinator.Recording; }) { IsBackground = true };
                 gated.Start();
                 Assert.False(gated.Join(TimeSpan.FromMilliseconds(300)),
-                    "a gated read got past the held seal — the gate is not held, and the check below would be vacuous");
+                    "a gated read got past the held archive — the gate is not held, and the check below would be vacuous");
 
                 bool answer = false;
-                reader = new Thread(() => { answer = CaptureSealNotice.LiveRecordingState(); }) { IsBackground = true };
+                reader = new Thread(() => { answer = CaptureArchiveNotice.LiveRecordingState(); }) { IsBackground = true };
                 reader.Start();
                 Assert.True(reader.Join(TimeSpan.FromSeconds(2)), "the window's reader waited on the trace gate");
-                Assert.True(seal.IsAlive, "the seal finished before the reader was measured; nothing was measured");
-                _out.WriteLine("reader answered " + answer + " while the seal held the gate");
+                Assert.True(archive.IsAlive, "the archive finished before the reader was measured; nothing was measured");
+                _out.WriteLine("reader answered " + answer + " while the archive held the gate");
             }
             finally
             {
                 release.Set();
                 TraceCoordinator.TransitionProbeForTests = null;
-                seal?.Join(TimeSpan.FromSeconds(10));
+                archive?.Join(TimeSpan.FromSeconds(10));
                 gated?.Join(TimeSpan.FromSeconds(10));
                 reader?.Join(TimeSpan.FromSeconds(10));
             }
@@ -745,7 +745,7 @@ namespace Radios.Tests
         [Fact]
         public void With_nothing_in_the_queue_the_window_reads_what_the_worker_would_have_said()
         {
-            CaptureSealNotice notice = OneDrop(duringTheWait: () => { });
+            CaptureArchiveNotice notice = OneDrop(duringTheWait: () => { });
             string atTheWorker = notice.Explanation;
             Assert.Equal(TraceSinkState.Recording, TraceRecordingHealth.Snapshot().SinkState);
             string atTheWindow = notice.Explanation;

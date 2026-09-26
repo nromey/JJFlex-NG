@@ -327,7 +327,7 @@ namespace JJTrace
                 // THE ARCHIVE-COMPLETION TRANSITION FOR LATE EVIDENCE (Sol's
                 // review of H10, blocker 3). A late-evidence file written
                 // beside the raw source — because its writer's wait expired,
-                // or the seal's detach had failed and the reclaim carried it
+                // or the archive's detach had failed and the reclaim carried it
                 // to the raw path — now follows the archive it belongs to,
                 // in the same locked step that stamps the ticket, so from
                 // here on the zip's delete, prune and KeptForever cover it
@@ -579,14 +579,14 @@ namespace JJTrace
             }
         }
 
-        // ── Late evidence: lines about a sealed session, kept beside it ────
+        // ── Late evidence: lines about an archived session, kept beside it ────
 
         /// <summary>
         /// The suffix of the plain-text file that holds lines about a session
-        /// which arrived after another operation had sealed it — a refused
+        /// which arrived after another operation had archived it — a refused
         /// drop's partial meter window above all (Sol's review of H9, blocker
         /// 3). It sits BESIDE the session's archive, named after it, and is
-        /// never written into the sealed file or its zip.
+        /// never written into the archived file or its zip.
         /// </summary>
         public const string LateEvidenceSuffix = ".late-evidence.txt";
 
@@ -661,7 +661,7 @@ namespace JJTrace
 
         /// <summary>
         /// Keep one line of late evidence beside a file that has no ticket:
-        /// a retained seal's file, still at the live path because its
+        /// a retained archive's file, still at the live path because its
         /// detach failed. The reclaim carries the file to the raw path and
         /// the archive commit carries it on from there.
         /// </summary>
@@ -690,7 +690,7 @@ namespace JJTrace
                     {
                         w.WriteLine(LateEvidenceHeaderPrefix + sessionId + ". The lines below were"
                                     + " formatted while that session was recording and arrived after another operation"
-                                    + " had already sealed it, so they could not be written into its own file ("
+                                    + " had already archived it, so they could not be written into its own file ("
                                     + Path.GetFileName(beside) + ") and are kept here beside it. Each carries its own"
                                     + " trace prefix.");
                     }

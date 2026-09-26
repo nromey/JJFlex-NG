@@ -35,10 +35,10 @@ namespace Radios.Tests
     /// </para>
     /// </remarks>
     [Collection(RadioConfigStaticsCollection.Name)]
-    public sealed class CaptureSealNoticeTests
+    public sealed class CaptureArchiveNoticeTests
     {
         private readonly ITestOutputHelper _out;
-        public CaptureSealNoticeTests(ITestOutputHelper output) { _out = output; }
+        public CaptureArchiveNoticeTests(ITestOutputHelper output) { _out = output; }
 
         private const string Path0 =
             @"C:\Users\nrome\AppData\Roaming\JJFlexRadio\Traces\2026\09\trace-20260922-201500-connection_dropped.zip";
@@ -47,15 +47,15 @@ namespace Radios.Tests
         /// reading counted into the file, recording again now. The H7 prose
         /// is asserted against THIS, because since H10 the content promise
         /// is made only when the file's facts support it.</summary>
-        private static CaptureSealNotice Full(string name) =>
-            new CaptureSealNotice(name, Path0, successorOpened: true, archivedSessionId: Guid.NewGuid(),
+        private static CaptureArchiveNotice Full(string name) =>
+            new CaptureArchiveNotice(name, Path0, successorOpened: true, archivedSessionId: Guid.NewGuid(),
                                   tailUncertain: false, sinkFailedBeforeDrop: false, recordingNow: true,
                                   fileFacts: new TraceFileFacts(powerWritten: true, temperatureWritten: true,
                                                                 faulted: false, linesUnflushedAtFault: 0,
                                                                 readingsLostAtFault: false,
                                                                 readingsRefusedAfterFault: false));
-        private static CaptureSealNotice Named() => Full("6300inshack");
-        private static CaptureSealNotice Unnamed() => Full("");
+        private static CaptureArchiveNotice Named() => Full("6300inshack");
+        private static CaptureArchiveNotice Unnamed() => Full("");
 
         /// <summary>
         /// The two-argument constructor carries no facts, so it names no
@@ -67,7 +67,7 @@ namespace Radios.Tests
         [Fact]
         public void A_notice_without_file_facts_names_no_readings()
         {
-            var bare = new CaptureSealNotice("6300inshack", Path0);
+            var bare = new CaptureArchiveNotice("6300inshack", Path0);
             Assert.Null(bare.FileFacts);
             Assert.Equal("The recording has been closed and saved. It holds everything up to the moment the connection went.",
                          bare.WhatWasSaved);
@@ -203,10 +203,10 @@ namespace Radios.Tests
         [Fact]
         public void A_notice_with_no_path_is_never_shown()
         {
-            // The window's own guard, stated where it can be read: CaptureSeal
+            // The window's own guard, stated where it can be read: CaptureArchive
             // does not raise without a path, and the dialog refuses one anyway.
             string dialog = File.ReadAllText(System.IO.Path.Combine(
-                CaptureMeterSetTests.RepoRoot(), "JJFlexWpf", "Dialogs", "CaptureSealedDialog.cs"));
+                CaptureMeterSetTests.RepoRoot(), "JJFlexWpf", "Dialogs", "CaptureArchivedDialog.cs"));
             Assert.Contains("string.IsNullOrEmpty(notice.ArchivePath)", dialog, StringComparison.Ordinal);
             Assert.DoesNotContain("ThisStringIsNotInTheDialogAnywhere", dialog, StringComparison.Ordinal);
         }
@@ -218,8 +218,8 @@ namespace Radios.Tests
             // asserts is the inheritance. Pressing the key is still a bench
             // job; this only stops the dialog quietly becoming a plain Window.
             string dialog = File.ReadAllText(System.IO.Path.Combine(
-                CaptureMeterSetTests.RepoRoot(), "JJFlexWpf", "Dialogs", "CaptureSealedDialog.cs"));
-            Assert.Contains("class CaptureSealedDialog : JJFlexDialog", dialog, StringComparison.Ordinal);
+                CaptureMeterSetTests.RepoRoot(), "JJFlexWpf", "Dialogs", "CaptureArchivedDialog.cs"));
+            Assert.Contains("class CaptureArchivedDialog : JJFlexDialog", dialog, StringComparison.Ordinal);
         }
     }
 }

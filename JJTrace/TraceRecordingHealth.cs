@@ -8,7 +8,7 @@ namespace JJTrace
     public enum TraceSinkState
     {
         /// <summary>Nothing recording, by intent: logging off, exit committed,
-        /// or a seal that deliberately opened no successor.</summary>
+        /// or an archive that deliberately opened no successor.</summary>
         Off,
 
         /// <summary>A sink is open AND its first record was written and
@@ -416,7 +416,7 @@ namespace JJTrace
 
         /// <summary>
         /// What the live sink is doing. Raised as a change only when the state
-        /// actually moves, so a hundred seals that each open a healthy
+        /// actually moves, so a hundred archives that each open a healthy
         /// successor say nothing.
         ///
         /// <para><b>Notes are applied in sink order, not arrival order.</b>

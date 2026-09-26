@@ -8,9 +8,9 @@ using Xunit;
 namespace JJFlexWpf.Tests;
 
 /// <summary>
-/// The window an operator meets after a connection drop sealed their
+/// The window an operator meets after a connection drop archived their
 /// recording, realised under the guard, and read for what its explanation
-/// box actually carries when the sealed recording's tail is uncertain
+/// box actually carries when the archived recording's tail is uncertain
 /// (Sprint 45 Track H7, Astra's ruling on the pending-record failure; Track
 /// H8 narrowed the caveat to the one predicate a committed archive can carry).
 /// </summary>
@@ -22,18 +22,18 @@ namespace JJFlexWpf.Tests;
 /// window's explanation control is the thing carrying them, which only the
 /// realised tree can show.</para>
 /// </remarks>
-public sealed class CaptureSealedDialogTests
+public sealed class CaptureArchivedDialogTests
 {
     [Fact]
     public void The_explanation_box_carries_the_tail_caveat_when_the_notice_says_so()
     {
-        var notice = new CaptureSealNotice("6300inshack",
+        var notice = new CaptureArchiveNotice("6300inshack",
             @"C:\Users\nrome\AppData\Roaming\JJFlexRadio\Traces\2026\09\trace-20260924-201500-connection_dropped.zip",
             successorOpened: true, archivedSessionId: Guid.NewGuid(), tailUncertain: true);
 
         var outcome = UiThread.RunWithTimeout(() =>
         {
-            var dialog = new CaptureSealedDialog(notice);
+            var dialog = new CaptureArchivedDialog(notice);
             using var realized = RealizedDialog.Realize(dialog, Sweep.Strategy);
             UiThread.Drain();
             var panel = (StackPanel)dialog.Content;
@@ -52,12 +52,12 @@ public sealed class CaptureSealedDialogTests
     [Fact]
     public void The_explanation_box_is_unchanged_when_the_tail_is_certain()
     {
-        var notice = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip",
+        var notice = new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip",
             successorOpened: true, archivedSessionId: Guid.NewGuid(), tailUncertain: false);
 
         var outcome = UiThread.RunWithTimeout(() =>
         {
-            var dialog = new CaptureSealedDialog(notice);
+            var dialog = new CaptureArchivedDialog(notice);
             using var realized = RealizedDialog.Realize(dialog, Sweep.Strategy);
             UiThread.Drain();
             var panel = (StackPanel)dialog.Content;
@@ -73,17 +73,17 @@ public sealed class CaptureSealedDialogTests
     /// <b>Sol's review of H10, blocker 2 — written and compiled in Track
     /// H11; NOT RUN.</b> The recording state changes after the notice
     /// exists and before the window is constructed — the dispatcher queue
-    /// between <c>CaptureSealWatch</c>'s BeginInvoke and the constructor —
+    /// between <c>CaptureArchiveWatch</c>'s BeginInvoke and the constructor —
     /// and the explanation box carries the sentence for the state at
     /// construction, not the state the worker saw. The headless half of
     /// this is <c>Radios.Tests.DropNoticeStateTests</c>; what this adds is
     /// that the realised control is what carries it.
     /// </summary>
     [Fact]
-    public void The_explanation_box_carries_the_recording_state_at_construction_not_at_the_seal()
+    public void The_explanation_box_carries_the_recording_state_at_construction_not_at_the_archive()
     {
         bool recording = true;
-        var notice = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip",
+        var notice = new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip",
             successorOpened: true, archivedSessionId: Guid.NewGuid(),
             tailUncertain: false, sinkFailedBeforeDrop: false,
             recordingNow: () => recording, fileFacts: null);
@@ -95,7 +95,7 @@ public sealed class CaptureSealedDialogTests
 
         var outcome = UiThread.RunWithTimeout(() =>
         {
-            var dialog = new CaptureSealedDialog(notice);
+            var dialog = new CaptureArchivedDialog(notice);
             using var realized = RealizedDialog.Realize(dialog, Sweep.Strategy);
             UiThread.Drain();
             var panel = (StackPanel)dialog.Content;

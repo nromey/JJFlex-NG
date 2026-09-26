@@ -571,7 +571,7 @@ Namespace My
             ' shutdown via WPF route that bypasses Form-side Closing handlers), the
             ' session is still active here. Idempotent by construction now — both
             ' hooks share one shutdown operation, so the second one is answered
-            ' with the first one's ticket rather than sealing again.
+            ' with the first one's ticket rather than archiving again.
             FinalizeTraceForShutdown(JJTrace.TraceSessionOutcome.CleanExit, "MyApplication_Shutdown event")
         End Sub
     End Class

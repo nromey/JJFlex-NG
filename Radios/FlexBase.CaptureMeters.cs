@@ -67,11 +67,11 @@ namespace Radios
         /// line (#598) — and it wrote <c>partial=connection_dropped</c> BEFORE
         /// asking whether this removal was already claimed, so a repeat notice
         /// could stamp a false drop line into the fresh standing log the first
-        /// seal had just started.</para>
+        /// archive had just started.</para>
         ///
         /// <para><b>Merely moving the old call after the claim would not have
         /// been enough.</b> The claim runs on FlexLib's removal thread and the
-        /// seal runs on a worker; a session replacement can land in between, and
+        /// archive runs on a worker; a session replacement can land in between, and
         /// an unqualified <c>Tracing.TraceLine</c> writes to whatever sink is
         /// current at the moment it runs. So the window is rendered here, by the
         /// removal that won the claim, and travels as DATA to the trace
@@ -107,7 +107,7 @@ namespace Radios
             catch (Exception ex)
             {
                 // The drop path must survive anything. A radio has just died;
-                // an exception here would take the seal with it.
+                // an exception here would take the archive with it.
                 // Deferred: this runs on FlexLib's transport thread, on the
                 // drop path, which must not wait on the trace gate.
                 Tracing.TraceLineDeferred("collectCaptureMeterFlush: " + ex.Message, TraceLevel.Warning);

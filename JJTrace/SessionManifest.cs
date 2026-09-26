@@ -32,7 +32,7 @@ namespace JJTrace
         /// The file's tail is missing whatever failed to land, and the
         /// outcome detail carries the sink's own fault text. Sprint 45 Track
         /// H8, so that a faulted sink retires rather than leaving a session
-        /// nothing could seal or replace.
+        /// nothing could archive or replace.
         /// </summary>
         public const string RecordingFailed = "recording_failed";
 

@@ -4,7 +4,7 @@ using JJTrace;
 namespace Radios
 {
     /// <summary>
-    /// What the operator is told when a connection drop sealed their capture —
+    /// What the operator is told when a connection drop archived their capture —
     /// every sentence of it, composed away from any window so it can be read
     /// and tested as prose.
     ///
@@ -35,9 +35,9 @@ namespace Radios
     /// written by an agent, never read aloud by a person, and it is the first
     /// thing an operator meets after their radio has died.</para>
     /// </summary>
-    public sealed class CaptureSealNotice
+    public sealed class CaptureArchiveNotice
     {
-        public CaptureSealNotice(string radioName, string archivePath)
+        public CaptureArchiveNotice(string radioName, string archivePath)
             : this(radioName, archivePath, successorOpened: true, archivedSessionId: null)
         {
         }
@@ -48,19 +48,19 @@ namespace Radios
         ///
         /// <para>The dialog's "what to do" text says recording has already
         /// restarted, and that is false in reachable states: a drop that wins
-        /// during a teardown seals its own session and deliberately opens no
+        /// during a teardown archives its own session and deliberately opens no
         /// successor, and a restart can fail on its own. Until Noel rules the
         /// wording, the FACT is at least carried and traceable rather than
         /// assumed — which is the half of the problem a track can fix.</para>
         /// </summary>
-        public CaptureSealNotice(string radioName, string archivePath,
+        public CaptureArchiveNotice(string radioName, string archivePath,
                                  bool successorOpened, Guid? archivedSessionId)
             : this(radioName, archivePath, successorOpened, archivedSessionId, tailUncertain: false)
         {
         }
 
         /// <summary>
-        /// The drop result also says whether the sealed file's last lines
+        /// The drop result also says whether the archived file's last lines
         /// reached the disk, so the window can carry that fact rather than a
         /// possibly unwritable log being the only place it is said (Astra's
         /// ruling: the capture/drop result reads the same health state
@@ -75,10 +75,10 @@ namespace Radios
         /// predicate cannot be true here, and it is the Problems list's to
         /// carry when it matters. What CAN be true of a committed archive is
         /// that the bytes inside it stop short, and that is a property of the
-        /// sealed file which no later retry changes — so it is read from the
-        /// seal result and nowhere else.</para>
+        /// archived file which no later retry changes — so it is read from the
+        /// archive result and nowhere else.</para>
         /// </summary>
-        public CaptureSealNotice(string radioName, string archivePath,
+        public CaptureArchiveNotice(string radioName, string archivePath,
                                  bool successorOpened, Guid? archivedSessionId,
                                  bool tailUncertain)
             : this(radioName, archivePath, successorOpened, archivedSessionId, tailUncertain,
@@ -104,8 +104,8 @@ namespace Radios
         /// <param name="sinkFailedBeforeDrop">The file had already stopped
         /// taking writes before the connection went — a live write failed
         /// and closed it — so the tail stops at that earlier fault, not at
-        /// the seal. Read only when <paramref name="tailUncertain"/>.</param>
-        public CaptureSealNotice(string radioName, string archivePath,
+        /// the archive. Read only when <paramref name="tailUncertain"/>.</param>
+        public CaptureArchiveNotice(string radioName, string archivePath,
                                  bool successorOpened, Guid? archivedSessionId,
                                  bool tailUncertain, bool sinkFailedBeforeDrop)
             : this(radioName, archivePath, successorOpened, archivedSessionId, tailUncertain,
@@ -115,22 +115,22 @@ namespace Radios
 
         /// <summary>
         /// <b>Whether anything is recording is read when the notice is built,
-        /// not when the seal happened</b> (Sol's review of H9, blocker 1).
-        /// The seal's "a successor opened" bit is true the moment the seal
+        /// not when the archive happened</b> (Sol's review of H9, blocker 1).
+        /// The archive's "a successor opened" bit is true the moment the archive
         /// returns, and the notice is shown up to five minutes later, once
         /// the archive has committed. In that gap the operator can turn the
         /// standing log off in Settings, or the successor's own file can
         /// fail — and "JJ Flexible has already started recording again, so
         /// the next thing that happens is being kept too" is then false in
         /// its load-bearing half. So the paragraph that says what is being
-        /// kept NOW is chosen by the coordinator's state NOW, and the seal's
+        /// kept NOW is chosen by the coordinator's state NOW, and the archive's
         /// bit only tells the two not-recording paragraphs apart: nothing
-        /// opened after the seal, or something opened and has since stopped.
+        /// opened after the archive, or something opened and has since stopped.
         /// </summary>
         /// <param name="recordingNow">A recording state frozen when this
         /// notice is built. A window must not be built from this overload —
         /// see the reader overload below, and why.</param>
-        public CaptureSealNotice(string radioName, string archivePath,
+        public CaptureArchiveNotice(string radioName, string archivePath,
                                  bool successorOpened, Guid? archivedSessionId,
                                  bool tailUncertain, bool sinkFailedBeforeDrop,
                                  bool recordingNow)
@@ -155,9 +155,9 @@ namespace Radios
         /// (<paramref name="fileFacts"/> null), which is what the shorter
         /// constructors mean.
         /// </summary>
-        /// <param name="fileFacts">What the sealed file's sink counted into
-        /// it, frozen at the seal; null for "not known".</param>
-        public CaptureSealNotice(string radioName, string archivePath,
+        /// <param name="fileFacts">What the archived file's sink counted into
+        /// it, frozen at the archive; null for "not known".</param>
+        public CaptureArchiveNotice(string radioName, string archivePath,
                                  bool successorOpened, Guid? archivedSessionId,
                                  bool tailUncertain, bool sinkFailedBeforeDrop,
                                  bool recordingNow, TraceFileFacts fileFacts)
@@ -169,7 +169,7 @@ namespace Radios
         /// <summary>
         /// <b>Whether anything is recording is asked when the TEXT is
         /// composed, not when the notice was built</b> (Sol's review of H10,
-        /// blocker 2). H10 read the coordinator once, on the seal worker,
+        /// blocker 2). H10 read the coordinator once, on the archive worker,
         /// after the archive wait — and then froze that Boolean into this
         /// notice. The notice is posted to the UI thread with
         /// <c>Dispatcher.BeginInvoke</c>, and the window copies
@@ -187,7 +187,7 @@ namespace Radios
         /// recording right now?" at the moment it is asked. Must not wait on
         /// the trace gate — it is asked on the UI thread. Null is read as
         /// "not recording", the paragraph that promises nothing.</param>
-        public CaptureSealNotice(string radioName, string archivePath,
+        public CaptureArchiveNotice(string radioName, string archivePath,
                                  bool successorOpened, Guid? archivedSessionId,
                                  bool tailUncertain, bool sinkFailedBeforeDrop,
                                  Func<bool> recordingNow, TraceFileFacts fileFacts)
@@ -226,8 +226,8 @@ namespace Radios
 
         private readonly Func<bool> _recordingNow;
 
-        /// <summary>What the sealed file is known to contain, or null when
-        /// the seal did not say. See <see cref="TraceFileFacts"/>.</summary>
+        /// <summary>What the archived file is known to contain, or null when
+        /// the archive did not say. See <see cref="TraceFileFacts"/>.</summary>
         public TraceFileFacts FileFacts { get; }
 
         /// <summary>
@@ -243,7 +243,7 @@ namespace Radios
         public string RadioName { get; }
 
         /// <summary>
-        /// A terminal record or the close failed as the session was sealed,
+        /// A terminal record or the close failed as the session was archived,
         /// so the archived file's last lines may not have reached the disk.
         /// The archive is committed — this window does not open otherwise —
         /// but a committed archive of a file whose tail is uncertain is not a
@@ -252,7 +252,7 @@ namespace Radios
         public bool TailUncertain { get; }
 
         /// <summary>
-        /// The sealed file had already stopped taking writes before the drop,
+        /// The archived file had already stopped taking writes before the drop,
         /// so its tail stops at that earlier fault. Always false when
         /// <see cref="TailUncertain"/> is false: it qualifies the tail, and a
         /// certain tail has nothing to qualify.
@@ -260,8 +260,8 @@ namespace Radios
         public bool SinkFailedBeforeDrop { get; }
 
         /// <summary>
-        /// Whether a fresh recording really opened after the seal. A fact of
-        /// the seal, frozen then. It does NOT choose the "being kept" promise
+        /// Whether a fresh recording really opened after the archive. A fact of
+        /// the archive, frozen then. It does NOT choose the "being kept" promise
         /// — <see cref="RecordingNow"/> does — it only tells the two
         /// not-recording paragraphs apart.
         /// </summary>
@@ -289,7 +289,7 @@ namespace Radios
         /// <summary>Which trace session was archived.</summary>
         public Guid? ArchivedSessionId { get; }
 
-        /// <summary>The full path of the sealed archive, exactly as it sits on
+        /// <summary>The full path of the archive, exactly as it sits on
         /// disk. Shown in full and copied in full — a path the operator can only
         /// see half of is a path they cannot send.</summary>
         public string ArchivePath { get; }
@@ -339,7 +339,7 @@ namespace Radios
         /// kept — said only when something is recording at the moment this
         /// property is read, which is the moment the window installs its
         /// text. Otherwise one
-        /// of two: nothing opened after the seal, or a fresh log did open and
+        /// of two: nothing opened after the archive, or a fresh log did open and
         /// has since stopped (the operator turned it off during the archive
         /// wait, or its file failed); both say where to read why. DRAFTS for
         /// the alternatives — Noel's to rule; in the recording-health wording

@@ -198,7 +198,7 @@ namespace Radios.Tests
         {
             if (TraceCoordinator.CurrentHandle != null)
             {
-                TraceCoordinator.TrySeal(new TraceSealRequest
+                TraceCoordinator.TryArchive(new TraceArchiveRequest
                 {
                     ShutdownAuthority = true,
                     Outcome = TraceSessionOutcome.CleanExit,
@@ -207,7 +207,7 @@ namespace Radios.Tests
                 });
             }
             // ALWAYS drain, whether or not anything was open. A test that ended
-            // with no session — a seal with no successor, a shutdown — can
+            // with no session — an archive with no successor, a shutdown — can
             // still have its last ticket compressing on the worker; returning
             // early here let Dispose delete the directory under it, and the
             // worker then reported "compress: could not find file" into the
@@ -276,7 +276,7 @@ namespace Radios.Tests
 
             Write("the first line after the operator turned it on");
 
-            TraceTransitionResult r = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult r = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = live,
                 OperationId = Guid.NewGuid(),
@@ -298,7 +298,7 @@ namespace Radios.Tests
         public void The_emission_gate_is_not_the_same_question_as_recording()
         {
             TraceSessionHandle live = Open();
-            TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = live,
                 OperationId = Guid.NewGuid(),
@@ -328,7 +328,7 @@ namespace Radios.Tests
             Write("belongs to the first session");
 
             // The first session ends properly and a replacement opens.
-            TraceTransitionResult first = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult first = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = stale,
                 OperationId = Guid.NewGuid(),
@@ -342,7 +342,7 @@ namespace Radios.Tests
             Write("belongs to the replacement");
 
             // Now the delayed caller arrives, carrying the old handle.
-            TraceTransitionResult loser = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult loser = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = stale,
                 OperationId = Guid.NewGuid(),
@@ -362,7 +362,7 @@ namespace Radios.Tests
             Assert.Contains("refused", loser.Explanation, StringComparison.OrdinalIgnoreCase);
             Assert.Contains(stale.SessionId.ToString(), loser.Explanation, StringComparison.Ordinal);
             Assert.Contains(live.SessionId.ToString(), loser.Explanation, StringComparison.Ordinal);
-            Assert.DoesNotContain("sealed session", loser.Explanation, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("archived session", loser.Explanation, StringComparison.OrdinalIgnoreCase);
 
             // No listener closed, no capture state cleared, no logging
             // restarted: the replacement is still the live one and still
@@ -371,7 +371,7 @@ namespace Radios.Tests
             Assert.True(TraceCoordinator.Recording);
             Write("still the replacement, after the refusal");
 
-            TraceTransitionResult end = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult end = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = live,
                 OperationId = Guid.NewGuid(),
@@ -398,7 +398,7 @@ namespace Radios.Tests
             TraceSessionHandle live = Open();
             Write("the evening that ended in a drop");
 
-            TraceTransitionResult r = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult r = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = live,
                 OperationId = Guid.NewGuid(),
@@ -435,15 +435,15 @@ namespace Radios.Tests
         }
 
         /// <summary>
-        /// A seal must name what it is about. Only shutdown may act on a
+        /// An archive must name what it is about. Only shutdown may act on a
         /// session it did not name, and it has to say so explicitly rather than
         /// reaching the same effect by reading the current pointer first.
         /// </summary>
         [Fact]
-        public void Only_shutdown_may_seal_a_session_it_did_not_name()
+        public void Only_shutdown_may_archive_a_session_it_did_not_name()
         {
             Open();
-            TraceTransitionResult anonymous = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult anonymous = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = null,
                 OperationId = Guid.NewGuid(),
@@ -453,7 +453,7 @@ namespace Radios.Tests
             Assert.Equal(TraceTransition.NotCurrent, anonymous.Status);
             Assert.True(TraceCoordinator.Recording);
 
-            TraceTransitionResult shutdown = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult shutdown = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = null,
                 ShutdownAuthority = true,
@@ -479,7 +479,7 @@ namespace Radios.Tests
             TraceSessionHandle live = Open();
             Write("old bytes");
 
-            TraceTransitionResult r = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult r = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = live,
                 OperationId = Guid.NewGuid(),
@@ -507,17 +507,17 @@ namespace Radios.Tests
         /// <summary>
         /// A ticket is frozen. A later observation on the session object — which
         /// the archive worker used to read at compression time — cannot rewrite
-        /// what was sealed.
+        /// what was archived.
         /// </summary>
         [Fact]
-        public void A_sealed_ticket_cannot_be_rewritten_by_a_later_observation()
+        public void A_archived_ticket_cannot_be_rewritten_by_a_later_observation()
         {
             TraceSessionHandle live = Open();
             TraceSessionContext.SetConnectionTarget("1234-5678", "6300inshack", null, "10.0.0.7");
-            TraceSessionContext.AddKeyEvent("before_the_seal");
+            TraceSessionContext.AddKeyEvent("before_the_archive");
             Write("x");
 
-            TraceTransitionResult r = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult r = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = live,
                 OperationId = Guid.NewGuid(),
@@ -529,7 +529,7 @@ namespace Radios.Tests
             TraceSession old = r.Ticket.Entry == null ? null : null; // frozen: no live object in the ticket
             Assert.Null(old);
             Assert.Equal("6300inshack", r.Ticket.Entry.ConnectionTarget.Nickname);
-            Assert.Contains("before_the_seal", r.Ticket.Entry.KeyEvents);
+            Assert.Contains("before_the_archive", r.Ticket.Entry.KeyEvents);
 
             Assert.True(r.Ticket.Completion.Wait(TimeSpan.FromSeconds(60)));
             TraceSessionEntry entry = Manifest().Entries
@@ -541,21 +541,21 @@ namespace Radios.Tests
         // ── Shutdown ───────────────────────────────────────────────────────
 
         /// <summary>
-        /// A drop that wins the race during a teardown may seal its own session
+        /// A drop that wins the race during a teardown may archive its own session
         /// — the closing evidence is exactly what a teardown needs to record —
         /// but it must not open a successor. A log started here is a file the
         /// process is about to abandon, which the next boot reads as a killed
         /// session.
         /// </summary>
         [Fact]
-        public void A_drop_during_shutdown_seals_its_own_session_and_opens_nothing()
+        public void A_drop_during_shutdown_archives_its_own_session_and_opens_nothing()
         {
             TraceSessionHandle live = Open();
             Write("the last thing the radio said");
 
             TraceCoordinator.LatchShutdown();
 
-            TraceTransitionResult r = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult r = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = live,
                 OperationId = Guid.NewGuid(),
@@ -583,11 +583,11 @@ namespace Radios.Tests
         }
 
         /// <summary>
-        /// Both exit hooks run, and the second one must not seal anything. They
+        /// Both exit hooks run, and the second one must not archive anything. They
         /// share one operation id, so it gets the first one's ticket.
         /// </summary>
         [Fact]
-        public void Both_exit_hooks_share_one_seal()
+        public void Both_exit_hooks_share_one_archive()
         {
             TraceSessionHandle live = Open();
             Write("x");
@@ -693,7 +693,7 @@ namespace Radios.Tests
             Write("the capture's own line");
 
             // Somebody else's capture id: refused, and nothing happens.
-            TraceTransitionResult wrong = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult wrong = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = live,
                 ExpectedCaptureId = Guid.NewGuid(),
@@ -706,7 +706,7 @@ namespace Radios.Tests
             Assert.True(TraceCoordinator.CaptureRunning);
             Assert.True(TraceCoordinator.Recording);
 
-            TraceTransitionResult stop = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult stop = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = live,
                 ExpectedCaptureId = captureId,
@@ -735,7 +735,7 @@ namespace Radios.Tests
             Guid captureId = TraceCoordinator.CaptureId;
             Write("x");
 
-            var request = new Func<TraceSealRequest>(() => new TraceSealRequest
+            var request = new Func<TraceArchiveRequest>(() => new TraceArchiveRequest
             {
                 Expected = live,
                 ExpectedCaptureId = captureId,
@@ -744,11 +744,11 @@ namespace Radios.Tests
                 Resume = TraceResumeIntent.Standing,
             });
 
-            TraceTransitionResult first = TraceCoordinator.TrySeal(request());
+            TraceTransitionResult first = TraceCoordinator.TryArchive(request());
             TraceSessionHandle successor = first.Successor;
             Assert.NotNull(successor);
 
-            TraceTransitionResult second = TraceCoordinator.TrySeal(request());
+            TraceTransitionResult second = TraceCoordinator.TryArchive(request());
             Assert.Equal(TraceTransition.AlreadyClaimed, second.Status);
             Assert.Same(first.Ticket, second.Ticket);
             Assert.Null(second.Successor);
@@ -771,7 +771,7 @@ namespace Radios.Tests
             Guid firstId = TraceCoordinator.CaptureId;
             Write("first capture");
 
-            TraceTransitionResult stop = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult stop = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = firstCapture,
                 ExpectedCaptureId = firstId,
@@ -783,7 +783,7 @@ namespace Radios.Tests
 
             // The operator starts another capture immediately — as one
             // transition, the way the application does since Track H6.
-            TraceTransitionResult second = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult second = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = stop.Successor,
                 OperationId = Guid.NewGuid(),
@@ -809,20 +809,20 @@ namespace Radios.Tests
         /// <summary>
         /// <b>A drop or a Stop racing a capture start meets either the session
         /// before it or the finished capture — never the successor half
-        /// made.</b> Sol's review of H3, finding 2: capture start sealed, opened
+        /// made.</b> Sol's review of H3, finding 2: capture start archived, opened
         /// a successor, released the gate, and only then marked that successor
-        /// as the capture. A drop landing in between sealed it as an ordinary
+        /// as the capture. A drop landing in between archived it as an ordinary
         /// session; a Stop found no capture running.
         ///
         /// <para>The start is held on a barrier INSIDE its transition, at the
         /// exact point the old code released the gate: the successor open, the
         /// capture not yet marked. A drop reads the current session the way the
-        /// fall does — without the gate — and asks to seal it; a Stop takes its
+        /// fall does — without the gate — and asks to archive it; a Stop takes its
         /// observation. Both get their chance while the start is held.</para>
         ///
         /// <para>Positive control, run by hand at H6: with the gate released
         /// and the handle published at that barrier — the old two-step shape —
-        /// the drop reads the successor, seals it as an ordinary session, and
+        /// the drop reads the successor, archives it as an ordinary session, and
         /// this test goes red.</para>
         /// </summary>
         [Fact]
@@ -840,13 +840,13 @@ namespace Radios.Tests
 
             TraceCoordinator.TransitionProbeForTests = point =>
             {
-                if (point != "seal:successor-opened") return;
+                if (point != "archive:successor-opened") return;
                 inside.Set();
                 release.Wait(TimeSpan.FromSeconds(30));
             };
             try
             {
-                starter = new Thread(() => start = TraceCoordinator.TrySeal(new TraceSealRequest
+                starter = new Thread(() => start = TraceCoordinator.TryArchive(new TraceArchiveRequest
                 {
                     Expected = standing,
                     OperationId = Guid.NewGuid(),
@@ -862,7 +862,7 @@ namespace Radios.Tests
                 dropper = new Thread(() =>
                 {
                     dropSaw = TraceCoordinator.CurrentHandle;
-                    drop = TraceCoordinator.TrySeal(new TraceSealRequest
+                    drop = TraceCoordinator.TryArchive(new TraceArchiveRequest
                     {
                         Expected = dropSaw,
                         OperationId = Guid.NewGuid(),
@@ -892,7 +892,7 @@ namespace Radios.Tests
             // the standing log — the successor was invisible until complete...
             Assert.Equal(standing.SessionId, dropSaw.SessionId);
             // ...so the drop named the standing log, which the start had
-            // already sealed: refused, touching nothing.
+            // already archived: refused, touching nothing.
             Assert.Equal(TraceTransition.NotCurrent, drop.Status);
 
             // The Stop's observation is of the finished capture: running, with
@@ -902,7 +902,7 @@ namespace Radios.Tests
             Assert.Equal(start.Successor.SessionId, stopSaw.SessionId);
 
             // And a drop that reads now ends it AS a capture.
-            TraceTransitionResult later = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult later = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = TraceCoordinator.CurrentHandle,
                 OperationId = Guid.NewGuid(),
@@ -923,7 +923,7 @@ namespace Radios.Tests
         public void A_capture_start_reports_the_capture_it_started()
         {
             TraceSessionHandle standing = Open(TraceLevel.Info);
-            TraceTransitionResult start = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult start = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = standing,
                 OperationId = Guid.NewGuid(),
@@ -937,7 +937,7 @@ namespace Radios.Tests
             Assert.Equal(start.StartedCaptureId, TraceCoordinator.CompletedCaptureSlotId);
 
             // An ordinary restart starts none.
-            TraceTransitionResult restart = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult restart = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = start.Successor,
                 ExpectedCaptureId = start.StartedCaptureId,
@@ -950,7 +950,7 @@ namespace Radios.Tests
 
             // And a start during shutdown opens nothing, so it starts nothing.
             TraceCoordinator.LatchShutdown();
-            TraceTransitionResult refused = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult refused = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = restart.Successor,
                 OperationId = Guid.NewGuid(),
@@ -988,7 +988,7 @@ namespace Radios.Tests
             TraceSessionHandle a = Open(TraceLevel.Verbose, asCapture: true);
             Guid aId = TraceCoordinator.CaptureId;
             Write("capture A");
-            TraceTransitionResult stopA = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult stopA = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = a,
                 ExpectedCaptureId = aId,
@@ -1024,7 +1024,7 @@ namespace Radios.Tests
 
                 // Capture B starts, and is given every chance to finish first.
                 TraceSessionHandle standing = TraceCoordinator.CurrentHandle;
-                starter = new Thread(() => startB = TraceCoordinator.TrySeal(new TraceSealRequest
+                starter = new Thread(() => startB = TraceCoordinator.TryArchive(new TraceArchiveRequest
                 {
                     Expected = standing,
                     OperationId = Guid.NewGuid(),
@@ -1086,7 +1086,7 @@ namespace Radios.Tests
         /// <para><b>Positive controls, run by hand at H7:</b> refusing the
         /// successor (Resume None in the request) fails the distinctive-line
         /// assertion; dropping <c>TraceRecordingHealth.NoteDetached</c> from
-        /// the seal fails the reachable-status assertion; clearing the
+        /// the archive fails the reachable-status assertion; clearing the
         /// condition when the successor opens (a NoteSink that resolved
         /// conditions) fails the same assertion. Each restored afterwards.</para>
         /// </summary>
@@ -1112,7 +1112,7 @@ namespace Radios.Tests
             {
                 try
                 {
-                    r = TraceCoordinator.TrySeal(new TraceSealRequest
+                    r = TraceCoordinator.TryArchive(new TraceArchiveRequest
                     {
                         Expected = a,
                         OperationId = Guid.NewGuid(),
@@ -1122,7 +1122,7 @@ namespace Radios.Tests
                     });
 
                     Assert.Equal(TraceTransition.Accepted, r.Status);
-                    // Positive control: the obstacle sat where THIS seal's record goes.
+                    // Positive control: the obstacle sat where THIS archive's record goes.
                     Assert.Equal(target, r.Ticket.SourcePath);
 
                     // Explicit, not swallowed.
@@ -1136,7 +1136,7 @@ namespace Radios.Tests
                     Assert.True(r.SuccessorOpened);
                     Assert.True(r.TracingOn);
 
-                    // Published BEFORE the seal returned, so before anyone waits
+                    // Published BEFORE the archive returned, so before anyone waits
                     // on the archive: the change is already in hand.
                     Assert.Contains(changes.All, c => c.Kind == TraceRecordingHealthChangeKind.ConditionRaised
                                                       && c.Condition.TicketId == r.Ticket.TicketId);
@@ -1218,7 +1218,7 @@ namespace Radios.Tests
             // failure, and raises no condition.
             using (var quiet = new HealthChanges())
             {
-                TraceTransitionResult ordinary = TraceCoordinator.TrySeal(new TraceSealRequest
+                TraceTransitionResult ordinary = TraceCoordinator.TryArchive(new TraceArchiveRequest
                 {
                     Expected = r.Successor,
                     OperationId = Guid.NewGuid(),
@@ -1242,7 +1242,7 @@ namespace Radios.Tests
         /// <para>The successor is made unwritable by putting a DIRECTORY at the
         /// live path from inside the transition, after the old file has been
         /// moved away and before the successor opens — the probe at
-        /// <c>seal:detached</c> is exactly that moment.</para>
+        /// <c>archive:detached</c> is exactly that moment.</para>
         /// </summary>
         [Fact]
         public void A_failed_record_and_a_successor_that_cannot_write_claims_no_recording()
@@ -1255,14 +1255,14 @@ namespace Radios.Tests
 
             TraceCoordinator.TransitionProbeForTests = point =>
             {
-                if (point == "seal:detached") Directory.CreateDirectory(_livePath);
+                if (point == "archive:detached") Directory.CreateDirectory(_livePath);
             };
             TraceTransitionResult r;
             using var held = new HeldWorker(t => t.SessionId == a.SessionId);
             try
             {
                 using var changes = new HealthChanges();
-                r = TraceCoordinator.TrySeal(new TraceSealRequest
+                r = TraceCoordinator.TryArchive(new TraceArchiveRequest
                 {
                     Expected = a,
                     OperationId = Guid.NewGuid(),
@@ -1351,7 +1351,7 @@ namespace Radios.Tests
         /// clause — <c>TraceCoordinator.SinkFault</c> non-null, meaning the
         /// dead session was still in place — and called that the desired
         /// state. It was the state Sol's review of H7 (finding 1) showed left
-        /// the process without a log for the rest of its run, because a seal
+        /// the process without a log for the rest of its run, because an archive
         /// refused a closed sink and a Begin refused a present session. The
         /// old assertion pinned the defect; it is gone.</para>
         /// </summary>
@@ -1481,7 +1481,7 @@ namespace Radios.Tests
             Directory.CreateDirectory(TraceArchiveWorker.PendingPathFor(target));
 
             using var held = new HeldWorker(t => t.SessionId == a.SessionId);
-            TraceTransitionResult r = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult r = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = a,
                 OperationId = Guid.NewGuid(),
@@ -1514,7 +1514,7 @@ namespace Radios.Tests
             TraceCoordinator.LatchShutdown();
 
             using var held = new HeldWorker(t => t.SessionId == a.SessionId);
-            TraceTransitionResult r = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult r = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = a,
                 OperationId = Guid.NewGuid(),
@@ -1557,7 +1557,7 @@ namespace Radios.Tests
             TraceRecordingHealth.Changed += OnChanged;
             try
             {
-                TraceTransitionResult r = TraceCoordinator.TrySeal(new TraceSealRequest
+                TraceTransitionResult r = TraceCoordinator.TryArchive(new TraceArchiveRequest
                 {
                     Expected = a,
                     OperationId = Guid.NewGuid(),
@@ -1610,38 +1610,38 @@ namespace Radios.Tests
             };
             try
             {
-                TraceTransitionResult sealA = TraceCoordinator.TrySeal(new TraceSealRequest
+                TraceTransitionResult archiveA = TraceCoordinator.TryArchive(new TraceArchiveRequest
                 {
                     Expected = a, OperationId = Guid.NewGuid(),
                     Outcome = TraceSessionOutcome.CleanExit, Resume = TraceResumeIntent.Standing,
                 });
-                Assert.True(sealA.PendingRecordFailed);
-                TraceSessionHandle b = sealA.Successor;
+                Assert.True(archiveA.PendingRecordFailed);
+                TraceSessionHandle b = archiveA.Successor;
                 bSession = b.SessionId;
                 Write("B");
                 DateTime bootB = TraceCoordinator.Observe().SessionBootTimeUtc.Value;
                 Directory.CreateDirectory(TraceArchiveWorker.PendingPathFor(TraceFileNaming.StampedPath(_livePath, bootB)));
-                TraceTransitionResult sealB = TraceCoordinator.TrySeal(new TraceSealRequest
+                TraceTransitionResult archiveB = TraceCoordinator.TryArchive(new TraceArchiveRequest
                 {
                     Expected = b, OperationId = Guid.NewGuid(),
                     Outcome = TraceSessionOutcome.CleanExit, Resume = TraceResumeIntent.Standing,
                 });
-                Assert.True(sealB.PendingRecordFailed);
-                TraceSessionHandle c = sealB.Successor;
+                Assert.True(archiveB.PendingRecordFailed);
+                TraceSessionHandle c = archiveB.Successor;
 
                 // A commits (the worker is serial: A runs before it reaches B).
-                Assert.True(sealA.Ticket.Completion.Wait(TimeSpan.FromSeconds(60)));
-                Assert.True(sealA.Ticket.Completion.Result.ArchiveCommitted);
+                Assert.True(archiveA.Ticket.Completion.Wait(TimeSpan.FromSeconds(60)));
+                Assert.True(archiveA.Ticket.Completion.Result.ArchiveCommitted);
                 Assert.True(atB.Wait(TimeSpan.FromSeconds(10)));
 
                 TraceRecordingHealthSnapshot snap = TraceRecordingHealth.Snapshot();
                 TraceRecoveryCondition only = Assert.Single(snap.Unresolved);
-                Assert.Equal(sealB.Ticket.TicketId, only.TicketId);
+                Assert.Equal(archiveB.Ticket.TicketId, only.TicketId);
                 Assert.Equal(c.SessionId, TraceCoordinator.CurrentHandle.SessionId);
                 Assert.Equal(TraceSinkState.Recording, snap.SinkState);
 
                 holdB.Set();
-                Assert.True(sealB.Ticket.Completion.Wait(TimeSpan.FromSeconds(60)));
+                Assert.True(archiveB.Ticket.Completion.Wait(TimeSpan.FromSeconds(60)));
                 Assert.Empty(TraceRecordingHealth.Snapshot().Unresolved);
                 Assert.Equal(c.SessionId, TraceCoordinator.CurrentHandle.SessionId);
             }
@@ -1661,7 +1661,7 @@ namespace Radios.Tests
         /// publishes its successor; the lines drain. Until H7 they were unbound
         /// and landed in the successor as bare <c>Connected:False</c> lines.
         /// Now they are bound to the session they were formatted under and,
-        /// that session being sealed, are REFUSED: written into the successor
+        /// that session being archived, are REFUSED: written into the successor
         /// only as refusal records naming both sessions, never as a bare line,
         /// and never dropped.
         ///
@@ -1670,7 +1670,7 @@ namespace Radios.Tests
         /// successor and this test goes red.</para>
         /// </summary>
         [Fact]
-        public void A_fall_line_queued_after_the_seal_drained_its_session_is_refused_not_misfiled()
+        public void A_fall_line_queued_after_the_archive_drained_its_session_is_refused_not_misfiled()
         {
             TraceSessionHandle old = Open(TraceLevel.Verbose);
             Write("the old session");
@@ -1679,7 +1679,7 @@ namespace Radios.Tests
             var release = new ManualResetEventSlim(false);
             TraceCoordinator.TransitionProbeForTests = point =>
             {
-                if (point != "seal:detached") return;   // past the seal's own drain point
+                if (point != "archive:detached") return;   // past the archive's own drain point
                 inside.Set();
                 release.Wait(TimeSpan.FromSeconds(30));
             };
@@ -1687,7 +1687,7 @@ namespace Radios.Tests
             Thread stopper = null;
             try
             {
-                stopper = new Thread(() => stop = TraceCoordinator.TrySeal(new TraceSealRequest
+                stopper = new Thread(() => stop = TraceCoordinator.TryArchive(new TraceArchiveRequest
                 {
                     Expected = old, OperationId = Guid.NewGuid(),
                     Outcome = TraceSessionOutcome.CleanExit, Resume = TraceResumeIntent.Standing,
@@ -1737,12 +1737,12 @@ namespace Radios.Tests
 
         /// <summary>
         /// The other ordering, and the ordinary case: the fall's lines are
-        /// queued BEFORE the seal reaches its drain point, so the seal writes
+        /// queued BEFORE the archive reaches its drain point, so the archive writes
         /// them into the session they describe, ahead of its terminal records,
         /// and nothing is refused.
         /// </summary>
         [Fact]
-        public void A_fall_line_queued_before_the_seal_drains_lands_in_the_session_it_describes()
+        public void A_fall_line_queued_before_the_archive_drains_lands_in_the_session_it_describes()
         {
             TraceSessionHandle old = Open(TraceLevel.Verbose);
             Write("the old session");
@@ -1751,7 +1751,7 @@ namespace Radios.Tests
             var release = new ManualResetEventSlim(false);
             TraceCoordinator.TransitionProbeForTests = point =>
             {
-                if (point != "seal:owned") return;   // ownership decided, drain not yet run
+                if (point != "archive:owned") return;   // ownership decided, drain not yet run
                 inside.Set();
                 release.Wait(TimeSpan.FromSeconds(30));
             };
@@ -1759,7 +1759,7 @@ namespace Radios.Tests
             Thread stopper = null;
             try
             {
-                stopper = new Thread(() => stop = TraceCoordinator.TrySeal(new TraceSealRequest
+                stopper = new Thread(() => stop = TraceCoordinator.TryArchive(new TraceArchiveRequest
                 {
                     Expected = old, OperationId = Guid.NewGuid(),
                     Outcome = TraceSessionOutcome.CleanExit, Resume = TraceResumeIntent.Standing,
@@ -1811,7 +1811,7 @@ namespace Radios.Tests
             var release = new ManualResetEventSlim(false);
             TraceCoordinator.TransitionProbeForTests = point =>
             {
-                if (point != "seal:detached") return;
+                if (point != "archive:detached") return;
                 inside.Set();
                 release.Wait(TimeSpan.FromSeconds(30));
             };
@@ -1819,7 +1819,7 @@ namespace Radios.Tests
             Thread stopper = null, reader = null, ours = null, direct = null;
             try
             {
-                stopper = new Thread(() => stop = TraceCoordinator.TrySeal(new TraceSealRequest
+                stopper = new Thread(() => stop = TraceCoordinator.TryArchive(new TraceArchiveRequest
                 {
                     Expected = old, OperationId = Guid.NewGuid(),
                     Outcome = TraceSessionOutcome.CleanExit, Resume = TraceResumeIntent.Standing,
@@ -1962,7 +1962,7 @@ namespace Radios.Tests
         public void A_checkpoint_never_substitutes_a_later_session()
         {
             TraceSessionHandle stale = Open();
-            TraceTransitionResult sealed_ = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult archived_ = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = stale,
                 OperationId = Guid.NewGuid(),
@@ -1970,17 +1970,17 @@ namespace Radios.Tests
                 Resume = TraceResumeIntent.Standing,
             });
 
-            // The expected session WAS sealed, so its own ticket is the
+            // The expected session WAS archived, so its own ticket is the
             // evidence and the bundler may use that.
             TraceTransitionResult known = TraceCoordinator.SnapshotForBundle(stale);
             Assert.Equal(TraceTransition.AlreadyClaimed, known.Status);
-            Assert.Same(sealed_.Ticket, known.Ticket);
+            Assert.Same(archived_.Ticket, known.Ticket);
             // Pinned for the bundle like any snapshot (Track H6); the bundler's
             // Finally is what releases it.
             Assert.True(TraceEvidencePins.IsPinned(known.Ticket.SourcePath));
             TraceEvidencePins.Release(known.Ticket.SourcePath);
 
-            // A session this process never sealed: an explicit refusal, with no
+            // A session this process never archived: an explicit refusal, with no
             // ticket at all.
             var neverSeen = (TraceSessionHandle)typeof(TraceSessionHandle)
                 .GetConstructors(System.Reflection.BindingFlags.NonPublic
@@ -1991,7 +1991,7 @@ namespace Radios.Tests
             Assert.Null(refused.Ticket);
 
             // And the live session is untouched throughout.
-            Assert.Equal(sealed_.Successor.SessionId, TraceCoordinator.CurrentHandle.SessionId);
+            Assert.Equal(archived_.Successor.SessionId, TraceCoordinator.CurrentHandle.SessionId);
             Assert.True(TraceCoordinator.Recording);
         }
 
@@ -2003,25 +2003,25 @@ namespace Radios.Tests
         /// the move could not take away.
         /// </summary>
         /// <summary>
-        /// <b>A bundle keeps the evidence of a session that was sealed with
+        /// <b>A bundle keeps the evidence of a session that was archived with
         /// nothing after it.</b> Sol's review of H3, finding 5: the checkpoint
-        /// answered NoSession before looking up an already sealed session's
+        /// answered NoSession before looking up an already archived session's
         /// ticket, so a Stop or logging switched off between the bundler reading
-        /// its handle and arriving at the checkpoint — sealing the session with
-        /// no successor — made the bundle leave out a trace that was sealed,
+        /// its handle and arriving at the checkpoint — archiving the session with
+        /// no successor — made the bundle leave out a trace that was archived,
         /// detached and sitting on disk.
         ///
         /// <para>Positive control, run by hand at H6: with the old order
         /// restored, the answer is NoSession and this test goes red.</para>
         /// </summary>
         [Fact]
-        public void A_bundle_keeps_a_session_sealed_with_nothing_after_it()
+        public void A_bundle_keeps_a_session_archived_with_nothing_after_it()
         {
             TraceSessionHandle expected = Open();          // what the bundler read
             Write("the evening the operator is reporting");
 
             // Logging switched off before the bundler reaches the checkpoint.
-            TraceTransitionResult off = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult off = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = expected,
                 OperationId = Guid.NewGuid(),
@@ -2049,7 +2049,7 @@ namespace Radios.Tests
             Assert.False(TraceEvidencePins.IsPinned(snap.Ticket.SourcePath));
 
             // Positive control for the order: a session this process never
-            // sealed, with nothing recording, is still NoSession.
+            // archived, with nothing recording, is still NoSession.
             var neverSeen = (TraceSessionHandle)typeof(TraceSessionHandle)
                 .GetConstructors(System.Reflection.BindingFlags.NonPublic
                                | System.Reflection.BindingFlags.Instance)[0]
@@ -2096,17 +2096,17 @@ namespace Radios.Tests
             Assert.Contains("and recording carried on", text, StringComparison.Ordinal);
         }
 
-        // ── Rotation against a seal, and direct Trace writers ──────────────
+        // ── Rotation against an archive, and direct Trace writers ──────────────
 
         /// <summary>
-        /// Force rotation against a seal, with a producer that writes through
+        /// Force rotation against an archive, with a producer that writes through
         /// <c>System.Diagnostics.Trace</c> directly rather than through
         /// <see cref="Tracing"/> — which is how JJFlexWpf and FlexLib's
-        /// panadapter write. No deadlock, one terminal marker in the sealed
+        /// panadapter write. No deadlock, one terminal marker in the archived
         /// tail, a correct part identity, and every manifest entry kept.
         /// </summary>
         [Fact]
-        public void Rotation_racing_a_seal_keeps_every_part_and_one_terminal_marker()
+        public void Rotation_racing_a_archive_keeps_every_part_and_one_terminal_marker()
         {
             long savedThreshold = Tracing.RotationThresholdBytes;
             try
@@ -2129,7 +2129,7 @@ namespace Radios.Tests
                 producer.Start();
 
                 Thread.Sleep(200);   // let it rotate a few times
-                TraceTransitionResult r = TraceCoordinator.TrySeal(new TraceSealRequest
+                TraceTransitionResult r = TraceCoordinator.TryArchive(new TraceArchiveRequest
                 {
                     Expected = live,
                     OperationId = Guid.NewGuid(),
@@ -2151,7 +2151,7 @@ namespace Radios.Tests
                     .OrderBy(e => e.PartNumber ?? 0).ToList();
 
                 // Every part survived, numbered without gaps: the rotation
-                // worker and the final seal share one archive transaction now,
+                // worker and the final archive share one archive transaction now,
                 // so their manifest writes cannot lose each other.
                 Assert.True(chain.Count >= 2);
                 for (int i = 0; i < chain.Count; i++) Assert.Equal(i + 1, chain[i].PartNumber);
@@ -2342,7 +2342,7 @@ namespace Radios.Tests
         /// <b>Sol's review of H13, blocker 1.</b> The part moves, then the
         /// fresh file will not open and neither will the recovery's append.
         /// The hand-off to the archive used to sit after the whole rotation,
-        /// so this jumped past it: the retirement's seal looked at the empty
+        /// so this jumped past it: the retirement's archive looked at the empty
         /// live path, the moved part got no ticket and no pending record, and
         /// the plain-text sweep eventually deleted the only copy as an orphan.
         ///
@@ -2410,7 +2410,7 @@ namespace Radios.Tests
                 AssertPartOneArchived(part, a.SessionId, partPath, firstLine);
 
                 // ── Sol's review of H14: the retry must be able to open ──
-                // The retirement's seal could not detach the live path —
+                // The retirement's archive could not detach the live path —
                 // but there is no trace file there, only the obstacle. It
                 // must not be recorded as retained evidence, or every later
                 // Begin refuses the path over a file that does not exist.
@@ -2475,7 +2475,7 @@ namespace Radios.Tests
                 using var held = new HeldFaultRetire();
                 BreakTheLiveSink();
                 Write("the write that fails");
-                held.Run();   // seals A, cannot move it: the bytes are REAL, so they are retained
+                held.Run();   // archives A, cannot move it: the bytes are REAL, so they are retained
                 Assert.Contains(_livePath, TraceCoordinator.RetainedEvidencePathsForTests);
                 string retained = File.ReadAllText(_livePath);
                 Assert.Contains("what A managed to write", retained, StringComparison.Ordinal);
@@ -2644,18 +2644,18 @@ namespace Radios.Tests
 
         /// <summary>
         /// The router stays in <c>Trace.Listeners</c> for the life of the
-        /// process. Sealing a session used to call process-wide
+        /// process. Archiving a session used to call process-wide
         /// <c>Trace.Close</c> and remove the listener, so between a close and
         /// the next open there were zero listeners and direct writers'
         /// lines evaporated.
         /// </summary>
         [Fact]
-        public void The_listener_set_does_not_change_when_a_session_is_sealed()
+        public void The_listener_set_does_not_change_when_a_session_is_archived()
         {
             TraceSessionHandle live = Open();
             int before = Trace.Listeners.Count;
 
-            TraceTransitionResult r = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult r = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = live,
                 OperationId = Guid.NewGuid(),
@@ -2667,15 +2667,15 @@ namespace Radios.Tests
 
             // And a direct writer's line lands in the successor rather than
             // going nowhere.
-            Trace.WriteLine("direct, after the seal");
-            TraceTransitionResult end = TraceCoordinator.TrySeal(new TraceSealRequest
+            Trace.WriteLine("direct, after the archive");
+            TraceTransitionResult end = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = r.Successor,
                 OperationId = Guid.NewGuid(),
                 Outcome = TraceSessionOutcome.CleanExit,
                 Resume = TraceResumeIntent.None,
             });
-            Assert.Contains("direct, after the seal", ReadArchivedText(end.Ticket), StringComparison.Ordinal);
+            Assert.Contains("direct, after the archive", ReadArchivedText(end.Ticket), StringComparison.Ordinal);
         }
 
         // ── Track H8: a faulted sink can be recovered from ─────────────────
@@ -2683,12 +2683,12 @@ namespace Radios.Tests
         /// <summary>
         /// <b>The off-and-on route, after a write fault, with the pool's own
         /// retirement held back</b> — so the sequence the settings path runs
-        /// (<c>globals.vb</c> <c>ApplyDiagnosticLogSettings</c>: seal the
+        /// (<c>globals.vb</c> <c>ApplyDiagnosticLogSettings</c>: archive the
         /// observed handle with no successor, then <c>Begin</c>) meets the dead
-        /// session itself. Until H8 the seal answered NoSession over the closed
+        /// session itself. Until H8 the archive answered NoSession over the closed
         /// sink and the Begin answered AlreadyRecording over the still-present
         /// session, and no fresh file could ever open (Sol's review of H7,
-        /// finding 1). Now the seal is accepted with an uncertain tail, the
+        /// finding 1). Now the archive is accepted with an uncertain tail, the
         /// Begin opens, and a line written afterwards is read back from the
         /// fresh file.
         ///
@@ -2719,9 +2719,9 @@ namespace Radios.Tests
             Assert.Equal(a.SessionId, TraceCoordinator.CurrentHandle.SessionId);
             Assert.False(TraceCoordinator.Recording);
 
-            // OFF: seal the observed handle with no successor — as the
+            // OFF: archive the observed handle with no successor — as the
             // settings path does when the operator turns the log off.
-            TraceTransitionResult off = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult off = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = TraceCoordinator.CurrentHandle,
                 OperationId = Guid.NewGuid(),
@@ -2795,13 +2795,13 @@ namespace Radios.Tests
         /// <summary>
         /// <b>Stop after a failed capture sink, arriving BEFORE the pool's
         /// retirement.</b> The capture's file died; the operator presses Stop.
-        /// The seal is accepted with the operator's own outcome detail, the
+        /// The archive is accepted with the operator's own outcome detail, the
         /// capture ends with its session, the tail is marked uncertain, the
         /// standing log opens in its place — and the retirement that then runs
         /// finds nothing to do.
         /// </summary>
         [Fact]
-        public void Stop_after_a_failed_capture_sink_seals_the_capture_and_ends_it()
+        public void Stop_after_a_failed_capture_sink_archives_the_capture_and_ends_it()
         {
             TraceSessionHandle capture = Open(TraceLevel.Verbose, asCapture: true);
             Guid captureId = TraceCoordinator.CaptureId;
@@ -2813,7 +2813,7 @@ namespace Radios.Tests
             Assert.True(held.Captured);
             Assert.True(TraceCoordinator.CaptureRunning);   // the window Sol described
 
-            TraceTransitionResult stop = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult stop = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = capture,
                 ExpectedCaptureId = captureId,
@@ -2868,7 +2868,7 @@ namespace Radios.Tests
             Assert.False(TraceCoordinator.CaptureRunning);
             Assert.Equal(TraceSinkState.Failed, TraceRecordingHealth.Snapshot().SinkState);
 
-            TraceTransitionResult stop = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult stop = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = capture,
                 ExpectedCaptureId = captureId,
@@ -2892,11 +2892,11 @@ namespace Radios.Tests
 
         /// <summary>
         /// A problem-report snapshot over a faulted session gets that
-        /// session's own sealed ticket, pinned, rather than "nothing is
+        /// session's own archived ticket, pinned, rather than "nothing is
         /// recording" over a file full of evidence.
         /// </summary>
         [Fact]
-        public void A_bundle_snapshot_over_a_faulted_session_is_handed_its_sealed_ticket()
+        public void A_bundle_snapshot_over_a_faulted_session_is_handed_its_archived_ticket()
         {
             TraceSessionHandle live = Open();
             Write("evidence the bundle wants");
@@ -2918,12 +2918,12 @@ namespace Radios.Tests
         // ── Track H9: never open over retained evidence ────────────────────
 
         /// <summary>
-        /// <b>Sol's review of H8, blocker 1.</b> A seal whose detach fails
-        /// leaves the sealed file at the live path as the only copy. The
+        /// <b>Sol's review of H8, blocker 1.</b> An archive whose detach fails
+        /// leaves the archived file at the live path as the only copy. The
         /// operator's prescribed off-and-on then called Begin, which found
         /// nothing recording and opened that path with FileMode.Create —
-        /// truncating the evidence the seal had refused to delete. Now: the
-        /// seal remembers what it could not move; the open REFUSES that path
+        /// truncating the evidence the archive had refused to delete. Now: the
+        /// archive remembers what it could not move; the open REFUSES that path
         /// and says why; and the next Begin tries the move again first, so a
         /// detach that was only transiently blocked becomes the ordinary
         /// ticket, with the operator's own outcome on it.
@@ -2952,9 +2952,9 @@ namespace Radios.Tests
             Write("the write that fails");
             Assert.True(held.Captured, "the fault was never noticed — the positive control for everything below");
 
-            // OFF: the seal owns A; its terminal records fail; the move fails;
+            // OFF: the archive owns A; its terminal records fail; the move fails;
             // the file stays, and nothing has a ticket for it.
-            TraceTransitionResult off = TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceTransitionResult off = TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = TraceCoordinator.CurrentHandle,
                 OperationId = Guid.NewGuid(),
@@ -2993,7 +2993,7 @@ namespace Radios.Tests
             Assert.Contains(changes.All, c => c.Kind == TraceRecordingHealthChangeKind.SinkFailed);
 
             // Unblock and ON again: the move succeeds, A gets the ticket its
-            // seal could not make, and B opens fresh beside it.
+            // archive could not make, and B opens fresh beside it.
             Directory.Delete(aTarget);
             TraceTransitionResult on2 = TraceCoordinator.Begin(_livePath, TraceLevel.Info, asDetailedCapture: false);
             Assert.Equal(TraceTransition.Accepted, on2.Status);
@@ -3035,8 +3035,8 @@ namespace Radios.Tests
 
         /// <summary>
         /// The same guard when the pool's retirement — not the operator —
-        /// is what sealed the faulted session and could not move it: the
-        /// operator's off finds nothing to seal, and their on is refused
+        /// is what archived the faulted session and could not move it: the
+        /// operator's off finds nothing to archive, and their on is refused
         /// rather than truncating. A bundle snapshot over it is NoSession,
         /// which is the pre-existing limit named in the H9 report.
         /// </summary>
@@ -3052,13 +3052,13 @@ namespace Radios.Tests
                 using var held = new HeldFaultRetire();
                 BreakTheLiveSink();
                 Write("the write that fails");
-                held.Run();   // the retirement: seals A as recording_failed, and cannot move it
+                held.Run();   // the retirement: archives A as recording_failed, and cannot move it
                 Assert.Null(TraceCoordinator.CurrentHandle);
                 Assert.Contains(_livePath, TraceCoordinator.RetainedEvidencePathsForTests);
                 string retained = File.ReadAllText(_livePath);
                 Assert.Contains("what A managed to write", retained, StringComparison.Ordinal);
 
-                TraceTransitionResult off = TraceCoordinator.TrySeal(new TraceSealRequest
+                TraceTransitionResult off = TraceCoordinator.TryArchive(new TraceArchiveRequest
                 {
                     Expected = a, OperationId = Guid.NewGuid(),
                     Outcome = TraceSessionOutcome.CleanExit, Resume = TraceResumeIntent.None,

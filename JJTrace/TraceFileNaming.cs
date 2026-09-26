@@ -9,7 +9,7 @@ namespace JJTrace
     /// Where a detached trace file goes, and what it is called.
     ///
     /// <para>One renderer for three callers that must agree: rotation naming a
-    /// closed part, the coordinator detaching a sealed session, and boot
+    /// closed part, the coordinator detaching an archived session, and boot
     /// maintenance adopting a chain a killed run left behind. The names are
     /// what the leftover sweep matches on, so a disagreement here is a leftover
     /// file nobody ever adopts.</para>

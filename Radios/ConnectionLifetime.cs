@@ -72,7 +72,7 @@ namespace Radios
     /// <see cref="ConnectionBindOutcome.RetiredObjectRebound"/> and leaves it
     /// on its retired token, which is the rule as written.
     /// <b>The consequence needs a ruling:</b> a genuine SECOND loss of that
-    /// reused object produces no seal and no notice, because its lifetime was
+    /// reused object produces no archive and no notice, because its lifetime was
     /// already terminally claimed. The two ways out — evicting the WAN handle at
     /// retirement so the next connect must re-fetch a fresh object, or capturing
     /// generation provenance at the transport event producer — are named in
@@ -251,7 +251,7 @@ namespace Radios
                             "ConnectionLifetime: " + where + " REBOUND A TERMINALLY RETIRED OBJECT ("
                             + token + "). The acquisition path handed back the same Radio instance that"
                             + " already had its loss claimed, so this connection keeps the retired token"
-                            + " and a second loss of it will NOT seal or announce. Expected on the"
+                            + " and a second loss of it will NOT archive or announce. Expected on the"
                             + " SmartLink path, whose handle bank is not cleared by a drop; the fix is a"
                             + " ruling, not a tidy-up.",
                             TraceLevel.Warning);

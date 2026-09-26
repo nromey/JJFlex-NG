@@ -246,7 +246,7 @@ namespace Radios.Tests
         }
 
         // ────────────────────────────────────────────────────────────────
-        //  The flush the seal path needs (#598)
+        //  The flush the archive path needs (#598)
         // ────────────────────────────────────────────────────────────────
 
         /// <summary>
@@ -333,14 +333,14 @@ namespace Radios.Tests
 
         /// <summary>
         /// <b>This test used to pin the defect (#618).</b> It asserted that the
-        /// flush happened BEFORE the seal was queued — which was H2's ordering,
+        /// flush happened BEFORE the archive was queued — which was H2's ordering,
         /// and the ordering Sol's review found wrong: the line was written
         /// before anything asked whether this removal was already claimed, so a
         /// repeat notice stamped a false <c>partial=connection_dropped</c>
-        /// record into the fresh standing log the first seal had just started.
+        /// record into the fresh standing log the first archive had just started.
         /// Green, and pinning the wrong behaviour as desired.
         ///
-        /// <para>The line still has to be in the file before the seal zips it.
+        /// <para>The line still has to be in the file before the archive zips it.
         /// It gets there by a different route: the drop arm hands over a
         /// FUNCTION, the claim is taken first, the winning removal renders the
         /// window, and the trace boundary writes it into the accepted session's
@@ -355,17 +355,17 @@ namespace Radios.Tests
             // radio and a drop — and because a helper with no caller is how the
             // first attempt at this flush was lost.
             //
-            // Track H5 moved the seal from the RadioRemoved drop arm, which
+            // Track H5 moved the archive from the RadioRemoved drop arm, which
             // FlexLib never reaches for a SmartLink-only radio, to our radio's
             // Connected property falling. The ordering this pins moved with it.
             string source = File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "FlexBase.cs"));
-            string body = CaptureSealTests.SealMethodBody(source);
+            string body = CaptureArchiveTests.ArchiveMethodBody(source);
 
-            int seal = body.IndexOf("CaptureSeal.AfterConnectionDrop", StringComparison.Ordinal);
+            int archive = body.IndexOf("CaptureArchive.AfterConnectionDrop", StringComparison.Ordinal);
             int collector = body.IndexOf("() => collectCaptureMeterFlush(", StringComparison.Ordinal);
-            Assert.True(seal > 0, "the connection's fall no longer queues a seal");
-            Assert.True(collector > seal,
-                "the meter window must be handed to the seal as a function, not rendered ahead of it");
+            Assert.True(archive > 0, "the connection's fall no longer queues an archive");
+            Assert.True(collector > archive,
+                "the meter window must be handed to the archive as a function, not rendered ahead of it");
 
             // Nothing on this arm renders the window as a statement of its own.
             Assert.DoesNotContain("flushCaptureMeters(", body, StringComparison.Ordinal);

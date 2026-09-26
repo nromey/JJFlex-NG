@@ -26,10 +26,10 @@ namespace JJTrace
         /// <summary>
         /// Render the line. Every field is passed explicitly: nothing here
         /// reads live state, so a terminal record describes the session being
-        /// sealed rather than whatever happens to be current.
+        /// archived rather than whatever happens to be current.
         /// </summary>
         /// <param name="captureOn">Whether a detailed capture is writing this
-        /// file. False with <paramref name="level"/> Off is the seal marker:
+        /// file. False with <paramref name="level"/> Off is the archive marker:
         /// this file is finished, nobody is writing it.</param>
         /// <param name="level">Detail level to report.</param>
         /// <param name="instance">This app instance's number.</param>

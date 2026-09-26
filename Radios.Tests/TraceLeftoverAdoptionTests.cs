@@ -193,7 +193,7 @@ namespace Radios.Tests
                     SessionId = original.ToString(),
                     BootTime = new DateTime(2026, 9, 24, 15, 15, 0, DateTimeKind.Utc),
                     Outcome = TraceSessionOutcome.ConnectionDropped,
-                    OutcomeDetail = "the real outcome, frozen at the seal",
+                    OutcomeDetail = "the real outcome, frozen at the archive",
                 },
             };
             Assert.True(TraceArchiveWorker.WritePendingRecord(ticket, new List<string>()));
@@ -209,13 +209,13 @@ namespace Radios.Tests
             TraceSessionEntry entry = Assert.Single(Manifest().Entries);
             Assert.Equal(original.ToString(), entry.SessionId);
             Assert.Equal(TraceSessionOutcome.ConnectionDropped, entry.Outcome);
-            Assert.Equal("the real outcome, frozen at the seal", entry.OutcomeDetail);
+            Assert.Equal("the real outcome, frozen at the archive", entry.OutcomeDetail);
             Assert.Null(entry.Orphaned);
             Assert.Equal(3, entry.PartNumber);
         }
 
         /// <summary>
-        /// An unparted seal that lost its sidecar stays LOOSE at restart —
+        /// An unparted archive that lost its sidecar stays LOOSE at restart —
         /// adoption matches parts only — and the plain-text sweep keeps it as
         /// unarchived evidence. With a sidecar, recovery finishes it under its
         /// own identity. Neither path invents a session for it.
@@ -224,7 +224,7 @@ namespace Radios.Tests
         public void An_unparted_leftover_stays_loose_without_a_sidecar_and_is_finished_with_one()
         {
             string loose = Path.Combine(_dir, Stem + "-20260924-090000.txt");
-            File.WriteAllText(loose, "an unparted seal whose record never wrote" + Environment.NewLine);
+            File.WriteAllText(loose, "an unparted archive whose record never wrote" + Environment.NewLine);
 
             var chains = TraceLeftoverAdoption.AdoptLeftoverParts(_dir, Stem, _archiveDir);
             Assert.Empty(chains);

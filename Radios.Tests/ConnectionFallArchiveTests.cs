@@ -16,16 +16,16 @@ using Xunit;
 namespace Radios.Tests
 {
     /// <summary>
-    /// The capture seal is taken where a drop is signalled on EVERY path: our
+    /// The capture archive is taken where a drop is signalled on EVERY path: our
     /// Radio's <c>Connected</c> property falling. Sprint 45 Track H5.
     /// </summary>
     /// <remarks>
-    /// <para><b>Why the trigger moved.</b> Tracks H, H2 and H3 sealed on
+    /// <para><b>Why the trigger moved.</b> Tracks H, H2 and H3 archived on
     /// <c>API.RadioRemoved</c>. FlexLib raises that event only for a serial in
     /// its LAN discovery dictionary (<c>API.RemoveRadio</c> returns without an
     /// event otherwise), and only LAN discovery writes the dictionary. A radio
     /// reached only through SmartLink is never in it, so on that path — Don's
-    /// 6300 — no drop was ever sealed. The bench's 8600 is on the LAN too,
+    /// 6300 — no drop was ever archived. The bench's 8600 is on the LAN too,
     /// which is why every bench run looked right. Established by Track H4 from
     /// the vendor source and from Don's 2026-09-06 trace.</para>
     ///
@@ -46,45 +46,45 @@ namespace Radios.Tests
     /// <c>Disconnecting</c> latch that <c>Disconnect</c> sets.</para>
     /// </remarks>
     // The suite runs sequentially by assembly policy (TestParallelism.cs),
-    // which is what makes the process-wide seal hook, queue, claim, trace
+    // which is what makes the process-wide archive hook, queue, claim, trace
     // session and FlexLib's static discovery dictionary safe to drive here.
-    public sealed class ConnectionFallSealTests : IDisposable
+    public sealed class ConnectionFallArchiveTests : IDisposable
     {
-        private readonly Func<CaptureSealRequest, CaptureSealResult> _savedHook;
+        private readonly Func<CaptureArchiveRequest, CaptureArchiveResult> _savedHook;
         private readonly Action<Action> _savedQueue;
         private readonly TraceSession _savedSession;
-        private int _seals;
+        private int _archives;
 
-        public ConnectionFallSealTests()
+        public ConnectionFallArchiveTests()
         {
-            _savedHook = CaptureSeal.SealHook;
-            _savedQueue = CaptureSeal.Queue;
+            _savedHook = CaptureArchive.ArchiveHook;
+            _savedQueue = CaptureArchive.Queue;
             _savedSession = TraceSessionContext.Current;
-            CaptureSeal.ForgetClaimForTests();
+            CaptureArchive.ForgetClaimForTests();
             // Both claim spaces, together. A drop's operation id is built from
             // the connection token's ordinal, and forgetting the tokens
             // restarts the ordinals — so a ticket another class's test left in
-            // the coordinator under that id would answer this class's seals
+            // the coordinator under that id would answer this class's archives
             // with AlreadyClaimed and somebody else's session (seen 2026-09-24
             // once DropNoticeStateTests began leaving real tickets behind).
             TraceCoordinator.ResetClaimsForTests();
 
-            // Count seals, and run the worker inline so a count is a fact the
+            // Count archives, and run the worker inline so a count is a fact the
             // moment the call returns rather than something to wait for.
-            CaptureSeal.SealHook = _ =>
+            CaptureArchive.ArchiveHook = _ =>
             {
-                Interlocked.Increment(ref _seals);
-                return new CaptureSealResult { ArchivePath = @"C:\Traces\fall.zip", SuccessorOpened = true };
+                Interlocked.Increment(ref _archives);
+                return new CaptureArchiveResult { ArchivePath = @"C:\Traces\fall.zip", SuccessorOpened = true };
             };
-            CaptureSeal.Queue = work => work();
+            CaptureArchive.Queue = work => work();
             TraceSessionContext.BeginSession();
         }
 
         public void Dispose()
         {
-            CaptureSeal.SealHook = _savedHook;
-            CaptureSeal.Queue = _savedQueue;
-            CaptureSeal.ForgetClaimForTests();
+            CaptureArchive.ArchiveHook = _savedHook;
+            CaptureArchive.Queue = _savedQueue;
+            CaptureArchive.ForgetClaimForTests();
             typeof(TraceCoordinator)
                 .GetMethod("RestoreSessionForTests", BindingFlags.NonPublic | BindingFlags.Static)!
                 .Invoke(null, new object[] { _savedSession });
@@ -163,7 +163,7 @@ namespace Radios.Tests
             // The rig's IsConnected is set ONLY by its property handler seeing
             // Connected change. Raised here so its falling afterwards is proof
             // the fall was dispatched to the rig — the positive control for
-            // every "nothing was sealed" below.
+            // every "nothing was archived" below.
             if (rig != null)
                 typeof(FlexBase).GetField("_IsConnected", BindingFlags.Instance | BindingFlags.NonPublic)!
                     .SetValue(rig, true);
@@ -263,12 +263,12 @@ namespace Radios.Tests
         /// <b>Don's path.</b> A radio reached only through SmartLink loses its
         /// link. FlexLib drops <c>Connected</c>, disconnects the object and
         /// calls <c>RemoveRadio</c> — which raises nothing, because the serial
-        /// was never in its LAN dictionary. Under Tracks H to H3 this sealed
+        /// was never in its LAN dictionary. Under Tracks H to H3 this archived
         /// nothing, on every loss; this is the test that goes red if the
         /// trigger is put back on <c>RadioRemoved</c>.
         /// </summary>
         [Fact]
-        public void A_SmartLink_only_drop_seals_though_FlexLib_never_raises_RadioRemoved()
+        public void A_SmartLink_only_drop_archives_though_FlexLib_never_raises_RadioRemoved()
         {
             var rig = NewRig();
             var radio = NewWanRadio(UniqueSerial(), "Don's 6300");
@@ -289,8 +289,8 @@ namespace Radios.Tests
                 // ...and really raised no removal for it. (The dual-homed test
                 // below shows this same counter counting.)
                 Assert.Equal(0, removals);
-                // And the drop was sealed anyway, once.
-                Assert.Equal(1, Volatile.Read(ref _seals));
+                // And the drop was archived anyway, once.
+                Assert.Equal(1, Volatile.Read(ref _archives));
             }
             finally
             {
@@ -303,10 +303,10 @@ namespace Radios.Tests
         /// <summary>
         /// <b>The bench's path.</b> The radio is on the LAN too, so both signals
         /// arrive: <c>Connected</c> false first, then — on the same thread —
-        /// <c>RadioRemoved</c> for the same object. Exactly one seal.
+        /// <c>RadioRemoved</c> for the same object. Exactly one archive.
         /// </summary>
         [Fact]
-        public void A_dual_homed_drop_seals_exactly_once_though_both_signals_arrive()
+        public void A_dual_homed_drop_archives_exactly_once_though_both_signals_arrive()
         {
             var rig = NewRig();
             var radio = NewWanRadio(UniqueSerial(), "8600");
@@ -327,7 +327,7 @@ namespace Radios.Tests
                 // The positive control for the SmartLink-only test: here the
                 // removal genuinely fired, through the rig's own handler too.
                 Assert.Equal(1, removals);
-                Assert.Equal(1, Volatile.Read(ref _seals));
+                Assert.Equal(1, Volatile.Read(ref _archives));
             }
             finally
             {
@@ -339,7 +339,7 @@ namespace Radios.Tests
         }
 
         // ────────────────────────────────────────────────────────────────
-        //  A deliberate disconnect never seals, on either path
+        //  A deliberate disconnect never archives, on either path
         // ────────────────────────────────────────────────────────────────
 
         [Theory]
@@ -347,7 +347,7 @@ namespace Radios.Tests
         [InlineData(false, true)]
         [InlineData(true, false)]
         [InlineData(true, true)]
-        public void A_deliberate_disconnect_does_not_seal(bool dualHomed, bool throughTheDisconnectingLatch)
+        public void A_deliberate_disconnect_does_not_archive(bool dualHomed, bool throughTheDisconnectingLatch)
         {
             var rig = NewRig();
             var radio = NewWanRadio(UniqueSerial(), "A");
@@ -377,11 +377,11 @@ namespace Radios.Tests
                 }
 
                 // The fall really happened and really reached the handler's
-                // path (the radio is no longer connected), and it sealed nothing.
+                // path (the radio is no longer connected), and it archived nothing.
                 Assert.False(radio.Connected);
                 AssertTheRigSawTheFall(rig);
                 Assert.Equal(dualHomed ? 1 : 0, removals);
-                Assert.Equal(0, Volatile.Read(ref _seals));
+                Assert.Equal(0, Volatile.Read(ref _archives));
             }
             finally
             {
@@ -406,9 +406,9 @@ namespace Radios.Tests
 
         /// <summary>
         /// A radio restarting because we sent it firmware is not a drop. While
-        /// the seal lived on <c>RadioRemoved</c> it was never reached here —
+        /// the archive lived on <c>RadioRemoved</c> it was never reached here —
         /// FlexLib's <c>RemoveRadio</c> returns early for an updating radio — and
-        /// moving the trigger must not start sealing every firmware update the
+        /// moving the trigger must not start archiving every firmware update the
         /// operator asked for.
         ///
         /// <para>Track H6: the exemption now needs FlexLib's confirmation as
@@ -416,7 +416,7 @@ namespace Radios.Tests
         /// leaves — and it checks the exemption is SPENT by the restart.</para>
         /// </summary>
         [Fact]
-        public void A_radio_restarting_after_we_sent_it_firmware_does_not_seal()
+        public void A_radio_restarting_after_we_sent_it_firmware_does_not_archive()
         {
             var rig = NewRig();
             var radio = NewWanRadio(UniqueSerial(), "A");
@@ -432,7 +432,7 @@ namespace Radios.Tests
 
                 Assert.False(radio.Connected);
                 AssertTheRigSawTheFall(rig);
-                Assert.Equal(0, Volatile.Read(ref _seals));
+                Assert.Equal(0, Volatile.Read(ref _archives));
                 // One restart, one exemption.
                 Assert.False((bool)FirmwareSentField.GetValue(rig)!);
             }
@@ -449,7 +449,7 @@ namespace Radios.Tests
         /// FlexLib's <c>SendUpdateFile</c> returns WITHOUT THROWING on a missing
         /// file — and on an upgrade port it cannot parse, and after catching a
         /// failed transfer. After any of those, a genuine loss of that same
-        /// connection was misfiled as a firmware restart and sealed nothing.
+        /// connection was misfiled as a firmware restart and archived nothing.
         ///
         /// <para>Driven through the real <c>BeginFirmwareUpdate</c> and the real
         /// FlexLib <c>SendUpdateFile</c>, with an image that does not exist:
@@ -458,7 +458,7 @@ namespace Radios.Tests
         ///
         /// <para>Positive control, run by hand at H6: with the exemption keyed
         /// to the flag alone and nothing clearing it, this test goes red — no
-        /// seal.</para>
+        /// archive.</para>
         /// </summary>
         [Fact]
         public void A_failed_firmware_transfer_does_not_hide_a_later_real_drop()
@@ -493,7 +493,7 @@ namespace Radios.Tests
 
                 Assert.False(radio.Connected);
                 AssertTheRigSawTheFall(rig);
-                Assert.Equal(1, Volatile.Read(ref _seals));
+                Assert.Equal(1, Volatile.Read(ref _archives));
             }
             finally
             {
@@ -504,7 +504,7 @@ namespace Radios.Tests
         /// <summary>
         /// Our flag alone — an image handed to FlexLib whose transfer then
         /// failed inside FlexLib, which clears its own updating flag — is not a
-        /// firmware restart. The fall seals, even with the flag still set (the
+        /// firmware restart. The fall archives, even with the flag still set (the
         /// transfer's settle has not run yet, say).
         /// </summary>
         [Fact]
@@ -523,7 +523,7 @@ namespace Radios.Tests
                 LoseTheTransport(radio);
 
                 AssertTheRigSawTheFall(rig);
-                Assert.Equal(1, Volatile.Read(ref _seals));
+                Assert.Equal(1, Volatile.Read(ref _archives));
             }
             finally
             {
@@ -534,7 +534,7 @@ namespace Radios.Tests
         /// <summary>
         /// The exemption reads FlexLib's internal <c>Radio.Updating</c> by
         /// reflection. If a FlexLib upgrade renames it, the reader answers false
-        /// — firmware restarts would start sealing as drops — and THIS goes red
+        /// — firmware restarts would start archiving as drops — and THIS goes red
         /// the same day, rather than the bench finding it.
         /// </summary>
         [Fact]
@@ -547,29 +547,29 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void The_fall_seals_only_for_our_own_unasked_loss()
+        public void The_fall_archives_only_for_our_own_unasked_loss()
         {
-            Assert.True(FlexBase.ConnectionFallSealsTheCapture(
+            Assert.True(FlexBase.ConnectionFallArchivesTheCapture(
                 FlexBase.RadioRemovalKind.ConnectionLostOurRadio, firmwareUpdateSent: false, radioUpdating: false));
 
             // A firmware restart is our flag AND FlexLib's; either alone is a
             // drop (Track H6).
-            Assert.False(FlexBase.ConnectionFallSealsTheCapture(
+            Assert.False(FlexBase.ConnectionFallArchivesTheCapture(
                 FlexBase.RadioRemovalKind.ConnectionLostOurRadio, firmwareUpdateSent: true, radioUpdating: true));
-            Assert.True(FlexBase.ConnectionFallSealsTheCapture(
+            Assert.True(FlexBase.ConnectionFallArchivesTheCapture(
                 FlexBase.RadioRemovalKind.ConnectionLostOurRadio, firmwareUpdateSent: true, radioUpdating: false));
-            Assert.True(FlexBase.ConnectionFallSealsTheCapture(
+            Assert.True(FlexBase.ConnectionFallArchivesTheCapture(
                 FlexBase.RadioRemovalKind.ConnectionLostOurRadio, firmwareUpdateSent: false, radioUpdating: true));
 
-            Assert.False(FlexBase.ConnectionFallSealsTheCapture(
+            Assert.False(FlexBase.ConnectionFallArchivesTheCapture(
                 FlexBase.RadioRemovalKind.SelfInitiated, firmwareUpdateSent: false, radioUpdating: false));
-            Assert.False(FlexBase.ConnectionFallSealsTheCapture(
+            Assert.False(FlexBase.ConnectionFallArchivesTheCapture(
                 FlexBase.RadioRemovalKind.DiscoveryLoss, firmwareUpdateSent: false, radioUpdating: false));
         }
 
         /// <summary>
         /// <b>A fall on an abandoned object leaves the live rig connected, and
-        /// seals nothing.</b> Another Radio object's fall says nothing about our
+        /// archives nothing.</b> Another Radio object's fall says nothing about our
         /// session or our connection — a handler this rig left on an object it
         /// has since moved away from, for instance.
         ///
@@ -608,13 +608,13 @@ namespace Radios.Tests
                 Assert.True(ours.Connected);
                 Assert.True(rig.IsConnected, "an abandoned object's fall flipped the live rig's IsConnected");
                 Assert.Equal(0, Volatile.Read(ref stateChanges));
-                Assert.Equal(0, Volatile.Read(ref _seals));
+                Assert.Equal(0, Volatile.Read(ref _archives));
 
                 // Positive control: our own radio's fall still does all three.
                 LoseTheTransport(ours);
                 AssertTheRigSawTheFall(rig);
                 Assert.Equal(1, Volatile.Read(ref stateChanges));
-                Assert.Equal(1, Volatile.Read(ref _seals));
+                Assert.Equal(1, Volatile.Read(ref _archives));
             }
             finally
             {
@@ -683,7 +683,7 @@ namespace Radios.Tests
             {
                 if (TraceCoordinator.Recording)
                 {
-                    TraceCoordinator.TrySeal(new TraceSealRequest
+                    TraceCoordinator.TryArchive(new TraceArchiveRequest
                     {
                         ShutdownAuthority = true,
                         Outcome = TraceSessionOutcome.CleanExit,
@@ -737,7 +737,7 @@ namespace Radios.Tests
 
                 AssertTheRigSawTheFall(rig);
                 Assert.Equal(0, rig.StrandedConnectionChangesIgnored);
-                Assert.Equal(0, Volatile.Read(ref _seals));
+                Assert.Equal(0, Volatile.Read(ref _archives));
             }
             finally
             {
@@ -814,33 +814,33 @@ namespace Radios.Tests
         }
 
         // ────────────────────────────────────────────────────────────────
-        //  Where the seal is, and where it must not be
+        //  Where the archive is, and where it must not be
         // ────────────────────────────────────────────────────────────────
 
         /// <summary>
         /// One call site in the whole file, reached from the Connected case, and
         /// none in the removal handler. The structural half of "exactly once":
-        /// the removal arm cannot ask for a second seal because it does not ask
+        /// the removal arm cannot ask for a second archive because it does not ask
         /// for one at all. The connection lifetime's claim covers repeats of the
         /// one call.
         /// </summary>
         [Fact]
-        public void The_seal_is_taken_on_the_fall_and_nowhere_else()
+        public void The_archive_is_taken_on_the_fall_and_nowhere_else()
         {
             string source = File.ReadAllText(Path.Combine(CaptureMeterSetTests.RepoRoot(), "Radios", "FlexBase.cs"));
 
             int calls = 0;
-            for (int at = source.IndexOf("CaptureSeal.AfterConnectionDrop(", StringComparison.Ordinal);
+            for (int at = source.IndexOf("CaptureArchive.AfterConnectionDrop(", StringComparison.Ordinal);
                  at >= 0;
-                 at = source.IndexOf("CaptureSeal.AfterConnectionDrop(", at + 1, StringComparison.Ordinal))
+                 at = source.IndexOf("CaptureArchive.AfterConnectionDrop(", at + 1, StringComparison.Ordinal))
                 calls++;
             Assert.Equal(1, calls);
 
-            int method = source.IndexOf("private void sealIfOurConnectionDropped(Radio r, JJTrace.TraceSessionHandle fall)", StringComparison.Ordinal);
-            Assert.True(method > 0, "the fall's seal method is gone");
-            int seal = source.IndexOf("CaptureSeal.AfterConnectionDrop(", StringComparison.Ordinal);
+            int method = source.IndexOf("private void archiveIfOurConnectionDropped(Radio r, JJTrace.TraceSessionHandle fall)", StringComparison.Ordinal);
+            Assert.True(method > 0, "the fall's archive method is gone");
+            int archive = source.IndexOf("CaptureArchive.AfterConnectionDrop(", StringComparison.Ordinal);
             int methodEnd = source.IndexOf("private void wireRadioPropertyHandler(", method, StringComparison.Ordinal);
-            Assert.True(seal > method && seal < methodEnd, "the one seal call is not in sealIfOurConnectionDropped");
+            Assert.True(archive > method && archive < methodEnd, "the one archive call is not in archiveIfOurConnectionDropped");
 
             // Reached from the Connected property's handler, when it falls.
             // Track H6 moved that handler out of the switch and ahead of every
@@ -854,9 +854,9 @@ namespace Radios.Tests
             Assert.True(connectedMethod > 0, "the Connected handler moved");
             string connectedBody = source.Substring(connectedMethod,
                 source.IndexOf("private void radioPropertyChangedHandler(", connectedMethod, StringComparison.Ordinal) - connectedMethod);
-            Assert.Contains("if (!nowConnected) sealIfOurConnectionDropped(r, fall);", connectedBody, StringComparison.Ordinal);
+            Assert.Contains("if (!nowConnected) archiveIfOurConnectionDropped(r, fall);", connectedBody, StringComparison.Ordinal);
 
-            // And the removal handler's drop arm is bookkeeping: no seal there.
+            // And the removal handler's drop arm is bookkeeping: no archive there.
             int handler = source.IndexOf("private void apiRadioRemovedHandler(Radio r)", StringComparison.Ordinal);
             int handlerEnd = source.IndexOf("RaiseRadioRemoved(this, r.Serial", handler, StringComparison.Ordinal);
             Assert.True(handler > 0 && handlerEnd > handler);
@@ -871,7 +871,7 @@ namespace Radios.Tests
         /// <summary>
         /// <b>A slow transition holds the trace gate, and the WHOLE of
         /// FlexLib's teardown returns anyway</b> — our handler, its claim, its
-        /// queued seal, and then <c>Radio.Disconnect</c> to its end. Sol's
+        /// queued archive, and then <c>Radio.Disconnect</c> to its end. Sol's
         /// review of H3, finding 1: the drop read
         /// <c>TraceCoordinator.CurrentHandle</c> through the same gate that is
         /// held across a transition's flush, close, move and successor open,
@@ -892,7 +892,7 @@ namespace Radios.Tests
         /// fall thread's call into the transport RETURNING — which is after
         /// <c>Radio.Disconnect</c> has finished, not merely after our handler
         /// has. Then the lines the fall deferred are shown to land in the
-        /// session they describe, the sealed one.</para>
+        /// session they describe, the archived one.</para>
         ///
         /// <para>Positive controls, run by hand: with <c>CurrentHandle</c> put
         /// back behind the gate, the fall does not return (H6); with the
@@ -913,7 +913,7 @@ namespace Radios.Tests
             var queued = new List<Action>();
             var inside = new ManualResetEventSlim(false);
             var release = new ManualResetEventSlim(false);
-            TraceArchiveTicket sealedTicket = null;
+            TraceArchiveTicket archivedTicket = null;
             Thread checkpoint = null, writer = null, fall = null;
 
             var rig = NewRig();
@@ -932,14 +932,14 @@ namespace Radios.Tests
                     Assert.Equal(TraceTransition.Accepted, began.Status);
                     TraceSessionHandle session = began.Successor;
 
-                    // The hook does what the application's does: seal the
+                    // The hook does what the application's does: archive the
                     // session the drop named, through the boundary.
-                    CaptureSeal.SealHook = req =>
+                    CaptureArchive.ArchiveHook = req =>
                     {
-                        Interlocked.Increment(ref _seals);
+                        Interlocked.Increment(ref _archives);
                         var lines = new List<string>();
                         if (!string.IsNullOrEmpty(req.PartialMeterLine)) lines.Add(req.PartialMeterLine);
-                        TraceTransitionResult sealedNow = TraceCoordinator.TrySeal(new TraceSealRequest
+                        TraceTransitionResult archivedNow = TraceCoordinator.TryArchive(new TraceArchiveRequest
                         {
                             Expected = (TraceSessionHandle)req.ExpectedSession,
                             OperationId = req.DropOperationId,
@@ -948,11 +948,11 @@ namespace Radios.Tests
                             TerminalLines = lines,
                             Resume = TraceResumeIntent.None,
                         });
-                        sealedTicket = sealedNow.Ticket;
-                        return new CaptureSealResult { Refused = !sealedNow.Owned };
+                        archivedTicket = archivedNow.Ticket;
+                        return new CaptureArchiveResult { Refused = !archivedNow.Owned };
                     };
-                    // Hold the seal worker back so its timing is ours.
-                    CaptureSeal.Queue = work => { lock (queued) queued.Add(work); };
+                    // Hold the archive worker back so its timing is ours.
+                    CaptureArchive.Queue = work => { lock (queued) queued.Add(work); };
 
                     rig.theRadio = radio;
                     WireAsConnectDoes(rig, radio);
@@ -998,7 +998,7 @@ namespace Radios.Tests
                     Assert.True(checkpoint.IsAlive, "the gate was released before the teardown finished; nothing was measured");
 
                     // And it did its job before returning: the drop was claimed
-                    // and its seal queued, not put off until the disk recovered.
+                    // and its archive queued, not put off until the disk recovered.
                     AssertTheRigSawTheFall(rig);
                     lock (queued) Assert.Single(queued);
                 }
@@ -1018,29 +1018,29 @@ namespace Radios.Tests
                 }
 
                 // Now let the worker run: it writes the deferred lines first,
-                // then seals.
+                // then archives.
                 Action work;
                 lock (queued) work = queued[0];
                 work();
 
-                Assert.Equal(1, Volatile.Read(ref _seals));
-                Assert.NotNull(sealedTicket);
-                Assert.True(sealedTicket.Completion.Wait(TimeSpan.FromSeconds(60)), "the archive worker never finished");
-                TraceArchiveCompletion done = sealedTicket.Completion.Result;
+                Assert.Equal(1, Volatile.Read(ref _archives));
+                Assert.NotNull(archivedTicket);
+                Assert.True(archivedTicket.Completion.Wait(TimeSpan.FromSeconds(60)), "the archive worker never finished");
+                TraceArchiveCompletion done = archivedTicket.Completion.Result;
                 Assert.True(done.ArchiveCommitted, "the archive was not committed: " + done.FailureStage);
                 string text = File.ReadAllText(SessionArchive.ExtractTraceText(
                     done.ArchiveFullPath, Path.Combine(dir, "extract")));
 
-                // The reader is looking at the sealed part, the one that began
+                // The reader is looking at the archived part, the one that began
                 // after the checkpoint...
                 Assert.Contains("--- trace continues from part 001", text, StringComparison.Ordinal);
                 // ...and the lines the fall wrote on FlexLib's thread are in it:
                 // the session they describe, not a successor — bound to it at
-                // the fall, and written by its own seal under the gate (H7).
+                // the fall, and written by its own archive under the gate (H7).
                 Assert.Contains("Connected:False", text, StringComparison.Ordinal);
                 Assert.Contains("our connection dropped without us asking", text, StringComparison.Ordinal);
                 // And none of them was refused: every deferred line found the
-                // session it was bound to still current when the seal drained
+                // session it was bound to still current when the archive drained
                 // it. (The harness radio has no slices or panadapters, so
                 // FlexLib's Disconnect raises nothing further for our handlers
                 // to trace here; the proof that the rest of the teardown does
@@ -1053,7 +1053,7 @@ namespace Radios.Tests
             {
                 if (TraceCoordinator.Recording)
                 {
-                    TraceCoordinator.TrySeal(new TraceSealRequest
+                    TraceCoordinator.TryArchive(new TraceArchiveRequest
                     {
                         ShutdownAuthority = true,
                         Outcome = TraceSessionOutcome.CleanExit,
@@ -1078,12 +1078,12 @@ namespace Radios.Tests
         /// <b>A Stop completes between the fall's first line and its later
         /// ones, and the fall keeps one identity.</b> Sol's review of H7 (the
         /// item for a harder reader): each deferred line read the published
-        /// handle for itself, and the seal read it once more, so a Stop
+        /// handle for itself, and the archive read it once more, so a Stop
         /// finishing in the gap bound the first line to the old session and
-        /// the rest — and the seal — to the successor. The real callback is
+        /// the rest — and the archive — to the successor. The real callback is
         /// held on a probe after its FIRST deferred line, a Stop is run to
         /// completion on this thread, and the callback is released. Every
-        /// later line and the seal request name the OLD session: the seal is
+        /// later line and the archive request name the OLD session: the archive is
         /// refused NotCurrent, and the successor carries the fall's later
         /// lines only as refusal records, never bare.
         ///
@@ -1094,7 +1094,7 @@ namespace Radios.Tests
         /// instrument tells bound-to-old from bound-to-current.</para>
         /// </summary>
         [Fact]
-        public void A_Stop_between_the_falls_first_line_and_its_seal_does_not_split_the_fall()
+        public void A_Stop_between_the_falls_first_line_and_its_archive_does_not_split_the_fall()
         {
             string dir = Path.Combine(Path.GetTempPath(), "jjflex-h8-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(dir);
@@ -1107,8 +1107,8 @@ namespace Radios.Tests
             var atFirstLine = new ManualResetEventSlim(false);
             var release = new ManualResetEventSlim(false);
             int probeHits = 0;
-            TraceSessionHandle sealExpected = null;
-            TraceTransitionResult sealResult = null;
+            TraceSessionHandle archiveExpected = null;
+            TraceTransitionResult archiveResult = null;
             string partialSeen = null;
             Thread fall = null;
 
@@ -1132,26 +1132,26 @@ namespace Radios.Tests
                     Assert.Equal(TraceTransition.Accepted, began.Status);
                     old = began.Successor;
 
-                    CaptureSeal.SealHook = req =>
+                    CaptureArchive.ArchiveHook = req =>
                     {
-                        Interlocked.Increment(ref _seals);
-                        sealExpected = (TraceSessionHandle)req.ExpectedSession;
+                        Interlocked.Increment(ref _archives);
+                        archiveExpected = (TraceSessionHandle)req.ExpectedSession;
                         partialSeen = req.PartialMeterLine;
-                        sealResult = TraceCoordinator.TrySeal(new TraceSealRequest
+                        archiveResult = TraceCoordinator.TryArchive(new TraceArchiveRequest
                         {
-                            Expected = sealExpected,
+                            Expected = archiveExpected,
                             OperationId = req.DropOperationId,
                             Outcome = TraceSessionOutcome.ConnectionDropped,
                             OutcomeDetail = req.OutcomeDetail,
                             Resume = TraceResumeIntent.Standing,
                         });
-                        return new CaptureSealResult
+                        return new CaptureArchiveResult
                         {
-                            Refused = !sealResult.Owned,
-                            RefusalReason = sealResult.Owned ? null : sealResult.Explanation,
+                            Refused = !archiveResult.Owned,
+                            RefusalReason = archiveResult.Owned ? null : archiveResult.Explanation,
                         };
                     };
-                    CaptureSeal.Queue = work => { lock (queued) queued.Add(work); };
+                    CaptureArchive.Queue = work => { lock (queued) queued.Add(work); };
 
                     rig.theRadio = radio;
                     WireAsConnectDoes(rig, radio);
@@ -1170,7 +1170,7 @@ namespace Radios.Tests
                     Assert.True(atFirstLine.Wait(TimeSpan.FromSeconds(10)), "the fall never wrote its first line");
 
                     // The Stop, run to completion in the gap.
-                    stop = TraceCoordinator.TrySeal(new TraceSealRequest
+                    stop = TraceCoordinator.TryArchive(new TraceArchiveRequest
                     {
                         Expected = old, OperationId = Guid.NewGuid(),
                         Outcome = TraceSessionOutcome.CleanExit, Resume = TraceResumeIntent.Standing,
@@ -1192,17 +1192,17 @@ namespace Radios.Tests
                 AssertTheRigSawTheFall(rig);
                 lock (queued) Assert.Single(queued);
 
-                // The seal: it names the session the fall began under, and is
-                // refused because that session is gone. Nothing seals the
+                // The archive: it names the session the fall began under, and is
+                // refused because that session is gone. Nothing archives the
                 // successor as dropped — it was not recording when the
                 // connection fell.
                 Action work;
                 lock (queued) work = queued[0];
                 work();
-                Assert.Equal(1, Volatile.Read(ref _seals));
-                Assert.NotNull(sealExpected);
-                Assert.Equal(old.SessionId, sealExpected.SessionId);
-                Assert.Equal(TraceTransition.NotCurrent, sealResult.Status);
+                Assert.Equal(1, Volatile.Read(ref _archives));
+                Assert.NotNull(archiveExpected);
+                Assert.Equal(old.SessionId, archiveExpected.SessionId);
+                Assert.Equal(TraceTransition.NotCurrent, archiveResult.Status);
                 Assert.Equal(stop.Successor.SessionId, TraceCoordinator.CurrentHandle.SessionId);
 
                 // The fall's later lines were bound to the OLD session and
@@ -1215,28 +1215,28 @@ namespace Radios.Tests
                 using (var sr = new StreamReader(fs)) successorText = sr.ReadToEnd();
                 Assert.Contains("TraceDeferred: REFUSED", successorText, StringComparison.Ordinal);
                 Assert.Contains("our connection dropped without us asking", successorText, StringComparison.Ordinal);
-                // Sol's review of H8, blocker 4: the seal WORKER's own lines
-                // — "sealing the running capture as connection_dropped"
+                // Sol's review of H8, blocker 4: the archive WORKER's own lines
+                // — "archiving the running capture as connection_dropped"
                 // before the hook, and the refusal after it — used to be
                 // unbound and landed bare here, so this file claimed its own
-                // capture was being drop-sealed. Positive control first: the
-                // pre-seal claim IS in this file (the instrument sees it);
-                // then: every CaptureSeal line here is a refusal record.
-                Assert.Contains("sealing the running capture as " + TraceSessionOutcome.ConnectionDropped,
+                // capture was being drop-archived. Positive control first: the
+                // pre-archive claim IS in this file (the instrument sees it);
+                // then: every CaptureArchive line here is a refusal record.
+                Assert.Contains("archiving the running capture as " + TraceSessionOutcome.ConnectionDropped,
                                 successorText, StringComparison.Ordinal);
-                Assert.Contains("CaptureSeal: the seal was refused", successorText, StringComparison.Ordinal);
-                int captureSealLines = 0;
+                Assert.Contains("CaptureArchive: the archive was refused", successorText, StringComparison.Ordinal);
+                int captureArchiveLines = 0;
                 foreach (string line in successorText.Split('\n'))
                 {
-                    if (line.Contains("CaptureSeal:", StringComparison.Ordinal)) captureSealLines++;
+                    if (line.Contains("CaptureArchive:", StringComparison.Ordinal)) captureArchiveLines++;
                     if (!line.Contains("Connected:False", StringComparison.Ordinal)
                         && !line.Contains("connection fell", StringComparison.Ordinal)
                         && !line.Contains("propertyChanged:Radio:Connected", StringComparison.Ordinal)
-                        && !line.Contains("CaptureSeal:", StringComparison.Ordinal)) continue;
+                        && !line.Contains("CaptureArchive:", StringComparison.Ordinal)) continue;
                     Assert.Contains("TraceDeferred: REFUSED", line, StringComparison.Ordinal);
                     Assert.Contains("while session " + old.SessionId + " was recording", line, StringComparison.Ordinal);
                 }
-                Assert.True(captureSealLines >= 2, "expected the pre-seal claim and the refusal; saw " + captureSealLines);
+                Assert.True(captureArchiveLines >= 2, "expected the pre-archive claim and the refusal; saw " + captureArchiveLines);
                 // The meter window the drop collected is not discarded with
                 // the refused request: it is in this file too, as a refusal
                 // record naming the session it describes. The production
@@ -1245,18 +1245,18 @@ namespace Radios.Tests
                 Assert.False(string.IsNullOrEmpty(partialSeen), "the drop collected no meter window; the recovery below is not exercised");
                 string partialLine = successorText.Split('\n').Single(l => l.Contains(partialSeen, StringComparison.Ordinal));
                 Assert.Contains("TraceDeferred: REFUSED", partialLine, StringComparison.Ordinal);
-                Assert.Contains("kept as evidence because its session had already been sealed", partialLine, StringComparison.Ordinal);
+                Assert.Contains("kept as evidence because its session had already been archived", partialLine, StringComparison.Ordinal);
 
                 // The first line, queued before the Stop, went where it
-                // belonged: the old session's archive — and no drop-seal
-                // claim did, because the drop seal never happened.
+                // belonged: the old session's archive — and no drop-archive
+                // claim did, because the drop archive never happened.
                 Assert.True(stop.Ticket.Completion.Wait(TimeSpan.FromSeconds(60)));
                 Assert.True(stop.Ticket.Completion.Result.ArchiveCommitted);
                 string oldText = File.ReadAllText(SessionArchive.ExtractTraceText(
                     stop.Ticket.Completion.Result.ArchiveFullPath, Path.Combine(dir, "extract")));
                 Assert.Contains("propertyChanged:Radio:Connected", oldText, StringComparison.Ordinal);
                 Assert.DoesNotContain("TraceDeferred: REFUSED", oldText, StringComparison.Ordinal);
-                Assert.DoesNotContain("CaptureSeal:", oldText, StringComparison.Ordinal);
+                Assert.DoesNotContain("CaptureArchive:", oldText, StringComparison.Ordinal);
                 Assert.DoesNotContain(partialSeen, oldText, StringComparison.Ordinal);
 
                 // Since H10 the window ALSO has a destination that needs no
@@ -1285,7 +1285,7 @@ namespace Radios.Tests
             {
                 if (TraceCoordinator.CurrentHandle != null)
                 {
-                    TraceCoordinator.TrySeal(new TraceSealRequest
+                    TraceCoordinator.TryArchive(new TraceArchiveRequest
                     {
                         ShutdownAuthority = true,
                         Outcome = TraceSessionOutcome.CleanExit,
@@ -1314,7 +1314,7 @@ namespace Radios.Tests
         /// file beside the old session's archive, which needs no sink: after
         /// the worker runs, exactly one file on disk holds the window, it is
         /// that one, it names the old session, and the old session's own
-        /// sealed archive does not contain it.
+        /// archived archive does not contain it.
         /// </summary>
         [Fact]
         public void A_Stop_with_no_standing_log_leaves_the_refused_drops_meter_window_beside_the_old_archive()
@@ -1330,7 +1330,7 @@ namespace Radios.Tests
             var atFirstLine = new ManualResetEventSlim(false);
             var release = new ManualResetEventSlim(false);
             int probeHits = 0;
-            TraceTransitionResult sealResult = null;
+            TraceTransitionResult archiveResult = null;
             string partialSeen = null;
             Thread fall = null;
 
@@ -1349,7 +1349,7 @@ namespace Radios.Tests
                     // The drop's operation id is the connection token's
                     // ordinal; the fixture restarts the ordinals, so a ticket
                     // an earlier test archived under the same id would answer
-                    // this seal with AlreadyClaimed. Both claim spaces, reset.
+                    // this archive with AlreadyClaimed. Both claim spaces, reset.
                     TraceCoordinator.ResetClaimsForTests();
                     // The one difference from the test above.
                     TraceCoordinator.SetStandingIntent(false, TraceLevel.Verbose);
@@ -1360,11 +1360,11 @@ namespace Radios.Tests
                     Assert.Equal(TraceTransition.Accepted, began.Status);
                     old = began.Successor;
 
-                    CaptureSeal.SealHook = req =>
+                    CaptureArchive.ArchiveHook = req =>
                     {
-                        Interlocked.Increment(ref _seals);
+                        Interlocked.Increment(ref _archives);
                         partialSeen = req.PartialMeterLine;
-                        sealResult = TraceCoordinator.TrySeal(new TraceSealRequest
+                        archiveResult = TraceCoordinator.TryArchive(new TraceArchiveRequest
                         {
                             Expected = (TraceSessionHandle)req.ExpectedSession,
                             OperationId = req.DropOperationId,
@@ -1372,13 +1372,13 @@ namespace Radios.Tests
                             OutcomeDetail = req.OutcomeDetail,
                             Resume = TraceResumeIntent.Standing,
                         });
-                        return new CaptureSealResult
+                        return new CaptureArchiveResult
                         {
-                            Refused = !sealResult.Owned,
-                            RefusalReason = sealResult.Owned ? null : sealResult.Explanation,
+                            Refused = !archiveResult.Owned,
+                            RefusalReason = archiveResult.Owned ? null : archiveResult.Explanation,
                         };
                     };
-                    CaptureSeal.Queue = work => { lock (queued) queued.Add(work); };
+                    CaptureArchive.Queue = work => { lock (queued) queued.Add(work); };
 
                     rig.theRadio = radio;
                     WireAsConnectDoes(rig, radio);
@@ -1397,7 +1397,7 @@ namespace Radios.Tests
 
                     // The Stop, in the gap: the capture ends and, with no
                     // standing log, NOTHING opens after it.
-                    stop = TraceCoordinator.TrySeal(new TraceSealRequest
+                    stop = TraceCoordinator.TryArchive(new TraceArchiveRequest
                     {
                         Expected = old, OperationId = Guid.NewGuid(), RequireCaptureRunning = true,
                         Outcome = TraceSessionOutcome.CleanExit, Resume = TraceResumeIntent.Standing,
@@ -1432,12 +1432,12 @@ namespace Radios.Tests
                          && File.ReadAllText(f).Contains("partial=connection_dropped", StringComparison.Ordinal));
 
                 // The worker: refused (nothing is recording, so nothing to
-                // seal), and the window kept beside the old archive.
+                // archive), and the window kept beside the old archive.
                 work();
-                Assert.Equal(1, Volatile.Read(ref _seals));
-                Assert.NotNull(sealResult);
-                Assert.False(sealResult.Owned, "the drop's seal was not refused: " + sealResult.Status + " — " + sealResult.Explanation);
-                Assert.Equal(TraceTransition.NoSession, sealResult.Status);
+                Assert.Equal(1, Volatile.Read(ref _archives));
+                Assert.NotNull(archiveResult);
+                Assert.False(archiveResult.Owned, "the drop's archive was not refused: " + archiveResult.Status + " — " + archiveResult.Explanation);
+                Assert.Equal(TraceTransition.NoSession, archiveResult.Status);
                 Assert.False(string.IsNullOrEmpty(partialSeen), "the drop collected no meter window; nothing below is exercised");
                 Tracing.FlushDeferred();
                 Assert.Null(TraceCoordinator.CurrentHandle);
@@ -1448,10 +1448,10 @@ namespace Radios.Tests
                 string besideText = File.ReadAllText(beside);
                 Assert.Contains(partialSeen, besideText, StringComparison.Ordinal);
                 Assert.Contains("Late evidence for trace session " + old.SessionId, besideText, StringComparison.Ordinal);
-                Assert.Contains("kept as evidence because its session had already been sealed", besideText, StringComparison.Ordinal);
+                Assert.Contains("kept as evidence because its session had already been archived", besideText, StringComparison.Ordinal);
 
                 // Exactly one file on disk holds the window, and it is that
-                // one — not the sealed archive, not a live trace.
+                // one — not the archived archive, not a live trace.
                 string extracted = SessionArchive.ExtractTraceText(
                     stop.Ticket.Completion.Result.ArchiveFullPath, Path.Combine(dir, "extract"));
                 Assert.DoesNotContain(partialSeen, File.ReadAllText(extracted), StringComparison.Ordinal);
@@ -1465,7 +1465,7 @@ namespace Radios.Tests
             {
                 if (TraceCoordinator.CurrentHandle != null)
                 {
-                    TraceCoordinator.TrySeal(new TraceSealRequest
+                    TraceCoordinator.TryArchive(new TraceArchiveRequest
                     {
                         ShutdownAuthority = true,
                         Outcome = TraceSessionOutcome.CleanExit,
@@ -1495,12 +1495,12 @@ namespace Radios.Tests
         /// hooks. So a Radio object connected a SECOND time — every successful
         /// remote <c>RetryConnect</c>, and a SmartLink reconnect handed the same
         /// object — raises nothing when that connection dies: <c>Connected</c>
-        /// stays true, nothing is removed, and no seal can be taken. Fixing it
+        /// stays true, nothing is removed, and no archive can be taken. Fixing it
         /// is a three-line change inside FlexLib that awaits Noel's ruling.
         ///
         /// <para><b>When this test fails, the re-hook has landed.</b> That is
         /// the intended signal: turn it round so it asserts the second loss
-        /// seals, and do not restore the old assertion.</para>
+        /// archives, and do not restore the old assertion.</para>
         /// </summary>
         [Fact]
         public void Until_the_620_rehook_lands_a_reused_Radio_is_deaf_to_its_second_loss()
@@ -1514,7 +1514,7 @@ namespace Radios.Tests
                 MarkLive(radio, rig);
 
                 LoseTheTransport(radio);
-                Assert.Equal(1, Volatile.Read(ref _seals));   // the first loss is covered
+                Assert.Equal(1, Volatile.Read(ref _archives));   // the first loss is covered
                 AssertTheRigSawTheFall(rig);
 
                 // The object comes back into use and its link dies again.
@@ -1524,7 +1524,7 @@ namespace Radios.Tests
                 Assert.True(radio.Connected, "the second loss reached the Radio — has the #620 re-hook landed?");
                 // The application still believes it is connected to a dead radio.
                 Assert.True(rig.IsConnected);
-                Assert.Equal(1, Volatile.Read(ref _seals));
+                Assert.Equal(1, Volatile.Read(ref _archives));
             }
             finally
             {

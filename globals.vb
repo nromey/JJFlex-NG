@@ -387,7 +387,7 @@ Module globals
             ' "--- trace continues from part NNN (<part file>) ---", and that
             ' name carries the chain's stamp; that is the only evidence that
             ' this file and those parts are one session. When the file says so,
-            ' the leftover live file IS evidence the run was killed — a sealed
+            ' the leftover live file IS evidence the run was killed — an archived
             ' session never leaves one — so the joined chain is marked killed;
             ' its identity is still an inventory id and stays marked orphaned.
             Dim adopted As LeftoverChainAdoption = ArchiveLeftoverTraceChains(tracePath)
@@ -523,9 +523,9 @@ Module globals
     ''' When the running capture began, or Nothing.
     '''
     ''' <para><b>The coordinator owns this now.</b> It was a module field that
-    ''' Start set, Stop cleared and the drop seal cleared again — three writers,
+    ''' Start set, Stop cleared and the drop archive cleared again — three writers,
     ''' none of them in the same transition as the archive that made the clearing
-    ''' true. A capture "running" against a session that has already been sealed
+    ''' true. A capture "running" against a session that has already been archived
     ''' is #612 wearing different clothes, so the capture's identity and start
     ''' time change under the same gate as the session and the file.</para>
     ''' </summary>
@@ -613,15 +613,15 @@ Module globals
                 Function() RigControl IsNot Nothing AndAlso RigControl.Transmit
             JJFlexWpf.DiagnosticOffer.Install()
 
-            ' The radio-side drop seal (#566's bridge). Two halves, both wired
+            ' The radio-side drop archive (#566's bridge). Two halves, both wired
             ' here because both need this project: the hook that does the
-            ' sealing lives in this file, and the window that shows the path
+            ' archiving lives in this file, and the window that shows the path
             ' needs the UI thread's dispatcher, which is the thread this runs
             ' on. Radios.dll cannot call either by name — it is referenced BY
             ' this project — so this is the seam, exactly as above.
-            Radios.CaptureSeal.SealHook =
-                Function(request As Radios.CaptureSealRequest) SealCaptureForConnectionDrop(request)
-            JJFlexWpf.CaptureSealWatch.Install()
+            Radios.CaptureArchive.ArchiveHook =
+                Function(request As Radios.CaptureArchiveRequest) ArchiveCaptureForConnectionDrop(request)
+            JJFlexWpf.CaptureArchiveWatch.Install()
 
             ' Recording health (Sprint 45 Track H7, Astra's ruling): a failed
             ' recovery record, a failed archive or a sink that stopped writing
@@ -977,10 +977,10 @@ Module globals
     '''
     ''' Written at every transition: boot, capture start, capture stop, standing
     ''' log resume, detail-level change, and (with level=Off) as the last line
-    ''' of any session being sealed for archive. The LAST CaptureState line in a
+    ''' of any session being archived. The LAST CaptureState line in a
     ''' file is therefore the truth about that file: capture=on means a detailed
     ''' capture is writing it right now, level names the trace detail, and a
-    ''' sealed file always ends saying capture=off level=Off.
+    ''' archived file always ends saying capture=off level=Off.
     '''
     ''' This exists because inferring the state from outside was proven wrong on
     ''' 2026-08-21: jjprobe judged "is a capture running" by sniffing the last
@@ -1001,12 +1001,12 @@ Module globals
     ''' </summary>
     ''' <param name="captureOn">Explicit state, for the moments when
     ''' DetailedCaptureRunning has not caught up with the transition being
-    ''' recorded (sealing a capture that is still nominally running).</param>
-    ''' <param name="levelOverride">Explicit level, for the seal marker —
+    ''' recorded (archiving a capture that is still nominally running).</param>
+    ''' <param name="levelOverride">Explicit level, for the archive marker —
     ''' TraceLevel.Off means "this file is finished, nobody is writing it".</param>
     ''' <remarks>
-    ''' <para><b>The seal marker is not written here any more.</b> The last
-    ''' CaptureState line of a sealed file is written by
+    ''' <para><b>The archive marker is not written here any more.</b> The last
+    ''' CaptureState line of an archived file is written by
     ''' <c>TraceCoordinator</c>, straight into that session's own sink while it
     ''' holds the boundary — because writing it through <c>Tracing.TraceLine</c>
     ''' means writing it to whatever sink is CURRENT, which during a race is
@@ -1114,7 +1114,7 @@ Module globals
             ' not whether tracing is on, and not whether a capture is running
             ' now. A refusal because something was already recording reports
             ' tracing on perfectly truthfully; and a capture that started and was
-            ' then sealed by a drop a moment later really did start, so re-reading
+            ' then archived by a drop a moment later really did start, so re-reading
             ' "is one running?" would call a real start a failure.
             If opened.StartedCaptureId = Guid.Empty Then
                 Throw New InvalidOperationException(
@@ -1197,8 +1197,8 @@ Module globals
             ' it as one more anonymous session. The "stopped" line goes in as a
             ' terminal record so it lands in THIS capture's file rather than in
             ' whatever session is current by the time it is written.
-            Dim result As TraceTransitionResult = TraceCoordinator.TrySeal(
-                New TraceSealRequest With {
+            Dim result As TraceTransitionResult = TraceCoordinator.TryArchive(
+                New TraceArchiveRequest With {
                     .Expected = observed.Handle,
                     .ExpectedCaptureId = observed.CaptureId,
                     .RequireCaptureRunning = True,
@@ -1212,7 +1212,7 @@ Module globals
                 })
 
             If Not result.Owned Then
-                ' Somebody else already ended this recording — a drop's seal, an
+                ' Somebody else already ended this recording — a drop's archive, an
                 ' exit. Refused as a refusal: nothing archived twice, nothing
                 ' restarted twice.
                 ReportTraceTransition(result, TraceLevel.Warning)
@@ -1274,8 +1274,8 @@ Module globals
     Private Function BeginCaptureSession(reason As String) As TraceTransitionResult
         Dim observed As TraceObservation = TraceCoordinator.Observe()
         If observed.Handle IsNot Nothing Then
-            Dim sealed_ As TraceTransitionResult = TraceCoordinator.TrySeal(
-                New TraceSealRequest With {
+            Dim archived_ As TraceTransitionResult = TraceCoordinator.TryArchive(
+                New TraceArchiveRequest With {
                     .Expected = observed.Handle,
                     .OperationId = Guid.NewGuid(),
                     .Outcome = TraceSessionOutcome.CleanExit,
@@ -1284,10 +1284,10 @@ Module globals
                     .ResumeLevel = TraceLevel.Verbose,
                     .SuccessorIsCapture = True
                 })
-            ReportTraceTransition(sealed_)
+            ReportTraceTransition(archived_)
             ' The successor was made the capture INSIDE that transition — there
             ' is no second step for a drop or a Stop to land in front of.
-            If sealed_.Owned AndAlso sealed_.SuccessorOpened Then Return sealed_
+            If archived_.Owned AndAlso archived_.SuccessorOpened Then Return archived_
         End If
         Return TraceCoordinator.Begin(BootTraceFileName, TraceLevel.Verbose, asDetailedCapture:=True)
     End Function
@@ -1358,8 +1358,8 @@ Module globals
                 End If
             ElseIf wasOn Then
                 Tracing.TraceLine("Diagnostic log turned off by the operator")
-                Dim closed As TraceTransitionResult = TraceCoordinator.TrySeal(
-                    New TraceSealRequest With {
+                Dim closed As TraceTransitionResult = TraceCoordinator.TryArchive(
+                    New TraceArchiveRequest With {
                         .Expected = observed.Handle,
                         .OperationId = Guid.NewGuid(),
                         .Outcome = TraceSessionOutcome.CleanExit,
@@ -1566,17 +1566,17 @@ Module globals
     End Function
 
     ''' <summary>
-    ''' Seal the session that was recording when the RADIO's connection dropped,
+    ''' Archive the session that was recording when the RADIO's connection dropped,
     ''' then get back to recording. Returns the full path of the archive, or
     ''' Nothing — including when that session has already gone, which is a
     ''' refusal rather than a failure and is traced as one.
     '''
-    ''' <para>Installed as <see cref="Radios.CaptureSeal.SealHook"/> and called
+    ''' <para>Installed as <see cref="Radios.CaptureArchive.ArchiveHook"/> and called
     ''' from a worker thread, never the UI thread — see that class for why the
     ''' drop path must not block on a zip.</para>
     '''
     ''' <para><b>The standing log is restarted deliberately.</b> Archiving turns
-    ''' Tracing off, and a session that seals and stops recording leaves the
+    ''' Tracing off, and a session that archives and stops recording leaves the
     ''' rest of the evening — the reconnect, the second drop, whatever the
     ''' operator does next — with no record at all. That would trade one piece
     ''' of evidence for all the others.</para>
@@ -1586,11 +1586,11 @@ Module globals
     ''' stop being true or the Diagnostics tab and the running-cost register
     ''' both describe a capture that no longer exists — and Stop would then try
     ''' to archive a session that is not there. The standing log picks up at the
-    ''' operator's standing detail; the capture they started is closed, sealed
+    ''' operator's standing detail; the capture they started is closed, archived
     ''' and named in the window they are about to be shown.</para>
     ''' </summary>
-    Friend Function SealCaptureForConnectionDrop(request As Radios.CaptureSealRequest) As Radios.CaptureSealResult
-        Dim outcome As New Radios.CaptureSealResult()
+    Friend Function ArchiveCaptureForConnectionDrop(request As Radios.CaptureArchiveRequest) As Radios.CaptureArchiveResult
+        Dim outcome As New Radios.CaptureArchiveResult()
         If request Is Nothing Then Return outcome
         Try
             Dim expected As TraceSessionHandle = TryCast(request.ExpectedSession, TraceSessionHandle)
@@ -1605,8 +1605,8 @@ Module globals
             Dim lines As New List(Of String)
             If Not String.IsNullOrEmpty(request.PartialMeterLine) Then lines.Add(request.PartialMeterLine)
 
-            Dim result As TraceTransitionResult = TraceCoordinator.TrySeal(
-                New TraceSealRequest With {
+            Dim result As TraceTransitionResult = TraceCoordinator.TryArchive(
+                New TraceArchiveRequest With {
                     .Expected = expected,
                     .OperationId = request.DropOperationId,
                     .Outcome = TraceSessionOutcome.ConnectionDropped,
@@ -1621,7 +1621,7 @@ Module globals
             outcome.SuccessorRecording = result.TracingOn
             outcome.RecoveryRecordFailed = result.PendingRecordFailed
             outcome.TailUncertain = result.TailUncertain
-            outcome.SinkFailedBeforeDrop = result.SinkFailedBeforeSeal
+            outcome.SinkFailedBeforeDrop = result.SinkFailedBeforeArchive
             outcome.FileFacts = result.FileFacts
             outcome.Refused = Not result.Owned
             outcome.RefusalReason = If(result.Owned, Nothing, result.Explanation)
@@ -1646,7 +1646,7 @@ Module globals
 
             ' The operator is only ever offered a path that exists. Accepted
             ' means the bytes were detached and queued; a committed archive is
-            ' what supports a path, and this runs on the seal worker so waiting
+            ' what supports a path, and this runs on the archive worker so waiting
             ' for it costs the UI nothing.
             Dim completion As TraceArchiveCompletion = AwaitArchive(result.Ticket, DropArchiveWait)
             If completion IsNot Nothing AndAlso completion.ArchiveCommitted Then
@@ -1658,7 +1658,7 @@ Module globals
             Else
                 outcome.RawRetainedPath = If(completion IsNot Nothing, completion.RawPath, result.Ticket.SourcePath)
                 Tracing.TraceLine(
-                    "SealCaptureForConnectionDrop: the session was detached to " & outcome.RawRetainedPath &
+                    "ArchiveCaptureForConnectionDrop: the session was detached to " & outcome.RawRetainedPath &
                     " but no archive is committed yet — the raw trace is retained",
                     TraceLevel.Warning)
             End If
@@ -1669,7 +1669,7 @@ Module globals
     End Function
 
     ''' <summary>
-    ''' How long the drop seal waits for its own zip before telling the operator
+    ''' How long the drop archive waits for its own zip before telling the operator
     ''' there is no path yet. Generous because it runs on a background worker
     ''' and a capture can be large; bounded because a stalled disk must not
     ''' leave the notice hanging forever.
@@ -1692,8 +1692,8 @@ Module globals
     ''' Close whichever trace session is open and let its archive be made.
     ''' Kept as the name both shutdown hooks already use; the work is
     ''' <see cref="FinalizeTraceForShutdown"/>'s. Idempotent — if no session is
-    ''' active, no-op, and if one hook has already sealed, the other gets that
-    ''' hook's ticket rather than sealing again.
+    ''' active, no-op, and if one hook has already archived, the other gets that
+    ''' hook's ticket rather than archiving again.
     ''' </summary>
     ''' <param name="outcome">Outcome tag for the manifest entry. Defaults to clean_exit.</param>
     ''' <param name="detail">Optional outcome detail string.</param>
@@ -1725,7 +1725,7 @@ Module globals
         Try
             Dim result As TraceTransitionResult = TraceCoordinator.FinalizeShutdown(outcome, detail)
             ' Reported through the trace only if something is still listening;
-            ' after a successful seal nothing is, which is correct — the lines
+            ' after a successful archive nothing is, which is correct — the lines
             ' would have nowhere to land but a file that is already closed.
             ReportTraceTransition(result)
             If Not TraceCoordinator.DrainArchives(ShutdownArchiveBudget) Then
@@ -2399,7 +2399,7 @@ Module globals
             End If
             Tracing.TheSwitch.Level = bootLevel
             ' The facts a terminal record needs, handed over as DATA before
-            ' anything can seal. The boundary never calls back into this
+            ' anything can archive. The boundary never calls back into this
             ' assembly to have a string formatted — that would take the
             ' framework's trace lock in the wrong order.
             TraceCoordinator.AppIdentity = New TraceEnvironment With {
@@ -5918,7 +5918,7 @@ RadioConnected:
         ' moment to latch shutting-down: after every chance to cancel, before
         ' teardown begins. From here the boundary refuses new captures,
         ' log-enable requests and restarts, and a connection drop that wins the
-        ' race during teardown may seal its own session but may not open a
+        ' race during teardown may archive its own session but may not open a
         ' successor. The existing session stays writable, deliberately — the
         ' closing evidence is exactly what a teardown needs to record.
         TraceCoordinator.LatchShutdown()
@@ -5982,7 +5982,7 @@ RadioConnected:
         ' Close whichever session remains, once, and let the queued archives
         ' finish inside one bounded budget. Shares an operation id with
         ' MyApplication_Shutdown, so whichever hook runs second gets the first
-        ' one's ticket rather than sealing anything twice.
+        ' one's ticket rather than archiving anything twice.
         FinalizeTraceForShutdown(TraceSessionOutcome.CleanExit, "ExitApplication clean shutdown")
         Return True
     End Function

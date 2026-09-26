@@ -67,7 +67,7 @@ namespace JJTrace
         /// the live file still stays bounded and the plain-text part survives,
         /// it just doesn't get a manifest entry. Set once at boot.
         ///
-        /// <para>One root for parts and for sealed sessions, because they go
+        /// <para>One root for parts and for archived sessions, because they go
         /// through one worker into one manifest now. It lives on the
         /// coordinator; this stays as the name boot already uses.</para>
         /// </summary>
@@ -126,7 +126,7 @@ namespace JJTrace
 
         /// <summary>
         /// Block until queued archives finish, up to <paramref name="timeout"/>.
-        /// One queue now carries rotation parts AND sealed sessions, so this
+        /// One queue now carries rotation parts AND archived sessions, so this
         /// bound really is the whole outstanding backlog rather than half of it.
         /// Returns true if the queue drained. Never throws.
         /// </summary>

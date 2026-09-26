@@ -6,11 +6,11 @@ using JJTrace;
 namespace Radios
 {
     /// <summary>
-    /// What the application's sealing hook is asked to do. Immutable, built at
+    /// What the application's archiving hook is asked to do. Immutable, built at
     /// the removal and carried to the worker, so nothing downstream has to
     /// re-read a world that has moved on.
     /// </summary>
-    public sealed class CaptureSealRequest
+    public sealed class CaptureArchiveRequest
     {
         /// <summary>
         /// The recording this drop is ABOUT — a
@@ -35,8 +35,8 @@ namespace Radios
         public string PartialMeterLine { get; set; }
     }
 
-    /// <summary>What the sealing hook did. Facts, not prose.</summary>
-    public sealed class CaptureSealResult
+    /// <summary>What the archiving hook did. Facts, not prose.</summary>
+    public sealed class CaptureArchiveResult
     {
         /// <summary>Full path of the committed archive, or null when nothing
         /// is committed yet.</summary>
@@ -47,7 +47,7 @@ namespace Radios
 
         /// <summary>
         /// Whether a successor really opened. A drop that wins during a
-        /// teardown seals its own session and opens nothing, and the operator's
+        /// teardown archives its own session and opens nothing, and the operator's
         /// window must be able to say so rather than promising a restart that
         /// did not happen.
         /// </summary>
@@ -64,7 +64,7 @@ namespace Radios
         public string RawRetainedPath { get; set; }
 
         /// <summary>
-        /// The sealed session's durable recovery record could not be written.
+        /// The archived session's durable recovery record could not be written.
         /// The raw file is kept and its archive is still being made; what is
         /// at risk is automatic recovery if the application closes first. A
         /// fact about the OLD session, carried independently of whether a
@@ -72,14 +72,14 @@ namespace Radios
         /// </summary>
         public bool RecoveryRecordFailed { get; set; }
 
-        /// <summary>A terminal record or the close failed while sealing, so
-        /// the sealed file's last lines may not have reached the disk.</summary>
+        /// <summary>A terminal record or the close failed while archiving, so
+        /// the archived file's last lines may not have reached the disk.</summary>
         public bool TailUncertain { get; set; }
 
         /// <summary>
-        /// The sealed file had ALREADY stopped taking writes before the drop
+        /// The archived file had ALREADY stopped taking writes before the drop
         /// — a live write failed and the sink closed itself — so the tail
-        /// stops at that earlier fault, not at the seal. The window's caveat
+        /// stops at that earlier fault, not at the archive. The window's caveat
         /// says which of the two happened, because "a write failed as the
         /// recording was being closed" is false for this one (Sol's review of
         /// H8, blocker 2). Meaningful only with <see cref="TailUncertain"/>.
@@ -95,11 +95,11 @@ namespace Radios
         public bool SuccessorRecording { get; set; }
 
         /// <summary>
-        /// What the sealed file is known to contain — which kinds of meter
+        /// What the archived file is known to contain — which kinds of meter
         /// reading were written and flushed, and what a fault took — as the
         /// sink that wrote it counted them
         /// (<see cref="JJTrace.TraceTransitionResult.FileFacts"/>). Null when
-        /// the seal did not carry them. The operator's window chooses its
+        /// the archive did not carry them. The operator's window chooses its
         /// content paragraphs from this and claims nothing it does not
         /// establish (Sol's review of H9, blocker 2).
         /// </summary>
@@ -107,7 +107,7 @@ namespace Radios
     }
 
     /// <summary>
-    /// Seals the running diagnostic capture when the RADIO's connection dies,
+    /// Archives the running diagnostic capture when the RADIO's connection dies,
     /// and tells whoever is listening where the file went.
     ///
     /// <para><b>The gap this closes.</b> <c>JJTrace.TraceSessionOutcome</c> has
@@ -116,7 +116,7 @@ namespace Radios
     /// <c>clean_exit</c>, <c>killed</c>, <c>no_radios</c> or
     /// <c>slice_unavailable</c> (counted 2026-09-22). Nothing on the drop path
     /// archived anything: a radio dying mid-transmit left the capture open, the
-    /// operator carried on, and hours later the app closed and sealed the whole
+    /// operator carried on, and hours later the app closed and archived the whole
     /// evening as a normal one. <b>A radio death and a quiet evening produced
     /// the same file.</b></para>
     ///
@@ -127,15 +127,15 @@ namespace Radios
     /// there is no later point where the truth is still available.</para>
     ///
     /// <para><b>Only a radio-side loss.</b> The operator's own Disconnect is
-    /// <c>RadioRemovalKind.SelfInitiated</c> and seals nothing — the manifest
+    /// <c>RadioRemovalKind.SelfInitiated</c> and archives nothing — the manifest
     /// already has that vocabulary, and tagging a deliberate hang-up
     /// <c>connection_dropped</c> would poison the one query this outcome
     /// exists to answer.</para>
     ///
-    /// <para><b>Why the seal is not conditional on a capture being running.</b>
+    /// <para><b>Why the archive is not conditional on a capture being running.</b>
     /// Whatever session is open is the evidence, standing log or detailed
-    /// capture. Sealing it costs one zip and gains a file with the right word on
-    /// it; declining to seal because the operator had not pressed Ctrl+J Ctrl+D
+    /// capture. Archiving it costs one zip and gains a file with the right word on
+    /// it; declining to archive because the operator had not pressed Ctrl+J Ctrl+D
     /// would mean the unplanned case — which is every case that matters — keeps
     /// producing files that say <c>clean_exit</c>.</para>
     ///
@@ -151,7 +151,7 @@ namespace Radios
     ///
     /// <para><b>The duplicate is recognised by the CONNECTION, not by a bit and
     /// not by a timer.</b> The first build spent one process-global flag per
-    /// trace session — and the seal's own restart of the standing log RE-ARMED
+    /// trace session — and the archive's own restart of the standing log RE-ARMED
     /// it. H2 replaced that with the removal's <c>Radio</c> object plus a
     /// sixty-second window, because nothing had verified whether FlexLib hands
     /// back a new object after a reconnect. Astra read the vendor source and
@@ -165,7 +165,7 @@ namespace Radios
     /// <para><b>And the flush is collected AFTER the claim (#618).</b> H2 wrote
     /// the <c>partial=connection_dropped</c> meter line before asking whether
     /// this removal was already claimed, so a repeat notice could stamp a false
-    /// drop line into the fresh standing log the first seal had just started.
+    /// drop line into the fresh standing log the first archive had just started.
     /// Moving the call after the claim is NOT sufficient on its own: a session
     /// replacement can still land between the claim and a global
     /// <c>Tracing.TraceLine</c>. So the collection and the write are split — the
@@ -173,32 +173,32 @@ namespace Radios
     /// only after winning the claim, and the boundary writes it into the
     /// accepted session's own sink or discards it.</para>
     /// </summary>
-    public static class CaptureSeal
+    public static class CaptureArchive
     {
         /// <summary>
-        /// Seal the trace session the drop was about, with the
+        /// Archive the trace session the drop was about, with the
         /// <c>connection_dropped</c> outcome, and hand back what happened.
         /// Installed by the application at startup; null until then, and a null
         /// hook makes every call below a no-op that says so in the trace.
         ///
-        /// <para>A hook rather than a call, because the sealing lives in the VB
+        /// <para>A hook rather than a call, because the archiving lives in the VB
         /// application (<c>globals.vb</c>) and this assembly is referenced BY
         /// it. Same seam, and for the same reason, as
         /// <c>JJFlexWpf.DiagnosticsBridge</c>.</para>
         /// </summary>
-        public static Func<CaptureSealRequest, CaptureSealResult> SealHook { get; set; }
+        public static Func<CaptureArchiveRequest, CaptureArchiveResult> ArchiveHook { get; set; }
 
         /// <summary>
-        /// Raised once a drop has sealed a capture, carrying where it landed.
+        /// Raised once a drop has archived a capture, carrying where it landed.
         /// The WPF layer subscribes and shows the operator the path; anything
         /// else that wants to know may too. Raised on a background thread —
         /// subscribers marshal for themselves. Once per accepted drop ticket,
         /// after the archive is committed, outside every lock.
         /// </summary>
-        public static event Action<CaptureSealNotice> SealedAfterDrop;
+        public static event Action<CaptureArchiveNotice> ArchivedAfterDrop;
 
         /// <summary>
-        /// How the sealing work reaches a background thread. Production queues
+        /// How the archiving work reaches a background thread. Production queues
         /// it; a test replaces it so the lifecycle race can be driven
         /// deliberately — queue the drop, end the session, THEN run the worker
         /// and watch it decline. That race is not visible to any test that
@@ -218,17 +218,17 @@ namespace Radios
                 : "The connection to " + radioName.Trim() + " dropped while this session was running";
 
         /// <summary>
-        /// A radio we were connected to went away without us asking. Seal the
+        /// A radio we were connected to went away without us asking. Archive the
         /// session that was recording AT THIS MOMENT, and announce where it
         /// landed.
         ///
-        /// <para>Returns immediately: the sealing itself compresses a file that
+        /// <para>Returns immediately: the archiving itself compresses a file that
         /// can be megabytes, and this is called when FlexLib reports our
         /// Radio's <c>Connected</c> property falling, on FlexLib's own transport
         /// thread, in the middle of a teardown. (Tracks H to H3 called it from
         /// the <c>RadioRemoved</c> handler instead, which FlexLib never raises
         /// for a radio reached only through SmartLink — see
-        /// <c>FlexBase.sealIfOurConnectionDropped</c>.) Blocking
+        /// <c>FlexBase.archiveIfOurConnectionDropped</c>.) Blocking
         /// that to zip a log would be a hang in the one situation where the
         /// application most needs to stay responsive. Nothing here waits for the
         /// trace boundary, for a file operation, for compression or for a UI
@@ -242,7 +242,7 @@ namespace Radios
         /// <param name="dropToken">The drop's own identity — the <c>Radio</c>
         /// object whose <c>Connected</c> property fell. Its
         /// connection lifetime is what makes two notices one drop. May be null;
-        /// the claim then falls back to one seal per session.</param>
+        /// the claim then falls back to one archive per session.</param>
         /// <param name="radioName">The radio's nickname, for the sentence on the
         /// manifest entry and in the operator's window.</param>
         /// <param name="collectPartialMeterLine">Renders the meter window this
@@ -268,21 +268,21 @@ namespace Radios
 
         /// <summary>
         /// The same, for a caller that read the session at the top of ITS
-        /// fall and wants this seal, and every line this writes, bound to
+        /// fall and wants this archive, and every line this writes, bound to
         /// that one handle. Null means the caller read it and nothing was
-        /// recording: this then seals nothing, and does not read again.
+        /// recording: this then archives nothing, and does not read again.
         ///
         /// <para><b>One read per fall</b> (Sol's review of H7, the item for a
-        /// harder reader). The fall's handler, its seal method and this method
+        /// harder reader). The fall's handler, its archive method and this method
         /// each read the published handle for their own lines, and this
-        /// method read it once more for the seal, so a Stop completing between
+        /// method read it once more for the archive, so a Stop completing between
         /// any two of those reads split one fall across two sessions: its
-        /// first line bound to the old one, its later lines and its seal to
+        /// first line bound to the old one, its later lines and its archive to
         /// the successor. The handler now reads once and passes the handle
-        /// down; everything the fall writes and the session it seals are one
+        /// down; everything the fall writes and the session it archives are one
         /// identity. The consequence in that race is the existing NotCurrent
-        /// refusal rather than a successor sealed as dropped — the same rule
-        /// H7 gave the lines, applied to the seal they belong to.</para>
+        /// refusal rather than a successor archived as dropped — the same rule
+        /// H7 gave the lines, applied to the archive they belong to.</para>
         /// </summary>
         /// <param name="fallSession">The handle the caller read at the top of
         /// the fall, or null for nothing recording then.</param>
@@ -295,26 +295,26 @@ namespace Radios
             if (expected == null)
             {
                 // Not a defect and not silence: nothing was being recorded, so
-                // there is no evidence to seal. Said out loud because "no
+                // there is no evidence to archive. Said out loud because "no
                 // connection_dropped archive appeared" needs to be answerable
                 // afterwards, and "logging was off" is one of the answers.
                 Tracing.TraceLineDeferred(
-                    "CaptureSeal: the radio's connection dropped but nothing was recording — no session to seal",
+                    "CaptureArchive: the radio's connection dropped but nothing was recording — no session to archive",
                     TraceLevel.Warning, null);
                 return;
             }
 
-            var hook = SealHook;
+            var hook = ArchiveHook;
             if (hook == null)
             {
                 // Said out loud rather than swallowed. A missing hook means the
                 // wiring never ran, and the symptom — a capture that quietly
                 // says clean_exit — is indistinguishable from the bug this
                 // class exists to fix. The claim is deliberately NOT taken: an
-                // unwired call seals nothing, so it must not also consume the
+                // unwired call archives nothing, so it must not also consume the
                 // drop and refuse a later, correctly wired one.
                 Tracing.TraceLineDeferred(
-                    "CaptureSeal: the radio's connection dropped but no seal hook is installed — "
+                    "CaptureArchive: the radio's connection dropped but no archive hook is installed — "
                     + "the session will be archived as an ordinary one (wiring defect)",
                     TraceLevel.Warning, expected);
                 return;
@@ -326,7 +326,7 @@ namespace Radios
                 // statement that the current session suffered a drop. And
                 // nothing has been written anywhere: the flush below has not run.
                 Tracing.TraceLineDeferred(
-                    "CaptureSeal: this connection's loss was already claimed — not sealing again, "
+                    "CaptureArchive: this connection's loss was already claimed — not archiving again, "
                     + "and no partial meter line was written",
                     TraceLevel.Info, expected);
                 return;
@@ -341,12 +341,12 @@ namespace Radios
             catch (Exception ex)
             {
                 // The drop path must survive anything. A radio has just died; an
-                // exception here would take the seal with it.
-                Tracing.TraceLineDeferred("CaptureSeal: collecting the partial meter window failed: " + ex.Message,
+                // exception here would take the archive with it.
+                Tracing.TraceLineDeferred("CaptureArchive: collecting the partial meter window failed: " + ex.Message,
                                           TraceLevel.Warning, expected);
             }
 
-            var request = new CaptureSealRequest
+            var request = new CaptureArchiveRequest
             {
                 ExpectedSession = expected,
                 DropOperationId = operationId,
@@ -355,7 +355,7 @@ namespace Radios
             };
 
             string name = radioName ?? string.Empty;
-            Queue(() => SealNow(hook, name, request));
+            Queue(() => ArchiveNow(hook, name, request));
         }
 
         // ── The claim ──────────────────────────────────────────────────────
@@ -369,14 +369,14 @@ namespace Radios
         ///
         /// <para>The key is the CONNECTION's lifetime, not a flag, not the
         /// object alone and not a timer. A process-global bit could not do this
-        /// job: the seal restarts the standing log, restarting a log begins a
+        /// job: the archive restarts the standing log, restarting a log begins a
         /// session, and the session is what re-armed the bit — so the guard
         /// disarmed itself in time for the duplicate it existed to refuse. An
         /// object plus a window could not either: the vendor does not guarantee
         /// a fresh object per reconnect, so the comparison is only as good as
         /// the lifetime behind it.</para>
         ///
-        /// <para>With no object to compare, it falls back to one seal per trace
+        /// <para>With no object to compare, it falls back to one archive per trace
         /// session. That is the old rule, and it is still the safe answer when
         /// identity is unavailable — it was only ever wrong because a session
         /// event re-armed it, and nothing does that now.</para>
@@ -440,56 +440,56 @@ namespace Radios
         /// How long a refused drop waits for the OTHER operation's archive
         /// before keeping its meter window beside the raw file instead of
         /// beside the zip. The same budget the drop's own archive gets in
-        /// <c>globals.vb</c>; this runs on the seal worker, whose job is to
+        /// <c>globals.vb</c>; this runs on the archive worker, whose job is to
         /// wait, and a stalled archive must not hold the window forever.
         /// </summary>
         internal static TimeSpan LateEvidenceWait { get; set; } = TimeSpan.FromMinutes(5);
 
-        private static void SealNow(Func<CaptureSealRequest, CaptureSealResult> hook,
+        private static void ArchiveNow(Func<CaptureArchiveRequest, CaptureArchiveResult> hook,
                                     string radioName,
-                                    CaptureSealRequest request)
+                                    CaptureArchiveRequest request)
         {
             // EVERY LINE THIS WORKER WRITES IS BOUND TO THE FALL'S SESSION
             // (Sol's review of H8, blocker 4). The fall's own lines were
-            // bound at H7 and its seal at H8, but the worker still wrote
-            // "sealing the running capture as connection_dropped" through the
+            // bound at H7 and its archive at H8, but the worker still wrote
+            // "archiving the running capture as connection_dropped" through the
             // unbound TraceLine before calling the hook, and "no archive was
             // produced" after a refusal — so when a Stop had completed in the
             // gap, both landed BARE in the Stop's successor, and a reader of
-            // that file saw its own capture being drop-sealed when no such
-            // seal happened. Bound, a line lands in the session it describes
-            // if that session is still current — the seal itself drains it
+            // that file saw its own capture being drop-archived when no such
+            // archive happened. Bound, a line lands in the session it describes
+            // if that session is still current — the archive itself drains it
             // ahead of its terminal records — and otherwise is written into
             // the current sink as an explicit refusal record naming both
             // sessions, never as a bare statement about the wrong one.
             var about = request.ExpectedSession as TraceSessionHandle;
-            CaptureSealResult result = null;
+            CaptureArchiveResult result = null;
             try
             {
                 // The lines the fall wrote on FlexLib's thread were deferred so
                 // that thread never waited on the trace gate. Write them NOW,
-                // before anything seals, so they land in the session they
+                // before anything archives, so they land in the session they
                 // describe rather than in its successor. This thread may wait;
                 // it is the worker, and waiting is its job.
                 Tracing.FlushDeferred();
                 Tracing.TraceLineDeferred(
-                    "CaptureSeal: sealing the running capture as " + TraceSessionOutcome.ConnectionDropped
+                    "CaptureArchive: archiving the running capture as " + TraceSessionOutcome.ConnectionDropped
                     + " — " + request.OutcomeDetail,
                     TraceLevel.Warning, about);
                 result = hook(request);
             }
             catch (Exception ex)
             {
-                Tracing.TraceLineDeferred("CaptureSeal: sealing failed: " + ex.Message, TraceLevel.Error, about);
+                Tracing.TraceLineDeferred("CaptureArchive: archiving failed: " + ex.Message, TraceLevel.Error, about);
             }
 
             if (result != null && result.Refused)
             {
-                // The session the fall was about had already been sealed by
+                // The session the fall was about had already been archived by
                 // another operation (a Stop, a log toggle, an exit) or was
-                // gone. Nothing was sealed and nothing will be shown. Said as
+                // gone. Nothing was archived and nothing will be shown. Said as
                 // a refusal, bound — and the meter window this drop collected
-                // is KEPT. It cannot go into the old archive (sealed by
+                // is KEPT. It cannot go into the old archive (archived by
                 // someone else, with their terminal records) and must not
                 // read as the successor's own. H9 wrote it into the successor
                 // as a refusal record naming the session it describes, and
@@ -501,18 +501,18 @@ namespace Radios
                 // sink at all; the refusal record, where there is a sink to
                 // carry it, says where that file is.
                 Tracing.TraceLineDeferred(
-                    "CaptureSeal: the seal was refused (" + (result.RefusalReason ?? "no reason given")
-                    + "); nothing was sealed for this drop and there is no archive path to show the operator",
+                    "CaptureArchive: the archive was refused (" + (result.RefusalReason ?? "no reason given")
+                    + "); nothing was archived for this drop and there is no archive path to show the operator",
                     TraceLevel.Warning, about);
                 if (!string.IsNullOrEmpty(request.PartialMeterLine))
                 {
                     string kept = TraceCoordinator.KeepLateEvidence(about,
-                        "CaptureSeal: the meter window this drop closed, kept as evidence because its session"
-                        + " had already been sealed by another operation: " + request.PartialMeterLine,
+                        "CaptureArchive: the meter window this drop closed, kept as evidence because its session"
+                        + " had already been archived by another operation: " + request.PartialMeterLine,
                         LateEvidenceWait);
                     Tracing.TraceLineDeferred(
-                        "CaptureSeal: the meter window this drop closed, kept as evidence because its session"
-                        + " had already been sealed by another operation"
+                        "CaptureArchive: the meter window this drop closed, kept as evidence because its session"
+                        + " had already been archived by another operation"
                         + (kept != null ? " (also kept beside that session's archive at " + kept + ")"
                                         : " (that session has no archive here to keep it beside)")
                         + ": " + request.PartialMeterLine,
@@ -528,7 +528,7 @@ namespace Radios
                 // here: a dialog offering a path that does not exist is worse
                 // than no dialog, and the Problems list carries the failure.
                 Tracing.TraceLineDeferred(
-                    "CaptureSeal: no archive was produced, so there is no path to show the operator"
+                    "CaptureArchive: no archive was produced, so there is no path to show the operator"
                     + (result != null && !string.IsNullOrEmpty(result.RawRetainedPath)
                         ? "; the raw trace is retained at " + result.RawRetainedPath
                         : string.Empty),
@@ -537,14 +537,14 @@ namespace Radios
                 return;
             }
 
-            Tracing.TraceLineDeferred("CaptureSeal: sealed to " + result.ArchivePath, TraceLevel.Warning, about);
+            Tracing.TraceLineDeferred("CaptureArchive: archived to " + result.ArchivePath, TraceLevel.Warning, about);
             Tracing.FlushDeferred();
 
             try
             {
                 // The one caveat a committed archive can carry: its bytes may
-                // stop short. That is a property of the sealed file, fixed at
-                // the seal. The index-file failure is NOT read here — this
+                // stop short. That is a property of the archived file, fixed at
+                // the archive. The index-file failure is NOT read here — this
                 // window opens only with a committed archive, which needs no
                 // index file, and the pre-wait bit could be stale by now anyway
                 // (the worker retries the record before compressing). The
@@ -561,18 +561,18 @@ namespace Radios
                 // this line and that one. So the notice carries a READER,
                 // and the paragraph is chosen when the text is composed —
                 // for the window, on the UI thread, at render. The successor
-                // bit is still the seal's own fact and still tells the two
+                // bit is still the archive's own fact and still tells the two
                 // not-recording paragraphs apart.
-                SealedAfterDrop?.Invoke(new CaptureSealNotice(
+                ArchivedAfterDrop?.Invoke(new CaptureArchiveNotice(
                     radioName, result.ArchivePath, result.SuccessorOpened, result.ArchivedSessionId,
                     tailUncertain: result.TailUncertain,
                     sinkFailedBeforeDrop: result.SinkFailedBeforeDrop,
-                    recordingNow: CaptureSealNotice.LiveRecordingState,
+                    recordingNow: CaptureArchiveNotice.LiveRecordingState,
                     fileFacts: result.FileFacts));
             }
             catch (Exception ex)
             {
-                Tracing.TraceLine("CaptureSeal: telling the operator failed: " + ex.Message, TraceLevel.Error);
+                Tracing.TraceLine("CaptureArchive: telling the operator failed: " + ex.Message, TraceLevel.Error);
             }
         }
     }

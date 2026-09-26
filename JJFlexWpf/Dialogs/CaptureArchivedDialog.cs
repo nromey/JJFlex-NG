@@ -10,7 +10,7 @@ namespace JJFlexWpf.Dialogs;
 
 /// <summary>
 /// "Your radio's connection went while I was recording. Here is the file, and
-/// here is its path." Opened when <see cref="Radios.CaptureSeal"/> has sealed a
+/// here is its path." Opened when <see cref="Radios.CaptureArchive"/> has archived a
 /// session as <c>connection_dropped</c> (#566's bridge, Sprint 45 Track H).
 /// </summary>
 /// <remarks>
@@ -51,9 +51,9 @@ namespace JJFlexWpf.Dialogs;
 /// either way: the radio is gone.
 /// </para>
 /// </remarks>
-public sealed class CaptureSealedDialog : JJFlexDialog
+public sealed class CaptureArchivedDialog : JJFlexDialog
 {
-    private readonly CaptureSealNotice _notice;
+    private readonly CaptureArchiveNotice _notice;
     private readonly TextBlock _status = new();
 
     /// <summary>
@@ -62,7 +62,7 @@ public sealed class CaptureSealedDialog : JJFlexDialog
     /// the explanation box carries when a recording's recovery is at risk.
     /// Production still enters only through <see cref="Show"/>.
     /// </summary>
-    internal CaptureSealedDialog(CaptureSealNotice notice)
+    internal CaptureArchivedDialog(CaptureArchiveNotice notice)
     {
         _notice = notice;
         Title = notice.Title;
@@ -75,7 +75,7 @@ public sealed class CaptureSealedDialog : JJFlexDialog
         // READ HERE, AND NOWHERE EARLIER (Sol's review of H10, blocker 2).
         // Explanation asks the notice's recording reader at the moment it is
         // composed, and this constructor runs on the UI thread inside the
-        // action CaptureSealWatch dispatched — so this line is where "the
+        // action CaptureArchiveWatch dispatched — so this line is where "the
         // next thing that happens is being kept too" is decided, after every
         // Settings action and fault retire that was queued ahead of it has
         // run. Nothing may compose or cache the text on the worker.
@@ -136,16 +136,16 @@ public sealed class CaptureSealedDialog : JJFlexDialog
     }
 
     /// <summary>
-    /// Show the notice. Call on the UI thread; <see cref="CaptureSealWatch"/>
-    /// is what marshals from the thread the seal ran on.
+    /// Show the notice. Call on the UI thread; <see cref="CaptureArchiveWatch"/>
+    /// is what marshals from the thread the archive ran on.
     /// </summary>
-    public static void Show(CaptureSealNotice notice)
+    public static void Show(CaptureArchiveNotice notice)
     {
         if (notice == null || string.IsNullOrEmpty(notice.ArchivePath)) return;
         Tracing.TraceLine(
-            "CaptureSealedDialog: showing the operator where the sealed recording went — "
+            "CaptureArchivedDialog: showing the operator where the archived recording went — "
             + notice.ArchivePath, TraceLevel.Info);
-        new CaptureSealedDialog(notice).ShowModalDialog();
+        new CaptureArchivedDialog(notice).ShowModalDialog();
     }
 
     private void CopyPath()
@@ -161,7 +161,7 @@ public sealed class CaptureSealedDialog : JJFlexDialog
             // The clipboard genuinely refuses sometimes — another process holds
             // it open. Say so rather than appearing to succeed; the path is
             // still on screen and still readable, which the sentence says.
-            Tracing.TraceLine("CaptureSealedDialog: clipboard refused: " + ex.Message,
+            Tracing.TraceLine("CaptureArchivedDialog: clipboard refused: " + ex.Message,
                 TraceLevel.Warning);
             message = _notice.CopyFailed;
         }
@@ -173,7 +173,7 @@ public sealed class CaptureSealedDialog : JJFlexDialog
             message,
             Radios.Speech.SpeechIntent.Latest,
             Radios.VerbosityLevel.Critical,
-            subject: Radios.Speech.SpeechSubject.CaptureSealedPath);
+            subject: Radios.Speech.SpeechSubject.CaptureArchivedPath);
     }
 
     private static Button MakeButton(string label, Action onClick, bool isDefault = false)

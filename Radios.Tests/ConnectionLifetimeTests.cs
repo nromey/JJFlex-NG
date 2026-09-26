@@ -59,7 +59,7 @@ namespace Radios.Tests
 
         /// <summary>
         /// <b>No elapsed time appears anywhere.</b> H2's guard lapsed after a
-        /// minute, so a delayed duplicate sealed a fresh log and announced a
+        /// minute, so a delayed duplicate archived a fresh log and announced a
         /// second drop — and its <c>Environment.TickCount</c> subtraction could
         /// not enforce a true minute across a signed half-wrap anyway. A
         /// terminal claim needs no clock, which is why this test does not sleep.
@@ -149,7 +149,7 @@ namespace Radios.Tests
             Assert.True(rebound.Retired);
 
             // AND THE CONSEQUENCE THAT NEEDS A RULING: a genuine second loss of
-            // this reused object produces no claim, so no seal and no notice.
+            // this reused object produces no claim, so no archive and no notice.
             // Pinned deliberately, so the behaviour is visible and a ruling can
             // change one line rather than discovering this at a bench.
             Assert.False(ConnectionLifetime.TryClaimLoss(rebound));
@@ -185,11 +185,11 @@ namespace Radios.Tests
         /// rule that the object is never rebound. Applying it to a hang-up made
         /// the unresolved SmartLink case reachable by an ordinary sequence:
         /// disconnect, reconnect over SmartLink, radio dies — and the drop
-        /// would not have sealed, silently losing the evidence this bridge
+        /// would not have archived, silently losing the evidence this bridge
         /// exists to produce.</para>
         ///
         /// <para>Nothing is needed there anyway: a self-initiated removal never
-        /// reaches the seal, because <c>RemovalSealsTheCapture</c> answers only
+        /// reaches the archive, because <c>RemovalArchivesTheCapture</c> answers only
         /// for <c>ConnectionLostOurRadio</c>. So the lifetime spans the hang-up
         /// and the reconnect, unclaimed, and a genuine later drop still claims
         /// it exactly once.</para>
@@ -211,7 +211,7 @@ namespace Radios.Tests
             Assert.Equal(ConnectionBindOutcome.SameLifetime, outcome);
             Assert.Same(first, again);
 
-            // Now the radio really dies. This must seal.
+            // Now the radio really dies. This must archive.
             Assert.True(ConnectionLifetime.TryClaimLoss(again));
 
             // And exactly once.
@@ -257,7 +257,7 @@ namespace Radios.Tests
             // And the operator's own disconnect touches the lifetime not at
             // all. Retiring there would make a hang-up look like a terminal
             // loss to the one acquisition path that can hand back the same
-            // object, and the next real drop would go unsealed.
+            // object, and the next real drop would go unarchived.
             int selfArm = source.IndexOf("case RadioRemovalKind.SelfInitiated:", StringComparison.Ordinal);
             int dropArm = source.IndexOf("case RadioRemovalKind.ConnectionLostOurRadio:", StringComparison.Ordinal);
             string selfBody = source.Substring(selfArm, dropArm - selfArm);

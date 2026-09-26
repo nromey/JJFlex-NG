@@ -12,7 +12,7 @@ using Xunit.Abstractions;
 namespace Radios.Tests
 {
     /// <summary>
-    /// A line about a session that arrives after that session was sealed,
+    /// A line about a session that arrives after that session was archived,
     /// with nothing live to take it, has a destination that needs no sink:
     /// a late-evidence file beside the session's archive (Sol's review of
     /// H9, blocker 3). Real coordinator, real files, no window, no radio.
@@ -51,7 +51,7 @@ namespace Radios.Tests
         {
             if (TraceCoordinator.CurrentHandle != null)
             {
-                TraceCoordinator.TrySeal(new TraceSealRequest
+                TraceCoordinator.TryArchive(new TraceArchiveRequest
                 {
                     ShutdownAuthority = true, Outcome = TraceSessionOutcome.CleanExit,
                     Resume = TraceResumeIntent.None, OperationId = Guid.NewGuid(),
@@ -80,7 +80,7 @@ namespace Radios.Tests
         }
 
         private static TraceTransitionResult Stop(TraceSessionHandle h, TraceResumeIntent resume = TraceResumeIntent.None) =>
-            TraceCoordinator.TrySeal(new TraceSealRequest
+            TraceCoordinator.TryArchive(new TraceArchiveRequest
             {
                 Expected = h, OperationId = Guid.NewGuid(),
                 Outcome = TraceSessionOutcome.CleanExit, Resume = resume,
@@ -112,10 +112,10 @@ namespace Radios.Tests
         /// The common case: the other operation's archive commits, and the
         /// line lands beside the zip, with a header naming the session. A
         /// second line appends under the same header. No sink exists at any
-        /// point (the seal opened nothing).
+        /// point (the archive opened nothing).
         /// </summary>
         [Fact]
-        public void A_line_about_a_sealed_session_lands_beside_its_committed_archive_with_no_sink_at_all()
+        public void A_line_about_a_archived_session_lands_beside_its_committed_archive_with_no_sink_at_all()
         {
             TraceSessionHandle old = Open();
             Tracing.TraceLine("something happened", TraceLevel.Info);
@@ -143,8 +143,8 @@ namespace Radios.Tests
             Assert.Matches(@"^\d+ \[T\d+", lines[1]);   // each line carries its own trace prefix
             Assert.EndsWith("a second late line", lines[2], StringComparison.Ordinal);
 
-            // Positive controls: the sealed archive does not hold it, and a
-            // session this coordinator never sealed gets null, not a file.
+            // Positive controls: the archived archive does not hold it, and a
+            // session this coordinator never archived gets null, not a file.
             string extracted = SessionArchive.ExtractTraceText(zip, Path.Combine(_dir, "extract"));
             Assert.DoesNotContain("partial=connection_dropped", File.ReadAllText(extracted), StringComparison.Ordinal);
             var stranger = (TraceSessionHandle)typeof(TraceSessionHandle)
@@ -225,14 +225,14 @@ namespace Radios.Tests
         }
 
         /// <summary>
-        /// The edge: the other operation's seal could not move the file
-        /// aside (a retained seal, H9 blocker 1), so there is no ticket and
+        /// The edge: the other operation's archive could not move the file
+        /// aside (a retained archive, H9 blocker 1), so there is no ticket and
         /// no archive. The line lands beside the retained file at the live
         /// path — and when the operator's retry reclaims that file, the
         /// late-evidence file moves with it.
         /// </summary>
         [Fact]
-        public void A_line_about_a_retained_seal_sits_beside_the_retained_file_and_moves_with_it()
+        public void A_line_about_a_retained_archive_sits_beside_the_retained_file_and_moves_with_it()
         {
             TraceSessionHandle old = Open();
             Tracing.TraceLine("before the failed detach", TraceLevel.Info);

@@ -20,7 +20,7 @@ using System.Runtime.InteropServices;
 [assembly: ComVisible(false)]
 
 // The trace boundary's tests live in Radios.Tests, which is where the rest of
-// the capture-seal suite already is — one drop is one story and its tests
+// the capture-archive suite already is — one drop is one story and its tests
 // should read as one file's worth of neighbours, not be split across assemblies
 // by where a type happens to live. Same arrangement Radios already has.
 [assembly: InternalsVisibleTo("Radios.Tests")]

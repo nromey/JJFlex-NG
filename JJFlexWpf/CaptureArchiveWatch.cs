@@ -7,21 +7,21 @@ using Radios;
 namespace JJFlexWpf
 {
     /// <summary>
-    /// Listens for a capture sealed by a connection drop and puts the window in
+    /// Listens for a capture archived by a connection drop and puts the window in
     /// front of the operator (#566's bridge, Sprint 45 Track H).
     ///
     /// <para>Same shape and same reasoning as <see cref="DiagnosticOffer"/>:
     /// installed once, on the UI thread, at startup, so the dispatcher captured
     /// here is the one that can show a window later from whatever thread the
-    /// event arrives on. The seal runs on a worker (it compresses a log that can
+    /// event arrives on. The archive runs on a worker (it compresses a log that can
     /// be megabytes), so it never arrives on the UI thread by itself.</para>
     ///
-    /// <para><b>BeginInvoke, not Invoke.</b> The seal's worker must not block
+    /// <para><b>BeginInvoke, not Invoke.</b> The archive's worker must not block
     /// waiting for a modal window to be dismissed — that thread is inside a
     /// radio teardown, and a dialog the operator leaves open for a minute would
     /// hold it for a minute.</para>
     /// </summary>
-    public static class CaptureSealWatch
+    public static class CaptureArchiveWatch
     {
         private static readonly object _gate = new();
         private static bool _installed;
@@ -36,10 +36,10 @@ namespace JJFlexWpf
                 _installed = true;
                 _ui = Dispatcher.CurrentDispatcher;
             }
-            CaptureSeal.SealedAfterDrop += OnSealed;
+            CaptureArchive.ArchivedAfterDrop += OnArchived;
         }
 
-        private static void OnSealed(CaptureSealNotice notice)
+        private static void OnArchived(CaptureArchiveNotice notice)
         {
             // The notice is handed over unrendered, on purpose (Sol's review
             // of H10, blocker 2). Its text asks the recording state at the
@@ -49,18 +49,18 @@ namespace JJFlexWpf
             try
             {
                 var ui = _ui;
-                if (ui == null) Dialogs.CaptureSealedDialog.Show(notice);
-                else ui.BeginInvoke(new Action(() => Dialogs.CaptureSealedDialog.Show(notice)));
+                if (ui == null) Dialogs.CaptureArchivedDialog.Show(notice);
+                else ui.BeginInvoke(new Action(() => Dialogs.CaptureArchivedDialog.Show(notice)));
             }
             catch (Exception ex)
             {
-                // The file is sealed and on disk either way. A window that will
+                // The file is archived and on disk either way. A window that will
                 // not open must not become a second failure on top of a radio
                 // that has already gone.
                 try
                 {
                     Tracing.TraceLine(
-                        "CaptureSealWatch: could not show the sealed-recording notice: " + ex.Message
+                        "CaptureArchiveWatch: could not show the archived-recording notice: " + ex.Message
                         + " — the recording is still at " + notice?.ArchivePath,
                         TraceLevel.Warning);
                 }

@@ -8,7 +8,7 @@ namespace JJTrace
     /// the sink as each line goes through it.
     ///
     /// <para><b>Why the sink classifies, and why the markers live here.</b>
-    /// The operator's drop window promises what the sealed file contains —
+    /// The operator's drop window promises what the archived file contains —
     /// "including the last readings the radio sent: forward power, reflected
     /// power and the temperature of the amplifier" — and until Track H10 that
     /// promise was made on no evidence at all: <c>txMeters:</c> lines exist
@@ -81,7 +81,7 @@ namespace JJTrace
     }
 
     /// <summary>
-    /// What a sealed trace file is KNOWN to contain, frozen at the seal by the
+    /// What an archived trace file is KNOWN to contain, frozen at the archive by the
     /// sink that wrote it. Facts, not prose: the operator's window chooses
     /// its paragraphs from these, and makes no claim that no fact here
     /// establishes (Sol's review of H9, blocker 2).
@@ -89,7 +89,7 @@ namespace JJTrace
     /// <para><b>"Written" means written and then flushed without a fault.</b>
     /// A line handed to the sink sits in a buffer until the next flush; the
     /// ordinary write flushes at once, but a flush that finds a transition
-    /// holding the gate is skipped rather than blocked, and the seal's own
+    /// holding the gate is skipped rather than blocked, and the archive's own
     /// drain writes several lines and flushes once. So a fault can lose
     /// lines that were "written" before it — which is why
     /// <see cref="LinesUnflushedAtFault"/> exists, and why the window may

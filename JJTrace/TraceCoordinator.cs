@@ -27,14 +27,14 @@ namespace JJTrace
     }
 
     /// <summary>What a caller is asking the boundary to do.</summary>
-    public sealed class TraceSealRequest
+    public sealed class TraceArchiveRequest
     {
         /// <summary>The recording this operation is ABOUT. Null is only legal
         /// with <see cref="ShutdownAuthority"/>.</summary>
         public TraceSessionHandle Expected { get; set; }
 
         /// <summary>
-        /// Process shutdown, and nothing else, may seal whichever session
+        /// Process shutdown, and nothing else, may archive whichever session
         /// happens to remain. Exit intentionally closes all recording, so it is
         /// the one caller that does not name a session — and it says so here
         /// rather than being implemented as an unlocked read of the current
@@ -81,10 +81,10 @@ namespace JJTrace
         /// set inside the same transition that opens it.
         ///
         /// <para><b>Why this is not a second call.</b> Capture start used to
-        /// seal, open a successor, release the gate, and THEN mark that
+        /// archive, open a successor, release the gate, and THEN mark that
         /// successor as the capture. Anything landing in between — a drop, a
         /// Stop, a settings change, an exit — acted on a session that was about
-        /// to become a capture but was not one yet: a drop sealed it as an
+        /// to become a capture but was not one yet: a drop archived it as an
         /// ordinary session and the capture was then marked on nothing, or a
         /// Stop found no capture running (Sol's review of H3, finding 2). A
         /// successor is published only once it is complete, so nobody can see
@@ -152,7 +152,7 @@ namespace JJTrace
         /// H3, finding 1; Astra's design asked for exactly this snapshot).</para>
         ///
         /// <para><b>Published at the END of a transition, never part way
-        /// through.</b> A seal nulls <see cref="_handle"/> before it opens the
+        /// through.</b> An archive nulls <see cref="_handle"/> before it opens the
         /// successor; a reader that could see that intermediate null would
         /// report "nothing was recording" during a perfectly ordinary restart.
         /// So a lock-free reader sees the handle from before a transition or the
@@ -300,30 +300,30 @@ namespace JJTrace
         private static readonly Dictionary<Guid, TraceArchiveTicket> _ticketsBySession =
             new Dictionary<Guid, TraceArchiveTicket>();
 
-        // ── Retained evidence: a seal whose bytes could not be moved aside ──
+        // ── Retained evidence: an archive whose bytes could not be moved aside ──
         //
-        // A seal that fails at the detach leaves the sealed file at the live
+        // An archive that fails at the detach leaves the archived file at the live
         // path — the only copy — and returns Failed. Until Track H9 nothing
         // remembered that: the operator's prescribed off-and-on after a sink
         // fault called Begin, Begin found no session and nothing recording,
         // and OpenSessionLocked opened the live path with FileMode.Create,
-        // truncating the evidence the seal had just refused to delete (Sol's
+        // truncating the evidence the archive had just refused to delete (Sol's
         // review of H8, blocker 1). The checkpoint path knew better — it
-        // reopens with append and says why — but a seal is not a checkpoint:
+        // reopens with append and says why — but an archive is not a checkpoint:
         // the session is over, and a new one must not be appended onto it.
         //
-        // So the seal records what it could not move, keyed by the path it
+        // So the archive records what it could not move, keyed by the path it
         // left it at; the ONE place a sink opens refuses to open over such a
         // path; and Begin — the operator's deliberate retry — first tries the
-        // move again, with everything the seal had frozen, so a detach that
+        // move again, with everything the archive had frozen, so a detach that
         // was only transiently blocked becomes an ordinary ticket after all.
         // A retry that fails again refuses the open and says why, and the
         // file stays where it is. Never open over retained evidence.
 
-        /// <summary>Everything a seal froze about a session whose bytes are
+        /// <summary>Everything an archive froze about a session whose bytes are
         /// still at the path they were written to, so the move can be tried
-        /// again later and produce the ticket the seal could not.</summary>
-        private sealed class RetainedSeal
+        /// again later and produce the ticket the archive could not.</summary>
+        private sealed class RetainedArchive
         {
             public TraceSession Session;
             public string SourcePath;
@@ -336,8 +336,8 @@ namespace JJTrace
             public string MoveFailure;
         }
 
-        private static readonly Dictionary<string, RetainedSeal> _retainedAtPath =
-            new Dictionary<string, RetainedSeal>(StringComparer.OrdinalIgnoreCase);
+        private static readonly Dictionary<string, RetainedArchive> _retainedAtPath =
+            new Dictionary<string, RetainedArchive>(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
         /// True only when <paramref name="path"/> is KNOWN to hold no file: the
@@ -348,7 +348,7 @@ namespace JJTrace
         ///
         /// <para><b>Why a failed detach has to ask</b> (Sol's review of H14).
         /// After a rotation's move succeeds, the old part is its own file with
-        /// its own ticket, and the live path may hold nothing at all. A seal
+        /// its own ticket, and the live path may hold nothing at all. An archive
         /// that then failed to move that nothing recorded it as retained
         /// evidence, the retry's move failed forever for want of a source, and
         /// every later Begin refused the path on the claim that it still held
@@ -368,7 +368,7 @@ namespace JJTrace
         }
 
         /// <summary>
-        /// Tests only: the paths at which a failed detach left a sealed
+        /// Tests only: the paths at which a failed detach left an archived
         /// session's bytes, and that no open may truncate.
         /// </summary>
         internal static IReadOnlyCollection<string> RetainedEvidencePathsForTests
@@ -377,17 +377,17 @@ namespace JJTrace
         }
 
         /// <summary>The id both exit hooks share, so the second one gets the
-        /// first one's ticket rather than sealing again.</summary>
+        /// first one's ticket rather than archiving again.</summary>
         internal static readonly Guid ShutdownOperationId =
             new Guid("5e3b1f84-9a2c-4f7d-9b61-0f2c6f9a71d3");
 
         /// <summary>
         /// Unchanging facts the terminal record needs. Set once at boot, before
-        /// anything can seal.
+        /// anything can archive.
         /// </summary>
         public static TraceEnvironment AppIdentity { get; set; } = new TraceEnvironment();
 
-        /// <summary>Where sealed sessions get compressed to. Set once at boot.</summary>
+        /// <summary>Where archived sessions get compressed to. Set once at boot.</summary>
         public static string ArchiveRootDir { get; set; }
 
         // ── Observation ────────────────────────────────────────────────────
@@ -559,7 +559,7 @@ namespace JJTrace
 
         // ── Sink generations: the order the health model sorts by ──────────
         //
-        // Every change of the live sink — an open, a close, a seal, a retire,
+        // Every change of the live sink — an open, a close, an archive, a retire,
         // an open that failed — advances this count, under the gate. Every
         // note the health model receives carries the generation of the sink
         // it describes, and the model applies a note only if it is not about
@@ -652,7 +652,7 @@ namespace JJTrace
         /// <summary>
         /// How the fault-retire work item reaches a pool thread. Production
         /// queues it; a test replaces it to hold the work back and race a
-        /// caller against it, exactly as <c>CaptureSeal.Queue</c> is
+        /// caller against it, exactly as <c>CaptureArchive.Queue</c> is
         /// replaced. Null is never allowed; reset to the default in tests.
         /// </summary>
         internal static Action<Action> FaultRetireQueue { get; set; } = DefaultFaultRetireQueue;
@@ -667,14 +667,14 @@ namespace JJTrace
         ///
         /// <para><b>Why the session is retired and not merely reported.</b>
         /// Until Track H8 this published the fault and left <c>_session</c>
-        /// and <c>_sink</c> in place. A seal then refused with NoSession
+        /// and <c>_sink</c> in place. An archive then refused with NoSession
         /// because the sink was closed, and a Begin refused with
         /// AlreadyRecording because the session was still there — so the
         /// operator's off-and-on could not open a fresh file, Stop could not
         /// end a capture whose file had died, and Diagnostics said "capture in
         /// progress" beside "the log has stopped" (Sol's review of H7, finding
         /// 1). A session is a file; when the file has closed itself the
-        /// session is over, and the coordinator says so by sealing it through
+        /// session is over, and the coordinator says so by archiving it through
         /// the same path every other end takes. The work runs on a pool
         /// thread: retiring detaches the file and writes its record, which is
         /// file I/O this writer's thread must not do.</para>
@@ -704,7 +704,7 @@ namespace JJTrace
         /// The fault-retire work item: publish the sink failure to the health
         /// model, then, as a transition, retire the faulted session if it is
         /// still the current one. Idempotent by construction — a Begin, a
-        /// seal or a bundle snapshot that reached the gate first has already
+        /// archive or a bundle snapshot that reached the gate first has already
         /// settled the session, and this finds nothing to do.
         ///
         /// <para>The health note goes first, in this order, on this thread: it
@@ -746,12 +746,12 @@ namespace JJTrace
 
         /// <summary>
         /// Caller holds the gate and is a transition. If the current session's
-        /// sink has closed itself over a fault, seal that session with the
+        /// sink has closed itself over a fault, archive that session with the
         /// coordinator's own outcome and no successor, through
-        /// <see cref="SealLocked"/> so there is exactly one way a session ends.
+        /// <see cref="ArchiveLocked"/> so there is exactly one way a session ends.
         /// Returns true when a session was retired; <paramref name="queued"/>
         /// then carries its ticket for the caller to publish and queue OUTSIDE
-        /// the gate, as every seal does.
+        /// the gate, as every archive does.
         /// </summary>
         private static bool RetireFaultedLocked(List<string> faults, out TraceArchiveTicket queued)
         {
@@ -761,7 +761,7 @@ namespace JJTrace
             Guid retiring = _session.SessionId;
             string fault = _sink.WriteFault ?? "the trace file closed without reporting why";
             string path = _sink.FilePath;
-            TraceTransitionResult retiredResult = SealLocked(new TraceSealRequest
+            TraceTransitionResult retiredResult = ArchiveLocked(new TraceArchiveRequest
             {
                 Expected = _handle,
                 Outcome = TraceSessionOutcome.RecordingFailed,
@@ -779,11 +779,11 @@ namespace JJTrace
 
         /// <summary>
         /// Caller holds the gate and is a transition. If a failed detach left
-        /// a sealed session's bytes at <paramref name="livePath"/>, try the
-        /// move again with everything that seal froze. On success the session
-        /// gets the ticket its seal could not make — pending record, session
+        /// an archived session's bytes at <paramref name="livePath"/>, try the
+        /// move again with everything that archive froze. On success the session
+        /// gets the ticket its archive could not make — pending record, session
         /// index, the lot — and <paramref name="queued"/> carries it for the
-        /// caller to publish and queue OUTSIDE the gate, as every seal does.
+        /// caller to publish and queue OUTSIDE the gate, as every archive does.
         /// On failure the file stays exactly where it is, the fault says so,
         /// and the open that follows refuses (see <see cref="OpenSessionLocked"/>).
         /// Nothing to reclaim is not a failure.
@@ -793,9 +793,9 @@ namespace JJTrace
         {
             queued = null;
             if (string.IsNullOrEmpty(livePath)
-                || !_retainedAtPath.TryGetValue(livePath, out RetainedSeal r)) return false;
+                || !_retainedAtPath.TryGetValue(livePath, out RetainedArchive r)) return false;
 
-            // The same target the seal wanted; the naming is collision-safe,
+            // The same target the archive wanted; the naming is collision-safe,
             // so a name taken since is simply skipped, never overwritten.
             string target = r.HadParts
                 ? TraceFileNaming.StampedPartPath(_livePath, r.Session.BootTimeUtc, r.FinalPart)
@@ -806,14 +806,14 @@ namespace JJTrace
             if (detached == null && NoFileAt(r.SourcePath))
             {
                 // The retained file is no longer there — moved or deleted by
-                // something outside this process since the seal recorded it.
+                // something outside this process since the archive recorded it.
                 // There is nothing left to protect and nothing to move, so
                 // the record goes, and the open that follows is an ordinary
                 // one. Keeping it would refuse this path for the rest of the
                 // run over a file that does not exist.
                 _retainedAtPath.Remove(livePath);
                 faults.Add("TraceCoordinator: the raw trace of session " + r.Session.SessionId
-                           + " that an earlier seal could not move (" + r.MoveFailure + ") is no longer at "
+                           + " that an earlier archive could not move (" + r.MoveFailure + ") is no longer at "
                            + r.SourcePath + "; nothing was reclaimed, and the path is no longer held for it");
                 return false;
             }
@@ -850,18 +850,18 @@ namespace JJTrace
             NotePendingRecord(ticket, faults);
             _ticketsBySession[ticket.SessionId] = ticket;
             faults.Add("TraceCoordinator: the raw trace of session " + r.Session.SessionId
-                       + " that an earlier seal could not move (" + r.MoveFailure + ") has now been detached to "
+                       + " that an earlier archive could not move (" + r.MoveFailure + ") has now been detached to "
                        + detached + " and queued for archiving");
             queued = ticket;
             return true;
         }
 
-        // ── Late evidence: a line about a sealed session, with no sink ─────
+        // ── Late evidence: a line about an archived session, with no sink ─────
 
         /// <summary>
         /// Keep <paramref name="text"/> — a line formatted while
         /// <paramref name="session"/> was recording, which arrived after
-        /// another operation had sealed that session — in a plain-text file
+        /// another operation had archived that session — in a plain-text file
         /// BESIDE that session's archive, and return the path written, or
         /// null when the session is unknown here.
         ///
@@ -872,7 +872,7 @@ namespace JJTrace
         /// that was right as far as it went — but with the standing log off
         /// a Stop opens no successor, the drain consumes a bound line without
         /// writing when there is no sink, and the window existed nowhere.
-        /// The old session's file is sealed and may not be written into
+        /// The old session's file is archived and may not be written into
         /// (#618's whole point); its zip is committed and rewriting a
         /// committed archive is how an archive stops being trustworthy. So
         /// the line goes into its own small file, named after the archive
@@ -886,7 +886,7 @@ namespace JJTrace
         /// file is.</para>
         ///
         /// <para>Waits for the archive so the common case lands in one
-        /// place. Called from the drop's seal worker, which may wait — it is
+        /// place. Called from the drop's archive worker, which may wait — it is
         /// the thread whose job that is — and never from a transport
         /// thread.</para>
         ///
@@ -914,13 +914,13 @@ namespace JJTrace
             if (session == null || string.IsNullOrEmpty(text)) return null;
 
             TraceArchiveTicket ticket;
-            RetainedSeal retained = null;
+            RetainedArchive retained = null;
             lock (_gate)
             {
                 _ticketsBySession.TryGetValue(session.SessionId, out ticket);
                 if (ticket == null)
                 {
-                    foreach (RetainedSeal r in _retainedAtPath.Values)
+                    foreach (RetainedArchive r in _retainedAtPath.Values)
                     {
                         if (r.Session.SessionId == session.SessionId) { retained = r; break; }
                     }
@@ -979,7 +979,7 @@ namespace JJTrace
         /// INTO this queue, so a thread writing at full speed keeps it
         /// non-empty and the transition never ends. Found by the first full
         /// run at H7 — the rotation test's producer, with a four-kilobyte
-        /// threshold, made a seal rotate once per drained line and never
+        /// threshold, made an archive rotate once per drained line and never
         /// return. Lines queued during a drain wait for the next one: the end
         /// of the transition, or the pool drainer after it.</para>
         /// </summary>
@@ -1001,7 +1001,7 @@ namespace JJTrace
                 Tracing.NoteDeferredRefused();
                 _sink.WriteLine(Tracing.TracePrefix()
                     + "TraceDeferred: REFUSED — the following line was formatted while session "
-                    + line.BoundSession + " was recording, and that session has since been sealed"
+                    + line.BoundSession + " was recording, and that session has since been archived"
                     + " (session " + current + " is current). It describes that session, not this one;"
                     + " kept here so the moment is not lost: " + line.Text);
             }
@@ -1041,7 +1041,7 @@ namespace JJTrace
                                       continuing: null);
                     // No managed session: drop the pointer the open just set, so
                     // nothing mistakes a console tool's file for a lifecycle
-                    // session it could seal.
+                    // session it could archive.
                     _session = null;
                     _handle = null;
                 }
@@ -1113,7 +1113,7 @@ namespace JJTrace
         ///
         /// <para><b>A session whose sink has died is settled here first.</b>
         /// It is not recording, so it cannot be the reason to refuse; it is
-        /// retired through the ordinary seal, its ticket queued, and the open
+        /// retired through the ordinary archive, its ticket queued, and the open
         /// proceeds. This is what makes the operator's off-and-on, and
         /// <c>RestartDiagnosticLog</c>, really open a fresh file after a
         /// write fault (Sol's review of H7, finding 1) — whether or not the
@@ -1184,10 +1184,10 @@ namespace JJTrace
             }
             if (reclaimed != null)
             {
-                // Same order as every seal: the health model first, then the
-                // queue. This ticket is what the failed seal would have
+                // Same order as every archive: the health model first, then the
+                // queue. This ticket is what the failed archive would have
                 // produced; it is a whole session's evidence and its tail is
-                // whatever the seal recorded.
+                // whatever the archive recorded.
                 TraceRecordingHealth.NoteDetached(reclaimed);
                 TraceArchiveWorker.Queue(reclaimed);
             }
@@ -1212,7 +1212,7 @@ namespace JJTrace
                 if (result.TracingOn)
                 {
                     // The session recording NOW. A result with no successor of
-                    // its own (a repeated seal answered AlreadyClaimed, say)
+                    // its own (a repeated archive answered AlreadyClaimed, say)
                     // still describes a live sink, and that sink has a session.
                     Guid live = result.Successor?.SessionId ?? CurrentHandle?.SessionId ?? Guid.Empty;
                     TraceRecordingHealth.NoteSink(TraceSinkState.Recording, null, LivePath, live,
@@ -1229,7 +1229,7 @@ namespace JJTrace
                 }
                 else if (result.Status == TraceTransition.Accepted)
                 {
-                    // Sealed with no successor, by intent.
+                    // Archived with no successor, by intent.
                     TraceRecordingHealth.NoteSink(TraceSinkState.Off, null, null, Guid.Empty,
                                                   result.SinkGeneration);
                 }
@@ -1355,7 +1355,7 @@ namespace JJTrace
             var result = new TraceTransitionResult();
 
             // NEVER OPEN OVER RETAINED EVIDENCE. A non-append open here is a
-            // FileMode.Create, and if a failed detach left a sealed session's
+            // FileMode.Create, and if a failed detach left an archived session's
             // only bytes at this path, that create would truncate them in the
             // course of starting a fresh log (Sol's review of H8, blocker 1).
             // Guarded at the one place a sink opens rather than at each
@@ -1363,7 +1363,7 @@ namespace JJTrace
             // retry, tries the move again BEFORE coming here (see
             // ReclaimRetainedLocked). An append is the checkpoint's own
             // continuation of a live session and is not a create.
-            if (!append && _retainedAtPath.TryGetValue(livePath, out RetainedSeal retained))
+            if (!append && _retainedAtPath.TryGetValue(livePath, out RetainedArchive retained))
             {
                 string reason = "the file still holds the raw trace of session " + retained.Session.SessionId
                                 + ", which could not be moved aside (" + retained.MoveFailure
@@ -1500,12 +1500,12 @@ namespace JJTrace
         // ── The terminal transition ────────────────────────────────────────
 
         /// <summary>
-        /// Seal the session this caller was asked about: write its last
+        /// Archive the session this caller was asked about: write its last
         /// records, freeze it, detach its bytes, and publish either a successor
         /// or the real off state. Returns a ticket; the zip happens later, off
         /// this thread and outside this lock.
         /// </summary>
-        public static TraceTransitionResult TrySeal(TraceSealRequest request)
+        public static TraceTransitionResult TryArchive(TraceArchiveRequest request)
         {
             if (request == null) throw new ArgumentNullException(nameof(request));
             var faults = new List<string>();
@@ -1517,7 +1517,7 @@ namespace JJTrace
                 BeginTransitionLocked();
                 try
                 {
-                    result = SealLocked(request, faults, out queued);
+                    result = ArchiveLocked(request, faults, out queued);
                     result.SinkGeneration = _sinkGeneration;
                 }
                 finally { EndTransitionLocked(); }
@@ -1540,7 +1540,7 @@ namespace JJTrace
             return result;
         }
 
-        private static TraceTransitionResult SealLocked(TraceSealRequest request,
+        private static TraceTransitionResult ArchiveLocked(TraceArchiveRequest request,
                                                         List<string> faults,
                                                         out TraceArchiveTicket queued)
         {
@@ -1561,33 +1561,33 @@ namespace JJTrace
                     ExpectedSessionId = expectedId,
                     ObservedSessionId = observedId,
                     TracingOn = _sink != null && !_sink.IsClosed,
-                    Explanation = "TraceCoordinator: this operation already sealed session "
+                    Explanation = "TraceCoordinator: this operation already archived session "
                                   + owned.SessionId + " — the same ticket is returned and nothing repeated",
                 };
                 return already;
             }
 
             // A session whose sink has CLOSED ITSELF over a fault is still a
-            // session, and it is still sealable: its terminal records fail
+            // session, and it is still archivable: its terminal records fail
             // and are reported as an uncertain tail, its close reports the
             // latched fault, its bytes are detached and its ticket queued,
             // the capture it carried ends with it, and the caller's intent
             // decides the successor. Until Track H8 a closed sink answered
             // NoSession here and cleared nothing, which left Stop unable to
             // end a capture whose file had died (Sol's review of H7, finding
-            // 1). Only a MISSING session or sink is nothing to seal.
+            // 1). Only a MISSING session or sink is nothing to archive.
             if (_session == null || _sink == null)
             {
                 return TraceTransitionResult.Refusal(TraceTransition.NoSession,
                     expectedId, observedId,
-                    "TraceCoordinator: nothing was recording, so there was nothing to seal", false);
+                    "TraceCoordinator: nothing was recording, so there was nothing to archive", false);
             }
 
             if (!request.ShutdownAuthority && request.Expected == null)
             {
                 return TraceTransitionResult.Refusal(TraceTransition.NotCurrent,
                     expectedId, observedId,
-                    "TraceCoordinator: a seal must name the session it is about; only shutdown may seal whatever remains",
+                    "TraceCoordinator: an archive must name the session it is about; only shutdown may archive whatever remains",
                     true);
             }
 
@@ -1619,25 +1619,25 @@ namespace JJTrace
                     + ", observed " + _captureId, true);
             }
 
-            TraceSession sealing = _session;
+            TraceSession archiving = _session;
             RotatingTraceListener sink = _sink;
             // Read BEFORE anything below writes: a sink that closed itself
             // over a live write refuses every terminal record, and the
             // operator must be told the tail stops at that earlier fault
             // rather than that a write failed at the close.
-            bool sinkFailedBeforeSeal = sink.IsClosed;
+            bool sinkFailedBeforeArchive = sink.IsClosed;
 
             // This operation owns the session. Everything queued up to this
             // moment — the fall's own bound lines above all — belongs in THIS
             // file, ahead of its terminal records. Drained here, under the
             // gate, so a line bound to this session cannot wait behind this
-            // seal and land in the successor (Sol's review of H6, finding 1).
-            Probe("seal:owned");
+            // archive and land in the successor (Sol's review of H6, finding 1).
+            Probe("archive:owned");
             DrainDeferredLocked();
 
             if (!string.IsNullOrEmpty(request.Outcome))
             {
-                sealing.MarkOutcome(request.Outcome, request.OutcomeDetail);
+                archiving.MarkOutcome(request.Outcome, request.OutcomeDetail);
             }
 
             // The caller's last observations, written into the file they belong
@@ -1654,12 +1654,12 @@ namespace JJTrace
                 }
             }
 
-            // The seal marker, written BEFORE the rotation position is frozen
+            // The archive marker, written BEFORE the rotation position is frozen
             // because it is itself a write. Rotation is suppressed for the
             // duration of a terminal write, so the number below cannot go stale
             // underneath us.
             if (!sink.WriteTerminalLine(Tracing.TracePrefix()
-                    + TraceStateMarker.RenderTerminal(AppIdentity, sealing.BootTimeUtc, sink.FilePath)))
+                    + TraceStateMarker.RenderTerminal(AppIdentity, archiving.BootTimeUtc, sink.FilePath)))
             {
                 tailUncertain = true;
             }
@@ -1668,9 +1668,9 @@ namespace JJTrace
             int finalPart = sink.PartNumber;
             string sourcePath = sink.FilePath;
 
-            sealing.End();
-            string fileTag = hadParts ? sealing.ResolvePartFileTag() : sealing.Outcome;
-            TraceSessionEntry entry = FreezeEntry(sealing, isFinalPart: hadParts);
+            archiving.End();
+            string fileTag = hadParts ? archiving.ResolvePartFileTag() : archiving.Outcome;
+            TraceSessionEntry entry = FreezeEntry(archiving, isFinalPart: hadParts);
 
             if (!sink.FlushAndClose(out string closeFailure))
             {
@@ -1692,11 +1692,11 @@ namespace JJTrace
             // first and renamed afterwards, so the next FileMode.Create at the
             // live path could truncate the very bytes being read.
             string target = hadParts
-                ? TraceFileNaming.StampedPartPath(_livePath, sealing.BootTimeUtc, finalPart)
-                : TraceFileNaming.StampedPath(_livePath, sealing.BootTimeUtc);
+                ? TraceFileNaming.StampedPartPath(_livePath, archiving.BootTimeUtc, finalPart)
+                : TraceFileNaming.StampedPath(_livePath, archiving.BootTimeUtc);
             string detached = TraceFileNaming.Detach(sourcePath, target, deleteOnFailure: false,
                                                      out string moveFailure);
-            Probe("seal:detached");
+            Probe("archive:detached");
 
             // Whatever happened to the file, this session is over as far as
             // every writer is concerned.
@@ -1705,7 +1705,7 @@ namespace JJTrace
             _handle = null;
             _stamp = null;
 
-            bool endedCapture = _captureSessionId == sealing.SessionId && _captureStartedLocal.HasValue;
+            bool endedCapture = _captureSessionId == archiving.SessionId && _captureStartedLocal.HasValue;
             Guid endedCaptureId = endedCapture ? _captureId : Guid.Empty;
             DateTime? endedCaptureStarted = endedCapture ? _captureStartedLocal : null;
             if (endedCapture)
@@ -1726,11 +1726,11 @@ namespace JJTrace
                 // the reclaim retrying a move from nowhere for the rest of the
                 // process (Sol's review of H14). So nothing is retained,
                 // nothing is claimed kept, and the next Begin opens normally.
-                // The seal still failed at the detach: this session has no
+                // The archive still failed at the detach: this session has no
                 // final part to archive, and that is what it reports.
                 faults.Add("TraceCoordinator: could not detach " + sourcePath + " (" + moveFailure
                            + "); no trace file is there to keep, so nothing was retained and nothing"
-                           + " was archived for this seal, and the next Begin opens the path normally");
+                           + " was archived by this operation, and the next Begin opens the path normally");
                 return new TraceTransitionResult
                 {
                     Status = TraceTransition.Failed,
@@ -1741,12 +1741,12 @@ namespace JJTrace
                     TracingOn = false,
                     TailUncertain = tailUncertain,
                     SinkFault = sinkFault,
-                    SinkFailedBeforeSeal = sinkFailedBeforeSeal,
+                    SinkFailedBeforeArchive = sinkFailedBeforeArchive,
                     FileFacts = fileFacts,
                     EndedDetailedCapture = endedCapture,
                     EndedCaptureId = endedCaptureId,
                     EndedCaptureStartedLocal = endedCaptureStarted,
-                    Explanation = "TraceCoordinator: seal of " + sealing.SessionId
+                    Explanation = "TraceCoordinator: archive of " + archiving.SessionId
                                   + " failed at detach; no trace file was at " + sourcePath
                                   + ", so nothing was retained",
                 };
@@ -1760,9 +1760,9 @@ namespace JJTrace
                 // so the one place a sink opens refuses that path and the
                 // operator's retry can try the move again (Sol's review of H8,
                 // blocker 1: without this, the next Begin truncated it).
-                _retainedAtPath[sourcePath] = new RetainedSeal
+                _retainedAtPath[sourcePath] = new RetainedArchive
                 {
-                    Session = sealing,
+                    Session = archiving,
                     SourcePath = sourcePath,
                     HadParts = hadParts,
                     FinalPart = finalPart,
@@ -1785,26 +1785,26 @@ namespace JJTrace
                     TracingOn = false,
                     TailUncertain = tailUncertain,
                     SinkFault = sinkFault,
-                    SinkFailedBeforeSeal = sinkFailedBeforeSeal,
+                    SinkFailedBeforeArchive = sinkFailedBeforeArchive,
                     FileFacts = fileFacts,
                     EndedDetailedCapture = endedCapture,
                     EndedCaptureId = endedCaptureId,
                     EndedCaptureStartedLocal = endedCaptureStarted,
-                    Explanation = "TraceCoordinator: seal of " + sealing.SessionId
+                    Explanation = "TraceCoordinator: archive of " + archiving.SessionId
                                   + " failed at detach; evidence retained at " + sourcePath,
                 };
             }
 
             var ticket = new TraceArchiveTicket
             {
-                SessionId = sealing.SessionId,
+                SessionId = archiving.SessionId,
                 PartNumber = hadParts ? finalPart : 0,
                 IsFinalPart = hadParts,
                 SourcePath = detached,
                 ArchiveRootDir = ArchiveRootDir,
                 Entry = entry,
                 OutcomeFileTag = fileTag,
-                StampLocal = sealing.BootTimeUtc.ToLocalTime(),
+                StampLocal = archiving.BootTimeUtc.ToLocalTime(),
                 TailUncertain = tailUncertain,
                 SinkFault = sinkFault,
             };
@@ -1825,14 +1825,14 @@ namespace JJTrace
                 PendingRecordFailed = !recordWritten,
                 TailUncertain = tailUncertain,
                 SinkFault = sinkFault,
-                SinkFailedBeforeSeal = sinkFailedBeforeSeal,
+                SinkFailedBeforeArchive = sinkFailedBeforeArchive,
                 FileFacts = fileFacts,
                 ExpectedSessionId = expectedId,
                 ObservedSessionId = observedId,
                 EndedDetailedCapture = endedCapture,
                 EndedCaptureId = endedCaptureId,
                 EndedCaptureStartedLocal = endedCaptureStarted,
-                Explanation = "TraceCoordinator: sealed session " + sealing.SessionId
+                Explanation = "TraceCoordinator: archived session " + archiving.SessionId
                               + " to " + detached + " (" + fileFacts + ")",
             };
 
@@ -1844,7 +1844,7 @@ namespace JJTrace
 
             if (_shuttingDown && wantSuccessor)
             {
-                // A drop that wins during teardown may seal its own session. It
+                // A drop that wins during teardown may archive its own session. It
                 // may not open a successor: exit intentionally closes all
                 // recording, and a log started here would be a leftover file
                 // the next boot reads as a killed session.
@@ -1865,7 +1865,7 @@ namespace JJTrace
                     // flushed inside OpenSessionLocked, or it would not be
                     // Accepted.
                     result.TracingOn = true;
-                    Probe("seal:successor-opened");
+                    Probe("archive:successor-opened");
                     // Still inside the gate, and before the successor is
                     // published: nobody can see this session until it is
                     // already the capture.
@@ -1923,7 +1923,7 @@ namespace JJTrace
                 try
                 {
                 // A session whose sink died is retired first, so the bundler
-                // is handed that session's own sealed ticket below rather than
+                // is handed that session's own archived ticket below rather than
                 // "nothing is recording" over a file full of evidence.
                 RetireFaultedLocked(faults, out retired);
                 Guid expectedId = expected?.SessionId ?? Guid.Empty;
@@ -1934,31 +1934,31 @@ namespace JJTrace
                 {
                     result = CheckpointLocked(faults, out queued);
                 }
-                // THE SEALED SESSION'S OWN TICKET IS ASKED FOR BEFORE "NOTHING IS
+                // THE ARCHIVED SESSION'S OWN TICKET IS ASKED FOR BEFORE "NOTHING IS
                 // RECORDING" (Sol's review of H3, finding 5). A Stop, or logging
-                // switched off, can seal the expected session with no successor
+                // switched off, can archive the expected session with no successor
                 // between the bundler reading its handle and arriving here. That
-                // session's evidence exists — sealed, detached, retained — and
+                // session's evidence exists — archived, detached, retained — and
                 // the old order answered NoSession because nothing was recording
                 // NOW, so the bundle dropped a trace it had every right to carry.
                 else if (expectedId != Guid.Empty
-                         && _ticketsBySession.TryGetValue(expectedId, out TraceArchiveTicket sealedTicket))
+                         && _ticketsBySession.TryGetValue(expectedId, out TraceArchiveTicket archivedTicket))
                 {
                     // Pinned while the bundle is built, exactly as a fresh
                     // checkpoint is: the bundler's Finally releases whichever it
                     // was handed, so an unpinned hand-over would also have
                     // released somebody else's pin on the same file.
-                    TraceEvidencePins.Pin(sealedTicket.SourcePath);
+                    TraceEvidencePins.Pin(archivedTicket.SourcePath);
                     result = new TraceTransitionResult
                     {
                         Status = TraceTransition.AlreadyClaimed,
-                        Ticket = sealedTicket,
+                        Ticket = archivedTicket,
                         ExpectedSessionId = expectedId,
                         ObservedSessionId = observedId,
                         TracingOn = recording,
                         Successor = _handle,
                         Explanation = "TraceCoordinator: session " + expectedId
-                                      + " was already sealed; the bundle uses that session's own evidence",
+                                      + " was already archived; the bundle uses that session's own evidence",
                     };
                 }
                 else if (!recording)
@@ -1983,7 +1983,7 @@ namespace JJTrace
             }
 
             result.DeferredFaults = faults;
-            // Same order as a seal: the health model before the queue, and
+            // Same order as an archive: the health model before the queue, and
             // before anything the bundler waits on.
             if (retired != null)
             {
@@ -2081,7 +2081,7 @@ namespace JJTrace
                 TailUncertain = tailUncertain,
                 SinkFault = sinkFault,
             };
-            // Same contract, same continuation rule, as the seal: see
+            // Same contract, same continuation rule, as the archive: see
             // NotePendingRecord.
             bool recordWritten = NotePendingRecord(ticket, faults);
             TraceEvidencePins.Pin(detached);
@@ -2125,7 +2125,7 @@ namespace JJTrace
         public static TraceTransitionResult FinalizeShutdown(string outcome, string detail)
         {
             LatchShutdown();
-            return TrySeal(new TraceSealRequest
+            return TryArchive(new TraceArchiveRequest
             {
                 ShutdownAuthority = true,
                 Outcome = outcome,
@@ -2198,7 +2198,7 @@ namespace JJTrace
 
         /// <summary>
         /// A deep enough copy of the session's metadata that later observations
-        /// cannot rewrite a sealed ticket. <see cref="TraceSession.ToManifestEntry"/>
+        /// cannot rewrite an archived ticket. <see cref="TraceSession.ToManifestEntry"/>
         /// already copies the key events; the connection target is a mutable
         /// object shared with the live session, so it is cloned here.
         /// </summary>

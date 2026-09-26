@@ -55,7 +55,7 @@ namespace Radios
         /// <summary>
         /// Nothing is being written to the diagnostic log, and the operator did
         /// not turn it off: the live file failed a write, or a successor could
-        /// not be opened after a seal. Distinct from
+        /// not be opened after an archive. Distinct from
         /// <see cref="RecordingRecoveryAtRisk"/> because the consequence is
         /// different — evidence from now on, not the filing of evidence already
         /// taken — and both deserve to be heard once.

@@ -274,8 +274,8 @@ namespace Radios.Tests
         [Fact]
         public void The_drop_notice_adds_its_tail_caveat_only_when_the_tail_is_uncertain()
         {
-            var plain = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(), tailUncertain: false);
-            var shortTail = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(), tailUncertain: true);
+            var plain = new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(), tailUncertain: false);
+            var shortTail = new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(), tailUncertain: true);
             Assert.Equal(string.Empty, plain.TailCaveat);
             Assert.DoesNotContain("last lines", plain.Explanation, StringComparison.Ordinal);
             Assert.DoesNotContain("stop short", plain.Explanation, StringComparison.Ordinal);
@@ -300,7 +300,7 @@ namespace Radios.Tests
         /// the last readings are promised only with a certain tail; recording
         /// having restarted is promised only when a successor opened; "a
         /// write failed as the recording was being closed" appears only when
-        /// the sink was alive until the seal; the earlier-fault sentence only
+        /// the sink was alive until the archive; the earlier-fault sentence only
         /// when it was not. Every paragraph ends in a full stop and leaks no
         /// key. The ordinary window (tail certain, successor opened) is the
         /// H7 prose, unchanged. Each assembled notice is written to the test
@@ -309,13 +309,13 @@ namespace Radios.Tests
         [Fact]
         public void The_assembled_drop_notice_makes_only_the_claims_its_facts_support()
         {
-            var ordinary = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid());
+            var ordinary = new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid());
             foreach (bool tail in new[] { false, true })
             foreach (bool successor in new[] { false, true })
             foreach (bool diedBefore in new[] { false, true })
             foreach (bool recordingNow in new[] { false, true })
             {
-                var n = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", successor, Guid.NewGuid(),
+                var n = new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", successor, Guid.NewGuid(),
                                               tailUncertain: tail, sinkFailedBeforeDrop: diedBefore,
                                               recordingNow: recordingNow);
                 string text = n.Explanation;
@@ -334,7 +334,7 @@ namespace Radios.Tests
                 Assert.Equal(!tail, text.Contains("It holds everything up to the moment", StringComparison.Ordinal));
                 Assert.Equal(tail, text.Contains("send it anyway", StringComparison.Ordinal));
                 // What happens next "is being kept" is promised only by the
-                // state NOW (Sol's review of H9, blocker 1); the seal's
+                // state NOW (Sol's review of H9, blocker 1); the archive's
                 // successor bit only tells the two not-recording paragraphs
                 // apart.
                 Assert.Equal(recordingNow, text.Contains("has already started recording again", StringComparison.Ordinal));
@@ -375,11 +375,11 @@ namespace Radios.Tests
             // constructors: the six-argument one reads "recording now" as the
             // successor bit (the H9 meaning), and the seven-argument one is
             // what production builds.
-            var same = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
+            var same = new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
                                              tailUncertain: false, sinkFailedBeforeDrop: false);
             Assert.Equal(ordinary.Explanation, same.Explanation);
             Assert.Equal(ordinary.AsText(), same.AsText());
-            var built = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
+            var built = new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
                                               tailUncertain: false, sinkFailedBeforeDrop: false, recordingNow: true);
             Assert.Equal(ordinary.Explanation, built.Explanation);
         }
@@ -390,14 +390,14 @@ namespace Radios.Tests
         /// answers at the moment the text is composed — not by what it
         /// answered when the notice was built. One notice, the world changes
         /// under it, and its text follows: that is the headless proof of the
-        /// queue boundary between the seal worker and the dispatched window.
+        /// queue boundary between the archive worker and the dispatched window.
         /// </summary>
         [Fact]
         public void The_recording_state_is_asked_when_the_text_is_composed_not_when_the_notice_was_built()
         {
             bool recording = true;
             int asked = 0;
-            var n = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", successorOpened: true,
+            var n = new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", successorOpened: true,
                                           archivedSessionId: Guid.NewGuid(), tailUncertain: false,
                                           sinkFailedBeforeDrop: false,
                                           recordingNow: () => { asked++; return recording; },
@@ -422,7 +422,7 @@ namespace Radios.Tests
             _out.WriteLine(after);
             Assert.NotEqual(before, after);
             Assert.False(n.RecordingNow);
-            Assert.True(n.SuccessorOpened, "the seal's own fact does not move");
+            Assert.True(n.SuccessorOpened, "the archive's own fact does not move");
             Assert.Equal(Lexicon.Get("logging.capture.dropped.what_to_do_stopped_since"), n.WhatToDo);
             Assert.DoesNotContain("is being kept too", after, StringComparison.Ordinal);
             Assert.Contains("did start recording again after the connection went, but it is not recording now", after, StringComparison.Ordinal);
@@ -437,20 +437,20 @@ namespace Radios.Tests
 
             // A reader that throws, and no reader at all, both choose the
             // paragraph that promises nothing.
-            var throwing = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
+            var throwing = new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
                                                  tailUncertain: false, sinkFailedBeforeDrop: false,
                                                  recordingNow: () => throw new InvalidOperationException("no"),
                                                  fileFacts: Facts(true, true));
             Assert.False(throwing.RecordingNow);
             Assert.DoesNotContain("is being kept too", throwing.Explanation, StringComparison.Ordinal);
-            var none = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
+            var none = new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
                                              tailUncertain: false, sinkFailedBeforeDrop: false,
                                              recordingNow: (Func<bool>)null, fileFacts: Facts(true, true));
             Assert.False(none.RecordingNow);
 
             // The Boolean overloads still mean a frozen fact, so every earlier
             // test keeps its meaning.
-            var frozen = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
+            var frozen = new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
                                                tailUncertain: false, sinkFailedBeforeDrop: false, recordingNow: true,
                                                fileFacts: Facts(true, true));
             Assert.Equal(before, frozen.Explanation);
@@ -474,7 +474,7 @@ namespace Radios.Tests
             foreach (bool power in new[] { false, true })
             foreach (bool temperature in new[] { false, true })
             {
-                var n = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
+                var n = new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
                                               tailUncertain: false, sinkFailedBeforeDrop: false, recordingNow: true,
                                               fileFacts: Facts(power, temperature));
                 string text = n.Explanation;
@@ -502,7 +502,7 @@ namespace Radios.Tests
 
             // Positive control: with both kinds counted, the window is the
             // H7 prose exactly — the ordinary case did not move.
-            var full = new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
+            var full = new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
                                              tailUncertain: false, sinkFailedBeforeDrop: false, recordingNow: true,
                                              fileFacts: Facts(true, true));
             Assert.Equal(Lexicon.Get("logging.capture.dropped.saved"), full.WhatWasSaved);
@@ -524,7 +524,7 @@ namespace Radios.Tests
         [Fact]
         public void The_tail_caveat_claims_only_what_the_fault_facts_establish()
         {
-            void Read(string label, CaptureSealNotice n, string mustContain, params string[] mustNot)
+            void Read(string label, CaptureArchiveNotice n, string mustContain, params string[] mustNot)
             {
                 string text = n.Explanation;
                 _out.WriteLine("--- " + label);
@@ -538,11 +538,11 @@ namespace Radios.Tests
                 Assert.Equal(4, text.Split(new[] { Environment.NewLine + Environment.NewLine }, StringSplitOptions.None).Length);
                 Assert.DoesNotContain("logging.capture", text, StringComparison.Ordinal);
             }
-            CaptureSealNotice AtTheClose(TraceFileFacts f) =>
-                new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
+            CaptureArchiveNotice AtTheClose(TraceFileFacts f) =>
+                new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
                                       tailUncertain: true, sinkFailedBeforeDrop: false, recordingNow: true, fileFacts: f);
-            CaptureSealNotice Earlier(TraceFileFacts f) =>
-                new CaptureSealNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
+            CaptureArchiveNotice Earlier(TraceFileFacts f) =>
+                new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
                                       tailUncertain: true, sinkFailedBeforeDrop: true, recordingNow: true, fileFacts: f);
 
             const string Everything = "Everything before that point is in the file above";
@@ -635,7 +635,7 @@ namespace Radios.Tests
             RecordingHealthWatch.Install();
             try
             {
-                // Route one: the record failed at the seal, the worker's retry writes it.
+                // Route one: the record failed at the archive, the worker's retry writes it.
                 TraceArchiveTicket indexed = TicketAt(@"C:\t\a.txt", recordWritten: false);
                 Invoke("NoteDetached", indexed);
                 Invoke("NoteRecoveryRecordPersisted", indexed);

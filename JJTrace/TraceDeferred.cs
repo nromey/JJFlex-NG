@@ -64,8 +64,8 @@ namespace JJTrace
         //  1. TraceLineDeferred: a line that NEVER touches the gate, bound to
         //     the session that was recording when it was formatted. The fall's
         //     own lines use it. They are written into that session — by the
-        //     seal that ends it, inside the gate, before its terminal records —
-        //     or, if that session has already been sealed by the time they
+        //     archive that ends it, inside the gate, before its terminal records —
+        //     or, if that session has already been archived by the time they
         //     drain, they are REFUSED: written into the current sink as an
         //     explicit refusal record naming both sessions, never as a bare
         //     line that would read as a statement about the current session.
@@ -111,7 +111,7 @@ namespace JJTrace
 
         /// <summary>
         /// How many bound lines were refused because their session had been
-        /// sealed by the time they drained. A test's positive control that the
+        /// archived by the time they drained. A test's positive control that the
         /// refusal path exists; a diagnostic otherwise.
         /// </summary>
         public static long DeferredLinesRefused => Interlocked.Read(ref _deferredRefused);
@@ -131,7 +131,7 @@ namespace JJTrace
         ///
         /// <para>The binding is the published handle
         /// (<see cref="TraceCoordinator.CurrentHandle"/>), read without the
-        /// gate. If that session has been sealed by the time the line drains,
+        /// gate. If that session has been archived by the time the line drains,
         /// the line is written into the current sink as a refusal record naming
         /// both sessions — see <see cref="TraceCoordinator"/>'s drain — so the
         /// evidence is kept and nothing reads as a statement about a session it
@@ -150,13 +150,13 @@ namespace JJTrace
         /// event writes can be bound to the one session that event is about.
         ///
         /// <para>The two-argument form reads the published handle per call.
-        /// A real fall emits several lines from several methods, and the seal
+        /// A real fall emits several lines from several methods, and the archive
         /// request reads the handle once more, so a Stop completing between
         /// any two of those reads bound the fall's first line to one session
-        /// and its later lines and its seal to the next: one fall, two
+        /// and its later lines and its archive to the next: one fall, two
         /// identities (Sol's review of H7, the item for a harder reader).
         /// The fall now reads the handle ONCE, at its top, and passes it here
-        /// and to the seal. Null binds nothing — the line lands wherever is
+        /// and to the archive. Null binds nothing — the line lands wherever is
         /// current at the drain — which is what the per-call read did when
         /// nothing was recording, and is the right answer for a fall that
         /// began with nothing recording.</para>
@@ -213,7 +213,7 @@ namespace JJTrace
         /// Take the next queued line. Called ONLY with the coordinator's gate
         /// held: the queue is consumed under the gate and nowhere else, so two
         /// consumers cannot interleave their writes, and a line dequeued for
-        /// one session cannot wait behind a seal and then land in the next.
+        /// one session cannot wait behind an archive and then land in the next.
         /// </summary>
         internal static bool TryDequeueDeferred(out DeferredTraceLine line)
         {
@@ -230,13 +230,13 @@ namespace JJTrace
         /// <summary>
         /// Write every deferred line still queued, on THIS thread, and return
         /// once they are written. Called at the start of work that must see the
-        /// deferred lines in the file first — the drop's seal worker, so the
-        /// lines describing the fall land in the session being sealed rather
+        /// deferred lines in the file first — the drop's archive worker, so the
+        /// lines describing the fall land in the session being archived rather
         /// than in its successor. May wait on the trace gate; never call it from
         /// a thread that must not.
         ///
         /// <para>Since H7 this is not what keeps a fall's lines in their own
-        /// session — the binding does, and the seal drains them itself under
+        /// session — the binding does, and the archive drains them itself under
         /// the gate. It is still worth calling first so they read in order
         /// ahead of the worker's own lines.</para>
         /// </summary>

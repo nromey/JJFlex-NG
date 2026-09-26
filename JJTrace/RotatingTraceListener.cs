@@ -80,7 +80,7 @@ namespace JJTrace
 
         /// <summary>
         /// Suppress size rotation. Set while a terminal record is written so
-        /// the last line of a sealed file cannot land in a part nobody is
+        /// the last line of an archived file cannot land in a part nobody is
         /// expecting, and the final part number stays the one that was frozen.
         /// </summary>
         private bool _rotationSuppressed;
@@ -215,7 +215,7 @@ namespace JJTrace
         /// <summary>
         /// What this sink knows it has put in its file: which kinds of meter
         /// reading were written and flushed, and what a fault took. Kept
-        /// here because nothing else sees every line; read by the seal and
+        /// here because nothing else sees every line; read by the archive and
         /// frozen onto its result (Sol's review of H9, blocker 2).
         /// </summary>
         private readonly TraceFileTally _tally = new TraceFileTally();
@@ -257,7 +257,7 @@ namespace JJTrace
         /// <para><b>It says whether the line landed.</b> Written AND flushed to
         /// the stream, or false — with the failure latched in
         /// <see cref="WriteFault"/> and the sink closed. It used to return
-        /// nothing and close quietly, which let a seal report its terminal
+        /// nothing and close quietly, which let an archive report its terminal
         /// records as written when they were not.</para>
         /// </summary>
         /// <returns>True when the line was written and flushed; false when the
@@ -610,7 +610,7 @@ namespace JJTrace
                 // used to wait until the fresh file had opened and its header
                 // had been written, so a failure in either jumped past it: the
                 // part sat complete at its part path with no ticket and no
-                // pending record, the retirement's seal looked at the empty live
+                // pending record, the retirement's archive looked at the empty live
                 // path instead, and the plain-text sweep eventually deleted the
                 // only copy as an orphan. A recovery that DID succeed hid the
                 // same loss while recording carried on. The part number and the

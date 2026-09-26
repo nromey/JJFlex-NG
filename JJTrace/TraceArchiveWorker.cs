@@ -60,10 +60,10 @@ namespace JJTrace
 
     /// <summary>
     /// One serialized worker for every archive this process makes — rotation
-    /// parts and sealed sessions alike.
+    /// parts and archived sessions alike.
     ///
     /// <para><b>Why one, and why serial.</b> LZMA on a 256 MB text file is
-    /// minutes of CPU; a marathon session can close several parts and then seal
+    /// minutes of CPU; a marathon session can close several parts and then archive
     /// at exit. Running them concurrently would put several of those in flight
     /// at once during teardown. Running them on SEPARATE chains — which is what
     /// the code did until now, rotation on one and the final file inline on the
@@ -147,7 +147,7 @@ namespace JJTrace
         /// (implementation note 4): useful, bounded, and neither a
         /// prerequisite for the successor nor a substitute for the crash case.
         /// A success clears that ticket's recovery condition; a failure is
-        /// simply the state the seal already reported.
+        /// simply the state the archive already reported.
         /// </summary>
         private static void RetryPendingRecordOnce(TraceArchiveTicket ticket)
         {
@@ -185,10 +185,10 @@ namespace JJTrace
         /// Write the durable record, and SAY whether it was written.
         ///
         /// <para>It used to return nothing and swallow the failure into a fault
-        /// line, and the seal went on to publish its successor as if the record
+        /// line, and the archive went on to publish its successor as if the record
         /// existed (Sol's review of H3, finding 4). The caller now sees the
         /// result, stamps it on the ticket, and reports it as a fact of the
-        /// transition. It is still not thrown: a seal that throws because a
+        /// transition. It is still not thrown: an archive that throws because a
         /// sidecar would not write loses the whole session to protect its
         /// metadata.</para>
         /// </summary>
