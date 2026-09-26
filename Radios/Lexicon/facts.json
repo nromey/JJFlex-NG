@@ -1,0 +1,147 @@
+{
+  "_note": "The undelivered-details surface (#617, Sprint 45 Track M). EVERY sentence in this file is marked for Noel's review; NONE is approved copy. 'Undelivered details' and 'event history' are the working descriptions Astra's design used for the two views, and the design says outright that Noel chooses the labels and the wording. They are here so the surface can be built and read; they are not a proposal that this is what it should say. Placeholders are named, never positional: {count} is how many items, {station} the radio's own identity, {when} the observation time, {reason} a short plain-English cause.",
+
+  "_schema": 2,
+
+  "_classification": "Every entry here is an envelope with 'delivery': null - an affirmative statement that these are interface text and labels rather than things the application announces on its own account. They are the first classified entries in the shipped corpus, and they are deliberately the easy case: a window's own labels are exactly the kind of string that IS text and nothing more. Nothing here is a standalone message, so nothing here has a shelf life.",
+
+  "facts.window.title": { "text": "Undelivered details", "delivery": null },
+  "facts.window.pending_label": { "text": "Details that were not delivered", "delivery": null },
+  "facts.window.history_label": { "text": "Event history", "delivery": null },
+  "facts.window.detail_label": { "text": "Detail", "delivery": null },
+  "facts.window.nothing_pending": { "text": "Nothing is waiting. Everything the radio had to tell you was delivered.", "delivery": null },
+  "facts.window.nothing_historical": { "text": "No events have been recorded yet in this session.", "delivery": null },
+  "facts.window.close": { "text": "Close", "delivery": null },
+
+  "facts.action.read": { "text": "Read this one", "delivery": null },
+  "facts.action.reviewed": { "text": "Mark as read", "delivery": null },
+  "facts.action.resume": { "text": "Let this speak again", "delivery": null },
+
+  "facts.state.current": { "text": "still true now", "delivery": null },
+  "facts.state.historical": { "text": "no longer current", "delivery": null },
+  "facts.state.unknown": { "text": "not known now", "delivery": null },
+  "facts.state.resolved": { "text": "resolved", "delivery": null },
+  "facts.state.paused": { "text": "paused, because you asked for quiet", "delivery": null },
+  "facts.state.silent_no_metadata": { "text": "kept, but not announced, because the information about how to present it is missing", "delivery": null },
+
+  "facts.delivery.not_attempted": { "text": "not attempted", "delivery": null },
+  "facts.delivery.refused": { "text": "the screen reader refused it", "delivery": null },
+  "facts.delivery.unknown": { "text": "it stopped and nobody can say how much was said", "delivery": null },
+  "facts.delivery.partial": { "text": "part of it was read out", "delivery": null },
+  "facts.delivery.withdrawn": { "text": "withdrawn, because what it described had ended", "delivery": null },
+  "facts.delivery.completed": { "text": "read out in full", "delivery": null },
+
+  "facts.receipt.requested": { "text": "the tone was played", "delivery": null },
+  "facts.receipt.unavailable": { "text": "no tone could be played", "delivery": null },
+  "facts.receipt.suppressed": { "text": "the tone was turned off", "delivery": null },
+
+  "facts.row.summary": { "text": "{station}, {when}: {state}", "delivery": null },
+  "facts.row.no_station": { "text": "This radio", "delivery": null },
+  "facts.row.unknown_station": { "text": "Radio not identified", "delivery": null },
+
+  "facts.status.button": { "text": "Undelivered details", "delivery": null },
+  "facts.status.pending_summary": { "text": "{count} thing the radio told you was not delivered.", "delivery": null },
+  "facts.status.pending_summary_plural": { "text": "{count} things the radio told you were not delivered.", "delivery": null },
+  "facts.status.nothing_pending": { "text": "Nothing undelivered.", "delivery": null },
+
+  "facts.capacity.slot_refused": { "text": "There is no room to keep track of this condition: {count} are already being tracked, which is the limit. It will not be monitored, and anything it might have reported would not be kept.", "delivery": null },
+  "facts.capacity.overflow": { "text": "There was no room to keep the details of this one. It is counted in the record of what was lost, with the time it happened.", "delivery": null },
+  "facts.capacity.overflow_summary": { "text": "{count} things could not be kept at all, between {when} and now.", "delivery": null },
+
+  "facts.storage.recovery_gap": { "text": "{count} saved record files could not be read, so some earlier events are missing from this list. Nothing was deleted.", "delivery": null },
+  "facts.storage.unsaved": { "text": "Recent items have not been saved to disk yet, so they would be lost if the program stopped now.", "delivery": null },
+
+  "facts.channel.failed_title": { "text": "Speech is not reaching your screen reader", "delivery": null },
+  "facts.channel.failed_body": { "text": "The radio has things to tell you and they are being kept, but they cannot be spoken. Open Undelivered details to read them.", "delivery": null },
+
+  "facts.detail.no_selection": { "text": "Nothing selected.", "delivery": null },
+  "facts.detail.restored": { "text": "This was saved before the program last closed. Whether it is still true now is not known.", "delivery": null },
+  "facts.detail.truncated": { "text": "The rest of this detail was too long to keep.", "delivery": null },
+
+  "_note_m2": "Sprint 45 Track M2 added every entry below this note. EVERY ONE IS A FIRST DRAFT FOR NOEL'S REVIEW and none is approved copy. They exist because the code must be able to choose between distinct truths - a tone requested versus a tone played, quiet versus an unknown cancellation, a completed short sentence versus the full detail, an empty list versus everything delivered - and a choice needs somewhere to point. The existing entries above were deliberately NOT changed; where one of them was false in some cases, the code now uses it only in the case it is true and falls to a draft below otherwise. The list of every key, where the operator meets it and what it must be able to say truthfully is in the private planning folder, for-noel/priority/2026-09-24-fact-store-issue-wording.md.",
+
+  "facts.state.paused_unknown_cause": { "text": "paused, because the last attempt stopped and nobody can say why", "delivery": null },
+  "facts.state.paused_continuity": { "text": "paused, because it carries on from before the radio reconnected, when it had been paused", "delivery": null },
+  "facts.state.paused_cause_not_recorded": { "text": "paused; an older version saved it without saying why", "delivery": null },
+  "facts.state.not_a_message": { "text": "kept, but not announced, because its wording is marked as a label rather than a message", "delivery": null },
+  "facts.state.conflicting": { "text": "two saved copies of this disagree", "delivery": null },
+
+  "facts.delivery.legacy_unverified": { "text": "an older version saved this without saying whether it was read out", "delivery": null },
+  "facts.delivery.not_started_quiet": { "text": "not started, because you asked for quiet first", "delivery": null },
+  "facts.delivery.not_started_paused": { "text": "not started, because an earlier attempt stopped and nobody can say why", "delivery": null },
+  "facts.delivery.withdrawn_superseded": { "text": "not started, because newer information replaced what it would have said", "delivery": null },
+  "facts.delivery.withdrawn_context_ended": { "text": "not started, because the connection it came from ended or it could no longer be confirmed", "delivery": null },
+  "facts.delivery.started": { "text": "started; nothing has been reported back yet", "delivery": null },
+  "facts.delivery.requested_only": { "text": "sent to the screen reader, which cannot say whether it was read out", "delivery": null },
+  "facts.delivery.request_failed": { "text": "sending it to the screen reader failed", "delivery": null },
+  "facts.delivery.completed_short": { "text": "read out, but the shorter wording left some of the detail out", "delivery": null },
+  "facts.delivery.cancelled_known": { "text": "stopped by the program before it finished", "delivery": null },
+  "facts.delivery.unobservable": { "text": "sent, and there is no way to tell whether it was read out", "delivery": null },
+  "facts.delivery.disputed": { "text": "the reports about it contradict each other, so it is not counted as read out", "delivery": null },
+  "facts.delivery.interrupted": { "text": "the program closed while it was being sent; whether it finished is not known", "delivery": null },
+
+  "facts.receipt.request_issued": { "text": "the tone was asked for", "delivery": null },
+  "facts.receipt.withheld": { "text": "no tone was asked for, because by then you had asked for quiet or the connection had ended", "delivery": null },
+  "facts.receipt.outcome_unknown": { "text": "the tone was asked for, and whether it played is not known", "delivery": null },
+
+  "facts.window.loading": { "text": "Still reading saved history.", "delivery": null },
+  "facts.window.nothing_pending_unverified": { "text": "Nothing is waiting on this list.", "delivery": null },
+  "facts.window.nothing_pending_reviewed": { "text": "Some items left this list because you marked them as read, not because they were read out.", "delivery": null },
+  "facts.window.nothing_pending_forgettable": { "text": "Some brief messages were not heard. They are not kept, because they would no longer be useful.", "delivery": null },
+  "facts.window.excluded_by_filter": { "text": "{count} waiting items for other radios are not shown.", "delivery": null },
+
+  "facts.status.problems_present": { "text": "{count} problems with the saved record need a look.", "delivery": null },
+  "facts.status.nothing_waiting": { "text": "Nothing is waiting.", "delivery": null },
+
+  "facts.action.refresh": { "text": "Show the newer version", "delivery": null },
+
+  "facts.detail.changed": { "text": "This record has changed since it was shown.", "delivery": null },
+  "facts.detail.no_rendering": { "text": "The wording for this is not available. What was saved about it follows.", "delivery": null },
+  "facts.detail.material_line": { "text": "{name}: {value}", "delivery": null },
+  "facts.detail.more_not_shown": { "text": "{count} more details are not shown here, and marking this as read does not cover them.", "delivery": null },
+  "facts.detail.legacy": { "text": "An older version of the program saved this, and it did not record whether it was read out.", "delivery": null },
+  "facts.detail.conflict": { "text": "Another saved copy of this record says something different. Both are kept.", "delivery": null },
+  "facts.detail.restored_issue": { "text": "This problem was recorded before the program last closed.", "delivery": null },
+
+  "facts.row.issue_summary": { "text": "{problem}: {state}", "delivery": null },
+
+  "facts.issue.kind.recovery_gap": { "text": "Saved history could not be read back", "delivery": null },
+  "facts.issue.kind.identity_conflict": { "text": "Two saved records disagree about the same event", "delivery": null },
+  "facts.issue.kind.registration_pressure": { "text": "Something could not be monitored because there was no room to track it", "delivery": null },
+  "facts.issue.kind.retention_pressure": { "text": "Something could not be kept in full because the list was full", "delivery": null },
+  "facts.issue.kind.detail_loss": { "text": "Some older detail was compacted to make room", "delivery": null },
+  "facts.issue.kind.incomplete_inventory": { "text": "Some saved history was not read", "delivery": null },
+  "facts.issue.kind.persistence_failure": { "text": "Recent items could not be saved to disk", "delivery": null },
+  "facts.issue.kind.integrity_refusal": { "text": "Something reported information it was not allowed to report, and it was refused", "delivery": null },
+  "facts.issue.kind.migration_gap": { "text": "History saved by an older version is missing some details", "delivery": null },
+  "facts.issue.kind.issue_overflow": { "text": "More problems happened than this list can hold", "delivery": null },
+  "facts.issue.state.active": { "text": "still happening", "delivery": null },
+  "facts.issue.state.resolved": { "text": "no longer happening", "delivery": null },
+  "facts.issue.count.exact": { "text": "{count} affected.", "delivery": null },
+  "facts.issue.count.lower_bound": { "text": "At least {count} affected.", "delivery": null },
+  "facts.issue.count.unknown": { "text": "How much is affected is not known.", "delivery": null },
+  "facts.issue.source": { "text": "Where: {source}", "delivery": null },
+  "facts.issue.exemplars_more": { "text": "There were more examples than are shown.", "delivery": null },
+
+  "_note_m3": "Sprint 45 Track M3 added every entry below this note. EVERY ONE IS A FIRST DRAFT FOR NOEL'S REVIEW and none is approved copy. Sol's review found two of the earlier sentences could be false: 'Everything the radio had to tell you was delivered' claims more than the record can prove, and 'paused ... when it had been paused' was chosen for cases where nothing establishes it had been. Neither sentence was changed; the code now chooses these instead where they are the truthful ones. Astra's continuity and legacy design added the rest: a condition continued across a restart, a legacy record whose old format said delivered, and a limitation of the saved record that is neither happening nor over. The list of every key, where the operator meets it and what it must be able to say truthfully is in the private planning folder, for-noel/priority/2026-09-24-fact-store-issue-wording.md, section 7.",
+
+  "facts.window.nothing_pending_recorded": { "text": "Nothing is waiting. Every item on record was read out in full.", "delivery": null },
+
+  "facts.state.paused_continuity_unknown": { "text": "not announced, because after the radio reconnected it could not be established whether this is the condition you had paused", "delivery": null },
+  "facts.state.held_continuity_lost": { "text": "not announced, because the record of what was paused before the radio reconnected was lost, so this cannot be told apart from something new", "delivery": null },
+  "facts.state.held_continuity_restart": { "text": "not announced, because it carries on from before the program last closed and nothing since has allowed it to speak", "delivery": null },
+
+  "facts.delivery.legacy_claimed_delivered": { "text": "an older version saved this as read out, but did not record which of these details were", "delivery": null },
+  "facts.delivery.legacy_claimed_undelivered": { "text": "an older version saved this as not read out", "delivery": null },
+  "facts.detail.legacy_claimed": { "text": "An older version of the program saved this and said it was read out, but it did not record which of the details above were.", "delivery": null },
+
+  "facts.issue.state.limitation": { "text": "a limitation of the saved record", "delivery": null },
+
+  "_note_m4": "Sprint 45 Track M4 added every entry below this note. EVERY ONE IS A FIRST DRAFT FOR NOEL'S REVIEW and none is approved copy. Astra ruled that a first observation of a radio condition with nothing on record is not evidence that the condition began now, so such a record is held, not announced, and needs a line that says so without claiming a pause or a reconnect. Sol's review of M3 found three more chosen sentences that could be false: two of the M3 drafts above claim a pause where nothing establishes one ('paused_continuity_unknown' and 'held_continuity_lost'), and the recorded-delivered empty-list sentence was chosen for a condition that carried on unchanged after a reconnect and was read out only in its earlier episode. None of those sentences was changed; the code no longer chooses them there, and chooses these instead. The list of every key, where the operator meets it and what it must be able to say truthfully is in the private planning folder, for-noel/priority/2026-09-24-fact-store-issue-wording.md, section 8.",
+
+  "facts.state.held_onset_not_established": { "text": "not announced, because the program cannot tell whether this began while it was watching or was already the case when it first connected", "delivery": null },
+  "facts.state.held_continuity_unknown": { "text": "not announced, because it could not be established whether this continues something reported earlier", "delivery": null },
+  "facts.state.held_record_lost": { "text": "not announced, because the record of what this radio had reported earlier was lost, so this cannot be told apart from something new", "delivery": null },
+
+  "facts.window.nothing_pending_recorded_continued": { "text": "Nothing is waiting. Every item on record was read out in full, or carries on unchanged from one that was.", "delivery": null }
+}

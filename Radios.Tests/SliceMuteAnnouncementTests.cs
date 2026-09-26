@@ -118,29 +118,37 @@ namespace Radios.Tests
         [Fact]
         public void EveryNamedStringExistsInTheLexiconAndCarriesTheLetter()
         {
-            string audio = Read("Radios/Lexicon/audio.json");
-            string settings = Read("Radios/Lexicon/settings.json");
-            string both = audio + "\n" + settings;
+            // Parsed rather than read line by line. The old form required the
+            // key and its {letter} to sit on ONE textual line, which is true of
+            // a plain string and false of a verbosity ladder or a delivery
+            // envelope — so a reformatted entry would have failed here while
+            // still carrying the placeholder, and a ladder that dropped
+            // {letter} from one tier would have passed.
+            var entries = new Dictionary<string, LexiconEntry>(StringComparer.Ordinal);
+            foreach (var pair in LexiconBaseline.Parse(Read("Radios/Lexicon/audio.json")))
+                entries[pair.Key] = pair.Value;
+            foreach (var pair in LexiconBaseline.Parse(Read("Radios/Lexicon/settings.json")))
+                entries[pair.Key] = pair.Value;
 
             foreach (string quoted in NamedKeys)
             {
                 string key = quoted.Trim('"');
-                Assert.True(both.Contains("\"" + key + "\":", StringComparison.Ordinal),
+                Assert.True(entries.ContainsKey(key),
                     "The lexicon has no entry for " + key + ", so every announcement using it "
                     + "would speak the key itself.");
-            }
 
-            // The letter placeholder is the point of these entries. An entry
-            // reworded to drop it would satisfy the existence check above while
-            // putting the operator back where they started.
-            foreach (string line in both.Split('\n'))
-            {
-                foreach (string quoted in NamedKeys)
+                // The letter placeholder is the point of these entries. An
+                // entry reworded to drop it would satisfy the existence check
+                // above while putting the operator back where they started —
+                // and it has to carry the placeholder at EVERY tier it
+                // defines, because a terse tier without it names no slice just
+                // as thoroughly.
+                foreach (var (_, tier, text) in LexiconBaseline.TextProjection(
+                             new Dictionary<string, LexiconEntry>(StringComparer.Ordinal) { [key] = entries[key] }))
                 {
-                    string key = quoted.Trim('"');
-                    if (!line.Contains("\"" + key + "\":", StringComparison.Ordinal)) continue;
-                    Assert.True(line.Contains("{letter}", StringComparison.Ordinal),
-                        key + " no longer carries {letter}, so it names no slice: " + line.Trim());
+                    Assert.True(text.Contains("{letter}", StringComparison.Ordinal),
+                        key + " no longer carries {letter} at the " + tier + " tier, so it names "
+                        + "no slice: " + text);
                 }
             }
         }
