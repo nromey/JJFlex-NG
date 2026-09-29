@@ -76,11 +76,15 @@ namespace Radios.Tests
             var manifest = LexiconSchema.ParseManifest(ManifestText());
 
             var unclassifiedAndUnfrozen = new List<string>();
+            var manifestLines = new List<string>();
             foreach (var pair in shipped)
             {
                 if (pair.Value.Classification != DeliveryClassification.Unclassified) continue;
-                if (!manifest.ContainsKey(pair.Key)) unclassifiedAndUnfrozen.Add(pair.Key);
+                if (manifest.ContainsKey(pair.Key)) continue;
+                unclassifiedAndUnfrozen.Add(pair.Key);
+                manifestLines.Add(pair.Key + "\t" + LexiconSchema.Fingerprint(pair.Value));
             }
+            manifestLines.Sort(StringComparer.Ordinal);
 
             Assert.True(unclassifiedAndUnfrozen.Count == 0,
                 "These keys carry no delivery classification and are not in the migration " +
@@ -88,7 +92,12 @@ namespace Radios.Tests
                 + string.Join("\n  ", unclassifiedAndUnfrozen)
                 + "\n\nA new key must be classified when it is written. There is no default "
                 + "shelf life to fall back on, deliberately — guessing one for a message nobody "
-                + "classified is the mistake this field exists to prevent.");
+                + "classified is the mistake this field exists to prevent."
+                + "\n\nIf instead these are legacy strings that predate the store and are arriving "
+                + "from a branch the sweep has not reached (#629), the lines to add to "
+                + LexiconSchema.ManifestPath + ", in its alphabetical order, are exactly these — "
+                + "computed by LexiconSchema.Fingerprint, never by hand:\n"
+                + string.Join("\n", manifestLines));
         }
 
         [Fact]
@@ -140,19 +149,26 @@ namespace Radios.Tests
             var manifest = LexiconSchema.ParseManifest(ManifestText());
 
             var changed = new List<string>();
+            var manifestLines = new List<string>();
             foreach (var pair in manifest)
             {
                 if (!shipped.TryGetValue(pair.Key, out LexiconEntry? entry)) continue;
                 string now = LexiconSchema.Fingerprint(entry);
-                if (!string.Equals(now, pair.Value, StringComparison.Ordinal))
-                    changed.Add(pair.Key + " (frozen " + pair.Value + ", now " + now + ")");
+                if (string.Equals(now, pair.Value, StringComparison.Ordinal)) continue;
+                changed.Add(pair.Key + " (frozen " + pair.Value + ", now " + now + ")");
+                manifestLines.Add(pair.Key + "\t" + now);
             }
+            manifestLines.Sort(StringComparer.Ordinal);
 
             Assert.True(changed.Count == 0,
                 "These entries were edited while still listed as migration exceptions. An entry "
                 + "somebody is rewriting is an entry somebody is looking at, which is the moment "
                 + "to classify it — give it a delivery envelope and take its line out of "
-                + LexiconSchema.ManifestPath + ":\n  " + string.Join("\n  ", changed));
+                + LexiconSchema.ManifestPath + ":\n  " + string.Join("\n  ", changed)
+                + "\n\nIf the rewording is being accepted under the exemption for now (#629 records "
+                + "that tension, and that it wants a ruling), the replacement lines are exactly these — "
+                + "computed by LexiconSchema.Fingerprint, never by hand:\n"
+                + string.Join("\n", manifestLines));
         }
 
         [Fact]
