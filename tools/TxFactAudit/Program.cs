@@ -414,7 +414,9 @@ namespace JJFlex.TxFactAudit
             TraceMeters.Reading reading = TraceMeters.Read(chosen.Path);
             Console.WriteLine();
             TraceMeters.Describe(chosen, reading, Console.WriteLine);
-            return reading.AnyTransmission ? 0 : 0;
+            // Reading nothing is a finding, not a failure: the report says what
+            // it could and could not establish.
+            return 0;
         }
 
         /// <summary>

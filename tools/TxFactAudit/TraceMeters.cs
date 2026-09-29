@@ -7,11 +7,41 @@ using System.Text.RegularExpressions;
 
 namespace JJFlex.TxFactAudit
 {
+    /// <summary>
+    /// What the radio was doing when a <c>txMeters:</c> line was written, as
+    /// the line itself says in its <c>state=</c> field.
+    /// <para><b>Why the reader keeps it (#625, H19).</b> The writer puts the
+    /// state on the line precisely so a tune's carrier cannot be read as a
+    /// transmission's power, and H17 taught this reader to accept the field
+    /// and then threw it away: every line became "transmit", and a tune's
+    /// forward power was pooled with a voice transmission's. Found by Sol's
+    /// review of H18.</para>
+    /// </summary>
+    public enum TxMeterState
+    {
+        /// <summary>The line carries no <c>state=</c> field: it was written
+        /// before 2026-09-02, when the field did not exist. Never guessed to
+        /// be a transmission — the reader does not know, and says so.</summary>
+        Unknown,
+
+        /// <summary><c>state=tx</c>: transmitting, not tuning.</summary>
+        Transmit,
+
+        /// <summary><c>state=tune</c>: tuning, with the transmitter not keyed.</summary>
+        Tune,
+
+        /// <summary><c>state=tune+tx</c>: a tune during which the transmitter
+        /// was also keyed, such as an ATU sweep that raised Mox.</summary>
+        TuneWhileKeyed,
+    }
+
     /// <summary>One correlated transmit-meter snapshot, as the app traced it.
     /// A null value is one the line said had not arrived: since H17 (#625)
     /// the writer prints <c>no-sample</c> instead of a placeholder number, and
-    /// this reader keeps that as "no reading" rather than inventing one.</summary>
-    public sealed record TxMeterLine(long Tick, double? ScMicDb, double? ScMicPeakDb,
+    /// this reader keeps that as "no reading" rather than inventing one.
+    /// <see cref="State"/> is what the line said the radio was doing; see
+    /// <see cref="TxMeterState"/>.</summary>
+    public sealed record TxMeterLine(long Tick, TxMeterState State, double? ScMicDb, double? ScMicPeakDb,
                                      double? SwAlcDb, double? ForwardDbm)
     {
         public double? ForwardWatts =>
@@ -91,9 +121,15 @@ namespace JJFlex.TxFactAudit
         /// listing the parsers of the line before changing it (#625). Both
         /// additions are optional here, so traces from before and after parse,
         /// and each value may be <see cref="NoSample"/>.</para>
+        /// <para><b>The state is captured, and only the three the writer
+        /// writes are accepted</b> (H19). A <c>state=</c> this tool does not
+        /// know fails this pattern and is counted by
+        /// <see cref="LooksLikeTxMeterReading"/> as a line it could not read,
+        /// so a new state is reported rather than filed under one it is not.
+        /// <c>tune+tx</c> is tried before <c>tune</c>, which is a prefix of it.</para>
         /// </summary>
         private static readonly Regex TxMeters = new(
-            @"^(?<tick>\d+)\s+\[[^\]]*\]\s+txMeters:\s+(?:state=\S+\s+)?"
+            @"^(?<tick>\d+)\s+\[[^\]]*\]\s+txMeters:\s+(?:state=(?<state>tune\+tx|tune|tx)\s+)?"
             + @"SC_MIC=(?<sc>" + Number + @"|no-sample)\s+\(peak\s+(?<peak>" + Number + @"|no-sample)\)"
             + @"(?:\s+via\s+.*?)?\s+SWALC=(?<alc>" + Number + @"|no-sample)"
             + @"\s+fwd=(?:(?<fwd>" + Number + @")\s+dBm|no-sample)",
@@ -168,7 +204,14 @@ namespace JJFlex.TxFactAudit
             public Dictionary<string, long> ReadingCounts { get; } =
                 new(StringComparer.OrdinalIgnoreCase);
 
-            public bool AnyTransmission => TxLines.Count > 0;
+            /// <summary>True when any <c>txMeters:</c> line was read, in any
+            /// state. Deliberately NOT called "any transmission", which is what
+            /// it was called until H19: a tune-only trace made that true.</summary>
+            public bool AnyLines => TxLines.Count > 0;
+
+            /// <summary>The lines read in one state, in trace order.</summary>
+            public TxMeterLine[] LinesIn(TxMeterState state) =>
+                TxLines.Where(l => l.State == state).ToArray();
 
             /// <summary>Lines that looked like <c>txMeters:</c> readings and
             /// that this reader could not read. Non-zero means the format has
@@ -216,6 +259,7 @@ namespace JJFlex.TxFactAudit
                 {
                     result.TxLines.Add(new TxMeterLine(
                         long.Parse(m.Groups["tick"].Value, CultureInfo.InvariantCulture),
+                        StateOf(m.Groups["state"]),
                         Value(m.Groups["sc"]), Value(m.Groups["peak"]),
                         Value(m.Groups["alc"]), Value(m.Groups["fwd"])));
                     continue;
@@ -272,6 +316,17 @@ namespace JJFlex.TxFactAudit
         private static double? Value(Group g) =>
             !g.Success || g.Value == NoSample ? null : Num(g.Value);
 
+        /// <summary>A line's <c>state=</c> field. No field means a line from
+        /// before the field existed, which is <see cref="TxMeterState.Unknown"/>,
+        /// never a guess. The pattern admits only the three values below.</summary>
+        private static TxMeterState StateOf(Group g) => !g.Success ? TxMeterState.Unknown : g.Value switch
+        {
+            "tx" => TxMeterState.Transmit,
+            "tune" => TxMeterState.Tune,
+            "tune+tx" => TxMeterState.TuneWhileKeyed,
+            _ => throw new InvalidOperationException("The txMeters pattern admitted a state it has no name for: " + g.Value),
+        };
+
         /// <summary>
         /// The report. Prose and bullets, and it never prints a number for
         /// something that did not arrive.
@@ -295,7 +350,20 @@ namespace JJFlex.TxFactAudit
                 write("");
             }
 
-            if (!r.AnyTransmission)
+            if (!r.AnyLines && r.UnreadTxLines > 0)
+            {
+                // Every line that looked like a reading failed to parse (H19,
+                // Sol's H18 follow-up). The lines are there, so saying none
+                // were FOUND would be the silent format failure again, in the
+                // report's own words.
+                write("None of those lines could be read, so this report has no txMeters figures from this");
+                write("trace. The lines are there, so do not read this as a trace without them. Fix the tool");
+                write("and read the trace again.");
+                write("");
+                write("The receive-side facts are settings and telemetry the radio holds continuously.");
+                write("Read those with 'TxFactAudit audit', which asks the radio rather than the trace.");
+            }
+            else if (!r.AnyLines)
             {
                 // Only what the tool can establish (H18, Sol's blocker 2). An
                 // empty result used to be reported as a statement that the
@@ -313,63 +381,7 @@ namespace JJFlex.TxFactAudit
             }
             else
             {
-                TxMeterLine[] lines = r.TxLines.ToArray();
-                int seconds = lines.Length;
-                double spanMs = lines[^1].Tick - lines[0].Tick;
-
-                write($"{seconds} transmit meter snapshots spanning {spanMs / 1000.0:0.#} seconds.");
-                write("At most one line a second while transmitting and four while tuning, but each");
-                write("carries the peak the app tracked between lines, so the transients inside each");
-                write("second are already accounted for.");
-                write("");
-
-                write("SC_MIC — what the radio heard on transmit, from any source:");
-                Band(lines.Select(l => l.ScMicDb), "dBFS", seconds, write);
-                double[] peaks = lines.Where(l => l.ScMicPeakDb.HasValue).Select(l => l.ScMicPeakDb!.Value).ToArray();
-                if (peaks.Length > 0) write($"  highest peak the app held: {peaks.Max():0.#} dBFS.");
-                write("");
-
-                write("SW ALC — transmit drive after the radio's own levelling:");
-                Band(lines.Select(l => l.SwAlcDb), "dBFS", seconds, write);
-                write("");
-
-                write("Forward power, as traced in dBm and as the analyzer publishes it in watts:");
-                Band(lines.Select(l => l.ForwardDbm), "dBm", seconds, write);
-                double[] watts = lines.Where(l => l.ForwardWatts.HasValue).Select(l => l.ForwardWatts!.Value).ToArray();
-                if (watts.Length > 0)
-                {
-                    write($"  in watts: lowest {watts.Min():0.###}, highest {watts.Max():0.###}.");
-                }
-                write("");
-
-                // H17 traces say outright that a meter had not reported; older
-                // ones printed the -150 initialiser, counted below.
-                int scNoSample = lines.Count(l => l.ScMicNoSample);
-                int alcNoSample = lines.Count(l => l.SwAlcNoSample);
-                if (scNoSample > 0 || alcNoSample > 0)
-                {
-                    write("LINES WRITTEN BEFORE A METER HAD REPORTED, WHILE TRANSMITTING:");
-                    if (scNoSample > 0) write($"  SC_MIC had not reported on {scNoSample} of {seconds} lines.");
-                    if (alcNoSample > 0) write($"  SW ALC had not reported on {alcNoSample} of {seconds} lines.");
-                    write("  The trace says so itself: those lines carry 'no-sample' rather than a number,");
-                    write("  so they are not readings of silence and are left out of the figures above.");
-                    write("");
-                }
-
-                int scSentinel = lines.Count(l => l.ScMicAtSentinel);
-                int alcSentinel = lines.Count(l => l.SwAlcAtSentinel);
-                if (scSentinel > 0 || alcSentinel > 0)
-                {
-                    write("SAMPLES SITTING ON THE IDLE SENTINEL, WHILE TRANSMITTING:");
-                    if (scSentinel > 0) write($"  SC_MIC read -150 on {scSentinel} of {seconds} lines.");
-                    if (alcSentinel > 0) write($"  SW ALC read -150 on {alcSentinel} of {seconds} lines.");
-                    write("  This is the ambiguity the whole fact audit turns on. A meter that has never");
-                    write("  reported and a meter reporting its floor produce the identical number, and");
-                    write("  they are opposite diagnoses: one means nobody looked, the other means the");
-                    write("  radio genuinely heard nothing. The trace cannot tell them apart either — only");
-                    write("  the has-it-reported gate in TxChainFacts can, which is why it is there.");
-                    write("");
-                }
+                DescribeByState(r, write);
             }
 
             write("Per-meter lines, which exist only while meter-stream recording is on:");
@@ -402,6 +414,167 @@ namespace JJFlex.TxFactAudit
                     {
                         write($"  {meter}: no readings in this trace.");
                     }
+                }
+            }
+        }
+
+        /// <summary>How the report names one state: its section heading, what
+        /// one of its lines is called, what the lines mean, and the qualifier
+        /// its sub-headings carry. Every word a section says about transmit or
+        /// tune comes from here, so a section cannot describe a state it does
+        /// not cover (H19).</summary>
+        private sealed record StateWords(
+            TxMeterState State, string Heading, string Snapshot, string Tally,
+            string[] Meaning, string ScMicLabel, string Qualifier);
+
+        /// <summary>The sections, in the order the report gives them.</summary>
+        private static readonly StateWords[] StateSections =
+        {
+            new(TxMeterState.Transmit,
+                "WHILE TRANSMITTING (state=tx)", "transmit meter snapshot", "while transmitting",
+                new[]
+                {
+                    "  At most one line a second while transmitting. Each carries the highest SC_MIC reading so",
+                    "  far in its transmission, so the transients between lines are already in the peak.",
+                },
+                "SC_MIC — what the radio heard on transmit, from any source:",
+                "WHILE TRANSMITTING"),
+            new(TxMeterState.Tune,
+                "WHILE TUNING (state=tune)", "tune meter snapshot", "while tuning",
+                new[]
+                {
+                    "  These readings were taken during a tune, not during keyed transmit. Nobody talks during",
+                    "  a tune, so SC_MIC and SW ALC here say nothing about the microphone. At most four lines a",
+                    "  second while tuning, and each carries the highest SC_MIC reading so far in its tune.",
+                },
+                "SC_MIC — the transmit audio level during the tune, from any source:",
+                "WHILE TUNING"),
+            new(TxMeterState.TuneWhileKeyed,
+                "WHILE TUNING WITH TRANSMIT KEYED (state=tune+tx)", "meter snapshot", "while tuning with transmit keyed",
+                new[]
+                {
+                    "  A tune during which transmit was also keyed, such as an ATU sweep. These are kept apart",
+                    "  from plain tuning and plain transmit, because they are neither. At most four lines a",
+                    "  second, and each carries the highest SC_MIC reading so far in its tune.",
+                },
+                "SC_MIC — the transmit audio level during the tune, from any source:",
+                "WHILE TUNING WITH TRANSMIT KEYED"),
+            new(TxMeterState.Unknown,
+                "WITH NO STATE ON THE LINE", "meter snapshot", "with no state",
+                new[]
+                {
+                    "  Lines began saying whether they were written while tuning or while transmitting on",
+                    "  2026-09-02, and these do not, so this tool does not say which they were. Their figures",
+                    "  are kept apart from every line that does say.",
+                },
+                "SC_MIC — the transmit audio level the radio measured, from any source:",
+                "ON LINES WITH NO STATE"),
+        };
+
+        /// <summary>
+        /// The figures, one section per state, and NOTHING POOLED ACROSS
+        /// STATES (#625, H19, Sol's H18 blocker). A tune's carrier and a voice
+        /// transmission's power are different measurements; one "highest
+        /// forward power" over both lets the tune's reading stand as the
+        /// transmission's, which is the misreading the writer's <c>state=</c>
+        /// field exists to prevent.
+        /// </summary>
+        private static void DescribeByState(Reading r, Action<string> write)
+        {
+            var present = StateSections
+                .Select(w => (Words: w, Lines: r.LinesIn(w.State)))
+                .Where(s => s.Lines.Length > 0)
+                .ToArray();
+
+            string[] parts = present.Select(s => $"{s.Lines.Length} {s.Words.Tally}").ToArray();
+            string tally = parts.Length == 1 ? parts[0]
+                : string.Join(", ", parts[..^1]) + " and " + parts[^1];
+            write($"{r.TxLines.Count} txMeters lines read: {tally}.");
+            if (present.Length > 1)
+            {
+                write("Each kind is reported on its own below, and no figure combines two of them.");
+            }
+            write("");
+
+            bool noSampleExplained = false;
+            bool sentinelExplained = false;
+            foreach ((StateWords words, TxMeterLine[] lines) in present)
+            {
+                int count = lines.Length;
+                if (count == 1)
+                {
+                    write($"{words.Heading}: 1 {words.Snapshot}.");
+                }
+                else
+                {
+                    double spanMs = lines[^1].Tick - lines[0].Tick;
+                    write($"{words.Heading}: {count} {words.Snapshot}s, the first and last {spanMs / 1000.0:0.#} seconds apart.");
+                }
+                foreach (string line in words.Meaning) write(line);
+                write("");
+
+                write(words.ScMicLabel);
+                Band(lines.Select(l => l.ScMicDb), "dBFS", count, write);
+                double[] peaks = lines.Where(l => l.ScMicPeakDb.HasValue).Select(l => l.ScMicPeakDb!.Value).ToArray();
+                if (peaks.Length > 0) write($"  highest peak the app held: {peaks.Max():0.#} dBFS.");
+                write("");
+
+                write("SW ALC — transmit drive after the radio's own levelling:");
+                Band(lines.Select(l => l.SwAlcDb), "dBFS", count, write);
+                write("");
+
+                write("Forward power, as traced in dBm and as the analyzer publishes it in watts:");
+                Band(lines.Select(l => l.ForwardDbm), "dBm", count, write);
+                double[] watts = lines.Where(l => l.ForwardWatts.HasValue).Select(l => l.ForwardWatts!.Value).ToArray();
+                if (watts.Length > 0)
+                {
+                    write($"  in watts: lowest {watts.Min():0.###}, highest {watts.Max():0.###}.");
+                }
+                write("");
+
+                // H17 traces say outright that a meter had not reported; older
+                // ones printed the -150 initialiser, counted below.
+                int scNoSample = lines.Count(l => l.ScMicNoSample);
+                int alcNoSample = lines.Count(l => l.SwAlcNoSample);
+                if (scNoSample > 0 || alcNoSample > 0)
+                {
+                    write($"LINES WRITTEN BEFORE A METER HAD REPORTED, {words.Qualifier}:");
+                    if (scNoSample > 0) write($"  SC_MIC had not reported on {scNoSample} of {count} lines.");
+                    if (alcNoSample > 0) write($"  SW ALC had not reported on {alcNoSample} of {count} lines.");
+                    if (!noSampleExplained)
+                    {
+                        write("  The trace says so itself: those lines carry 'no-sample' rather than a number,");
+                        write("  so they are not readings of silence and are left out of the figures above.");
+                        noSampleExplained = true;
+                    }
+                    else
+                    {
+                        write("  As before, those lines carry 'no-sample' and are left out of the figures.");
+                    }
+                    write("");
+                }
+
+                int scSentinel = lines.Count(l => l.ScMicAtSentinel);
+                int alcSentinel = lines.Count(l => l.SwAlcAtSentinel);
+                if (scSentinel > 0 || alcSentinel > 0)
+                {
+                    write($"SAMPLES SITTING ON THE IDLE SENTINEL, {words.Qualifier}:");
+                    if (scSentinel > 0) write($"  SC_MIC read -150 on {scSentinel} of {count} lines.");
+                    if (alcSentinel > 0) write($"  SW ALC read -150 on {alcSentinel} of {count} lines.");
+                    if (!sentinelExplained)
+                    {
+                        write("  This is the ambiguity the whole fact audit turns on. A meter that has never");
+                        write("  reported and a meter reporting its floor produce the identical number, and");
+                        write("  they are opposite diagnoses: one means nobody looked, the other means the");
+                        write("  radio genuinely heard nothing. The trace cannot tell them apart either — only");
+                        write("  the has-it-reported gate in TxChainFacts can, which is why it is there.");
+                        sentinelExplained = true;
+                    }
+                    else
+                    {
+                        write("  The same ambiguity as above: the trace cannot say which of the two it is.");
+                    }
+                    write("");
                 }
             }
         }
