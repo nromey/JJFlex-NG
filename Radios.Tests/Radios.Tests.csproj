@@ -24,6 +24,13 @@
   <ItemGroup>
     <ProjectReference Include="..\Radios\Radios.csproj" />
     <ProjectReference Include="..\FlexLib_API\FlexLib\FlexLib.csproj" />
+    <!-- TxFactAudit's trace parser (tools/TxFactAudit/TraceMeters.cs) had no
+         committed test, and it stopped matching the txMeters line for four
+         weeks without anyone knowing (#625, H17), then dropped every
+         decimal-comma trace (H18). TxMetersTraceParserTests drives it
+         through its public Read and Describe. A console tool with no
+         dependencies beyond RigSurface, which has none. -->
+    <ProjectReference Include="..\tools\TxFactAudit\TxFactAudit.csproj" />
   </ItemGroup>
 
   <ItemGroup>

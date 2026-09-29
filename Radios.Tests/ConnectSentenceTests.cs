@@ -155,10 +155,10 @@ namespace Radios.Tests
             Assert.Equal("Still refreshing the radio list for noel@example.com.",
                 Lexicon.Get("connect.selector.still_refreshing_chatty", ("email", "noel@example.com")));
 
-            Assert.Equal("Still reaching SmartLink.",
-                Lexicon.Get("connect.selector.still_reaching_smartlink_terse"));
-            Assert.Equal("Still reaching SmartLink as noel@example.com.",
-                Lexicon.Get("connect.selector.still_reaching_smartlink_chatty", ("email", "noel@example.com")));
+            Assert.Equal("Still connecting to SmartLink.",
+                Lexicon.Get("connect.selector.still_connecting_smartlink_terse"));
+            Assert.Equal("Still connecting to SmartLink as noel@example.com.",
+                Lexicon.Get("connect.selector.still_connecting_smartlink_chatty", ("email", "noel@example.com")));
         }
 
         /// <summary>
@@ -174,8 +174,8 @@ namespace Radios.Tests
             {
                 Lexicon.Get("connect.selector.still_refreshing_terse"),
                 Lexicon.Get("connect.selector.still_refreshing_chatty", ("email", "noel@example.com")),
-                Lexicon.Get("connect.selector.still_reaching_smartlink_terse"),
-                Lexicon.Get("connect.selector.still_reaching_smartlink_chatty", ("email", "noel@example.com")),
+                Lexicon.Get("connect.selector.still_connecting_smartlink_terse"),
+                Lexicon.Get("connect.selector.still_connecting_smartlink_chatty", ("email", "noel@example.com")),
             };
 
             foreach (var line in lines)

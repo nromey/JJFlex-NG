@@ -181,6 +181,12 @@ public enum CommandValues
     // references them by value.
     RepeatNextMessage = 122,
     CopyRecentMessage = 123,
+    // Sprint 45 Track M (#617). Appended, for the same reason RepeatLastCw,
+    // SpeakVersion and the two message commands were: these are ordinals and a
+    // stored KeyDefs.xml references them by value, so inserting in the middle
+    // would silently rebind every operator's customised key past the insertion
+    // point.
+    ShowUndeliveredDetails = 124,
 }
 
 /// <summary>

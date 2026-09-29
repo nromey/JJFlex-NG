@@ -55,7 +55,8 @@ public class SslClientTls12
         _pingTimer.Enabled = true;
     }
 
-    private readonly TaskCompletionSource<bool> _connectTcs = new();
+    // JJFlex patch: completion is per producer and follows writer readiness (MIGRATION.md item 15).
+    private readonly TaskCompletionSource<bool> _connectTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public Task<bool> Connect()
     {
         Task.Run(ReadLoop).SafeFireAndForget();
@@ -141,7 +142,9 @@ public class SslClientTls12
                 {
 #if NET6_0_OR_GREATER
                     using var connectTimeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(CANCEL_TOKEN_TIMEOUT_SECS));
-                    await tcpClient.ConnectAsync(_hostname, _dstPort, connectTimeoutCts.Token);
+                    // JJFlex patch: link establishment to this client's cancellation.
+                    using var connectCancellation = CancellationTokenSource.CreateLinkedTokenSource(connectTimeoutCts.Token, _cts.Token);
+                    await tcpClient.ConnectAsync(_hostname, _dstPort, connectCancellation.Token);
 #else
                     await tcpClient.ConnectAsync(_hostname, _dstPort);
 #endif
@@ -161,12 +164,14 @@ public class SslClientTls12
                 {
 #if NET6_0_OR_GREATER
                     using var authenticationTimeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(CANCEL_TOKEN_TIMEOUT_SECS));
+                    // JJFlex patch: cancellation also ends this client's TLS handshake.
+                    using var authenticationCancellation = CancellationTokenSource.CreateLinkedTokenSource(authenticationTimeoutCts.Token, _cts.Token);
                     await sslStream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
                     {
                         TargetHost = _hostname,
                         EnabledSslProtocols = attempts[attempt]
                     },
-                        authenticationTimeoutCts.Token);
+                        authenticationCancellation.Token);
 #else
                     await sslStream.AuthenticateAsClientAsync(_hostname, null, attempts[attempt], false);
 #endif
@@ -191,15 +196,16 @@ public class SslClientTls12
 
             Debug.WriteLine("SslClientTls12 negotiated protocol: " + sslStream!.SslProtocol);
 
-            IsConnected = true;
-            _connectTcs.SetResult(true);
-
             using var reader = new StreamReader(sslStream);
             _writer = new StreamWriter(sslStream!)
             {
                 AutoFlush = true
             };
 
+            // JJFlex patch: cancellation during establishment must not resurrect this producer.
+            _cts.Token.ThrowIfCancellationRequested();
+            IsConnected = true;
+            _connectTcs.TrySetResult(true);
             Debug.WriteLine("Beginning SSL Read Loop");
 
             while (!_cts.Token.IsCancellationRequested)
@@ -231,7 +237,6 @@ public class SslClientTls12
 
             Debug.WriteLine("Ending SSL Read Loop");
 
-            IsConnected = false;
 #if NET6_0_OR_GREATER
             await _writer.DisposeAsync();
 #else
@@ -240,8 +245,16 @@ public class SslClientTls12
             _writer = null;
             _pingTimer.Dispose();
         }
+        catch (Exception ex)
+        {
+            // JJFlex patch: every establishment failure settles this producer's waiter.
+            _connectTcs.TrySetException(ex);
+        }
         finally
         {
+            // JJFlex patch: terminal notification belongs to this client, including early failure.
+            _connectTcs.TrySetResult(false);
+            IsConnected = false;
             // Replaces the `using var` declarations these locals used to carry.
             sslStream?.Dispose();
             tcpClient?.Dispose();
@@ -274,7 +287,8 @@ public class SslClientTls12
 
     public void Disconnect()
     {
-        if (!IsConnected || _cts.IsCancellationRequested)
+        // JJFlex patch: an attempt can be cancelled before its handshake finishes.
+        if (_cts.IsCancellationRequested)
             return;
 
         _cts.Cancel();

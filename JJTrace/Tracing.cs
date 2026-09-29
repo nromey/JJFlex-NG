@@ -27,7 +27,17 @@ namespace JJTrace
 
         private static bool _on = false;
         /// <summary>
-        /// True if tracing is on.
+        /// True if tracing is on — the EMISSION gate, and now only that.
+        ///
+        /// <para><b>Turning it off no longer closes anything.</b> It used to
+        /// call process-wide <c>Trace.Flush</c> and <c>Trace.Close</c>, null the
+        /// trace file and drop the console listener, which made "stop emitting"
+        /// and "end this session's file" the same act performed by whoever got
+        /// there first. That is half of #612: a caller closing ITS session
+        /// closed everyone's, including a session that had replaced it
+        /// moments earlier. Files are opened and closed by
+        /// <see cref="TraceCoordinator"/>, on the sink it owns, under its
+        /// gate.</para>
         /// </summary>
         public static bool On
         {
@@ -37,17 +47,7 @@ namespace JJTrace
                 if (_on != value)
                 {
                     _on = value;
-                    if (value)
-                    {
-                        Trace.AutoFlush = true;
-                    }
-                    else
-                    {
-                        Trace.Flush();
-                        Trace.Close();
-                        TraceFile = null;
-                        ToConsole = false;
-                    }
+                    if (value) Trace.AutoFlush = true;
                 }
             }
         }
@@ -57,56 +57,58 @@ namespace JJTrace
         /// </summary>
         public static TraceSwitch TheSwitch { get; set; }
 
-        private static RotatingTraceListener listener = null;
-
         /// <summary>
-        /// The live trace listener, or null when tracing is not writing to a
-        /// file. Internal so the rotation partial can drive it; callers outside
-        /// JJTrace use the public rotation surface on Tracing.
+        /// The live trace listener, or null when nothing is recording. The
+        /// coordinator owns it; this is a read.
         /// </summary>
         internal static RotatingTraceListener LiveListener
         {
-            get { return listener; }
+            get { return TraceCoordinator.Sink; }
         }
 
-        private static string _TraceFile = null;
+        private static string _unmanagedPath;
+
         /// <summary>
-        /// the trace file
+        /// Where lines are landing right now.
+        ///
+        /// <para>After a rotation the live file keeps the same path, but if a
+        /// rotation had to fall back to the part path (rename failed) the sink
+        /// is the authority on where lines are actually landing. Anything that
+        /// attaches "the current trace" — the crash bundler above all — must get
+        /// the real path.</para>
+        ///
+        /// <para><b>The setter is for the console tools only.</b> Inside the
+        /// application every open and close goes through
+        /// <see cref="TraceCoordinator"/>, because a file and a session and a
+        /// capture have to change together. <c>RadioInTheLoop</c> and the
+        /// SmartLink harness have no session lifecycle at all, so they get a
+        /// plain sink and are refused if a real session is live.</para>
         /// </summary>
         public static string TraceFile
         {
             get
             {
-                // After a rotation the live file keeps the same path, but if a
-                // rotation had to fall back to the part path (rename failed)
-                // the listener is the authority on where lines are actually
-                // landing. Anything that attaches "the current trace" — the
-                // crash bundler above all — must get the real path.
-                RotatingTraceListener live = listener;
-                return live != null ? live.FilePath : _TraceFile;
+                string live = TraceCoordinator.LivePath;
+                return live ?? _unmanagedPath;
             }
             set
             {
-                // Can't change file if on.
-                if (_on) return;
                 if (value == "") value = null;
-                if (value != _TraceFile)
+                if (value == _unmanagedPath && value == null) return;
+                if (TraceCoordinator.CurrentSession != null)
                 {
-                    if (value == null)
-                    {
-                        if (listener != null)
-                        {
-                            Trace.Listeners.Remove(listener);
-                            listener.Dispose();
-                            listener = null;
-                        }
-                    }
-                    else
-                    {
-                        listener = CreateLiveListener(value);
-                        Trace.Listeners.Add(listener);
-                    }
-                    _TraceFile = value;
+                    // A managed session owns the sink. Silently swapping the
+                    // file under it is exactly the bypass this design removes.
+                    return;
+                }
+                _unmanagedPath = value;
+                if (value == null)
+                {
+                    TraceCoordinator.CloseUnmanagedSink();
+                }
+                else
+                {
+                    TraceCoordinator.OpenUnmanagedSink(value);
                 }
             }
         }
@@ -149,6 +151,32 @@ namespace JJTrace
             TheSwitch = new TraceSwitch("TraceSwitch", "from .config file");
             beginTicks = DateTime.Now.Ticks;
             DetachDefaultListener();
+            RegisterRouter();
+        }
+
+        private static TraceRouterListener router;
+
+        /// <summary>
+        /// Put the process-lifetime router in <c>Trace.Listeners</c>, once.
+        /// Everything written through <see cref="TraceLine(string)"/> AND
+        /// everything written by a direct <c>System.Diagnostics.Trace</c> or
+        /// <c>Debug</c> call passes its gate before it reaches a sink — which
+        /// is what lets the owner switch sinks atomically with respect to every
+        /// writer, instead of leaving a window where the listener set is empty
+        /// and lines evaporate.
+        /// </summary>
+        private static void RegisterRouter()
+        {
+            try
+            {
+                if (router != null) return;
+                router = new TraceRouterListener();
+                Trace.Listeners.Add(router);
+            }
+            catch
+            {
+                // Tracing must never be the thing that takes the app down.
+            }
         }
 
         /// <summary>
@@ -229,8 +257,10 @@ namespace JJTrace
 
         /// <summary>
         /// Builds the trace prefix: "{ticks} [T{id}:{name}] " or "{ticks} [T{id}] ".
+        /// Internal because the coordinator writes terminal records straight
+        /// into a sink and they must carry the same prefix as every other line.
         /// </summary>
-        private static string TracePrefix()
+        internal static string TracePrefix()
         {
             long tks = (DateTime.Now.Ticks - beginTicks) / 10000;
             var t = System.Threading.Thread.CurrentThread;
@@ -248,6 +278,48 @@ namespace JJTrace
         {
             if (!On) return;
             Emit(str, preferDebugWhenAttached: false);
+        }
+
+        /// <summary>
+        /// The record kind the line being dispatched on THIS thread belongs to,
+        /// or null for an ordinary line. Set by <see cref="TraceRecord(TraceRecordKind, string)"/>
+        /// around its dispatch and read by the sink inside it; captured by the
+        /// deferral path so a record that waits out a transition still
+        /// introduces itself when it lands. Thread-static because a listener
+        /// runs on the thread that called <c>Trace.WriteLine</c>, which makes
+        /// this exact with no synchronisation (same reasoning as the sink's
+        /// per-thread cost window).
+        /// </summary>
+        [ThreadStatic] internal static TraceRecordKind PendingRecordKind;
+
+        /// <summary>
+        /// Unconditionally trace a DATA RECORD of <paramref name="kind"/>: a
+        /// line from a writer that emits a stream of measurements, which
+        /// introduces itself in the file the first time it appears in each
+        /// part (#625, <see cref="TraceRecordKind"/>). Everything else about the
+        /// line is <see cref="TraceLine(string)"/>.
+        /// </summary>
+        public static void TraceRecord(TraceRecordKind kind, string str)
+        {
+            if (!On) return;
+            TraceRecordKind saved = PendingRecordKind;
+            PendingRecordKind = kind;
+            try { Emit(str, preferDebugWhenAttached: false); }
+            finally { PendingRecordKind = saved; }
+        }
+
+        /// <summary>
+        /// Conditionally trace a data record of <paramref name="kind"/> at
+        /// <paramref name="lvl"/>. See <see cref="TraceRecord(TraceRecordKind, string)"/>.
+        /// </summary>
+        public static void TraceRecord(TraceRecordKind kind, string str, TraceLevel lvl)
+        {
+            if (!On) return;
+            if (TheSwitch.Level < lvl) return;
+            TraceRecordKind saved = PendingRecordKind;
+            PendingRecordKind = kind;
+            try { Emit(str, preferDebugWhenAttached: true); }
+            finally { PendingRecordKind = saved; }
         }
         /// <summary>
         /// Conditionally trace a line for this level.

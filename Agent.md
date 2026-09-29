@@ -9,6 +9,527 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-09-25 — THE FACT STORE MERGES, SIX RULINGS ARRIVE AND FIVE OF THEM DELETE WORK, AND A RULING NOBODY COULD MAKE UNTIL IT WAS TOLD AS A STORY
+
+**Sealed 2026-09-25 on `sprint45/integration` at `bb253022`.** 3 commits on
+integration, 6 on `sprint45/track-h` and 1 on `sprint45/track-m2` (all overnight, from
+the iterator lane, which stopped at 01:28). jjf-private: **15 commits**.
+`Radios.Tests` **3611 passed, 0 failed** on merged integration; the `JJFlexWpf.Tests`
+desk-safe filter **52 passed, 1 failed** (known-red `DelegateSurfaceTests`, #591).
+Tasks **#625 through #630** opened; register **343 open**. Rigmeter today: 535
+insertions, 252 deletions, net +283 across 9 files. No build published, no tester
+pinged.
+
+### The fact store merged, and the branch it merged from was not the one named
+
+`sprint45/track-m2` (Tracks M through M4) is on integration. **The handoff pointed at
+the wrong branch**: it named `sprint45/track-m` as "the fact store's foundation", and
+that branch **also contains Tracks I, J and K** — Track I gated on #611, and **the
+very track whose 222 keys the same evening's ruling quarantines BECAUSE it is not
+merged**; Track K refused by review. `track-m2` carries none of the three and is a
+strict superset of m's fact-store work.
+
+**This is the containment sweep INVERTED and it belongs in the SOP.** That sweep asks
+whether a track that should have landed did. Here a track that must NOT land rides
+inside another branch, and **nothing fails** — build fine, tests green, sprint reads
+as merged. Recorded in #627.
+
+### Six rulings, and five removed work rather than specifying it
+
+- **#625** the drop window stops describing the saved file; **the file describes
+  itself in a header.** Three review rounds had produced three more precise false
+  sentences — the signature of a claim the app cannot structurally verify, because it
+  asserts properties of a file written by several independent writers. The rule
+  generalises: **put the claim where the knowledge is.** Noel's question sharpened it
+  further — that file's whole purpose is to LEAVE the machine, and a header travels
+  with it where a window's sentence cannot follow.
+- **#626** `seal` becomes `archive`. Noel tripped on his own word — *"Why would the
+  system need a seal while someone's using the product, that's something I do"* — and
+  **the replacement was already in the code**: what the operation produces is called
+  an archive everywhere. About 1,000 occurrences over 20+ files; Sol work.
+- **#627** the 222 Track I keys are **quarantined, not deleted**, because a deletion a
+  later merge must reverse is an absence and absences are what this project fails to
+  notice. `LexiconSchema.cs:188` already skips comment lines, so no format change.
+  **The guard got three facts rather than one**, including one not in the ruling:
+  nothing may be quarantined except Track I's alarms, or "comment it out" becomes a
+  general way to silence a failing key.
+- **#628** a **notifications/event buffer** replaces the dialog-with-buttons. Noel
+  proposed it after three exchanges spent polishing that dialog's label, help text and
+  name — and **the buffer deletes those questions instead of answering them**, which
+  is the test of a better design. **He then refined it twice**: the win is the
+  navigation idiom and NOT the absence of a visible surface (a good list is both at
+  once, and structure helps a blind operator rather than conceding to sighted ones);
+  and *"events that happened"* is the bigger half, because it makes delivery an
+  ATTRIBUTE of an event rather than the reason the record exists.
+- **#629** found by tripping it: **changing any lexicon string now breaks two tests**,
+  because every unclassified string is frozen by a fingerprint of its TEXT. The
+  evening's own heartbeat rename was green on integration, the fact store was green on
+  track-m2, **the merge was clean, the build passed, and two tests failed.** The
+  collision class git cannot see — and the gate working exactly as designed.
+- **#630** vendor patches move into our own file via `partial` plus `partial void`
+  hooks, so each patch shrinks to one line and the logic survives an upgrade. **The
+  half that matters more is a test**, because `MIGRATION.md` item 2 still calls itself
+  *"the only code edit inside the vendor tree"* while patch markers sit in six files.
+  A document drifts silently; a test cannot.
+
+### #620 approved, and HOW it was approved is the lesson
+
+The three-line `Radio.Connect` re-hook is a yes. **The mechanism was explained
+correctly three times and could not be ruled on** — Noel: *"You haven't really
+explained what it does yet."* One paragraph of operator experience earned an immediate
+*"Hell yeah that makes sense and should be done."*
+
+The paragraph: Don drops once, reconnects on a reused object, and **from then on the
+app can never tell him he has lost the radio again** — it still shows CONNECTED, the
+keepalive runs into nothing, the meters simply stop, and nothing is announced because
+nothing was detected. **The app actively asserts something false**, which is the
+hardest failure for an operator with no screen to glance at: silence from the radio
+and a working radio with nothing to report are the same experience.
+
+Filed as `feedback_rulings_need_the_experience_not_the_mechanism.md`. **A correct
+mechanical explanation is not a decidable one.**
+
+### The AM power question closed, then reopened, then closed properly
+
+Yesterday's 21 W reading at a setting of 100 was written up as *"the number is not
+watts, and that settles #444."* **Noel's own counter-hypothesis exposed it as
+underdetermined** — a clamp and a rescale both predict 21 W there — and the
+discriminating test was his: set 25, read forward power. **4.8 W. Rescale.** The field
+is a percentage of the mode's maximum.
+
+**And it falsified the fix he proposed in the same breath**: capping the AM field at
+25 would have cut his AM output to a fifth. The test he designed killed his own
+answer, which is the test doing its job. Three stamps were rolled back and re-earned.
+Also established: the cap is **amplitude headroom, not duty cycle**, and the radio's
+cap is a different thing from the operator's choice.
+
+### Cross-surface activity
+
+- **Iterator lane, overnight to 01:28:** Tracks H10 through H15 on `sprint45/track-h`
+  (6 commits), Track M4 on `track-m2`, about 14 reports into `for-claude`, and a
+  `00-START-HERE` index that was genuinely well built.
+- **Memory:** two entries written today and one **extended**.
+  `feedback_build_instrument_traps_that_print_success.md` came from Track H11's
+  session — **and this session walked into its trap hours later**, so it gained two
+  instances: a pipeline's exit code is the LAST command's (`dotnet test` piped to
+  `tail` reported success on a run with two failures), and the CA1806 flood contains
+  the word `error`, so a filter on it swallows the verdict entirely.
+- **jjf-private:** 15 commits. Priority queue **13 to 8**; five settled, two retired
+  as already answered.
+- **Bench, no transmit:** `daxiq_available=16` and `daxiq_capacity=16` (a live answer
+  for #456), `max_internal_pa_power` **not reported** (so the PA maximum is not
+  readable, which supports #608's numberless fix), and `external_pa_allowed=1` unread
+  by us.
+- **Sibling repos** (jjf-data, jjflexible-connect, rigmeter, Freight Fate, Civ VI): no
+  commits today.
+- **Dependency check:** no vulnerable packages. **Codex instruction tests:** 5 passed.
+- **Drift check:** 85 missing paths, 56 missing symbols; **nothing written today is
+  flagged**, which is the number that matters. `project_codex_interop.md` and
+  `feedback_model_allocation_one_reviewer_per_artifact.md` want a look tomorrow.
+
+### Decisions and scope changes
+
+- **#456 reshaped twice by Noel, and the second changed what it is FOR.** *"Rock solid
+  ... it hinges on a lot of things that we'll need later"* makes it a FOUNDATION.
+  Then: *"transmit and receive streams are synced ... and that it can be used to
+  listen back to transmissions."* **Listening back is now the primary requirement**,
+  because an operator cannot judge their own audio while producing it — speaking
+  occupies the faculty they would judge with. So **the recording layer is not support
+  for the feature, it IS the feature.** A prototype is authorised. Both folded into
+  the brief before it launched.
+- **The #620 patch and #630's refactor are decoupled** — #630 makes the NEXT patch
+  cheap and does not block this one.
+- **Claude's weekly meters were reset** using the one free reset, so there is no
+  safety net before the natural reset. Fable had maxed.
+
+### Rigmeter snapshot — end of 2026-09-25
+
+**Branch-scope caveat:** measured on `sprint45/integration`; the 6 overnight
+`track-h` commits are not in these totals.
+
+- Commits 3, unique files 5, insertions 535, deletions 252, net **+283**
+- By type: `.tsv` +244/-224 (the quarantine), `cs` +288/-25 (the guard test and two
+  corrected tests), `.json` +2/-2, `xaml` +1/-1
+- Snapshot: `historical\stats\2026-09-25-bb253022.json`
+
+### Setup for 2026-09-26
+
+**Noel returns to this window in the morning and will be monitoring the Blind Hams net
+while working** — he is net manager and dealing with a volatile NCO, so his attention
+is divided. `for-noel/priority/00-START-HERE-2026-09-26.md` is built for that: **eight
+items, one question each, recommendation attached**, ordered by what they unblock. Two
+recommendations come straight from rulings he has already made.
+
+Also ready: **#620's build brief** (Sol or a ruled track, the plan already written),
+**#626's rename** (mechanical, Sol, independent of #620), and a proper audit of unread
+radio capability — FlexLib parses **231 status keys** and we consume a fraction. **He
+offered bench time.**
+
+## END-OF-DAY SEAL — 2026-09-23 — THE PROFILE WORK MERGES, THE OPERATOR FINDS IN FIVE MINUTES WHAT NO READER COULD, AND DON'S RADIO TURNS OUT TO BE A CONNECTOR
+
+**Sealed 2026-09-23 evening, on `sprint45/integration` at `d106c992`. Written
+alongside the 2026-09-22 seal below — neither day was sealed at the time, and
+this entry covers 2026-09-23 only.** 14 commits across all branches today, 9 of
+them reachable from integration. Radios.Tests **3468** on the merged
+integration branch, 3487 on `sprint45/track-j`. jjf-private: 27 commits. Tasks
+**#604 through #611** opened; register now **325 open**. Build
+**4.1.16.2026** produced at 05:24 and **HELD** — nothing published to Dropbox,
+by Noel's ruling. 73 unpushed commits in JJFlex-NG; pushing is his call. Zero
+vulnerable packages. **THREE TRACKS WERE STILL RUNNING WHEN THIS WAS WRITTEN:
+Track K (`sprint45/track-k`, the safety-speech boundary), Track H2
+(`sprint45/track-h`, the capture bridge's three refusals) and Track L
+(`sprint45/track-l`, the SmartLink registration verdict). None of their work is
+in the figures above.**
+
+### The day in one line
+
+Three weeks of station-first work merged before dawn; Noel connected to his own
+8600 and found four things wrong in the first quarter of an hour that four
+reviewers could not have found; Astra at `xhigh` proved the speech "repetition"
+is three interrupted beginnings with the real sentence never spoken once; and
+Don's months of undervoltage shutdowns turned out to be a Powerpole connector.
+
+### Four rulings before five in the morning, all in `tasks.md` in his words
+
+- **04:41 — the profile intent DOES govern the owner's TNF write, and the
+  register was wrong, not the code.** *"If the owner says to leave stuff alone
+  we need to leave junk alone."* TNF gets no gate of its own, so the shared
+  test guarding microphone input, VOX and the keyer is not loosened. **This
+  removed one of Astra's four named changes with nothing to build.**
+- **04:44 — a guest takes two slices, whatever their layout says.** *"if I'm
+  coming into a radio that's not mine, the max number of slices it grabs on
+  startup should be two."* An owner with company gets their remembered layout
+  back, up to what is free. Neither pads beyond free capacity (#587).
+- **04:44 — the no-layout sentence stops claiming why.** It said *"only one
+  slice was free"* and never checked capacity — it asserted something it did
+  not know. It now says what happened: *"...so you have one slice on the
+  radio's own default frequency."* Third named change closed.
+- **04:42 — no commas in the supply-voltage names, and the place phrase gets
+  two lengths.** "Low supply voltage before fuse" normal, "before" terse. The
+  phrase cannot be dropped: both radios publish `+13.8A` and `+13.8B` and mean
+  different points by them, so the identity is name AND description
+  (`project_meter_identity_is_name_plus_description`).
+
+**And two more that are about how we work:** *"even though there is more cost
+to keep codex going ... it saves me a ridiculous amount of time"* (04:52), and
+*"it can escalate to Astra in the parts that it needs to, not always the whole
+thing"* (07:05) — every review brief from here asks for a per-section verdict
+and an explicit "this one needs a harder reader, and here is why".
+
+### The merge — Tracks G3, G4 and G5 land on integration (`06016112`, 05:17)
+
+Track G5 (five commits) applied the surviving named changes from Astra's
+review: the speaker teardown bound to its originating audio run; the deferred
+live-audio apply given its own captured batch identity instead of a mutable
+field; the abandoned apply no longer deleting an earlier operation's snapshot
+and records; the preset's receipt about what it could not apply faithfully
+carried to the announcement and the trace instead of being dropped. **All three
+of that last group are the same shape — work that outlives the thing it belongs
+to.** Then `913cff86` says at the TNF write why it is gated, in Noel's words,
+so nobody "fixes" it back.
+
+Two tasks opened by the merge itself:
+
+- **#604** — source-shape tests read a fixed-size window of a method, the
+  methods grew past it, and the assertions went **vacuously green**. G5 bounded
+  the two it touched by the next symbol; the rest of the sweep is open.
+- **#605 — mine.** `SpokenAgeTests` was missing its statics collection and was
+  verified with a filter naming only the classes the change touched. **The
+  filter excluded the one guard whose job is to notice a class it has never
+  heard of.** Caught by the unfiltered merge run a day later. The habit: after
+  adding or moving a test class, run the named project unfiltered once.
+
+### Noel at the radio, 05:29 to 05:45 — four findings, none of them reachable by a reviewer
+
+1. **#551 / #550 — the duplicate has two owners.** We say
+   `connect.discovery.searching`; NVDA says "Searching for radios" six seconds
+   later because that is the window caption. Neither owner knows about the
+   other, so no arbiter can collapse them. The 09-02 wording ruling could never
+   have fixed it.
+2. **#606 — seven utterances before he could press Enter**, and announcements
+   surfacing during whatever he did next. *"we're back to repeating stuff
+   that's been spoken before."*
+3. **#607 — which profile did I just get?** It took twenty minutes and a trace
+   to answer, and **the app knew the whole time**: `ProfileGlobalSelection:
+   JJRadioDefault`, `station outcome=Unconfirmed`, `autosave=True`, all logged,
+   none spoken. The entry was opened saying "always global, no choice"; **both
+   halves were wrong** — the operator's Default-flagged profile decides, and
+   the per-radio choice is built, persisted, tested and called by nothing.
+4. **#352 hit live — his registered 8600 told him it is not registered.** Not a
+   regression and not the merge: sixty files changed and none in the
+   registration path. **The trigger is location** — a remote connect is exempt
+   by construction, a local connect is the only path that asks. And he answered
+   "I only use this radio here", which records `LocalOnly` per radio **for
+   good**, so a question with a possibly false premise collected a permanent
+   answer.
+
+### The transcript, and what it turned the speech defect into
+
+An NVDA speech transcript was taken at IO level for the run
+(`JJFlex-private/diagnostics/nvda/nvda-speech-20260923-0545-startup-speech.log`)
+and briefed to Astra at `xhigh` with byte offsets and utterance counts —
+measurements, where four earlier register entries had each carried an accurate
+description and no count.
+
+- **The repetition is not repetition.** All three submissions of the listening
+  sentence were **interrupted**, at four, four and two words of ten. Behind
+  them sat a clause saying the station restore was unconfirmed, **withdrawn
+  unstarted every time and never spoken once.** The lost information is the
+  defect; the stutter is the symptom. Neither instrument shows this alone.
+- **It killed my hypothesis by name.** I had written the three-windows-at-
+  startup explanation into the register as the live one. The observed replay
+  triggers are ordinary app interrupts; a new window is not required. **The
+  brief asking for disagreement is the only reason that surfaced in twenty
+  minutes rather than in another month.**
+- **The SmartLink half is a different mechanism:** the run received an
+  explicitly **empty** radio list and the application promoted that absence
+  into a registration verdict, then collected a lasting preference under that
+  premise.
+
+### Track J built the rule, and Sol refused it
+
+Five commits on `sprint45/track-j` (07:20 to 07:30), 3468 to 3487 tests:
+recovery attaches to the obligation rather than to the next utterance, three
+tests inverted because **they had pinned the defect as the contract**, and the
+dialog title no longer outlives the window it names. Sol's review at 07:47:
+**DO NOT MERGE.** A definite startup regression — closing the outgoing search
+window can withdraw the incoming picker's still-unsent title, which is exactly
+the insurance the track kept. Protected safety speech has real loss paths, the
+claimed priority holds only within the held train, and **three** direct
+safety calls carry no subject, not the two the report claimed. It also found
+the report's `#562` is a phantom: no such register entry exists, in either
+file, though source and tests repeat the number.
+
+### #611 — the gate, and why the two tracks cannot simply merge
+
+Astra's scoped safety-speech design (09:03 to 09:17, `xhigh`, read-only) found
+that **Tracks I and J merged as they stand can erase the transmit-cut warning
+with no radio fault and no elapsed estimate**: an old alarm's late completion
+collapses the shared urgent deadline, the waiting alarm runs the full discard
+that really does clear protected entries, and the cut is gone along with its
+attempt. The fix it asks for is a speech-boundary integration, not an alarms
+redesign — one coordinator holding one speaking-turn token, and the destructive
+discard replaced by an ordinary cancellation that cannot delete facts. **#611
+blocks both merges. #589's delivery gate stays closed.** That design is Track
+K's brief, running tonight.
+
+Its own idea, worth keeping: **a safety episode is a fact; speech is only an
+attempt to present it.** Failed delivery, silence, a timeout or a reader swap
+cannot erase the fact and none of them is proof the operator heard it.
+
+### Don — root cause found, and the channel behind it
+
+- **It was a Powerpole connector** (06:52). *"he connected and reconnected the
+  power pole connectors and it works now, no undervoltage anymore, no
+  shutdowns."* It fits every symptom: fine at receive current, sagging when the
+  PA draws. **The alarm subsystem moves from diagnosis to insurance** — lower
+  urgency, same value, and it does not excuse Astra's six defects in it.
+- **Three new notes → #608** (AM shows 100 W while the radio does about 25,
+  which turns #426's units question into something an operator hits on every
+  mode change), **#609** (the equaliser can no longer be adjusted while
+  transmitting, named as a regression), **#610**.
+- **#610 is the one that stings.** Every private tester is on `4.1.16.1921`,
+  built 2026-09-05. Don's first item this morning was VOX settings not being
+  visible — **that surface shipped 2026-09-07 and he has never had it.** A
+  stale tester does not merely delay feedback, it produces feedback that cannot
+  be trusted in either direction. **Ruled 06:59: the gap was deliberate** —
+  surgery, and then a build not fit to send. *"releasing it with these issues
+  isn't helpful even though it fixes some things."* What is worth fixing is
+  only that **nobody can see how stale the channel is**; the seal should read
+  the published build's version and say how far behind HEAD it is.
+- **I argued the other way and was wrong twice** — the speech defect is in his
+  current build too, so shipping does not add it, **but the profile SELECTION
+  is not fixed either**, as #607 proved on this very build. "His loudest
+  complaint is fixed" was half true, and the visible half is the half that is
+  not.
+
+### Seal mechanics
+
+Vulnerable packages: **zero**. Memory drift check: run, only pre-existing
+candidates, no new entries. MEMORY.md is **13,011 bytes**, over the ~12 KB
+threshold, and the archive sweep found nothing newly stamped — carried again.
+Rigmeter snapshot written to `historical/stats/2026-09-23-d106c992.json`;
+memory backup `memory-20260923-183719.zip`. **Two of today's Codex runs are not
+yet in `codex-evaluation.md`** — the Track J verification and the safety-speech
+episode design — which is a gap in the log the seal is supposed to close;
+carried to tomorrow.
+
+### Rigmeter snapshot — end of 2026-09-23
+
+On `sprint45/integration`: 9 commits, 14 unique files, **+1,021 / -72, net
++949**; C# +818/-56 across 14 files, markdown +191/-10, VB +7/-1. **Branch-scope
+caveat: this misses Track J's five commits on its own branch and everything the
+three tracks running tonight will produce.** Across both sealed days together
+rigmeter reports 33 commits, 62 unique files, **+16,696 / -1,731, net +14,965**
+— 8.9 hours read aloud, 334 printed pages.
+
+### Setup for tomorrow
+
+1. **Collect the three running tracks** — K, H2 and L — and read each report in
+   a clean window before deciding anything. Track L's first half is an
+   investigation that may contradict its own brief; that has happened twice
+   this week and both times the brief was wrong.
+2. **#611 is the merge order.** Nothing from Tracks I or J lands until one
+   coordinator owns the speaking turn. Track K is that work.
+3. **Log the two missing Codex runs** in `codex-evaluation.md`.
+4. **#607's cheap half ships alone:** say which profile loaded, through the
+   lexicon, at a verbosity that can be turned down — and say honestly when the
+   load could not be confirmed.
+5. **Then the publish question.** #610 wants a staleness number somebody sees
+   daily; the build itself still waits on the SmartLink symptom being
+   explained, which is Track L.
+
+## END-OF-DAY SEAL — 2026-09-22 — FOUR REVIEWS IN ONE EVENING, THREE REFUSALS, AND EVERY REFUSED TRACK WAS GREEN
+
+**Sealed retrospectively on 2026-09-23 evening; nothing was sealed on the night
+itself, by design — Noel went to bed at 22:31 and the tracks ran on his
+standing word.** 36 commits across all branches, 24 of them reachable from
+`sprint45/integration`. jjf-private: 55 commits. Tasks **#593 through #603**
+opened; 314 open at end of day. **Nothing merged and nothing pushed** —
+applying a reviewer's named changes is new code, and that waited for him.
+
+### The day in one line
+
+Track G2 cleared Astra's first review in the morning; three more tracks landed
+in the evening, all green, all self-reported complete; **and three of the four
+reviews that read them said DO NOT MERGE.**
+
+### Morning — Track G2, the station-first fixes (13 commits, 07:52 to 08:44)
+
+Twelve defects from Astra's 09-21 review, each one a variant of the same
+mistake: the allocator arming its observation when it queued a request rather
+than when it was sent; completion evidence arriving in the same delivery as a
+cancellation being taken as a confirmed restore; callbacks stamping whichever
+attempt was current when they ran, so a radio object we had left could feed the
+next connect; an import that completed reported as failed; a queued selection
+called Sent. Astra re-verified it at 18:58 and moved it up a rung.
+
+### Evening — three tracks landed, then two more, none merged
+
+- **Track G3** (`sprint45/track-g`, 7 commits to `8f025724`, 3417 tests) — the
+  profile build's last code step, including the finding that **FlexLib's
+  setters assign their cache first and discard the success reply**, so a
+  correctly tuned slice and a profile load that took both reported nothing
+  (`project_flexlib_suppresses_equal_value_success`).
+- **Track H** (`sprint45/track-h`, 3 commits, 3088 tests) — PA temperature in
+  the capture, which was **genuinely absent from every capture anybody ever
+  took, and not for the reason written down**: the gate was `RecordMeterStream`,
+  off by default, not the detail level.
+- **Track I** (`sprint45/track-i`, 6 commits, 3232 tests) — the operator-alarm
+  subsystem, judging any meter the radio publishes, with nothing loading it yet.
+- **Track I2** (3 commits) and **Track G4** (3 commits, 3433 tests) followed,
+  applying the evening's rulings.
+- On integration, `1be38b0f`: spoken ages say "1 second", and a short capture
+  is "under a minute" rather than "about under a minute".
+
+### The four verdicts, 22:31 to 23:07
+
+- **Reflected-power alarm and transmit cut — not trustworthy as protection.**
+  The cut says the transmitter stopped **on the strength of our own command
+  echo**; the two-sample rule counts polls rather than readings; the warning
+  sentence can be lost permanently after an interruption. All three confirmed
+  independently in the code.
+- **Track H — DO NOT MERGE**, from Sol, the cheap model, with a race nobody had
+  looked for. The seal can archive the wrong session, and **the open
+  temperature window is never flushed**, so a drop inside the first second
+  records no temperature at all **while the dialog tells the operator the file
+  holds the radio's last readings.** #596, #597 and #598 opened.
+- **Track I — DO NOT MERGE**, from Astra reading the build of its own design:
+  speech called from the meter thread on overflow, which the design forbade; a
+  reachable deadlock; an acknowledged alarm that worsens plays the tone and
+  drops the sentence; reminders lost after a reconnect; a stale callback taken
+  as the new connection's reading.
+- **Tracks G3 and G4 — MERGE AFTER NAMED CHANGES**, four of them, with the
+  reviewer stating its own boundary unprompted: *"source-review approval
+  conditional on those changes, not permission to deliver a build or clear any
+  radio-bench gate."*
+
+**The sentence the evening turns on:** every refused track had reported itself
+complete with a green suite, and this session had verified those counts
+independently and found nothing wrong with them. **Counting tests is not
+reading code.**
+
+### The seam between the two worst findings
+
+A late completion in the alarm subsystem collapses a shared urgent deadline, so
+a queued alarm can be released **into** the reflected-power cut announcement —
+and that cut sentence is already the one that cannot survive an interruption.
+Two separate reviews, one mechanism. It became #611 the next morning.
+
+### A register banner that repeated a summary contradicting its own detail
+
+**The register was wrong and I wrote it.** The 21:36 banner in #590 said G3's
+judgement that the profile intent does not govern TNF was confirmed. It does
+govern it. G3's detailed section claimed intent-independence only for the two
+shack-speaker writes, correctly; **its own closing summary swept TNF into the
+same sentence**, I carried the summary into the register, and Noel's ruling was
+then fastened to a claim that was a track's paraphrase of its own detail. Astra
+found it. Same shape as
+`feedback_a_comment_attributing_a_ruling_is_not_the_ruling` — read the source,
+not the summary of the source, even when the summary is in the same document.
+
+### Noel's rulings that evening
+
+No remembered layout: give the radio's default slices and **say so**. The shack
+speaker follows PC audio, owner and guest alike; G3's company exception on the
+mute is reverted. TNF: owner's connect sets it; a non-owner alone may set it
+only if it is off; never with the owner connected — with two limits written
+down as assumptions, because the app cannot see who turned it on. Alarm presets
+stand, operators can save their own, and Command Finder is the front door.
+
+**And the allocation ruling, in force from that night:** one reviewer per
+artifact; Fable only for judgement not yet made; ruled work, document reads,
+merges and verification on Opus or Codex Sol; **the orchestrator never
+re-reviews what a reviewer already read.** The evening spent no Fable at all.
+`memory/feedback_model_allocation_one_reviewer_per_artifact.md`.
+
+### Codex — six runs, and the two-way protocol's first real use
+
+Six runs: the G2 re-verification at 18:58 (the last on Plus), the alarms design
+at 19:28 (the first on Pro, and it corrected the register from Don's own
+capture), and the four reviews above, **three of them running at once with no
+rate limiting observed.** The account upgraded to `prolite` at 19:10.
+
+The G3/G4 review **could not establish fresh compilation** — its sandbox denied
+the clean — so it completed under a stated assumption, put the limitation in
+the report rather than only in the ASK, and asked for the run to be redone
+properly. Done at 23:11 on this account: clean succeeded, **3,433 passed, 0
+failed.** The limitation was lifted and the four source findings stood
+untouched. **The ASK/ANSWER protocol worked exactly as designed, on its first
+real use.**
+
+### Tasks opened
+
+#593 coalescing simultaneous warnings, #594 the alarm journal into the archive,
+#595 the journal on Diagnostics (three ruled follow-ups, not defects) · #596
+`FlexBase.Transmit` stays true after the radio disappears, so every
+"don't interrupt a transmission" guard fails in the one case that matters ·
+#597 the capture's voltage field cannot say zero and says "none" on a radio
+that has the meter · #598 the lost final temperature window · #599 the Yes/No
+box Escape cannot close, at nine sites · #600 disconnecting leaves the shack
+speaker muted for whoever is in the room · #601 a flaky speech test · **#602 an
+agent deleted `for-claude/README.md` and nothing noticed until a routine `git
+status`** · #603 the Fixer review-page test fails in any sandboxed reviewer's
+environment and the failure does not say so.
+
+### Rigmeter snapshot — end of 2026-09-22
+
+On `sprint45/integration`: 24 commits, 58 unique files, **+15,865 / -1,668, net
++14,197**; C# +15,836/-1,667 across 54 files, plus one JSON file. **Branch-scope
+caveat: this counts only what is reachable from integration — 36 commits landed
+across all branches that day.** No snapshot JSON was written for this date; the
+day was not sealed at the time.
+
+### Setup for the next morning
+
+1. Read the four reviews in `for-noel/`, **the reflected-power one first** — it
+   is the safety one.
+2. Answer the TNF question the register got wrong: should TNF be set on an
+   owner's connect when that owner's intent is "leave my stuff alone"?
+3. Rule on the prose Track I2 is holding: the comma in the supply-voltage
+   names, the three no-layout sentences, "fast PA temperature rise".
+4. Apply the named changes to G3/G4, then merge the profile work.
+
 ## END-OF-DAY SEAL — 2026-09-21 — THE CONNECT GETS A COORDINATOR, THE BENCH CATCHES THE PADDING LIVE, AND TWO WRONG ATTRIBUTIONS COME OUT OF THE CODE
 
 **Sealed 2026-09-21 late evening, on `sprint45/integration`. This seal covers

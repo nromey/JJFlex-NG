@@ -486,9 +486,16 @@ Content flows forward: nightly → stable → public. Nothing skips tiers. See `
   is a REGULAR channel, not an exception — Noel and Don correspond this way
   often, and only with Don. **Match the house style**, which the existing
   notes establish: plain ASCII (no em dashes or smart quotes), ALL-CAPS
-  section headings underlined with hyphens, wrapped near 70 columns, and a
+  section headings, wrapped near 70 columns, and a
   `WHAT IS IN THIS FOLDER` section first. The voice is Noel's, first person,
   ham to ham, and it tells Don plainly when he can ignore something.
+  **Do NOT underline the headings.** This line said "underlined with hyphens"
+  until 2026-09-26, when Noel ruled it out — *"No need to underline stuff"* —
+  and the reason generalises to every plain-text artifact a tester reads: a
+  row of hyphens is punctuation a screen reader announces, so it is noise
+  between the heading and the text it introduces. The capitals already mark
+  the heading. `build-debug.bat`'s generated NOTES was already doing this
+  correctly; only this sentence was wrong.
   **Claude may write these when asked; Claude never sends anything else to a
   tester** — the standing rule that Noel handles tester communication is
   unchanged, and this folder is the one place he delegates the drafting.

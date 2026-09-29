@@ -696,10 +696,79 @@ namespace Radios
         internal static bool RemovalSuppressesRosterRaise(RadioRemovalKind kind)
             => kind == RadioRemovalKind.SelfInitiated;
 
+        /// <summary>
+        /// Only a radio-side loss of OUR radio archives the running diagnostic
+        /// capture as <c>connection_dropped</c> (#566's bridge, Sprint 45 Track
+        /// H). The operator's own hang-up must not: it is
+        /// <see cref="RadioRemovalKind.SelfInitiated"/>, the manifest already
+        /// distinguishes the two, and tagging a deliberate disconnect as a drop
+        /// would poison the one query the outcome exists to answer. A discovery
+        /// loss of some OTHER radio says nothing about our session at all.
+        ///
+        /// <para>Pure, and pinned by <c>Radios.Tests</c>, for the same reason
+        /// as its two neighbours: this truth table is consulted at a moment
+        /// nobody is watching and must not rot silently. See
+        /// <see cref="CaptureArchive"/> for what the archive does.</para>
+        /// </summary>
+        internal static bool RemovalArchivesTheCapture(RadioRemovalKind kind)
+            => kind == RadioRemovalKind.ConnectionLostOurRadio;
+
         /// <summary>Nonzero while OUR code is inside a deliberate
         /// <c>theRadio.Disconnect()</c> — FlexLib raises the removal
         /// synchronously on the same thread, so the window is exact.</summary>
         private int _selfDisconnects;
+
+        /// <summary>
+        /// This rig's current lifetime, minted from the command transport's identity.
+        /// </summary>
+        private ConnectionLifetime.Token _connectionToken;
+        public RadioConnectionBinding CurrentConnectionBinding { get; private set; }
+        public event Action<ConnectionClientReport> ConnectionClientReported;
+        private readonly Dictionary<Radio, Action<CommandConnectionChanged>> _connectionHandlers = new();
+        private readonly Dictionary<Radio, Action<RadioClientReport>> _clientReportHandlers = new();
+        private sealed record CommandRoute(Radio Radio, string Handle, string AccountId);
+        private CommandRoute _commandRoute;
+
+        // Capture the executed broker result, never the selected account or a later list lookup.
+        private void rememberCommandRoute(Radio radio, string handle, string accountId)
+        {
+            _commandRoute = new CommandRoute(radio, handle, accountId);
+        }
+
+        private void onCommandConnectionChanged(Radio radio, CommandConnectionChanged report)
+        {
+            if (!ReferenceEquals(report.Connection, radio.CurrentCommandConnection)) return;
+            if (report.State == CommandConnectionState.Connecting)
+            {
+                if (!ReferenceEquals(radio, theRadio)) return;
+                _connectionToken = ConnectionLifetime.Bind(report.Connection,
+                    radio.Serial + " " + (radio.Nickname ?? ""), out var outcome);
+                var route = _commandRoute;
+                string account = radio.IsWan && route != null && ReferenceEquals(radio, route.Radio)
+                    && string.Equals(radio.WANConnectionHandle, route.Handle, StringComparison.Ordinal)
+                    ? route.AccountId : null;
+                CurrentConnectionBinding = new RadioConnectionBinding(report.Connection, _connectionToken,
+                    radio.Serial, radio.IsWan, account);
+                ConnectionLifetime.TraceBindOutcome(outcome, _connectionToken, "transport attempt");
+                return;
+            }
+            // A failed attempt never became a connection to lose.
+            if (report.State == CommandConnectionState.Disconnected && !report.WasConnected) return;
+            var binding = CurrentConnectionBinding;
+            // A saved callback for an old connection cannot change or claim the live one.
+            if (ReferenceEquals(radio, theRadio)
+                && (binding == null || !ReferenceEquals(report.Connection, binding.Connection))) return;
+            onRadioConnectedChanged(radio, report, binding?.Lifetime);
+        }
+
+        private void onRadioClientReported(Radio radio, RadioClientReport report)
+        {
+            var binding = CurrentConnectionBinding;
+            if (!ReferenceEquals(radio, theRadio) || binding == null
+                || !ReferenceEquals(report.Connection, radio.CurrentCommandConnection)
+                || !ReferenceEquals(report.Connection, binding.Connection)) return;
+            ConnectionClientReported?.Invoke(new ConnectionClientReport(binding, report));
+        }
 
         /// <summary>
         /// A deliberate teardown disconnect, marked so the synchronous
@@ -718,6 +787,223 @@ namespace Radios
                 Tracing.TraceLine($"teardownDisconnect ({reason}): {ex.Message}", TraceLevel.Warning);
             }
             finally { System.Threading.Interlocked.Decrement(ref _selfDisconnects); }
+        }
+
+        /// <summary>
+        /// Set when we have handed the radio a firmware image, so the
+        /// connection falling while it restarts is not read as a drop.
+        ///
+        /// <para><b>On its own it proves nothing, and it no longer exempts
+        /// anything on its own</b> (Sprint 45 Track H6, Sol's review finding
+        /// 6). It is set before <c>SendUpdateFile</c>, and FlexLib's
+        /// <c>SendUpdateFile</c> returns WITHOUT THROWING when the file is
+        /// missing or the upgrade port will not parse, and catches a failed
+        /// transfer itself — so a completed task is not evidence an image went
+        /// anywhere. Kept only until the next <see cref="Connect"/>, the flag
+        /// used to misfile a genuine later drop on the same connection as a
+        /// firmware restart and archive nothing. So the exemption now needs BOTH
+        /// this and FlexLib's own confirmation that an update is in progress
+        /// (<see cref="RadioReportsUpdating"/>), and this is cleared on every
+        /// path that ends without one: the transfer settling with FlexLib not
+        /// updating, the transfer faulting, the call throwing, the exempted
+        /// restart itself, and the next <see cref="Connect"/>.</para>
+        ///
+        /// <para><b>Why this exists at all.</b> While the archive hung off
+        /// <c>API.RadioRemoved</c>, a firmware update never reached it:
+        /// FlexLib's <c>RemoveRadio</c> returns early for a radio that is
+        /// updating. The <c>Connected</c> fall has no such exemption, so moving
+        /// the trigger there would have started archiving every firmware update
+        /// the operator asked for as <c>connection_dropped</c>, and showing the
+        /// drop window over it. FlexLib's own updating flag is internal, so we
+        /// keep ours.</para>
+        /// </summary>
+        private volatile bool _firmwareUpdateSent;
+
+        /// <summary>
+        /// Completes when the last firmware transfer's outcome has been
+        /// settled against <see cref="_firmwareUpdateSent"/>. Tests await it;
+        /// nothing in production does.
+        /// </summary>
+        private Task _firmwareTransferSettled = Task.CompletedTask;
+
+        /// <summary>
+        /// FlexLib's own "this radio is updating" flag: <c>Radio.Updating</c>,
+        /// which is internal. Set only once the radio has handed back an
+        /// upgrade port and the image is about to go; cleared by FlexLib itself
+        /// when the transfer throws. It is the exact condition the OLD trigger
+        /// honoured — <c>API.RemoveRadio</c> returns early for an updating
+        /// radio — so it is the confirmation the exemption was missing.
+        ///
+        /// <para>Read by reflection because it is internal and vendor files are
+        /// not edited without a ruling. If a FlexLib upgrade renames it this
+        /// answers false — no exemption, so a firmware restart would be archived
+        /// as a drop, the visible and recoverable failure rather than a silent
+        /// one — and <c>ConnectionFallArchiveTests</c> goes red the same
+        /// day.</para>
+        /// </summary>
+        private static readonly System.Reflection.PropertyInfo _flexLibUpdating =
+            typeof(Radio).GetProperty("Updating",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+        /// <summary>True when FlexLib reports this radio mid-update.</summary>
+        internal static bool RadioReportsUpdating(Radio r)
+        {
+            if (r == null || _flexLibUpdating == null) return false;
+            try { return (bool)_flexLibUpdating.GetValue(r); }
+            catch { return false; }
+        }
+
+        /// <summary>
+        /// Whether our connection falling archives the capture. The same
+        /// classification the removal handler uses — a hang-up is ours and
+        /// does not archive, another object's fall says nothing about our
+        /// session — with one more deliberate case: a radio restarting because
+        /// we sent it firmware AND FlexLib confirms it is updating. Either half
+        /// alone is not a firmware restart. Pure, so the truth table is pinned
+        /// by tests.
+        /// </summary>
+        internal static bool ConnectionFallArchivesTheCapture(RadioRemovalKind kind,
+                                                           bool firmwareUpdateSent,
+                                                           bool radioUpdating)
+            => RemovalArchivesTheCapture(kind) && !(firmwareUpdateSent && radioUpdating);
+
+        /// <summary>
+        /// The Radio's <c>Connected</c> property has just gone false. If it was
+        /// OUR connection and we did not ask for it, archive the running capture as
+        /// <c>connection_dropped</c> (#566's bridge).
+        ///
+        /// <para><b>THIS IS THE ONE PLACE THE ARCHIVE IS TAKEN, and it is here
+        /// because this is the only signal FlexLib raises on every path.</b> On
+        /// a transport loss FlexLib sets <c>Connected</c> false, then calls its
+        /// own <c>Disconnect</c>, which calls <c>API.RemoveRadio</c> — and
+        /// <c>RemoveRadio</c> raises <c>RadioRemoved</c> only for a serial in
+        /// its LAN discovery dictionary. A radio reached only through SmartLink
+        /// is never in it. Tracks H, H2 and H3 archived on <c>RadioRemoved</c>,
+        /// so on Don's path no drop was ever archived; the 8600 on the bench is
+        /// on the LAN too, which is why it looked right there.</para>
+        ///
+        /// <para><b>Exactly once on a dual-homed radio.</b> Both signals arrive
+        /// there, <c>Connected</c> false first and <c>RadioRemoved</c> after it,
+        /// on the same thread. The removal handler's drop arm is roster
+        /// bookkeeping only, so it never asks for an archive; and any repeat of this
+        /// call for the same connection is refused by the connection lifetime's
+        /// claim inside <see cref="CaptureArchive.AfterConnectionDrop"/>.</para>
+        ///
+        /// <para>The qualified transport event survives Radio reuse. Its lifetime
+        /// token travels into the archive; no lookup by the reused object occurs.</para>
+        /// </summary>
+        /// <param name="r">The Radio whose <c>Connected</c> fell.</param>
+        /// <param name="fall">The session read ONCE at the top of the fall, or
+        /// null when nothing was recording then. Every line here and the archive
+        /// are bound to it. See onRadioConnectedChanged.</param>
+        private void archiveIfOurConnectionDropped(Radio r, ConnectionLifetime.Token token, JJTrace.TraceSessionHandle fall)
+        {
+            if (r == null) return;
+            var kind = ClassifyRadioRemoval(
+                selfDisconnectActive: System.Threading.Volatile.Read(ref _selfDisconnects) > 0,
+                disconnectingFlag: Disconnecting,
+                sameObject: ReferenceEquals(r, theRadio));
+            bool firmwareSent = _firmwareUpdateSent;
+            bool updating = firmwareSent && RadioReportsUpdating(r);
+
+            // Deferred, all of them: this is FlexLib's transport thread, and
+            // nothing on it may wait on the trace gate before the claim. See
+            // onRadioConnectedChanged. And bound to the fall's one handle.
+            if (!ConnectionFallArchivesTheCapture(kind, firmwareSent, updating))
+            {
+                bool firmwareRestart = RemovalArchivesTheCapture(kind);
+                // The exemption covers ONE restart. Used here, it is spent: a
+                // later fall of this object is a drop again.
+                if (firmwareRestart) _firmwareUpdateSent = false;
+                Tracing.TraceLineDeferred(
+                    $"connection fell: {r.Serial} ({r.Nickname}) — {kind}"
+                    + (firmwareRestart ? ", the radio restarting for the firmware update we sent (FlexLib reports it updating)" : "")
+                    + "; not a drop, nothing archived",
+                    TraceLevel.Info, fall);
+                return;
+            }
+
+            if (firmwareSent)
+            {
+                // Said out loud because it is exactly the case the old flag got
+                // wrong: an image was handed over, but FlexLib says no update is
+                // in progress, so this is a real drop and it archives.
+                Tracing.TraceLineDeferred(
+                    $"connection fell: {r.Serial} — a firmware image was sent on this connection, but FlexLib"
+                    + " reports no update in progress, so this is a drop, not a restart",
+                    TraceLevel.Warning, fall);
+            }
+
+            Tracing.TraceLineDeferred(
+                $"connection fell: {r.Serial} ({r.Nickname}) — our connection dropped without us asking; archiving the capture",
+                TraceLevel.Warning, fall);
+
+            // Returns at once; the zip happens off this thread, which is
+            // FlexLib's own transport thread in the middle of a teardown.
+            //
+            // The producer token identifies the drop even when the Radio is reused.
+            //
+            // CLAIM FIRST, THEN COLLECT (#618). The meter window is rendered by
+            // the closure, which AfterConnectionDrop calls only after winning
+            // the claim; the line then travels as data into the trace boundary
+            // and is written to the accepted session or to nothing at all.
+            //
+            // The fall's one handle goes with it, so the archive names the session
+            // the fall's lines were bound to — the four-argument overload,
+            // which never reads the handle again; null means nothing was
+            // recording when the fall began, and nothing is archived.
+            CaptureArchive.AfterConnectionDrop(
+                token, r.Nickname ?? "",
+                () => collectCaptureMeterFlush(CaptureMeterSet.PartialConnectionDropped),
+                fall);
+        }
+
+        /// <summary>
+        /// Subscribe this rig to a Radio's QUALIFIED producer events — the
+        /// connection-state and client reports that carry the
+        /// <see cref="CommandConnection"/> they came from — at most once per
+        /// radio object. Idempotent on purpose: a Radio object can come back
+        /// to <see cref="Connect"/> without this rig having disconnected it —
+        /// a failed leg of the connect walk, or a SmartLink reconnect handed
+        /// the same object — and a second subscription dispatches every
+        /// report twice, the connection falling included.
+        ///
+        /// <para><b>The radio's ordinary <c>PropertyChanged</c> is NOT wired
+        /// here.</b> It belongs to the STATION ATTEMPT and is wired by
+        /// <see cref="WireStationHandlers"/> through the attempt's immutable
+        /// binding, one wiring per rig, the previous one unwired first.
+        /// Until Track H met Track G at the integration merge this helper
+        /// subscribed <c>radioPropertyChangedHandler</c> raw as well; the
+        /// merged tree would have dispatched every property change twice,
+        /// which is the very stacking this helper's idempotency exists to
+        /// prevent. Two seams, two helpers: see the comment at the call site
+        /// in <see cref="Connect"/> for what each identity is for.</para>
+        /// </summary>
+        private void wireProducerHandlers(Radio radio)
+        {
+            if (radio == null) return;
+            if (!_connectionHandlers.ContainsKey(radio))
+            {
+                Action<CommandConnectionChanged> connection = report => onCommandConnectionChanged(radio, report);
+                Action<RadioClientReport> client = report => onRadioClientReported(radio, report);
+                _connectionHandlers.Add(radio, connection);
+                _clientReportHandlers.Add(radio, client);
+                radio.CommandConnectionChanged += connection;
+                radio.ClientReported += client;
+            }
+        }
+
+        /// <summary>
+        /// Take this rig's producer handlers off a Radio it is letting go of,
+        /// so a later connection on the same object does not carry this one's
+        /// handlers as well. The station wiring on the same object is let go
+        /// of beside it, by <see cref="UnwireStationHandlers"/>.
+        /// </summary>
+        private void unwireProducerHandlers(Radio radio)
+        {
+            if (radio == null) return;
+            if (_connectionHandlers.Remove(radio, out var connection)) radio.CommandConnectionChanged -= connection;
+            if (_clientReportHandlers.Remove(radio, out var client)) radio.ClientReported -= client;
         }
 
         private void apiRadioRemovedHandler(Radio r)
@@ -740,11 +1026,48 @@ namespace Radios
                     Tracing.TraceLine(
                         $"apiRadioRemovedHandler: {r.Serial} ({r.Nickname}) released by our own disconnect — FlexLib lifecycle removal, NOT a discovery loss; roster keeps the row (#402)",
                         TraceLevel.Info);
+                    // THE CONNECTION LIFETIME IS DELIBERATELY NOT TOUCHED HERE.
+                    //
+                    // The first shape of this retired the lifetime on a
+                    // deliberate disconnect, reasoning that a hang-up ends a
+                    // connection. It does — but "retired" in this design means
+                    // TERMINALLY retired by a claimed LOSS, and that carries the
+                    // rule that the object is never rebound. Applying it to a
+                    // hang-up made the unresolved SmartLink case reachable by an
+                    // ordinary sequence: disconnect, reconnect over SmartLink
+                    // (whose handle bank can hand back the same object), radio
+                    // dies — and the drop would not have archived, silently losing
+                    // the evidence this whole bridge exists to produce.
+                    //
+                    // Nothing is needed here anyway. A self-initiated removal
+                    // never reaches the archive, because RemovalArchivesTheCapture
+                    // answers only for ConnectionLostOurRadio. The lifetime
+                    // simply spans the hang-up and the reconnect, unclaimed, so
+                    // a genuine later drop can still claim it exactly once.
                     break;
                 case RadioRemovalKind.ConnectionLostOurRadio:
                     Tracing.TraceLine(
                         $"apiRadioRemovedHandler: {r.Serial} ({r.Nickname}) retired after its connection dropped — the radio may still be on the air; discovery will say (#402)",
                         TraceLevel.Info);
+                    // ROSTER BOOKKEEPING ONLY. THE ARCHIVE DOES NOT LIVE HERE ANY
+                    // MORE, and it must not come back.
+                    //
+                    // Tracks H, H2 and H3 archived the capture in this arm. FlexLib
+                    // never raises RadioRemoved for a radio reached only through
+                    // SmartLink: API.RemoveRadio returns without an event when
+                    // the serial is not in its LAN discovery dictionary, and only
+                    // LAN discovery writes that dictionary. So on a SmartLink-only
+                    // path — Don's 6300 — this arm is never reached and no drop
+                    // was ever archived, first loss included. It worked on the bench
+                    // only because the 8600 is on the LAN as well.
+                    //
+                    // The archive is taken where the drop is signalled on EVERY path:
+                    // the Radio's Connected property falling, in
+                    // radioPropertyChangedHandler, which FlexLib raises on this
+                    // same thread just BEFORE it calls RemoveRadio. On a
+                    // dual-homed radio this arm still arrives afterwards, and
+                    // leaving the archive out of it is what keeps that to one archive.
+                    // See archiveIfOurConnectionDropped.
                     break;
                 default:
                     Tracing.TraceLine($"apiRadioRemovedHandler: {r.Serial} ({r.Nickname}) gone from discovery — removing", TraceLevel.Info);
@@ -1884,6 +2207,10 @@ namespace Radios
             // radio that is not ours (#499). See _radioReportedAutosave.
             _radioReportedAutosave = false;
 
+            // Fresh connection: whatever firmware we once sent is behind us, and
+            // this connection falling is a drop again.
+            _firmwareUpdateSent = false;
+
             ConnectionProfiler.Current?.RecordEvent("connect_begin", new Dictionary<string, object>
             {
                 { "serial", serial },
@@ -1913,6 +2240,9 @@ namespace Radios
                 return false;
             }
 
+            // Each transport attempt will bind its own producer identity when it starts.
+            rememberCommandRoute(null, null, null);
+
             ConnectionProfiler.Current?.RecordEvent("connect_radio_found", new Dictionary<string, object>
             {
                 { "serial", theRadio.Serial },
@@ -1936,23 +2266,77 @@ namespace Radios
             // and a guard loaded after the writes it governs is scenery (#403).
             SetChangeNothingActive(knownRadioProfile.ChangeNothingOnThisRadio);
 
+            // Forget the last radio's meters BEFORE anything is subscribed on
+            // this one (#625, H18 — Sol's H17 review, blocker 3). This ran
+            // after the meter handlers below were subscribed, so a forward,
+            // reflected or SWR reading that arrived in between was stored and
+            // then disowned by the reset: a later txMeters line said no-sample
+            // for a value this connection had reported. Reset first, and
+            // nothing that arrives on this connection can be erased by it.
+            // Read from the code, not observed: the old order also let
+            // micData's inventory pass hook the radio's meters before the
+            // reset forgot them, so the next pass would hook them a second
+            // time (see syncMeterInventory). It sits ahead of the station
+            // attempt as well, because a same-object retry rewires the radio's
+            // PropertyChanged inside BeginStationAttempt, and that is a
+            // subscription.
+            resetMeterInventory();
+
+            // TWO IDENTITIES ARE MINTED FROM HERE, FOR TWO DIFFERENT THINGS,
+            // and neither stands in for the other (Sprint 45, Tracks G and H,
+            // reconciled at the integration merge).
+            //
+            //  - The STATION ATTEMPT (Track G, #590): one per Connect or
+            //    RetryConnect, the application's unit of "establish this
+            //    operator's station on this radio". ConnectionAttempt and the
+            //    immutable ObservationBinding scope OBSERVATIONS — the roster,
+            //    our own slices, profile evidence — and the operations that
+            //    wait on them. Begun here; ended by Disconnect, by a teardown,
+            //    or by the fall of this rig's own connection.
+            //  - The TRANSPORT CONNECTION (Track H, #637): one per socket the
+            //    vendor opens, and there may be several inside one station
+            //    attempt (a failed LAN leg, then the WAN leg). CommandConnection
+            //    and its ConnectionLifetime token scope the connection's RISE
+            //    and FALL and the client reports it carries. The vendor mints
+            //    them when a transport attempt starts; they reach this rig
+            //    through the qualified events wired below, never through
+            //    PropertyChanged.
+            //
+            // So "which connection does this callback belong to?" has two
+            // answers on purpose. A property, roster, slice or panadapter
+            // callback belongs to a STATION ATTEMPT and is judged by the
+            // binding its closure was wired with (IsCurrentBinding). A
+            // connected-state or client report belongs to a TRANSPORT
+            // CONNECTION and is judged against CurrentConnectionBinding.
+            // Connected itself is answered ONLY by the transport seam: see
+            // onRadioConnectedChanged, which is also where a fall cancels the
+            // station attempt.
+
             // Begin the station-connect attempt BEFORE the handlers are wired
             // and before Connect(): observation is subscribed before any
             // command is sent, and every callback from here is stamped with
             // this attempt's generation (design step 1).
             BeginStationAttempt(theRadio, "Connect");
 
-            // add the handlers. The station-observation handlers are wired
-            // through the IMMUTABLE binding minted for this attempt just
-            // above (WireStationHandlers): each closure carries it, so a
-            // callback raised by this object is stamped with the attempt the
-            // closure was wired for — never with whatever attempt is current
-            // when the callback runs — and a closure whose binding is no
-            // longer current drops its callback whole. A retry replaces the
-            // closures rather than re-pointing the binding. FlexLib never
-            // unwires these by itself and discovery keeps updating every
-            // radio object it ever built.
+            // add the handlers. The station-observation handlers — the radio's
+            // PropertyChanged among them — are wired through the IMMUTABLE
+            // binding minted for this attempt just above (WireStationHandlers):
+            // each closure carries it, so a callback raised by this object is
+            // stamped with the attempt the closure was wired for — never with
+            // whatever attempt is current when the callback runs — and a
+            // closure whose binding is no longer current drops its callback
+            // whole. A retry replaces the closures rather than re-pointing the
+            // binding, and the previous wiring is unwired first, so one radio
+            // object never carries two of them. FlexLib never unwires these by
+            // itself and discovery keeps updating every radio object it ever
+            // built.
             WireStationHandlers(theRadio);
+            // The qualified transport seam: the producer's connection-state
+            // and client reports, each carrying the CommandConnection it came
+            // from. Idempotent per radio object — this carries the
+            // connection-fall archive, and a second copy would dispatch it
+            // twice.
+            wireProducerHandlers(theRadio);
             theRadio.MessageReceived += new Radio.MessageReceivedEventHandler(messageReceivedHandler);
             theRadio.WaterfallRemoved += new Radio.WaterfallRemovedEventHandler(waterfallRemoved);
             theRadio.TNFAdded += new Radio.TNFAddedEventHandler(tnfAdded);
@@ -1976,12 +2360,12 @@ namespace Radios
             theRadio.PAEffDataReady += new Radio.MeterDataReadyEventHandler(paEffData);
 
             // Sprint 32 Track A: and now EVERY meter, not just the ten named
-            // convenience events above. Fresh radio, fresh subscriptions. This
+            // convenience events above. Fresh radio, fresh subscriptions: the
+            // inventory was reset before any handler was hooked, above. This
             // first pass usually finds the list still filling — meter
             // registration runs on after connect — which is exactly why the
             // reconcile is re-driven from every meter reading rather than
             // trusted once here.
-            resetMeterInventory();
             syncMeterInventory();
 
             theRadio.TxBandSettingsAdded += new Radio.TxBandSettingsAddedEventHandler(txBandSettingsHandler);
@@ -2518,6 +2902,9 @@ namespace Radios
                 return false;
             }
 
+            // A retry that opens another transport gets another producer identity.
+            rememberCommandRoute(null, null, null);
+
             var sw = System.Diagnostics.Stopwatch.StartNew();
             Tracing.TraceLine($"RetryConnect: BEGIN serial={theRadio.Serial}", TraceLevel.Info);
 
@@ -3024,6 +3411,11 @@ namespace Radios
             Tracing.TraceLine("Disconnect:" + (string)((theRadio == null) ? "null" : theRadio.Serial), TraceLevel.Info);
             if (theRadio == null) return;
 
+            // Held for the end of this method, which lets go of this rig's
+            // handlers on the object once its fall has been seen. theRadio
+            // itself is cleared part way through.
+            Radio releasing = theRadio;
+
             // The teardown is its own OPERATION, begun first: every earlier
             // operation on this connection ends now, so any automatic work it
             // queued (a load, a selection, an allocation, a live-audio
@@ -3096,8 +3488,8 @@ namespace Radios
             // user knows the radio is going away. Fires before the actual
             // disconnect work (which can take 3+ seconds) so feedback is
             // immediate. This is the user-initiated / clean disconnect path;
-            // unexpected drops (radioPropertyChangedHandler when Connected
-            // flips to false from external causes) get a different signal —
+            // unexpected drops (onRadioConnectedChanged when this rig's own
+            // connection falls from external causes) get a different signal —
             // see project_stuck_modal_escape_design.md.
             if (!SuppressSpeech)
             {
@@ -3231,6 +3623,22 @@ namespace Radios
                 theRadio = null;
             }
 
+            // Let go of this rig's handlers on the object — the producer seam
+            // and the station wiring both — so a later connection handed this
+            // same Radio object carries one set rather than two. Only once the
+            // object reports itself disconnected: its fall is what sets
+            // IsConnected false (onRadioConnectedChanged), so a radio that has
+            // not yet let go keeps its handlers until it does. That fall is
+            // ours and archives nothing, because Disconnecting is already set;
+            // and the station attempt it would cancel was cancelled above.
+            if (!releasing.Connected)
+            {
+                unwireProducerHandlers(releasing);
+                UnwireStationHandlers(releasing);
+            }
+            else
+                Tracing.TraceLine("Disconnect: the radio still reports connected; its handlers stay until it lets go", TraceLevel.Info);
+
             // Now collect the farewell started at the top of this method. See the
             // long comment there: this path plays SK and suppresses the only
             // other path that knew how to wait, so it has to do the waiting
@@ -3335,7 +3743,7 @@ namespace Radios
             return Math.Clamp(budget, SkFarewellFallbackMs, SkFarewellCeilingMs);
         }
 
-        private bool _IsConnected = false; // set in radioPropertyChangedHandler
+        private bool _IsConnected = false; // set in onRadioConnectedChanged, from the qualified transport event
         /// <summary>
         /// True if connected.
         /// </summary>
@@ -5190,31 +5598,76 @@ namespace Radios
             try
             {
                 Tracing.TraceLine($"BeginFirmwareUpdate: sending {path}", TraceLevel.Info);
+                // Before the send, so the restart it causes is never read as a
+                // drop. It exempts nothing on its own: FlexLib must ALSO report
+                // the radio updating. See _firmwareUpdateSent.
+                _firmwareUpdateSent = true;
+                Radio sending = theRadio;
                 // FlexLib 4.2.x made this async Task where 4.1.x was fire-and-forget
                 // void. Completion is still watched via discovery, not this task —
                 // but a faulted transfer means the image never arrived, and that
                 // must be said out loud instead of letting the UI sit on "sending"
                 // (live run 2026-08-05: radio RST the upload socket 1.4s in and
                 // the flow sailed on to "waiting for restart").
-                theRadio.SendUpdateFile(path).ContinueWith(
+                //
+                // One continuation for EVERY outcome now, not only a fault: a
+                // task that completes successfully is not evidence an image was
+                // sent, and each completion has to settle the exemption flag.
+                _firmwareTransferSettled = sending.SendUpdateFile(path).ContinueWith(
                     t =>
                     {
-                        string detail = t.Exception?.GetBaseException().Message ?? Lexicon.Get("settings.firmware.unknown_error");
-                        Tracing.TraceLine($"BeginFirmwareUpdate: transfer task faulted: {detail}", TraceLevel.Error);
-                        ScreenReaderOutput.Speak(
-                            Lexicon.Get("settings.firmware.transfer_fault"),
-                            VerbosityLevel.Critical, true);
-                        try { onTransferFault?.Invoke(detail); }
-                        catch (Exception cbEx) { Tracing.TraceLine($"BeginFirmwareUpdate: fault callback threw: {cbEx.Message}", TraceLevel.Error); }
+                        if (t.IsFaulted)
+                        {
+                            string detail = t.Exception?.GetBaseException().Message ?? Lexicon.Get("settings.firmware.unknown_error");
+                            Tracing.TraceLine($"BeginFirmwareUpdate: transfer task faulted: {detail}", TraceLevel.Error);
+                            ScreenReaderOutput.Speak(
+                                Lexicon.Get("settings.firmware.transfer_fault"),
+                                VerbosityLevel.Critical, true);
+                            try { onTransferFault?.Invoke(detail); }
+                            catch (Exception cbEx) { Tracing.TraceLine($"BeginFirmwareUpdate: fault callback threw: {cbEx.Message}", TraceLevel.Error); }
+                        }
+                        settleFirmwareExemption(sending, t.IsFaulted);
                     },
-                    TaskContinuationOptions.OnlyOnFaulted);
+                    TaskScheduler.Default);
                 return true;
             }
             catch (Exception ex)
             {
+                // Nothing was sent, so nothing is restarting.
+                _firmwareUpdateSent = false;
                 Tracing.TraceLine($"BeginFirmwareUpdate: {ex.Message}", TraceLevel.Error);
                 return false;
             }
+        }
+
+        /// <summary>
+        /// The firmware transfer's task has completed, one way or another.
+        /// Keep the exemption only if FlexLib confirms the radio is updating;
+        /// otherwise nothing is restarting and a later fall of this connection
+        /// is a drop (Sol's review of H3, finding 6).
+        ///
+        /// <para>FlexLib's task completes SUCCESSFULLY on a missing file, on an
+        /// upgrade port it cannot parse, and after catching a failed transfer —
+        /// in the last case clearing its own updating flag first. Only a real
+        /// transfer leaves that flag set, and then the restart that follows
+        /// spends the exemption in <see cref="archiveIfOurConnectionDropped"/>.</para>
+        /// </summary>
+        private void settleFirmwareExemption(Radio sending, bool faulted)
+        {
+            if (!faulted && RadioReportsUpdating(sending))
+            {
+                Tracing.TraceLine(
+                    "BeginFirmwareUpdate: transfer finished and FlexLib reports the radio updating — its restart will not be archived as a drop",
+                    TraceLevel.Info);
+                return;
+            }
+            if (!_firmwareUpdateSent) return;
+            _firmwareUpdateSent = false;
+            Tracing.TraceLine(
+                "BeginFirmwareUpdate: the transfer ended without an update in progress ("
+                + (faulted ? "it faulted" : "FlexLib returned without sending, or caught a failed send")
+                + ") — a later loss of this connection is a drop again",
+                TraceLevel.Warning);
         }
 
         /// <summary>
@@ -7527,6 +7980,7 @@ namespace Radios
             }
 
             r.WANConnectionHandle = handle;
+            rememberCommandRoute(r, handle, session.AccountId);
 
             // Refresh the per-radio profile stub on every successful WAN
             // connect: keeps the nickname current and guarantees every radio
@@ -7913,10 +8367,152 @@ namespace Radios
         {
             FeatureLicenseChanged?.Invoke(this, EventArgs.Empty);
         }
+        /// <summary>
+        /// Whether a <c>Connected</c> change reported by a Radio object may
+        /// change this rig's own connection state. Pure, so the table is pinned
+        /// by tests.
+        ///
+        /// <para>Yes for the rig's own Radio. No for any other object — a
+        /// handler left on an abandoned object must not speak for the live
+        /// connection. One deliberate exception: when the rig has no Radio at
+        /// all, a FALL may still apply. That is the object
+        /// <see cref="Disconnect"/> is letting go of when the radio took longer
+        /// than its wait to let go, and "disconnected" is the only true state
+        /// for a rig with no radio; a RISE from a stranger never is.</para>
+        /// </summary>
+        internal static bool ConnectionStateAppliesToRig(bool fromOurRadio, bool rigHasRadio, bool nowConnected)
+            => fromOurRadio || (!rigHasRadio && !nowConnected);
+
+        private int _strandedConnectionChangesIgnored;
+
+        /// <summary>How many Connected changes from objects that are not this
+        /// rig's connection were ignored. Diagnostic, and the tests' positive
+        /// control that such a change really reached the handler.</summary>
+        internal int StrandedConnectionChangesIgnored => Volatile.Read(ref _strandedConnectionChangesIgnored);
+
+        /// <summary>
+        /// Our Radio reported a qualified transport transition. The producer identity
+        /// and state travel with the callback instead of being read from a reused Radio.
+        ///
+        /// <para><b>On a fall, nothing here waits on the trace gate before the
+        /// drop is claimed</b> (Sprint 45 Track H6, Sol's review of H3, finding
+        /// 1). FlexLib raises this on its own transport thread, mid-teardown.
+        /// An ordinary <c>Tracing.TraceLine</c> passes the trace coordinator's
+        /// gate, and that gate is held across a lifecycle transition's flush,
+        /// close, move and successor open — so a disk that stalled under a
+        /// capture stop would have stalled FlexLib's teardown, and the drop's
+        /// claim with it. The lines a fall writes are therefore DEFERRED:
+        /// formatted now, with this moment's timestamp and thread, and written
+        /// by the archive worker before it archives, so they still land in the
+        /// session they describe. A rise is not a loss path and traces
+        /// normally.</para>
+        ///
+        /// <para>What runs AFTER the archive is queued — the
+        /// <see cref="ConnectionStateChanged"/> subscribers — is ordinary
+        /// application code and traces as it always has.</para>
+        /// </summary>
+        private void onRadioConnectedChanged(Radio r, CommandConnectionChanged report, ConnectionLifetime.Token token)
+        {
+            // The immutable event describes the transition, even when its delivery was delayed.
+            bool nowConnected = report.State == CommandConnectionState.Connected;
+
+            // AND THE SESSION IS READ ONCE TOO, here, at the top of the fall
+            // (Sprint 45 Track H8; Sol's review of H7, the item for a harder
+            // reader). Every deferred line this fall writes — here, in
+            // archiveIfOurConnectionDropped, and inside CaptureArchive — and the
+            // archive request itself are bound to THIS handle. Read per line, as
+            // they were, a Stop completing between two lines bound the first
+            // to the old session and the rest, and the archive, to its
+            // successor: one fall with two identities. Null when nothing is
+            // recording, which binds nothing and archives nothing; a session
+            // that opens during the fall is not this fall's.
+            JJTrace.TraceSessionHandle fall = nowConnected ? null : JJTrace.TraceCoordinator.CurrentHandle;
+            Action<string, TraceLevel> trace = nowConnected
+                ? (Action<string, TraceLevel>)Tracing.TraceLine
+                : (s, l) => Tracing.TraceLineDeferred(s, l, fall);
+
+            trace("propertyChanged:Radio:Connected", TraceLevel.Verbose);
+            if (!(r.ClientHandle != 0) & myClient(r.ClientHandle))
+            {
+                // TraceLevel.Off passes every switch level: this line was
+                // unconditional before it moved here, and still is.
+                trace("propertyChanged:Radio:NotMine:Connected", TraceLevel.Off);
+            }
+
+            // A STRANDED HANDLER MUST NOT FLIP THE LIVE RIG'S STATE (Sprint 45
+            // Track H6, Sol's review finding 7). This used to set IsConnected
+            // and raise ConnectionStateChanged for a change on ANY object
+            // carrying this handler — a failed leg of the connect walk that
+            // Connect moved away from, say — so an abandoned object falling
+            // told the whole application the live radio had gone. The archive
+            // already checked the object; the rig's state now does too.
+            //
+            // AND THE BARE "Connected:False" LINE COMES AFTER THIS CHECK (Sol's
+            // review of H6, finding 7). Written before it, a stranded object's
+            // fall left an unqualified connected-state line in the live trace
+            // — reading exactly like the live radio going — while the rig
+            // correctly ignored it. The ignored branch writes its own line,
+            // naming the object; the unqualified line is now only ever about
+            // this rig's connection.
+            Radio live = theRadio;
+            if (!ConnectionStateAppliesToRig(ReferenceEquals(r, live), live != null, nowConnected))
+            {
+                Interlocked.Increment(ref _strandedConnectionChangesIgnored);
+                trace($"Connected:{nowConnected} on {r.Serial}, which is not this rig's connection — ignored;"
+                      + " the live connection's state is unchanged", TraceLevel.Info);
+                return;
+            }
+            trace("Connected:" + nowConnected.ToString(), TraceLevel.Error);
+
+            _IsConnected = nowConnected;
+            // The archive is taken BEFORE ConnectionStateChanged, so a subscriber
+            // that throws cannot cost the evidence.
+            if (!nowConnected) archiveIfOurConnectionDropped(r, token, fall);
+            // A drop invalidates the STATION ATTEMPT at once (Track G, #590):
+            // a coordinator blocked in a wait ends Cancelled rather than
+            // running out its deadline against a dead link. It lives here and
+            // not in the property switch, because this is the one place a
+            // fall of THIS rig's connection is established — a stranded
+            // object's fall returned above, and a stale transport's fall on
+            // this object was refused in onCommandConnectionChanged, so
+            // neither can cancel a live attempt. After the archive, because
+            // CancelStationAttempt traces through the ordinary gate the fall's
+            // claim must not wait on; before ConnectionStateChanged, so its
+            // subscribers see the attempt already ended, as they did when the
+            // cancel sat in the switch.
+            if (!nowConnected) CancelStationAttempt("connection dropped");
+            ConnectionStateChanged?.Invoke(nowConnected);
+#if zero
+            bool justReconnected = false;
+            if (!r.Connected &&
+                !Disconnecting &&
+                !string.IsNullOrEmpty(clientID))
+            {
+                justReconnected = true;
+                theRadio.Connect(clientID);
+            }
+            else
+            {
+                raiseConnectedEvent(r.Connected);
+            }
+#endif
+            //raiseConnectedEvent(r.Connected);
+        }
+
         private void radioPropertyChangedHandler(object sender, PropertyChangedEventArgs e, ObservationBinding binding)
         {
-            Tracing.TraceLine("propertyChanged:Radio:" + e.PropertyName, TraceLevel.Verbose);
             Radio r = (Radio)sender;
+            // THE CONNECTION CHANGING IS HANDLED BEFORE ANY ORDINARY TRACE LINE.
+            // FlexLib raises it on its transport thread in the middle of a
+            // teardown, and an ordinary line waits on the trace gate, which a
+            // lifecycle transition holds across file I/O. See
+            // onRadioConnectedChanged.
+            if (e.PropertyName == "Connected")
+            {
+                // Connection state is consumed only from the qualified producer event.
+                return;
+            }
+            Tracing.TraceLine("propertyChanged:Radio:" + e.PropertyName, TraceLevel.Verbose);
             if (!(r.ClientHandle != 0) & myClient(r.ClientHandle))
             {
                 Tracing.TraceLine("propertyChanged:Radio:NotMine:" + e.PropertyName);
@@ -8058,32 +8654,10 @@ namespace Radios
                     }
                     break;
 #endif
-                case "Connected":
-                    {
-                        Tracing.TraceLine("Connected:" + r.Connected.ToString(), TraceLevel.Error);
-                        _IsConnected = r.Connected;
-                        // A drop invalidates the station attempt at once: a
-                        // coordinator blocked in a wait ends Cancelled rather
-                        // than running out its deadline against a dead link.
-                        if (!r.Connected) CancelStationAttempt("connection dropped");
-                        ConnectionStateChanged?.Invoke(r.Connected);
-#if zero
-                        bool justReconnected = false;
-                        if (!r.Connected &&
-                            !Disconnecting &&
-                            !string.IsNullOrEmpty(clientID))
-                        {
-                            justReconnected = true;
-                            theRadio.Connect(clientID);
-                        }
-                        else
-                        {
-                            raiseConnectedEvent(r.Connected);
-                        }
-#endif
-                        //raiseConnectedEvent(r.Connected);
-                    }
-                    break;
+                // "Connected" is not handled here: it returns early, above,
+                // into onRadioConnectedChanged — which sets IsConnected, takes
+                // the drop's archive, cancels the station attempt on a fall,
+                // and raises ConnectionStateChanged.
                 case "CWBreakIn":
                     Tracing.TraceLine("CWBreakIn:" + r.CWBreakIn.ToString(), TraceLevel.Info);
                     break;
@@ -8176,15 +8750,31 @@ namespace Radios
                         Tracing.TraceLine("LineoutMute:" + r.LineoutMute.ToString(), TraceLevel.Info);
                     }
                     break;
+                case "MaxPowerLevel":
+                    // #608. The radio reports a transmit power CEILING, and
+                    // until 2026-09-24 we discarded it: FlexLib raised this
+                    // property, the switch had no case, and it fell through in
+                    // silence. So the Power dialog offered nought to a hundred
+                    // watts whatever the radio was prepared to deliver.
+                    //
+                    // Don, on a 6300: switching to AM leaves the reading at a
+                    // hundred while the radio transmits about twenty-five. This
+                    // case is the instrument that says which of three things is
+                    // happening — the radio lowers rfpower, the radio lowers
+                    // this ceiling, or the radio clamps internally and reports
+                    // neither. It is also the fix for the second of those.
+                    //
+                    // Traced unconditionally, because a ceiling that never
+                    // moves is as much of an answer as one that does.
+                    Tracing.TraceLine("MaxPowerLevel:" + theRadio.MaxPowerLevel, TraceLevel.Info);
+                    _MaxXmitPower = theRadio.MaxPowerLevel;
+                    break;
                 case "Mox":
                     {
                         Tracing.TraceLine("Mox:" + r.Mox.ToString(), TraceLevel.Info);
-                        bool oldTransmit = _Transmit;
-                        _Transmit = r.Mox;
-                        if (_Transmit != oldTransmit)
-                        {
-                            raiseTransmitChange(_Transmit);
-                        }
+                        // The transmit state, and the txMeters line's evidence
+                        // window on its rising edge (#625, H18).
+                        noteRadioMox(r.Mox);
                     }
                     break;
                 case "PanadaptersRemaining":
@@ -9976,6 +10566,9 @@ namespace Radios
 
         private void forwardPowerData(float data)
         {
+            // The window this reading arrived in, taken BEFORE it is stored:
+            // see beginTxLineWindow (#625, H18).
+            int txLineWindow = txLineWindowNow();
             meterTrace.Report("forwardPower:", data);
             // The change guard here existed only to avoid re-raising
             // MeterChanged for a repeated value. With that event gone the
@@ -9991,6 +10584,7 @@ namespace Radios
                 _PowerDBM = data;
                 _forwardStamp = Stopwatch.GetTimestamp();
             }
+            Volatile.Write(ref _txLineFwdWindow, txLineWindow);   // after the value: see traceTxMeters
             // Sprint 44 Track E — the pulse that makes txMeters fire during a
             // TUNE. SC_MIC and ALC drive traceTxMeters during keyed transmit,
             // and neither of them moves while the ATU sweeps or a bare carrier
@@ -10016,8 +10610,10 @@ namespace Radios
 
         private void sWRData(float data)
         {
+            int txLineWindow = txLineWindowNow();   // before the value: see forwardPowerData
             meterTrace.Report("SWRData:", data);
             _SWR = data;
+            Volatile.Write(ref _txLineSwrWindow, txLineWindow);   // after the value: see traceTxMeters
             // Latch the settled value while the tune is still running; reading
             // it afterwards gives the meter's idle rest value. See noteTuneSwr.
             noteTuneSwr(data);
@@ -10598,6 +11194,11 @@ namespace Radios
             _scMicElection.Clear();
             _swAlcElection.Clear();
             _txMeterCensus = "";
+            // A new connection opens a new txMeters evidence window, like the
+            // elections cleared above, so a value left over from the last radio
+            // is never written as this one's reading (#625, H17; a window
+            // rather than flags since H18).
+            beginTxLineWindow();
         }
 
         /// <summary>
@@ -10693,7 +11294,7 @@ namespace Radios
                 if (census != _txMeterCensus)
                 {
                     _txMeterCensus = census;
-                    Tracing.TraceLine("txMeters: " + census, TraceLevel.Info);
+                    Tracing.TraceRecord(CaptureMeterSet.TxMetersRecord, "txMeters: " + census, TraceLevel.Info);
                 }
             }
             catch (Exception ex)
@@ -10716,6 +11317,9 @@ namespace Radios
 
             TransmitMeterElection election = scMic ? _scMicElection : _swAlcElection;
             int now = System.Environment.TickCount;
+            // The txMeters window, taken before the election stores the value:
+            // see beginTxLineWindow (#625, H18).
+            int txLineWindow = txLineWindowNow();
             var outcome = election.Report(meter, data, now);
             if (outcome == TransmitMeterElection.Outcome.Unknown)
             {
@@ -10727,6 +11331,12 @@ namespace Radios
             }
             if (outcome == TransmitMeterElection.Outcome.Ignored) return;
 
+            // Published: the elected copy's value, arrived in this window.
+            bool newCopy = outcome == TransmitMeterElection.Outcome.Elected
+                || outcome == TransmitMeterElection.Outcome.Displaced;
+            if (scMic) noteTxLineScMic(txLineWindow, data, newCopy);
+            else Volatile.Write(ref _txLineSwAlcWindow, txLineWindow);
+
             if (outcome == TransmitMeterElection.Outcome.Elected
                 || outcome == TransmitMeterElection.Outcome.Displaced)
             {
@@ -10734,7 +11344,7 @@ namespace Radios
                 // line the MeterInventory remarks asked for: a human can read
                 // which copy is believed and why, rather than inferring it from
                 // an ordering.
-                Tracing.TraceLine("txMeters: " + election.MeterName + " "
+                Tracing.TraceRecord(CaptureMeterSet.TxMetersRecord, "txMeters: " + election.MeterName + " "
                     + (outcome == TransmitMeterElection.Outcome.Elected ? "elected " : "re-elected ")
                     + election.Elected?.Label + " — " + election.LastElectionReason
                     + ". " + election.Describe(now), TraceLevel.Info);
@@ -10747,12 +11357,147 @@ namespace Radios
             traceTxMeters();
         }
 
-        private int _txMeterTraceTime;
+        // When traceTxMeters last wrote, on a 64-BIT clock (#625, H18). This
+        // was an int compared against Environment.TickCount, starting at 0.
+        // TickCount is negative for the second half of every 49.7-day cycle
+        // of Windows uptime, so on a machine up between about 24.9 and 49.7
+        // days "now - 0" was negative, always under the interval, and the
+        // field never advanced: the app wrote no txMeters line at all, and
+        // TxFactAudit read the silence as no transmission. TickCount64 does
+        // not go negative for 292 million years. The clock is a field only so
+        // a test can stand the writer on the uptime that used to silence it.
+        private long _txMeterTraceTime = TxMeterLineNeverWritten;
+        private Func<long> _txMeterTraceClock = () => System.Environment.TickCount64;
+
+        /// <summary>The writer has not written a <c>txMeters:</c> line yet, so
+        /// the next one is due whatever the clock says.</summary>
+        private const long TxMeterLineNeverWritten = long.MinValue;
+
+        /// <summary>Whether the <c>txMeters:</c> rate limit lets a line be
+        /// written now. 64-bit throughout; see <see cref="_txMeterTraceTime"/>.</summary>
+        internal static bool TxMeterLineDue(long nowMs, long lastWrittenMs, int intervalMs) =>
+            lastWrittenMs == TxMeterLineNeverWritten || nowMs - lastWrittenMs >= intervalMs;
+
+        // ── The txMeters line's evidence window (#625, H17 then H18) ────────
+        //
+        // Every number on a txMeters line is one the radio sent DURING THE
+        // CURRENT TRANSMISSION OR TUNE. H17 gated each value on "reported
+        // since this connection", which Sol's H17 review showed was the wrong
+        // window for a transmit snapshot: the election keeps SC_MIC's last
+        // value across key-downs on purpose (other readers want it), so a
+        // second transmission's first line, driven by a SWALC sample before
+        // SC_MIC had spoken, printed the FIRST transmission's mic level as
+        // SC_MIC=<number> beside "(peak no-sample)" — two fields, two windows,
+        // one line. The same held for the powers.
+        //
+        // So the writer keeps its own window, and solves it here rather than
+        // in TransmitMeterElection or the PTT safety controller, which retain
+        // what they retain for other readers. A window opens when the radio
+        // becomes keyed — it reports Mox, or a tune cycle begins, whichever
+        // comes first — and when a new connection's meters are about to be
+        // hooked. Each value the line prints records the window it arrived
+        // in, captured BEFORE the value is stored, so a stamp that matches the
+        // current window can only belong to a value that arrived inside it.
+        // The window is the radio's keyed state, not the PTT controller's
+        // key-down, because a transmission can be keyed without it (a foot
+        // switch, the radio's own PTT, CW, another client): the controller's
+        // peak reset never runs for those, and its peak then spans every
+        // transmission since the last one it did key.
+        //
+        // Separate from _forwardStamp/_reflectedStamp on purpose: those feed
+        // ReadTransmitPower and the transmit safety paths, which are not this
+        // line's to change.
+        private int _txLineWindow;
+        private int _txLineFwdWindow = TxLineNoWindow;
+        private int _txLineReflWindow = TxLineNoWindow;
+        private int _txLineSwrWindow = TxLineNoWindow;
+        private int _txLineSwAlcWindow = TxLineNoWindow;
+
+        // SC_MIC's window and the line's own peak move together, under one
+        // lock, because the peak is only meaningful inside its window. The
+        // peak is the writer's, not the election's ElectedPeakSinceReset:
+        // that one resets only when the PTT controller keys, so on any other
+        // keying it would print an earlier transmission's peak. It restarts
+        // when the believed copy changes, so the peak and the copy named
+        // after "via" are always the same copy.
+        private readonly object _txLineScMicLock = new object();
+        private int _txLineScMicWindow = TxLineNoWindow;
+        private float _txLineScMicPeak = float.NaN;
+
+        /// <summary>A value stamped with this has not arrived in any window.</summary>
+        private const int TxLineNoWindow = -1;
+
+        /// <summary>The txMeters evidence window in force now.</summary>
+        private int txLineWindowNow() => Volatile.Read(ref _txLineWindow);
+
+        /// <summary>
+        /// Open a new evidence window: from here on, nothing that arrived
+        /// before counts as a reading on a txMeters line. Called BEFORE the
+        /// state that makes the writer run is set, so a writer that sees the
+        /// radio keyed already sees the new window.
+        /// </summary>
+        private void beginTxLineWindow()
+        {
+            // Never TxLineNoWindow, however many windows a session opens.
+            int next = Interlocked.Increment(ref _txLineWindow);
+            if (next == TxLineNoWindow) Interlocked.Increment(ref _txLineWindow);
+        }
+
+        /// <summary>
+        /// The radio reported its transmit state. The txMeters line opens a new
+        /// evidence window on the rising edge, unless a tune cycle already
+        /// opened it: an ATU sweep that keys Mox is one keyed stretch, not two.
+        /// Extracted from the property handler's Mox case so the edge can be
+        /// driven without a radio.
+        /// </summary>
+        private void noteRadioMox(bool mox)
+        {
+            bool oldTransmit = _Transmit;
+            if (mox && !oldTransmit && !_tuneCycleActive) beginTxLineWindow();
+            _Transmit = mox;
+            if (_Transmit != oldTransmit)
+            {
+                raiseTransmitChange(_Transmit);
+            }
+        }
+
+        /// <summary>SC_MIC's elected copy published <paramref name="data"/>,
+        /// which arrived in <paramref name="window"/>. Keeps the line's peak
+        /// for that window and that copy.</summary>
+        private void noteTxLineScMic(int window, float data, bool newCopy)
+        {
+            lock (_txLineScMicLock)
+            {
+                bool restart = newCopy || window != _txLineScMicWindow || float.IsNaN(_txLineScMicPeak);
+                if (restart || data > _txLineScMicPeak) _txLineScMicPeak = data;
+                _txLineScMicWindow = window;
+            }
+        }
+
+        /// <summary>The <c>txMeters:</c> rendering of one value: the number, or
+        /// <see cref="CaptureMeterSet.NoSample"/> when the radio has not
+        /// reported it. NaN is the no-sample signal the elections use.
+        /// <para><b>Invariant culture, always (#625, H18).</b> The number went
+        /// through the machine's own culture, so a German or Swedish machine
+        /// wrote <c>-18,0</c> or <c>−18,0</c>, and TxFactAudit, reading
+        /// digits and periods, silently dropped every such line and then told
+        /// its reader the radio had not transmitted. A diagnostic file leaves
+        /// the machine it was written on and is read somewhere else, so its
+        /// numbers are written one way everywhere. Sol's blocker 2.</para></summary>
+        private static string txMeterField(float value, string format, string unit = "")
+        {
+            return float.IsNaN(value) ? CaptureMeterSet.NoSample : txMeterNumber(value, format) + unit;
+        }
+
+        /// <summary>A <c>txMeters:</c> number, in the invariant culture. See
+        /// <see cref="txMeterField"/>.</summary>
+        private static string txMeterNumber(float value, string format) =>
+            value.ToString(format, System.Globalization.CultureInfo.InvariantCulture);
 
         /// <summary>
         /// A correlated SC_MIC / SW ALC / forward-power snapshot, at most once a
-        /// second while transmitting and every 250 ms during a tune cycle. The
-        /// line names which of the two it was sampled in.
+        /// second while transmitting and at most once every 250 ms during a tune
+        /// cycle. The line names which of the two it was sampled in.
         /// <para>Both handlers stored their value and traced nothing, so with PC
         /// audio running there was no way to tell from a trace whether the radio
         /// was seeing any transmit drive at all — a blind spot that cost a
@@ -10779,8 +11524,8 @@ namespace Radios
             // converging. 250 ms during a tune gives roughly 12-40 lines for a
             // typical cycle, which is a bounded burst and not a stream.
             int interval = tuning ? 250 : 1000;
-            int now = System.Environment.TickCount;
-            if ((now - _txMeterTraceTime) < interval) return;
+            long now = _txMeterTraceClock();
+            if (!TxMeterLineDue(now, _txMeterTraceTime, interval)) return;
             _txMeterTraceTime = now;
             // Reflected, both SWR figures and the derived share are here
             // BECAUSE THEY WERE NOT, and their absence cost an evening.
@@ -10795,8 +11540,53 @@ namespace Radios
             // Raw AND computed SWR, deliberately: the radio's own meter reads
             // 1.008 with 76% of the power coming back (see ComputedSWR), so
             // the two disagreeing IS the diagnosis, and one alone hides it.
-            float refl = _ReflectedPower;
+            //
+            // NO NUMBER FOR A VALUE THAT HAS NOT ARRIVED (#625, H17). Every
+            // field below used to be printed whether or not the radio had
+            // reported it: forward power as its -150 dBm "nothing yet"
+            // initialiser, reflected power as a default zero — which is one
+            // milliwatt, a real-looking reading — SWRraw as 0.00, SC_MIC and
+            // SWALC at their -150 floor. The line's own introduction calls
+            // these readings, and Sol's H16 review showed the writer could
+            // emit it before either power meter had spoken (it is driven by
+            // SC_MIC and SWALC samples). The writer is the thing that knows
+            // whether a value arrived, so it says so here: a value the radio
+            // has not reported is written as CaptureMeterSet.NoSample, and so
+            // is anything derived from it.
+            // "n/a" keeps its old meaning — the powers arrived but too little
+            // forward power, or two samples too far apart, to work it out.
+            //
+            // AND ONLY FROM THIS TRANSMISSION OR TUNE (#625, H18). H17 gated
+            // each value on "reported since this connection"; a second
+            // transmission's first line could then print the first one's
+            // readings. Every value below must have arrived in the current
+            // evidence window; see beginTxLineWindow. The window is read once,
+            // so every field on one line is judged against the same window.
+            int window = txLineWindowNow();
+            bool fwdOk = Volatile.Read(ref _txLineFwdWindow) == window;
+            bool reflOk = Volatile.Read(ref _txLineReflWindow) == window;
+            bool swrOk = Volatile.Read(ref _txLineSwrWindow) == window;
+            float scMicPeak = float.NaN;
+            lock (_txLineScMicLock)
+            {
+                if (_txLineScMicWindow == window) scMicPeak = _txLineScMicPeak;
+            }
+            // The last value is the election's, so it and the "via" label name
+            // the same copy; it counts only when the copy spoke in this window.
+            // A copy the radio withdrew leaves NaN, and the peak goes with it.
+            float scMic = float.IsNaN(scMicPeak) ? float.NaN : _scMicElection.ElectedLast;
+            if (float.IsNaN(scMic)) scMicPeak = float.NaN;
+            float swAlc = Volatile.Read(ref _txLineSwAlcWindow) == window ? _swAlcElection.ElectedLast : float.NaN;
+            float fwd = fwdOk ? _PowerDBM : float.NaN;
+            float refl = reflOk ? _ReflectedPower : float.NaN;
+            float fwdW = fwdOk ? ForwardPowerWatts : float.NaN;
+            float reflW = reflOk ? ReflectedPowerWatts : float.NaN;
             float back = ReflectedFraction;
+            float swrCalc = ComputedSWR;
+            string backText = !(fwdOk && reflOk) ? CaptureMeterSet.NoSample
+                : float.IsNaN(back) ? "n/a" : txMeterNumber(back * 100f, "F1") + "%";
+            string swrCalcText = !(fwdOk && reflOk) ? CaptureMeterSet.NoSample
+                : float.IsNaN(swrCalc) ? "n/a" : txMeterNumber(swrCalc, "F2");
             // The state is ON THE LINE. Two states now feed this one format,
             // and a reader who cannot tell a tune sample from a transmit sample
             // will read a tune's reflected power as a transmit fault. SC_MIC
@@ -10810,18 +11600,26 @@ namespace Radios
             // this line exists to make visible. "via" names the copy so a
             // floor reading can be told from a floor METER.
             string state = (Transmit && tuning) ? "tune+tx" : (tuning ? "tune" : "tx");
-            Tracing.TraceLine("txMeters: state=" + state
-                + " SC_MIC=" + ScMicDb.ToString("F1")
-                + " (peak " + ScMicMaxDb.ToString("F1") + ")"
+            // A data record with its kind (#625): the file introduces this
+            // line where it first appears, in CaptureMeterSet's words, which
+            // name exactly the fields formatted here.
+            //
+            // SC_MIC and SWALC come from the elections RAW — NaN until the
+            // elected copy reports — rather than through ScMicDb / SwAlcDb,
+            // whose -150 floor is exactly the placeholder this line must not
+            // print as a reading; and only when they spoke in this window.
+            Tracing.TraceRecord(CaptureMeterSet.TxMetersRecord, "txMeters: state=" + state
+                + " SC_MIC=" + txMeterField(scMic, "F1")
+                + " (peak " + txMeterField(scMicPeak, "F1") + ")"
                 + " via " + (_scMicElection.Elected?.Label ?? "no copy has reported")
-                + " SWALC=" + SwAlcDb.ToString("F1")
-                + " fwd=" + _PowerDBM.ToString("F1") + " dBm"
-                + " refl=" + refl.ToString("F1") + " dBm"
-                + " fwdW=" + ForwardPowerWatts.ToString("F2")
-                + " reflW=" + ReflectedPowerWatts.ToString("F3")
-                + " back=" + (float.IsNaN(back) ? "n/a" : (back * 100f).ToString("F1") + "%")
-                + " SWRraw=" + _SWR.ToString("F2")
-                + " SWRcalc=" + (float.IsNaN(ComputedSWR) ? "n/a" : ComputedSWR.ToString("F2")),
+                + " SWALC=" + txMeterField(swAlc, "F1")
+                + " fwd=" + txMeterField(fwd, "F1", " dBm")
+                + " refl=" + txMeterField(refl, "F1", " dBm")
+                + " fwdW=" + txMeterField(fwdW, "F2")
+                + " reflW=" + txMeterField(reflW, "F3")
+                + " back=" + backText
+                + " SWRraw=" + txMeterField(swrOk ? _SWR : float.NaN, "F2")
+                + " SWRcalc=" + swrCalcText,
                 TraceLevel.Info);
         }
 
@@ -10924,14 +11722,13 @@ namespace Radios
         private float _PATempData;
         private void PATempDataHandler(float data)
         {
-            // Reported through the coalesced meter stream, NOT as a Verbose
-            // trace line. #196-era finding, 2026-08-22: this handler existed,
-            // the property existed, and PATEMP appeared in the meter model and
-            // in the transmit chain evidence — but the diagnostic capture
-            // carried only seven meters and this was not one of them, because
-            // Verbose lines are dropped at the Normal detail level a real
-            // session runs at. So an entire bench evening produced no
-            // temperature record at all.
+            // TWO destinations, and the second one is the repair.
+            //
+            // #196-era finding, 2026-08-22: this handler existed, the property
+            // existed, and PATEMP appeared in the meter model and in the
+            // transmit chain evidence — but the diagnostic capture carried only
+            // seven meters and this was not one of them. So an entire bench
+            // evening produced no temperature record at all.
             //
             // That mattered the moment unattended keying was authorised
             // (2026-08-22). #192 specifies that automated sweeps abort on
@@ -10941,7 +11738,18 @@ namespace Radios
             // human was present the gap was theoretical. Unattended, against a
             // load rated 2000 W for ONE MINUTE at tuning duty, it is the
             // actual safety mechanism.
+            //
+            // THE FIX MADE THEN DID NOT REACH AN ORDINARY CAPTURE, and the
+            // explanation written here was wrong about why. It said Verbose
+            // lines are dropped at Normal detail — true of the raw lines this
+            // replaced, and not the mechanism since. meterTrace is gated on
+            // DiagnosticsConfig.RecordMeterStream, an opt-in switch that is OFF
+            // by default and independent of the detail level, so temperature
+            // was absent even from a Ctrl+J Ctrl+D capture at Verbose. Measured
+            // 2026-09-22 against trace-20260907-080956: 258 txMeters lines
+            // carrying reflW=, zero paTemp. See CaptureMeterSet.
             meterTrace.Report("paTemp:", data);
+            recordCaptureMeters(data);
             _PATempData = data;
         }
 
@@ -10956,9 +11764,26 @@ namespace Radios
         private float _VoltsData;
         private void VoltsDataHandler(float data)
         {
-            Tracing.TraceLine("VoltsDataHandler:" + data.ToString(), TraceLevel.Verbose);
+            // A measurement line, so it declares its kind and the file
+            // explains it where it first appears (#625, H17). It was a bare
+            // TraceLine until Sol's H16 review found it: a real reading, in
+            // every detailed capture, that the file never described. The text
+            // written is unchanged; only its kind travels with it now.
+            Tracing.TraceRecord(SupplyVoltsRecord, "VoltsDataHandler:" + data.ToString(), TraceLevel.Verbose);
             _VoltsData = data;
         }
+
+        /// <summary>
+        /// What a <c>VoltsDataHandler:</c> line is, in the words of the handler
+        /// that writes it. The radio's name for the meter comes from the one
+        /// FlexLib subscribes this event to (<c>+13.8A</c>, "before the fuse").
+        /// DRAFT for Noel.
+        /// </summary>
+        internal static readonly TraceRecordKind SupplyVoltsRecord = new TraceRecordKind(
+            "VoltsDataHandler",
+            "lines that begin 'VoltsDataHandler:' are the radio's supply voltage in volts, from its +13.8A meter,"
+            + " which measures before the fuse. There is one line for every reading the radio sent, and they are"
+            + " written only when the recording is at its most detailed level.");
 
         /// <summary>Supply voltage.</summary>
         public float Volts => _VoltsData;
@@ -10990,6 +11815,7 @@ namespace Radios
 
         private void reflectedPowerData(float data)
         {
+            int txLineWindow = txLineWindowNow();   // before the value: see forwardPowerData
             meterTrace.Report("reflectedPower:", data);
             // Stamped under the pair lock — see forwardPowerData and
             // ReadTransmitPower (#453).
@@ -10998,6 +11824,7 @@ namespace Radios
                 _ReflectedPower = data;
                 _reflectedStamp = Stopwatch.GetTimestamp();
             }
+            Volatile.Write(ref _txLineReflWindow, txLineWindow);   // after the value: see traceTxMeters
         }
 
         private float _PAEffData;
@@ -11006,9 +11833,22 @@ namespace Radios
 
         private void paEffData(float data)
         {
-            Tracing.TraceLine("paEffData:" + data.ToString(), TraceLevel.Verbose);
+            // A measurement line: declares its kind like VoltsDataHandler
+            // above (#625, H17). Text unchanged.
+            Tracing.TraceRecord(PaEfficiencyRecord, "paEffData:" + data.ToString(), TraceLevel.Verbose);
             _PAEffData = data;
         }
+
+        /// <summary>
+        /// What a <c>paEffData:</c> line is, in the words of the handler that
+        /// writes it. It names the meter and no unit: the radio's meter list
+        /// carries the unit, and this handler never reads it. DRAFT for Noel.
+        /// </summary>
+        internal static readonly TraceRecordKind PaEfficiencyRecord = new TraceRecordKind(
+            "paEffData",
+            "lines that begin 'paEffData:' are readings of the radio's power amplifier efficiency meter, PAEFF,"
+            + " exactly as the radio sent them. There is one line for every reading, and they are written only"
+            + " when the recording is at its most detailed level.");
 
         private void meterAdded(Slice slc, Meter m)
         {
@@ -14645,6 +15485,52 @@ namespace Radios
                 q.Enqueue((FunctionDel)(() => { theRadio.RFPower = value; }));
             }
         }
+
+        // #608. The radio's own PA cap, as it reports it.
+        //
+        // *** IT IS NOT ON THE SAME SCALE AS XmitPower. DO NOT COMPARE THEM. ***
+        //
+        // #195 established this before #608 existed, and the first version of
+        // this comment ignored it: FlexLib documents MaxPowerLevel as a
+        // RELATIVE, NON-LINEAR scale capping the PA, while RFPower is a level
+        // whose top is the mode's maximum. Both arrive as ints from nought to a
+        // hundred, both look like percentages, and they measure different
+        // things. #195 names that collision as the same species as reading dBm
+        // as watts, which cost a morning on 2026-08-22.
+        //
+        // So this is NOT a ceiling to clamp XmitPower against, NOT a number to
+        // show beside it, and NOT convertible to watts.
+        //
+        // Seeded from nothing: like _XmitPower above, this is written only by
+        // the property-change case, which fires during the status flood at
+        // connect. Zero therefore means "the radio has not told us yet", NOT
+        // "no power allowed" — so a caller must treat zero as unknown and fall
+        // back to XmitPowerMax rather than believing it. MaxXmitPowerKnown says
+        // which of the two it is, so no caller has to encode that rule twice.
+        //
+        // NOT consulted by any display, and #608's measurements are why it
+        // should stay that way until somebody has a real use for it: with the
+        // TX slice in AM this value did not move, so it is NOT the channel the
+        // radio uses to express the AM carrier limit. It was captured because
+        // discarding a status the radio sends is indefensible, not because a
+        // display wanted it.
+        private int _MaxXmitPower;
+
+        /// <summary>
+        /// The PA cap the radio reports, on its OWN relative and non-linear
+        /// scale — read the comment above before using this for anything.
+        /// <para><b>Not comparable to <see cref="XmitPower"/>, not a clamp for
+        /// it, and not watts.</b> Returns <see cref="XmitPowerMax"/> when the
+        /// radio has reported nothing, which is a "no cap known" sentinel rather
+        /// than a measurement.</para>
+        /// </summary>
+        public int MaxXmitPower => _MaxXmitPower > 0 ? _MaxXmitPower : XmitPowerMax;
+
+        /// <summary>
+        /// Whether the radio has actually reported a cap, as distinct from
+        /// <see cref="MaxXmitPower"/> having fallen back to its sentinel.
+        /// </summary>
+        public bool MaxXmitPowerKnown => _MaxXmitPower > 0;
 
         // Tuning power
         internal const int TunePowerMin = 0;
@@ -22083,6 +22969,10 @@ namespace Radios
                 }
                 return;
             }
+            // A tune on an unkeyed radio opens the txMeters line's evidence
+            // window, BEFORE the flag that lets the writer run (#625, H18).
+            // One begun while already transmitting is inside that window.
+            if (!_Transmit) beginTxLineWindow();
             _tuneCycleActive = true;
             _tuneCycleStartTick = System.Environment.TickCount;
             _tuneCycleType = type;

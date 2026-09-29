@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -42,6 +43,49 @@ namespace JJTrace
         private StreamWriter _writer;
         private bool _closed;
 
+        /// <summary>
+        /// <see cref="_closed"/> as a reader on another thread may see it
+        /// WITHOUT taking <c>_sync</c>: set in the same step as every change
+        /// of <see cref="_closed"/>, except inside a rotation, whose close and
+        /// reopen are one operation to anyone outside this lock — a rotation
+        /// publishes its end state, never its middle. See
+        /// <see cref="ClosedWithoutWaiting"/>.
+        /// </summary>
+        private volatile bool _closedForReaders;
+
+        /// <summary>Caller holds <c>_sync</c>. True while
+        /// <see cref="RotateInternal"/> runs.</summary>
+        private bool _rotating;
+
+        /// <summary>Caller holds <c>_sync</c>. The one way <see cref="_closed"/>
+        /// changes, so the lock-free view cannot fall behind it.</summary>
+        private void SetClosed(bool closed)
+        {
+            _closed = closed;
+            if (!_rotating) _closedForReaders = closed;
+        }
+
+        /// <summary>
+        /// Immutable identity of the session whose parts this sink produces.
+        ///
+        /// <para><b>Carried rather than looked up, and that is a correctness
+        /// fix, not tidiness.</b> Rotation names a part and queues its
+        /// compression from inside this listener's own lock. Both used to read
+        /// the process-global current session from there — so a rotation racing
+        /// a lifecycle transition could stamp a part with the WRONG session's
+        /// boot time, and a lock wrapped around listener closure would have
+        /// closed on the coordinator gate from inside sink synchronisation,
+        /// which is the inversion. Nothing below this line reaches back up.</para>
+        /// </summary>
+        internal TraceSinkStamp Stamp { get; }
+
+        /// <summary>
+        /// Suppress size rotation. Set while a terminal record is written so
+        /// the last line of an archived file cannot land in a part nobody is
+        /// expecting, and the final part number stays the one that was frozen.
+        /// </summary>
+        private bool _rotationSuppressed;
+
         /// <summary>Bytes written into the currently open part.</summary>
         private long _bytesInPart;
 
@@ -76,15 +120,31 @@ namespace JJTrace
         public RotatingTraceListener(string path,
                                      long rotationThresholdBytes,
                                      Func<int, string> resolvePartPath,
-                                     Action<string, int> onPartClosed)
+                                     Action<string, int> onPartClosed,
+                                     TraceSinkStamp stamp = null,
+                                     int startPartNumber = 1,
+                                     bool append = false)
         {
             FilePath = path;
             RotationThresholdBytes = rotationThresholdBytes;
             _resolvePartPath = resolvePartPath;
             _onPartClosed = onPartClosed;
+            Stamp = stamp;
+            _partNumber = startPartNumber < 1 ? 1 : startPartNumber;
+            _startPartNumber = _partNumber;
             _nextRotateAt = rotationThresholdBytes;
-            Open(path, append: false);
+            // Append exists for exactly one caller: a checkpoint whose detach
+            // failed and has to get the session writing again. Opening that
+            // path with FileMode.Create would truncate the very bytes the move
+            // could not take away — destroying the evidence in the course of
+            // failing to preserve it.
+            Open(path, append);
         }
+
+        /// <summary>The part number this sink opened at. A sink that opens at
+        /// part 4 (a bundler checkpoint continued the session) has rotated in
+        /// the session's terms even though it has not rotated in its own.</summary>
+        private readonly int _startPartNumber;
 
         /// <summary>Bytes written into the part currently open.</summary>
         public long BytesInCurrentPart
@@ -102,6 +162,241 @@ namespace JJTrace
         public bool HasRotated
         {
             get { lock (_sync) { return _partNumber > 1; } }
+        }
+
+        /// <summary>True once THIS sink has rotated, ignoring parts inherited
+        /// from an earlier sink of the same session.</summary>
+        public bool RotatedHere
+        {
+            get { lock (_sync) { return _partNumber > _startPartNumber; } }
+        }
+
+        /// <summary>True when the file is closed and no further write lands.</summary>
+        public bool IsClosed
+        {
+            get { lock (_sync) { return _closed; } }
+        }
+
+        /// <summary>
+        /// True once this sink has closed — over a write fault, a flush fault
+        /// or an ordinary close — read WITHOUT taking this sink's lock, so it
+        /// never waits on a write stalled on the disk. Set at the moment the
+        /// sink closes, which for a write fault is inside the failing write:
+        /// before the coordinator has noticed the fault, and before the
+        /// queued retirement publishes <c>Failed</c> to the health model
+        /// (Sol's review of H11). A rotation's momentary close is not
+        /// published; its end state is.
+        /// </summary>
+        internal bool ClosedWithoutWaiting => _closedForReaders;
+
+        /// <summary>
+        /// The first write or flush failure this sink hit, or null while every
+        /// byte handed to it has reached the stream. Latched: it is never
+        /// cleared, because a sink that failed once has closed itself and a
+        /// later "closed cleanly" must not be able to erase what happened.
+        ///
+        /// <para><b>Why it exists.</b> A write failure used to be swallowed
+        /// into <see cref="CloseInternal"/>, and a later
+        /// <see cref="FlushAndClose"/> on the already-closed sink answered
+        /// true. So a session whose terminal records never reached the disk
+        /// could report itself closed cleanly, and nothing downstream — the
+        /// ticket, the operator's status — could know the tail was missing
+        /// (Astra's ruling on the pending-record failure, implementation note
+        /// 3: "Do not erase an earlier write failure when closing an
+        /// already-closed sink").</para>
+        /// </summary>
+        public string WriteFault { get; private set; }
+
+        /// <summary>True once any write or flush has failed on this sink.</summary>
+        public bool Faulted
+        {
+            get { lock (_sync) { return WriteFault != null; } }
+        }
+
+        /// <summary>
+        /// The record kinds that have introduced themselves in the part being
+        /// written, by key. Caller holds <c>_sync</c>. Cleared when a part is
+        /// moved aside, because the next part is a file of its own and must
+        /// describe itself afresh (#625).
+        ///
+        /// <para><b>This replaced a tally that CLASSIFIED lines.</b> Until H16
+        /// the sink recognised meter lines by their text and counted them, and
+        /// the operator's window described the file from the count. The count
+        /// could not see a writer it had not been taught, so the description
+        /// was false whenever a writer was added — which is exactly what the
+        /// ruling forbids. The sink now decides nothing about what a line IS:
+        /// the writer declares its kind, and the sink remembers only whether
+        /// that kind has spoken for itself in this file yet.</para>
+        /// </summary>
+        private readonly HashSet<string> _introduced = new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// The kinds introduced so far in the current part, for a test that
+        /// wants to see the sink's own memory rather than read the file back.
+        /// </summary>
+        internal IReadOnlyCollection<string> IntroducedKindsInCurrentPart
+        {
+            get { lock (_sync) { return new List<string>(_introduced); } }
+        }
+
+        /// <summary>
+        /// Caller holds <c>_sync</c>. The introduction line (prefix, text and
+        /// line break) that <paramref name="kind"/> still owes this part, or
+        /// null when it has already introduced itself here or is not a data
+        /// record. The caller writes it and the record in ONE call to the
+        /// writer, then calls <see cref="MarkIntroduced"/> — so nothing can
+        /// come between the description and the first thing it describes,
+        /// and a kind is not remembered as introduced by a write that threw.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>One write, not two (H17, Sol's H16 follow-up).</b> H16
+        /// wrote the introduction and then the record as two writer calls,
+        /// and marked the kind introduced between them. They now go to the
+        /// writer as one string.</para>
+        /// <para><b>What one write does NOT buy, stated so nobody relies on
+        /// it:</b> the stream is buffered, and a buffer can be flushed to disk
+        /// part-way through any string. A disk fault can still leave a file
+        /// ending inside the introduction, inside the record, or between
+        /// them. That is a torn tail, the same as any other line's, and it is
+        /// what the drop window's "may stop short" caveat covers; the sink
+        /// latches the fault and closes, so nothing is written after it.</para>
+        /// </remarks>
+        private string IntroductionOwed(TraceRecordKind kind)
+        {
+            if (kind == null || _introduced.Contains(kind.Key)) return null;
+            return Tracing.TracePrefix() + TraceSelfDescription.Introduction(kind) + Environment.NewLine;
+        }
+
+        /// <summary>Caller holds <c>_sync</c>. Remember that
+        /// <paramref name="kind"/> has introduced itself in this part — called
+        /// only after the write that carried its introduction returned.</summary>
+        private void MarkIntroduced(TraceRecordKind kind, string introduction)
+        {
+            if (introduction != null) _introduced.Add(kind.Key);
+        }
+
+        /// <summary>
+        /// The kind of the coalesced vendor frame-gap summary this listener
+        /// writes itself (see <see cref="WriteLine(string)"/>). The listener is
+        /// the WRITER of that line, so the listener describes it. DRAFT for
+        /// Noel (#625).
+        /// </summary>
+        internal static readonly TraceRecordKind PanFrameGapsRecord = new TraceRecordKind(
+            "PanFrameGaps",
+            "lines that begin 'PanFrameGaps:' count the display frames the radio's spectrum stream skipped,"
+            + " summarised at most once a second: n is how many, over how long, and the last skipped frame's"
+            + " own message is quoted at the end. They come from the radio library, not from JJ Flexible's own code.");
+
+        /// <summary>Caller holds <c>_sync</c>. Latch the first failure only.</summary>
+        private void Fault(Exception ex)
+        {
+            LatchFault(ex == null ? "unknown write failure" : ex.Message);
+        }
+
+        /// <summary>Caller holds <c>_sync</c>. Latch the first failure only,
+        /// for a fault whose text is composed rather than one exception's
+        /// message — a rotation whose recovery also failed has two causes.</summary>
+        private void LatchFault(string text)
+        {
+            if (WriteFault == null) WriteFault = text ?? "unknown write failure";
+        }
+
+        /// <summary>
+        /// Write one line straight into this sink, bypassing
+        /// <c>System.Diagnostics.Trace</c> entirely.
+        ///
+        /// <para>The boundary uses this for terminal records. Going through
+        /// <c>Trace.WriteLine</c> would take the framework's global trace lock
+        /// while the coordinator gate is held, which is the one lock order the
+        /// design forbids — and it would fan the line out to every other
+        /// listener and to whatever sink is current, which for a terminal
+        /// record is precisely the wrong file.</para>
+        ///
+        /// <para>Rotation is suppressed for the duration: a terminal record is
+        /// finite and must land in the part whose number was just frozen.</para>
+        ///
+        /// <para><b>It says whether the line landed.</b> Written AND flushed to
+        /// the stream, or false — with the failure latched in
+        /// <see cref="WriteFault"/> and the sink closed. It used to return
+        /// nothing and close quietly, which let an archive report its terminal
+        /// records as written when they were not.</para>
+        /// </summary>
+        /// <returns>True when the line was written and flushed; false when the
+        /// sink was already closed or the write failed.</returns>
+        public bool WriteTerminalLine(string line) => WriteTerminalLine(line, null);
+
+        /// <summary>
+        /// The same, for a terminal record that is a DATA record — the drop's
+        /// partial meter window above all — so its kind introduces itself
+        /// ahead of it if it has not yet in this part (#625). The introduction
+        /// and the record go to the writer as one string and are flushed
+        /// together; a failure latches the fault and returns false. One call is
+        /// not an atomic disk write — see <see cref="IntroductionOwed"/>.
+        /// </summary>
+        public bool WriteTerminalLine(string line, TraceRecordKind kind)
+        {
+            if (line == null) return false;
+            lock (_sync)
+            {
+                if (_closed) return false;
+                _rotationSuppressed = true;
+                try
+                {
+                    string introduction = IntroductionOwed(kind);
+                    string payload = (introduction ?? string.Empty) + line + Environment.NewLine;
+                    _writer.Write(payload);
+                    MarkIntroduced(kind, introduction);
+                    _bytesInPart += payload.Length;
+                    _writer.Flush();
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    Fault(ex);
+                    CloseInternal();
+                    return false;
+                }
+                finally
+                {
+                    _rotationSuppressed = false;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Flush and close this sink, reporting whether the bytes really landed.
+        /// Called by the coordinator under the gate, on the sink it owns —
+        /// never through the process-wide <c>Trace.Close</c>, which would close
+        /// somebody else's session too.
+        ///
+        /// <para><b>A sink that already closed itself over a failure reports
+        /// that failure here</b>, not success. The old answer for "already
+        /// closed" was true unconditionally, so a terminal write that failed
+        /// and closed the sink was followed by a close that said everything
+        /// was fine.</para>
+        /// </summary>
+        public bool FlushAndClose(out string failure)
+        {
+            failure = null;
+            lock (_sync)
+            {
+                if (_closed)
+                {
+                    failure = WriteFault;
+                    return WriteFault == null;
+                }
+                bool ok = true;
+                try { _writer?.Flush(); }
+                catch (Exception ex) { ok = false; failure = ex.Message; Fault(ex); }
+                try { _writer?.Dispose(); }
+                catch (Exception ex) { ok = false; failure = failure ?? ex.Message; Fault(ex); }
+                try { _stream?.Dispose(); }
+                catch (Exception ex) { ok = false; failure = failure ?? ex.Message; Fault(ex); }
+                _writer = null;
+                _stream = null;
+                SetClosed(true);
+                return ok;
+            }
         }
 
         /// <summary>
@@ -124,7 +419,7 @@ namespace JJTrace
             // as garbage characters.
             _writer = new StreamWriter(_stream, new UTF8Encoding(false));
             _writer.AutoFlush = false; // Trace.AutoFlush drives Flush() explicitly.
-            _closed = false;
+            SetClosed(false);
             _bytesInPart = append ? SafeLength(path) : 0;
         }
 
@@ -186,30 +481,46 @@ namespace JJTrace
 
         private void WriteCore(string message)
         {
+            // The kind, if the writer declared one, rides a thread-static set
+            // by Tracing.TraceRecord (or by the drain, for a deferred record)
+            // around this very dispatch. Exact rather than approximate: the
+            // framework calls a listener on the thread that called
+            // Trace.WriteLine, which is the same technique the per-thread cost
+            // window above relies on.
+            TraceRecordKind kind = Tracing.PendingRecordKind;
             lock (_sync)
             {
                 if (_closed) return;
                 try
                 {
                     if (NeedIndent) WriteIndent();
-                    _writer.Write(message);
+                    // The introduction, if this kind still owes one here, and
+                    // the record in ONE writer call (H17) — see IntroductionOwed.
+                    string introduction = IntroductionOwed(kind);
+                    string payload = introduction == null ? message : introduction + message;
+                    _writer.Write(payload);
+                    MarkIntroduced(kind, introduction);
                     // Byte estimate: trace content is effectively ASCII, so one
                     // char is one byte. An estimate is fine — the threshold is a
                     // policy number, not an invariant, and this runs on every
                     // single trace line so a FileInfo syscall per write is out
                     // of the question.
-                    _bytesInPart += message.Length;
+                    _bytesInPart += payload.Length;
                 }
-                catch
+                catch (Exception ex)
                 {
                     // A write failure means the file is gone / disk full. Close
                     // rather than throw from a trace call — tracing must never
-                    // be the thing that takes the app down.
+                    // be the thing that takes the app down. But LATCH it: the
+                    // coordinator reads WriteFault after the write and tells
+                    // the operator the log has stopped, which a silent close
+                    // never did.
+                    Fault(ex);
                     CloseInternal();
                     return;
                 }
 
-                if (RotationThresholdBytes > 0 && _bytesInPart >= _nextRotateAt)
+                if (!_rotationSuppressed && RotationThresholdBytes > 0 && _bytesInPart >= _nextRotateAt)
                 {
                     RotateInternal();
                 }
@@ -237,11 +548,30 @@ namespace JJTrace
                 && message.Contains("but got frame", StringComparison.Ordinal))
             {
                 string summary = CoalesceFrameGap(message);
-                if (summary != null) Write(summary + Environment.NewLine);
+                // The summary is THIS listener's own record, so it carries the
+                // listener's own kind and introduces itself like any other
+                // writer's line (#625). The vendor's raw text has no prefix of
+                // its own, so the prefix is added here as Tracing.Emit would.
+                if (summary != null) WriteLine(Tracing.TracePrefix() + summary, PanFrameGapsRecord);
                 return;
             }
 
             Write(message + Environment.NewLine);
+        }
+
+        /// <summary>
+        /// Write one whole line that is a data record of <paramref name="kind"/>,
+        /// so the kind introduces itself first if it has not in this part. The
+        /// drain uses it for a deferred record; the coalescer above for its own
+        /// summary. The kind travels on the same thread-static the routed path
+        /// uses, so there is exactly one place the sink reads it.
+        /// </summary>
+        internal void WriteLine(string message, TraceRecordKind kind)
+        {
+            TraceRecordKind saved = Tracing.PendingRecordKind;
+            Tracing.PendingRecordKind = kind;
+            try { WriteLine(message); }
+            finally { Tracing.PendingRecordKind = saved; }
         }
 
         // Frame-gap coalescing state. Guarded by its own lock, taken only in
@@ -291,7 +621,7 @@ namespace JJTrace
                 {
                     if (_closed) return;
                     try { _writer.Flush(); }
-                    catch { CloseInternal(); }
+                    catch (Exception ex) { Fault(ex); CloseInternal(); }
                 }
             }
             finally
@@ -314,7 +644,7 @@ namespace JJTrace
         private void CloseInternal()
         {
             if (_closed) return;
-            _closed = true;
+            SetClosed(true);
             try { _writer?.Flush(); } catch { }
             try { _writer?.Dispose(); } catch { }
             try { _stream?.Dispose(); } catch { }
@@ -332,6 +662,18 @@ namespace JJTrace
         /// trace that next boot would read as evidence of a killed session.
         /// </summary>
         private string RotateInternal()
+        {
+            _rotating = true;
+            try { return RotateCore(); }
+            finally
+            {
+                _rotating = false;
+                _closedForReaders = _closed;
+            }
+        }
+
+        /// <summary>Caller holds <c>_sync</c>, inside <see cref="RotateInternal"/>.</summary>
+        private string RotateCore()
         {
             string partPath = null;
             try
@@ -353,44 +695,132 @@ namespace JJTrace
             }
 
             int closedPart = _partNumber;
+            bool moved = false;
             try
             {
                 CloseInternal();
                 File.Move(FilePath, partPath);
-                Open(FilePath, append: false);
+                moved = true;
+
+                // THE MOVED PART IS THE ARCHIVE'S FROM THIS INSTANT, whatever
+                // fails below (Sol's review of H13, both blockers). The hand-off
+                // used to wait until the fresh file had opened and its header
+                // had been written, so a failure in either jumped past it: the
+                // part sat complete at its part path with no ticket and no
+                // pending record, the retirement's archive looked at the empty live
+                // path instead, and the plain-text sweep eventually deleted the
+                // only copy as an orphan. A recovery that DID succeed hid the
+                // same loss while recording carried on. The part number and the
+                // tally move with the part for the same reason: the part is
+                // gone from the live path, and what is open next — if anything
+                // is — starts empty. The introductions move with it too: the
+                // next part is a file of its own and every kind speaks for
+                // itself again there (#625).
                 _partNumber = closedPart + 1;
+                _introduced.Clear();
+                HandOffClosedPart(partPath, closedPart);
+
+                RotationStepForTests?.Invoke(RotationStepMoved);
+                Open(FilePath, append: false);
                 _nextRotateAt = RotationThresholdBytes;
                 LastRotationError = null;
 
                 // The breadcrumb that makes a chain of parts readable as one
                 // session. Written directly to the fresh writer (not through
-                // Trace) because we are inside the listener's own lock.
+                // Trace) because we are inside the listener's own lock. It
+                // stays the FIRST line: TraceLeftoverAdoption joins a leftover
+                // to its chain by finding it within the first few lines.
                 string header = string.Format(
                     "--- trace continues from part {0:D3} ({1}) — this is part {2:D3} ---",
                     closedPart, Path.GetFileName(partPath), _partNumber);
+                RotationStepForTests?.Invoke(RotationStepHeader);
                 _writer.Write(header + Environment.NewLine);
-                _writer.Flush();
                 _bytesInPart = header.Length + Environment.NewLine.Length;
+                // Then the reading guide, as every fresh part carries (#625).
+                // Written here because a rotation opens its file inside this
+                // lock, where the coordinator's open path cannot reach.
+                foreach (string guide in TraceSelfDescription.PartPreamble())
+                {
+                    string line = Tracing.TracePrefix() + guide + Environment.NewLine;
+                    _writer.Write(line);
+                    _bytesInPart += line.Length;
+                }
+                _writer.Flush();
             }
             catch (Exception ex)
             {
                 LastRotationError = ex.Message;
+
+                // Whatever the failed step left open is closed before anything
+                // is opened over it. A header write or flush that failed after
+                // the fresh open used to leave that stream open while the
+                // recovery's Open overwrote the only reference to it — a leaked
+                // handle on the live path. Closed without publishing: inside a
+                // rotation the drop-window reader sees the end state only.
+                SetClosed(true);
+                try { _writer?.Dispose(); } catch { }
+                try { _stream?.Dispose(); } catch { }
+                _writer = null;
+                _stream = null;
+
                 // Recover: get *some* writable trace file back so the session
-                // keeps tracing. Append to whichever of the two paths exists.
+                // keeps tracing. Once the part has moved it belongs to the
+                // archive worker, which may already be compressing it, so the
+                // live path is the only place to resume: appending to the part
+                // would put lines into a file whose archive has been taken, and
+                // they would be lost with the raw file. Before the move, append
+                // to whichever of the two paths exists, as it always did.
                 try
                 {
-                    Open(File.Exists(FilePath) ? FilePath : partPath, append: true);
-                    FilePath = File.Exists(FilePath) ? FilePath : partPath;
+                    string resumeAt = (moved || File.Exists(FilePath)) ? FilePath : partPath;
+                    Open(resumeAt, append: true);
+                    FilePath = resumeAt;
                 }
-                catch { /* tracing is down; nothing further we can safely do */ }
+                catch (Exception reopenEx)
+                {
+                    // Tracing is down: the rotation closed the file and the
+                    // recovery could not open one. LATCH it, exactly as a
+                    // failed write does. This catch used to discard the
+                    // exception, and that left a closed sink with no fault —
+                    // so the coordinator never noticed it, never retired the
+                    // session, and the health model kept saying Recording
+                    // while every later line was refused (Sol's review of
+                    // H12). The fault carries BOTH causes: the rotation's,
+                    // which is why the file was closed, and the reopen's,
+                    // which is why it stayed closed.
+                    LatchFault("starting a new part of the trace file failed (" + ex.Message
+                               + "), and reopening the file afterwards failed too ("
+                               + reopenEx.Message + ")");
+                }
                 _nextRotateAt = _bytesInPart + Math.Max(RotationThresholdBytes, 1);
                 return null;
             }
 
-            try { _onPartClosed?.Invoke(partPath, closedPart); }
-            catch { /* queueing must never break the writer */ }
-
             return partPath;
         }
+
+        /// <summary>Caller holds <c>_sync</c>. Give a part that has been
+        /// closed and moved to its archive: its ticket is queued and its
+        /// pending record follows on the worker.</summary>
+        private void HandOffClosedPart(string partPath, int partNumber)
+        {
+            try { _onPartClosed?.Invoke(partPath, partNumber); }
+            catch { /* queueing must never break the writer */ }
+        }
+
+        internal const string RotationStepMoved = "moved";
+        internal const string RotationStepHeader = "header";
+
+        /// <summary>
+        /// Tests only, null in production. Called inside a rotation, under
+        /// <c>_sync</c>, with <see cref="RotationStepMoved"/> once the part has
+        /// moved and been handed to its archive (before the fresh file opens),
+        /// and with <see cref="RotationStepHeader"/> once the fresh file is
+        /// open (before its continuation header is written). A test uses it to
+        /// put an obstacle on the disk at the one moment that matters, or to
+        /// stand in for a header write that throws. It must not call back into
+        /// tracing.
+        /// </summary>
+        internal Action<string> RotationStepForTests;
     }
 }

@@ -125,6 +125,51 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     per-connection class prevents any client from running more than one
     SmartLink session; SmartSDR never does, which is presumably why it survives.
 
+14. **Command producer identity contract (2026-09-26)**: retain the JJFlex patch in
+    `FlexLib_API/FlexLib/CommandConnection.cs` and the additions to
+    `FlexLib_API/FlexLib/Interface/ICommandCommunication.cs`. Each transport attempt
+    owns an immutable `CommandConnection` identity. Connection and data reports carry
+    it; the qualified `Connect` overload also returns that exact identity, so a returning
+    caller never infers which attempt succeeded by reading the adapter's current field. The common gate covers selection, dispatch and Radio teardown, without holding
+    a lock across connection establishment or waiting for a reader. Legacy events remain
+    available; Radio consumes the qualified events. `ProducerIdentityTests` guards this
+    contract and every patch site listed in items 14 through 18.
+
+15. **TLS producer ownership (2026-09-26)**: keep the JJFlex patch in
+    `FlexLib_API/FlexLib/TlsCommandCommunication.cs`. Callbacks capture their own client
+    and connection; completion cancels only that client, and delivery rejects a stale
+    connection. Message callbacks have the same identity check as disconnect callbacks.
+    In `FlexLib_API/FlexLib/SslClientTls12.cs`, keep the JJFlex patches that link
+    connection/handshake cancellation to the client, create the writer before completing
+    connect, settle failed waiters, and report termination from finally.
+    Keep the TLS wrapper from item 2. The old-client-completes-after-reconnect regression
+    begins at the wrapper's real `IsConnected` setter, without a socket.
+
+16. **TCP producer ownership (2026-09-26)**: keep the JJFlex patch in
+    `FlexLib_API/FlexLib/TcpCommandCommunication.cs`. The endpoint, cancellation source,
+    completion source and writer belong to one attempt. Reader completion and asynchronous
+    write failure act on that attempt, never on the adapter's replacement fields. The
+    read loop terminates once, rather than running a second loop after declaring loss.
+    Establish the writer before publishing success. Cancelled or failed attempts complete
+    their own waiter, and late cleanup cannot clear a successor's writer or cancellation.
+
+17. **Radio connection reuse (2026-09-26)**: keep the JJFlex patches in
+    `FlexLib_API/FlexLib/Radio.cs`: permanent qualified transport subscriptions in the
+    constructor, the qualified connection/data handlers, `CommandConnectionChanged`,
+    `CurrentCommandConnection`, and the recursion-guarded disconnect under the transport
+    gate. Disconnect no longer removes the listener, so every reuse still reports loss.
+    Handshake commands and post-connect initialization verify and hold the identity
+    returned by the qualified Connect overload.
+    Never restore a subscription-only fix: it leaves stale producer cancellation intact.
+
+18. **Radio client evidence (2026-09-26)**: keep the JJFlex patches in
+    `FlexLib_API/FlexLib/Radio.cs` that carry the parser's connection into `ClientReported`.
+    `ParseHandle` reports the own handle; `ParseClientStatus` reports immutable connected
+    values before shared object mutation, and a departure before any collection lookup or
+    forced-disconnect callback. Discovery/list updates never emit these reports. A real
+    departure must still arrive when discovery already removed the client. Preserve the
+    collection-omission regression in `ProducerIdentityTests` when upgrading.
+
 ## Other vendored trees — NOT FlexLib, but they carry patches too
 
 FlexLib is not the only vendor code in this repo, and a patch in one of the

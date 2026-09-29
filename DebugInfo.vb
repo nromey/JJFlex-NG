@@ -56,16 +56,37 @@ Friend Class DebugInfo
             Return
         End If
 
-        ' The live log has to release its file so the whole settings folder can
-        ' be zipped. Settle the session properly rather than just flipping the
-        ' switch, so this bundle's own trace lands in the archive along with
-        ' everything else — and so the next boot does not find a leftover file
-        ' and tag a perfectly clean run as "killed".
-        Dim wasLogging As Boolean = Tracing.On
-        If wasLogging Then
-            Tracing.TraceLine("GetDebugInfo: closing the diagnostic log to bundle the settings folder")
-            ArchiveCurrentTraceSession(TraceSessionOutcome.CleanExit,
-                "Diagnostic log closed to build a problem report bundle")
+        ' A CHECKPOINT, NOT AN END.
+        '
+        ' The only reason this ever ended the logical session was to release the
+        ' live file so the settings folder could be zipped — not because the
+        ' operator had finished their capture. Ending it was a heavy way to ask
+        ' for a file, and it cost real things: a detailed capture running across
+        ' a problem report lost its identity and its start time, so its duration
+        ' stopped being coherent, and the bundle's own zip was built while
+        ' nothing was recording.
+        '
+        ' The boundary freezes the current part and opens the next part of the
+        ' SAME session under one lock, and hands back a pinned snapshot. The
+        ' session keeps running throughout; the snapshot is a non-final part and
+        ' claims nothing about the session having ended.
+        Dim expected As TraceSessionHandle = TraceCoordinator.CurrentHandle
+        Dim snapshot As TraceTransitionResult = Nothing
+        Dim snapshotPath As String = Nothing
+        If expected IsNot Nothing Then
+            Tracing.TraceLine("GetDebugInfo: freezing a trace snapshot for the problem report bundle")
+            snapshot = TraceCoordinator.SnapshotForBundle(expected)
+            ReportTraceTransition(snapshot)
+            If snapshot.Owned AndAlso snapshot.Ticket IsNot Nothing Then
+                snapshotPath = snapshot.Ticket.SourcePath
+            Else
+                ' No snapshot is available. Said plainly and recorded in the
+                ' bundle rather than silently substituting a later session's
+                ' trace — the other diagnostics are still worth collecting.
+                Tracing.TraceLine(
+                    "GetDebugInfo: no trace snapshot is available for this bundle (" &
+                    snapshot.Status.ToString() & ")", TraceLevel.Warning)
+            End If
         End If
 
         Try
@@ -79,7 +100,19 @@ Friend Class DebugInfo
                 ' The Traces directory holds up to 30 days of per-session
                 ' zips; whole, it can dwarf everything else in the bundle.
                 ' The most recent sessions are added back individually below.
-                ZipUtils.AddDirectoryToArchive(archive, BaseConfigDir, ProgramName, "trace-*.zip")
+                '
+                ' AND MINUS THE LIVE TRACE AND ANY PENDING TRACE WORK. This walk
+                ' is recursive over the whole settings folder and used to exclude
+                ' exactly one wildcard. That was survivable while the log was
+                ' switched off for the duration; now that logging resumes
+                ' immediately, the walk would sweep up a file being written
+                ' underneath it — a changing trace in a zip is a trace whose tail
+                ' nobody can trust — and would also grab detached files whose own
+                ' archives have not been committed yet. The frozen snapshot is
+                ' added back explicitly below; that is the trace this bundle is
+                ' meant to carry.
+                ZipUtils.AddDirectoryToArchive(archive, BaseConfigDir, ProgramName, "trace-*.zip",
+                                               AddressOf IsLiveOrPendingTrace)
 
                 ' The most recent trace sessions (newest part of each), at
                 ' their real Traces/yyyy/MM paths so the bundled
@@ -146,8 +179,16 @@ Friend Class DebugInfo
                     ZipUtils.AddFileToArchive(archive, tempFileName, "riginfo")
                 End If
 
-                If LastUserTraceFile <> vbNullString Then
-                    ZipUtils.AddFileToArchive(archive, LastUserTraceFile, "")
+                ' The frozen snapshot: this session's trace, cut at a part
+                ' boundary, closed, and pinned against both housekeeping sweeps
+                ' until this bundle finishes. Explicitly included because the
+                ' recursive walk above deliberately excludes it.
+                '
+                ' LastUserTraceFile is NOT used here any more. It names the LIVE
+                ' file, which is exactly the file that must not go in — it is
+                ' being written while this zip is built.
+                If Not String.IsNullOrEmpty(snapshotPath) Then
+                    ZipUtils.AddFileToArchive(archive, snapshotPath, "")
                 End If
                 File.Delete(tempFileName)
             End Using
@@ -188,15 +229,45 @@ Friend Class DebugInfo
                 Radios.Lexicon.Get("logging.debug_bundle.report_failure_what"),
                 Radios.Lexicon.Get("logging.debug_bundle.report_failure_detail"))
         Finally
-            ' Put the log back. This used to be the end of the diagnostic log for
-            ' the rest of the session: gathering debug info turned tracing off and
-            ' nothing ever turned it back on, so the machine flew unrecorded until
-            ' the next launch — starting from the exact moment the operator had
-            ' proved they were chasing a problem.
-            If wasLogging Then RestartDiagnosticLog("problem report bundle finished")
+            ' NOTHING RESTARTS LOGGING HERE, and the removal is the fix rather
+            ' than an omission.
+            '
+            ' Logging never stopped: the checkpoint above opened the next part of
+            ' the same session before this Try block began, so there is no
+            ' blackout to end. What sat here was a RestartDiagnosticLog call
+            ' gated on a flag read minutes earlier — which meant a slow bundle
+            ' could switch logging back on after the operator had turned it off,
+            ' or after they had started another capture, purely because it had
+            ' been on when the bundle started. A completion must not be able to
+            ' change recording state.
+            '
+            ' All that is released here is the pin, so the two housekeeping
+            ' sweeps can age the snapshot out normally again.
+            If Not String.IsNullOrEmpty(snapshotPath) Then TraceEvidencePins.Release(snapshotPath)
             openDialog.Dispose()
         End Try
     End Sub
+
+    ''' <summary>
+    ''' True for a file the problem-report bundle must not copy: the trace that
+    ''' is being written right now, and any detached trace whose own archive has
+    ''' not been committed yet.
+    ''' </summary>
+    Private Shared Function IsLiveOrPendingTrace(fullPath As String) As Boolean
+        If String.IsNullOrEmpty(fullPath) Then Return False
+        Try
+            Dim live As String = Tracing.TraceFile
+            If Not String.IsNullOrEmpty(live) AndAlso
+               String.Equals(Path.GetFullPath(live), Path.GetFullPath(fullPath),
+                             StringComparison.OrdinalIgnoreCase) Then
+                Return True
+            End If
+            Return TraceArchiveWorker.IsPendingWork(fullPath)
+        Catch
+            ' A file we cannot even resolve is not one to copy blind.
+            Return True
+        End Try
+    End Function
 
     ''' <summary>
     ''' QB Track M: add the install's self-verification to the bundle in place
