@@ -10862,7 +10862,26 @@ namespace Radios
             traceTxMeters();
         }
 
-        private int _txMeterTraceTime;
+        // When traceTxMeters last wrote, on a 64-BIT clock (#625, H18). This
+        // was an int compared against Environment.TickCount, starting at 0.
+        // TickCount is negative for the second half of every 49.7-day cycle
+        // of Windows uptime, so on a machine up between about 24.9 and 49.7
+        // days "now - 0" was negative, always under the interval, and the
+        // field never advanced: the app wrote no txMeters line at all, and
+        // TxFactAudit read the silence as no transmission. TickCount64 does
+        // not go negative for 292 million years. The clock is a field only so
+        // a test can stand the writer on the uptime that used to silence it.
+        private long _txMeterTraceTime = TxMeterLineNeverWritten;
+        private Func<long> _txMeterTraceClock = () => System.Environment.TickCount64;
+
+        /// <summary>The writer has not written a <c>txMeters:</c> line yet, so
+        /// the next one is due whatever the clock says.</summary>
+        private const long TxMeterLineNeverWritten = long.MinValue;
+
+        /// <summary>Whether the <c>txMeters:</c> rate limit lets a line be
+        /// written now. 64-bit throughout; see <see cref="_txMeterTraceTime"/>.</summary>
+        internal static bool TxMeterLineDue(long nowMs, long lastWrittenMs, int intervalMs) =>
+            lastWrittenMs == TxMeterLineNeverWritten || nowMs - lastWrittenMs >= intervalMs;
 
         // Whether the radio has reported forward power, reflected power and
         // its own SWR since this connection's meters were hooked — the gate
@@ -10915,8 +10934,8 @@ namespace Radios
             // converging. 250 ms during a tune gives roughly 12-40 lines for a
             // typical cycle, which is a bounded burst and not a stream.
             int interval = tuning ? 250 : 1000;
-            int now = System.Environment.TickCount;
-            if ((now - _txMeterTraceTime) < interval) return;
+            long now = _txMeterTraceClock();
+            if (!TxMeterLineDue(now, _txMeterTraceTime, interval)) return;
             _txMeterTraceTime = now;
             // Reflected, both SWR figures and the derived share are here
             // BECAUSE THEY WERE NOT, and their absence cost an evening.

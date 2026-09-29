@@ -503,7 +503,7 @@ namespace Radios.Tests
                 // time is set a minute back rather than slept past.
                 string WriteOne()
                 {
-                    lastWrite.SetValue(rig, Environment.TickCount - 60000);
+                    lastWrite.SetValue(rig, Environment.TickCount64 - 60000L);
                     int before;
                     lock (captured) before = captured.Count;
                     write.Invoke(rig, null);
