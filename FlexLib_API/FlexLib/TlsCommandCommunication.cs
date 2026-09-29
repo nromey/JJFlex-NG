@@ -1,89 +1,93 @@
-﻿#nullable enable
-
+#nullable enable
 using System;
 using System.Net;
 
 namespace Flex.Smoothlake.FlexLib;
 
-public class TlsCommandCommunication : ICommandCommunication
+// JJFlex patch: each TLS producer owns its identity and its callbacks; MIGRATION.md item 15.
+public class TlsCommandCommunication : CommandCommunicationBase
 {
-    // JJFlex patch: SslClient -> SslClientTls12 to enforce TLS 1.2/1.3 floor.
-    // See MIGRATION.md.
-    private SslClientTls12? _tlsToRadio;
+    public bool Connect(IPAddress radioIp, bool setupReply) => throw new NotImplementedException();
+    public delegate void TCPDataReceivedReadyEventHandler(string msg);
+    public delegate void IsConnectedChangedEventHandler(bool connected);
 
-    private bool _isConnected;
-    public bool IsConnected => _tlsToRadio != null && _isConnected;
-
-    public IPAddress? LocalIp { set; get; } = null;
-
-    public bool Connect(IPAddress radioIp, bool setupReply)
+    private sealed class Session
     {
-        throw new NotImplementedException();
+        public Session(SslClientTls12 client, CommandConnection connection)
+        { Client = client; Connection = connection; }
+        public SslClientTls12 Client { get; }
+        public CommandConnection Connection { get; }
     }
+    private Session? _session;
+    public override IPAddress? LocalIp { get; set; }
 
-    public bool Connect(IPAddress radioIp, int radioPort, int srcPort = 0)
+    public override bool Connect(IPAddress radioIp, int radioPort, int srcPort, out CommandConnection? connection)
     {
-        _tlsToRadio = new SslClientTls12(radioIp.ToString(), radioPort.ToString(), srcPort, startPingThread: false, validateCert: false);
-        
-        // set the event handlers prior to calling connect so we don't miss any events
-        _tlsToRadio.Disconnected += _tlsToRadio_Disconnected;
-        _tlsToRadio.MessageReceivedReady += _tlsToRadio_MessageReceivedReady;
-
+        Session session;
+        lock (ConnectionSync)
+        {
+            connection = CurrentConnection;
+            if (CurrentConnection?.State == CommandConnectionState.Connected) return true;
+            if (CurrentConnection?.State == CommandConnectionState.Connecting) return false;
+            // JJFlex patch: retain the TLS 1.2/1.3 wrapper (MIGRATION.md item 2).
+            session = StartClient(new SslClientTls12(radioIp.ToString(), radioPort.ToString(),
+                srcPort, startPingThread: false, validateCert: false));
+            connection = session.Connection;
+        }
         try
         {
-            _tlsToRadio.Connect().GetAwaiter().GetResult();
+            session.Client.Connect().GetAwaiter().GetResult();
+            lock (ConnectionSync)
+            {
+                if (session.Client.IsConnected && PublishConnected(session.Connection)) return true;
+            }
         }
-        catch (Exception)
+        catch (Exception) { }
+        FinishClient(session);
+        return false;
+    }
+
+    // Kept separate from socket creation so the actual callback wiring can be exercised offline.
+    private Session StartClient(SslClientTls12 client)
+    {
+        lock (ConnectionSync)
         {
-            _tlsToRadio = null;
-            return false;
+            var session = new Session(client, BeginConnection());
+            _session = session;
+            client.Disconnected += (sender, _) =>
+            {
+                if (ReferenceEquals(sender, session.Client)) FinishClient(session);
+            };
+            client.MessageReceivedReady += msg => PublishData(session.Connection, msg);
+            return session;
         }
-            
-        _isConnected = true;
-        OnIsConnectedChanged(_isConnected);
-        return true;
     }
 
-    private void _tlsToRadio_Disconnected(object? sender, bool _)
+    private void FinishClient(Session session)
     {
-        Disconnect();
+        lock (ConnectionSync)
+        {
+            // The sender's session, never the adapter's replacement client.
+            session.Client.Disconnect();
+            PublishDisconnected(session.Connection);
+        }
     }
 
-    private void _tlsToRadio_MessageReceivedReady(string msg)
+    public override void Disconnect()
     {
-        OnDataReceivedReady(msg);
+        lock (ConnectionSync)
+        {
+            var session = _session;
+            if (session == null || session.Connection.State == CommandConnectionState.Disconnected) return;
+            session.Client.Write("\x04");
+            FinishClient(session);
+        }
     }
 
-    public void Disconnect()
+    public override void Write(string msg)
     {
-        if (!_isConnected) 
-            return;
-            
-        _tlsToRadio?.Write("\x04");
-        _tlsToRadio?.Disconnect();
-            
-        _isConnected = false;
-        OnIsConnectedChanged(_isConnected);
-    }
-
-    public void Write(string msg)
-    {
-        _tlsToRadio?.Write(msg);
-    }
-
-    public delegate void TCPDataReceivedReadyEventHandler(string msg);
-    public event TcpCommandCommunication.TcpDataReceivedReadyEventHandler? DataReceivedReady;
-
-    private void OnDataReceivedReady(string msg)
-    {
-        DataReceivedReady?.Invoke(msg);
-    }
-
-    public delegate void IsConnectedChangedEventHandler(bool connected);
-    public event TcpCommandCommunication.IsConnectedChangedEventHandler? IsConnectedChanged;
-
-    private void OnIsConnectedChanged(bool connected)
-    {
-        IsConnectedChanged?.Invoke(connected);
+        // JJFlex patch: no dispatch gate while a caller may own a vendor collection lock.
+        var session = System.Threading.Volatile.Read(ref _session);
+        if (session?.Connection.State == CommandConnectionState.Connected) session.Client.Write(msg);
     }
 }

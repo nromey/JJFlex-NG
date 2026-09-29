@@ -589,6 +589,17 @@ namespace Radios.Tests
             //
             // The number is pinned so the migration can only shrink. That is
             // still true; the baseline it shrinks from is simply this tree's.
+            //
+            // 2,809 since the Track H merge (2026-09-29), NOT 2,757: Track H's
+            // 52 keys — the fifteen logging.capture.dropped.* strings of the
+            // drop window and the thirty-seven logging.recording.health.*
+            // strings — were written on a branch that predates the store and
+            // arrived unclassified, so they were frozen in the manifest at the
+            // merge (#629, the same move as the heartbeat re-freeze) rather
+            // than classified there, because classification is a #617 speech
+            // decision. So this went UP by 52 for the same reason it will go
+            // up by 222 when Track I merges: a branch older than the store
+            // landed. When Track I merges, this reads 3,031.
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -601,7 +612,7 @@ namespace Radios.Tests
                 }
             }
 
-            Assert.Equal(2757, unclassified);
+            Assert.Equal(2809, unclassified);
             Assert.All(classified, key =>
                 Assert.StartsWith("facts.", key, StringComparison.Ordinal));
             Assert.True(classified.Count > 30,

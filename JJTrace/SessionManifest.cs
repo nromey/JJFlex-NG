@@ -23,6 +23,19 @@ namespace JJTrace
         public const string Crashed = "crashed";
         public const string NetworkFailed = "network_failed";
         public const string NoRadios = "no_radios";
+
+        /// <summary>
+        /// The session's own trace file stopped accepting writes, and the
+        /// trace coordinator closed the session because a session with no
+        /// writable file is not recording anything. Nothing the operator did
+        /// and nothing the radio did: the disk, or the path, refused a byte.
+        /// The file's tail is missing whatever failed to land, and the
+        /// outcome detail carries the sink's own fault text. Sprint 45 Track
+        /// H8, so that a faulted sink retires rather than leaving a session
+        /// nothing could archive or replace.
+        /// </summary>
+        public const string RecordingFailed = "recording_failed";
+
         public const string Unknown = "unknown";
     }
 
@@ -128,6 +141,17 @@ namespace JJTrace
         /// </summary>
         [JsonPropertyName("truncated")]
         public bool? Truncated { get; set; }
+
+        /// <summary>
+        /// True when this entry's <see cref="SessionId"/> is an inventory
+        /// identity assigned at boot, because the raw file it was made from
+        /// carried no durable record of the session that wrote it. The bytes
+        /// are real; the identity and, unless the entry says otherwise, the
+        /// outcome are not recovered. Absent on every entry a live session
+        /// wrote itself.
+        /// </summary>
+        [JsonPropertyName("orphaned")]
+        public bool? Orphaned { get; set; }
     }
 
     /// <summary>
@@ -186,13 +210,20 @@ namespace JJTrace
         /// <summary>
         /// Save manifest to disk atomically (write to temp, then rename) so a kill
         /// mid-write doesn't leave a partial JSON file.
+        ///
+        /// <para><b>It reports now.</b> This used to swallow a write failure and
+        /// return void, so an archive could say "committed" on the strength of a
+        /// manifest write that never happened — and a ticket cannot truthfully
+        /// report committed without knowing.</para>
         /// </summary>
-        public void Save(string path)
+        /// <returns>True when the manifest really landed.</returns>
+        public bool Save(string path)
         {
             string dir = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(dir))
             {
-                Directory.CreateDirectory(dir);
+                try { Directory.CreateDirectory(dir); }
+                catch (Exception ex) { Tracing.ErrTraceOnly(ex); return false; }
             }
             string tempPath = path + ".tmp";
             try
@@ -207,11 +238,100 @@ namespace JJTrace
                 {
                     File.Move(tempPath, path);
                 }
+                return true;
             }
             catch (Exception ex)
             {
                 Tracing.ErrTraceOnly(ex);
                 try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
+                return false;
+            }
+        }
+
+        // ── The archive-store transaction ──────────────────────────────────
+        //
+        // Every mutation of the manifest — an archive appending its entry, a
+        // prune removing rows, the browser's delete, boot reconciliation —
+        // is a read, a modify and a replace. Run two of those concurrently and
+        // the second one's Load predates the first one's Save, so the first
+        // one's change is silently gone. Rotation parts already shared one
+        // chain; the final file did not, which is exactly the pair most likely
+        // to collide, at exit.
+        //
+        // This is a SEPARATE lock from the trace boundary, deliberately. It is
+        // held for a short read/modify/replace and NEVER around compression,
+        // and the boundary is never held here — the two must not be able to
+        // wait on each other.
+
+        private static readonly object _storeLock = new object();
+
+        /// <summary>
+        /// Name of the cross-process mutex guarding one archive store. Two app
+        /// instances share <c>%AppData%\JJFlexRadio\Traces</c>, so an
+        /// in-process lock alone would be exactly half a transaction. Local
+        /// rather than Global: this is per-user data.
+        /// </summary>
+        private static string MutexNameFor(string manifestPath)
+        {
+            string key = (manifestPath ?? string.Empty).ToUpperInvariant();
+            uint hash = 2166136261;
+            foreach (char c in key) { hash = (hash ^ c) * 16777619; }
+            return "Local\\JJFlexTraceManifest-" + hash.ToString("X8");
+        }
+
+        /// <summary>How long to wait for the other instance to finish its
+        /// read/modify/replace. Generous for a JSON file; bounded so a crashed
+        /// holder cannot wedge an archive worker forever.</summary>
+        private const int StoreLockTimeoutMs = 15000;
+
+        /// <summary>
+        /// Read, modify and replace the manifest under the archive-store
+        /// transaction. <paramref name="mutate"/> must not compress, scan
+        /// directories, or touch the trace boundary.
+        /// </summary>
+        /// <returns>True when the mutation ran AND the manifest was written.</returns>
+        public static bool Mutate(string manifestPath, Func<TraceManifest, bool> mutate)
+        {
+            if (string.IsNullOrEmpty(manifestPath) || mutate == null) return false;
+            System.Threading.Mutex crossProcess = null;
+            bool held = false;
+            try
+            {
+                try
+                {
+                    crossProcess = new System.Threading.Mutex(false, MutexNameFor(manifestPath));
+                    held = crossProcess.WaitOne(StoreLockTimeoutMs);
+                }
+                catch (System.Threading.AbandonedMutexException)
+                {
+                    // The other instance died holding it. The manifest is
+                    // written by replace, so it is whole; carry on.
+                    held = true;
+                }
+                catch (Exception ex)
+                {
+                    // No cross-process mutex available (a sandbox, a policy).
+                    // The in-process lock below is still worth having.
+                    Tracing.ErrTraceOnly(ex);
+                }
+
+                lock (_storeLock)
+                {
+                    TraceManifest manifest = Load(manifestPath);
+                    bool changed;
+                    try { changed = mutate(manifest); }
+                    catch (Exception ex) { Tracing.ErrTraceOnly(ex); return false; }
+                    if (!changed) return true;
+                    return manifest.Save(manifestPath);
+                }
+            }
+            finally
+            {
+                if (crossProcess != null)
+                {
+                    try { if (held) crossProcess.ReleaseMutex(); } catch { }
+                    try { crossProcess.Dispose(); } catch { }
+                }
             }
         }
     }

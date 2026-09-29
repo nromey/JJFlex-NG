@@ -19,6 +19,12 @@ using System.Runtime.InteropServices;
 // COM, set the ComVisible attribute to true on that type.
 [assembly: ComVisible(false)]
 
+// The trace boundary's tests live in Radios.Tests, which is where the rest of
+// the capture-archive suite already is — one drop is one story and its tests
+// should read as one file's worth of neighbours, not be split across assemblies
+// by where a type happens to live. Same arrangement Radios already has.
+[assembly: InternalsVisibleTo("Radios.Tests")]
+
 // The following GUID is for the ID of the typelib if this project is exposed to COM
 [assembly: Guid("b6c77466-d9b5-4c14-9afd-a0f078ac1624")]
 

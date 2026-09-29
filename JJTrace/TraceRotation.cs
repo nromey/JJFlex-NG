@@ -66,8 +66,16 @@ namespace JJTrace
         /// %AppData%\JJFlexRadio\Traces. Null means "rotate but don't archive":
         /// the live file still stays bounded and the plain-text part survives,
         /// it just doesn't get a manifest entry. Set once at boot.
+        ///
+        /// <para>One root for parts and for archived sessions, because they go
+        /// through one worker into one manifest now. It lives on the
+        /// coordinator; this stays as the name boot already uses.</para>
         /// </summary>
-        public static string RotationArchiveRootDir { get; set; }
+        public static string RotationArchiveRootDir
+        {
+            get { return TraceCoordinator.ArchiveRootDir; }
+            set { TraceCoordinator.ArchiveRootDir = value; }
+        }
 
         /// <summary>1-based number of the part currently being written; 1 when nothing has rotated.</summary>
         public static int CurrentPartNumber
@@ -106,134 +114,25 @@ namespace JJTrace
             }
         }
 
-        private static readonly object _archiveChainLock = new object();
-        private static Task _archiveChain = Task.CompletedTask;
-
         /// <summary>
-        /// Build the live listener for <paramref name="path"/>, wired for
-        /// rotation. Called from the TraceFile setter.
+        /// Record the plain-text path of a part the listener just closed.
+        /// Called from inside the sink's own lock, so it does nothing that can
+        /// block and nothing that reaches back into the coordinator.
         /// </summary>
-        private static RotatingTraceListener CreateLiveListener(string path)
-        {
-            LastCompletedPartPath = null;
-            return new RotatingTraceListener(
-                path,
-                _rotationThresholdBytes,
-                ResolvePartPath,
-                OnPartClosed);
-        }
-
-        /// <summary>
-        /// Name a closed part's plain-text file. Parts of one session must sort
-        /// together and read as a sequence, so the name is
-        /// <c>&lt;livebase&gt;-&lt;session boot stamp&gt;-part-NNN.txt</c> —
-        /// same stem for every part, zero-padded to three digits so part 100
-        /// still sorts after part 099.
-        ///
-        /// The stem also keeps the shape the plain-text retention sweep looks
-        /// for, so parts age out of AppData on the same 24h convenience window
-        /// as any other stamped plain-text trace.
-        /// </summary>
-        private static string ResolvePartPath(int partNumber)
-        {
-            string live = LiveListener != null ? LiveListener.FilePath : _TraceFile;
-            if (string.IsNullOrEmpty(live)) return null;
-
-            string dir = Path.GetDirectoryName(live);
-            string baseName = Path.GetFileNameWithoutExtension(live);
-            string ext = Path.GetExtension(live);
-            if (string.IsNullOrEmpty(ext)) ext = ".txt";
-
-            DateTime stamp;
-            TraceSession session = TraceSessionContext.Current;
-            if (session != null) stamp = session.BootTimeUtc.ToLocalTime();
-            else
-            {
-                try { stamp = new FileInfo(live).CreationTime; }
-                catch { stamp = DateTime.Now; }
-            }
-
-            string target = Path.Combine(dir, string.Format(CultureInfo.InvariantCulture,
-                "{0}-{1:yyyyMMdd-HHmmss}-part-{2:D3}{3}", baseName, stamp, partNumber, ext));
-
-            // Collision guard: two app instances sharing a boot second, or a
-            // leftover part from a killed run that boot maintenance hasn't
-            // swept yet. Never overwrite existing evidence.
-            int suffix = 1;
-            while (File.Exists(target))
-            {
-                target = Path.Combine(dir, string.Format(CultureInfo.InvariantCulture,
-                    "{0}-{1:yyyyMMdd-HHmmss}-part-{2:D3}-{3}{4}", baseName, stamp, partNumber, suffix, ext));
-                suffix++;
-            }
-            return target;
-        }
-
-        /// <summary>
-        /// Called by the listener the instant a part file is closed and renamed,
-        /// while the listener lock is held. Must not block — it only records the
-        /// path and queues compression.
-        /// </summary>
-        private static void OnPartClosed(string partPath, int partNumber)
+        internal static void NotePartClosed(string partPath)
         {
             LastCompletedPartPath = partPath;
-            QueuePartArchive(partPath, partNumber);
         }
 
         /// <summary>
-        /// Queue a closed part for compression into the session archive. Runs on
-        /// a single serialized background chain: LZMA on a 256 MB text file is
-        /// minutes of CPU, and a marathon session can close several parts, so
-        /// they compress one at a time rather than all at once.
-        /// </summary>
-        private static void QueuePartArchive(string partPath, int partNumber)
-        {
-            if (string.IsNullOrEmpty(partPath)) return;
-            TraceSession session = TraceSessionContext.Current;
-            string root = RotationArchiveRootDir;
-
-            lock (_archiveChainLock)
-            {
-                _archiveChain = _archiveChain.ContinueWith(_ =>
-                {
-                    try
-                    {
-                        if (string.IsNullOrEmpty(root))
-                        {
-                            // No archive root configured. The part stays as plain
-                            // text — bounded and readable — which is still a far
-                            // better outcome than one unbounded live file.
-                            return;
-                        }
-                        // Never the final part: the clean-exit path archives the
-                        // tail of the chain and flags it final. A chain with no
-                        // part_final entry means the session never exited
-                        // cleanly, which is itself diagnostic.
-                        SessionArchive.ArchiveSession(root, partPath, session,
-                            deleteSourceAfter: false, partNumber: partNumber, isFinalPart: false);
-                    }
-                    catch (Exception ex)
-                    {
-                        // Never surface a modal dialog from a background
-                        // housekeeping thread; the trace line is the record.
-                        ErrTraceOnly(ex);
-                    }
-                }, TaskScheduler.Default);
-            }
-        }
-
-        /// <summary>
-        /// Block until queued part compressions finish, up to
-        /// <paramref name="timeout"/>. Called at clean exit so a session that
-        /// rotated doesn't leave an uncompressed part behind. Returns true if
-        /// the queue drained. Never throws.
+        /// Block until queued archives finish, up to <paramref name="timeout"/>.
+        /// One queue now carries rotation parts AND archived sessions, so this
+        /// bound really is the whole outstanding backlog rather than half of it.
+        /// Returns true if the queue drained. Never throws.
         /// </summary>
         public static bool WaitForPendingArchives(TimeSpan timeout)
         {
-            Task chain;
-            lock (_archiveChainLock) { chain = _archiveChain; }
-            try { return chain.Wait(timeout); }
-            catch { return false; }
+            return TraceArchiveWorker.Drain(timeout);
         }
 
         /// <summary>

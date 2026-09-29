@@ -12,15 +12,28 @@ namespace JJFlexWpf
     public sealed class ProblemEntry
     {
         public ProblemEntry(DateTime whenLocal, FailureKind kind, string what, string detail)
+            : this(whenLocal, kind, what, detail, key: null)
+        {
+        }
+
+        public ProblemEntry(DateTime whenLocal, FailureKind kind, string what, string detail, string? key)
         {
             WhenLocal = whenLocal;
             Kind = kind;
             What = what ?? "";
             Detail = detail ?? "";
+            Key = key;
         }
 
         public DateTime WhenLocal { get; }
         public FailureKind Kind { get; }
+
+        /// <summary>
+        /// The thing this entry is about, when the reporter may say something
+        /// different about it later; null for a failure that is a moment.
+        /// <see cref="ProblemLog.Update"/> replaces the entry with this key.
+        /// </summary>
+        public string? Key { get; }
 
         /// <summary>Short past-tense clause naming what did not happen.</summary>
         public string What { get; }
@@ -122,12 +135,19 @@ namespace JJFlexWpf
         /// is worse than no recorder.
         /// </summary>
         public static void Record(FailureKind kind, string what, string detail)
+            => Record(kind, what, detail, key: null);
+
+        /// <summary>
+        /// Record a problem about a THING, keyed so a later
+        /// <see cref="Update"/> can replace what this says about it.
+        /// </summary>
+        public static void Record(FailureKind kind, string what, string detail, string? key)
         {
             try
             {
                 lock (_gate)
                 {
-                    _entries.Add(new ProblemEntry(DateTime.Now, kind, what, detail));
+                    _entries.Add(new ProblemEntry(DateTime.Now, kind, what, detail, key));
                     while (_entries.Count > MaxEntries)
                     {
                         _entries.RemoveAt(0);
@@ -137,6 +157,44 @@ namespace JJFlexWpf
                 Changed?.Invoke(null, EventArgs.Empty);
             }
             catch { }
+        }
+
+        /// <summary>
+        /// Replace what the list says about <paramref name="key"/>, in place:
+        /// same position, same clock time (the problem began when it began),
+        /// same kind, new words. Returns false when no entry carries that key
+        /// — pushed out by the cap, or never recorded — so the caller can
+        /// record it as new instead. Never throws, for the same reason as
+        /// <see cref="Record"/>.
+        ///
+        /// <para>Sprint 45 Track H8 (Sol's review of H7, finding 4): an entry
+        /// composed while a recording's filing was pending said the app was
+        /// still filing it in the background, and stood unchanged after the
+        /// worker had given up. The entry now follows the ticket; the
+        /// announcement policy is untouched, because an update is not a new
+        /// problem and is never spoken.</para>
+        /// </summary>
+        public static bool Update(string key, string what, string detail)
+        {
+            if (string.IsNullOrEmpty(key)) return false;
+            try
+            {
+                bool replaced = false;
+                lock (_gate)
+                {
+                    for (int i = _entries.Count - 1; i >= 0; i--)
+                    {
+                        ProblemEntry old = _entries[i];
+                        if (!string.Equals(old.Key, key, StringComparison.Ordinal)) continue;
+                        _entries[i] = new ProblemEntry(old.WhenLocal, old.Kind, what, detail, key);
+                        replaced = true;
+                        break;
+                    }
+                }
+                if (replaced) Changed?.Invoke(null, EventArgs.Empty);
+                return replaced;
+            }
+            catch { return false; }
         }
 
         /// <summary>

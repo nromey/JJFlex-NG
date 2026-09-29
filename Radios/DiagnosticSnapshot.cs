@@ -192,6 +192,15 @@ namespace Radios
         public string TraceArchiveFolder { get; private set; }
 
         /// <summary>
+        /// Recording health at capture time: whether the live sink is really
+        /// writing, and every detached trace whose recovery is not yet assured.
+        /// Read from <see cref="JJTrace.TraceRecordingHealth"/>, the same state
+        /// the Diagnostics tab reads, so the bundle's system-info.txt and the
+        /// tab cannot disagree (Sprint 45 Track H7).
+        /// </summary>
+        public JJTrace.TraceRecordingHealthSnapshot RecordingHealth { get; private set; }
+
+        /// <summary>
         /// The speech library in use and what it is talking to, e.g.
         /// "Prism, using NVDA". Reads "none" when nothing came up, which is the
         /// one state a blind operator most needs stated rather than inferred.
@@ -731,7 +740,11 @@ namespace Radios
         {
             try
             {
-                TracingActive = JJTrace.Tracing.On;
+                // Recording, not the emission gate. Tracing.On stays raised for
+                // the life of the process once anything has opened a sink; a
+                // snapshot that reported it as "tracing active" would tell a
+                // support reader a log was being written when none was.
+                TracingActive = JJTrace.TraceCoordinator.Recording;
                 TraceFilePath = JJTrace.Tracing.TraceFile;
                 if (!string.IsNullOrEmpty(TraceFilePath))
                 {
@@ -749,6 +762,9 @@ namespace Radios
                     TraceArchiveFolder = Path.Combine(TraceFolder, "Traces");
             }
             catch { }
+
+            try { RecordingHealth = JJTrace.TraceRecordingHealth.Snapshot(); }
+            catch { /* rendered as unavailable */ }
         }
 
         private void CaptureAccessibility()
@@ -870,6 +886,19 @@ namespace Radios
                     "tracing is off; trace files land in " + (TraceFolder ?? "the JJFlexRadio settings folder"));
             if (!string.IsNullOrEmpty(TraceArchiveFolder))
                 Add(SectionSupport, "Trace archive", TraceArchiveFolder);
+            // Recording health, from the same state the Diagnostics tab reads.
+            // A support reader opening system-info.txt sees whether the log was
+            // really being written and whether any earlier recording is still
+            // waiting on recovery — without needing the log to have said so.
+            if (RecordingHealth != null)
+            {
+                foreach (var line in RecordingHealthNotice.SnapshotLines(RecordingHealth))
+                    Add(SectionSupport, line.Label, line.Value);
+            }
+            else
+            {
+                Add(SectionSupport, "Recording health", "not available");
+            }
             Add(SectionSupport, "Screen reader", ScreenReader ?? "unknown");
             Add(SectionSupport, "Braille display", BrailleAvailable ? "available" : "not detected");
         }
