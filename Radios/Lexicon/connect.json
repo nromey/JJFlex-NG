@@ -33,6 +33,8 @@
   "connect.client.disconnected": "{who} disconnected",
   "connect.client.info_unavailable": "Client information is unavailable. Other operators may still be connected.",
   "connect.client.may_have_left": "{station} was reported earlier. The radio has not confirmed that this client left.",
+  "connect.client.not_yet_confirmed": "{program}, station {station}. Not yet confirmed by the radio.",
+  "connect.client.not_yet_confirmed_no_station": "A client with no station name has not yet been confirmed by the radio.",
   "connect.client.reported_by_smartlink": "{program}, station {station}. Reported by SmartLink; not yet confirmed by the radio.",
   "connect.client.reported_by_smartlink_no_station": "A client with no station name was reported by SmartLink; the radio has not confirmed it.",
   "connect.client.reported_on_local_network": "{program}, station {station}. Reported on the local network; not yet confirmed by the radio.",

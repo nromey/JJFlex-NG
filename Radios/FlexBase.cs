@@ -940,10 +940,18 @@ namespace Radios
         // A client with no recorded adder — one already in the vendor
         // object's list when we attached (SeedRosterFrom), or a record that
         // carried a client_id without the radio's report on this connection
-        // — is named by the object's own channel: a SmartLink list is what
-        // fills a WAN object, a broadcast what fills a LAN one. That is the
-        // one inference here, and it is Sol's source-attribution follow-up
-        // in another place; see the Track L7 report.
+        // — has an UNKNOWN source, and its row names none (#634, Sol's
+        // review of L7). Track L7 named it by the object's own channel — a
+        // SmartLink list fills a WAN object, a broadcast a LAN one — which
+        // asserted a report nobody observed: the radio's own TCP status adds
+        // a client after the session's one list, deliberately unrecorded
+        // because it carries a client_id, the vendor keeps it on the reused
+        // WAN object across a command connection, and the next attempt's
+        // seed then said SmartLink had reported a client SmartLink never
+        // listed. A channel is where a record COULD have come from, not
+        // where it did. The one thing known about such a client is that the
+        // radio has not confirmed it on this connection, so that is all the
+        // row says.
         //
         // WHEN ONE CLIENT HAS BOTH SOURCES — a dual-homed radio hears the
         // broadcast and the SmartLink list — the row names the one that
@@ -978,10 +986,11 @@ namespace Radios
         /// <summary>
         /// The source a row names: the radio when it has confirmed the
         /// client on this connection, otherwise whichever of a SmartLink list
-        /// or a discovery broadcast added it, otherwise the radio object's own
-        /// channel (see the block comment above).
+        /// or a discovery broadcast was observed adding it, otherwise
+        /// <see cref="ClientRowSource.Unknown"/> — never inferred from the
+        /// radio object's channel (see the block comment above).
         /// </summary>
-        private ClientRowSource SourceOfClient(uint handle, int attemptGeneration, Radio radio)
+        private ClientRowSource SourceOfClient(uint handle, int attemptGeneration)
         {
             if (RadioHasConfirmedClient(handle)) return ClientRowSource.Radio;
             lock (_clientReportersLock)
@@ -990,7 +999,7 @@ namespace Radios
                     && _clientAddedBy.TryGetValue(handle, out var added))
                     return added;
             }
-            return radio != null && radio.IsWan ? ClientRowSource.SmartLinkList : ClientRowSource.LocalDiscovery;
+            return ClientRowSource.Unknown;
         }
 
         /// <summary>
@@ -10483,10 +10492,12 @@ namespace Radios
         /// radio's own status says otherwise — the vendor's list has already
         /// dropped it. <c>Source</c> is the radio when its own status reported
         /// the handle connected on this connection and not gone since;
-        /// otherwise it names which source reported the row — a SmartLink
-        /// list or a local discovery broadcast (Track L7, see
-        /// <see cref="SourceOfClient"/>). <c>mayHaveLeft</c> is the marked
-        /// entry: reported earlier, and something has since omitted it.</para>
+        /// otherwise it names which source was observed reporting the row —
+        /// a SmartLink list or a local discovery broadcast (Track L7) — and
+        /// when none was, it is unknown and the row names no source (Track
+        /// L8; see <see cref="SourceOfClient"/>). <c>mayHaveLeft</c> is the
+        /// marked entry: reported earlier, and something has since omitted
+        /// it.</para>
         /// </remarks>
         public List<ClientRow> GetGuiClients()
         {
@@ -10513,7 +10524,7 @@ namespace Radios
                     entry.Handle,
                     entry.IsThisClient || myClient(entry.Handle),
                     string.Join(", ", ownedSlices),
-                    SourceOfClient(entry.Handle, snapshot.AttemptGeneration, radio),
+                    SourceOfClient(entry.Handle, snapshot.AttemptGeneration),
                     entry.ReportedGoneByDiscovery));
             }
             return result;

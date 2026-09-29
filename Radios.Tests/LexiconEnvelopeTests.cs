@@ -620,6 +620,14 @@ namespace Radios.Tests
             // only a LAN broadcast listed stops saying SmartLink reported it.
             // Frozen as DRAFTS for the same reason as L6's. When Track I
             // merges on top of this, it reads 3,045.
+            //
+            // Then 2,825 on Track L8 (#634, Sol's review of L7): the two
+            // forms of the reported-client row for a client no source was
+            // observed reporting — already on the vendor object when the
+            // attempt attached — so such a row names no source instead of
+            // inferring SmartLink from the object's channel. Frozen as
+            // DRAFTS for the same reason. When Track I merges on top of
+            // this, it reads 3,047.
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -632,7 +640,7 @@ namespace Radios.Tests
                 }
             }
 
-            Assert.Equal(2823, unclassified);
+            Assert.Equal(2825, unclassified);
             Assert.All(classified, key =>
                 Assert.StartsWith("facts.", key, StringComparison.Ordinal));
             Assert.True(classified.Count > 30,

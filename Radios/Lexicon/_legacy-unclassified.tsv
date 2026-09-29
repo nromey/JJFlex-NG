@@ -1059,6 +1059,8 @@ connect.client.connected	cb00bd941fc614d2
 connect.client.disconnected	2df3a0dffe455cd8
 connect.client.info_unavailable	3005600c726d0b52
 connect.client.may_have_left	4b0f3e4238136ca4
+connect.client.not_yet_confirmed	631dc62ec88ab5c5
+connect.client.not_yet_confirmed_no_station	df6d23c94aa5ac1d
 connect.client.reported_by_smartlink	07f03b65649f4785
 connect.client.reported_by_smartlink_no_station	86c334a4886205cd
 connect.client.reported_on_local_network	dccd30105a9e4bac

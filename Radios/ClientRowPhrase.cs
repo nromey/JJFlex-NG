@@ -26,6 +26,20 @@ namespace Radios
         /// <summary>Not confirmed by the radio; a discovery broadcast on the
         /// local network reported it.</summary>
         LocalDiscovery,
+
+        /// <summary>
+        /// Not confirmed by the radio, and no source was observed reporting
+        /// it on this connection: the record was already on the vendor
+        /// object when this attempt attached to it, or it arrived with a
+        /// client_id and without the radio's own report (#634, Sol's review
+        /// of L7). The row names no source. Until Track L8 such a record was
+        /// named by the radio object's channel - SmartLink for a WAN object -
+        /// which asserted a report nobody had seen: a client the radio's own
+        /// TCP status added after the session's one list, deliberately left
+        /// unrecorded, survives on the reused WAN object into the next
+        /// attempt and was then said to have been reported by SmartLink.
+        /// </summary>
+        Unknown,
     }
 
     /// <summary>
@@ -87,6 +101,8 @@ namespace Radios
     /// <c>connect.client.reported_by_smartlink_no_station</c>,
     /// <c>connect.client.reported_on_local_network</c>,
     /// <c>connect.client.reported_on_local_network_no_station</c>,
+    /// <c>connect.client.not_yet_confirmed</c>,
+    /// <c>connect.client.not_yet_confirmed_no_station</c>,
     /// <c>connect.client.may_have_left</c>,
     /// <c>connect.client.info_unavailable</c>,
     /// <c>connect.multiflex.some_unconfirmed</c>,
@@ -117,6 +133,19 @@ namespace Radios
                 // actually reported it (#634, Sol's review of L6). Drafts 1
                 // and 2 for SmartLink; the local-network pair mirrors them
                 // in the wording of Noel's draft 11. All four are drafts.
+                //
+                // A client no source was observed reporting names none
+                // (Sol's review of L7): the same sentences without the
+                // "reported by" clause, Noel's own tail standing alone.
+                // Both DRAFTS, unruled.
+                if (row.Source == ClientRowSource.Unknown)
+                {
+                    return (string.IsNullOrEmpty(row.Station)
+                            ? Lexicon.Get("connect.client.not_yet_confirmed_no_station")
+                            : Lexicon.Get("connect.client.not_yet_confirmed",
+                                ("program", row.Program), ("station", row.Station)))
+                        + slices;
+                }
                 bool lan = row.Source == ClientRowSource.LocalDiscovery;
                 return (string.IsNullOrEmpty(row.Station)
                         ? Lexicon.Get(lan
