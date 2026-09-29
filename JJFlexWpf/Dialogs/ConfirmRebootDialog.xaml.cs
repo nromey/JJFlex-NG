@@ -22,7 +22,13 @@ namespace JJFlexWpf.Dialogs
     /// </summary>
     public partial class ConfirmRebootDialog : JJFlexDialog
     {
-        public ConfirmRebootDialog(IReadOnlyList<string> otherStations)
+        /// <param name="otherStations">The other stations the roster names.</param>
+        /// <param name="unconfirmedCompanyCaveat">The sentence saying which of
+        /// that company was reported by a SmartLink list or a broadcast rather
+        /// than by the radio itself, or null when all of it is the radio's own
+        /// word (#634). Read from the body, beside the names, so it is not lost
+        /// with speech (#643).</param>
+        public ConfirmRebootDialog(IReadOnlyList<string> otherStations, string? unconfirmedCompanyCaveat = null)
         {
             InitializeComponent();
 
@@ -39,6 +45,12 @@ namespace JJFlexWpf.Dialogs
                 body.Append(count == 1
                     ? $"This will also disconnect {stations}, who is connected to this radio."
                     : $"This will also disconnect {count} other stations connected to this radio: {stations}.");
+            }
+            if (!string.IsNullOrEmpty(unconfirmedCompanyCaveat))
+            {
+                body.AppendLine();
+                body.AppendLine();
+                body.Append(unconfirmedCompanyCaveat);
             }
 
             body.AppendLine();

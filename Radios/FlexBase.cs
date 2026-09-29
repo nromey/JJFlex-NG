@@ -749,6 +749,9 @@ namespace Radios
                     ? route.AccountId : null;
                 CurrentConnectionBinding = new RadioConnectionBinding(report.Connection, _connectionToken,
                     radio.Serial, radio.IsWan, account);
+                // A new transport's reports are the only ones that describe
+                // it: what the last one confirmed is not evidence here (#634).
+                resetClientEvidenceForNewConnection();
                 ConnectionLifetime.TraceBindOutcome(outcome, _connectionToken, "transport attempt");
                 return;
             }
@@ -767,7 +770,265 @@ namespace Radios
             if (!ReferenceEquals(radio, theRadio) || binding == null
                 || !ReferenceEquals(report.Connection, radio.CurrentCommandConnection)
                 || !ReferenceEquals(report.Connection, binding.Connection)) return;
-            ConnectionClientReported?.Invoke(new ConnectionClientReport(binding, report));
+            var evidence = new ConnectionClientReport(binding, report);
+            // This rig is the first consumer of its own event: the radio's
+            // report is what drives the connect's retry flags, the client
+            // announcements and the "confirmed by the radio" label (#634,
+            // Track L6). Consumed before the event is raised, so a subscriber
+            // reading this rig's state after the event sees it already
+            // applied.
+            consumeClientReport(evidence);
+            ConnectionClientReported?.Invoke(evidence);
+        }
+
+        // ══ CLIENT EVIDENCE FROM THE RADIO ITSELF (#634, Track L6) ═════════
+        //
+        // Ruled by Noel 2026-09-26: the radio's own client events drive
+        // announcements and retries; the SmartLink list updates what is
+        // displayed and the roster, and clients seen only in that list are
+        // labelled as such. The vendor raises ONE set of events —
+        // GUIClientAdded/Removed/Updated — for every mutation of its client
+        // list, whether the radio's TCP status caused it, a LAN discovery
+        // broadcast, or the SmartLink list we merge in ourselves, so the
+        // handlers on those events cannot tell the radio speaking from a list
+        // describing it. Track H gave the producer identity (#637): the
+        // command parser now emits RadioClientReport BEFORE it mutates the
+        // shared list, only for a line the radio sent on this connection,
+        // never for a list or a broadcast. That is the authority here.
+        //
+        // Everything the ruling names as the radio's business reads THIS
+        // state and nothing else: _clientAddedDuringStart and
+        // _clientRemovedDuringStart (the station-name wait's abort paths),
+        // the "{who} connected/disconnected" announcements, the set of
+        // handles the radio has confirmed, and the two facts the narrowed
+        // station-name rescue needs — what the radio said our station is
+        // called, and whether it reported us gone. Per connection: reset when
+        // the transport attempt begins (onCommandConnectionChanged), because
+        // a retry opens a new transport and its reports are the only ones
+        // that describe it.
+
+        private readonly object _clientEvidenceLock = new object();
+
+        /// <summary>
+        /// Handles the radio has reported connected on THIS command
+        /// connection, and not since reported disconnected. Membership in
+        /// the vendor's list says a client was seen by something; membership
+        /// here says the radio itself said so.
+        /// </summary>
+        private readonly HashSet<uint> _radioConfirmedClients = new HashSet<uint>();
+
+        /// <summary>The station the radio's own Connected report for our
+        /// handle carried, or null while the radio has not reported one on
+        /// this connection. A different name here means the wait can never
+        /// be finished by any overlay.</summary>
+        private volatile string _ownStationReportedByRadio;
+
+        /// <summary>The radio has reported our own handle disconnected on
+        /// this connection, and not since reported it connected.</summary>
+        private volatile bool _ownClientReportedDeparture;
+
+        /// <summary>The station a SmartLink list — from the account this
+        /// connection was brokered through — most recently wrote for our
+        /// handle into the connected radio object, or null. Names the source
+        /// when the rescue, not the radio, finishes the name wait.</summary>
+        private volatile string _ownStationSeenInSmartLinkList;
+
+        private void resetClientEvidenceForNewConnection()
+        {
+            lock (_clientEvidenceLock) _radioConfirmedClients.Clear();
+            _ownStationReportedByRadio = null;
+            _ownClientReportedDeparture = false;
+            _ownStationSeenInSmartLinkList = null;
+            StationNameSource = StationNameEvidence.None;
+            StationNameRescueSentence = null;
+        }
+
+        /// <summary>True when the radio's own status has reported this
+        /// handle connected on the current connection and not gone since.</summary>
+        internal bool RadioHasConfirmedClient(uint handle)
+        {
+            lock (_clientEvidenceLock) return _radioConfirmedClients.Contains(handle);
+        }
+
+        /// <summary>
+        /// Apply one of the radio's own client reports for this connection.
+        /// Runs on the command reader thread, before the vendor mutates its
+        /// list for the same line; must not block.
+        /// </summary>
+        private void consumeClientReport(ConnectionClientReport evidence)
+        {
+            var report = evidence.Report;
+            int gen = AttemptGen;
+            switch (report.Kind)
+            {
+                case RadioClientReportKind.Handle:
+                    // The radio has told us which handle is ours. Established
+                    // here first, so the station-name wait reads our own
+                    // record by the radio's word rather than by a list's.
+                    if (clientHandle != report.Handle)
+                    {
+                        clientHandle = report.Handle;
+                        Tracing.TraceLine($"clientReport: our handle is {report.Handle} (radio's own report)", TraceLevel.Info);
+                    }
+                    RosterTracker.OwnHandleEstablished(report.Handle, gen);
+                    break;
+
+                case RadioClientReportKind.Connected:
+                {
+                    bool mine = clientHandle != noClient && report.Handle == clientHandle;
+                    bool alreadyConfirmed;
+                    lock (_clientEvidenceLock) alreadyConfirmed = !_radioConfirmedClients.Add(report.Handle);
+                    if (!string.IsNullOrEmpty(report.Station) || !string.IsNullOrEmpty(report.Program))
+                        _clientIdentitySnapshots[report.Handle] = (report.Station ?? "", report.Program ?? "");
+
+                    if (mine)
+                    {
+                        // Our own client, by the radio: back, named, and
+                        // authoritative about local PTT.
+                        _clientRemovedDuringStart = false;
+                        _clientAddedDuringStart = true;
+                        _ownClientReportedDeparture = false;
+                        _ownStationReportedByRadio = report.Station ?? "";
+                        if (!string.IsNullOrEmpty(report.ClientId)) clientID = report.ClientId;
+                        _LocalPTT = report.LocalPtt;
+                        _lastAuthoritativeLocalPtt = report.LocalPtt;
+                        CanTransmit = true;
+                        Tracing.TraceLine(
+                            $"clientReport: radio reports OUR client {report.Handle} connected station='{report.Station}' localPtt={report.LocalPtt}",
+                            TraceLevel.Info);
+                    }
+                    else if (_clientAddedDuringStart && !alreadyConfirmed)
+                    {
+                        // Somebody else, by the radio's own word, arriving
+                        // after our own client was established. The list and
+                        // the broadcast never reach this line (#634).
+                        string who = !string.IsNullOrEmpty(report.Station) ? report.Station
+                            : !string.IsNullOrEmpty(report.Program) ? report.Program
+                            : Lexicon.Get("connect.client.unknown_added");
+                        ScreenReaderOutput.Speak(
+                            Lexicon.Get("connect.client.connected", ("who", who)),
+                            Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
+                            subject: Speech.SpeechSubject.ClientPresence);
+                        ScreenReaderOutput.PlayClientConnectedEarcon?.Invoke();
+                    }
+                    GuiClientChanged?.Invoke();
+                    break;
+                }
+
+                case RadioClientReportKind.Disconnected:
+                {
+                    bool mine = clientHandle != noClient && report.Handle == clientHandle;
+                    bool wasConfirmed;
+                    lock (_clientEvidenceLock) wasConfirmed = _radioConfirmedClients.Remove(report.Handle);
+
+                    // The radio's own status is the one origin that removes a
+                    // roster entry outright. The vendor also removes its
+                    // GUIClient for this line, when it still has one, and the
+                    // handler on that raise feeds the roster too — but when
+                    // a discovery packet had already removed the record, no
+                    // raise follows, and this is the only place the departure
+                    // reaches the roster (Astra's blocker on #634, answered by
+                    // #637).
+                    RosterTracker.ClientRemoved(report.Handle, gen, RosterRemovalOrigin.RadioStatus);
+
+                    if (mine)
+                    {
+                        _clientRemovedDuringStart = true;
+                        _clientRemovedTickCount = Environment.TickCount64;
+                        _ownClientReportedDeparture = true;
+                        Tracing.TraceLine("clientReport: radio reports OUR client disconnected", TraceLevel.Info);
+                    }
+                    else
+                    {
+                        _clientIdentitySnapshots.TryGetValue(report.Handle, out var snapshot);
+                        string who = !string.IsNullOrEmpty(snapshot.Station) ? snapshot.Station
+                            : !string.IsNullOrEmpty(snapshot.Program) ? snapshot.Program
+                            : Lexicon.Get("connect.client.unknown_removed");
+                        if (wasConfirmed || snapshot.Station != null)
+                        {
+                            ScreenReaderOutput.Speak(
+                                Lexicon.Get("connect.client.disconnected", ("who", who)),
+                                Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
+                                subject: Speech.SpeechSubject.ClientPresence);
+                            ScreenReaderOutput.PlayClientDisconnectedEarcon?.Invoke();
+                        }
+                        _clientIdentitySnapshots.TryRemove(report.Handle, out _);
+                    }
+                    GuiClientChanged?.Invoke();
+                    break;
+                }
+            }
+        }
+
+        /// <summary>Who supplied the station name that finished the wait.</summary>
+        public enum StationNameEvidence
+        {
+            /// <summary>No wait has finished on this connection.</summary>
+            None,
+            /// <summary>The radio's own client report carried the name.</summary>
+            RadioReport,
+            /// <summary>A SmartLink list from the account this connection
+            /// was brokered through wrote the name into our record before
+            /// the radio's report arrived (the narrowed rescue, #634).</summary>
+            SmartLinkList,
+            /// <summary>A local discovery broadcast wrote the name into our
+            /// record before the radio's report arrived (the narrowed
+            /// rescue, #634).</summary>
+            LocalDiscovery,
+        }
+
+        /// <summary>
+        /// What finished the last station-name wait on this connection.
+        /// Readable state, so it is not lost when speech is (#643); recorded
+        /// in the connect profile and the trace as well.
+        /// </summary>
+        public StationNameEvidence StationNameSource { get; private set; }
+
+        /// <summary>
+        /// The operator's sentence for a wait the rescue finished — null when
+        /// the radio's own report did, which needs no caveat. DRAFT wording
+        /// (Noel's, not ruled): <c>connect.start.station_from_smartlink</c>
+        /// and <c>connect.start.station_from_local_network</c>.
+        /// </summary>
+        public string StationNameRescueSentence { get; private set; }
+
+        /// <summary>
+        /// The station-name wait's decision for one poll, pure over the
+        /// evidence this connection holds. <paramref name="overlayStation"/>
+        /// is what our record on the radio object says right now, whoever
+        /// wrote it; the radio's own word is read from the report state.
+        /// </summary>
+        /// <remarks>
+        /// <para>The order is the ruling's (#634). The radio's own report
+        /// wins outright: the name it carries finishes the wait, a different
+        /// non-empty name means no overlay may finish it (the equality can
+        /// never hold — the #402 diagnostic), and an empty name is the radio
+        /// enumerating us before it applied anything, which is not a
+        /// different name. Departure reported by the radio blocks the rescue
+        /// until the radio reports us back. Only then does the overlay
+        /// count, and which source wrote it is read from what the list merge
+        /// recorded for our handle.</para>
+        /// </remarks>
+        internal (bool Finished, StationNameEvidence Source, string RescueSentence) StationNameWaitDecision(
+            string overlayStation, string requested)
+        {
+            string radioSaid = _ownStationReportedByRadio;
+            if (!string.IsNullOrEmpty(radioSaid))
+            {
+                return radioSaid == requested
+                    ? (true, StationNameEvidence.RadioReport, null)
+                    : (false, StationNameEvidence.None, null);
+            }
+            if (_ownClientReportedDeparture) return (false, StationNameEvidence.None, null);
+            if (overlayStation == null || overlayStation != requested) return (false, StationNameEvidence.None, null);
+
+            if (_ownStationSeenInSmartLinkList == requested)
+            {
+                // FOR NOEL'S PROSE REVIEW: draft 10 of the 2026-09-26 file.
+                return (true, StationNameEvidence.SmartLinkList, Lexicon.Get("connect.start.station_from_smartlink"));
+            }
+            // FOR NOEL'S PROSE REVIEW: draft 11 of the 2026-09-26 file.
+            return (true, StationNameEvidence.LocalDiscovery, Lexicon.Get("connect.start.station_from_local_network"));
         }
 
         /// <summary>
@@ -3298,9 +3559,22 @@ namespace Radios
                         break;
                     }
                     GUIClient client = TheGuiClient;
-                    if (client != null && client.Station == Callouts.StationName)
+                    // The radio's own report finishes this wait when it
+                    // carries the name. A matching name that only a SmartLink
+                    // list or a discovery broadcast wrote into our record —
+                    // the rescue — may still finish it, narrowed (#634, ruled
+                    // 2026-09-26): only for the handle this connection was
+                    // given (TheGuiClient reads by that handle), only from
+                    // the account this connection was brokered through (the
+                    // merge is gated on it), and only while the radio has
+                    // reported neither a different name nor our departure.
+                    // It finishes the name wait and nothing else.
+                    var decision = StationNameWaitDecision(client?.Station, Callouts.StationName);
+                    if (decision.Finished)
                     {
                         stationNameSet = true;
+                        StationNameSource = decision.Source;
+                        StationNameRescueSentence = decision.RescueSentence;
                         break;
                     }
                     // Diagnostic for the case the strict equality hides: the
@@ -3337,10 +3611,14 @@ namespace Radios
             }
             if (stationNameSet)
             {
-                Tracing.TraceLine("start:station name set " + Callouts.StationName, TraceLevel.Info);
+                Tracing.TraceLine("start:station name set " + Callouts.StationName
+                    + " (source: " + StationNameSource + ")"
+                    + (StationNameRescueSentence == null ? "" : " — " + StationNameRescueSentence), TraceLevel.Info);
                 ConnectionProfiler.Current?.RecordEvent("station_name_set", new Dictionary<string, object>
                 {
-                    { "stationName", Callouts.StationName }
+                    { "stationName", Callouts.StationName },
+                    { "source", StationNameSource.ToString() },
+                    { "detail", StationNameRescueSentence ?? "" }
                 });
             }
             else if (!IsConnected)
@@ -3880,6 +4158,9 @@ namespace Radios
             var others = OtherConnectedStations;
             if (others.Count > 0)
                 check.Warnings.Add("Other stations are connected and will need to reconnect: " + string.Join(", ", others));
+            // Some of that company may be a list's word, not the radio's (#634).
+            var caveat = UnconfirmedCompanyCaveat;
+            if (caveat != null) check.Warnings.Add(caveat);
 
             check.CanProceed = true;
             return check;
@@ -4262,6 +4543,9 @@ namespace Radios
             var others = OtherConnectedStations;
             if (others.Count > 0)
                 check.Warnings.Add("Other stations are connected to this radio: " + string.Join(", ", others));
+            // Some of that company may be a list's word, not the radio's (#634).
+            var companyCaveat = UnconfirmedCompanyCaveat;
+            if (companyCaveat != null) check.Warnings.Add(companyCaveat);
 
             check.Warnings.Add(
                 "The radio will ask you to key the microphone or the CW key to prove someone is standing at it. " +
@@ -5445,6 +5729,9 @@ namespace Radios
                 check.Warnings.Add(
                     "Other stations are connected and will lose the radio: " + string.Join(", ", others));
             }
+            // Some of that company may be a list's word, not the radio's (#634).
+            var companyCaveat = UnconfirmedCompanyCaveat;
+            if (companyCaveat != null) check.Warnings.Add(companyCaveat);
 
             check.CanProceed = true;
             return check;
@@ -6416,7 +6703,7 @@ namespace Radios
                         // and a dual-homed radio (always already known, because
                         // LAN found it first) killed the loop on the first
                         // iteration. `continue` is what was meant.
-                        UpdateRadioDiscoveryFields(r, oldRadio);
+                        UpdateRadioDiscoveryFields(r, oldRadio, accountId);
                         RaiseRadioFound(null, BuildRigData(oldRadio));
                     }
                 }
@@ -6433,7 +6720,21 @@ namespace Radios
                 Tracing.TraceLine("wanRadioListReceivedHandler:exception:" + ex.Message, TraceLevel.Error);
             }
         }
-        private void UpdateRadioDiscoveryFields(Radio newRadio, Radio oldRadio)
+        /// <summary>
+        /// True on the thread that is merging a SmartLink list into a radio
+        /// object, for the whole of the vendor's <c>UpdateGuiClientsList</c>,
+        /// which raises GUIClientAdded/Removed synchronously on that thread.
+        /// The handlers read it to know the raise is a list describing the
+        /// radio and not the radio speaking: they update the roster and the
+        /// identity snapshots as for any source, and leave the one display
+        /// refresh to the merge, which raises it once, when the answer
+        /// changed (#634). Thread-static because the command reader can be
+        /// raising the same events for the radio's own status at the same
+        /// moment on its own thread, and those must not read as a list's.
+        /// </summary>
+        [ThreadStatic] private static bool _mergingSmartLinkList;
+
+        private void UpdateRadioDiscoveryFields(Radio newRadio, Radio oldRadio, string accountId)
         {
             Tracing.TraceLine("UpdateRadioDiscoveryFields:" + newRadio.Nickname + ' ' + newRadio.Callsign, TraceLevel.Info);
             if (oldRadio.Nickname != newRadio.Nickname)
@@ -6465,12 +6766,79 @@ namespace Radios
                 oldRadio.RadioLicenseId = newRadio.RadioLicenseId;
             if (oldRadio.LowBandwidthConnect != newRadio.LowBandwidthConnect)
                 oldRadio.LowBandwidthConnect = newRadio.LowBandwidthConnect;
-            oldRadio.UpdateGuiClientsList(newGuiClients: newRadio.GuiClients);
+
+            // The client roster is the one field with a ruling on it (#634).
+            // For the radio we are CONNECTED to over SmartLink, the list may
+            // write our record — which is the station-name rescue's channel
+            // — only when it came from the account this connection was
+            // actually brokered through, read from the executed route and
+            // never inferred (Track H's binding; null means unproven, and an
+            // unproven account is not the account used). A list from any
+            // other account describes the same radio but was not the path
+            // we took, and its roster stays out of the live object. For a
+            // radio we are not connected to, or connected to over the LAN,
+            // the merge is display, as it always was.
+            bool live = ReferenceEquals(oldRadio, theRadio);
+            if (live)
+            {
+                var binding = CurrentConnectionBinding;
+                if (binding != null && binding.IsWan
+                    && (binding.AccountId == null
+                        || !string.Equals(binding.AccountId, accountId, StringComparison.OrdinalIgnoreCase)))
+                {
+                    Tracing.TraceLine(
+                        $"UpdateRadioDiscoveryFields: {oldRadio.Serial} is the connected radio, brokered through "
+                        + (binding.AccountId == null ? "an unproven account" : "'" + binding.AccountId + "'")
+                        + $"; a list from '{accountId}' does not write its client roster (#634)",
+                        TraceLevel.Info);
+                    return;
+                }
+            }
+
+            // The merge raises GUIClientAdded/Removed for every difference,
+            // and it would raise the display refresh per client and the
+            // roster's Changed per client. The LAN discovery path was given
+            // a signature gate for exactly this shape of unconditional raise
+            // (discoveryGuiClientsChangedHandler, #394); this is its second
+            // caller: one refresh per merge, and only when who-is-on-it
+            // changed.
+            _mergingSmartLinkList = true;
+            try
+            {
+                oldRadio.UpdateGuiClientsList(newGuiClients: newRadio.GuiClients);
+            }
+            finally
+            {
+                _mergingSmartLinkList = false;
+            }
+
+            if (live && clientHandle != noClient)
+            {
+                // What THIS list said our own station is called, for the
+                // rescue to name its source when it finishes the wait.
+                string ours = null;
+                lock (newRadio.GuiClientsLockObj)
+                {
+                    foreach (GUIClient c in newRadio.GuiClients)
+                        if (c.ClientHandle == clientHandle) { ours = c.Station ?? ""; break; }
+                }
+                _ownStationSeenInSmartLinkList = ours;
+            }
+
             int merged;
+            string sig;
             lock (oldRadio.GuiClientsLockObj) merged = oldRadio.GuiClients.Count;
+            sig = OccupancySignature(oldRadio);
+            bool changed;
+            lock (_occupancyRaised)
+            {
+                changed = !(_occupancyRaised.TryGetValue(oldRadio.Serial, out var prev) && prev == sig);
+                if (changed) _occupancyRaised[oldRadio.Serial] = sig;
+            }
             Tracing.TraceLine(
-                $"occupancy[wan-merge]: {oldRadio.Serial} stations={merged}",
+                $"occupancy[wan-merge]: {oldRadio.Serial} stations={merged}" + (changed ? $" — changed to [{sig}]" : " — unchanged, no refresh"),
                 TraceLevel.Info);
+            if (live && changed) GuiClientChanged?.Invoke();
         }
 
         // Sprint 26 Phase 4 deleted the `wan` field and the PreserveWanForRetry /
@@ -9466,8 +9834,14 @@ namespace Radios
 
             if (isMine)
             {
-                _clientRemovedDuringStart = false; // Client is back
-                _clientAddedDuringStart = true;
+                // The start flags are NOT touched here any more (#634, Track
+                // L6). This raise fires for a record from the radio's TCP
+                // status, from a LAN discovery broadcast and from a SmartLink
+                // list alike, and a stale list re-adding our own record used
+                // to read as the radio saying we were back — and a list
+                // omitting it, as the radio saying we had gone, which aborted
+                // a live connect for a retry. The radio's own Connected and
+                // Disconnected reports set them now (consumeClientReport).
                 // Never let a fabricated record blank the real client id.
                 if (!string.IsNullOrEmpty(client.ClientID)) clientID = client.ClientID;
                 clientHandle = client.ClientHandle;
@@ -9545,17 +9919,12 @@ namespace Radios
                 }
             }
 
-            // Notify when another client connects (not during initial startup).
-            // isMine, not IsThisClient: the fabricated re-add of our OWN
-            // client used to announce itself as "Another client connected".
-            if (!isMine && _clientAddedDuringStart)
-            {
-                string who = !string.IsNullOrEmpty(client.Station) ? client.Station
-                    : !string.IsNullOrEmpty(client.Program) ? client.Program
-                    : Lexicon.Get("connect.client.unknown_added");
-                ScreenReaderOutput.Speak(Lexicon.Get("connect.client.connected", ("who", who)), VerbosityLevel.Terse);
-                ScreenReaderOutput.PlayClientConnectedEarcon?.Invoke();
-            }
+            // "{who} connected" is NOT announced from here any more (#634,
+            // Track L6): this raise cannot tell the radio's own status from a
+            // SmartLink list or a discovery broadcast, and a stale list
+            // announced arrivals that had not happened. The radio's own
+            // Connected report announces (consumeClientReport); a client seen
+            // only in a list is shown, labelled as reported, and not spoken.
 
             Tracing.TraceLine("guiClientAdded:" +
                 "id:" + client.ClientID +
@@ -9578,7 +9947,9 @@ namespace Radios
                 { "msSinceStartBegin", _startBeginTickCount > 0 ? (Environment.TickCount64 - _startBeginTickCount) : -1 }
             });
 
-            GuiClientChanged?.Invoke();
+            // A SmartLink list merge raises this per client; the merge itself
+            // refreshes once, when the answer changed (#634).
+            if (!_mergingSmartLinkList) GuiClientChanged?.Invoke();
         }
 
         /// <summary>
@@ -9727,43 +10098,79 @@ namespace Radios
         }
 
         /// <summary>
-        /// Get a snapshot of connected MultiFlex GUI clients with their owned slices.
-        /// Returns tuples: (program, station, handle, isThisClient, ownedSliceLetters).
+        /// Get a snapshot of the MultiFlex GUI clients the roster holds, with
+        /// their owned slices and where the knowledge of each came from
+        /// (<see cref="ClientRow"/>).
         /// </summary>
-        public List<(string program, string station, uint handle, bool isThisClient, string slices)> GetGuiClients()
+        /// <remarks>
+        /// <para>Read from the roster tracker (#577) rather than the vendor's
+        /// list, because the ruling (#634) says the SmartLink list updates
+        /// the display AND the roster, and the roster is where a client that
+        /// a list or broadcast stopped listing is KEPT, marked, until the
+        /// radio's own status says otherwise — the vendor's list has already
+        /// dropped it. <c>confirmedByRadio</c> is true when the radio's own
+        /// status reported the handle connected on this connection and not
+        /// gone since; a row without it is one only a list or a broadcast
+        /// has reported. <c>mayHaveLeft</c> is the marked entry: reported
+        /// earlier, and something has since omitted it.</para>
+        /// </remarks>
+        public List<ClientRow> GetGuiClients()
         {
-            var result = new List<(string, string, uint, bool, string)>();
-            if (theRadio == null) return result;
+            var result = new List<ClientRow>();
+            var radio = theRadio;
+            if (radio == null) return result;
 
-            lock (theRadio.GuiClientsLockObj)
+            var snapshot = RosterTracker.Snapshot();
+            foreach (var entry in snapshot.Entries)
             {
-                foreach (var gc in theRadio.GuiClients)
+                var ownedSlices = new List<string>();
+                lock (radio.GuiClientsLockObj)
                 {
-                    var ownedSlices = new List<string>();
-                    foreach (var s in theRadio.SliceList)
+                    foreach (var s in radio.SliceList)
                     {
-                        if (s.ClientHandle == gc.ClientHandle && !string.IsNullOrEmpty(s.Letter))
+                        if (s.ClientHandle == entry.Handle && !string.IsNullOrEmpty(s.Letter))
                             ownedSlices.Add(s.Letter);
                     }
-
-                    result.Add((
-                        gc.Program ?? "Unknown",
-                        gc.Station ?? "",
-                        gc.ClientHandle,
-                        gc.IsThisClient,
-                        string.Join(", ", ownedSlices)
-                    ));
                 }
+
+                result.Add(new ClientRow(
+                    string.IsNullOrEmpty(entry.Program) ? "Unknown" : entry.Program,
+                    entry.Station ?? "",
+                    entry.Handle,
+                    entry.IsThisClient || myClient(entry.Handle),
+                    string.Join(", ", ownedSlices),
+                    RadioHasConfirmedClient(entry.Handle),
+                    entry.ReportedGoneByDiscovery));
             }
             return result;
         }
 
         /// <summary>
-        /// Disconnect a MultiFlex GUI client by handle.
+        /// True when this rig cannot yet say who is on the radio: our own
+        /// handle is not established, or the roster does not hold it. The
+        /// MultiFlex view says so rather than showing an empty list that
+        /// reads as an empty radio (#634).
+        /// </summary>
+        public bool ClientInformationUnavailable =>
+            theRadio == null || OtherOperatorPresence == RosterVerdict.Unknown;
+
+        /// <summary>
+        /// Disconnect a MultiFlex GUI client by handle. Refused for a handle
+        /// the radio has not itself reported connected on this connection: a
+        /// row that only a SmartLink list or a broadcast supplied cannot be
+        /// disconnected from that row until the radio identifies it — an
+        /// accepted cost of the ruling (#634).
         /// </summary>
         public bool DisconnectGuiClient(uint handle)
         {
             if (theRadio == null || myClient(handle)) return false;
+            if (!RadioHasConfirmedClient(handle))
+            {
+                Tracing.TraceLine(
+                    $"DisconnectGuiClient: refused for handle {handle} — the radio has not reported this client connected on this connection; only a list or a broadcast has (#634)",
+                    TraceLevel.Info);
+                return false;
+            }
             try
             {
                 theRadio.DisconnectClientByHandle(handle.ToString());
@@ -9820,6 +10227,57 @@ namespace Radios
                     Tracing.TraceLine($"OtherConnectedStations: {ex.Message}", TraceLevel.Error);
                 }
                 return others;
+            }
+        }
+
+        /// <summary>
+        /// The other clients the roster holds that the radio has NOT itself
+        /// reported connected on this connection — rows a SmartLink list or a
+        /// discovery broadcast supplied, and rows marked as possibly gone.
+        /// Named by station, else program, else the unknown-client word.
+        /// Every blast-radius confirmation that names
+        /// <see cref="OtherConnectedStations"/> adds a caveat from this list,
+        /// so the operator reads that some of the company named was reported
+        /// rather than confirmed (#634). Never throws.
+        /// </summary>
+        public System.Collections.Generic.List<string> UnconfirmedOtherStations
+        {
+            get
+            {
+                var names = new System.Collections.Generic.List<string>();
+                try
+                {
+                    if (theRadio == null) return names;
+                    foreach (var entry in RosterTracker.Snapshot().Others)
+                    {
+                        if (RadioHasConfirmedClient(entry.Handle) && !entry.ReportedGoneByDiscovery) continue;
+                        names.Add(!string.IsNullOrEmpty(entry.Station) ? entry.Station
+                            : !string.IsNullOrEmpty(entry.Program) ? entry.Program
+                            : Lexicon.Get("connect.client.unknown_added"));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine($"UnconfirmedOtherStations: {ex.Message}", TraceLevel.Error);
+                }
+                return names;
+            }
+        }
+
+        /// <summary>
+        /// The caveat a confirmation adds when some of the company it names
+        /// was reported by a list or a broadcast rather than by the radio, or
+        /// null when every other client is radio-confirmed. DRAFT wording
+        /// (Noel's, not ruled): <c>connect.client.unconfirmed_affected</c>.
+        /// </summary>
+        public string UnconfirmedCompanyCaveat
+        {
+            get
+            {
+                var unconfirmed = UnconfirmedOtherStations;
+                if (unconfirmed.Count == 0) return null;
+                // FOR NOEL'S PROSE REVIEW: draft 9 of the 2026-09-26 file.
+                return Lexicon.Get("connect.client.unconfirmed_affected", ("clients", string.Join(", ", unconfirmed)));
             }
         }
 
@@ -10033,7 +10491,9 @@ namespace Radios
                 { "isThisClient", client.IsThisClient }
             });
 
-            GuiClientChanged?.Invoke();
+            // A SmartLink list merge raises this per client; the merge itself
+            // refreshes once, when the answer changed (#634).
+            if (!_mergingSmartLinkList) GuiClientChanged?.Invoke();
         }
 
         private void guiClientRemoved(GUIClient client, ObservationBinding binding)
@@ -10042,42 +10502,28 @@ namespace Radios
 
             if (myClient(client.ClientHandle))
             {
-                _clientRemovedDuringStart = true;
-                _clientRemovedTickCount = Environment.TickCount64;
-                Tracing.TraceLine("guiClientRemoved:my client", TraceLevel.Info);
+                // Not the retry flag: a SmartLink list or a discovery packet
+                // omitting our record raises this exactly as the radio's own
+                // "client disconnected" does, and a stale list used to abort
+                // a live connect this way (#634, Track L6). The radio's own
+                // Disconnected report sets the flag (consumeClientReport).
+                Tracing.TraceLine("guiClientRemoved:my client (as some source listed it; the radio's own report decides the retry)", TraceLevel.Info);
             }
 
             // #577: a removal recomputes the roster. FlexLib raises the
             // discovery-driven removal while holding its roster lock, so this
-            // publishes and returns; the tracker never blocks.
+            // publishes and returns; the tracker never blocks. The origin
+            // travels with it: a list or broadcast omission KEEPS the entry,
+            // marked, so the display can say the client may have left rather
+            // than that it did.
             ObserveClientRemoved(binding, client);
 
-            // Notify when another client disconnects.
-            //
-            // BUG-062 Symptom 6 fix (R2 snapshot-at-subscribe, 2026-04-20): the
-            // `client` payload FlexLib hands us here may have been blanked by
-            // parseGuiClientStatus before OnGUIClientRemoved fired, so we prefer
-            // the snapshot captured at add/update time. We still fall back to
-            // the event payload as a last resort (in case the snapshot was
-            // never populated — e.g., a client that added and removed within
-            // the same message).
-            if (!myClient(client.ClientHandle))
-            {
-                _clientIdentitySnapshots.TryGetValue(client.ClientHandle, out var snapshot);
-                string snapStation = snapshot.Station ?? "";
-                string snapProgram = snapshot.Program ?? "";
-
-                string who = !string.IsNullOrEmpty(snapStation) ? snapStation
-                    : !string.IsNullOrEmpty(snapProgram) ? snapProgram
-                    : !string.IsNullOrEmpty(client.Station) ? client.Station
-                    : !string.IsNullOrEmpty(client.Program) ? client.Program
-                    : Lexicon.Get("connect.client.unknown_removed");
-                ScreenReaderOutput.Speak(Lexicon.Get("connect.client.disconnected", ("who", who)), VerbosityLevel.Terse);
-                ScreenReaderOutput.PlayClientDisconnectedEarcon?.Invoke();
-            }
-
-            // Remove the snapshot — the client is gone.
-            _clientIdentitySnapshots.TryRemove(client.ClientHandle, out _);
+            // "{who} disconnected" is NOT announced from here any more (#634,
+            // Track L6): the radio's own Disconnected report announces it
+            // (consumeClientReport), and that path also removes the identity
+            // snapshot. A list-only removal leaves the snapshot in place —
+            // the client is treated as present until the radio speaks, and
+            // when it does, the name must still be there to speak.
 
             Tracing.TraceLine("guiClientRemoved:" +
                 "id:" + client.ClientID +
@@ -10099,7 +10545,9 @@ namespace Radios
                 { "msSinceStartBegin", _startBeginTickCount > 0 ? (Environment.TickCount64 - _startBeginTickCount) : -1 }
             });
 
-            GuiClientChanged?.Invoke();
+            // A SmartLink list merge raises this per client; the merge itself
+            // refreshes once, when the answer changed (#634).
+            if (!_mergingSmartLinkList) GuiClientChanged?.Invoke();
         }
 
         // These properties are for my client.

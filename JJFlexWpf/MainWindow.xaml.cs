@@ -6432,15 +6432,9 @@ public partial class MainWindow : UserControl
         {
             GetClients = () =>
             {
-                return rig.GetGuiClients().Select(gc => new Dialogs.MultiFlexClientInfo
-                {
-                    Program = gc.program,
-                    Station = gc.station,
-                    Handle = gc.handle,
-                    IsThisClient = gc.isThisClient,
-                    OwnedSlices = gc.slices
-                }).ToList();
+                return rig.GetGuiClients().Select(row => new Dialogs.MultiFlexClientInfo(row)).ToList();
             },
+            ClientInformationUnavailable = () => rig.ClientInformationUnavailable,
             DisconnectClient = (handle) => rig.DisconnectGuiClient(handle),
             SubscribeClientListChanged = h => rig.GuiClientChanged += h,
             UnsubscribeClientListChanged = h => rig.GuiClientChanged -= h

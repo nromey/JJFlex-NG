@@ -48,12 +48,15 @@ namespace JJFlexWpf
             // Name names. On a MultiFlex radio, "this will disconnect Don" is the
             // single most decision-relevant fact, and JJ Flex already knows it.
             var others = rig.OtherConnectedStations;
+            // Some of that company may be a list's word, not the radio's (#634):
+            // the dialog says so in a readable line, beside the names.
+            var caveat = rig.UnconfirmedCompanyCaveat;
 
             // No Owner assignment: JJ Flex's WPF main window is hosted in an
             // ElementHost rather than shown as a WPF Window, so setting Owner to a
             // never-shown Window throws. JJFlexDialog already parents itself to the
             // process main window handle for modality.
-            var confirm = new Dialogs.ConfirmRebootDialog(others);
+            var confirm = new Dialogs.ConfirmRebootDialog(others, caveat);
             if (confirm.ShowDialog() != true)
             {
                 ScreenReaderOutput.Speak(Lexicon.Get("connect.reboot.cancelled"), VerbosityLevel.Terse, interrupt: true);

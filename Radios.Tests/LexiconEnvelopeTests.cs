@@ -606,6 +606,14 @@ namespace Radios.Tests
             // and removed three L had renamed away (#629, frozen for the same
             // reason). Whichever of L and I integrates second adds its own
             // delta on top of the other's figure.
+            //
+            // Then 2,821 on Track L6 (#634): the eleven DRAFT sentences of the
+            // MultiFlex client list — reported-by-SmartLink rows, may-have-left,
+            // the summary and disconnect-reason lines, the blast-radius caveat,
+            // and the two station-name rescue details — are frozen, not
+            // classified, because their wording is Noel's and unruled and
+            // their classification is a #617 speech decision nobody has made.
+            // When Track I merges on top of this, it reads 3,043.
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -618,7 +626,7 @@ namespace Radios.Tests
                 }
             }
 
-            Assert.Equal(2810, unclassified);
+            Assert.Equal(2821, unclassified);
             Assert.All(classified, key =>
                 Assert.StartsWith("facts.", key, StringComparison.Ordinal));
             Assert.True(classified.Count > 30,
