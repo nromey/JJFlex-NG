@@ -438,6 +438,125 @@ namespace Radios.Tests
         }
 
         // ────────────────────────────────────────────────────────────────
+        //  H17: the guide promises only what the sink guarantees
+        // ────────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Words that would make the reading guide claim more than the sink
+        /// can keep. The first group claims completeness — that every kind
+        /// introduces itself, or that the search lists everything the file
+        /// holds. The second claims every line carries the prefix. H16's
+        /// guide said both; Sol's review found both false (#625, H17).
+        /// </summary>
+        internal static readonly string[] OverclaimingPhrases =
+        {
+            "each kind", "every kind", "all kinds", "everything", "list what this file carries",
+            "lists what this file", "what this file holds", "what it holds",
+            "each line begins", "every line begins", "all lines", "one event per line",
+        };
+
+        /// <summary>
+        /// The reading guide claims only what the mechanism guarantees. A real
+        /// file is written with the three things that falsified H16's guide
+        /// — a measurement line that declares no kind, a line handed straight
+        /// to <c>Trace.WriteLine</c> as the radio library does, and a message
+        /// that runs over two lines — and each is shown to be IN the file,
+        /// unexplained or unprefixed, as the positive control. Then the guide:
+        /// it must say "most" lines carry the prefix, and the line that names
+        /// the search phrase must say the search finds ONLY what has explained
+        /// itself; and it must use none of <see cref="OverclaimingPhrases"/>.
+        /// The assertions are about claims, not wording, so a rewrite that
+        /// keeps the guide honest stays green and one that restores a
+        /// completeness claim goes red.
+        /// </summary>
+        [Fact]
+        public void The_reading_guide_claims_only_what_the_sink_guarantees()
+        {
+            TraceTransitionResult began = TraceCoordinator.Begin(_livePath, TraceLevel.Verbose, asDetailedCapture: false);
+            Assert.Equal(TraceTransition.Accepted, began.Status);
+
+            Tracing.TraceRecord(KindA, "alpha: a declared record", TraceLevel.Info);
+            Tracing.TraceLine("undeclaredReading: 13.8", TraceLevel.Verbose);
+            Trace.WriteLine("a vendor line with no prefix of its own");
+            Tracing.TraceLine("a message that runs\nover two lines", TraceLevel.Info);
+
+            string[] lines = Lines(ReadLive(_livePath));
+            _out.WriteLine(string.Join(Environment.NewLine, lines));
+
+            // Controls: the file really holds what the guide must not deny.
+            int undeclared = Only(lines, "] undeclaredReading: 13.8", "the undeclared measurement line");
+            Assert.DoesNotContain(lines, l => l.Contains(TraceSelfDescription.Marker, StringComparison.Ordinal)
+                                              && l.Contains("undeclaredReading", StringComparison.Ordinal));
+            Assert.DoesNotContain(TraceSelfDescription.Marker, lines[undeclared - 1], StringComparison.Ordinal);
+            Assert.Contains(lines, l => l == "a vendor line with no prefix of its own");
+            Assert.Contains(lines, l => l == "over two lines");
+
+            IReadOnlyList<string> guide = TraceSelfDescription.PartPreamble();
+            foreach (string line in guide)
+            {
+                foreach (string phrase in OverclaimingPhrases)
+                {
+                    Assert.False(line.Contains(phrase, StringComparison.OrdinalIgnoreCase),
+                        "the reading guide claims more than the sink guarantees (\"" + phrase + "\"): " + line);
+                }
+            }
+            Assert.Contains(guide, l => l.Contains("Most lines begin", StringComparison.Ordinal));
+            string searchPhrase = TraceSelfDescription.Marker.TrimEnd(':');
+            string searchLine = Assert.Single(guide, l => l.Contains("search for the words '" + searchPhrase + "'", StringComparison.Ordinal));
+            Assert.Contains(" only ", searchLine, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The two measurement writers Sol's H16 review and its follow-up
+        /// found writing bare lines — <c>VoltsDataHandler</c> (supply
+        /// voltage) and <c>paEffData</c> (PA efficiency), both at Verbose, so
+        /// both in every detailed capture — now introduce themselves. Driven
+        /// through the REAL handlers on a radioless rig into a real live file:
+        /// each kind's introduction sits on the line immediately before its
+        /// first record, once, and the record's text is what it always was.
+        /// </summary>
+        [Fact]
+        public void The_supply_voltage_and_PA_efficiency_handlers_introduce_themselves()
+        {
+            TraceTransitionResult began = TraceCoordinator.Begin(_livePath, TraceLevel.Verbose, asDetailedCapture: false);
+            Assert.Equal(TraceTransition.Accepted, began.Status);
+
+            FlexBase rig = null;
+            try
+            {
+                rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+                System.Reflection.MethodInfo volts = typeof(FlexBase).GetMethod("VoltsDataHandler",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                System.Reflection.MethodInfo eff = typeof(FlexBase).GetMethod("paEffData",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                Assert.NotNull(volts);
+                Assert.NotNull(eff);
+                volts.Invoke(rig, new object[] { 13.5f });
+                eff.Invoke(rig, new object[] { 42.5f });
+                volts.Invoke(rig, new object[] { 13.25f });
+                eff.Invoke(rig, new object[] { 40.5f });
+            }
+            finally
+            {
+                try { rig?.Dispose(); } catch { /* teardown of a radioless rig */ }
+            }
+
+            string[] lines = Lines(ReadLive(_livePath));
+            _out.WriteLine(string.Join(Environment.NewLine, lines));
+            foreach ((TraceRecordKind kind, string head, string first) in new[]
+            {
+                (FlexBase.SupplyVoltsRecord, "VoltsDataHandler:", "VoltsDataHandler:" + 13.5f.ToString()),
+                (FlexBase.PaEfficiencyRecord, "paEffData:", "paEffData:" + 42.5f.ToString()),
+            })
+            {
+                int record = Array.FindIndex(lines, l => l.EndsWith("] " + first, StringComparison.Ordinal));
+                Assert.True(record > 0, head + " wrote nothing");
+                Assert.Equal(record - 1, Only(lines, TraceSelfDescription.Introduction(kind), head + " introduction"));
+                Assert.Equal(2, lines.Count(l => l.Contains("] " + head, StringComparison.Ordinal)));
+            }
+        }
+
+        // ────────────────────────────────────────────────────────────────
         //  The words, read as a person reads them
         // ────────────────────────────────────────────────────────────────
 
@@ -452,6 +571,8 @@ namespace Radios.Tests
             (TraceStateMarker.Record, "CaptureState:"),
             (RotatingTraceListener.PanFrameGapsRecord, "PanFrameGaps:"),
             (TraceCoordinator.DeferredRefusalRecord, "TraceDeferred: REFUSED"),
+            (FlexBase.SupplyVoltsRecord, "VoltsDataHandler:"),
+            (FlexBase.PaEfficiencyRecord, "paEffData:"),
         };
 
         /// <summary>
@@ -517,6 +638,13 @@ namespace Radios.Tests
             Assert.Contains("Tracing.TraceRecord(CaptureMeterSet.TxMetersRecord, \"txMeters: \" + census", flexBase, StringComparison.Ordinal);
             Assert.Contains("Tracing.TraceRecord(CaptureMeterSet.TxMetersRecord, \"txMeters: \" + election.MeterName", flexBase, StringComparison.Ordinal);
             Assert.DoesNotContain("Tracing.TraceLine(\"txMeters:", flexBase, StringComparison.Ordinal);
+            // H17: the two meter handlers that wrote measurements bare.
+            Assert.Contains("private void VoltsDataHandler(float data)", flexBase, StringComparison.Ordinal);   // control
+            Assert.Contains("Tracing.TraceRecord(SupplyVoltsRecord, \"VoltsDataHandler:\"", flexBase, StringComparison.Ordinal);
+            Assert.DoesNotContain("Tracing.TraceLine(\"VoltsDataHandler:", flexBase, StringComparison.Ordinal);
+            Assert.Contains("private void paEffData(float data)", flexBase, StringComparison.Ordinal);   // control
+            Assert.Contains("Tracing.TraceRecord(PaEfficiencyRecord, \"paEffData:\"", flexBase, StringComparison.Ordinal);
+            Assert.DoesNotContain("Tracing.TraceLine(\"paEffData:", flexBase, StringComparison.Ordinal);
 
             string meters = File.ReadAllText(Path.Combine(root, "Radios", "FlexBase.CaptureMeters.cs"));
             Assert.Contains("recordCaptureMeters(", meters, StringComparison.Ordinal);   // control

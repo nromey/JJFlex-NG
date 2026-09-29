@@ -28,7 +28,10 @@ namespace JJTrace
     /// before the first record, in the same part, under the same lock. A file
     /// therefore says what it holds exactly where it starts holding it, and a
     /// reader — Noel's whole point was <i>"reading a header blind or not"</i> —
-    /// searches for one phrase to find every kind. Not a summary at the end,
+    /// searches for one phrase to find every kind that has introduced itself.
+    /// Only a DECLARED kind can: a writer that uses a bare <c>TraceLine</c>
+    /// appears unexplained, which is why the reading guide promises no more
+    /// than that (see <see cref="TraceSelfDescription.PartPreamble"/>). Not a summary at the end,
     /// which would be the observer problem one layer down; not a promise at
     /// the top of what the file WILL contain, which describes an intention
     /// rather than a fact.</para>
@@ -120,18 +123,43 @@ namespace JJTrace
         /// what it holds, because at the moment it is written nothing has been
         /// written yet and a promise about the future is not a fact.
         /// </summary>
-        /// <remarks>DRAFT for Noel. Plain English for a screen reader, one
+        /// <remarks>
+        /// <para>DRAFT for Noel. Plain English for a screen reader, one
         /// sentence or two per line, each line complete in itself because a
-        /// reader arrows through the file a line at a time.</remarks>
+        /// reader arrows through the file a line at a time.</para>
+        /// <para><b>It claims only what the mechanism guarantees (H17, Sol's
+        /// H16 review).</b> H16's wording said every kind of measurement
+        /// introduces itself and that searching for the marker lists what the
+        /// file carries. The sink introduces only a kind a writer DECLARED, and
+        /// two measurement writers in a detailed capture did not declare one
+        /// (<c>VoltsDataHandler:</c>, <c>paEffData:</c>). Declaring them fixed
+        /// those two; it cannot fix the next one, because nothing stops a
+        /// future writer using a bare <c>TraceLine</c>. So the guide now says
+        /// what is true whatever any writer does: lines that introduce
+        /// themselves are explained, other lines may appear unexplained, and
+        /// the search lists what HAS introduced itself — never "everything".
+        /// A missed writer is then an unexplained line the reader can see,
+        /// not a false statement about the file.</para>
+        /// <para><b>And "most" lines carry the prefix, not each.</b> A
+        /// rotation's continuation header, a line handed straight to
+        /// <c>Trace.WriteLine</c> or the radio library's <c>Debug.WriteLine</c>,
+        /// and the second and later lines of a message that itself contains
+        /// line breaks all reach the file without one. Those writers are left
+        /// as they are; the sentence changed to match them. For the same
+        /// reason it no longer says "one event per line".</para>
+        /// </remarks>
         public static IReadOnlyList<string> PartPreamble() => new[]
         {
-            Marker + " this is a JJ Flexible Radio Access diagnostic recording. It is plain text, one event per"
-                   + " line, oldest first. Each line begins with the milliseconds since the program started and,"
-                   + " in square brackets, the thread that wrote it.",
-            Marker + " each kind of measurement JJ Flexible records here introduces itself the first time it"
-                   + " appears in this file, on a line that begins like this one. To list what this file"
-                   + " carries, search for the words 'About this file'. If the recording was able to say how it"
-                   + " ended, that is on its last lines.",
+            Marker + " this is a JJ Flexible Radio Access diagnostic recording. It is plain text, in the order"
+                   + " it was written. Most lines begin with the milliseconds since the program started and, in"
+                   + " square brackets, the thread that wrote it. Some do not: for example a line passed straight"
+                   + " through from the radio library, or the second and later lines of a long message such as"
+                   + " an error report.",
+            Marker + " some kinds of line explain themselves the first time they appear in this file, on a line"
+                   + " that begins like this one. To find those explanations, search for the words 'About this"
+                   + " file'. That finds only the kinds that have explained themselves; the file can also hold"
+                   + " lines that carry no explanation. If the recording was able to say how it ended, that is on"
+                   + " its last lines.",
         };
 
         /// <summary>The introduction line for a kind, as the sink writes it (without the trace prefix).</summary>

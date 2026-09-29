@@ -94,16 +94,43 @@ namespace Radios
         /// fields named below are the ones that method formats: change either
         /// only in step with the other. DRAFT for Noel.
         /// </summary>
+        /// <remarks>
+        /// <para><b>H17 (Sol's H16 review) changed two claims here.</b> It said
+        /// "about once a second"; the writer is rate-limited to at most once a
+        /// second while transmitting and at most once every 250 ms while
+        /// tuning, and writes only when a meter sample arrives to drive it. And
+        /// it called every field a reading while the writer printed
+        /// placeholders — forward power's -150 dBm initialiser, reflected
+        /// power's default zero — before the radio had reported anything. The
+        /// writer now prints <see cref="NoSample"/> for any value the radio has
+        /// not reported since the connection was made, and this says what that
+        /// token means.</para>
+        /// </remarks>
         public static readonly TraceRecordKind TxMetersRecord = new TraceRecordKind(
             "txMeters",
-            "lines that begin 'txMeters: state=' are JJ Flexible's transmit readings, taken about once a second"
-            + " while the radio is transmitting or tuning. SC_MIC is the mic level in dB with its recent peak"
-            + " in brackets and 'via' naming which copy of the meter is believed; SWALC is the software ALC."
-            + " fwd and refl are forward and reflected power in dBm, fwdW and reflW the same in watts, back the"
-            + " share of power coming back, SWRraw the SWR the radio reports and SWRcalc the SWR computed from"
-            + " the two powers. state says whether the radio was transmitting, tuning, or both. A 'txMeters:'"
-            + " line that instead says 'census' or names a meter as elected records which copy of a duplicated"
-            + " meter is being read; it is not a reading.");
+            "lines that begin 'txMeters: state=' are JJ Flexible's transmit meter snapshots. One is written"
+            + " when a meter reading arrives while the radio is transmitting or tuning, at most once a second"
+            + " while transmitting and at most four times a second while tuning. state says whether the radio"
+            + " was transmitting, tuning, or both. SC_MIC is the mic level in dB with its recent peak in"
+            + " brackets and 'via' naming which copy of the meter is believed; SWALC is the software ALC. fwd"
+            + " and refl are forward and reflected power in dBm, fwdW and reflW the same in watts, back the share"
+            + " of power coming back, SWRraw the SWR the radio reports and SWRcalc the SWR computed from the two"
+            + " powers. A value written as '" + NoSample + "' is one the radio had not reported since this"
+            + " connection was made, so there is no reading to give; a value worked out from it is '" + NoSample
+            + "' too. 'n/a' means both powers had arrived but the value could not honestly be worked out from"
+            + " them, for example because there was too little forward power. A 'txMeters:' line that instead"
+            + " says 'census' or names a"
+            + " meter as elected records which copy of a duplicated meter is being read; it is not a reading.");
+
+        /// <summary>
+        /// What a <c>txMeters:</c> field says in place of a number when the
+        /// radio has not reported that value since the connection was made
+        /// (#625, H17). The same word the <c>captureMeters:</c> line already
+        /// uses for supply voltage (<c>volts=no-sample</c>), so a reader meets
+        /// one vocabulary, not two. Parsers read it:
+        /// <c>tools/TxFactAudit/TraceMeters.cs</c>.
+        /// </summary>
+        public const string NoSample = "no-sample";
 
         /// <summary>
         /// What a <c>captureMeters:</c> line is, in the words of the code that

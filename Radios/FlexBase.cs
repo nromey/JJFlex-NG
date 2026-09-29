@@ -10098,6 +10098,7 @@ namespace Radios
                 _PowerDBM = data;
                 _forwardStamp = Stopwatch.GetTimestamp();
             }
+            _txLineFwdReported = true;   // after the value: see traceTxMeters
             // Sprint 44 Track E — the pulse that makes txMeters fire during a
             // TUNE. SC_MIC and ALC drive traceTxMeters during keyed transmit,
             // and neither of them moves while the ATU sweeps or a bare carrier
@@ -10125,6 +10126,7 @@ namespace Radios
         {
             meterTrace.Report("SWRData:", data);
             _SWR = data;
+            _txLineSwrReported = true;   // after the value: see traceTxMeters
             // Latch the settled value while the tune is still running; reading
             // it afterwards gives the meter's idle rest value. See noteTuneSwr.
             noteTuneSwr(data);
@@ -10705,6 +10707,12 @@ namespace Radios
             _scMicElection.Clear();
             _swAlcElection.Clear();
             _txMeterCensus = "";
+            // The txMeters line's has-it-reported flags are per connection,
+            // like the elections cleared above, so a value left over from the
+            // last radio is never written as this one's reading (#625, H17).
+            _txLineFwdReported = false;
+            _txLineReflReported = false;
+            _txLineSwrReported = false;
         }
 
         /// <summary>
@@ -10856,10 +10864,31 @@ namespace Radios
 
         private int _txMeterTraceTime;
 
+        // Whether the radio has reported forward power, reflected power and
+        // its own SWR since this connection's meters were hooked — the gate
+        // traceTxMeters asks before it writes a number for any of them (#625,
+        // H17). Set by the three meter handlers AFTER they store the value, so
+        // a reader that sees true sees the value too; cleared per connection
+        // in resetMeterInventory. Separate from _forwardStamp/_reflectedStamp
+        // on purpose: those feed ReadTransmitPower and the transmit safety
+        // paths, which live across reconnects and are not this line's to
+        // change.
+        private volatile bool _txLineFwdReported;
+        private volatile bool _txLineReflReported;
+        private volatile bool _txLineSwrReported;
+
+        /// <summary>The <c>txMeters:</c> rendering of one value: the number, or
+        /// <see cref="CaptureMeterSet.NoSample"/> when the radio has not
+        /// reported it. NaN is the no-sample signal the elections use.</summary>
+        private static string txMeterField(float value, string format, string unit = "")
+        {
+            return float.IsNaN(value) ? CaptureMeterSet.NoSample : value.ToString(format) + unit;
+        }
+
         /// <summary>
         /// A correlated SC_MIC / SW ALC / forward-power snapshot, at most once a
-        /// second while transmitting and every 250 ms during a tune cycle. The
-        /// line names which of the two it was sampled in.
+        /// second while transmitting and at most once every 250 ms during a tune
+        /// cycle. The line names which of the two it was sampled in.
         /// <para>Both handlers stored their value and traced nothing, so with PC
         /// audio running there was no way to tell from a trace whether the radio
         /// was seeing any transmit drive at all — a blind spot that cost a
@@ -10902,8 +10931,34 @@ namespace Radios
             // Raw AND computed SWR, deliberately: the radio's own meter reads
             // 1.008 with 76% of the power coming back (see ComputedSWR), so
             // the two disagreeing IS the diagnosis, and one alone hides it.
-            float refl = _ReflectedPower;
+            //
+            // NO NUMBER FOR A VALUE THAT HAS NOT ARRIVED (#625, H17). Every
+            // field below used to be printed whether or not the radio had
+            // reported it: forward power as its -150 dBm "nothing yet"
+            // initialiser, reflected power as a default zero — which is one
+            // milliwatt, a real-looking reading — SWRraw as 0.00, SC_MIC and
+            // SWALC at their -150 floor. The line's own introduction calls
+            // these readings, and Sol's H16 review showed the writer could
+            // emit it before either power meter had spoken (it is driven by
+            // SC_MIC and SWALC samples). The writer is the thing that knows
+            // whether a value arrived, so it says so here: a value the radio
+            // has not reported since this connection is written as
+            // CaptureMeterSet.NoSample, and so is anything derived from it.
+            // "n/a" keeps its old meaning — the powers arrived but too little
+            // forward power, or two samples too far apart, to work it out.
+            bool fwdOk = _txLineFwdReported;
+            bool reflOk = _txLineReflReported;
+            bool swrOk = _txLineSwrReported;
+            float fwd = fwdOk ? _PowerDBM : float.NaN;
+            float refl = reflOk ? _ReflectedPower : float.NaN;
+            float fwdW = fwdOk ? ForwardPowerWatts : float.NaN;
+            float reflW = reflOk ? ReflectedPowerWatts : float.NaN;
             float back = ReflectedFraction;
+            float swrCalc = ComputedSWR;
+            string backText = !(fwdOk && reflOk) ? CaptureMeterSet.NoSample
+                : float.IsNaN(back) ? "n/a" : (back * 100f).ToString("F1") + "%";
+            string swrCalcText = !(fwdOk && reflOk) ? CaptureMeterSet.NoSample
+                : float.IsNaN(swrCalc) ? "n/a" : swrCalc.ToString("F2");
             // The state is ON THE LINE. Two states now feed this one format,
             // and a reader who cannot tell a tune sample from a transmit sample
             // will read a tune's reflected power as a transmit fault. SC_MIC
@@ -10920,18 +10975,23 @@ namespace Radios
             // A data record with its kind (#625): the file introduces this
             // line where it first appears, in CaptureMeterSet's words, which
             // name exactly the fields formatted here.
+            //
+            // SC_MIC, its peak and SWALC come from the elections RAW — NaN
+            // until the elected copy reports — rather than through ScMicDb /
+            // SwAlcDb, whose -150 floor is exactly the placeholder this line
+            // must not print as a reading.
             Tracing.TraceRecord(CaptureMeterSet.TxMetersRecord, "txMeters: state=" + state
-                + " SC_MIC=" + ScMicDb.ToString("F1")
-                + " (peak " + ScMicMaxDb.ToString("F1") + ")"
+                + " SC_MIC=" + txMeterField(_scMicElection.ElectedLast, "F1")
+                + " (peak " + txMeterField(_scMicElection.ElectedPeakSinceReset, "F1") + ")"
                 + " via " + (_scMicElection.Elected?.Label ?? "no copy has reported")
-                + " SWALC=" + SwAlcDb.ToString("F1")
-                + " fwd=" + _PowerDBM.ToString("F1") + " dBm"
-                + " refl=" + refl.ToString("F1") + " dBm"
-                + " fwdW=" + ForwardPowerWatts.ToString("F2")
-                + " reflW=" + ReflectedPowerWatts.ToString("F3")
-                + " back=" + (float.IsNaN(back) ? "n/a" : (back * 100f).ToString("F1") + "%")
-                + " SWRraw=" + _SWR.ToString("F2")
-                + " SWRcalc=" + (float.IsNaN(ComputedSWR) ? "n/a" : ComputedSWR.ToString("F2")),
+                + " SWALC=" + txMeterField(_swAlcElection.ElectedLast, "F1")
+                + " fwd=" + txMeterField(fwd, "F1", " dBm")
+                + " refl=" + txMeterField(refl, "F1", " dBm")
+                + " fwdW=" + txMeterField(fwdW, "F2")
+                + " reflW=" + txMeterField(reflW, "F3")
+                + " back=" + backText
+                + " SWRraw=" + txMeterField(swrOk ? _SWR : float.NaN, "F2")
+                + " SWRcalc=" + swrCalcText,
                 TraceLevel.Info);
         }
 
@@ -11076,9 +11136,26 @@ namespace Radios
         private float _VoltsData;
         private void VoltsDataHandler(float data)
         {
-            Tracing.TraceLine("VoltsDataHandler:" + data.ToString(), TraceLevel.Verbose);
+            // A measurement line, so it declares its kind and the file
+            // explains it where it first appears (#625, H17). It was a bare
+            // TraceLine until Sol's H16 review found it: a real reading, in
+            // every detailed capture, that the file never described. The text
+            // written is unchanged; only its kind travels with it now.
+            Tracing.TraceRecord(SupplyVoltsRecord, "VoltsDataHandler:" + data.ToString(), TraceLevel.Verbose);
             _VoltsData = data;
         }
+
+        /// <summary>
+        /// What a <c>VoltsDataHandler:</c> line is, in the words of the handler
+        /// that writes it. The radio's name for the meter comes from the one
+        /// FlexLib subscribes this event to (<c>+13.8A</c>, "before the fuse").
+        /// DRAFT for Noel.
+        /// </summary>
+        internal static readonly TraceRecordKind SupplyVoltsRecord = new TraceRecordKind(
+            "VoltsDataHandler",
+            "lines that begin 'VoltsDataHandler:' are the radio's supply voltage in volts, from its +13.8A meter,"
+            + " which measures before the fuse. There is one line for every reading the radio sent, and they are"
+            + " written only when the recording is at its most detailed level.");
 
         /// <summary>Supply voltage.</summary>
         public float Volts => _VoltsData;
@@ -11118,6 +11195,7 @@ namespace Radios
                 _ReflectedPower = data;
                 _reflectedStamp = Stopwatch.GetTimestamp();
             }
+            _txLineReflReported = true;  // after the value: see traceTxMeters
         }
 
         private float _PAEffData;
@@ -11126,9 +11204,22 @@ namespace Radios
 
         private void paEffData(float data)
         {
-            Tracing.TraceLine("paEffData:" + data.ToString(), TraceLevel.Verbose);
+            // A measurement line: declares its kind like VoltsDataHandler
+            // above (#625, H17). Text unchanged.
+            Tracing.TraceRecord(PaEfficiencyRecord, "paEffData:" + data.ToString(), TraceLevel.Verbose);
             _PAEffData = data;
         }
+
+        /// <summary>
+        /// What a <c>paEffData:</c> line is, in the words of the handler that
+        /// writes it. It names the meter and no unit: the radio's meter list
+        /// carries the unit, and this handler never reads it. DRAFT for Noel.
+        /// </summary>
+        internal static readonly TraceRecordKind PaEfficiencyRecord = new TraceRecordKind(
+            "paEffData",
+            "lines that begin 'paEffData:' are readings of the radio's power amplifier efficiency meter, PAEFF,"
+            + " exactly as the radio sent them. There is one line for every reading, and they are written only"
+            + " when the recording is at its most detailed level.");
 
         private void meterAdded(Slice slc, Meter m)
         {

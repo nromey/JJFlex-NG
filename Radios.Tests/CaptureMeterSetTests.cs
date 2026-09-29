@@ -448,6 +448,160 @@ namespace Radios.Tests
         }
 
         /// <summary>
+        /// A <c>txMeters:</c> line written before the radio has reported power
+        /// carries NO power number, and one written after carries the number
+        /// the radio sent (#625, H17 — Sol's H16 review, blocker 2). Driven
+        /// through the real writer, <c>FlexBase.traceTxMeters</c>, and the real
+        /// meter handlers on a radioless rig, keyed so the writer runs.
+        /// <para>Before H17 the first line read <c>fwd=-150.0 dBm
+        /// refl=0.0 dBm ... reflW=0.001</c>: the no-data initialiser and a
+        /// default zero — which is one milliwatt, a real-looking reading —
+        /// under an introduction that calls them readings. The same holds for
+        /// every field of the line with a no-data state (SC_MIC, its peak,
+        /// SWALC, the radio's SWR) and for anything worked out from a power
+        /// that has not arrived.</para>
+        /// <para>Then forward power arrives alone: forward becomes a number and
+        /// reflected, and everything that needs both, stays
+        /// <see cref="CaptureMeterSet.NoSample"/>. Then the rest arrive, and
+        /// every power field is a number. Finally a new connection clears the
+        /// has-it-reported state with the elections, so a value left over
+        /// from the last radio is not written as this one's reading.</para>
+        /// </summary>
+        [Fact]
+        public void A_txMeters_line_prints_no_power_until_the_radio_reports_it()
+        {
+            var captured = new List<string>();
+            var listener = new CapturingListener(captured);
+            bool wasOn = Tracing.On;
+            bool meterStreamWas = MeterTraceStream.Enabled;
+            TraceSwitch savedSwitch = Tracing.TheSwitch;
+            Trace.Listeners.Add(listener);
+
+            const BindingFlags Private = BindingFlags.NonPublic | BindingFlags.Instance;
+            FlexBase rig = null;
+            var lines = new List<string>();
+            try
+            {
+                MeterTraceStream.Enabled = false;
+                Tracing.TheSwitch = new TraceSwitch("txMeters", "txMeters") { Level = TraceLevel.Info };
+                Tracing.On = true;
+
+                rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+                typeof(FlexBase).GetField("_Transmit", Private)!.SetValue(rig, true);
+                Assert.True(rig.Transmit);
+
+                MethodInfo write = typeof(FlexBase).GetMethod("traceTxMeters", Private);
+                MethodInfo forward = typeof(FlexBase).GetMethod("forwardPowerData", Private);
+                MethodInfo reflected = typeof(FlexBase).GetMethod("reflectedPowerData", Private);
+                MethodInfo swr = typeof(FlexBase).GetMethod("sWRData", Private);
+                MethodInfo reset = typeof(FlexBase).GetMethod("resetMeterInventory", Private);
+                FieldInfo lastWrite = typeof(FlexBase).GetField("_txMeterTraceTime", Private);
+                Assert.NotNull(write); Assert.NotNull(forward); Assert.NotNull(reflected);
+                Assert.NotNull(swr); Assert.NotNull(reset); Assert.NotNull(lastWrite);
+
+                // One line, now: the writer is rate-limited, so the last-write
+                // time is set a minute back rather than slept past.
+                string WriteOne()
+                {
+                    lastWrite.SetValue(rig, Environment.TickCount - 60000);
+                    int before;
+                    lock (captured) before = captured.Count;
+                    write.Invoke(rig, null);
+                    lock (captured)
+                    {
+                        string line = captured.Skip(before).SingleOrDefault(
+                            l => l.Contains("txMeters: state=", StringComparison.Ordinal));
+                        Assert.NotNull(line);
+                        lines.Add(line);
+                        return line;
+                    }
+                }
+
+                string nothingYet = WriteOne();
+                forward.Invoke(rig, new object[] { 47.0f });
+                string forwardOnly = WriteOne();
+                reflected.Invoke(rig, new object[] { 20.0f });
+                swr.Invoke(rig, new object[] { 1.09f });
+                string both = WriteOne();
+                reset.Invoke(rig, null);   // what a new connection does
+                string reconnected = WriteOne();
+
+                foreach (string l in lines) _out.WriteLine(l);
+                string ns = CaptureMeterSet.NoSample;
+
+                // Before any report: no number for any value that has a
+                // no-data state, and the placeholders never appear.
+                foreach (string field in new[] { "SC_MIC", "SWALC", "fwd", "refl", "fwdW", "reflW", "back", "SWRraw", "SWRcalc" })
+                {
+                    Assert.Contains(" " + field + "=" + ns, nothingYet, StringComparison.Ordinal);
+                }
+                Assert.Contains("(peak " + ns + ")", nothingYet, StringComparison.Ordinal);
+                Assert.DoesNotContain("-150", nothingYet, StringComparison.Ordinal);
+                Assert.DoesNotContain("dBm", nothingYet, StringComparison.Ordinal);
+                Assert.DoesNotContain("0.001", nothingYet, StringComparison.Ordinal);
+
+                // Forward alone: forward is a number; reflected and everything
+                // that needs both are still not.
+                Assert.Contains(" fwd=" + 47.0f.ToString("F1") + " dBm", forwardOnly, StringComparison.Ordinal);
+                Assert.Contains(" fwdW=" + FlexBase.DBmToWatts(47.0f).ToString("F2"), forwardOnly, StringComparison.Ordinal);
+                foreach (string field in new[] { "refl", "reflW", "back", "SWRraw", "SWRcalc" })
+                {
+                    Assert.Contains(" " + field + "=" + ns, forwardOnly, StringComparison.Ordinal);
+                }
+
+                // Both, and the radio's SWR: every power field is a number.
+                Assert.Contains(" fwd=" + 47.0f.ToString("F1") + " dBm", both, StringComparison.Ordinal);
+                Assert.Contains(" refl=" + 20.0f.ToString("F1") + " dBm", both, StringComparison.Ordinal);
+                Assert.Contains(" reflW=" + FlexBase.DBmToWatts(20.0f).ToString("F3"), both, StringComparison.Ordinal);
+                Assert.Contains(" SWRraw=" + 1.09f.ToString("F2"), both, StringComparison.Ordinal);
+                foreach (string field in new[] { "fwd", "refl", "fwdW", "reflW", "back", "SWRraw", "SWRcalc" })
+                {
+                    Assert.DoesNotContain(" " + field + "=" + ns, both, StringComparison.Ordinal);
+                }
+
+                // A new connection: nothing carried over from the last radio.
+                foreach (string field in new[] { "fwd", "refl", "fwdW", "reflW", "back", "SWRraw", "SWRcalc" })
+                {
+                    Assert.Contains(" " + field + "=" + ns, reconnected, StringComparison.Ordinal);
+                }
+            }
+            finally
+            {
+                Tracing.On = wasOn;
+                Tracing.TheSwitch = savedSwitch;
+                MeterTraceStream.Enabled = meterStreamWas;
+                Trace.Listeners.Remove(listener);
+                try { rig?.Dispose(); } catch { /* teardown of a radioless rig */ }
+            }
+        }
+
+        /// <summary>
+        /// The introduction the <c>txMeters:</c> line carries says what the
+        /// writer does, not what it used to (H17): it names the no-data token
+        /// the writer prints and what it means, it states the rate as the
+        /// writer's limits ("at most"), and it no longer says "about once a
+        /// second", which was false during a tune (every 250 ms).
+        /// </summary>
+        [Fact]
+        public void The_txMeters_introduction_names_the_no_data_token_and_the_real_rate()
+        {
+            string intro = CaptureMeterSet.TxMetersRecord.Introduction;
+            _out.WriteLine(intro);
+            Assert.Contains("'" + CaptureMeterSet.NoSample + "'", intro, StringComparison.Ordinal);
+            Assert.DoesNotContain("about once a second", intro, StringComparison.Ordinal);
+            Assert.Contains("at most once a second while transmitting", intro, StringComparison.Ordinal);
+            Assert.Contains("at most four times a second while tuning", intro, StringComparison.Ordinal);
+
+            // And the writer's own limits are what the sentence says: read
+            // from the source, with a control that the reader finds the method.
+            string source = File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "FlexBase.cs"));
+            int at = source.IndexOf("private void traceTxMeters()", StringComparison.Ordinal);
+            Assert.True(at > 0, "traceTxMeters not found");
+            string body = source.Substring(at, Math.Min(12000, source.Length - at));
+            Assert.Contains("int interval = tuning ? 250 : 1000;", body, StringComparison.Ordinal);
+        }
+
+        /// <summary>
         /// The handler really calls it. Reflection above proves the helper
         /// works when driven; this proves the shipped handler is what drives
         /// it, so a future edit cannot leave a working helper with no caller —

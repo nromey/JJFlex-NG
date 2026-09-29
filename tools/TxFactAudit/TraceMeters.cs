@@ -7,18 +7,30 @@ using System.Text.RegularExpressions;
 
 namespace JJFlex.TxFactAudit
 {
-    /// <summary>One correlated transmit-meter snapshot, as the app traced it.</summary>
-    public sealed record TxMeterLine(int Tick, double ScMicDb, double ScMicPeakDb,
-                                     double SwAlcDb, double ForwardDbm)
+    /// <summary>One correlated transmit-meter snapshot, as the app traced it.
+    /// A null value is one the line said had not arrived: since H17 (#625)
+    /// the writer prints <c>no-sample</c> instead of a placeholder number, and
+    /// this reader keeps that as "no reading" rather than inventing one.</summary>
+    public sealed record TxMeterLine(int Tick, double? ScMicDb, double? ScMicPeakDb,
+                                     double? SwAlcDb, double? ForwardDbm)
     {
-        public double ForwardWatts => Math.Pow(10.0, ForwardDbm / 10.0) / 1000.0;
+        public double? ForwardWatts =>
+            ForwardDbm is double dbm ? Math.Pow(10.0, dbm / 10.0) / 1000.0 : null;
 
         /// <summary>True when a value is sitting exactly on the initialiser the
         /// app uses for "nothing has reported". Worth naming, because it is the
-        /// value that used to reach an operator dressed as a measurement.</summary>
+        /// value that used to reach an operator dressed as a measurement. Only
+        /// traces from before H17 can carry it: the writer now prints
+        /// <c>no-sample</c> instead, which <see cref="ScMicNoSample"/> counts.</summary>
         public bool ScMicAtSentinel => ScMicDb <= -149.5;
 
         public bool SwAlcAtSentinel => SwAlcDb <= -149.5;
+
+        /// <summary>The line said SC_MIC had not reported (H17 and later).</summary>
+        public bool ScMicNoSample => ScMicDb is null;
+
+        /// <summary>The line said SW ALC had not reported (H17 and later).</summary>
+        public bool SwAlcNoSample => SwAlcDb is null;
     }
 
     /// <summary>
@@ -33,7 +45,8 @@ namespace JJFlex.TxFactAudit
     /// reached it.</para>
     ///
     /// <para><b>The trace rate is not the measurement rate.</b>
-    /// <c>FlexBase.traceTxMeters</c> throttles to one line a second, but each
+    /// <c>FlexBase.traceTxMeters</c> throttles to one line a second (four while
+    /// tuning, since Sprint 44 Track E), but each
     /// line carries <c>peak</c> — the maximum <c>_scMicMaxDb</c> has reached,
     /// tracked by the handler that sees every reading. So a once-a-second line
     /// is not a once-a-second measurement: transients inside the second are
@@ -41,8 +54,8 @@ namespace JJFlex.TxFactAudit
     /// height, and height is what anything peak-sensitive wants.</para>
     ///
     /// <para><b>Two limits, designed around rather than papered over.</b>
-    /// <c>traceTxMeters</c> opens with <c>if (!Transmit) return;</c>, so there
-    /// are NO lines while receiving — an absence of lines means no transmission
+    /// <c>traceTxMeters</c> returns unless the radio is transmitting or tuning,
+    /// so there are NO lines while receiving — an absence of lines means no transmission
     /// was traced, and reporting that as "the meters are unreadable" would be
     /// its own fabricated fact. And the per-meter lines exist only when the
     /// operator has turned on "Record the meter stream" on Settings →
@@ -55,8 +68,31 @@ namespace JJFlex.TxFactAudit
     /// </summary>
     public static class TraceMeters
     {
+        /// <summary>What the app writes in a <c>txMeters:</c> field in place
+        /// of a number the radio has not reported. A contract with
+        /// <c>Radios/CaptureMeterSet.NoSample</c>: this tool does not reference
+        /// the Radios assembly, so the word is repeated here, and a change on
+        /// either side must be made on both.</summary>
+        public const string NoSample = "no-sample";
+
+        /// <summary>
+        /// The correlated <c>txMeters:</c> line, in every shape it has had.
+        /// <para><b>It did not match for four weeks, and nothing said so.</b>
+        /// This pattern expected <c>txMeters: SC_MIC=</c> right after the
+        /// head and <c>SWALC=</c> right after the peak. Sprint 44 Track E put
+        /// <c>state=</c> first and Track B put <c>via &lt;copy&gt;</c> after the
+        /// peak, both on 2026-09-02, and from then on every trace read as "no
+        /// transmit meter lines at all" — which this tool reports as a
+        /// statement that the radio did not TRANSMIT. Found by H17 while
+        /// listing the parsers of the line before changing it (#625). Both
+        /// additions are optional here, so traces from before and after parse,
+        /// and each value may be <see cref="NoSample"/>.</para>
+        /// </summary>
         private static readonly Regex TxMeters = new(
-            @"^(?<tick>\d+)\s+\[[^\]]*\]\s+txMeters:\s+SC_MIC=(?<sc>-?[\d.]+)\s+\(peak\s+(?<peak>-?[\d.]+)\)\s+SWALC=(?<alc>-?[\d.]+)\s+fwd=(?<fwd>-?[\d.]+)\s+dBm",
+            @"^(?<tick>\d+)\s+\[[^\]]*\]\s+txMeters:\s+(?:state=\S+\s+)?"
+            + @"SC_MIC=(?<sc>-?[\d.]+|no-sample)\s+\(peak\s+(?<peak>-?[\d.]+|no-sample)\)"
+            + @"(?:\s+via\s+.*?)?\s+SWALC=(?<alc>-?[\d.]+|no-sample)"
+            + @"\s+fwd=(?:(?<fwd>-?[\d.]+)\s+dBm|no-sample)",
             RegexOptions.Compiled);
 
         /// <summary>The per-meter lines that only exist while meter-stream
@@ -139,8 +175,8 @@ namespace JJFlex.TxFactAudit
                 {
                     result.TxLines.Add(new TxMeterLine(
                         int.Parse(m.Groups["tick"].Value, CultureInfo.InvariantCulture),
-                        Num(m.Groups["sc"].Value), Num(m.Groups["peak"].Value),
-                        Num(m.Groups["alc"].Value), Num(m.Groups["fwd"].Value)));
+                        Value(m.Groups["sc"]), Value(m.Groups["peak"]),
+                        Value(m.Groups["alc"]), Value(m.Groups["fwd"])));
                     continue;
                 }
 
@@ -171,6 +207,11 @@ namespace JJFlex.TxFactAudit
         private static double Num(string s) =>
             double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture);
 
+        /// <summary>A <c>txMeters:</c> field: its number, or null when the line
+        /// said <see cref="NoSample"/> (or, for fwd, carried no number).</summary>
+        private static double? Value(Group g) =>
+            !g.Success || g.Value == NoSample ? null : Num(g.Value);
+
         /// <summary>
         /// The report. Prose and bullets, and it never prints a number for
         /// something that did not arrive.
@@ -186,7 +227,7 @@ namespace JJFlex.TxFactAudit
             {
                 write("No transmit meter lines at all — and that is a statement about whether the radio");
                 write("TRANSMITTED, not about whether its meters can be read. FlexBase.traceTxMeters");
-                write("returns immediately when the radio is not transmitting, so a receiving session");
+                write("returns immediately unless the radio is transmitting or tuning, so a receiving session");
                 write("traces none of these however healthy every meter is. Do not record the transmit");
                 write("meter facts as unreadable on this evidence.");
                 write("");
@@ -200,24 +241,43 @@ namespace JJFlex.TxFactAudit
                 double spanMs = lines[^1].Tick - lines[0].Tick;
 
                 write($"{seconds} transmit meter snapshots spanning {spanMs / 1000.0:0.#} seconds.");
-                write("One line a second by design, but each carries the peak the app tracked between");
-                write("lines, so the transients inside each second are already accounted for.");
+                write("At most one line a second while transmitting and four while tuning, but each");
+                write("carries the peak the app tracked between lines, so the transients inside each");
+                write("second are already accounted for.");
                 write("");
 
                 write("SC_MIC — what the radio heard on transmit, from any source:");
-                Band(lines.Select(l => l.ScMicDb), "dBFS", write);
-                write($"  highest peak the app held: {lines.Max(l => l.ScMicPeakDb):0.#} dBFS.");
+                Band(lines.Select(l => l.ScMicDb), "dBFS", seconds, write);
+                double[] peaks = lines.Where(l => l.ScMicPeakDb.HasValue).Select(l => l.ScMicPeakDb!.Value).ToArray();
+                if (peaks.Length > 0) write($"  highest peak the app held: {peaks.Max():0.#} dBFS.");
                 write("");
 
                 write("SW ALC — transmit drive after the radio's own levelling:");
-                Band(lines.Select(l => l.SwAlcDb), "dBFS", write);
+                Band(lines.Select(l => l.SwAlcDb), "dBFS", seconds, write);
                 write("");
 
                 write("Forward power, as traced in dBm and as the analyzer publishes it in watts:");
-                Band(lines.Select(l => l.ForwardDbm), "dBm", write);
-                write($"  in watts: lowest {lines.Min(l => l.ForwardWatts):0.###}, "
-                      + $"highest {lines.Max(l => l.ForwardWatts):0.###}.");
+                Band(lines.Select(l => l.ForwardDbm), "dBm", seconds, write);
+                double[] watts = lines.Where(l => l.ForwardWatts.HasValue).Select(l => l.ForwardWatts!.Value).ToArray();
+                if (watts.Length > 0)
+                {
+                    write($"  in watts: lowest {watts.Min():0.###}, highest {watts.Max():0.###}.");
+                }
                 write("");
+
+                // H17 traces say outright that a meter had not reported; older
+                // ones printed the -150 initialiser, counted below.
+                int scNoSample = lines.Count(l => l.ScMicNoSample);
+                int alcNoSample = lines.Count(l => l.SwAlcNoSample);
+                if (scNoSample > 0 || alcNoSample > 0)
+                {
+                    write("LINES WRITTEN BEFORE A METER HAD REPORTED, WHILE TRANSMITTING:");
+                    if (scNoSample > 0) write($"  SC_MIC had not reported on {scNoSample} of {seconds} lines.");
+                    if (alcNoSample > 0) write($"  SW ALC had not reported on {alcNoSample} of {seconds} lines.");
+                    write("  The trace says so itself: those lines carry 'no-sample' rather than a number,");
+                    write("  so they are not readings of silence and are left out of the figures above.");
+                    write("");
+                }
 
                 int scSentinel = lines.Count(l => l.ScMicAtSentinel);
                 int alcSentinel = lines.Count(l => l.SwAlcAtSentinel);
@@ -269,11 +329,21 @@ namespace JJFlex.TxFactAudit
             }
         }
 
-        private static void Band(IEnumerable<double> values, string units, Action<string> write)
+        /// <summary>Lowest, highest and last of the values that ARRIVED. A line
+        /// that said <see cref="NoSample"/> contributes nothing, and a meter
+        /// that never reported on any line says so instead of printing a
+        /// number.</summary>
+        private static void Band(IEnumerable<double?> values, string units, int lines, Action<string> write)
         {
-            double[] v = values.ToArray();
+            double[] v = values.Where(x => x.HasValue).Select(x => x!.Value).ToArray();
+            if (v.Length == 0)
+            {
+                write($"  no reading arrived on any of the {lines} lines.");
+                return;
+            }
+            string counted = v.Length == lines ? "" : $" (from the {v.Length} of {lines} lines that carried one)";
             write(string.Create(CultureInfo.InvariantCulture,
-                $"  lowest {v.Min():0.#} {units}, highest {v.Max():0.#} {units}, last {v[^1]:0.#} {units}."));
+                $"  lowest {v.Min():0.#} {units}, highest {v.Max():0.#} {units}, last {v[^1]:0.#} {units}{counted}."));
         }
     }
 }

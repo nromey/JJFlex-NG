@@ -476,7 +476,7 @@ namespace Radios.Tests
 
             Assert.Equal(Lexicon.Get("logging.capture.dropped.saved"), n.WhatWasSaved);
             Assert.Contains("It holds everything up to the moment the connection went", text, StringComparison.Ordinal);
-            Assert.Contains("The file explains itself", text, StringComparison.Ordinal);
+            Assert.Contains("The file's first lines say how to read it", text, StringComparison.Ordinal);
             foreach (string word in CaptureArchiveNoticeTests.ContentWords)
             {
                 Assert.DoesNotContain(word, n.WhatWasSaved, StringComparison.OrdinalIgnoreCase);

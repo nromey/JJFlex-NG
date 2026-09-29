@@ -240,21 +240,39 @@ namespace JJTrace
         }
 
         /// <summary>
-        /// Caller holds <c>_sync</c>, and the stream is open. If
-        /// <paramref name="kind"/> has not introduced itself in this part,
-        /// write its introduction now — immediately ahead of the record that
-        /// is about to follow, in the same part, under the same lock, so
-        /// nothing can come between the description and the first thing it
-        /// describes. Returns the bytes written. Throws like any other write;
-        /// the caller's fault handling covers it.
+        /// Caller holds <c>_sync</c>. The introduction line (prefix, text and
+        /// line break) that <paramref name="kind"/> still owes this part, or
+        /// null when it has already introduced itself here or is not a data
+        /// record. The caller writes it and the record in ONE call to the
+        /// writer, then calls <see cref="MarkIntroduced"/> — so nothing can
+        /// come between the description and the first thing it describes,
+        /// and a kind is not remembered as introduced by a write that threw.
         /// </summary>
-        private long IntroduceIfNew(TraceRecordKind kind)
+        /// <remarks>
+        /// <para><b>One write, not two (H17, Sol's H16 follow-up).</b> H16
+        /// wrote the introduction and then the record as two writer calls,
+        /// and marked the kind introduced between them. They now go to the
+        /// writer as one string.</para>
+        /// <para><b>What one write does NOT buy, stated so nobody relies on
+        /// it:</b> the stream is buffered, and a buffer can be flushed to disk
+        /// part-way through any string. A disk fault can still leave a file
+        /// ending inside the introduction, inside the record, or between
+        /// them. That is a torn tail, the same as any other line's, and it is
+        /// what the drop window's "may stop short" caveat covers; the sink
+        /// latches the fault and closes, so nothing is written after it.</para>
+        /// </remarks>
+        private string IntroductionOwed(TraceRecordKind kind)
         {
-            if (kind == null || _introduced.Contains(kind.Key)) return 0;
-            string line = Tracing.TracePrefix() + TraceSelfDescription.Introduction(kind) + Environment.NewLine;
-            _writer.Write(line);
-            _introduced.Add(kind.Key);
-            return line.Length;
+            if (kind == null || _introduced.Contains(kind.Key)) return null;
+            return Tracing.TracePrefix() + TraceSelfDescription.Introduction(kind) + Environment.NewLine;
+        }
+
+        /// <summary>Caller holds <c>_sync</c>. Remember that
+        /// <paramref name="kind"/> has introduced itself in this part — called
+        /// only after the write that carried its introduction returned.</summary>
+        private void MarkIntroduced(TraceRecordKind kind, string introduction)
+        {
+            if (introduction != null) _introduced.Add(kind.Key);
         }
 
         /// <summary>
@@ -311,7 +329,9 @@ namespace JJTrace
         /// The same, for a terminal record that is a DATA record — the drop's
         /// partial meter window above all — so its kind introduces itself
         /// ahead of it if it has not yet in this part (#625). The introduction
-        /// and the record are one write: both land, or the fault is latched.
+        /// and the record go to the writer as one string and are flushed
+        /// together; a failure latches the fault and returns false. One call is
+        /// not an atomic disk write — see <see cref="IntroductionOwed"/>.
         /// </summary>
         public bool WriteTerminalLine(string line, TraceRecordKind kind)
         {
@@ -322,10 +342,11 @@ namespace JJTrace
                 _rotationSuppressed = true;
                 try
                 {
-                    _bytesInPart += IntroduceIfNew(kind);
-                    _writer.Write(line);
-                    _writer.Write(Environment.NewLine);
-                    _bytesInPart += line.Length + Environment.NewLine.Length;
+                    string introduction = IntroductionOwed(kind);
+                    string payload = (introduction ?? string.Empty) + line + Environment.NewLine;
+                    _writer.Write(payload);
+                    MarkIntroduced(kind, introduction);
+                    _bytesInPart += payload.Length;
                     _writer.Flush();
                     return true;
                 }
@@ -473,14 +494,18 @@ namespace JJTrace
                 try
                 {
                     if (NeedIndent) WriteIndent();
-                    _bytesInPart += IntroduceIfNew(kind);
-                    _writer.Write(message);
+                    // The introduction, if this kind still owes one here, and
+                    // the record in ONE writer call (H17) — see IntroductionOwed.
+                    string introduction = IntroductionOwed(kind);
+                    string payload = introduction == null ? message : introduction + message;
+                    _writer.Write(payload);
+                    MarkIntroduced(kind, introduction);
                     // Byte estimate: trace content is effectively ASCII, so one
                     // char is one byte. An estimate is fine — the threshold is a
                     // policy number, not an invariant, and this runs on every
                     // single trace line so a FileInfo syscall per write is out
                     // of the question.
-                    _bytesInPart += message.Length;
+                    _bytesInPart += payload.Length;
                 }
                 catch (Exception ex)
                 {

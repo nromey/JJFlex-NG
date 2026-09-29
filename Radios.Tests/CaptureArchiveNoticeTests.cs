@@ -123,17 +123,19 @@ namespace Radios.Tests
 
         /// <summary>
         /// What was saved: that it was, how far it reaches, and that the
-        /// file itself says what it holds. NOT what it holds — see
+        /// file's first lines say how to read it. NOT what it holds — see
         /// <see cref="No_form_of_the_notice_describes_what_the_file_contains"/>.
-        /// The sentence is a DRAFT for Noel (#625).
+        /// And not "how to find what it holds" either, which H16 said: the
+        /// guide it pointed at can find only the kinds of line that explain
+        /// themselves, so the window may promise no more than the guide
+        /// (H17). The sentence is a DRAFT for Noel (#625).
         /// </summary>
         [Fact]
-        public void What_was_saved_says_the_recording_is_kept_and_that_the_file_explains_itself()
+        public void What_was_saved_says_the_recording_is_kept_and_that_its_first_lines_say_how_to_read_it()
         {
             Assert.Equal(
                 "The recording has been closed and saved. It holds everything up to the moment the "
-                + "connection went. The file explains itself: its first lines say how to read it and how "
-                + "to find what it holds.",
+                + "connection went. The file's first lines say how to read it.",
                 Named().WhatWasSaved);
         }
 
