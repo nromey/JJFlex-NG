@@ -183,6 +183,7 @@ namespace Radios.SmartLink
 
         public event PropertyChangedEventHandler? PropertyChanged;
         public event EventHandler<long>? ConnectionDialing;
+        public event EventHandler<WanTransportStateEventArgs>? TransportStateChanged;
         public event EventHandler<WanRadioConnectReadyEventArgs>? WanRadioConnectReady;
         public event EventHandler? WanApplicationRegistrationInvalid;
         public event EventHandler<WanRadioListReceivedEventArgs>? WanRadioRadioListReceived;
@@ -206,6 +207,17 @@ namespace Radios.SmartLink
         /// </remarks>
         private WanServer Hook(WanServer wan, long generation)
         {
+            // Two subscriptions to one vendor event, on purpose. The first is
+            // stamped like the list subscription, and for the same reason: a
+            // replaced transport's read loop can report its own death after
+            // the next connection has been dialed, and an edge that did not
+            // say whose it was would land on the new connection (#619, Sol's
+            // review of L5). Never unhooked, like the list event, so the late
+            // report arrives labelled and the owner ignores it by name. The
+            // second is the unstamped wake-up the monitor sleeps on; Retire
+            // unhooks it, so a dead transport cannot wake anything. Stamped
+            // first, so a subscriber has recorded the edge before the wake.
+            wan.PropertyChanged += (sender, e) => OnWanTransportStateChanged(generation, sender, e);
             wan.PropertyChanged += OnWanPropertyChanged;
             wan.WanRadioConnectReady += OnWanRadioConnectReady;
             wan.WanApplicationRegistrationInvalid += OnWanApplicationRegistrationInvalid;
@@ -216,9 +228,11 @@ namespace Radios.SmartLink
 
         /// <summary>
         /// Unhook a <see cref="WanServer"/> whose one transport is gone. Its
-        /// connection-state, connect-ready, registration and probe events can
-        /// only describe that dead transport, so they are no longer forwarded;
-        /// its list event stays hooked (see <see cref="Hook"/>).
+        /// connection-state wake-up, connect-ready, registration and probe
+        /// events can only describe that dead transport, so they are no
+        /// longer forwarded; its list event and its STAMPED connection-state
+        /// event stay hooked, each carrying its generation (see
+        /// <see cref="Hook"/>).
         /// </summary>
         private void Retire(WanServer wan)
         {
@@ -229,6 +243,15 @@ namespace Radios.SmartLink
         }
 
         // --- FlexLib bridging handlers ---
+
+        private void OnWanTransportStateChanged(long generation, object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != nameof(WanServer.IsConnected) || sender is not WanServer wan) return;
+            Tracing.TraceLine(
+                $"{_tracePrefix}WanServerAdapter.TransportStateChanged connection={generation} isConnected={wan.IsConnected} newest={ConnectionGeneration}",
+                TraceLevel.Info);
+            TransportStateChanged?.Invoke(this, new WanTransportStateEventArgs(generation, wan.IsConnected));
+        }
 
         private void OnWanPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {

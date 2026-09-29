@@ -22,6 +22,7 @@ namespace Radios.Tests
 
         public event PropertyChangedEventHandler? PropertyChanged;
         public event EventHandler<long>? ConnectionDialing;
+        public event EventHandler<WanTransportStateEventArgs>? TransportStateChanged;
         public event EventHandler<WanRadioConnectReadyEventArgs>? WanRadioConnectReady;
         public event EventHandler? WanApplicationRegistrationInvalid;
         public event EventHandler<WanRadioListReceivedEventArgs>? WanRadioRadioListReceived;
@@ -65,6 +66,17 @@ namespace Radios.Tests
         /// </summary>
         public Action? DialHook { get; set; }
 
+        /// <summary>
+        /// Runs at the top of <see cref="Connect"/>, BEFORE the generation
+        /// advances and before <see cref="ConnectionDialing"/> is published —
+        /// where the real monitor thread stands between deciding to dial and
+        /// the adapter's Connect. A test that blocks here holds the monitor
+        /// with a dial decided but not begun, which is the ordering Sol's
+        /// review of L5 named for Dispose and Disconnect overlapping a dial
+        /// (#619).
+        /// </summary>
+        public Action? BeforeDialHook { get; set; }
+
         // --- Observable call counters ---
 
         private int _connectCallCount;
@@ -99,6 +111,7 @@ namespace Radios.Tests
             Interlocked.Increment(ref _connectCallCount);
             if (!_isConnected)
             {
+                BeforeDialHook?.Invoke();
                 long generation = Interlocked.Increment(ref _connectionGeneration);
                 ConnectionDialing?.Invoke(this, generation);
                 DialHook?.Invoke();
@@ -206,6 +219,10 @@ namespace Radios.Tests
             if (_isConnected == value) return;
             _isConnected = value;
             OnPropertyChangedHook?.Invoke();
+            // Stamped with the connection most recently dialed, as the real
+            // adapter stamps each transport's edge with its own generation;
+            // the stamped edge precedes the unstamped wake-up, as there.
+            TransportStateChanged?.Invoke(this, new WanTransportStateEventArgs(ConnectionGeneration, value));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsConnected)));
         }
     }

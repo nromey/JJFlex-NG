@@ -5993,7 +5993,59 @@ namespace Radios
         /// </summary>
         private void sessionRadioListReceivedHandler(object sender, Radios.SmartLink.SessionRadioListEventArgs e)
         {
-            wanRadioListReceivedHandler(e.AccountId ?? "", e.Radios, WanListArrival.ServerPush);
+            wanRadioListReceivedHandler(e.AccountId ?? "", e.Radios, WanListArrival.ServerPush,
+                new WanListProvenance(e.Session, e.SessionId, e.ConnectionGeneration));
+        }
+
+        /// <summary>
+        /// Which list a batch of WAN rows came from: the session, and the
+        /// connection generation the list was born on. Carried into the
+        /// intake with every list, whichever way it arrived, and kept per
+        /// account in <see cref="_wanRowsFrom"/>.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Two decisions read it (#619, Sol's review of L5).</b> The
+        /// intake asks <see cref="Radios.SmartLink.IWanSessionOwner.ListIsCurrent"/>
+        /// with the generation at the moment it consumes a push, because the
+        /// owner forwards outside its lock and a push can arrive here after
+        /// the next connection's has. And the connect flow's shortcut — "this
+        /// rig's own rows may answer" — compares the rows' provenance with
+        /// the session's current list, because a rig that was not the intake
+        /// when the live connection's list arrived still holds the rows it
+        /// took on an earlier connection, and the session's list being live
+        /// says nothing about THIS rig's rows.</para>
+        /// </remarks>
+        private readonly record struct WanListProvenance(
+            Radios.SmartLink.IWanSessionOwner Session, string SessionId, long ConnectionGeneration)
+        {
+            public bool Matches(Radios.SmartLink.SessionRadioListSnapshot snapshot) =>
+                string.Equals(SessionId, snapshot.SessionId, StringComparison.Ordinal)
+                && ConnectionGeneration == snapshot.ConnectionGeneration;
+
+            public override string ToString() => $"session {SessionId} connection {ConnectionGeneration}";
+        }
+
+        /// <summary>
+        /// Per account, the list this rig's WAN rows for that account were
+        /// last taken from. Written by the intake under <see cref="_wanIntakeLock"/>
+        /// for every list it processes, push or replay; read by the connect
+        /// flow before it lets those rows answer in place of the server.
+        /// </summary>
+        private readonly Dictionary<string, WanListProvenance> _wanRowsFrom =
+            new Dictionary<string, WanListProvenance>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Whether this rig's WAN rows for <paramref name="accountEmail"/>
+        /// came from exactly the list <paramref name="snapshot"/> describes.
+        /// False when this rig has never taken a list for the account — rows
+        /// that arrived by another route were not proven by any list.
+        /// </summary>
+        private bool WanRowsCameFrom(string accountEmail, Radios.SmartLink.SessionRadioListSnapshot snapshot)
+        {
+            lock (_wanIntakeLock)
+            {
+                return _wanRowsFrom.TryGetValue(accountEmail ?? "", out var from) && from.Matches(snapshot);
+            }
         }
 
         #region the one presence intake (#386)
@@ -6222,13 +6274,33 @@ namespace Radios
 
         #endregion
 
-        private void wanRadioListReceivedHandler(string accountId, IReadOnlyList<Radio> lst, WanListArrival arrival)
+        private void wanRadioListReceivedHandler(string accountId, IReadOnlyList<Radio> lst, WanListArrival arrival, WanListProvenance provenance)
         {
             try
             {
               lock (_wanIntakeLock)
               {
-                Tracing.TraceLine($"wanRadioListReceivedHandler: account={accountId} count={lst.Count} arrival={arrival}", TraceLevel.Info);
+                Tracing.TraceLine($"wanRadioListReceivedHandler: account={accountId} count={lst.Count} arrival={arrival} from {provenance}", TraceLevel.Info);
+
+                // Is this list still the session's current knowledge NOW, at
+                // the moment of consuming — not at the moment the owner
+                // accepted it? The owner decides under its lock and forwards
+                // outside it, so a push can pause between the two while a
+                // dial begins and the next connection's push is accepted,
+                // forwarded and consumed here; then it arrives, and every
+                // line below would treat it as the newer, fuller list — the
+                // latch, radios, the ghost sweep, the WAN bank, the cache. The
+                // session is asked with the list's own generation, under this
+                // lock, so the answer and the consumption are one step (#619,
+                // Sol's review of L5). A replay is decided by its caller from
+                // one snapshot and is not asked again here.
+                if (arrival == WanListArrival.ServerPush && !provenance.Session.ListIsCurrent(provenance.ConnectionGeneration))
+                {
+                    Tracing.TraceLine(
+                        $"wanRadioListReceivedHandler: list of {lst.Count} radio(s) for {accountId} from {provenance} is no longer that session's current knowledge — a newer connection has been dialed, or that one has been closed, has died, or the session is going away — so it is not consumed (#619)",
+                        TraceLevel.Info);
+                    return;
+                }
 
                 // The connect flow's one-shot latch belongs to the account it
                 // is waiting on; a push from another held session must not
@@ -6348,6 +6420,12 @@ namespace Radios
                         RaiseRadioFound(null, BuildRigData(oldRadio));
                     }
                 }
+
+                // The rows for this account now describe THIS list, whichever
+                // way it arrived. The connect flow compares this with the
+                // session's snapshot before it lets the rows stand in for the
+                // server's list (#619).
+                _wanRowsFrom[accountId ?? ""] = provenance;
               } // _wanIntakeLock
             }
             catch (Exception ex)
@@ -7435,11 +7513,22 @@ namespace Radios
                             TraceLevel.Info);
                         continue;
                     }
-                    if (myRadioList.Any(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, held.AccountId))) continue;
+                    // Rows this rig already holds for the account stand only
+                    // if they came from THIS list. A rig that was not the
+                    // intake when the live connection's list arrived still
+                    // holds the rows it took on an earlier connection — the
+                    // session's list is live, this rig's rows are not — and
+                    // the replay is what brings them up to date (#619, Sol's
+                    // review of L5). Track L5 skipped the replay whenever any
+                    // matching row existed, which is how such a rig answered
+                    // from stale rows.
+                    if (myRadioList.Any(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, held.AccountId))
+                        && WanRowsCameFrom(held.AccountId, snapshot)) continue;
                     Tracing.TraceLine(
-                        $"ConnectToSmartLink: replaying held session's cached list for {held.AccountId} ({cached.Count} radio(s)) through the intake{at()}",
+                        $"ConnectToSmartLink: replaying held session's cached list for {held.AccountId} ({cached.Count} radio(s), session {snapshot.SessionId} connection {snapshot.ConnectionGeneration}) through the intake{at()}",
                         TraceLevel.Info);
-                    wanRadioListReceivedHandler(held.AccountId, cached, WanListArrival.ReplayOfHeldCopy);
+                    wanRadioListReceivedHandler(held.AccountId, cached, WanListArrival.ReplayOfHeldCopy,
+                        new WanListProvenance(held, snapshot.SessionId, snapshot.ConnectionGeneration));
                     replayed++;
                 }
                 catch (Exception replayEx)
@@ -7496,10 +7585,25 @@ namespace Radios
             // connection fact describe the same moment.
             var snapshot = session.RadioListSnapshot;
             if (!snapshot.SessionConnected) return false;
-            if (snapshot.ArrivedOnTheLiveConnection) return true;
+            if (!snapshot.ArrivedOnTheLiveConnection)
+            {
+                Tracing.TraceLine(
+                    $"ConnectToSmartLink: {rows} cached WAN radio(s) for {accountEmail} were taken before the live connection listed this account — waiting for its list rather than answering from them (#619)"
+                    + (sw == null ? "" : $" ({sw.ElapsedMilliseconds}ms)"),
+                    TraceLevel.Info);
+                return false;
+            }
+
+            // The session's list is live. That says nothing about THIS rig's
+            // rows unless they came from it: another rig may have been the
+            // intake when the live connection's list arrived, leaving this
+            // one holding the rows it took on an earlier connection (#619,
+            // Sol's review of L5). Track L5 answered here from the session's
+            // liveness alone.
+            if (WanRowsCameFrom(accountEmail, snapshot)) return true;
 
             Tracing.TraceLine(
-                $"ConnectToSmartLink: {rows} cached WAN radio(s) for {accountEmail} were taken before the live connection listed this account — waiting for its list rather than answering from them (#619)"
+                $"ConnectToSmartLink: {rows} cached WAN radio(s) for {accountEmail} did not come from the live connection's list (session {snapshot.SessionId} connection {snapshot.ConnectionGeneration}) — this rig was not the intake when it arrived; waiting for the list rather than answering from them (#619)"
                 + (sw == null ? "" : $" ({sw.ElapsedMilliseconds}ms)"),
                 TraceLevel.Info);
             return false;

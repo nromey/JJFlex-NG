@@ -97,6 +97,33 @@ namespace Radios.SmartLink
         /// </remarks>
         event EventHandler<long>? ConnectionDialing;
 
+        /// <summary>
+        /// A connection's transport reported that it is up, or that it has
+        /// gone, and the value says WHICH connection: the generation stamped
+        /// where that transport was created, never the newest one dialed.
+        /// Raised synchronously on the thread the transport reported on,
+        /// before <see cref="INotifyPropertyChanged.PropertyChanged"/> for
+        /// <c>IsConnected</c>.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Why the edge carries a generation (#619, Sol's review of
+        /// L5).</b> The owner learns that a transport has died from this
+        /// edge, and a monitor that then changes the session's status is not
+        /// an instantaneous witness: between the edge and the status change
+        /// the session still reads Connected, and a list held from that
+        /// transport still reads as the live connection's. So the owner
+        /// records the edge itself, under the lock it decides lists under —
+        /// which is only safe if the edge says which connection it is about.
+        /// A replaced transport's read loop can report its death AFTER the
+        /// next connection has been dialed; an unstamped edge landing then
+        /// would mark the NEW connection dead before it had ever come up.</para>
+        ///
+        /// <para>The <c>PropertyChanged</c> edge survives beside this, as the
+        /// monitor's wake-up. It carries no generation and no subscriber may
+        /// do bookkeeping from it.</para>
+        /// </remarks>
+        event EventHandler<WanTransportStateEventArgs>? TransportStateChanged;
+
         /// <summary>Initiate a SmartLink session connect.</summary>
         void Connect();
 
@@ -217,6 +244,30 @@ namespace Radios.SmartLink
         {
             Radios = radios;
             ConnectionGeneration = connectionGeneration;
+        }
+    }
+
+    /// <summary>
+    /// Event payload for <see cref="IWanServer.TransportStateChanged"/>: which
+    /// connection's transport reported, and whether it is up.
+    /// </summary>
+    public sealed class WanTransportStateEventArgs : EventArgs
+    {
+        /// <summary>
+        /// The <see cref="IWanServer.ConnectionGeneration"/> of the connection
+        /// whose transport reported. Stamped where the transport was created,
+        /// so a replaced transport's late report still names the connection it
+        /// belonged to.
+        /// </summary>
+        public long ConnectionGeneration { get; }
+
+        /// <summary>True when the transport came up; false when it has gone.</summary>
+        public bool IsConnected { get; }
+
+        public WanTransportStateEventArgs(long connectionGeneration, bool isConnected)
+        {
+            ConnectionGeneration = connectionGeneration;
+            IsConnected = isConnected;
         }
     }
 

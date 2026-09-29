@@ -479,8 +479,17 @@ namespace Radios.Tests
                 "A re-entered rig's rows from before the reconnect were allowed to answer the connect " +
                 "as if they were the live connection's list (#619).");
 
-            // The live connection lists the account: the rows may answer again.
+            // The live connection lists the account. Track L5 let the rows
+            // answer from here, on the session's list being live; Sol's
+            // review of L5 found that says nothing about THIS rig's rows —
+            // it was not the intake when the list arrived, so they are still
+            // the earlier connection's. The replay is what refreshes them,
+            // and only then may they answer (Track L6a).
             wan.RaiseWanRadioRadioListReceived(new[] { WanRadio(Asked) });
+            Assert.False(rig.OwnRowsMayAnswerTheConnect(session, Account),
+                "A rig's rows from before the reconnect answered because the SESSION's list was live, " +
+                "though this rig never took that list (#619).");
+            Assert.Equal(1, rig.ReplayHeldListsIntoTheIntake(Account, sessionWasAlreadyConnected: true));
             Assert.True(rig.OwnRowsMayAnswerTheConnect(session, Account));
         }
 

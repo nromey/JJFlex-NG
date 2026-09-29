@@ -168,8 +168,13 @@ namespace Radios.SmartLink
         private void OnSessionRadioListReceived(object? sender, WanRadioListReceivedEventArgs e)
         {
             if (sender is not IWanSessionOwner owner) return;
+            // The generation travels on: the owner accepted this list under
+            // its lock and is forwarding it outside that lock, so by the time
+            // a consumer reads it the live connection may have moved on. The
+            // consumer asks the session, with this generation, at the moment
+            // it consumes (#619).
             SessionRadioListReceived?.Invoke(this,
-                new SessionRadioListEventArgs(owner.AccountId, owner.SessionId, e.Radios));
+                new SessionRadioListEventArgs(owner.AccountId, owner.SessionId, e.Radios, e.ConnectionGeneration, owner));
         }
 
         /// <summary>
@@ -293,17 +298,39 @@ namespace Radios.SmartLink
         /// <summary>Session that delivered it, for trace correlation.</summary>
         public string SessionId { get; }
 
-        /// <summary>The server's FULL current list for this account.</summary>
+        /// <summary>The server's FULL current list for this account — as of
+        /// the connection it arrived on. Whether that is still the live
+        /// connection is a question for <see cref="Session"/>, asked with
+        /// <see cref="ConnectionGeneration"/> at the moment of consuming.</summary>
         public System.Collections.Generic.IReadOnlyList<Flex.Smoothlake.FlexLib.Radio> Radios { get; }
+
+        /// <summary>
+        /// The <see cref="IWanServer.ConnectionGeneration"/> of the connection
+        /// this list was born on, carried from the adapter's stamp through the
+        /// owner unchanged (#619).
+        /// </summary>
+        public long ConnectionGeneration { get; }
+
+        /// <summary>
+        /// The session that delivered the list, so a consumer can ask
+        /// <see cref="IWanSessionOwner.ListIsCurrent"/> when it consumes
+        /// rather than when the list was forwarded. Read it for that question
+        /// only; D4 still forbids capturing it into a field.
+        /// </summary>
+        public IWanSessionOwner Session { get; }
 
         public SessionRadioListEventArgs(
             string accountId,
             string sessionId,
-            System.Collections.Generic.IReadOnlyList<Flex.Smoothlake.FlexLib.Radio> radios)
+            System.Collections.Generic.IReadOnlyList<Flex.Smoothlake.FlexLib.Radio> radios,
+            long connectionGeneration,
+            IWanSessionOwner session)
         {
             AccountId = accountId;
             SessionId = sessionId;
             Radios = radios;
+            ConnectionGeneration = connectionGeneration;
+            Session = session ?? throw new ArgumentNullException(nameof(session));
         }
     }
 }

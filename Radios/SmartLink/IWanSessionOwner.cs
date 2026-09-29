@@ -119,6 +119,30 @@ namespace Radios.SmartLink
         /// </remarks>
         SessionRadioListSnapshot RadioListSnapshot { get; }
 
+        /// <summary>
+        /// Whether a list born on <paramref name="connectionGeneration"/> is
+        /// this session's current knowledge AT THIS MOMENT: that connection
+        /// is the newest dialed, this owner has not torn it down, its
+        /// transport has not reported itself gone, and the operator still
+        /// wants the session up. The same predicate the owner's own list
+        /// handler accepts under; a consumer that receives a list later than
+        /// that decision asks it again, with the list's own generation.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Why a consumer asks twice (#619, Sol's review of L5).</b>
+        /// The owner accepts a list under its lock, releases the lock, and
+        /// forwards it. Between those two a dial can begin and the NEXT
+        /// connection's list can be accepted and forwarded, so the first
+        /// list arrives at the consumer after the second and would be read
+        /// as newer. Holding the owner's lock across the forward would
+        /// serialize that, at the price of holding it through the
+        /// coordinator and the intake — arbitrary callbacks, one of which
+        /// takes the intake's own lock. So the provenance travels with the
+        /// list instead, and the consumer compares it with the live one at
+        /// the moment it consumes, under its own lock.</para>
+        /// </remarks>
+        bool ListIsCurrent(long connectionGeneration);
+
         /// <summary>Audio output primitive for this session (D2 discipline).</summary>
         ISessionAudioSink AudioSink { get; }
 
@@ -254,14 +278,27 @@ namespace Radios.SmartLink
     /// has. Same value as <see cref="IWanSessionOwner.LastRadioListUtc"/>.</param>
     /// <param name="SessionConnected">The session is connected now.</param>
     /// <param name="ArrivedOnTheLiveConnection">The list arrived on the
-    /// connection that is live now. False whenever the session is not
-    /// connected, and false after a reconnect until the new connection's
-    /// first list lands.</param>
+    /// connection that is live now, and that connection's transport has not
+    /// reported itself gone. False whenever the session is not connected,
+    /// false after a reconnect until the new connection's first list lands,
+    /// and false from the moment the transport reports its death — before
+    /// the monitor has changed the session's status (#619).</param>
+    /// <param name="ConnectionGeneration">The
+    /// <see cref="IWanServer.ConnectionGeneration"/> of the connection the
+    /// list arrived on; -1 before any list. With <see cref="SessionId"/> this
+    /// names the list exactly, so a consumer that took rows from it can later
+    /// prove those rows came from the list that is current now, rather than
+    /// from an earlier connection's that happened to describe the same
+    /// account.</param>
+    /// <param name="SessionId">The session that holds the list, so the
+    /// generation is scoped: generations restart when a session is rebuilt.</param>
     public readonly record struct SessionRadioListSnapshot(
         IReadOnlyList<Radio> Radios,
         DateTime? ReceivedUtc,
         bool SessionConnected,
-        bool ArrivedOnTheLiveConnection);
+        bool ArrivedOnTheLiveConnection,
+        long ConnectionGeneration,
+        string SessionId);
 
     /// <summary>Event payload for signal-strength threshold crossings.</summary>
     public sealed class SignalThresholdEventArgs : EventArgs
