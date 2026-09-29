@@ -326,6 +326,78 @@ namespace Radios.Tests
             Assert.DoesNotContain("'census'", intro, StringComparison.Ordinal);
         }
 
+        // ── Blocker 3: the connection reset comes before the hooks ───────
+
+        /// <summary>
+        /// Sol's blocker 3, as a sequence: a reading that arrives and is then
+        /// followed by the per-connection reset is disowned by it, because the
+        /// reset opens a new window. That is right for a reading from the LAST
+        /// connection and wrong for one from THIS connection, so the reset must
+        /// never follow a hook that could have delivered one; see the next
+        /// test for <c>Connect</c>'s order. Reset first, and the reading that
+        /// follows is kept.
+        /// </summary>
+        [Fact]
+        public void The_reset_disowns_what_came_before_it_and_keeps_what_comes_after()
+        {
+            using var rig = new Rig();
+            rig.ForceTransmitField(true);
+
+            rig.Forward(47f);                    // the old order: a callback in the gap...
+            rig.Call("resetMeterInventory");     // ...then the reset
+            string disowned = rig.WriteOne();
+
+            rig.Call("resetMeterInventory");     // the new order: the reset...
+            rig.Forward(47f);                    // ...then the callback
+            string kept = rig.WriteOne();
+            _out.WriteLine(disowned);
+            _out.WriteLine(kept);
+
+            Assert.Contains(" fwd=" + NoSample, disowned, StringComparison.Ordinal);
+            Assert.Contains(" fwd=" + F1(47f) + " dBm", kept, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// <c>Connect</c> resets the meter inventory BEFORE it subscribes a
+        /// single handler, so no reading this connection delivers can land in
+        /// the gap the previous test shows (Sol's blocker 3). Read from the
+        /// source, because <c>Connect</c> needs a radio: every handler
+        /// subscription in it, meter or not, must come after the one reset, and
+        /// there must be exactly one reset in it. Positive controls: the reader
+        /// finds the method, and finds each of the three power subscriptions.
+        /// </summary>
+        [Fact]
+        public void Connect_resets_the_meter_inventory_before_hooking_any_handler()
+        {
+            string source = System.IO.File.ReadAllText(System.IO.Path.Combine(
+                CaptureMeterSetTests.RepoRoot(), "Radios", "FlexBase.cs"));
+            int start = source.IndexOf("public bool Connect(string serial, bool lowBW", StringComparison.Ordinal);
+            Assert.True(start > 0, "Connect not found");
+            int end = source.IndexOf("theRadio.TxBandSettingsAdded +=", start, StringComparison.Ordinal);
+            Assert.True(end > start, "the end of Connect's handler block not found");
+            string body = source.Substring(start, end - start);
+
+            foreach (string hook in new[]
+            {
+                "theRadio.ForwardPowerDataReady +=",
+                "theRadio.ReflectedPowerDataReady +=",
+                "theRadio.SWRDataReady +=",
+            })
+            {
+                Assert.Contains(hook, body, StringComparison.Ordinal);   // control
+            }
+
+            int reset = body.IndexOf("resetMeterInventory();", StringComparison.Ordinal);
+            Assert.True(reset > 0, "Connect no longer resets the meter inventory");
+            Assert.Equal(reset, body.LastIndexOf("resetMeterInventory();", StringComparison.Ordinal));
+
+            int firstHook = body.IndexOf("wireRadioPropertyHandler(theRadio);", StringComparison.Ordinal);
+            int firstEvent = body.IndexOf(" += ", StringComparison.Ordinal);
+            Assert.True(firstHook > 0 && firstEvent > 0);
+            Assert.True(reset < firstHook, "the reset comes after the property handler is wired");
+            Assert.True(reset < firstEvent, "the reset comes after a handler is subscribed");
+        }
+
         // ── Blocker 4: the limiter's clock ───────────────────────────────
 
         /// <summary>

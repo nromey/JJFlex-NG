@@ -2252,6 +2252,18 @@ namespace Radios
             // and a guard loaded after the writes it governs is scenery (#403).
             SetChangeNothingActive(knownRadioProfile.ChangeNothingOnThisRadio);
 
+            // Forget the last radio's meters BEFORE hooking this one's (#625,
+            // H18 — Sol's H17 review, blocker 3). This ran after the meter
+            // handlers below were subscribed, so a forward, reflected or SWR
+            // reading that arrived in between was stored and then disowned by
+            // the reset: a later txMeters line said no-sample for a value this
+            // connection had reported. Reset first, and nothing that arrives
+            // on this connection can be erased by it. Read from the code, not
+            // observed: the old order also let micData's inventory pass hook
+            // the radio's meters before the reset forgot them, so the next
+            // pass would hook them a second time (see syncMeterInventory).
+            resetMeterInventory();
+
             // add the handlers.
             // The property handler is wired idempotently: it carries the
             // connection-fall archive, and a second copy would dispatch it twice.
@@ -2284,12 +2296,12 @@ namespace Radios
             theRadio.PAEffDataReady += new Radio.MeterDataReadyEventHandler(paEffData);
 
             // Sprint 32 Track A: and now EVERY meter, not just the ten named
-            // convenience events above. Fresh radio, fresh subscriptions. This
+            // convenience events above. Fresh radio, fresh subscriptions: the
+            // inventory was reset before any handler was hooked, above. This
             // first pass usually finds the list still filling — meter
             // registration runs on after connect — which is exactly why the
             // reconcile is re-driven from every meter reading rather than
             // trusted once here.
-            resetMeterInventory();
             syncMeterInventory();
 
             theRadio.TxBandSettingsAdded += new Radio.TxBandSettingsAddedEventHandler(txBandSettingsHandler);
