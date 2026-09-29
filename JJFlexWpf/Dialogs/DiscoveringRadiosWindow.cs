@@ -244,6 +244,16 @@ namespace JJFlexWpf.Dialogs
         {
             // Raised from the discovery thread. Nothing here touches the UI -
             // the poll loop below reads these and it owns the dispatcher.
+            //
+            // "Something answered" is a decision about NOW, so it asks the
+            // sighting whether the list behind it is still the session's
+            // current knowledge (#619, Sol's review of L7). A SmartLink
+            // sighting raised after its connection was redialed or died says
+            // nothing about what is reachable at this moment, and the picker
+            // will refuse it too; letting it settle the wait early would open
+            // the picker on the strength of a list nobody holds any more. A
+            // LAN sighting carries no WAN list and always answers yes.
+            if (!r.StillCurrent()) return;
             _anySeen = true;
             _lastSighting = DateTime.UtcNow;
         }

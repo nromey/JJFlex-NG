@@ -154,6 +154,62 @@ namespace Radios
             public IReadOnlyList<string> GuiClientStations { get; internal set; } =
                 Array.Empty<string>();
 
+            /// <summary>
+            /// The SmartLink list this sighting was raised from — the session
+            /// and the connection generation the list was born on — when the
+            /// WAN intake raised it. Null for every other sighting: a local
+            /// discovery broadcast, a LAN radio's per-broadcast roster
+            /// refresh, and the picker's replay of rows already held. Those
+            /// carry no WAN generation, so <see cref="StillCurrent"/> has
+            /// nothing to ask and answers yes.
+            /// </summary>
+            internal WanListProvenance? FromWanList { get; set; }
+
+            /// <summary>
+            /// Whether the list behind this sighting is still the session's
+            /// current knowledge, asked of the session NOW — at the moment
+            /// the consumer decides, not the moment the intake checked
+            /// (#619, Sol's review of L7).
+            /// </summary>
+            /// <remarks>
+            /// <para><b>Why the consumer asks and not only the intake.</b> The
+            /// intake asks this same question before it writes anything, and
+            /// again after the connect latch; but the ghost sweep, the WAN
+            /// bank, the account cache and this event all follow that last
+            /// check, and a dial or a transport's death can land between the
+            /// check and the raise. Three review rounds each closed one more
+            /// consumer that treated the sighting as live without asking.
+            /// The rule that ends the class: <b>a consumer that treats a
+            /// sighting as LIVE asks at its own decision.</b> The picker's
+            /// arrival announcement, its "radios have arrived" close of the
+            /// connecting window, its live-row rewrite and the discovering
+            /// window's "something answered" are the live treatments; each
+            /// refuses a sighting this answers no for, exactly as the intake
+            /// would have refused the list had the change landed an instant
+            /// earlier. A held row is not touched by a refusal: the rows keep
+            /// describing the last list taken, which is what any drop leaves,
+            /// and the next current list brings them up to date.</para>
+            /// <para>Three of the four clauses behind the answer are one-way:
+            /// a generation is never dialed twice, a retired connection is
+            /// never un-retired, and a dead transport never reports itself
+            /// alive again. The fourth is the operator's intent, which
+            /// Disconnect withdraws and Connect restores; if the two land
+            /// inside the monitor's wake latency the same connection stays up
+            /// and the answer goes no and then yes again. A sighting refused
+            /// in that instant costs a held row one push's update, which the
+            /// next push brings — the same cost as the intake refusing the
+            /// list at its own check in that instant, which it also does.</para>
+            /// </remarks>
+            public bool StillCurrent()
+            {
+                var from = FromWanList;
+                return from == null || from.Value.Session.ListIsCurrent(from.Value.ConnectionGeneration);
+            }
+
+            /// <summary>Which list this sighting speaks for, for a trace line:
+            /// the session and connection, or "local discovery".</summary>
+            public string Origin => FromWanList?.ToString() ?? "local discovery";
+
             internal RigData() { }
         }
         public delegate void RadioFoundDel(object sender, RigData r);
@@ -461,7 +517,16 @@ namespace Radios
             }
         }
 
-        private void radioAddedHandler(Radio r)
+        /// <summary>FlexLib's RadioAdded, for a radio local discovery found.
+        /// The shape the vendor's delegate needs; the sighting carries no WAN
+        /// list.</summary>
+        private void radioAddedHandler(Radio r) => radioAddedHandler(r, null);
+
+        /// <param name="fromWanList">The SmartLink list this radio arrived on,
+        /// when the WAN intake is adding it; null for local discovery. Carried
+        /// on the sighting so its consumers can ask whether that list is
+        /// still current when they decide (#619).</param>
+        private void radioAddedHandler(Radio r, WanListProvenance? fromWanList)
         {
             Tracing.TraceLine("radioAddedHandler:" + r.Serial, TraceLevel.Info);
             // Ignore entries without a serial; SmartLink returns unusable shells before auth completes.
@@ -477,7 +542,7 @@ namespace Radios
                 _lanLastSeenTicks[r.Serial] = Environment.TickCount64;
                 WatchDiscoveryGuiClients(r);
             }
-            RaiseRadioFound(null, BuildRigData(r));
+            RaiseRadioFound(null, BuildRigData(r, fromWanList));
         }
 
         /// <summary>
@@ -563,9 +628,13 @@ namespace Radios
         /// the other, and it is consulted every time because a LAN radio
         /// re-announces itself long after the SmartLink list has landed.
         /// </summary>
-        private static RigData BuildRigData(Radio r)
+        /// <param name="fromWanList">The SmartLink list this sighting speaks
+        /// for, when the WAN intake is raising it; null for every other
+        /// sighting. See <see cref="RigData.StillCurrent"/>.</param>
+        private static RigData BuildRigData(Radio r, WanListProvenance? fromWanList = null)
         {
             var rd = new RigData();
+            rd.FromWanList = fromWanList;
             rd.Name = string.IsNullOrWhiteSpace(r.Nickname) ? "Unknown" : r.Nickname;
             rd.ModelName = string.IsNullOrWhiteSpace(r.Model) ? "Unknown" : r.Model;
             rd.Serial = r.Serial;
@@ -6382,7 +6451,13 @@ namespace Radios
         /// took on an earlier connection, and the session's list being live
         /// says nothing about THIS rig's rows.</para>
         /// </remarks>
-        private readonly record struct WanListProvenance(
+        /// <para><b>And a third, since Track L8: every consumer of the
+        /// intake's <see cref="RadioFound"/>.</b> The sighting carries this
+        /// record out (<see cref="RigData.FromWanList"/>), and a consumer that
+        /// treats the sighting as live asks <see cref="RigData.StillCurrent"/>
+        /// at its own decision. Internal rather than private only so the
+        /// public sighting can hold it.</para>
+        internal readonly record struct WanListProvenance(
             Radios.SmartLink.IWanSessionOwner Session, string SessionId, long ConnectionGeneration)
         {
             public bool Matches(Radios.SmartLink.SessionRadioListSnapshot snapshot) =>
@@ -6660,6 +6735,14 @@ namespace Radios
             /// <summary>The intake has written the connect flow's latch and
             /// not yet re-validated it. Inside the intake lock.</summary>
             LatchWritten,
+
+            /// <summary>The intake has re-validated the latch — its last
+            /// currency check — and is about to make the display writes:
+            /// the ghost sweep and its RadioRemoved, the WAN bank, the
+            /// account cache, the merge and its RadioFound. Inside the intake
+            /// lock. A list parked here while the connection changes is the
+            /// sighting a consumer must refuse (#619, Sol's review of L7).</summary>
+            Revalidated,
         }
 
         /// <summary>
@@ -6688,6 +6771,28 @@ namespace Radios
             if (!System.Threading.Monitor.TryEnter(_wanIntakeLock)) return false;
             try { return wanListReceived; }
             finally { System.Threading.Monitor.Exit(_wanIntakeLock); }
+        }
+
+        /// <summary>
+        /// The list the connect flow reads once its wait is over — the
+        /// <c>radios</c> field, read under the intake's lock so it is the
+        /// list an intake SETTLED, never one an intake has written and is
+        /// about to take back (#619, Sol's review of L7). Blocks for an
+        /// intake in progress, as the read at the deadline already does; the
+        /// flow never runs on the UI thread, so an intake raising into the
+        /// picker cannot be waiting on the flow.
+        /// </summary>
+        /// <remarks>
+        /// Until Track L8 the flow read <c>radios</c> bare, three times —
+        /// a count, a loop and a second count — after a wait that itself
+        /// never looked inside an intake. A push landing in that gap wrote
+        /// <c>radios</c> before its re-validation, so the flow could count
+        /// one list, walk another and judge "no radios" by a third, one of
+        /// them a list the intake then put back. One read, one list.
+        /// </remarks>
+        internal List<Radio> ConnectListSettled()
+        {
+            lock (_wanIntakeLock) return radios;
         }
 
         /// <summary>
@@ -6750,26 +6855,50 @@ namespace Radios
                 // callback or a replay after a dial — from touching the latch
                 // at all, so the take-back runs only for the narrow race.
                 //
-                // THE RESIDUAL WINDOW, STATED EXACTLY: between step 2 and the
-                // display writes that follow it — the ghost sweep and its
-                // RadioRemoved, the WAN bank, the account-list cache, the
-                // merge and its RadioFound, and the rows' provenance — a
-                // dial, disconnect or death can land, and those writes then
-                // happen after it. Nothing false results, for three reasons.
-                // They describe the list the session held as current at step
-                // 2, and this lock guarantees no newer list was consumed in
-                // between, so the state they leave is exactly the state a
-                // consumption finishing at step 2 would have left; a
-                // following connection's list waits on this lock and
-                // replaces it. The session keeps its list across a drop for
-                // display by design, so rows describing the last thing the
-                // server said are what a drop leaves anyway. And the one
-                // decision that asks whether rows speak for the LIVE
-                // connection, OwnRowsMayAnswerTheConnect, compares the rows'
-                // recorded provenance — this list's own generation — with
-                // the session's snapshot at the moment it asks, so it is
-                // told no. Those writes raise events and cannot be taken
-                // back, which is why they are not bracketed like the latch.
+                // THE WINDOW AFTER STEP 2, AND WHO CLOSES IT (#619, Sol's
+                // review of L7). Between step 2 and the display writes that
+                // follow it — the ghost sweep and its RadioRemoved, the WAN
+                // bank, the account-list cache, the merge and its RadioFound,
+                // and the rows' provenance — a dial, disconnect or death can
+                // land, and those writes then happen after it. Track L7
+                // argued nothing false could result; Sol traced RadioFound
+                // one consumer further and found the picker treating it as a
+                // FRESH LIVE SIGHTING: a live-row rewrite, the "radios have
+                // arrived" close of the connecting window, an arrival
+                // announcement. Three rounds each closed one consumer and
+                // missed the next, so the rule now applies to EVERY consumer,
+                // all the way out:
+                //
+                //   * The STATE these writes leave is what a consumption
+                //     finishing at step 2 would have left — this lock admits
+                //     no newer list in between, and the next connection's
+                //     list replaces it under the same lock. A session keeps
+                //     its list across a drop for display by design, so rows
+                //     describing the last thing the server said are what any
+                //     drop leaves. OwnRowsMayAnswerTheConnect compares the
+                //     rows' recorded provenance with the session's snapshot
+                //     when it asks, and is told no.
+                //   * The EVENTS are another matter, because a consumer can
+                //     treat one as news about NOW. So every RadioFound raised
+                //     from here carries this list's provenance
+                //     (RigData.FromWanList), and a consumer that treats the
+                //     sighting as live asks RigData.StillCurrent() at its own
+                //     decision and refuses when the answer is no — exactly
+                //     what this intake would have done had the change landed
+                //     an instant before step 2. The picker and the discovering
+                //     window ask; the adapter in globals.vb forwards the
+                //     sighting untouched; the bench tool records a historical
+                //     "seen" and decides nothing from it.
+                //   * RadioRemoved from the ghost sweep names a radio the
+                //     server's list omitted at a moment that list was current.
+                //     Its one consumer re-asks the rig's availability at its
+                //     own decision and never trusts the event's content.
+                //
+                // These writes raise events and cannot be taken back, which
+                // is why they are not bracketed like the latch: the provenance
+                // travelling with the event is what stands in for the
+                // bracket. Stage Revalidated below is where the suite parks a
+                // list to hold this ordering exactly.
                 if (!ListStillCurrent(provenance))
                 {
                     Tracing.TraceLine(
@@ -6813,6 +6942,7 @@ namespace Radios
                         TraceLevel.Info);
                     return false;
                 }
+                WanIntakeStageReached?.Invoke(WanIntakeStage.Revalidated);
 
                 // Ghost sweep, scoped to THIS account: the list is the
                 // server's FULL current list for the account that sent it, so
@@ -6895,7 +7025,7 @@ namespace Radios
                     if (oldRadio == null)
                     {
                         // In v4 API the helper is private; directly raise our local handler.
-                        radioAddedHandler(r);
+                        radioAddedHandler(r, provenance);
                     }
                     else
                     {
@@ -6911,7 +7041,7 @@ namespace Radios
                         // LAN found it first) killed the loop on the first
                         // iteration. `continue` is what was meant.
                         UpdateRadioDiscoveryFields(r, oldRadio, accountId);
-                        RaiseRadioFound(null, BuildRigData(oldRadio));
+                        RaiseRadioFound(null, BuildRigData(oldRadio, provenance));
                     }
                 }
 
@@ -8304,9 +8434,10 @@ namespace Radios
                 // exactly as the 2026-08-06 refresh/morph flow expects.
                 if (sessionWasAlreadyConnected && haveCachedList)
                 {
-                    radios = myRadioList.Where(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail)).ToList();
+                    var fromRows = myRadioList.Where(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail)).ToList();
+                    lock (_wanIntakeLock) radios = fromRows;
                     Tracing.TraceLine(
-                        $"ConnectToSmartLink: session was already live — satisfied immediately from {radios.Count} cached WAN radio(s), no list wait ({sw.ElapsedMilliseconds}ms)",
+                        $"ConnectToSmartLink: session was already live — satisfied immediately from {fromRows.Count} cached WAN radio(s), no list wait ({sw.ElapsedMilliseconds}ms)",
                         TraceLevel.Info);
                 }
                 else
@@ -8351,9 +8482,10 @@ namespace Radios
                         // for a list this account never gave us. RadioFound for
                         // these entries already fired via radioAddedHandler at
                         // apiInit, so no re-announce is needed here.
-                        radios = myRadioList.Where(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail)).ToList();
-                            Tracing.TraceLine(
-                            $"ConnectToSmartLink: no new radio list, session live with {radios.Count} cached WAN radio(s) — using those ({sw.ElapsedMilliseconds}ms)",
+                        var fromRows = myRadioList.Where(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail)).ToList();
+                        lock (_wanIntakeLock) radios = fromRows;
+                        Tracing.TraceLine(
+                            $"ConnectToSmartLink: no new radio list, session live with {fromRows.Count} cached WAN radio(s) — using those ({sw.ElapsedMilliseconds}ms)",
                             TraceLevel.Info);
                     }
                     else
@@ -8370,14 +8502,19 @@ namespace Radios
                     return SmartLinkConnectResult.AuthFailed;
                 }
 
-                Tracing.TraceLine($"ConnectToSmartLink: radio list received! {radios.Count} radio(s), myRadioList has {myRadioList.Count} entries ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                // One settled read, used for everything below. The intake
+                // writes `radios` before it re-validates and may put it
+                // back; reading the field bare here could count one list and
+                // walk another (#619, Sol's review of L7).
+                var listed = ConnectListSettled();
+                Tracing.TraceLine($"ConnectToSmartLink: radio list received! {listed.Count} radio(s), myRadioList has {myRadioList.Count} entries ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 ConnectionProfiler.Current?.RecordEvent("wan_radio_list", new Dictionary<string, object>
                 {
-                    { "count", radios.Count },
+                    { "count", listed.Count },
                     { "myRadioListCount", myRadioList.Count },
                     { "elapsedMs", sw.ElapsedMilliseconds }
                 });
-                foreach (var r in radios)
+                foreach (var r in listed)
                 {
                     // Ports and forwarding flags belong in this line: a radio that
                     // advertises a forwarded port nothing is listening behind
@@ -8389,7 +8526,7 @@ namespace Radios
                         TraceLevel.Info);
                 }
 
-                if (radios.Count == 0)
+                if (listed.Count == 0)
                 {
                     // Distinct from ConnectFailed: the session is alive and registered,
                     // the server simply has no radios for this account. Re-logging in

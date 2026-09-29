@@ -796,5 +796,247 @@ namespace Radios.Tests
                 owner.Dispose();
             }
         }
+
+        // ------------------------------------------------------------------
+        // 6. The window after the intake's final check (Sol's review of L7)
+        // ------------------------------------------------------------------
+
+        /// <summary>Every RadioFound raised while this is alive, in order.</summary>
+        private sealed class Sightings : IDisposable
+        {
+            private readonly List<FlexBase.RigData> _seen = new();
+            private readonly FlexBase.RadioFoundDel _onFound;
+
+            public Sightings()
+            {
+                _onFound = (_, r) => { lock (_seen) _seen.Add(r); };
+                FlexBase.RadioFound += _onFound;
+            }
+
+            public FlexBase.RigData Of(string serial)
+            {
+                lock (_seen)
+                {
+                    var matching = _seen.Where(r => r.Serial == serial).ToList();
+                    Assert.True(matching.Count == 1,
+                        $"expected exactly one RadioFound for {serial}, saw {matching.Count}");
+                    return matching[0];
+                }
+            }
+
+            public void Dispose() => FlexBase.RadioFound -= _onFound;
+        }
+
+        /// <summary>
+        /// Park a push inside the intake at <paramref name="stage"/> and
+        /// return the task delivering it. The caller changes the session
+        /// underneath the parked list, then releases it.
+        /// </summary>
+        private static Task ParkPush(FlexBase rig, MockWanServer wan, long generation, string serial,
+            FlexBase.WanIntakeStage stage, ManualResetEventSlim release)
+        {
+            var parked = new ManualResetEventSlim();
+            rig.WanIntakeStageReached = reached =>
+            {
+                if (reached != stage) return;
+                rig.WanIntakeStageReached = null;
+                parked.Set();
+                Assert.True(release.Wait(5000), "the parked push was never released");
+            };
+            var push = Task.Run(() => wan.RaiseWanRadioRadioListReceivedFrom(generation, new[] { WanRadio(serial) }));
+            Assert.True(parked.Wait(5000), $"the intake never reached {stage}");
+            return push;
+        }
+
+        /// <summary>
+        /// The ordering L7 called harmless and Sol traced one consumer further.
+        /// A push has passed the intake's LAST check — the re-validation
+        /// after the latch — and is parked before the display writes. The
+        /// transport dies and connection 2 is dialed. The intake goes on to
+        /// raise RadioFound for the list, as it must (the writes cannot be
+        /// taken back), and the picker treats RadioFound as a fresh live
+        /// sighting: a live-row rewrite, the connecting window closed, an
+        /// arrival announced. The sighting must therefore be able to answer,
+        /// at the picker's decision, that the list behind it is no longer
+        /// current — and it does. Connection 2's own list is the control
+        /// that a current sighting answers yes.
+        /// </summary>
+        /// <remarks>
+        /// Stamping no provenance on the intake's sightings, or answering
+        /// yes without asking the session, turns the parked assertion red.
+        /// The LAN clause — a sighting with no WAN list behind it answers
+        /// yes — is pinned here too, because the picker's refusal must never
+        /// reach a radio found on the local network.
+        /// </remarks>
+        [Fact]
+        public void A_sighting_raised_after_the_intakes_final_check_knows_when_a_dial_has_made_its_list_history()
+        {
+            var (owner, wan) = NewSession();
+            var release = new ManualResetEventSlim();
+            using var sightings = new Sightings();
+            try
+            {
+                var rig = NewRig();
+                rig.EngageSmartLinkPresence();
+                ConnectAndList(owner, wan, Listed);
+                Assert.True(sightings.Of(Listed).StillCurrent(),
+                    "the control sighting, from the live connection with nothing changed, answered no");
+
+                var late = ParkPush(rig, wan, 1, Other, FlexBase.WanIntakeStage.Revalidated, release);
+
+                DropAndRedial(owner, wan);
+                Assert.Equal(2, wan.ConnectionGeneration);
+                Assert.False(owner.ListIsCurrent(1));
+
+                release.Set();
+                Assert.True(late.Wait(5000), "the parked push never finished");
+
+                // The trap, stated: the intake consumed the list — it had
+                // passed every check — and raised the sighting.
+                Assert.Equal(new[] { Other }, WanSerialsInMyRadioList(rig));
+                var stale = sightings.Of(Other);
+                Assert.True(stale.WanAvailable);
+                Assert.False(stale.StillCurrent(),
+                    "A sighting raised from a list whose connection was redialed after the intake's final check still claimed to be current at the consumer's decision (#619, Sol's review of L7).");
+                Assert.Contains("connection 1", stale.Origin, StringComparison.Ordinal);
+
+                // Control: connection 2's own list raises a sighting that is
+                // current, so the picker takes it.
+                wan.RaiseWanRadioRadioListReceived(new[] { WanRadio(Third) });
+                Assert.True(sightings.Of(Third).StillCurrent());
+
+                // LAN sightings carry no WAN list and are unaffected.
+                Assert.True(new FlexBase.RigData().StillCurrent());
+                Assert.Equal("local discovery", new FlexBase.RigData().Origin);
+            }
+            finally
+            {
+                release.Set();
+                owner.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// The same ordering for a transport death with NO redial: the
+        /// monitor is held before it dials, so connection 1 stays the newest
+        /// and only its transport's own edge says it is gone. The parked
+        /// sighting answers no on that clause alone; once the monitor is
+        /// released and connection 2 is up, its list's sighting answers yes.
+        /// </summary>
+        [Fact]
+        public void A_sighting_raised_after_the_intakes_final_check_knows_when_its_transport_has_died()
+        {
+            var (owner, wan) = NewSession();
+            var release = new ManualResetEventSlim();
+            var releaseDial = new ManualResetEventSlim();
+            using var sightings = new Sightings();
+            try
+            {
+                var rig = NewRig();
+                rig.EngageSmartLinkPresence();
+                ConnectAndList(owner, wan, Listed);
+
+                var late = ParkPush(rig, wan, 1, Other, FlexBase.WanIntakeStage.Revalidated, release);
+
+                var heldBeforeDial = new ManualResetEventSlim();
+                wan.BeforeDialHook = () =>
+                {
+                    wan.BeforeDialHook = null;
+                    heldBeforeDial.Set();
+                    releaseDial.Wait(30000);
+                };
+                wan.ForceIsConnected(false);
+                Assert.True(heldBeforeDial.Wait(5000), "the monitor never got as far as deciding to dial");
+                // The trap, stated: connection 1 is still the newest, nothing
+                // has retired it, and only its transport has spoken.
+                Assert.Equal(1, wan.ConnectionGeneration);
+                Assert.False(owner.ListIsCurrent(1));
+
+                release.Set();
+                Assert.True(late.Wait(5000), "the parked push never finished");
+
+                Assert.Equal(new[] { Other }, WanSerialsInMyRadioList(rig));
+                Assert.False(sightings.Of(Other).StillCurrent(),
+                    "A sighting raised from a list whose transport died after the intake's final check still claimed to be current at the consumer's decision (#619, Sol's review of L7).");
+
+                // Control: let the monitor dial connection 2; its list's
+                // sighting is current.
+                releaseDial.Set();
+                WaitUntil(() => wan.ConnectionGeneration == 2 && owner.IsConnected,
+                    "the session never reconnected");
+                wan.RaiseWanRadioRadioListReceived(new[] { WanRadio(Third) });
+                Assert.True(sightings.Of(Third).StillCurrent());
+            }
+            finally
+            {
+                release.Set();
+                releaseDial.Set();
+                owner.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// Sol's follow-up on L7: the connect flow read <c>radios</c> bare
+        /// after its wait, while the intake writes <c>radios</c> before the
+        /// re-validation that may put it back. A push is parked exactly
+        /// there — latch and <c>radios</c> written, not yet re-validated —
+        /// and the flow's read is started. It must not complete while the
+        /// intake holds the list; the transport then dies, so the intake
+        /// puts the list back; and the read must return the list the intake
+        /// SETTLED, not the one it took back.
+        /// </summary>
+        /// <remarks>
+        /// Reading the field without the intake's lock returns the
+        /// transient list at once, which turns both the "not yet" and the
+        /// settled-value assertions red. The release with nothing changed
+        /// is the control that the read does return a list the intake kept.
+        /// </remarks>
+        [Fact]
+        public void The_connect_flow_reads_the_list_the_intake_settled_never_one_it_took_back()
+        {
+            var (owner, wan) = NewSession();
+            var release = new ManualResetEventSlim();
+            var releaseDial = new ManualResetEventSlim();
+            try
+            {
+                var rig = NewRig();
+                rig.EngageSmartLinkPresence();
+                ConnectAndList(owner, wan, Listed);
+                Assert.Equal(new[] { Listed }, RadiosOf(rig));
+                BeginACall(rig);
+
+                var late = ParkPush(rig, wan, 1, Other, FlexBase.WanIntakeStage.LatchWritten, release);
+
+                // The trap, stated: the field holds the list the intake has
+                // not yet decided to keep.
+                Assert.Equal(new[] { Other }, RadiosOf(rig));
+                var read = Task.Run(() => rig.ConnectListSettled());
+                Assert.False(read.Wait(300),
+                    "The connect flow's read returned while the intake still held the list, so it read a list the intake could take back (#619, Sol's review of L7).");
+
+                wan.BeforeDialHook = () => { wan.BeforeDialHook = null; releaseDial.Wait(30000); };
+                wan.ForceIsConnected(false);
+                WaitUntil(() => !owner.ListIsCurrent(1), "the transport's death never reached the session");
+
+                release.Set();
+                Assert.True(late.Wait(5000), "the parked push never finished");
+                Assert.True(read.Wait(5000), "the connect flow's read never completed once the intake finished");
+                Assert.Equal(new[] { Listed }, read.Result.Select(r => r.Serial).ToList());
+                Assert.Equal(new[] { Listed }, RadiosOf(rig));
+
+                // Control: with nothing changed, a settled list is read.
+                releaseDial.Set();
+                WaitUntil(() => wan.ConnectionGeneration == 2 && owner.IsConnected,
+                    "the session never reconnected");
+                wan.RaiseWanRadioRadioListReceived(new[] { WanRadio(Third) });
+                Assert.Equal(new[] { Third }, rig.ConnectListSettled().Select(r => r.Serial).ToList());
+            }
+            finally
+            {
+                release.Set();
+                releaseDial.Set();
+                owner.Dispose();
+            }
+        }
     }
 }

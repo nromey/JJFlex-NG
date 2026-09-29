@@ -1374,8 +1374,6 @@ namespace JJFlexWpf.Dialogs
             // radio per session, and the lock stays free of IO either way.
             radio.LearnedPath = LearnedPathFor(radio.Serial);
 
-            _anyLiveRadioSeen = true;
-
             // Did this radio just BECOME reachable? That is the event worth a
             // word — task #254's other half. A background arrival no longer
             // rearranges the list under a keyboard user, so if it said nothing
@@ -1384,56 +1382,101 @@ namespace JJFlexWpf.Dialogs
             // reordering never was.
             bool arrived;
 
+            // ***** IS THIS SIGHTING STILL NEWS ABOUT NOW? (#619) *****
+            //
+            // Everything below treats the sighting as LIVE: the row is
+            // rewritten as reachable, _anyLiveRadioSeen is set, the
+            // connecting window is closed because "radios have arrived", and
+            // an arrival may be announced. A SmartLink sighting speaks for
+            // the server list it came from, and that list can stop being the
+            // session's current knowledge — a redial, the transport dying,
+            // the operator disconnecting — between the intake's own last
+            // check and this line. Sol's review of Track L7 traced that
+            // window to exactly here: the intake could no longer be fooled,
+            // and this handler still took whatever arrived as fresh.
+            //
+            // So the decision asks the sighting itself, at the moment it
+            // decides, inside the lock the row write takes. A sighting that
+            // answers no is not taken at all — not marked historical, not
+            // partly applied — which leaves the row exactly as a refused list
+            // would have left it: describing the last list taken, with the
+            // next current list on its way to bring it up to date. A LAN
+            // sighting carries no WAN list and always answers yes.
+            //
+            // The trace is written after the lock is released: no file IO
+            // under _radiosLock, which the UI thread also takes.
+            var sighting = radio.RigData as Radios.FlexBase.RigData;
+            bool refused = false;
+
             lock (_radiosLock)
             {
-                // Update IN PLACE, never remove-then-append and never swap the
-                // object out. A LAN radio re-announces itself roughly once a
-                // second; appending moved it to the bottom of the list on every
-                // packet, so the list silently reordered under the user between
-                // the moment a screen reader announced a row and the moment they
-                // pressed Enter on it. Noel hit exactly that on 2026-08-05:
-                // arrowed to Don's 6300inshack, pressed Enter, connected to his
-                // own 8600.
-                //
-                // Keeping the same object also protects state the discovery
-                // event knows nothing about — the favorite flag, the operator's
-                // chosen connection path, the roster's last-seen wording.
-                int existing = _radiosList.FindIndex(r => r.Serial == radio.Serial);
-                arrived = existing < 0 || !_radiosList[existing].IsLive;
-                if (existing >= 0)
+                if (sighting != null && !sighting.StillCurrent())
                 {
-                    var row = _radiosList[existing];
-                    row.Name = radio.Name;
-                    row.ModelName = radio.ModelName;
-                    row.RigData = radio.RigData;
-                    row.LanAvailable = radio.LanAvailable;
-                    row.WanAvailable = radio.WanAvailable;
-                    row.GuiClientStations = radio.GuiClientStations;
-                    // A sighting always carries the radio's current client
-                    // list (both discovery channels parse gui_client_*), so
-                    // arriving here IS delivery — the row may now speak a
-                    // count, zero included, instead of "client count unknown".
-                    row.OccupancyKnown = true;
-                    row.AutoConnect = radio.AutoConnect;
-                    row.LowBW = radio.LowBW;
-                    row.FromAccountCache = false;
-                    row.RefreshInFlight = false;
-                    row.LearnedPath = radio.LearnedPath;
-                    // Note what is deliberately NOT touched: UserLabel,
-                    // IsFavorite, PreferredAccount, PathChain — the
-                    // operator-owned facts a discovery event knows nothing
-                    // about. The old code cleared the path preference here
-                    // whenever the radio was not dual-homed, which erased the
-                    // choice for exactly the radios it mattered most for.
+                    refused = true;
+                    arrived = false;
                 }
                 else
                 {
-                    // A radio with no roster row has never been seen on this
-                    // install, so it cannot be a favorite. Reading the favorite
-                    // flag from disk here would put file IO under this lock on
-                    // the discovery thread for no possible gain.
-                    _radiosList.Add(radio);
+                    _anyLiveRadioSeen = true;
+
+                    // Update IN PLACE, never remove-then-append and never swap
+                    // the object out. A LAN radio re-announces itself roughly
+                    // once a second; appending moved it to the bottom of the
+                    // list on every packet, so the list silently reordered
+                    // under the user between the moment a screen reader
+                    // announced a row and the moment they pressed Enter on it.
+                    // Noel hit exactly that on 2026-08-05: arrowed to Don's
+                    // 6300inshack, pressed Enter, connected to his own 8600.
+                    //
+                    // Keeping the same object also protects state the
+                    // discovery event knows nothing about — the favorite flag,
+                    // the operator's chosen connection path, the roster's
+                    // last-seen wording.
+                    int existing = _radiosList.FindIndex(r => r.Serial == radio.Serial);
+                    arrived = existing < 0 || !_radiosList[existing].IsLive;
+                    if (existing >= 0)
+                    {
+                        var row = _radiosList[existing];
+                        row.Name = radio.Name;
+                        row.ModelName = radio.ModelName;
+                        row.RigData = radio.RigData;
+                        row.LanAvailable = radio.LanAvailable;
+                        row.WanAvailable = radio.WanAvailable;
+                        row.GuiClientStations = radio.GuiClientStations;
+                        // A sighting always carries the radio's current client
+                        // list (both discovery channels parse gui_client_*), so
+                        // arriving here IS delivery — the row may now speak a
+                        // count, zero included, instead of "client count unknown".
+                        row.OccupancyKnown = true;
+                        row.AutoConnect = radio.AutoConnect;
+                        row.LowBW = radio.LowBW;
+                        row.FromAccountCache = false;
+                        row.RefreshInFlight = false;
+                        row.LearnedPath = radio.LearnedPath;
+                        // Note what is deliberately NOT touched: UserLabel,
+                        // IsFavorite, PreferredAccount, PathChain — the
+                        // operator-owned facts a discovery event knows nothing
+                        // about. The old code cleared the path preference here
+                        // whenever the radio was not dual-homed, which erased the
+                        // choice for exactly the radios it mattered most for.
+                    }
+                    else
+                    {
+                        // A radio with no roster row has never been seen on this
+                        // install, so it cannot be a favorite. Reading the
+                        // favorite flag from disk here would put file IO under
+                        // this lock on the discovery thread for no possible gain.
+                        _radiosList.Add(radio);
+                    }
                 }
+            }
+
+            if (refused)
+            {
+                Tracing.TraceLine(
+                    $"RigSelector.OnRadioFound: {radio.Serial} arrived from {sighting!.Origin}, which is no longer that session's current knowledge — not taken as a live sighting; the row keeps the last list taken (#619)",
+                    System.Diagnostics.TraceLevel.Info);
+                return;
             }
 
             RecordSightingOnce(radio);
