@@ -2049,8 +2049,9 @@ namespace Flex.Smoothlake.FlexLib
                 _commandCommunication = new TcpCommandCommunication();
             }
 
-            _commandCommunication.IsConnectedChanged += _commandCommunication_IsConnectedChanged;
-            _commandCommunication.DataReceivedReady += _commandCommunication_TCPDataReceived;
+            // JJFlex patch: permanent qualified subscriptions survive Radio reuse (MIGRATION.md item 17).
+            _commandCommunication.ConnectionChanged += _commandCommunication_ConnectionChanged;
+            _commandCommunication.DataReceived += _commandCommunication_TCPDataReceived;
 
             _statisticsTimer.AutoReset = true;
             _statisticsTimer.Elapsed += StatisticsUpdater;
@@ -2085,27 +2086,57 @@ namespace Flex.Smoothlake.FlexLib
         }
 
         bool _ignoreConnectedEvents = false;
-        private void _commandCommunication_IsConnectedChanged(bool connected)
-        {
-            if (!_ignoreConnectedEvents)
-            {
-                Connected = connected;
 
-                if (!connected)
-                {
-                    Disconnect();
-                }
+        // JJFlex patch: immutable transport and parser reports (MIGRATION.md items 17 and 18).
+        public CommandConnection CurrentCommandConnection => _commandCommunication.CurrentConnection;
+        public event Action<CommandConnectionChanged> CommandConnectionChanged;
+        public event Action<RadioClientReport> ClientReported;
+        private CommandConnection _parsingConnection;
+        // JJFlex patch: reentrant subscribers can end a connection; parsing must stop there (item 18).
+        private bool ParsedConnectionIsCurrent => _parsingConnection == null ||
+            (ReferenceEquals(_parsingConnection, CurrentCommandConnection)
+             && _parsingConnection.State != CommandConnectionState.Disconnected);
+        private bool _disconnectingCommand;
+
+        private void _commandCommunication_ConnectionChanged(CommandConnectionChanged report)
+        {
+            // The producer holds ConnectionSync through dispatch. Never use ConnectSyncObj:
+            // Connect waits for this reader while it owns that separate lock.
+            if (!ReferenceEquals(report.Connection, CurrentCommandConnection)) return;
+            if (report.State == CommandConnectionState.Connecting)
+            {
+                _clientHandle = 0;
+                CommandConnectionChanged?.Invoke(report);
+                return;
             }
+            if (_ignoreConnectedEvents) return;
+            if (report.State == CommandConnectionState.Connected)
+            {
+                Connected = true;
+                CommandConnectionChanged?.Invoke(report);
+                return;
+            }
+            // Mark teardown before callbacks: a synchronous reconnect is refused until
+            // cleanup finishes, just as one on another thread waits at ConnectionSync.
+            bool ownsCleanup = !_disconnectingCommand;
+            _disconnectingCommand = true;
+            try
+            {
+                Connected = false;
+                try { CommandConnectionChanged?.Invoke(report); }
+                finally { if (ownsCleanup) DisconnectCommandCore(); }
+            }
+            finally { if (ownsCleanup) _disconnectingCommand = false; }
         }
 
-        private void _commandCommunication_TCPDataReceived(string msg)
+        private void _commandCommunication_TCPDataReceived(CommandDataReceived report)
         {
-            if (msg == null)
-                return;
-            _countRXCommand += msg.Length + TCP_HEADER_SIZE;
-
-            // Process the pre-processed reply string buffer
-            ParseRead(msg);
+            if (report.Text == null || !ReferenceEquals(report.Connection, CurrentCommandConnection)) return;
+            _countRXCommand += report.Text.Length + TCP_HEADER_SIZE;
+            var previous = _parsingConnection;
+            _parsingConnection = report.Connection;
+            try { ParseRead(report.Text); }
+            finally { _parsingConnection = previous; }
         }
 
         internal Radio(string model, string serial, string name, IPAddress ip, string version) : this()
@@ -2238,12 +2269,17 @@ namespace Flex.Smoothlake.FlexLib
         /// <returns>Connection status of the radio</returns>
         public bool Connect(string gui_client_id = null)
         {
+            // JJFlex patch: no reentrant replacement in the middle of teardown (item 17).
+            lock (_commandCommunication.ConnectionSync)
+                if (_disconnectingCommand) return false;
             _guiClientID = gui_client_id;
 
             // save this so we can use it later, even if it changes due to connection
             // mainly looking for update to know if we will do persistence
             string saved_connectedState = _connectedState;
             bool connected = false;
+            // JJFlex patch: initialization belongs to the transport selected below (item 17).
+            CommandConnection connection = null;
 
             // ensure that only one connection can be made at a time
             lock (_connectSyncObj)
@@ -2266,7 +2302,7 @@ namespace Flex.Smoothlake.FlexLib
                         // arrives. Pcap evidence: punch-capture-20260805-111228.
                         StartEarlyHolePunch();
 
-                        connected = _commandCommunication.Connect(_ip, NegotiatedHolePunchPort, NegotiatedHolePunchPort);
+                        connected = _commandCommunication.Connect(_ip, NegotiatedHolePunchPort, NegotiatedHolePunchPort, out connection);
 
                         if (!connected)
                         {
@@ -2277,15 +2313,13 @@ namespace Flex.Smoothlake.FlexLib
                     }
                     else
                     {
-                        connected = _commandCommunication.Connect(_ip, PublicTlsPort);
+                        connected = _commandCommunication.Connect(_ip, PublicTlsPort, 0, out connection);
                     }
 
-                    if (connected)
-                        SendCommand("wan validate handle=" + _wanConnectionHandle);
                 }
                 else
                 {
-                    connected = _commandCommunication.Connect(_ip);
+                    connected = _commandCommunication.Connect(_ip, 4992, 0, out connection);
                 }
 
                 // When connecting to a WAN radio, the public IP address of the connected
@@ -2294,13 +2328,34 @@ namespace Flex.Smoothlake.FlexLib
                 // (IsAudioStreamStatusForThisClient() checks for LocalIP)
                 if (connected)
                 {
-                    SendReplyCommand(new ReplyHandler(GetClientIpReplyHandler), "client ip");
-                    WaitForIpResponseFromRadioARE.WaitOne(millisecondsTimeout: 5000);
+                    // JJFlex patch: the returned identity qualifies handshake commands too (item 17).
+                    lock (_commandCommunication.ConnectionSync)
+                    {
+                        connected = ReferenceEquals(connection, CurrentCommandConnection) && _commandCommunication.IsConnected;
+                        if (connected)
+                        {
+                            if (IsWan) SendCommand("wan validate handle=" + _wanConnectionHandle);
+                            SendReplyCommand(new ReplyHandler(GetClientIpReplyHandler), "client ip");
+                        }
+                    }
+                    if (connected) WaitForIpResponseFromRadioARE.WaitOne(millisecondsTimeout: 5000);
                 }
             }
 
             if (!connected) return false;
 
+            // JJFlex patch: a completed old Connect must not initialize a replacement (item 17).
+            lock (_commandCommunication.ConnectionSync)
+            {
+                if (!ReferenceEquals(connection, CurrentCommandConnection) || !_commandCommunication.IsConnected)
+                    return false;
+                return InitializeCommandConnection(saved_connectedState);
+            }
+        }
+
+        // JJFlex patch: called only while the selected transport is current and the gate is held (item 17).
+        private bool InitializeCommandConnection(string saved_connectedState)
+        {
             // send client program to radio
             if (API.ProgramName != null && API.ProgramName != "")
                 SendCommand("client program " + API.ProgramName);
@@ -2428,7 +2483,7 @@ namespace Flex.Smoothlake.FlexLib
             StartKeepAlive();
             MonitorNetworkQuality();
 
-            return true;
+            return _commandCommunication.IsConnected;
         }
 
         private bool _persistenceLoaded = false;
@@ -2507,19 +2562,22 @@ namespace Flex.Smoothlake.FlexLib
         /// <summary>
         /// Closes the TCP client and disconnects the radio
         /// </summary>
+        // JJFlex patch: teardown and transport replacement share one gate (MIGRATION.md item 17).
         public void Disconnect()
         {
-            //Console.WriteLine("FlexLib::Disconnect()");
-            /* Unsubscribe from connected changed events so that 
-             * we don't recursively loop since the Disconnect() in
-             * commandCommunication will raise an event
-             */
-
-            if (_commandCommunication != null)
+            lock (_commandCommunication.ConnectionSync)
             {
-                _commandCommunication.IsConnectedChanged -= _commandCommunication_IsConnectedChanged;
-                _commandCommunication.Disconnect();
+                if (_disconnectingCommand) return;
+                _disconnectingCommand = true;
+                try { DisconnectCommandCore(); }
+                finally { _disconnectingCommand = false; }
             }
+        }
+
+        private void DisconnectCommandCore()
+        {
+            // JJFlex patch: keep the listener installed; the recursion guard owns teardown.
+            _commandCommunication.Disconnect();
 
             // Stop the keepalive stopwatch and timer loop so elapsed time doesn't accumulate
             // while disconnected (e.g. during a radio reboot after firmware update) (SMART-12595)
@@ -2596,8 +2654,6 @@ namespace Flex.Smoothlake.FlexLib
 
             APD.Exit();
 
-            if (_updating)
-                _commandCommunication.IsConnectedChanged += _commandCommunication_IsConnectedChanged;
         }
 
         /// <summary>
@@ -4697,6 +4753,10 @@ namespace Flex.Smoothlake.FlexLib
 
             if (!b) return;
 
+            // JJFlex patch: report the handle before any shared state mutation (item 18).
+            if (_parsingConnection != null)
+                ClientReported?.Invoke(new RadioClientReport(_parsingConnection, RadioClientReportKind.Handle, handle_uint));
+            if (!ParsedConnectionIsCurrent) return;
             _clientHandle = handle_uint;
             RaisePropertyChanged("ClientHandle");
         }
@@ -14401,6 +14461,10 @@ namespace Flex.Smoothlake.FlexLib
             {
                 case "disconnected": // <handle> disconnected forced=<0/1> wan_validation_failed=<0/1> duplicate_client_id=<0/1>
                     {
+                        // JJFlex patch: departure is evidence even after discovery removed the row (item 18).
+                        if (_parsingConnection != null)
+                            ClientReported?.Invoke(new RadioClientReport(_parsingConnection, RadioClientReportKind.Disconnected, handle_uint));
+                        if (!ParsedConnectionIsCurrent) return;
                         // start from the 3rd word (skip handle and 'disconnected' words)
                         for (int i = 2; i < words.Length; i++)
                         {
@@ -14460,6 +14524,7 @@ namespace Flex.Smoothlake.FlexLib
                         }
 
 
+                        if (!ParsedConnectionIsCurrent) return;
                         GUIClient gui_client = FindGUIClientByClientHandle(handle_uint);
                         if (gui_client != null)
                             RemoveGUIClient(gui_client);
@@ -14514,6 +14579,12 @@ namespace Flex.Smoothlake.FlexLib
                         }
 
                         if (string.IsNullOrEmpty(client_id)) return;
+
+                        // JJFlex patch: copy the radio's values before GUIClient or discovery can mutate them (item 18).
+                        if (_parsingConnection != null)
+                            ClientReported?.Invoke(new RadioClientReport(_parsingConnection, RadioClientReportKind.Connected,
+                                handle_uint, client_id, program, station, is_local_ptt));
+                        if (!ParsedConnectionIsCurrent) return;
 
                         GUIClient existingGuiClient;
 

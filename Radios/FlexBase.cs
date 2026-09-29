@@ -718,11 +718,56 @@ namespace Radios
         private int _selfDisconnects;
 
         /// <summary>
-        /// This rig's current connection lifetime, minted where the radio
-        /// object is acquired. Held so a deliberate disconnect can retire the
-        /// lifetime without claiming a loss.
+        /// This rig's current lifetime, minted from the command transport's identity.
         /// </summary>
         private ConnectionLifetime.Token _connectionToken;
+        public RadioConnectionBinding CurrentConnectionBinding { get; private set; }
+        public event Action<ConnectionClientReport> ConnectionClientReported;
+        private readonly Dictionary<Radio, Action<CommandConnectionChanged>> _connectionHandlers = new();
+        private readonly Dictionary<Radio, Action<RadioClientReport>> _clientReportHandlers = new();
+        private sealed record CommandRoute(Radio Radio, string Handle, string AccountId);
+        private CommandRoute _commandRoute;
+
+        // Capture the executed broker result, never the selected account or a later list lookup.
+        private void rememberCommandRoute(Radio radio, string handle, string accountId)
+        {
+            _commandRoute = new CommandRoute(radio, handle, accountId);
+        }
+
+        private void onCommandConnectionChanged(Radio radio, CommandConnectionChanged report)
+        {
+            if (!ReferenceEquals(report.Connection, radio.CurrentCommandConnection)) return;
+            if (report.State == CommandConnectionState.Connecting)
+            {
+                if (!ReferenceEquals(radio, theRadio)) return;
+                _connectionToken = ConnectionLifetime.Bind(report.Connection,
+                    radio.Serial + " " + (radio.Nickname ?? ""), out var outcome);
+                var route = _commandRoute;
+                string account = radio.IsWan && route != null && ReferenceEquals(radio, route.Radio)
+                    && string.Equals(radio.WANConnectionHandle, route.Handle, StringComparison.Ordinal)
+                    ? route.AccountId : null;
+                CurrentConnectionBinding = new RadioConnectionBinding(report.Connection, _connectionToken,
+                    radio.Serial, radio.IsWan, account);
+                ConnectionLifetime.TraceBindOutcome(outcome, _connectionToken, "transport attempt");
+                return;
+            }
+            // A failed attempt never became a connection to lose.
+            if (report.State == CommandConnectionState.Disconnected && !report.WasConnected) return;
+            var binding = CurrentConnectionBinding;
+            // A saved callback for an old connection cannot change or claim the live one.
+            if (ReferenceEquals(radio, theRadio)
+                && (binding == null || !ReferenceEquals(report.Connection, binding.Connection))) return;
+            onRadioConnectedChanged(radio, report, binding?.Lifetime);
+        }
+
+        private void onRadioClientReported(Radio radio, RadioClientReport report)
+        {
+            var binding = CurrentConnectionBinding;
+            if (!ReferenceEquals(radio, theRadio) || binding == null
+                || !ReferenceEquals(report.Connection, radio.CurrentCommandConnection)
+                || !ReferenceEquals(report.Connection, binding.Connection)) return;
+            ConnectionClientReported?.Invoke(new ConnectionClientReport(binding, report));
+        }
 
         /// <summary>
         /// A deliberate teardown disconnect, marked so the synchronous
@@ -842,19 +887,14 @@ namespace Radios
         /// call for the same connection is refused by the connection lifetime's
         /// claim inside <see cref="CaptureArchive.AfterConnectionDrop"/>.</para>
         ///
-        /// <para><b>What this cannot see (#620).</b> FlexLib's <c>Disconnect</c>
-        /// unhooks the Radio from its transport and its <c>Connect</c> does not
-        /// hook it back, so a Radio object connected a SECOND time never raises
-        /// this property again when that connection dies. Every successful
-        /// remote <see cref="RetryConnect"/> and any SmartLink reconnect handed
-        /// the same object is in that state. That needs a change inside FlexLib
-        /// and is not made here.</para>
+        /// <para>The qualified transport event survives Radio reuse. Its lifetime
+        /// token travels into the archive; no lookup by the reused object occurs.</para>
         /// </summary>
         /// <param name="r">The Radio whose <c>Connected</c> fell.</param>
         /// <param name="fall">The session read ONCE at the top of the fall, or
         /// null when nothing was recording then. Every line here and the archive
         /// are bound to it. See onRadioConnectedChanged.</param>
-        private void archiveIfOurConnectionDropped(Radio r, JJTrace.TraceSessionHandle fall)
+        private void archiveIfOurConnectionDropped(Radio r, ConnectionLifetime.Token token, JJTrace.TraceSessionHandle fall)
         {
             if (r == null) return;
             var kind = ClassifyRadioRemoval(
@@ -899,8 +939,7 @@ namespace Radios
             // Returns at once; the zip happens off this thread, which is
             // FlexLib's own transport thread in the middle of a teardown.
             //
-            // `r` is the drop's identity, and its CONNECTION LIFETIME is what
-            // makes two notices one drop — not the object alone and not a timer.
+            // The producer token identifies the drop even when the Radio is reused.
             //
             // CLAIM FIRST, THEN COLLECT (#618). The meter window is rendered by
             // the closure, which AfterConnectionDrop calls only after winning
@@ -912,7 +951,7 @@ namespace Radios
             // which never reads the handle again; null means nothing was
             // recording when the fall began, and nothing is archived.
             CaptureArchive.AfterConnectionDrop(
-                r, r.Nickname ?? "",
+                token, r.Nickname ?? "",
                 () => collectCaptureMeterFlush(CaptureMeterSet.PartialConnectionDropped),
                 fall);
         }
@@ -930,6 +969,15 @@ namespace Radios
             if (radio == null) return;
             radio.PropertyChanged -= radioPropertyChangedHandler;
             radio.PropertyChanged += radioPropertyChangedHandler;
+            if (!_connectionHandlers.ContainsKey(radio))
+            {
+                Action<CommandConnectionChanged> connection = report => onCommandConnectionChanged(radio, report);
+                Action<RadioClientReport> client = report => onRadioClientReported(radio, report);
+                _connectionHandlers.Add(radio, connection);
+                _clientReportHandlers.Add(radio, client);
+                radio.CommandConnectionChanged += connection;
+                radio.ClientReported += client;
+            }
         }
 
         /// <summary>
@@ -941,6 +989,8 @@ namespace Radios
         {
             if (radio == null) return;
             radio.PropertyChanged -= radioPropertyChangedHandler;
+            if (_connectionHandlers.Remove(radio, out var connection)) radio.CommandConnectionChanged -= connection;
+            if (_clientReportHandlers.Remove(radio, out var client)) radio.ClientReported -= client;
         }
 
         private void apiRadioRemovedHandler(Radio r)
@@ -2176,18 +2226,8 @@ namespace Radios
                 return false;
             }
 
-            // THE ACQUISITION POINT. This is where a Radio object becomes "the
-            // connection", so this is where its lifetime begins — and the one
-            // place that can enforce the rule that a terminally retired object
-            // is never rebound as a new connection. A removal callback carries a
-            // Radio, not a connection generation, so without a lifetime bound
-            // here a delayed duplicate and a genuine second loss are
-            // indistinguishable from the payload alone. See ConnectionLifetime,
-            // including the SmartLink path that cannot guarantee the rule's
-            // premise and is reported rather than decided.
-            _connectionToken = ConnectionLifetime.Bind(
-                theRadio, theRadio.Serial + " " + (theRadio.Nickname ?? ""), out var bindOutcome);
-            ConnectionLifetime.TraceBindOutcome(bindOutcome, _connectionToken, "Connect");
+            // Each transport attempt will bind its own producer identity when it starts.
+            rememberCommandRoute(null, null, null);
 
             ConnectionProfiler.Current?.RecordEvent("connect_radio_found", new Dictionary<string, object>
             {
@@ -2771,15 +2811,8 @@ namespace Radios
                 return false;
             }
 
-            // A retry that has NOT crossed a terminal retirement stays inside
-            // its original lifetime — which is what this is, since it only runs
-            // while a connect attempt is still in progress. Saying so keeps the
-            // rule honest: the object is not being rebound as a NEW connection,
-            // it is the same one, and its loss can still be claimed exactly
-            // once.
-            _connectionToken = ConnectionLifetime.Bind(
-                theRadio, theRadio.Serial + " " + (theRadio.Nickname ?? ""), out var retryBind);
-            ConnectionLifetime.TraceBindOutcome(retryBind, _connectionToken, "RetryConnect");
+            // A retry that opens another transport gets another producer identity.
+            rememberCommandRoute(null, null, null);
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
             Tracing.TraceLine($"RetryConnect: BEGIN serial={theRadio.Serial}", TraceLevel.Info);
@@ -7540,6 +7573,7 @@ namespace Radios
             }
 
             r.WANConnectionHandle = handle;
+            rememberCommandRoute(r, handle, session.AccountId);
 
             // Refresh the per-radio profile stub on every successful WAN
             // connect: keeps the nickname current and guarantees every radio
@@ -7951,9 +7985,8 @@ namespace Radios
         internal int StrandedConnectionChangesIgnored => Volatile.Read(ref _strandedConnectionChangesIgnored);
 
         /// <summary>
-        /// Our Radio's <c>Connected</c> property changed. Reached from
-        /// <see cref="radioPropertyChangedHandler"/> before anything else it
-        /// does.
+        /// Our Radio reported a qualified transport transition. The producer identity
+        /// and state travel with the callback instead of being read from a reused Radio.
         ///
         /// <para><b>On a fall, nothing here waits on the trace gate before the
         /// drop is claimed</b> (Sprint 45 Track H6, Sol's review of H3, finding
@@ -7972,10 +8005,10 @@ namespace Radios
         /// <see cref="ConnectionStateChanged"/> subscribers — is ordinary
         /// application code and traces as it always has.</para>
         /// </summary>
-        private void onRadioConnectedChanged(Radio r)
+        private void onRadioConnectedChanged(Radio r, CommandConnectionChanged report, ConnectionLifetime.Token token)
         {
-            // Read once: every use below must describe the same transition.
-            bool nowConnected = r.Connected;
+            // The immutable event describes the transition, even when its delivery was delayed.
+            bool nowConnected = report.State == CommandConnectionState.Connected;
 
             // AND THE SESSION IS READ ONCE TOO, here, at the top of the fall
             // (Sprint 45 Track H8; Sol's review of H7, the item for a harder
@@ -8028,7 +8061,7 @@ namespace Radios
             _IsConnected = nowConnected;
             // The archive is taken BEFORE ConnectionStateChanged, so a subscriber
             // that throws cannot cost the evidence.
-            if (!nowConnected) archiveIfOurConnectionDropped(r, fall);
+            if (!nowConnected) archiveIfOurConnectionDropped(r, token, fall);
             ConnectionStateChanged?.Invoke(nowConnected);
 #if zero
             bool justReconnected = false;
@@ -8057,7 +8090,7 @@ namespace Radios
             // onRadioConnectedChanged.
             if (e.PropertyName == "Connected")
             {
-                onRadioConnectedChanged(r);
+                // Connection state is consumed only from the qualified producer event.
                 return;
             }
             Tracing.TraceLine("propertyChanged:Radio:" + e.PropertyName, TraceLevel.Verbose);

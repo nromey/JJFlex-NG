@@ -160,20 +160,7 @@ namespace Radios.Tests
         /// </summary>
         private static void MarkLive(Radio radio, FlexBase rig = null)
         {
-            // The rig's IsConnected is set ONLY by its property handler seeing
-            // Connected change. Raised here so its falling afterwards is proof
-            // the fall was dispatched to the rig — the positive control for
-            // every "nothing was archived" below.
-            if (rig != null)
-                typeof(FlexBase).GetField("_IsConnected", BindingFlags.Instance | BindingFlags.NonPublic)!
-                    .SetValue(rig, true);
-            typeof(Radio).GetField("_connected", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .SetValue(radio, true);
-            object transport = Transport(radio);
-            FieldInfo isConnected = transport.GetType()
-                .GetField("_isConnected", BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.True(isConnected != null, "the TLS transport's connected flag moved");
-            isConnected!.SetValue(transport, true);
+            OfflineCommandProducer.StartTls(radio);
             Assert.True(radio.Connected);
         }
 
@@ -599,11 +586,13 @@ namespace Radios.Tests
                 WireAsConnectDoes(rig, other);
                 MarkLive(other);
 
+                int ignoredBefore = rig.StrandedConnectionChangesIgnored;
+                Volatile.Write(ref stateChanges, 0); // Setup now uses a real producer rise.
                 LoseTheTransport(other);
 
                 Assert.False(other.Connected);
                 // The fall reached this rig's handler...
-                Assert.Equal(1, rig.StrandedConnectionChangesIgnored);
+                Assert.Equal(ignoredBefore + 1, rig.StrandedConnectionChangesIgnored);
                 // ...and changed nothing about the live connection.
                 Assert.True(ours.Connected);
                 Assert.True(rig.IsConnected, "an abandoned object's fall flipped the live rig's IsConnected");
@@ -728,6 +717,7 @@ namespace Radios.Tests
             var releasing = NewWanRadio(UniqueSerial(), "late");
             try
             {
+                rig.theRadio = releasing;
                 WireAsConnectDoes(rig, releasing);
                 MarkLive(releasing, rig);
                 rig.theRadio = null;
@@ -836,7 +826,7 @@ namespace Radios.Tests
                 calls++;
             Assert.Equal(1, calls);
 
-            int method = source.IndexOf("private void archiveIfOurConnectionDropped(Radio r, JJTrace.TraceSessionHandle fall)", StringComparison.Ordinal);
+            int method = source.IndexOf("private void archiveIfOurConnectionDropped(Radio r, ConnectionLifetime.Token token, JJTrace.TraceSessionHandle fall)", StringComparison.Ordinal);
             Assert.True(method > 0, "the fall's archive method is gone");
             int archive = source.IndexOf("CaptureArchive.AfterConnectionDrop(", StringComparison.Ordinal);
             int methodEnd = source.IndexOf("private void wireRadioPropertyHandler(", method, StringComparison.Ordinal);
@@ -849,12 +839,13 @@ namespace Radios.Tests
             int handlerTop = source.IndexOf("private void radioPropertyChangedHandler(object sender, PropertyChangedEventArgs e)", StringComparison.Ordinal);
             Assert.True(handlerTop > 0);
             string dispatch = source.Substring(handlerTop, source.IndexOf("switch (e.PropertyName)", handlerTop, StringComparison.Ordinal) - handlerTop);
-            Assert.Contains("onRadioConnectedChanged(r);", dispatch, StringComparison.Ordinal);
-            int connectedMethod = source.IndexOf("private void onRadioConnectedChanged(Radio r)", StringComparison.Ordinal);
+            Assert.DoesNotContain("onRadioConnectedChanged(", dispatch, StringComparison.Ordinal);
+            Assert.Contains("onRadioConnectedChanged(radio, report, binding?.Lifetime);", source, StringComparison.Ordinal);
+            int connectedMethod = source.IndexOf("private void onRadioConnectedChanged(Radio r, CommandConnectionChanged report, ConnectionLifetime.Token token)", StringComparison.Ordinal);
             Assert.True(connectedMethod > 0, "the Connected handler moved");
             string connectedBody = source.Substring(connectedMethod,
                 source.IndexOf("private void radioPropertyChangedHandler(", connectedMethod, StringComparison.Ordinal) - connectedMethod);
-            Assert.Contains("if (!nowConnected) archiveIfOurConnectionDropped(r, fall);", connectedBody, StringComparison.Ordinal);
+            Assert.Contains("if (!nowConnected) archiveIfOurConnectionDropped(r, token, fall);", connectedBody, StringComparison.Ordinal);
 
             // And the removal handler's drop arm is bookkeeping: no archive there.
             int handler = source.IndexOf("private void apiRadioRemovedHandler(Radio r)", StringComparison.Ordinal);
@@ -1488,22 +1479,9 @@ namespace Radios.Tests
         //  What this track does NOT cover, pinned so it cannot be forgotten
         // ────────────────────────────────────────────────────────────────
 
-        /// <summary>
-        /// <b>A KNOWN GAP, NOT A DESIGN (#620).</b> FlexLib's
-        /// <c>Radio.Disconnect</c> unhooks the object from its transport and
-        /// re-hooks only for a firmware update; <c>Radio.Connect</c> never
-        /// hooks. So a Radio object connected a SECOND time — every successful
-        /// remote <c>RetryConnect</c>, and a SmartLink reconnect handed the same
-        /// object — raises nothing when that connection dies: <c>Connected</c>
-        /// stays true, nothing is removed, and no archive can be taken. Fixing it
-        /// is a three-line change inside FlexLib that awaits Noel's ruling.
-        ///
-        /// <para><b>When this test fails, the re-hook has landed.</b> That is
-        /// the intended signal: turn it round so it asserts the second loss
-        /// archives, and do not restore the old assertion.</para>
-        /// </summary>
+        /// <summary>A reused Radio's second producer still reports its loss and archives once.</summary>
         [Fact]
-        public void Until_the_620_rehook_lands_a_reused_Radio_is_deaf_to_its_second_loss()
+        public void A_reused_Radio_reports_and_archives_its_second_loss()
         {
             var rig = NewRig();
             var radio = NewWanRadio(UniqueSerial(), "A");
@@ -1521,30 +1499,19 @@ namespace Radios.Tests
                 MarkLive(radio, rig);
                 LoseTheTransport(radio);
 
-                Assert.True(radio.Connected, "the second loss reached the Radio — has the #620 re-hook landed?");
-                // The application still believes it is connected to a dead radio.
-                Assert.True(rig.IsConnected);
-                Assert.Equal(1, Volatile.Read(ref _archives));
+                Assert.False(radio.Connected);
+                Assert.False(rig.IsConnected);
+                Assert.Equal(2, Volatile.Read(ref _archives));
             }
             finally
             {
                 Release(rig);
             }
 
-            // And the vendor's Connect is where the re-hook would go: read it, so
-            // the emulation above cannot be the only evidence.
             string vendor = File.ReadAllText(Path.Combine(
                 CaptureMeterSetTests.RepoRoot(), "FlexLib_API", "FlexLib", "Radio.cs"));
-            int connect = vendor.IndexOf("public bool Connect(string gui_client_id = null)", StringComparison.Ordinal);
-            Assert.True(connect > 0, "Radio.Connect moved; find it before trusting this test");
-            int connectEnd = vendor.IndexOf("public void Disconnect()", connect, StringComparison.Ordinal);
-            Assert.True(connectEnd > connect);
-            // Positive control: the hook this looks for is really spelled this
-            // way, in the constructor.
-            Assert.Contains("_commandCommunication.IsConnectedChanged += _commandCommunication_IsConnectedChanged;",
-                            vendor, StringComparison.Ordinal);
-            Assert.DoesNotContain("IsConnectedChanged +=", vendor.Substring(connect, connectEnd - connect),
-                                  StringComparison.Ordinal);
+            Assert.Contains("_commandCommunication.ConnectionChanged += _commandCommunication_ConnectionChanged;", vendor);
+            Assert.DoesNotContain("_commandCommunication.ConnectionChanged -=", vendor);
         }
     }
 }

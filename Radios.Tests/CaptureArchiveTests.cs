@@ -164,14 +164,14 @@ namespace Radios.Tests
             // And the fallen radio's own object is what identifies the drop, not
             // just its nickname — its connection lifetime is what makes two
             // notices one drop.
-            Assert.Contains("CaptureArchive.AfterConnectionDrop(\r\n                r,", archiveMethod,
+            Assert.Contains("CaptureArchive.AfterConnectionDrop(\r\n                token,", archiveMethod,
                             StringComparison.Ordinal);
         }
 
         /// <summary>The body of the one method that takes the archive.</summary>
         internal static string ArchiveMethodBody(string flexBaseSource)
         {
-            int at = flexBaseSource.IndexOf("private void archiveIfOurConnectionDropped(Radio r, JJTrace.TraceSessionHandle fall)", StringComparison.Ordinal);
+            int at = flexBaseSource.IndexOf("private void archiveIfOurConnectionDropped(Radio r, ConnectionLifetime.Token token, JJTrace.TraceSessionHandle fall)", StringComparison.Ordinal);
             Assert.True(at > 0, "archiveIfOurConnectionDropped is gone");
             int end = flexBaseSource.IndexOf("private void wireRadioPropertyHandler(", at, StringComparison.Ordinal);
             Assert.True(end > at, "the member after archiveIfOurConnectionDropped moved");

@@ -239,10 +239,9 @@ namespace Radios
         /// world where the operator may already have stopped the capture,
         /// started another, toggled logging or closed the app.</para>
         /// </summary>
-        /// <param name="dropToken">The drop's own identity — the <c>Radio</c>
-        /// object whose <c>Connected</c> property fell. Its
-        /// connection lifetime is what makes two notices one drop. May be null;
-        /// the claim then falls back to one archive per session.</param>
+        /// <param name="dropToken">The producer identity or its captured lifetime token.
+        /// Never the reusable Radio object. May be null; the claim then falls back
+        /// to one archive per session.</param>
         /// <param name="radioName">The radio's nickname, for the sentence on the
         /// manifest entry and in the operator's window.</param>
         /// <param name="collectPartialMeterLine">Renders the meter window this
@@ -389,9 +388,8 @@ namespace Radios
                 ConnectionLifetime.Token token = ConnectionLifetime.TokenFor(dropToken);
                 if (token == null)
                 {
-                    // A removal carrying an object this process never bound. It
-                    // still identifies one drop, so give it a lifetime of its
-                    // own rather than falling all the way back to the session.
+                    // A producer identity not bound by the application still
+                    // identifies one drop. Production normally carries its token.
                     token = ConnectionLifetime.Bind(dropToken, "unbound removal", out _);
                 }
                 if (!ConnectionLifetime.TryClaimLoss(token)) return false;
