@@ -1498,7 +1498,7 @@ connect.smartlink.account.start_fresh_title	5e1a664dcefb4ba8
 connect.smartlink.account_not_found	b471fec7b3eb4065
 connect.smartlink.account_saved	253cee3dccad2428
 connect.smartlink.account_saved_during_connect	99d039277a4117af
-connect.smartlink.action_local_only	148d6094d278b913
+connect.smartlink.action_local_only	758fc9c272f1223e
 connect.smartlink.action_manage_accounts	2fdbd324f1762e55
 connect.smartlink.action_open_radio_setup	e60db2943999d079
 connect.smartlink.browser.auth_failed	6da3177a17f50bdb
@@ -1524,9 +1524,9 @@ connect.smartlink.default_account_set	3194f63c46aeed4e
 connect.smartlink.default_friendly_name	c112be58af642bd3
 connect.smartlink.identity_mismatch	3393f7aadbee31b2
 connect.smartlink.local_only_saved_body	eaee9e49a000abeb
-connect.smartlink.local_only_saved_title	4a57ee986068d6dc
+connect.smartlink.local_only_saved_title	c9fa584e9ed616be
 connect.smartlink.local_only_unsaved_body	5f3682c52326d6b4
-connect.smartlink.local_only_unsaved_title	4b75763fc0d2ed90
+connect.smartlink.local_only_unsaved_title	d78968a6504a1fd5
 connect.smartlink.login.browser_button	40d46cafccdcc60b
 connect.smartlink.login.browser_button_name	139ad732cbc08ccf
 connect.smartlink.login.cancel_button	cbef679b21abb499
@@ -1565,12 +1565,12 @@ connect.smartlink.login.too_many_attempts	1df37f9ff44c7d5c
 connect.smartlink.login.wrong_credentials	39432ba8c11be120
 connect.smartlink.login_cancelled	294274a37b0ccff4
 connect.smartlink.no_radios	a8bbd0914cd01bd2
-connect.smartlink.not_registered_body	6b700e41d4c73e9e
-connect.smartlink.not_registered_title	699a7dc08fcff38b
+connect.smartlink.not_in_list_body	d1cfe40b28ad96e4
+connect.smartlink.not_in_list_title	d4a0cbeaa81efeb7
 connect.smartlink.opening_login	6ace3453749263a6
 connect.smartlink.other_accounts_note	8c80a6635f0bdb7c
 connect.smartlink.other_accounts_note_switch	e50eaf0181d54ce6
-connect.smartlink.reach_from_away_body	8b9c0f6761b9793b
+connect.smartlink.reach_from_away_body	99b38dd7182f07e6
 connect.smartlink.reach_from_away_title	ad2762700f9c420b
 connect.smartlink.setup_body	1a33077963020363
 connect.smartlink.setup_title	69b66d520c9fd293
@@ -2823,6 +2823,7 @@ settings.radio.name.renamed_spoken	46d87ee08f101aa6
 settings.radio.name.type_one_first	92bd4b391adbfe14
 settings.radio.register.already_registered	7c565fdcf60e4db0
 settings.radio.register.blocked	39ad7c5544f4587d
+settings.radio.register.check_unanswered	c7db2464092456b4
 settings.radio.register.checking	bac1ff2d7978dff4
 settings.radio.register.command_not_sent	dd975b0a6bf77730
 settings.radio.register.command_not_sent_spoken	60eff35bfb5e96e2
@@ -2831,7 +2832,7 @@ settings.radio.register.confirm_question	51079676c1b82197
 settings.radio.register.confirm_title	b928417b91520c47
 settings.radio.register.confirm_yes	2c66a37aa7a07df6
 settings.radio.register.done_over_smartlink	08b3ed52b9f63097
-settings.radio.register.not_registered	71bf408320c21663
+settings.radio.register.not_in_account_list	d8b651bc04ec602d
 settings.radio.register.starting	309328a08a1d6526
 settings.radio.restart.nothing_waiting	05e0f9cad237c2bf
 settings.radio.restart.pending	5ed919dd98cb6339
@@ -2885,7 +2886,7 @@ settings.silenced.item_when_unknown	0d44951335859703
 settings.silenced.lead	be62c3e58866e793
 settings.silenced.lead_empty	664a52e2476f3167
 settings.silenced.no_physical_access	70ccaa30a7a12a76
-settings.silenced.register	81cc707e2be7b11d
+settings.silenced.register	4961f6cf325076fb
 settings.silenced.restored_all_many	c2e6ae5388c01b91
 settings.silenced.restored_all_one	e3a58ab2871e6f66
 settings.silenced.restored_nothing	d3c1ebed507f2f9a

@@ -600,6 +600,12 @@ namespace Radios.Tests
             // decision. So this went UP by 52 for the same reason it will go
             // up by 222 when Track I merges: a branch older than the store
             // landed. When Track I merges, this reads 3,031.
+            //
+            // Then 2,810 on Track L, and it moves by ONE, not four: bringing
+            // integration into Track L added four SmartLink keys L had written
+            // and removed three L had renamed away (#629, frozen for the same
+            // reason). Whichever of L and I integrates second adds its own
+            // delta on top of the other's figure.
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -612,7 +618,7 @@ namespace Radios.Tests
                 }
             }
 
-            Assert.Equal(2809, unclassified);
+            Assert.Equal(2810, unclassified);
             Assert.All(classified, key =>
                 Assert.StartsWith("facts.", key, StringComparison.Ordinal));
             Assert.True(classified.Count > 30,
