@@ -173,4 +173,68 @@ namespace Radios
             return MayDisconnect(row) ? null : Lexicon.Get("connect.multiflex.disconnect_unavailable");
         }
     }
+
+    /// <summary>
+    /// What the readable line under the MultiFlex list says: the outcome of
+    /// the operator's last disconnect request while it still describes the
+    /// row in front of them, and otherwise the selected row's reason (#643).
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why a rule and not a write (Sol's review of L6).</b> L6 wrote
+    /// "the disconnect request was sent" into the line and spoke it, then
+    /// refreshed the list half a second later — and the refresh rewrote the
+    /// line from the selected row, which for an ordinary client still on the
+    /// radio clears it. After 500 ms the only record of the outcome was the
+    /// speech, which #643 shows can be cancelled before word one, so the
+    /// operator could not tell a request that went out from one that never
+    /// did. The failed branch was speech only from the start.</para>
+    ///
+    /// <para><b>How long an outcome stays (ruled).</b> Until the operator
+    /// selects a different row, or until the radio reports that client's
+    /// departure. The roster drops a client only when the radio's own status
+    /// reports it gone (or a new connection starts); a list or a broadcast
+    /// omitting it keeps the row, marked as possibly gone. So the row
+    /// leaving the list IS the radio's report, and when it leaves, the
+    /// selection necessarily moves to another row or to none — which is the
+    /// first condition. One test therefore covers both; a separate
+    /// "departed" check was written and removed on Track L7 when its
+    /// mutation turned nothing red. A row marked possibly gone keeps the
+    /// outcome, because the radio has not spoken. No refresh, timed or
+    /// event driven, can replace it otherwise.</para>
+    ///
+    /// <para>Here, in Radios, so the suite reads the rule without a window;
+    /// the dialog asks it for the line on every refresh and every selection
+    /// change the operator makes.</para>
+    /// </remarks>
+    public sealed class DisconnectOutcomeLine
+    {
+        private uint? _handle;
+        private string? _text;
+
+        /// <summary>Pin <paramref name="text"/>, the outcome of a request about
+        /// <paramref name="handle"/>, to the line.</summary>
+        public void Record(uint handle, string text)
+        {
+            _handle = handle;
+            _text = text;
+        }
+
+        /// <summary>
+        /// The line's text with <paramref name="selected"/> the row the list
+        /// has selected now (null for none), or null for no line. Forgets the
+        /// outcome once the selection is on any other row — the operator
+        /// moved, or the client's row left the list because the radio
+        /// reported it gone.
+        /// </summary>
+        public string? TextFor(ClientRow? selected)
+        {
+            if (_handle is uint h)
+            {
+                if (selected is { } s && s.Handle == h) return _text;
+                _handle = null;
+                _text = null;
+            }
+            return ClientRowPhrase.DisconnectReason(selected);
+        }
+    }
 }

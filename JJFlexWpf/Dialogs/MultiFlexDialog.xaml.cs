@@ -78,6 +78,17 @@ namespace JJFlexWpf.Dialogs
     {
         private readonly MultiFlexCallbacks _callbacks;
 
+        /// <summary>The outcome of the operator's last disconnect request,
+        /// kept on the readable line until they move to another row or the
+        /// radio reports the client gone (#643, ruled in Track L7).</summary>
+        private readonly DisconnectOutcomeLine _outcome = new DisconnectOutcomeLine();
+
+        /// <summary>True while the list is being rebuilt. Clearing and
+        /// re-selecting the rows raises SelectionChanged, and those are not
+        /// the operator moving to another row, so they must not end an
+        /// outcome the line is holding.</summary>
+        private bool _refreshing;
+
         public MultiFlexDialog(MultiFlexCallbacks callbacks)
         {
             _callbacks = callbacks ?? throw new ArgumentNullException(nameof(callbacks));
@@ -111,26 +122,34 @@ namespace JJFlexWpf.Dialogs
 
         private void RefreshClientList()
         {
-            var selectedHandle = (ClientList.SelectedItem as MultiFlexClientInfo)?.Handle;
-            ClientList.Items.Clear();
-            var clients = _callbacks.GetClients();
-            foreach (var client in clients)
-                ClientList.Items.Add(client);
-
-            bool unavailable = _callbacks.ClientInformationUnavailable?.Invoke() == true;
-            SummaryText.Text = ClientRowPhrase.Summary(clients.Select(c => c.Row).ToList(), unavailable);
-
-            if (ClientList.Items.Count > 0)
+            _refreshing = true;
+            try
             {
-                // Keep the operator's place across a refresh when the row is
-                // still there; otherwise start at the top.
-                int keep = -1;
-                if (selectedHandle.HasValue)
+                var selectedHandle = (ClientList.SelectedItem as MultiFlexClientInfo)?.Handle;
+                ClientList.Items.Clear();
+                var clients = _callbacks.GetClients();
+                foreach (var client in clients)
+                    ClientList.Items.Add(client);
+
+                bool unavailable = _callbacks.ClientInformationUnavailable?.Invoke() == true;
+                SummaryText.Text = ClientRowPhrase.Summary(clients.Select(c => c.Row).ToList(), unavailable);
+
+                if (ClientList.Items.Count > 0)
                 {
-                    for (int i = 0; i < ClientList.Items.Count; i++)
-                        if (((MultiFlexClientInfo)ClientList.Items[i]).Handle == selectedHandle.Value) { keep = i; break; }
+                    // Keep the operator's place across a refresh when the row is
+                    // still there; otherwise start at the top.
+                    int keep = -1;
+                    if (selectedHandle.HasValue)
+                    {
+                        for (int i = 0; i < ClientList.Items.Count; i++)
+                            if (((MultiFlexClientInfo)ClientList.Items[i]).Handle == selectedHandle.Value) { keep = i; break; }
+                    }
+                    ClientList.SelectedIndex = keep >= 0 ? keep : 0;
                 }
-                ClientList.SelectedIndex = keep >= 0 ? keep : 0;
+            }
+            finally
+            {
+                _refreshing = false;
             }
 
             UpdateButtonStates();
@@ -142,7 +161,9 @@ namespace JJFlexWpf.Dialogs
             // Can't disconnect yourself, and can't disconnect a client only a
             // list has reported: the radio has to identify it first (#634).
             DisconnectButton.IsEnabled = ClientRowPhrase.MayDisconnect(selected);
-            ShowDisconnectReason(ClientRowPhrase.DisconnectReason(selected));
+            // The line holds the last request's outcome while it still
+            // describes the selected row, so no refresh can erase it (#643).
+            ShowDisconnectReason(_outcome.TextFor(selected));
         }
 
         /// <summary>
@@ -158,6 +179,8 @@ namespace JJFlexWpf.Dialogs
 
         private void ClientList_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            // A rebuild's own selection changes are not the operator moving.
+            if (_refreshing) return;
             UpdateButtonStates();
         }
 
@@ -197,8 +220,12 @@ namespace JJFlexWpf.Dialogs
             {
                 // The request went to the radio; whether the client left is
                 // the radio's to report. Draft 8 replaces a line that claimed
-                // the disconnect had happened.
+                // the disconnect had happened. It stays on the line until the
+                // operator moves to another row or the radio reports the
+                // client gone; the refresh below reads it back rather than
+                // overwriting it (#643, Sol's review of L6).
                 string sent = Lexicon.Get("connect.multiflex.disconnect_requested", ("station", selected.Row.NameForSentence));
+                _outcome.Record(selected.Handle, sent);
                 ShowDisconnectReason(sent);
                 ScreenReaderOutput.Speak(sent, true);
                 // Brief delay then refresh
@@ -207,7 +234,12 @@ namespace JJFlexWpf.Dialogs
             }
             else
             {
-                ScreenReaderOutput.Speak(Lexicon.Get("connect.multiflex.disconnect_failed"), true);
+                // Readable too, on the same line and on the same terms: a
+                // failure that lived only in speech was lost with it (#643).
+                string failed = Lexicon.Get("connect.multiflex.disconnect_failed");
+                _outcome.Record(selected.Handle, failed);
+                ShowDisconnectReason(failed);
+                ScreenReaderOutput.Speak(failed, true);
             }
         }
 

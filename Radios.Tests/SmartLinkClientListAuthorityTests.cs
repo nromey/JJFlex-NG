@@ -425,6 +425,72 @@ namespace Radios.Tests
         }
 
         // ------------------------------------------------------------------
+        // The outcome of a disconnect request stays readable (#643, Track L7)
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Sol's review of L6: the dialog wrote "the disconnect request was
+        /// sent" into the line under the list and refreshed half a second
+        /// later, and the refresh rewrote the line from the selected row —
+        /// for an ordinary client still on the radio, it cleared it. The
+        /// outcome now stays until the operator selects another row or the
+        /// radio reports the client gone, whatever refreshes in between, and
+        /// a failed request is held the same way. This is the dialog's rule,
+        /// read without a window; every refresh and every operator selection
+        /// asks it for the line.
+        /// </summary>
+        /// <remarks>
+        /// The first assertion is the control that the line is otherwise the
+        /// row's reason. Letting the line fall back to the row's reason on
+        /// every read, which is what L6's refresh did, turns the held
+        /// assertions red.
+        /// </remarks>
+        [Fact]
+        public void A_disconnect_outcome_stays_on_the_line_until_the_operator_moves_or_the_radio_reports_the_client_gone()
+        {
+            var don = new ClientRow("SmartSDR", "WA2IWC", 9, false, "", ClientRowSource.Radio, false);
+            var justin = new ClientRow("SmartSDR", "KD2XYZ", 10, false, "", ClientRowSource.SmartLinkList, false);
+            string sent = Lexicon.Get("connect.multiflex.disconnect_requested", ("station", don.NameForSentence));
+            string unavailable = Lexicon.Get("connect.multiflex.disconnect_unavailable");
+
+            var line = new DisconnectOutcomeLine();
+            Assert.Null(line.TextFor(don));
+            Assert.Equal(unavailable, line.TextFor(justin));
+
+            line.Record(9, sent);
+            // The timed refresh half a second later: same rows, same row
+            // selected. L6's refresh cleared the line here.
+            Assert.Equal(sent, line.TextFor(don));
+            // Another client leaves; Don is still selected.
+            Assert.Equal(sent, line.TextFor(don));
+            // A list stops mentioning Don. The radio has not spoken, so the
+            // row stays — marked — and so does the outcome, instead of the
+            // row's "unavailable" reason.
+            var donMaybeGone = don with { MayHaveLeft = true };
+            Assert.Equal(sent, line.TextFor(donMaybeGone));
+
+            // The operator moves to another row: that row's reason, and the
+            // outcome is finished — coming back does not bring it back.
+            Assert.Equal(unavailable, line.TextFor(justin));
+            Assert.Null(line.TextFor(don));
+
+            // The radio reports the client gone: the roster drops the row, so
+            // the list selects another row or none, and the outcome goes.
+            line.Record(9, sent);
+            Assert.Equal(sent, line.TextFor(don));
+            Assert.Equal(unavailable, line.TextFor(justin));
+            line.Record(9, sent);
+            Assert.Null(line.TextFor(null));
+
+            // A failed request is held the same way.
+            string failed = Lexicon.Get("connect.multiflex.disconnect_failed");
+            line.Record(9, failed);
+            Assert.Equal(failed, line.TextFor(don));
+            Assert.Equal(failed, line.TextFor(don));
+            Assert.Equal(unavailable, line.TextFor(justin));
+        }
+
+        // ------------------------------------------------------------------
         // The sentences an operator reads, assembled
         // ------------------------------------------------------------------
 
