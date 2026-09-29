@@ -1243,6 +1243,8 @@ connect.network.use_current_name	41c3b75b7132cc12
 connect.network.use_current_name_remote	5d703e10cde1b281
 connect.no_radio.action	30af4689137d82a6
 connect.no_radio.plain	eb2dc2c08a080a87
+connect.ownership.reason	3125755ec81a7a88
+connect.ownership.silencing	550abe9c53d74b02
 connect.presence.denied	9d31d6967c5edb2c
 connect.presence.port_denied	b94e1ba53df5c3b6
 connect.radio.no_rig	549364d1e44ce23a
@@ -2833,6 +2835,7 @@ settings.silenced.item_when_unknown	0d44951335859703
 settings.silenced.lead	be62c3e58866e793
 settings.silenced.lead_empty	664a52e2476f3167
 settings.silenced.no_physical_access	70ccaa30a7a12a76
+settings.silenced.ownership	2ac36110dae78962
 settings.silenced.register	81cc707e2be7b11d
 settings.silenced.restored_all_many	c2e6ae5388c01b91
 settings.silenced.restored_all_one	e3a58ab2871e6f66

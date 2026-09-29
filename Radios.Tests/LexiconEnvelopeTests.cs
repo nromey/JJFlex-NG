@@ -578,14 +578,15 @@ namespace Radios.Tests
             // set is 2,979 — 2,970 strings and nine ladders — and 222 of them
             // are Track I's alarm keys, which are QUARANTINED in the manifest
             // (#627) because Track I is not merged and those keys do not exist
-            // in this tree. 2,979 minus 222 is 2,757.
+            // in this tree. 2,979 minus 222, plus the three ownership-question strings
+            // added under #638, is 2,760.
             //
-            // SO THIS TEST FAILING WITH "Expected 2757, Actual 2979" IS THE
+            // SO THIS TEST FAILING WITH "Expected 2760, Actual 2982" IS THE
             // EXPECTED RESULT WHEN TRACK I MERGES, and it is a third deliberate
             // tripwire for that event alongside
             // LegacyUnclassifiedQuarantineTests. Read it as "the quarantine has
             // ended, put the number back", NOT as the migration going
-            // backwards. Restore 2,979 then.
+            // backwards. Restore 2,982 then.
             //
             // The number is pinned so the migration can only shrink. That is
             // still true; the baseline it shrinks from is simply this tree's.
@@ -601,7 +602,7 @@ namespace Radios.Tests
                 }
             }
 
-            Assert.Equal(2757, unclassified);
+            Assert.Equal(2760, unclassified);
             Assert.All(classified, key =>
                 Assert.StartsWith("facts.", key, StringComparison.Ordinal));
             Assert.True(classified.Count > 30,

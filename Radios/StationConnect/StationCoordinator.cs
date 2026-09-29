@@ -198,6 +198,21 @@ namespace Radios.StationConnect
                 "the planner sent no global load: " + (firstSkip?.Reason.ToString() ?? "no action planned"));
         }
 
+        /// <summary>
+        /// Whether an ownership declaration can resolve the unanswered part of
+        /// step 2 before connecting. Keep this beside the refusal ladder; the
+        /// exhaustive ownership/intent/hold test ties the two together.
+        /// A settled guest intent is not an invitation to claim the radio.
+        /// </summary>
+        public static bool OwnershipQuestionWouldHelp(
+            RadioOwnership ownership, ProfileGuestIntent intent, bool holdArmed)
+        {
+            return !holdArmed
+                && (intent == ProfileGuestIntent.NotAnswered
+                    || (intent == ProfileGuestIntent.LoadMineAndPutBack
+                        && ownership == RadioOwnership.Unset));
+        }
+
         /// <summary>Step 2's exits, and the #590 ruling, as one sentence or null.</summary>
         internal static string AutomaticStewardshipRefusal(StationPolicyFacts f)
         {

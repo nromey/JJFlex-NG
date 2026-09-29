@@ -34,6 +34,7 @@ namespace JJFlexWpf.Dialogs;
 public sealed class RadioOwnershipDialog : JJFlexDialog
 {
     private RadioOwnership? _answer;
+    private readonly CheckBox _dontShowAgain;
 
     private RadioOwnershipDialog(string radioLabel, string reason, RadioOwnership suggestion)
     {
@@ -66,7 +67,10 @@ public sealed class RadioOwnershipDialog : JJFlexDialog
                 + "radio by accident, not to stop you doing anything on purpose."
                 + "\n\nYou can change the answer later in Settings, on the Radios "
                 + "tab. Pressing Escape answers nothing and leaves the question "
-                + "for next time."),
+                + "for next time."
+                // FIRST DRAFT: the suppression qualification awaits Noel's
+                // wording review. It qualifies the Escape promise above.
+                + "\n\n" + Lexicon.Get("connect.ownership.silencing")),
             IsReadOnly = true,
             IsReadOnlyCaretVisible = true,
             TextWrapping = TextWrapping.Wrap,
@@ -76,6 +80,16 @@ public sealed class RadioOwnershipDialog : JJFlexDialog
         };
         AutomationProperties.SetName(body, "Why JJ Flex is asking whose radio this is");
         root.Children.Add(body);
+
+        string dontShowAgain = Lexicon.Get("connect.dialog.dont_show_again");
+        _dontShowAgain = new CheckBox
+        {
+            Content = dontShowAgain,
+            Margin = new Thickness(0, 10, 0, 0),
+        };
+        AutomationProperties.SetName(_dontShowAgain, dontShowAgain.Replace("_", ""));
+        JJFlexHelp.SetText(_dontShowAgain, Lexicon.Get("settings.silenced.reversible_help"));
+        root.Children.Add(_dontShowAgain);
 
         var buttons = new StackPanel
         {
@@ -110,8 +124,12 @@ public sealed class RadioOwnershipDialog : JJFlexDialog
         buttons.Children.Add(later);
         root.Children.Add(buttons);
 
+        // Tab order: text, then the buttons (the likely next act), then the
+        // rarely-wanted suppression checkbox last — even though the checkbox
+        // sits above the buttons visually.
         System.Windows.Input.KeyboardNavigation.SetTabIndex(body, 1);
         System.Windows.Input.KeyboardNavigation.SetTabIndex(buttons, 2);
+        System.Windows.Input.KeyboardNavigation.SetTabIndex(_dontShowAgain, 3);
 
         Content = root;
     }
@@ -140,8 +158,9 @@ public sealed class RadioOwnershipDialog : JJFlexDialog
     /// <summary>
     /// Ask whose radio this is and record the answer against
     /// <paramref name="radioId"/>. Returns the answer, or null when the
-    /// operator declined to answer — in which case NOTHING is stored and the
-    /// caller must treat the radio as not-theirs for this action only.
+    /// operator declined to answer or silenced the question. No ownership
+    /// answer is stored in either case. A checked suppression choice is stored
+    /// separately, even on Escape. The caller must not infer consent from null.
     /// </summary>
     /// <param name="radioId">Serial (or backend id) the answer is keyed to.</param>
     /// <param name="radioLabel">How to name the radio in the question.</param>
@@ -155,14 +174,12 @@ public sealed class RadioOwnershipDialog : JJFlexDialog
     {
         if (string.IsNullOrEmpty(radioId)) return null;
 
-        var cfg = RadioConfig.LoadForRadio(radioId);
-        var dialog = new RadioOwnershipDialog(
-            string.IsNullOrWhiteSpace(radioLabel) ? "this radio" : radioLabel,
-            reason,
-            cfg.SuggestOwnership(operatorAccount));
-        dialog.ShowModalDialog();
+        var suppressKey = AdvisoryKeys.RadioOwnership(radioId);
+        if (AdvisorySuppression.IsSuppressed(suppressKey)) return null;
 
-        var answer = dialog._answer;
+        var cfg = RadioConfig.LoadForRadio(radioId);
+        var answer = ShowQuestion(radioId, radioLabel, reason,
+            cfg.SuggestOwnership(operatorAccount));
         if (answer == null) return null;
 
         // The save may fail (a locked file, a busy scanner). The operator's
@@ -171,5 +188,54 @@ public sealed class RadioOwnershipDialog : JJFlexDialog
         // RadioConfig.SaveForRadio already reports the failure once, centrally.
         RadioConfig.RecordOwnership(radioId, answer.Value);
         return answer;
+    }
+
+    /// <summary>
+    /// Ask before connecting, using the same config snapshot as the selector's
+    /// eligibility check. Persist ownership and intent together, once. False
+    /// means the save failed and the caller must not proceed with stale consent;
+    /// dismissal or suppression still permits an unanswered connection.
+    /// </summary>
+    public static bool AskForConnect(string radioId, string radioLabel, string reason,
+        RadioConfig config)
+    {
+        // No ownership suggestion at connect (#654). An owner already knows
+        // the radio is theirs: a guess helps nobody there, and harms the guest
+        // case this feature exists to protect (#499, #501). Zero benefit when
+        // right, real cost when wrong. The Workshop keeps its deliberate-write
+        // suggestion through Ask; this path never calls SuggestOwnership.
+        var answer = ShowQuestion(radioId, radioLabel, reason, RadioOwnership.Unset);
+        if (answer == null) return true;
+
+        config.Ownership = answer.Value;
+        if (answer == RadioOwnership.Mine)
+        {
+            // hasConnectedBefore restrains an inference, not an explicit
+            // declaration. Requiring prior connections after this answer
+            // protects nothing and would leave the first connect dead.
+            config.ProfileIntent = ProfileGuestIntent.LoadMineAndPutBack;
+        }
+        // SomeoneElses preserves the exact existing intent. One loaded object,
+        // one save: a second load could lose ownership or unrelated settings.
+        return config.SaveForRadio(radioId);
+    }
+
+    private static RadioOwnership? ShowQuestion(string radioId, string radioLabel,
+        string reason, RadioOwnership suggestion)
+    {
+        if (string.IsNullOrEmpty(radioId)) return null;
+        var suppressKey = AdvisoryKeys.RadioOwnership(radioId);
+        if (AdvisorySuppression.IsSuppressed(suppressKey)) return null;
+
+        var dialog = new RadioOwnershipDialog(
+            string.IsNullOrWhiteSpace(radioLabel) ? "this radio" : radioLabel,
+            reason, suggestion);
+        dialog.ShowModalDialog();
+
+        // Silencing is independent of answering, including on Escape.
+        // It must never manufacture ownership or a profile intent.
+        if (dialog._dontShowAgain.IsChecked == true)
+            AdvisorySuppression.Suppress(suppressKey);
+        return dialog._answer;
     }
 }

@@ -37,6 +37,8 @@ namespace Radios
         private const string NoPhysicalAccessCascadeValue = "no-physical-access-cascade-v1";
         private const string StillRunningAtExitValue = "still-running-at-exit-v1";
         private const string RegisterPrefix = "register|";
+        private const string OwnershipPrefix = "radio-ownership|";
+        private const string OwnershipVersion = "-v1";
         private const string FirmwarePrefix = "firmware|";
 
         /// <summary>
@@ -54,6 +56,12 @@ namespace Radios
         public static AdvisoryKey RegisterRadio(string serial) => new(
             RegisterPrefix + serial,
             Lexicon.Get("settings.silenced.register", ("serial", serial)));
+
+        /// <summary>The ownership question for this radio, wherever asked.</summary>
+        // FIRST DRAFT: the review-list label awaits Noel's wording review.
+        public static AdvisoryKey RadioOwnership(string serial) => new(
+            OwnershipPrefix + serial + OwnershipVersion,
+            Lexicon.Get("settings.silenced.ownership", ("serial", serial)));
 
         /// <summary>
         /// The notice that a routine firmware release is available for one
@@ -112,6 +120,14 @@ namespace Radios
                 case SmartLinkSetupValue: return SmartLinkSetup.Label;
                 case NoPhysicalAccessCascadeValue: return NoPhysicalAccessCascade.Label;
                 case StillRunningAtExitValue: return StillRunningAtExit.Label;
+            }
+
+            if (key.StartsWith(OwnershipPrefix, StringComparison.Ordinal)
+                && key.EndsWith(OwnershipVersion, StringComparison.Ordinal))
+            {
+                int length = key.Length - OwnershipPrefix.Length - OwnershipVersion.Length;
+                if (length > 0)
+                    return RadioOwnership(key.Substring(OwnershipPrefix.Length, length)).Label;
             }
 
             if (key.StartsWith(RegisterPrefix, StringComparison.Ordinal))
