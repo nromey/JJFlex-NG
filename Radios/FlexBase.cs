@@ -8319,12 +8319,9 @@ namespace Radios
                 case "Mox":
                     {
                         Tracing.TraceLine("Mox:" + r.Mox.ToString(), TraceLevel.Info);
-                        bool oldTransmit = _Transmit;
-                        _Transmit = r.Mox;
-                        if (_Transmit != oldTransmit)
-                        {
-                            raiseTransmitChange(_Transmit);
-                        }
+                        // The transmit state, and the txMeters line's evidence
+                        // window on its rising edge (#625, H18).
+                        noteRadioMox(r.Mox);
                     }
                     break;
                 case "PanadaptersRemaining":
@@ -10083,6 +10080,9 @@ namespace Radios
 
         private void forwardPowerData(float data)
         {
+            // The window this reading arrived in, taken BEFORE it is stored:
+            // see beginTxLineWindow (#625, H18).
+            int txLineWindow = txLineWindowNow();
             meterTrace.Report("forwardPower:", data);
             // The change guard here existed only to avoid re-raising
             // MeterChanged for a repeated value. With that event gone the
@@ -10098,7 +10098,7 @@ namespace Radios
                 _PowerDBM = data;
                 _forwardStamp = Stopwatch.GetTimestamp();
             }
-            _txLineFwdReported = true;   // after the value: see traceTxMeters
+            Volatile.Write(ref _txLineFwdWindow, txLineWindow);   // after the value: see traceTxMeters
             // Sprint 44 Track E — the pulse that makes txMeters fire during a
             // TUNE. SC_MIC and ALC drive traceTxMeters during keyed transmit,
             // and neither of them moves while the ATU sweeps or a bare carrier
@@ -10124,9 +10124,10 @@ namespace Radios
 
         private void sWRData(float data)
         {
+            int txLineWindow = txLineWindowNow();   // before the value: see forwardPowerData
             meterTrace.Report("SWRData:", data);
             _SWR = data;
-            _txLineSwrReported = true;   // after the value: see traceTxMeters
+            Volatile.Write(ref _txLineSwrWindow, txLineWindow);   // after the value: see traceTxMeters
             // Latch the settled value while the tune is still running; reading
             // it afterwards gives the meter's idle rest value. See noteTuneSwr.
             noteTuneSwr(data);
@@ -10707,12 +10708,11 @@ namespace Radios
             _scMicElection.Clear();
             _swAlcElection.Clear();
             _txMeterCensus = "";
-            // The txMeters line's has-it-reported flags are per connection,
-            // like the elections cleared above, so a value left over from the
-            // last radio is never written as this one's reading (#625, H17).
-            _txLineFwdReported = false;
-            _txLineReflReported = false;
-            _txLineSwrReported = false;
+            // A new connection opens a new txMeters evidence window, like the
+            // elections cleared above, so a value left over from the last radio
+            // is never written as this one's reading (#625, H17; a window
+            // rather than flags since H18).
+            beginTxLineWindow();
         }
 
         /// <summary>
@@ -10831,6 +10831,9 @@ namespace Radios
 
             TransmitMeterElection election = scMic ? _scMicElection : _swAlcElection;
             int now = System.Environment.TickCount;
+            // The txMeters window, taken before the election stores the value:
+            // see beginTxLineWindow (#625, H18).
+            int txLineWindow = txLineWindowNow();
             var outcome = election.Report(meter, data, now);
             if (outcome == TransmitMeterElection.Outcome.Unknown)
             {
@@ -10841,6 +10844,12 @@ namespace Radios
                 outcome = election.Report(meter, data, now);
             }
             if (outcome == TransmitMeterElection.Outcome.Ignored) return;
+
+            // Published: the elected copy's value, arrived in this window.
+            bool newCopy = outcome == TransmitMeterElection.Outcome.Elected
+                || outcome == TransmitMeterElection.Outcome.Displaced;
+            if (scMic) noteTxLineScMic(txLineWindow, data, newCopy);
+            else Volatile.Write(ref _txLineSwAlcWindow, txLineWindow);
 
             if (outcome == TransmitMeterElection.Outcome.Elected
                 || outcome == TransmitMeterElection.Outcome.Displaced)
@@ -10883,18 +10892,101 @@ namespace Radios
         internal static bool TxMeterLineDue(long nowMs, long lastWrittenMs, int intervalMs) =>
             lastWrittenMs == TxMeterLineNeverWritten || nowMs - lastWrittenMs >= intervalMs;
 
-        // Whether the radio has reported forward power, reflected power and
-        // its own SWR since this connection's meters were hooked — the gate
-        // traceTxMeters asks before it writes a number for any of them (#625,
-        // H17). Set by the three meter handlers AFTER they store the value, so
-        // a reader that sees true sees the value too; cleared per connection
-        // in resetMeterInventory. Separate from _forwardStamp/_reflectedStamp
-        // on purpose: those feed ReadTransmitPower and the transmit safety
-        // paths, which live across reconnects and are not this line's to
-        // change.
-        private volatile bool _txLineFwdReported;
-        private volatile bool _txLineReflReported;
-        private volatile bool _txLineSwrReported;
+        // ── The txMeters line's evidence window (#625, H17 then H18) ────────
+        //
+        // Every number on a txMeters line is one the radio sent DURING THE
+        // CURRENT TRANSMISSION OR TUNE. H17 gated each value on "reported
+        // since this connection", which Sol's H17 review showed was the wrong
+        // window for a transmit snapshot: the election keeps SC_MIC's last
+        // value across key-downs on purpose (other readers want it), so a
+        // second transmission's first line, driven by a SWALC sample before
+        // SC_MIC had spoken, printed the FIRST transmission's mic level as
+        // SC_MIC=<number> beside "(peak no-sample)" — two fields, two windows,
+        // one line. The same held for the powers.
+        //
+        // So the writer keeps its own window, and solves it here rather than
+        // in TransmitMeterElection or the PTT safety controller, which retain
+        // what they retain for other readers. A window opens when the radio
+        // becomes keyed — it reports Mox, or a tune cycle begins, whichever
+        // comes first — and when a new connection's meters are about to be
+        // hooked. Each value the line prints records the window it arrived
+        // in, captured BEFORE the value is stored, so a stamp that matches the
+        // current window can only belong to a value that arrived inside it.
+        // The window is the radio's keyed state, not the PTT controller's
+        // key-down, because a transmission can be keyed without it (a foot
+        // switch, the radio's own PTT, CW, another client): the controller's
+        // peak reset never runs for those, and its peak then spans every
+        // transmission since the last one it did key.
+        //
+        // Separate from _forwardStamp/_reflectedStamp on purpose: those feed
+        // ReadTransmitPower and the transmit safety paths, which are not this
+        // line's to change.
+        private int _txLineWindow;
+        private int _txLineFwdWindow = TxLineNoWindow;
+        private int _txLineReflWindow = TxLineNoWindow;
+        private int _txLineSwrWindow = TxLineNoWindow;
+        private int _txLineSwAlcWindow = TxLineNoWindow;
+
+        // SC_MIC's window and the line's own peak move together, under one
+        // lock, because the peak is only meaningful inside its window. The
+        // peak is the writer's, not the election's ElectedPeakSinceReset:
+        // that one resets only when the PTT controller keys, so on any other
+        // keying it would print an earlier transmission's peak. It restarts
+        // when the believed copy changes, so the peak and the copy named
+        // after "via" are always the same copy.
+        private readonly object _txLineScMicLock = new object();
+        private int _txLineScMicWindow = TxLineNoWindow;
+        private float _txLineScMicPeak = float.NaN;
+
+        /// <summary>A value stamped with this has not arrived in any window.</summary>
+        private const int TxLineNoWindow = -1;
+
+        /// <summary>The txMeters evidence window in force now.</summary>
+        private int txLineWindowNow() => Volatile.Read(ref _txLineWindow);
+
+        /// <summary>
+        /// Open a new evidence window: from here on, nothing that arrived
+        /// before counts as a reading on a txMeters line. Called BEFORE the
+        /// state that makes the writer run is set, so a writer that sees the
+        /// radio keyed already sees the new window.
+        /// </summary>
+        private void beginTxLineWindow()
+        {
+            // Never TxLineNoWindow, however many windows a session opens.
+            int next = Interlocked.Increment(ref _txLineWindow);
+            if (next == TxLineNoWindow) Interlocked.Increment(ref _txLineWindow);
+        }
+
+        /// <summary>
+        /// The radio reported its transmit state. The txMeters line opens a new
+        /// evidence window on the rising edge, unless a tune cycle already
+        /// opened it: an ATU sweep that keys Mox is one keyed stretch, not two.
+        /// Extracted from the property handler's Mox case so the edge can be
+        /// driven without a radio.
+        /// </summary>
+        private void noteRadioMox(bool mox)
+        {
+            bool oldTransmit = _Transmit;
+            if (mox && !oldTransmit && !_tuneCycleActive) beginTxLineWindow();
+            _Transmit = mox;
+            if (_Transmit != oldTransmit)
+            {
+                raiseTransmitChange(_Transmit);
+            }
+        }
+
+        /// <summary>SC_MIC's elected copy published <paramref name="data"/>,
+        /// which arrived in <paramref name="window"/>. Keeps the line's peak
+        /// for that window and that copy.</summary>
+        private void noteTxLineScMic(int window, float data, bool newCopy)
+        {
+            lock (_txLineScMicLock)
+            {
+                bool restart = newCopy || window != _txLineScMicWindow || float.IsNaN(_txLineScMicPeak);
+                if (restart || data > _txLineScMicPeak) _txLineScMicPeak = data;
+                _txLineScMicWindow = window;
+            }
+        }
 
         /// <summary>The <c>txMeters:</c> rendering of one value: the number, or
         /// <see cref="CaptureMeterSet.NoSample"/> when the radio has not
@@ -10973,13 +11065,32 @@ namespace Radios
             // emit it before either power meter had spoken (it is driven by
             // SC_MIC and SWALC samples). The writer is the thing that knows
             // whether a value arrived, so it says so here: a value the radio
-            // has not reported since this connection is written as
-            // CaptureMeterSet.NoSample, and so is anything derived from it.
+            // has not reported is written as CaptureMeterSet.NoSample, and so
+            // is anything derived from it.
             // "n/a" keeps its old meaning — the powers arrived but too little
             // forward power, or two samples too far apart, to work it out.
-            bool fwdOk = _txLineFwdReported;
-            bool reflOk = _txLineReflReported;
-            bool swrOk = _txLineSwrReported;
+            //
+            // AND ONLY FROM THIS TRANSMISSION OR TUNE (#625, H18). H17 gated
+            // each value on "reported since this connection"; a second
+            // transmission's first line could then print the first one's
+            // readings. Every value below must have arrived in the current
+            // evidence window; see beginTxLineWindow. The window is read once,
+            // so every field on one line is judged against the same window.
+            int window = txLineWindowNow();
+            bool fwdOk = Volatile.Read(ref _txLineFwdWindow) == window;
+            bool reflOk = Volatile.Read(ref _txLineReflWindow) == window;
+            bool swrOk = Volatile.Read(ref _txLineSwrWindow) == window;
+            float scMicPeak = float.NaN;
+            lock (_txLineScMicLock)
+            {
+                if (_txLineScMicWindow == window) scMicPeak = _txLineScMicPeak;
+            }
+            // The last value is the election's, so it and the "via" label name
+            // the same copy; it counts only when the copy spoke in this window.
+            // A copy the radio withdrew leaves NaN, and the peak goes with it.
+            float scMic = float.IsNaN(scMicPeak) ? float.NaN : _scMicElection.ElectedLast;
+            if (float.IsNaN(scMic)) scMicPeak = float.NaN;
+            float swAlc = Volatile.Read(ref _txLineSwAlcWindow) == window ? _swAlcElection.ElectedLast : float.NaN;
             float fwd = fwdOk ? _PowerDBM : float.NaN;
             float refl = reflOk ? _ReflectedPower : float.NaN;
             float fwdW = fwdOk ? ForwardPowerWatts : float.NaN;
@@ -11007,15 +11118,15 @@ namespace Radios
             // line where it first appears, in CaptureMeterSet's words, which
             // name exactly the fields formatted here.
             //
-            // SC_MIC, its peak and SWALC come from the elections RAW — NaN
-            // until the elected copy reports — rather than through ScMicDb /
-            // SwAlcDb, whose -150 floor is exactly the placeholder this line
-            // must not print as a reading.
+            // SC_MIC and SWALC come from the elections RAW — NaN until the
+            // elected copy reports — rather than through ScMicDb / SwAlcDb,
+            // whose -150 floor is exactly the placeholder this line must not
+            // print as a reading; and only when they spoke in this window.
             Tracing.TraceRecord(CaptureMeterSet.TxMetersRecord, "txMeters: state=" + state
-                + " SC_MIC=" + txMeterField(_scMicElection.ElectedLast, "F1")
-                + " (peak " + txMeterField(_scMicElection.ElectedPeakSinceReset, "F1") + ")"
+                + " SC_MIC=" + txMeterField(scMic, "F1")
+                + " (peak " + txMeterField(scMicPeak, "F1") + ")"
                 + " via " + (_scMicElection.Elected?.Label ?? "no copy has reported")
-                + " SWALC=" + txMeterField(_swAlcElection.ElectedLast, "F1")
+                + " SWALC=" + txMeterField(swAlc, "F1")
                 + " fwd=" + txMeterField(fwd, "F1", " dBm")
                 + " refl=" + txMeterField(refl, "F1", " dBm")
                 + " fwdW=" + txMeterField(fwdW, "F2")
@@ -11218,6 +11329,7 @@ namespace Radios
 
         private void reflectedPowerData(float data)
         {
+            int txLineWindow = txLineWindowNow();   // before the value: see forwardPowerData
             meterTrace.Report("reflectedPower:", data);
             // Stamped under the pair lock — see forwardPowerData and
             // ReadTransmitPower (#453).
@@ -11226,7 +11338,7 @@ namespace Radios
                 _ReflectedPower = data;
                 _reflectedStamp = Stopwatch.GetTimestamp();
             }
-            _txLineReflReported = true;  // after the value: see traceTxMeters
+            Volatile.Write(ref _txLineReflWindow, txLineWindow);   // after the value: see traceTxMeters
         }
 
         private float _PAEffData;
@@ -21895,6 +22007,10 @@ namespace Radios
                 }
                 return;
             }
+            // A tune on an unkeyed radio opens the txMeters line's evidence
+            // window, BEFORE the flag that lets the writer run (#625, H18).
+            // One begun while already transmitting is inside that window.
+            if (!_Transmit) beginTxLineWindow();
             _tuneCycleActive = true;
             _tuneCycleStartTick = System.Environment.TickCount;
             _tuneCycleType = type;

@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
+using Flex.Smoothlake.FlexLib;
 using JJTrace;
 using Radios;
 using Xunit;
@@ -109,6 +111,23 @@ namespace Radios.Tests
                 return line!;
             }
 
+            /// <summary>The radio reports its transmit state: the real edge
+            /// the property handler's Mox case runs.</summary>
+            public void Mox(bool on) => Call("noteRadioMox", on);
+
+            /// <summary>What the push-to-talk controller does at its own
+            /// key-down: the elections' peaks and since-key-down counts restart.
+            /// Not called for a transmission keyed any other way.</summary>
+            public void PttPeakReset() => Flex.ResetScMicMax();
+
+            /// <summary>One sample from a transmit-chain meter copy, through
+            /// the real election routing.</summary>
+            public void Sample(Meter meter, float value) => Call("routeTxMeterSample", meter, value);
+
+            public void Forward(float dbm) => Call("forwardPowerData", dbm);
+            public void Reflected(float dbm) => Call("reflectedPowerData", dbm);
+            public void Swr(float swr) => Call("sWRData", swr);
+
             public void Dispose()
             {
                 Tracing.On = _wasOn;
@@ -117,6 +136,194 @@ namespace Radios.Tests
                 Trace.Listeners.Remove(_listener);
                 try { Flex.Dispose(); } catch { /* teardown of a radioless rig */ }
             }
+        }
+
+        /// <summary>A FlexLib meter copy, as the radio would publish it. The
+        /// constructor needs a live radio, so the object is made bare and
+        /// given the three things the election routing reads: name, index and
+        /// source.</summary>
+        internal static Meter NewMeter(string name, int index)
+        {
+            var m = (Meter)RuntimeHelpers.GetUninitializedObject(typeof(Meter));
+            m.Name = name;
+            m.Source = "TX-";
+            FieldInfo idx = typeof(Meter).GetField("_index", BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.NotNull(idx);
+            idx!.SetValue(m, index);
+            return m;
+        }
+
+        private static string F1(float v) => v.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+
+        private const string NoSample = CaptureMeterSet.NoSample;
+
+        // ── Blocker 1: every value from the current transmission or tune ─
+
+        /// <summary>
+        /// Sol's case, exactly (#625, H18 — his H17 review, blocker 1). One
+        /// transmission reports SC_MIC, SWALC and both powers. The operator
+        /// unkeys and keys again through push-to-talk, which resets the peak.
+        /// Only SWALC has reported when the next line is driven.
+        /// <para>Before H18 that line read <c>SC_MIC=-18.0 (peak no-sample)</c>
+        /// and <c>fwd=47.0 dBm</c>: the FIRST transmission's mic level and
+        /// power, printed as this one's, beside a peak from a different window.
+        /// Now every value that has not arrived in this transmission says so,
+        /// and the values that do arrive are this transmission's.</para>
+        /// </summary>
+        [Fact]
+        public void A_second_transmission_does_not_print_the_first_ones_readings()
+        {
+            using var rig = new Rig();
+            Meter scMic = NewMeter("SC_MIC", 24);
+            Meter alc = NewMeter("ALC", 25);
+
+            rig.PttPeakReset();
+            rig.Mox(true);                       // transmission one
+            rig.Sample(scMic, -18f);
+            rig.Sample(alc, -20f);
+            rig.Forward(47f);
+            rig.Reflected(20f);
+            rig.Swr(1.09f);
+            string first = rig.WriteOne();
+
+            rig.Mox(false);
+            rig.PttPeakReset();
+            rig.Mox(true);                       // transmission two
+            rig.Sample(alc, -30f);               // SWALC drives the line; SC_MIC has not spoken
+            string second = rig.WriteOne();
+
+            rig.Sample(scMic, -25f);
+            string third = rig.WriteOne();
+            rig.Sample(scMic, -28f);
+            string fourth = rig.WriteOne();
+
+            foreach (string l in new[] { first, second, third, fourth }) _out.WriteLine(l);
+
+            // Positive control: the first transmission's readings really are
+            // numbers, so their absence below is not a writer that prints none.
+            Assert.Contains(" SC_MIC=" + F1(-18f) + " (peak " + F1(-18f) + ")", first, StringComparison.Ordinal);
+            Assert.Contains(" SWALC=" + F1(-20f), first, StringComparison.Ordinal);
+            Assert.Contains(" fwd=" + F1(47f) + " dBm", first, StringComparison.Ordinal);
+
+            // The second transmission: only SWALC has arrived.
+            Assert.Contains(" SC_MIC=" + NoSample + " (peak " + NoSample + ")", second, StringComparison.Ordinal);
+            Assert.Contains(" SWALC=" + F1(-30f), second, StringComparison.Ordinal);
+            foreach (string field in new[] { "fwd", "refl", "fwdW", "reflW", "back", "SWRraw", "SWRcalc" })
+            {
+                Assert.Contains(" " + field + "=" + NoSample, second, StringComparison.Ordinal);
+            }
+            Assert.DoesNotContain(F1(-18f), second, StringComparison.Ordinal);
+            Assert.DoesNotContain(F1(47f), second, StringComparison.Ordinal);
+
+            // And it follows the second transmission once SC_MIC speaks.
+            Assert.Contains(" SC_MIC=" + F1(-25f) + " (peak " + F1(-25f) + ")", third, StringComparison.Ordinal);
+            Assert.Contains(" SC_MIC=" + F1(-28f) + " (peak " + F1(-25f) + ")", fourth, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// A transmission keyed any way but the push-to-talk controller — a
+        /// foot switch, the radio's own PTT, CW, another client — never gets
+        /// the controller's peak reset. The election's "peak since key-down"
+        /// then spans every transmission since the last one the controller
+        /// keyed, so the line's peak is the writer's own, for this
+        /// transmission.
+        /// </summary>
+        [Fact]
+        public void A_transmission_keyed_without_push_to_talk_prints_its_own_peak()
+        {
+            using var rig = new Rig();
+            Meter scMic = NewMeter("SC_MIC", 24);
+
+            rig.Mox(true);
+            rig.Sample(scMic, -10f);
+            string loud = rig.WriteOne();
+            rig.Mox(false);
+
+            rig.Mox(true);                       // no PttPeakReset: keyed elsewhere
+            rig.Sample(scMic, -30f);
+            string quiet = rig.WriteOne();
+            _out.WriteLine(loud);
+            _out.WriteLine(quiet);
+
+            Assert.Contains(" SC_MIC=" + F1(-10f) + " (peak " + F1(-10f) + ")", loud, StringComparison.Ordinal);
+            Assert.Contains(" SC_MIC=" + F1(-30f) + " (peak " + F1(-30f) + ")", quiet, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The peak and the copy "via" names are the same copy. Push-to-talk
+        /// keys the radio and the radio's Mox can arrive before the
+        /// controller's peak reset; a copy that spoke before the reset and
+        /// then lost the election must not leave its peak under the name of
+        /// the copy that won.
+        /// </summary>
+        [Fact]
+        public void The_peak_belongs_to_the_copy_via_names()
+        {
+            using var rig = new Rig();
+            Meter first = NewMeter("SC_MIC", 24);
+            Meter second = NewMeter("SC_MIC", 48);
+
+            rig.Mox(true);                       // the radio reports Mox first
+            rig.Sample(first, -10f);             // elected: the only copy to have spoken
+            rig.PttPeakReset();                  // then the controller's key-down reset
+            rig.Sample(first, -40f);
+            rig.Sample(second, -30f);            // more signal since the reset: displaces
+            string line = rig.WriteOne();
+            _out.WriteLine(line);
+
+            Assert.Contains(" SC_MIC=" + F1(-30f) + " (peak " + F1(-30f) + ") via [48]", line, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// A tune on an unkeyed radio opens its own window, so the forward
+        /// power of the transmission before it is not printed as the tune's;
+        /// and the radio keying Mox part-way through a tune (an ATU sweep does)
+        /// is the same keyed stretch, so the tune's readings stay.
+        /// </summary>
+        [Fact]
+        public void A_tune_opens_its_own_window_and_Mox_inside_it_does_not()
+        {
+            using var rig = new Rig();
+
+            rig.Mox(true);
+            rig.Forward(47f);
+            string transmit = rig.WriteOne();
+            rig.Mox(false);
+
+            rig.Call("beginTuneCycle", "carrier");
+            string tuneBeforePower = rig.WriteOne();
+            rig.Forward(30f);
+            string tune = rig.WriteOne();
+            rig.Mox(true);                       // the sweep keys Mox
+            string tuneAndTx = rig.WriteOne();
+            foreach (string l in new[] { transmit, tuneBeforePower, tune, tuneAndTx }) _out.WriteLine(l);
+
+            Assert.Contains(" fwd=" + F1(47f) + " dBm", transmit, StringComparison.Ordinal);
+            Assert.Contains("state=tune ", tuneBeforePower, StringComparison.Ordinal);
+            Assert.Contains(" fwd=" + NoSample, tuneBeforePower, StringComparison.Ordinal);
+            Assert.Contains(" fwd=" + F1(30f) + " dBm", tune, StringComparison.Ordinal);
+            Assert.Contains("state=tune+tx ", tuneAndTx, StringComparison.Ordinal);
+            Assert.Contains(" fwd=" + F1(30f) + " dBm", tuneAndTx, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The introduction names the window, and it is the one the writer
+        /// uses: the current transmission or tune, for every field, including
+        /// the peak. And it no longer claims the connection is the window, or
+        /// that the copy-count line says "census", which it never did.
+        /// </summary>
+        [Fact]
+        public void The_introduction_names_the_window_the_writer_uses()
+        {
+            string intro = CaptureMeterSet.TxMetersRecord.Introduction;
+            _out.WriteLine(intro);
+            Assert.Contains("Every value on the line comes from the current transmission or tune", intro, StringComparison.Ordinal);
+            Assert.Contains("when the radio reports that it is transmitting or when a tune begins", intro, StringComparison.Ordinal);
+            Assert.Contains("starts again on a new connection", intro, StringComparison.Ordinal);
+            Assert.Contains("highest SC_MIC reading from that copy so far in this transmission or tune", intro, StringComparison.Ordinal);
+            Assert.Contains("'" + NoSample + "' is one the radio has not reported during this transmission or tune", intro, StringComparison.Ordinal);
+            Assert.DoesNotContain("since this connection", intro, StringComparison.Ordinal);
+            Assert.DoesNotContain("'census'", intro, StringComparison.Ordinal);
         }
 
         // ── Blocker 4: the limiter's clock ───────────────────────────────

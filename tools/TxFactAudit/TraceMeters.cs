@@ -47,8 +47,10 @@ namespace JJFlex.TxFactAudit
     /// <para><b>The trace rate is not the measurement rate.</b>
     /// <c>FlexBase.traceTxMeters</c> throttles to one line a second (four while
     /// tuning, since Sprint 44 Track E), but each
-    /// line carries <c>peak</c> — the maximum <c>_scMicMaxDb</c> has reached,
-    /// tracked by the handler that sees every reading. So a once-a-second line
+    /// line carries <c>peak</c>, the highest SC_MIC reading so far in the
+    /// current transmission or tune, tracked by the handler that sees every
+    /// reading (the writer's own since H18; before that, the election's peak
+    /// since the last push-to-talk key-down). So a once-a-second line
     /// is not a once-a-second measurement: transients inside the second are
     /// already in the peak. What is lost is the shape of the second, not its
     /// height, and height is what anything peak-sensitive wants.</para>

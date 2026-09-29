@@ -105,27 +105,41 @@ namespace Radios
         /// writer now prints <see cref="NoSample"/> for any value the radio has
         /// not reported since the connection was made, and this says what that
         /// token means.</para>
+        /// <para><b>H18 (Sol's H17 review) named the window, field by
+        /// field.</b> "Since this connection was made" was the wrong window for
+        /// a transmit snapshot: the peak in brackets already reset at key-down
+        /// while SC_MIC kept the last transmission's value, so one line carried
+        /// two windows and a second transmission could print the first one's
+        /// mic level. Every value now comes from the current transmission or
+        /// tune, and this says so, and says when that starts. The peak is the
+        /// writer's own, for that window and the copy "via" names. It also
+        /// stopped saying the copy-count line "says 'census'", which it never
+        /// did.</para>
         /// </remarks>
         public static readonly TraceRecordKind TxMetersRecord = new TraceRecordKind(
             "txMeters",
             "lines that begin 'txMeters: state=' are JJ Flexible's transmit meter snapshots. One is written"
             + " when a meter reading arrives while the radio is transmitting or tuning, at most once a second"
             + " while transmitting and at most four times a second while tuning. state says whether the radio"
-            + " was transmitting, tuning, or both. SC_MIC is the mic level in dB with its recent peak in"
-            + " brackets and 'via' naming which copy of the meter is believed; SWALC is the software ALC. fwd"
-            + " and refl are forward and reflected power in dBm, fwdW and reflW the same in watts, back the share"
-            + " of power coming back, SWRraw the SWR the radio reports and SWRcalc the SWR computed from the two"
-            + " powers. A value written as '" + NoSample + "' is one the radio had not reported since this"
-            + " connection was made, so there is no reading to give; a value worked out from it is '" + NoSample
-            + "' too. 'n/a' means both powers had arrived but the value could not honestly be worked out from"
-            + " them, for example because there was too little forward power. A 'txMeters:' line that instead"
-            + " says 'census' or names a"
-            + " meter as elected records which copy of a duplicated meter is being read; it is not a reading.");
+            + " was transmitting, tuning, or both. Every value on the line comes from the current transmission"
+            + " or tune, which starts when the radio reports that it is transmitting or when a tune begins, and"
+            + " starts again on a new connection; nothing the radio sent before that is used. SC_MIC is the"
+            + " latest mic level in dB, and 'via' names the copy of that meter JJ Flexible believes. The figure"
+            + " in brackets is the highest SC_MIC reading from that copy so far in this transmission or tune; if"
+            + " the believed copy changes, it starts again. SWALC is the latest software ALC reading. fwd and"
+            + " refl are the latest forward and reflected power in dBm, fwdW and reflW the same in watts, back"
+            + " the share of power coming back, SWRraw the latest SWR the radio reports and SWRcalc the SWR"
+            + " computed from the two powers. A value written as '" + NoSample + "' is one the radio has not"
+            + " reported during this transmission or tune, so there is no reading to give; a value worked out"
+            + " from it is '" + NoSample + "' too. 'n/a' means both powers had arrived but the value could not"
+            + " honestly be worked out from them, for example because there was too little forward power. A"
+            + " 'txMeters:' line that instead counts the copies of a meter, or names a copy as elected or"
+            + " re-elected, records which copy of a duplicated meter is being read; it is not a reading.");
 
         /// <summary>
         /// What a <c>txMeters:</c> field says in place of a number when the
-        /// radio has not reported that value since the connection was made
-        /// (#625, H17). The same word the <c>captureMeters:</c> line already
+        /// radio has not reported that value during the current transmission
+        /// or tune (#625, H17; the window since H18). The same word the <c>captureMeters:</c> line already
         /// uses for supply voltage (<c>volts=no-sample</c>), so a reader meets
         /// one vocabulary, not two. Parsers read it:
         /// <c>tools/TxFactAudit/TraceMeters.cs</c>.
