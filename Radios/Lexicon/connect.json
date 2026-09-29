@@ -35,6 +35,8 @@
   "connect.client.may_have_left": "{station} was reported earlier. The radio has not confirmed that this client left.",
   "connect.client.reported_by_smartlink": "{program}, station {station}. Reported by SmartLink; not yet confirmed by the radio.",
   "connect.client.reported_by_smartlink_no_station": "A client with no station name was reported by SmartLink; the radio has not confirmed it.",
+  "connect.client.reported_on_local_network": "{program}, station {station}. Reported on the local network; not yet confirmed by the radio.",
+  "connect.client.reported_on_local_network_no_station": "A client with no station name was reported on the local network; the radio has not confirmed it.",
   "connect.client.unconfirmed_affected": "Other operators may be affected. These clients were reported: {clients}.",
   "connect.client.unknown_added": "Another client",
   "connect.client.unknown_removed": "A client",

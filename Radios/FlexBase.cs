@@ -850,6 +850,80 @@ namespace Radios
             lock (_clientEvidenceLock) return _radioConfirmedClients.Contains(handle);
         }
 
+        // ── WHO REPORTED A CLIENT THE RADIO HAS NOT CONFIRMED ──────────────
+        //
+        // A roster row the radio has not confirmed says which source reported
+        // it (#634, Sol's review of L6). Until Track L7 every such row said
+        // SmartLink, and a client only a LAN discovery broadcast had listed
+        // was shown to an ordinary LAN operator as reported by SmartLink.
+        //
+        // What is recorded is the source that ADDED the record, per attempt
+        // generation and handle, because an add is the only moment the
+        // vendor tells us anything: a source that re-lists a record it did
+        // not add updates it in place and raises nothing. So:
+        //
+        //   * added during a SmartLink list merge (the merge's thread-static
+        //     flag says so) — SmartLink;
+        //   * added outside a merge with no client_id — a discovery
+        //     broadcast, because the radio's own status always carries one
+        //     and a broadcast never does.
+        //
+        // A client with no recorded adder — one already in the vendor
+        // object's list when we attached (SeedRosterFrom), or a record that
+        // carried a client_id without the radio's report on this connection
+        // — is named by the object's own channel: a SmartLink list is what
+        // fills a WAN object, a broadcast what fills a LAN one. That is the
+        // one inference here, and it is Sol's source-attribution follow-up
+        // in another place; see the Track L7 report.
+        //
+        // WHEN ONE CLIENT HAS BOTH SOURCES — a dual-homed radio hears the
+        // broadcast and the SmartLink list — the row names the one that
+        // added it, the latest to add it since it was last absent. That
+        // source really did report the client, so the sentence is true; the
+        // other one's re-listing is invisible, and claiming it would be
+        // naming a report nobody observed. The radio's own confirmation
+        // outranks both.
+
+        private readonly object _clientReportersLock = new object();
+        private int _clientReportersAttempt = int.MinValue;
+        private readonly Dictionary<uint, ClientRowSource> _clientAddedBy = new Dictionary<uint, ClientRowSource>();
+
+        /// <summary>Record that <paramref name="source"/> added
+        /// <paramref name="handle"/> during attempt
+        /// <paramref name="attemptGeneration"/>. A newer attempt starts the
+        /// record afresh; an older one's note is ignored.</summary>
+        private void NoteClientAddedBy(int attemptGeneration, uint handle, ClientRowSource source)
+        {
+            lock (_clientReportersLock)
+            {
+                if (attemptGeneration < _clientReportersAttempt) return;
+                if (attemptGeneration > _clientReportersAttempt)
+                {
+                    _clientAddedBy.Clear();
+                    _clientReportersAttempt = attemptGeneration;
+                }
+                _clientAddedBy[handle] = source;
+            }
+        }
+
+        /// <summary>
+        /// The source a row names: the radio when it has confirmed the
+        /// client on this connection, otherwise whichever of a SmartLink list
+        /// or a discovery broadcast added it, otherwise the radio object's own
+        /// channel (see the block comment above).
+        /// </summary>
+        private ClientRowSource SourceOfClient(uint handle, int attemptGeneration, Radio radio)
+        {
+            if (RadioHasConfirmedClient(handle)) return ClientRowSource.Radio;
+            lock (_clientReportersLock)
+            {
+                if (attemptGeneration == _clientReportersAttempt
+                    && _clientAddedBy.TryGetValue(handle, out var added))
+                    return added;
+            }
+            return radio != null && radio.IsWan ? ClientRowSource.SmartLinkList : ClientRowSource.LocalDiscovery;
+        }
+
         /// <summary>
         /// Apply one of the radio's own client reports for this connection.
         /// Runs on the command reader thread, before the vendor mutates its
@@ -10004,6 +10078,15 @@ namespace Radios
             // duplicate-name check below, which reads it.
             ObserveClientAdded(binding, client, isMine);
 
+            // Who added it, for the row's sentence (#634, Track L7). A list
+            // merge says so on this thread; otherwise a record without a
+            // client_id was built from a discovery broadcast, because the
+            // radio's own status always carries one.
+            if (_mergingSmartLinkList)
+                NoteClientAddedBy(binding.Generation, client.ClientHandle, ClientRowSource.SmartLinkList);
+            else if (string.IsNullOrEmpty(client.ClientID) && !client.IsThisClient)
+                NoteClientAddedBy(binding.Generation, client.ClientHandle, ClientRowSource.LocalDiscovery);
+
             if (isMine)
             {
 
@@ -10255,11 +10338,12 @@ namespace Radios
         /// the display AND the roster, and the roster is where a client that
         /// a list or broadcast stopped listing is KEPT, marked, until the
         /// radio's own status says otherwise — the vendor's list has already
-        /// dropped it. <c>confirmedByRadio</c> is true when the radio's own
-        /// status reported the handle connected on this connection and not
-        /// gone since; a row without it is one only a list or a broadcast
-        /// has reported. <c>mayHaveLeft</c> is the marked entry: reported
-        /// earlier, and something has since omitted it.</para>
+        /// dropped it. <c>Source</c> is the radio when its own status reported
+        /// the handle connected on this connection and not gone since;
+        /// otherwise it names which source reported the row — a SmartLink
+        /// list or a local discovery broadcast (Track L7, see
+        /// <see cref="SourceOfClient"/>). <c>mayHaveLeft</c> is the marked
+        /// entry: reported earlier, and something has since omitted it.</para>
         /// </remarks>
         public List<ClientRow> GetGuiClients()
         {
@@ -10286,7 +10370,7 @@ namespace Radios
                     entry.Handle,
                     entry.IsThisClient || myClient(entry.Handle),
                     string.Join(", ", ownedSlices),
-                    RadioHasConfirmedClient(entry.Handle),
+                    SourceOfClient(entry.Handle, snapshot.AttemptGeneration, radio),
                     entry.ReportedGoneByDiscovery));
             }
             return result;

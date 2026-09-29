@@ -1061,6 +1061,8 @@ connect.client.info_unavailable	3005600c726d0b52
 connect.client.may_have_left	4b0f3e4238136ca4
 connect.client.reported_by_smartlink	07f03b65649f4785
 connect.client.reported_by_smartlink_no_station	86c334a4886205cd
+connect.client.reported_on_local_network	dccd30105a9e4bac
+connect.client.reported_on_local_network_no_station	ebd5d21d3b4a6677
 connect.client.unconfirmed_affected	8d6f8dd9f74cf91e
 connect.client.unknown_added	ea01905146e1b654
 connect.client.unknown_removed	09a479401a303571

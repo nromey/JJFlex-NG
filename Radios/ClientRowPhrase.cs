@@ -6,6 +6,29 @@ using System.Linq;
 namespace Radios
 {
     /// <summary>
+    /// Where the knowledge of a MultiFlex client came from (#634, Sol's
+    /// review of L6). The vendor merges three sources into one client list,
+    /// and a row that names the wrong one tells the operator something false:
+    /// until Track L7 every row the radio had not confirmed said SmartLink
+    /// had reported it, including a client only a LAN discovery broadcast had
+    /// ever mentioned, to an operator who had never touched SmartLink.
+    /// </summary>
+    public enum ClientRowSource
+    {
+        /// <summary>The radio's own status reported this client connected
+        /// on this connection and has not reported it gone since.</summary>
+        Radio,
+
+        /// <summary>Not confirmed by the radio; a SmartLink list — from the
+        /// account this connection was brokered through — reported it.</summary>
+        SmartLinkList,
+
+        /// <summary>Not confirmed by the radio; a discovery broadcast on the
+        /// local network reported it.</summary>
+        LocalDiscovery,
+    }
+
+    /// <summary>
     /// One MultiFlex client as the roster holds it, with how we know about it.
     /// </summary>
     /// <param name="Program">The client program, "Unknown" when none was reported.</param>
@@ -13,10 +36,9 @@ namespace Radios
     /// <param name="Handle">The radio's client handle.</param>
     /// <param name="IsThisClient">Our own client.</param>
     /// <param name="OwnedSlices">Slice letters this client owns, comma-joined; "" for none.</param>
-    /// <param name="ConfirmedByRadio">The radio's own status reported this
-    /// client connected on this connection, and has not reported it gone
-    /// since. False for a row only a SmartLink list or a discovery broadcast
-    /// has mentioned.</param>
+    /// <param name="Source">Who told us about this client: the radio's own
+    /// status, or — when the radio has not confirmed it — a SmartLink list or
+    /// a local discovery broadcast. See <see cref="ClientRowSource"/>.</param>
     /// <param name="MayHaveLeft">Reported earlier; a list or broadcast has
     /// since stopped mentioning it, and the radio has not said it left.</param>
     public readonly record struct ClientRow(
@@ -25,9 +47,14 @@ namespace Radios
         uint Handle,
         bool IsThisClient,
         string OwnedSlices,
-        bool ConfirmedByRadio,
+        ClientRowSource Source,
         bool MayHaveLeft)
     {
+        /// <summary>The radio's own status reported this client connected on
+        /// this connection, and has not reported it gone since. False for a
+        /// row only a SmartLink list or a discovery broadcast has mentioned.</summary>
+        public bool ConfirmedByRadio => Source == ClientRowSource.Radio;
+
         /// <summary>The name a sentence about this client uses: station, else program.</summary>
         public string NameForSentence => !string.IsNullOrEmpty(Station) ? Station : Program;
 
@@ -46,8 +73,10 @@ namespace Radios
     /// vendor merges SmartLink's list and discovery broadcasts into the same
     /// client list the radio's own status writes, so until Track L6 every row
     /// read as the radio's word. A client seen only in a list is shown,
-    /// labelled as reported, and cannot be disconnected from that row until
-    /// the radio identifies it; a client the radio confirmed that a list has
+    /// labelled with the source that reported it — SmartLink's list or a
+    /// broadcast on the local network (Track L7) — and cannot be
+    /// disconnected from that row until the radio identifies it; a client
+    /// the radio confirmed that a list has
     /// since omitted is KEPT and shown as possibly gone, because a list can
     /// omit a live client.</para>
     ///
@@ -56,6 +85,8 @@ namespace Radios
     /// be built, and none was ruled on. FOR NOEL'S PROSE REVIEW:
     /// <c>connect.client.reported_by_smartlink</c>,
     /// <c>connect.client.reported_by_smartlink_no_station</c>,
+    /// <c>connect.client.reported_on_local_network</c>,
+    /// <c>connect.client.reported_on_local_network_no_station</c>,
     /// <c>connect.client.may_have_left</c>,
     /// <c>connect.client.info_unavailable</c>,
     /// <c>connect.multiflex.some_unconfirmed</c>,
@@ -82,10 +113,18 @@ namespace Radios
             }
             if (!row.ConfirmedByRadio && !row.IsThisClient)
             {
-                // Drafts 1 and 2: reported by SmartLink, not yet confirmed.
+                // Not yet confirmed, and the sentence names the source that
+                // actually reported it (#634, Sol's review of L6). Drafts 1
+                // and 2 for SmartLink; the local-network pair mirrors them
+                // in the wording of Noel's draft 11. All four are drafts.
+                bool lan = row.Source == ClientRowSource.LocalDiscovery;
                 return (string.IsNullOrEmpty(row.Station)
-                        ? Lexicon.Get("connect.client.reported_by_smartlink_no_station")
-                        : Lexicon.Get("connect.client.reported_by_smartlink",
+                        ? Lexicon.Get(lan
+                            ? "connect.client.reported_on_local_network_no_station"
+                            : "connect.client.reported_by_smartlink_no_station")
+                        : Lexicon.Get(lan
+                            ? "connect.client.reported_on_local_network"
+                            : "connect.client.reported_by_smartlink",
                             ("program", row.Program), ("station", row.Station)))
                     + slices;
             }

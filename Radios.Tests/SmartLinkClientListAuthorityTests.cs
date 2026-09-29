@@ -59,16 +59,22 @@ namespace Radios.Tests
             public int ConnectedEarcons, DisconnectedEarcons, Refreshes;
             private readonly Action _savedConnected, _savedDisconnected;
 
-            public Bench(bool provenRoute = true)
+            /// <param name="lan">A LAN radio on a TCP connection instead —
+            /// the ordinary local operator, who has never touched SmartLink
+            /// (Track L7).</param>
+            public Bench(bool provenRoute = true, bool lan = false)
             {
                 Assert.True(AddedFlag != null && RemovedFlag != null,
                     "FlexBase's start flags are not where this test reads them, so every retry assertion would be vacuous.");
-                Radio = OfflineCommandProducer.Radio();
+                Radio = OfflineCommandProducer.Radio(wan: !lan);
                 Rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests", StationName = Requested });
                 Rig.SuppressSpeech = true;
                 Rig.theRadio = Radio;
-                Radio.WANConnectionHandle = "broker-result";
-                OfflineCommandProducer.Call(Rig, "rememberCommandRoute", Radio, provenRoute ? "broker-result" : "other-handle", Account);
+                if (!lan)
+                {
+                    Radio.WANConnectionHandle = "broker-result";
+                    OfflineCommandProducer.Call(Rig, "rememberCommandRoute", Radio, provenRoute ? "broker-result" : "other-handle", Account);
+                }
                 Rig.BeginStationAttempt(Radio, "test");
                 OfflineCommandProducer.Wire(Rig, Radio);
                 _savedConnected = ScreenReaderOutput.PlayClientConnectedEarcon;
@@ -76,11 +82,35 @@ namespace Radios.Tests
                 ScreenReaderOutput.PlayClientConnectedEarcon = () => ConnectedEarcons++;
                 ScreenReaderOutput.PlayClientDisconnectedEarcon = () => DisconnectedEarcons++;
                 Rig.GuiClientChanged += () => Refreshes++;
-                OfflineCommandProducer.StartTls(Radio);
+                if (lan)
+                {
+                    // The TCP transport, as ProducerIdentityTests drives it:
+                    // an attempt whose writer is memory, published connected.
+                    var transport = OfflineCommandProducer.Transport(Radio);
+                    var attempt = OfflineCommandProducer.Call(transport, "BeginAttempt",
+                        System.Net.IPAddress.Parse("192.0.2.1"), 4992, 0);
+                    _lanWriter = new System.IO.StreamWriter(new System.IO.MemoryStream()) { AutoFlush = true };
+                    attempt.GetType().GetField("Writer").SetValue(attempt, _lanWriter);
+                    Assert.True((bool)OfflineCommandProducer.Call(transport, "PublishConnected", transport.CurrentConnection));
+                }
+                else
+                {
+                    OfflineCommandProducer.StartTls(Radio);
+                }
                 Connection = Radio.CurrentCommandConnection;
                 Assert.NotNull(Rig.CurrentConnectionBinding);
-                Assert.Equal(provenRoute ? Account : null, Rig.CurrentConnectionBinding.AccountId);
+                Assert.Equal(!lan, Rig.CurrentConnectionBinding.IsWan);
+                Assert.Equal(!lan && provenRoute ? Account : null, Rig.CurrentConnectionBinding.AccountId);
             }
+
+            private readonly System.IO.StreamWriter _lanWriter;
+
+            /// <summary>A LAN discovery broadcast for this radio, applied the
+            /// way the vendor's discovery applies it (API.RefreshRadio): the
+            /// radio object's own list merge, on a thread that is not a
+            /// SmartLink merge.</summary>
+            public void BroadcastSays(params GUIClient[] clients) =>
+                Radio.UpdateGuiClientsList(clients.ToList());
 
             /// <summary>A status line from the radio, on this connection.</summary>
             public void RadioSays(string line) => OfflineCommandProducer.Data(Radio, Connection, line);
@@ -104,6 +134,7 @@ namespace Radios.Tests
                 ScreenReaderOutput.PlayClientConnectedEarcon = _savedConnected;
                 ScreenReaderOutput.PlayClientDisconnectedEarcon = _savedDisconnected;
                 OfflineCommandProducer.Release(Rig, Radio);
+                _lanWriter?.Dispose();
             }
         }
 
@@ -319,22 +350,101 @@ namespace Radios.Tests
         }
 
         // ------------------------------------------------------------------
+        // A row names the source that reported it (Track L7, Sol's review of L6)
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// The ordinary LAN operator. A local discovery broadcast lists a
+        /// client the radio has not confirmed; until Track L7 the row said
+        /// SmartLink had reported it, to someone who never used SmartLink.
+        /// It names the local network now, with a station and without one,
+        /// and the radio's own report replaces both with its word.
+        /// </summary>
+        /// <remarks>
+        /// Routing every unconfirmed row to the SmartLink sentence, as L6
+        /// did, turns the first line assertion red.
+        /// </remarks>
+        [Fact]
+        public void A_client_only_a_local_broadcast_reported_is_labelled_as_the_local_network()
+        {
+            using var b = new Bench(lan: true);
+            OurClientIsEstablished(b);
+
+            b.BroadcastSays(Own(), Don(), new GUIClient(10, null, "SmartSDR", "", false));
+
+            var don = b.Row(9);
+            Assert.NotNull(don);
+            Assert.Equal(ClientRowSource.LocalDiscovery, don.Value.Source);
+            Assert.False(don.Value.ConfirmedByRadio);
+            string line = ClientRowPhrase.Line(don.Value);
+            Assert.Equal("SmartSDR, station WA2IWC. Reported on the local network; not yet confirmed by the radio.", line);
+            Assert.DoesNotContain("SmartLink", line, StringComparison.Ordinal);
+            Assert.Equal("A client with no station name was reported on the local network; the radio has not confirmed it.",
+                ClientRowPhrase.Line(b.Row(10).Value));
+            Assert.False(ClientRowPhrase.MayDisconnect(b.Row(9)));
+
+            // The radio's own word outranks the broadcast.
+            b.RadioSays("S0|client 9 connected client_id=don program=SmartSDR station=WA2IWC local_ptt=0");
+            Assert.Equal(ClientRowSource.Radio, b.Row(9).Value.Source);
+            Assert.Equal("SmartSDR on WA2IWC", ClientRowPhrase.Line(b.Row(9).Value));
+        }
+
+        /// <summary>
+        /// Each row is named by the source that added it, not by what kind
+        /// of radio object it sits on. A LAN radio's object is filled by
+        /// broadcasts, yet a SmartLink list merged into it (as display, for a
+        /// LAN connection) adds a client that is SmartLink's; a WAN object is
+        /// filled by lists, yet a record a broadcast built — no client_id,
+        /// outside a merge — is the local network's. Both are cases the
+        /// object's own channel, the fallback for an unrecorded client, would
+        /// name wrongly, so both pin the recorded adder.
+        /// </summary>
+        /// <remarks>
+        /// Dropping the adder record, so every row falls back to the object's
+        /// channel, turns both source assertions red.
+        /// </remarks>
+        [Fact]
+        public void Each_row_names_the_source_that_added_it_not_the_radio_objects_channel()
+        {
+            using (var lan = new Bench(lan: true))
+            {
+                OurClientIsEstablished(lan);
+                lan.BroadcastSays(Own());
+                lan.ListSays(Account, Own(), Don());
+                Assert.Equal(ClientRowSource.SmartLinkList, lan.Row(9).Value.Source);
+                Assert.Contains("Reported by SmartLink", ClientRowPhrase.Line(lan.Row(9).Value), StringComparison.Ordinal);
+            }
+
+            using (var wan = new Bench())
+            {
+                OurClientIsEstablished(wan);
+                wan.BroadcastSays(Own(), Don());
+                Assert.Equal(ClientRowSource.LocalDiscovery, wan.Row(9).Value.Source);
+                Assert.Contains("Reported on the local network", ClientRowPhrase.Line(wan.Row(9).Value), StringComparison.Ordinal);
+            }
+        }
+
+        // ------------------------------------------------------------------
         // The sentences an operator reads, assembled
         // ------------------------------------------------------------------
 
         [Fact]
         public void The_rows_say_how_we_know_and_the_summary_says_when_some_are_only_reported()
         {
-            var ours = new ClientRow("JJFlex", "K5TEST", 7, true, "A", true, false);
-            var confirmed = new ClientRow("SmartSDR", "WA2IWC", 9, false, "B", true, false);
-            var reported = new ClientRow("SmartSDR", "WA2IWC", 9, false, "", false, false);
-            var nameless = new ClientRow("SmartSDR", "", 10, false, "", false, false);
-            var maybeGone = new ClientRow("SmartSDR", "WA2IWC", 9, false, "", true, true);
+            var ours = new ClientRow("JJFlex", "K5TEST", 7, true, "A", ClientRowSource.Radio, false);
+            var confirmed = new ClientRow("SmartSDR", "WA2IWC", 9, false, "B", ClientRowSource.Radio, false);
+            var reported = new ClientRow("SmartSDR", "WA2IWC", 9, false, "", ClientRowSource.SmartLinkList, false);
+            var nameless = new ClientRow("SmartSDR", "", 10, false, "", ClientRowSource.SmartLinkList, false);
+            var broadcast = new ClientRow("SmartSDR", "WA2IWC", 9, false, "", ClientRowSource.LocalDiscovery, false);
+            var namelessBroadcast = new ClientRow("SmartSDR", "", 10, false, "", ClientRowSource.LocalDiscovery, false);
+            var maybeGone = new ClientRow("SmartSDR", "WA2IWC", 9, false, "", ClientRowSource.Radio, true);
 
             Assert.Equal("JJFlex on K5TEST — Slices: A (This client)", ClientRowPhrase.Line(ours));
             Assert.Equal("SmartSDR on WA2IWC — Slices: B", ClientRowPhrase.Line(confirmed));
             Assert.Equal("SmartSDR, station WA2IWC. Reported by SmartLink; not yet confirmed by the radio.", ClientRowPhrase.Line(reported));
             Assert.Equal("A client with no station name was reported by SmartLink; the radio has not confirmed it.", ClientRowPhrase.Line(nameless));
+            Assert.Equal("SmartSDR, station WA2IWC. Reported on the local network; not yet confirmed by the radio.", ClientRowPhrase.Line(broadcast));
+            Assert.Equal("A client with no station name was reported on the local network; the radio has not confirmed it.", ClientRowPhrase.Line(namelessBroadcast));
             Assert.Equal("WA2IWC was reported earlier. The radio has not confirmed that this client left.", ClientRowPhrase.Line(maybeGone));
 
             Assert.Equal("1 client connected:", ClientRowPhrase.Summary(new[] { ours }, informationUnavailable: false));

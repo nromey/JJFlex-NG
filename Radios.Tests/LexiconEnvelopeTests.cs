@@ -614,6 +614,12 @@ namespace Radios.Tests
             // classified, because their wording is Noel's and unruled and
             // their classification is a #617 speech decision nobody has made.
             // When Track I merges on top of this, it reads 3,043.
+            //
+            // Then 2,823 on Track L7 (#634, Sol's review of L6): the two
+            // local-network forms of the reported-client row, so a client
+            // only a LAN broadcast listed stops saying SmartLink reported it.
+            // Frozen as DRAFTS for the same reason as L6's. When Track I
+            // merges on top of this, it reads 3,045.
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -626,7 +632,7 @@ namespace Radios.Tests
                 }
             }
 
-            Assert.Equal(2821, unclassified);
+            Assert.Equal(2823, unclassified);
             Assert.All(classified, key =>
                 Assert.StartsWith("facts.", key, StringComparison.Ordinal));
             Assert.True(classified.Count > 30,
