@@ -11,7 +11,7 @@ namespace JJFlex.TxFactAudit
     /// A null value is one the line said had not arrived: since H17 (#625)
     /// the writer prints <c>no-sample</c> instead of a placeholder number, and
     /// this reader keeps that as "no reading" rather than inventing one.</summary>
-    public sealed record TxMeterLine(int Tick, double? ScMicDb, double? ScMicPeakDb,
+    public sealed record TxMeterLine(long Tick, double? ScMicDb, double? ScMicPeakDb,
                                      double? SwAlcDb, double? ForwardDbm)
     {
         public double? ForwardWatts =>
@@ -55,9 +55,11 @@ namespace JJFlex.TxFactAudit
     ///
     /// <para><b>Two limits, designed around rather than papered over.</b>
     /// <c>traceTxMeters</c> returns unless the radio is transmitting or tuning,
-    /// so there are NO lines while receiving — an absence of lines means no transmission
-    /// was traced, and reporting that as "the meters are unreadable" would be
-    /// its own fabricated fact. And the per-meter lines exist only when the
+    /// so there are NO lines while receiving. An absence of lines is only
+    /// that: no line was found. It is not evidence that the radio did not
+    /// transmit (no reading may have arrived to drive one, or the recording
+    /// may not cover a transmission), and reporting it as "the meters are
+    /// unreadable" would be its own fabricated fact. And the per-meter lines exist only when the
     /// operator has turned on "Record the meter stream" on Settings →
     /// Diagnostics (task #170) — no trace level brings them back, because
     /// their raw form was measured at half of a 52 MB capture and made
@@ -90,10 +92,37 @@ namespace JJFlex.TxFactAudit
         /// </summary>
         private static readonly Regex TxMeters = new(
             @"^(?<tick>\d+)\s+\[[^\]]*\]\s+txMeters:\s+(?:state=\S+\s+)?"
-            + @"SC_MIC=(?<sc>-?[\d.]+|no-sample)\s+\(peak\s+(?<peak>-?[\d.]+|no-sample)\)"
-            + @"(?:\s+via\s+.*?)?\s+SWALC=(?<alc>-?[\d.]+|no-sample)"
-            + @"\s+fwd=(?:(?<fwd>-?[\d.]+)\s+dBm|no-sample)",
+            + @"SC_MIC=(?<sc>" + Number + @"|no-sample)\s+\(peak\s+(?<peak>" + Number + @"|no-sample)\)"
+            + @"(?:\s+via\s+.*?)?\s+SWALC=(?<alc>" + Number + @"|no-sample)"
+            + @"\s+fwd=(?:(?<fwd>" + Number + @")\s+dBm|no-sample)",
             RegexOptions.Compiled);
+
+        /// <summary>
+        /// A number as ANY culture's .NET formatting writes it, because traces
+        /// already in the field were written that way (#625, H18, Sol's
+        /// blocker 2). Until H18 the app formatted <c>txMeters:</c> numbers in
+        /// the machine's own culture, so a German machine wrote <c>-18,0</c>,
+        /// a Finnish or Swedish one <c>U+2212 18,0</c> (a real minus sign),
+        /// and an Arabic one a direction mark, a minus and the Arabic decimal
+        /// separator. This reader took digits and periods only, dropped every
+        /// such line without a word, and then reported a session with no
+        /// transmission. The writer is invariant now; the reader stays
+        /// tolerant for the traces that already exist. <see cref="Num"/>
+        /// normalises what this matches. The set is every shape the installed
+        /// cultures produce, and a test walks all of them.
+        /// </summary>
+        private const string Number =
+            @"[\u061C\u200E\u200F]*[-\u2212]?[\u061C\u200E\u200F]*\d+(?:[.,\u066B]\d+)?";
+
+        /// <summary>A line the writer meant as a <c>txMeters:</c> reading: the
+        /// head straight after the thread tag, then <c>state=</c> or
+        /// <c>SC_MIC=</c>. Not a census or an election line, which carry no
+        /// <c>=</c> after the meter name, and not the line's own introduction,
+        /// which quotes the head mid-sentence. Used only to COUNT readings the
+        /// pattern above could not read, so a format change is reported rather
+        /// than read as silence.</summary>
+        private static readonly Regex LooksLikeTxMeterReading = new(
+            @"\]\s+txMeters:\s+(?:state=|SC_MIC=)", RegexOptions.Compiled);
 
         /// <summary>The per-meter lines that only exist while meter-stream
         /// recording is on (raw at Verbose in pre-2026-08-21 traces). Named
@@ -110,7 +139,7 @@ namespace JJFlex.TxFactAudit
         };
 
         private static readonly Regex VerboseValue = new(
-            @"\]\s+(?<key>micData|micPeakData|compPeakData|SWRData|forwardPower|hwALCData):\s*(?<v>-?[\d.]+)",
+            @"\]\s+(?<key>micData|micPeakData|compPeakData|SWRData|forwardPower|hwALCData):\s*(?<v>" + Number + ")",
             RegexOptions.Compiled);
 
         /// <summary>The coalesced form MeterTraceStream writes since 2026-08-21:
@@ -118,7 +147,8 @@ namespace JJFlex.TxFactAudit
         /// The format is a contract with Radios/MeterTraceStream.cs — change
         /// either side only in step with the other.</summary>
         private static readonly Regex CoalescedValue = new(
-            @"\]\s+(?<key>micData|micPeakData|compPeakData|SWRData|forwardPower|hwALCData):\s+min=(?<min>-?[\d.]+)\s+max=(?<max>-?[\d.]+)\s+last=(?<last>-?[\d.]+)\s+n=(?<n>\d+)",
+            @"\]\s+(?<key>micData|micPeakData|compPeakData|SWRData|forwardPower|hwALCData):\s+min=(?<min>" + Number
+            + @")\s+max=(?<max>" + Number + @")\s+last=(?<last>" + Number + @")\s+n=(?<n>\d+)",
             RegexOptions.Compiled);
 
         /// <summary>What one trace had to say about the transmit meters.</summary>
@@ -137,6 +167,15 @@ namespace JJFlex.TxFactAudit
                 new(StringComparer.OrdinalIgnoreCase);
 
             public bool AnyTransmission => TxLines.Count > 0;
+
+            /// <summary>Lines that looked like <c>txMeters:</c> readings and
+            /// that this reader could not read. Non-zero means the format has
+            /// moved on from this tool, which is exactly how it spent four
+            /// weeks reporting no transmissions (H17).</summary>
+            public long UnreadTxLines { get; internal set; }
+
+            /// <summary>The first such line, so the report can show it.</summary>
+            public string? FirstUnreadTxLine { get; internal set; }
 
             internal void AddSample(string key, double value, long readings)
             {
@@ -174,9 +213,15 @@ namespace JJFlex.TxFactAudit
                 if (m.Success)
                 {
                     result.TxLines.Add(new TxMeterLine(
-                        int.Parse(m.Groups["tick"].Value, CultureInfo.InvariantCulture),
+                        long.Parse(m.Groups["tick"].Value, CultureInfo.InvariantCulture),
                         Value(m.Groups["sc"]), Value(m.Groups["peak"]),
                         Value(m.Groups["alc"]), Value(m.Groups["fwd"])));
+                    continue;
+                }
+                if (LooksLikeTxMeterReading.IsMatch(line))
+                {
+                    result.UnreadTxLines++;
+                    result.FirstUnreadTxLine ??= line;
                     continue;
                 }
 
@@ -204,8 +249,21 @@ namespace JJFlex.TxFactAudit
             return result;
         }
 
-        private static double Num(string s) =>
-            double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture);
+        /// <summary>A number matched by <see cref="Number"/>, whatever culture
+        /// wrote it: direction marks dropped, a real minus sign made a hyphen,
+        /// and a comma or the Arabic decimal separator made a period. Safe
+        /// because every number on these lines is written without digit
+        /// grouping, so a comma can only be a decimal separator.</summary>
+        private static double Num(string s)
+        {
+            string plain = s.Replace("\u061C", "", StringComparison.Ordinal)
+                .Replace("\u200E", "", StringComparison.Ordinal)
+                .Replace("\u200F", "", StringComparison.Ordinal)
+                .Replace('\u2212', '-')
+                .Replace(',', '.')
+                .Replace('\u066B', '.');
+            return double.Parse(plain, NumberStyles.Float, CultureInfo.InvariantCulture);
+        }
 
         /// <summary>A <c>txMeters:</c> field: its number, or null when the line
         /// said <see cref="NoSample"/> (or, for fwd, carried no number).</summary>
@@ -223,13 +281,30 @@ namespace JJFlex.TxFactAudit
             write($"{r.LinesRead} lines of trace.");
             write("");
 
+            if (r.UnreadTxLines > 0)
+            {
+                // First, before any figure: a reader that cannot read the line
+                // must not let the reader of this report think the line was
+                // absent. H17 found four weeks of exactly that.
+                write($"{r.UnreadTxLines} lines looked like txMeters readings, but this tool could not read them.");
+                write("The line's format has probably changed since the tool was last updated. Fix the");
+                write("tool before drawing any conclusion from this trace. The first of those lines was:");
+                write("  " + r.FirstUnreadTxLine);
+                write("");
+            }
+
             if (!r.AnyTransmission)
             {
-                write("No transmit meter lines at all — and that is a statement about whether the radio");
-                write("TRANSMITTED, not about whether its meters can be read. FlexBase.traceTxMeters");
-                write("returns immediately unless the radio is transmitting or tuning, so a receiving session");
-                write("traces none of these however healthy every meter is. Do not record the transmit");
-                write("meter facts as unreadable on this evidence.");
+                // Only what the tool can establish (H18, Sol's blocker 2). An
+                // empty result used to be reported as a statement that the
+                // radio did not transmit, which a trace cannot show.
+                write("No txMeters lines were found in this trace. That is all this tool can establish from");
+                write("it, and it is not evidence about whether the radio transmitted. The app writes a");
+                write("txMeters line only while the radio is transmitting or tuning and a meter reading arrives");
+                write("to drive it, so a trace can lack them because the radio did not transmit, because no");
+                write("reading arrived, or because the recording did not cover a transmission. Nor is it");
+                write("evidence that the transmit meters cannot be read, so do not record the transmit meter");
+                write("facts as unreadable on this evidence.");
                 write("");
                 write("The receive-side facts are settings and telemetry the radio holds continuously.");
                 write("Read those with 'TxFactAudit audit', which asks the radio rather than the trace.");

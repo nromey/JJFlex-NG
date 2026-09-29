@@ -10898,11 +10898,23 @@ namespace Radios
 
         /// <summary>The <c>txMeters:</c> rendering of one value: the number, or
         /// <see cref="CaptureMeterSet.NoSample"/> when the radio has not
-        /// reported it. NaN is the no-sample signal the elections use.</summary>
+        /// reported it. NaN is the no-sample signal the elections use.
+        /// <para><b>Invariant culture, always (#625, H18).</b> The number went
+        /// through the machine's own culture, so a German or Swedish machine
+        /// wrote <c>-18,0</c> or <c>−18,0</c>, and TxFactAudit, reading
+        /// digits and periods, silently dropped every such line and then told
+        /// its reader the radio had not transmitted. A diagnostic file leaves
+        /// the machine it was written on and is read somewhere else, so its
+        /// numbers are written one way everywhere. Sol's blocker 2.</para></summary>
         private static string txMeterField(float value, string format, string unit = "")
         {
-            return float.IsNaN(value) ? CaptureMeterSet.NoSample : value.ToString(format) + unit;
+            return float.IsNaN(value) ? CaptureMeterSet.NoSample : txMeterNumber(value, format) + unit;
         }
+
+        /// <summary>A <c>txMeters:</c> number, in the invariant culture. See
+        /// <see cref="txMeterField"/>.</summary>
+        private static string txMeterNumber(float value, string format) =>
+            value.ToString(format, System.Globalization.CultureInfo.InvariantCulture);
 
         /// <summary>
         /// A correlated SC_MIC / SW ALC / forward-power snapshot, at most once a
@@ -10975,9 +10987,9 @@ namespace Radios
             float back = ReflectedFraction;
             float swrCalc = ComputedSWR;
             string backText = !(fwdOk && reflOk) ? CaptureMeterSet.NoSample
-                : float.IsNaN(back) ? "n/a" : (back * 100f).ToString("F1") + "%";
+                : float.IsNaN(back) ? "n/a" : txMeterNumber(back * 100f, "F1") + "%";
             string swrCalcText = !(fwdOk && reflOk) ? CaptureMeterSet.NoSample
-                : float.IsNaN(swrCalc) ? "n/a" : swrCalc.ToString("F2");
+                : float.IsNaN(swrCalc) ? "n/a" : txMeterNumber(swrCalc, "F2");
             // The state is ON THE LINE. Two states now feed this one format,
             // and a reader who cannot tell a tune sample from a transmit sample
             // will read a tune's reflected power as a transmit fault. SC_MIC
