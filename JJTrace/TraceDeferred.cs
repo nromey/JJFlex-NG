@@ -19,11 +19,12 @@ namespace JJTrace
     /// </remarks>
     internal readonly struct DeferredTraceLine
     {
-        internal DeferredTraceLine(Guid boundSession, string text, bool newLine)
+        internal DeferredTraceLine(Guid boundSession, string text, bool newLine, TraceRecordKind kind = null)
         {
             BoundSession = boundSession;
             Text = text;
             NewLine = newLine;
+            Kind = kind;
         }
 
         /// <summary>The session this line may be written into, or
@@ -35,6 +36,14 @@ namespace JJTrace
         /// <summary>True for a whole line; false for a fragment from
         /// <c>Trace.Write</c>.</summary>
         internal bool NewLine { get; }
+
+        /// <summary>
+        /// The record kind the writer declared, captured at the moment the
+        /// line was deferred, so a data record that waited out a transition
+        /// still introduces itself in whichever file it lands in (#625). Null
+        /// for an ordinary line.
+        /// </summary>
+        internal TraceRecordKind Kind { get; }
     }
 
     public static partial class Tracing
@@ -167,7 +176,8 @@ namespace JJTrace
             if (TheSwitch.Level < lvl) return;
             try
             {
-                Enqueue(new DeferredTraceLine(boundTo?.SessionId ?? Guid.Empty, TracePrefix() + str, newLine: true));
+                Enqueue(new DeferredTraceLine(boundTo?.SessionId ?? Guid.Empty, TracePrefix() + str, newLine: true,
+                                              kind: PendingRecordKind));
                 DeferredLineProbeForTests?.Invoke(str);
             }
             catch
@@ -191,7 +201,9 @@ namespace JJTrace
         internal static void DeferUnbound(string text, bool newLine)
         {
             if (text == null) return;
-            Enqueue(new DeferredTraceLine(Guid.Empty, text, newLine));
+            // The router defers on the writer's own thread, so the kind the
+            // writer declared is still on this thread's static here.
+            Enqueue(new DeferredTraceLine(Guid.Empty, text, newLine, PendingRecordKind));
         }
 
         private static void Enqueue(DeferredTraceLine line)

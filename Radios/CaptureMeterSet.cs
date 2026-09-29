@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using JJTrace;
 
 namespace Radios
 {
@@ -83,6 +84,42 @@ namespace Radios
 
         /// <summary>The <c>captureMeters:</c> line, written by this class.</summary>
         public const string CaptureMetersLine = "captureMeters:";
+
+        /// <summary>
+        /// What a <c>txMeters:</c> line is, in the words of the code that
+        /// writes it — handed to the sink with every such line so the file
+        /// introduces the kind where it first appears (#625). Owned here rather
+        /// than beside <c>FlexBase.traceTxMeters</c> because this class is
+        /// already the one place the recorded set is written down, and the
+        /// fields named below are the ones that method formats: change either
+        /// only in step with the other. DRAFT for Noel.
+        /// </summary>
+        public static readonly TraceRecordKind TxMetersRecord = new TraceRecordKind(
+            "txMeters",
+            "lines that begin 'txMeters: state=' are JJ Flexible's transmit readings, taken about once a second"
+            + " while the radio is transmitting or tuning. SC_MIC is the mic level in dB with its recent peak"
+            + " in brackets and 'via' naming which copy of the meter is believed; SWALC is the software ALC."
+            + " fwd and refl are forward and reflected power in dBm, fwdW and reflW the same in watts, back the"
+            + " share of power coming back, SWRraw the SWR the radio reports and SWRcalc the SWR computed from"
+            + " the two powers. state says whether the radio was transmitting, tuning, or both. A 'txMeters:'"
+            + " line that instead says 'census' or names a meter as elected records which copy of a duplicated"
+            + " meter is being read; it is not a reading.");
+
+        /// <summary>
+        /// What a <c>captureMeters:</c> line is, in the words of the code that
+        /// writes it — <see cref="Format"/> below renders every field named
+        /// here. DRAFT for Noel.
+        /// </summary>
+        public static readonly TraceRecordKind CaptureMetersRecord = new TraceRecordKind(
+            "captureMeters",
+            "lines that begin 'captureMeters:' are the amplifier temperature and the supply voltage as the radio"
+            + " reported them. paTemp gives the lowest, highest and last temperature in degrees C over the window"
+            + " and n the number of samples; 'paTemp none n=0' means the radio sent no temperature in that window."
+            + " volts is the supply voltage at the moment the line was written, or the reason there is none, and"
+            + " voltsAge says how old that reading was when it is older than the window. state says whether the"
+            + " window was taken while transmitting or tuning (tx) or at rest. One line a second while"
+            + " transmitting or tuning, one every thirty seconds otherwise. A line that ends"
+            + " 'partial=connection_dropped' is a window cut short because the connection to the radio was lost.");
 
         /// <summary>
         /// THE RECORDED SET. Four meters, and the two lines that carry them.

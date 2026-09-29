@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -213,18 +214,60 @@ namespace JJTrace
         }
 
         /// <summary>
-        /// What this sink knows it has put in its file: which kinds of meter
-        /// reading were written and flushed, and what a fault took. Kept
-        /// here because nothing else sees every line; read by the archive and
-        /// frozen onto its result (Sol's review of H9, blocker 2).
+        /// The record kinds that have introduced themselves in the part being
+        /// written, by key. Caller holds <c>_sync</c>. Cleared when a part is
+        /// moved aside, because the next part is a file of its own and must
+        /// describe itself afresh (#625).
+        ///
+        /// <para><b>This replaced a tally that CLASSIFIED lines.</b> Until H16
+        /// the sink recognised meter lines by their text and counted them, and
+        /// the operator's window described the file from the count. The count
+        /// could not see a writer it had not been taught, so the description
+        /// was false whenever a writer was added — which is exactly what the
+        /// ruling forbids. The sink now decides nothing about what a line IS:
+        /// the writer declares its kind, and the sink remembers only whether
+        /// that kind has spoken for itself in this file yet.</para>
         /// </summary>
-        private readonly TraceFileTally _tally = new TraceFileTally();
+        private readonly HashSet<string> _introduced = new HashSet<string>(StringComparer.Ordinal);
 
-        /// <summary>A snapshot of <see cref="_tally"/>, under the lock.</summary>
-        public TraceFileFacts Facts
+        /// <summary>
+        /// The kinds introduced so far in the current part, for a test that
+        /// wants to see the sink's own memory rather than read the file back.
+        /// </summary>
+        internal IReadOnlyCollection<string> IntroducedKindsInCurrentPart
         {
-            get { lock (_sync) { return _tally.Snapshot(); } }
+            get { lock (_sync) { return new List<string>(_introduced); } }
         }
+
+        /// <summary>
+        /// Caller holds <c>_sync</c>, and the stream is open. If
+        /// <paramref name="kind"/> has not introduced itself in this part,
+        /// write its introduction now — immediately ahead of the record that
+        /// is about to follow, in the same part, under the same lock, so
+        /// nothing can come between the description and the first thing it
+        /// describes. Returns the bytes written. Throws like any other write;
+        /// the caller's fault handling covers it.
+        /// </summary>
+        private long IntroduceIfNew(TraceRecordKind kind)
+        {
+            if (kind == null || _introduced.Contains(kind.Key)) return 0;
+            string line = Tracing.TracePrefix() + TraceSelfDescription.Introduction(kind) + Environment.NewLine;
+            _writer.Write(line);
+            _introduced.Add(kind.Key);
+            return line.Length;
+        }
+
+        /// <summary>
+        /// The kind of the coalesced vendor frame-gap summary this listener
+        /// writes itself (see <see cref="WriteLine(string)"/>). The listener is
+        /// the WRITER of that line, so the listener describes it. DRAFT for
+        /// Noel (#625).
+        /// </summary>
+        internal static readonly TraceRecordKind PanFrameGapsRecord = new TraceRecordKind(
+            "PanFrameGaps",
+            "lines that begin 'PanFrameGaps:' count the display frames the radio's spectrum stream skipped,"
+            + " summarised at most once a second: n is how many, over how long, and the last skipped frame's"
+            + " own message is quoted at the end. They come from the radio library, not from JJ Flexible's own code.");
 
         /// <summary>Caller holds <c>_sync</c>. Latch the first failure only.</summary>
         private void Fault(Exception ex)
@@ -262,28 +305,32 @@ namespace JJTrace
         /// </summary>
         /// <returns>True when the line was written and flushed; false when the
         /// sink was already closed or the write failed.</returns>
-        public bool WriteTerminalLine(string line)
+        public bool WriteTerminalLine(string line) => WriteTerminalLine(line, null);
+
+        /// <summary>
+        /// The same, for a terminal record that is a DATA record — the drop's
+        /// partial meter window above all — so its kind introduces itself
+        /// ahead of it if it has not yet in this part (#625). The introduction
+        /// and the record are one write: both land, or the fault is latched.
+        /// </summary>
+        public bool WriteTerminalLine(string line, TraceRecordKind kind)
         {
             if (line == null) return false;
             lock (_sync)
             {
-                if (_closed) { _tally.Refused(line); return false; }
+                if (_closed) return false;
                 _rotationSuppressed = true;
-                bool inBuffer = false;
                 try
                 {
+                    _bytesInPart += IntroduceIfNew(kind);
                     _writer.Write(line);
                     _writer.Write(Environment.NewLine);
                     _bytesInPart += line.Length + Environment.NewLine.Length;
-                    _tally.Wrote(line);
-                    inBuffer = true;
                     _writer.Flush();
-                    _tally.Flushed();
                     return true;
                 }
                 catch (Exception ex)
                 {
-                    _tally.FaultedOn(line, failingAlreadyCounted: inBuffer);
                     Fault(ex);
                     CloseInternal();
                     return false;
@@ -318,8 +365,8 @@ namespace JJTrace
                     return WriteFault == null;
                 }
                 bool ok = true;
-                try { _writer?.Flush(); _tally.Flushed(); }
-                catch (Exception ex) { ok = false; failure = ex.Message; _tally.FaultedOn(null, failingAlreadyCounted: false); Fault(ex); }
+                try { _writer?.Flush(); }
+                catch (Exception ex) { ok = false; failure = ex.Message; Fault(ex); }
                 try { _writer?.Dispose(); }
                 catch (Exception ex) { ok = false; failure = failure ?? ex.Message; Fault(ex); }
                 try { _stream?.Dispose(); }
@@ -413,12 +460,20 @@ namespace JJTrace
 
         private void WriteCore(string message)
         {
+            // The kind, if the writer declared one, rides a thread-static set
+            // by Tracing.TraceRecord (or by the drain, for a deferred record)
+            // around this very dispatch. Exact rather than approximate: the
+            // framework calls a listener on the thread that called
+            // Trace.WriteLine, which is the same technique the per-thread cost
+            // window above relies on.
+            TraceRecordKind kind = Tracing.PendingRecordKind;
             lock (_sync)
             {
-                if (_closed) { _tally.Refused(message); return; }
+                if (_closed) return;
                 try
                 {
                     if (NeedIndent) WriteIndent();
+                    _bytesInPart += IntroduceIfNew(kind);
                     _writer.Write(message);
                     // Byte estimate: trace content is effectively ASCII, so one
                     // char is one byte. An estimate is fine — the threshold is a
@@ -426,7 +481,6 @@ namespace JJTrace
                     // single trace line so a FileInfo syscall per write is out
                     // of the question.
                     _bytesInPart += message.Length;
-                    _tally.Wrote(message);
                 }
                 catch (Exception ex)
                 {
@@ -436,7 +490,6 @@ namespace JJTrace
                     // coordinator reads WriteFault after the write and tells
                     // the operator the log has stopped, which a silent close
                     // never did.
-                    _tally.FaultedOn(message, failingAlreadyCounted: false);
                     Fault(ex);
                     CloseInternal();
                     return;
@@ -470,11 +523,30 @@ namespace JJTrace
                 && message.Contains("but got frame", StringComparison.Ordinal))
             {
                 string summary = CoalesceFrameGap(message);
-                if (summary != null) Write(summary + Environment.NewLine);
+                // The summary is THIS listener's own record, so it carries the
+                // listener's own kind and introduces itself like any other
+                // writer's line (#625). The vendor's raw text has no prefix of
+                // its own, so the prefix is added here as Tracing.Emit would.
+                if (summary != null) WriteLine(Tracing.TracePrefix() + summary, PanFrameGapsRecord);
                 return;
             }
 
             Write(message + Environment.NewLine);
+        }
+
+        /// <summary>
+        /// Write one whole line that is a data record of <paramref name="kind"/>,
+        /// so the kind introduces itself first if it has not in this part. The
+        /// drain uses it for a deferred record; the coalescer above for its own
+        /// summary. The kind travels on the same thread-static the routed path
+        /// uses, so there is exactly one place the sink reads it.
+        /// </summary>
+        internal void WriteLine(string message, TraceRecordKind kind)
+        {
+            TraceRecordKind saved = Tracing.PendingRecordKind;
+            Tracing.PendingRecordKind = kind;
+            try { WriteLine(message); }
+            finally { Tracing.PendingRecordKind = saved; }
         }
 
         // Frame-gap coalescing state. Guarded by its own lock, taken only in
@@ -523,8 +595,8 @@ namespace JJTrace
                 lock (_sync)
                 {
                     if (_closed) return;
-                    try { _writer.Flush(); _tally.Flushed(); }
-                    catch (Exception ex) { _tally.FaultedOn(null, failingAlreadyCounted: false); Fault(ex); CloseInternal(); }
+                    try { _writer.Flush(); }
+                    catch (Exception ex) { Fault(ex); CloseInternal(); }
                 }
             }
             finally
@@ -616,9 +688,11 @@ namespace JJTrace
                 // same loss while recording carried on. The part number and the
                 // tally move with the part for the same reason: the part is
                 // gone from the live path, and what is open next — if anything
-                // is — starts empty.
+                // is — starts empty. The introductions move with it too: the
+                // next part is a file of its own and every kind speaks for
+                // itself again there (#625).
                 _partNumber = closedPart + 1;
-                _tally.PartRotated();
+                _introduced.Clear();
                 HandOffClosedPart(partPath, closedPart);
 
                 RotationStepForTests?.Invoke(RotationStepMoved);
@@ -628,14 +702,25 @@ namespace JJTrace
 
                 // The breadcrumb that makes a chain of parts readable as one
                 // session. Written directly to the fresh writer (not through
-                // Trace) because we are inside the listener's own lock.
+                // Trace) because we are inside the listener's own lock. It
+                // stays the FIRST line: TraceLeftoverAdoption joins a leftover
+                // to its chain by finding it within the first few lines.
                 string header = string.Format(
                     "--- trace continues from part {0:D3} ({1}) — this is part {2:D3} ---",
                     closedPart, Path.GetFileName(partPath), _partNumber);
                 RotationStepForTests?.Invoke(RotationStepHeader);
                 _writer.Write(header + Environment.NewLine);
-                _writer.Flush();
                 _bytesInPart = header.Length + Environment.NewLine.Length;
+                // Then the reading guide, as every fresh part carries (#625).
+                // Written here because a rotation opens its file inside this
+                // lock, where the coordinator's open path cannot reach.
+                foreach (string guide in TraceSelfDescription.PartPreamble())
+                {
+                    string line = Tracing.TracePrefix() + guide + Environment.NewLine;
+                    _writer.Write(line);
+                    _bytesInPart += line.Length;
+                }
+                _writer.Flush();
             }
             catch (Exception ex)
             {
@@ -677,11 +762,7 @@ namespace JJTrace
                     // while every later line was refused (Sol's review of
                     // H12). The fault carries BOTH causes: the rotation's,
                     // which is why the file was closed, and the reopen's,
-                    // which is why it stayed closed. The rotation's own
-                    // buffer was flushed inside CloseInternal, where a failure
-                    // is swallowed, so what was pending is counted as taken —
-                    // the facts may not claim a flush nothing confirmed.
-                    _tally.FaultedOn(null, failingAlreadyCounted: false);
+                    // which is why it stayed closed.
                     LatchFault("starting a new part of the trace file failed (" + ex.Message
                                + "), and reopening the file afterwards failed too ("
                                + reopenEx.Message + ")");

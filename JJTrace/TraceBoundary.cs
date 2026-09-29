@@ -186,16 +186,6 @@ namespace JJTrace
         public bool SinkFailedBeforeArchive { get; internal set; }
 
         /// <summary>
-        /// What the archived file is known to contain, read from its sink after
-        /// the close: which kinds of meter reading were written and flushed,
-        /// and what a fault took. Null when this result archived nothing (a
-        /// refusal, or an earlier ticket handed back). The operator's window
-        /// chooses its content paragraphs from this and claims nothing it
-        /// does not establish (Sol's review of H9, blocker 2).
-        /// </summary>
-        public TraceFileFacts FileFacts { get; internal set; }
-
-        /// <summary>
         /// Which generation of the live sink this result describes — the
         /// coordinator's count of sink changes, read under the gate as the
         /// transition ended. The health model orders notes by it, so a report

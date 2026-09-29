@@ -199,10 +199,11 @@ namespace Radios.Tests
             Assert.DoesNotContain("flushCaptureMeters(", dropArm, StringComparison.Ordinal);
 
             // The collector itself must not trace — its whole job is to return
-            // a line for the boundary to place.
+            // a record for the boundary to place (a TraceRecord since H16, so
+            // the line travels with its writer's kind, #625).
             string meters = File.ReadAllText(Path.Combine(
                 CaptureMeterSetTests.RepoRoot(), "Radios", "FlexBase.CaptureMeters.cs"));
-            int collector = meters.IndexOf("internal string collectCaptureMeterFlush(", StringComparison.Ordinal);
+            int collector = meters.IndexOf("internal TraceRecord collectCaptureMeterFlush(", StringComparison.Ordinal);
             Assert.True(collector > 0, "collectCaptureMeterFlush is gone");
             string body = meters.Substring(collector);
             int firstBrace = body.IndexOf('{');
@@ -419,7 +420,7 @@ namespace Radios.Tests
             TraceSessionContext.BeginSession();
             CaptureArchive.ArchiveHook = req =>
             {
-                seen = req.PartialMeterLine;
+                seen = req.PartialMeterLine?.Text;
                 gate.Set();
                 return Archived(@"C:\Traces\one.zip");
             };
@@ -474,7 +475,7 @@ namespace Radios.Tests
             using var gate = new ManualResetEventSlim(false);
             string seen = "not null";
             TraceSessionContext.BeginSession();
-            CaptureArchive.ArchiveHook = req => { seen = req.PartialMeterLine; gate.Set(); return Archived(@"C:\one.zip"); };
+            CaptureArchive.ArchiveHook = req => { seen = req.PartialMeterLine?.Text; gate.Set(); return Archived(@"C:\one.zip"); };
             CaptureArchive.AfterConnectionDrop(new RemovedRadio("A"), "A",
                 () => throw new InvalidOperationException("meter lock wedged"));
             Assert.True(gate.Wait(TimeSpan.FromSeconds(5)));

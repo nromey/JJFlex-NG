@@ -279,6 +279,48 @@ namespace JJTrace
             if (!On) return;
             Emit(str, preferDebugWhenAttached: false);
         }
+
+        /// <summary>
+        /// The record kind the line being dispatched on THIS thread belongs to,
+        /// or null for an ordinary line. Set by <see cref="TraceRecord(TraceRecordKind, string)"/>
+        /// around its dispatch and read by the sink inside it; captured by the
+        /// deferral path so a record that waits out a transition still
+        /// introduces itself when it lands. Thread-static because a listener
+        /// runs on the thread that called <c>Trace.WriteLine</c>, which makes
+        /// this exact with no synchronisation (same reasoning as the sink's
+        /// per-thread cost window).
+        /// </summary>
+        [ThreadStatic] internal static TraceRecordKind PendingRecordKind;
+
+        /// <summary>
+        /// Unconditionally trace a DATA RECORD of <paramref name="kind"/>: a
+        /// line from a writer that emits a stream of measurements, which
+        /// introduces itself in the file the first time it appears in each
+        /// part (#625, <see cref="TraceRecordKind"/>). Everything else about the
+        /// line is <see cref="TraceLine(string)"/>.
+        /// </summary>
+        public static void TraceRecord(TraceRecordKind kind, string str)
+        {
+            if (!On) return;
+            TraceRecordKind saved = PendingRecordKind;
+            PendingRecordKind = kind;
+            try { Emit(str, preferDebugWhenAttached: false); }
+            finally { PendingRecordKind = saved; }
+        }
+
+        /// <summary>
+        /// Conditionally trace a data record of <paramref name="kind"/> at
+        /// <paramref name="lvl"/>. See <see cref="TraceRecord(TraceRecordKind, string)"/>.
+        /// </summary>
+        public static void TraceRecord(TraceRecordKind kind, string str, TraceLevel lvl)
+        {
+            if (!On) return;
+            if (TheSwitch.Level < lvl) return;
+            TraceRecordKind saved = PendingRecordKind;
+            PendingRecordKind = kind;
+            try { Emit(str, preferDebugWhenAttached: true); }
+            finally { PendingRecordKind = saved; }
+        }
         /// <summary>
         /// Conditionally trace a line for this level.
         /// </summary>

@@ -1025,10 +1025,12 @@ Module globals
                                        Assembly.GetEntryAssembly()?.Location)
             Dim sess As TraceSession = TraceSessionContext.Current
             Dim startedUtc As Date = If(sess IsNot Nothing, sess.BootTimeUtc, Date.UtcNow)
-            ' The no-level TraceLine overload on purpose: a state line that only
-            ' appears at some detail levels is a state line a reader cannot rely
-            ' on finding.
-            Tracing.TraceLine(TraceStateMarker.Render(
+            ' The no-level overload on purpose: a state line that only appears
+            ' at some detail levels is a state line a reader cannot rely on
+            ' finding. And as a RECORD with TraceStateMarker's own kind (#625),
+            ' so the file introduces the line where it first appears in each
+            ' part, in the renderer's words.
+            Tracing.TraceRecord(TraceStateMarker.Record, TraceStateMarker.Render(
                 isOn, lvl, ProgramInstance, startedUtc,
                 If(myVersion IsNot Nothing, myVersion.ToString(), "unknown"),
                 If(asmPath, String.Empty),
@@ -1206,7 +1208,7 @@ Module globals
                     .Outcome = TraceSessionOutcome.CleanExit,
                     .OutcomeDetail = CaptureOutcomeDetailPrefix &
                         $"{FormatClock(started)}, about {DescribeMinutes(minutes)}",
-                    .TerminalLines = New String() {
+                    .TerminalLines = New TraceRecord() {
                         $"Detailed capture stopped {Date.Now:O} after about {minutes} minute(s)"},
                     .Resume = TraceResumeIntent.Standing
                 })
@@ -1602,8 +1604,13 @@ Module globals
             ' rather than half-applied. The partial meter line rides along as a
             ' terminal record, which is what stops it landing in a successor's
             ' log (#618).
-            Dim lines As New List(Of String)
-            If Not String.IsNullOrEmpty(request.PartialMeterLine) Then lines.Add(request.PartialMeterLine)
+            ' The window travels as a record WITH ITS KIND (#625): the writer
+            ' that rendered it said what it is, and the boundary hands that on
+            ' so the archived file introduces the line where it first appears.
+            Dim lines As New List(Of TraceRecord)
+            If request.PartialMeterLine IsNot Nothing AndAlso Not String.IsNullOrEmpty(request.PartialMeterLine.Text) Then
+                lines.Add(request.PartialMeterLine)
+            End If
 
             Dim result As TraceTransitionResult = TraceCoordinator.TryArchive(
                 New TraceArchiveRequest With {
@@ -1622,7 +1629,6 @@ Module globals
             outcome.RecoveryRecordFailed = result.PendingRecordFailed
             outcome.TailUncertain = result.TailUncertain
             outcome.SinkFailedBeforeDrop = result.SinkFailedBeforeArchive
-            outcome.FileFacts = result.FileFacts
             outcome.Refused = Not result.Owned
             outcome.RefusalReason = If(result.Owned, Nothing, result.Explanation)
 

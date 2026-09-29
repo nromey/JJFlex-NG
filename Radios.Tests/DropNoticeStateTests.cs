@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using JJTrace;
 using Radios;
@@ -144,8 +145,16 @@ namespace Radios.Tests
         private static string TemperatureLine(int samples, string partialReason = null) =>
             CaptureMeterSet.Format(41.5f, 43f, 42.25f, samples, SupplyVoltage.NoMeter(), transmitting: true, partialReason);
 
+        /// <summary>The drop's partial window exactly as
+        /// <c>FlexBase.collectCaptureMeterFlush</c> hands it over: the rendered
+        /// line WITH its writer's kind (#625).</summary>
+        private static TraceRecord TemperatureRecord(int samples, string partialReason) =>
+            new TraceRecord(TemperatureLine(samples, partialReason), CaptureMeterSet.CaptureMetersRecord);
+
         private const string PowerLine =
             "txMeters: state=tx SC_MIC=-20.0 (peak -18.0) via mic SWALC=0.0 fwd=47.0 dBm refl=20.0 dBm fwdW=50.12 reflW=0.100 back=0.2% SWRraw=1.09 SWRcalc=1.09";
+
+        private const string MeterStreamLine = "micData: min=-120 max=-118.4 last=-119 n=34";
 
         /// <summary>
         /// One drop, end to end: a standing session is recording;
@@ -161,7 +170,7 @@ namespace Radios.Tests
         /// writes, deterministically.
         /// </summary>
         private CaptureArchiveNotice OneDrop(Action duringTheWait, Action beforeTheDrop = null,
-                                          string partialMeterLine = null, Action<string> underTheGate = null)
+                                          TraceRecord partialMeterLine = null, Action<string> underTheGate = null)
         {
             TraceCoordinator.SetStandingIntent(true, TraceLevel.Verbose);
             TraceTransitionResult began = TraceCoordinator.Begin(_livePath, TraceLevel.Verbose, asDetailedCapture: false);
@@ -185,8 +194,8 @@ namespace Radios.Tests
             TraceCoordinator.TransitionProbeForTests = underTheGate;
             CaptureArchive.ArchiveHook = req =>
             {
-                var lines = new System.Collections.Generic.List<string>();
-                if (!string.IsNullOrEmpty(req.PartialMeterLine)) lines.Add(req.PartialMeterLine);
+                var lines = new System.Collections.Generic.List<TraceRecord>();
+                if (!string.IsNullOrEmpty(req.PartialMeterLine?.Text)) lines.Add(req.PartialMeterLine);
                 archiveResult = TraceCoordinator.TryArchive(new TraceArchiveRequest
                 {
                     Expected = (TraceSessionHandle)req.ExpectedSession,
@@ -205,7 +214,6 @@ namespace Radios.Tests
                     SuccessorRecording = archiveResult.TracingOn,
                     TailUncertain = archiveResult.TailUncertain,
                     SinkFailedBeforeDrop = archiveResult.SinkFailedBeforeArchive,
-                    FileFacts = archiveResult.FileFacts,
                 };
                 // As globals.vb does: the operator is only ever offered a path
                 // that exists, so wait for the archive here, on the worker.
@@ -225,7 +233,7 @@ namespace Radios.Tests
             try
             {
                 CaptureArchive.AfterConnectionDrop(new object(), "6300inshack",
-                                                partialMeterLine == null ? null : () => partialMeterLine, old);
+                                                partialMeterLine == null ? null : (Func<TraceRecord>)(() => partialMeterLine), old);
                 Assert.True(atWorker.Wait(TimeSpan.FromSeconds(10)),
                     "the archive worker never reached the old session's ticket; archive: "
                     + (archiveResult == null ? "hook not called" : archiveResult.Status + " — " + archiveResult.Explanation)
@@ -259,7 +267,16 @@ namespace Radios.Tests
             return notice;
         }
 
-        // ── Sol's review of H9, blocker 2: the content claims, end to end ──
+        // ── #625: the window describes nothing; the file describes itself ──
+        //
+        // From H10 to H15 this section drove Sol's content counterexamples
+        // through a real drop and asserted that the window named exactly the
+        // readings the file held. Noel ruled on 2026-09-25 that the window
+        // stops describing the file and the file describes itself, each writer
+        // introducing its own lines as it writes them. So the same drops are
+        // driven, and the assertions are the other way round: the window says
+        // one thing whatever was written, and the ARCHIVED FILE carries the
+        // introductions for exactly the kinds that were.
 
         private static void DisposeLiveField(string field)
         {
@@ -272,145 +289,231 @@ namespace Radios.Tests
         }
 
         /// <summary>
-        /// Sol's first counterexample: a receive-only session. The radio
-        /// never transmitted, so no <c>txMeters:</c> line exists, and the
-        /// window must not promise forward and reflected power. Temperature
-        /// windows were written, and those ARE promised.
+        /// End the successor the last drop opened, so the next
+        /// <see cref="OneDrop"/> can begin a session of its own — what Dispose
+        /// does, between drops.
+        /// </summary>
+        private static void EndRecording()
+        {
+            TraceSessionHandle current = TraceCoordinator.CurrentHandle;
+            if (current != null)
+            {
+                TraceTransitionResult off = TraceCoordinator.TryArchive(new TraceArchiveRequest
+                {
+                    Expected = current,
+                    OperationId = Guid.NewGuid(),
+                    Outcome = TraceSessionOutcome.CleanExit,
+                    Resume = TraceResumeIntent.None,
+                });
+                Assert.Equal(TraceTransition.Accepted, off.Status);
+            }
+            Assert.True(TraceCoordinator.DrainArchives(TimeSpan.FromSeconds(30)));
+            Assert.Null(TraceCoordinator.CurrentHandle);
+        }
+
+        private string ArchivedText(CaptureArchiveNotice notice)
+        {
+            string outDir = Path.Combine(_dir, "extract-" + Guid.NewGuid().ToString("N"));
+            string extracted = SessionArchive.ExtractTraceText(notice.ArchivePath, outDir);
+            Assert.NotNull(extracted);
+            return File.ReadAllText(extracted);
+        }
+
+        private static void AssertNoContentClaim(CaptureArchiveNotice notice)
+        {
+            foreach (string word in CaptureArchiveNoticeTests.ContentWords)
+            {
+                Assert.DoesNotContain(word, notice.Explanation, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        /// <summary>
+        /// Asserts that <paramref name="kind"/> is introduced in
+        /// <paramref name="text"/> exactly once, and on the line immediately
+        /// before the first line that begins (after the prefix) with
+        /// <paramref name="lineHead"/>.
+        /// </summary>
+        private static void AssertIntroducedOnceBeforeFirst(string text, TraceRecordKind kind, string lineHead)
+        {
+            string[] lines = text.Split('\n').Select(l => l.TrimEnd('\r')).ToArray();
+            string intro = TraceSelfDescription.Introduction(kind);
+            int[] introAt = lines.Select((l, i) => (l, i)).Where(p => p.l.Contains(intro, StringComparison.Ordinal)).Select(p => p.i).ToArray();
+            Assert.True(introAt.Length == 1, kind.Key + " introduced " + introAt.Length + " times; expected once");
+            int firstRecord = Array.FindIndex(lines, l => l.Contains("] " + lineHead, StringComparison.Ordinal));
+            Assert.True(firstRecord > 0, "no " + lineHead + " line in the file");
+            Assert.Equal(firstRecord - 1, introAt[0]);
+        }
+
+        /// <summary>
+        /// <b>#625, end to end.</b> Three drops that used to earn three
+        /// different saved paragraphs — a receive-only session (temperature
+        /// only), a session with nothing measured, a transmitting session with
+        /// power, temperature AND the opt-in meter stream (the writer Sol
+        /// found the old count could not see) — now earn one, and it names
+        /// nothing. The positive control is the file: each archived recording
+        /// introduces exactly the kinds written into it, once each, directly
+        /// ahead of the first line of that kind, opens with the reading guide,
+        /// and closes with why it ended.
         /// </summary>
         [Fact]
-        public void A_receive_only_session_is_not_promised_transmit_readings()
+        public void The_window_says_the_same_thing_whatever_the_file_holds_and_the_file_says_it_itself()
         {
-            CaptureArchiveNotice notice = OneDrop(
+            CaptureArchiveNotice receiveOnly = OneDrop(
                 duringTheWait: () => { },
                 beforeTheDrop: () =>
                 {
                     Tracing.TraceLine("propertyChanged:Slice:Freq", TraceLevel.Info);
-                    Tracing.TraceLine(TemperatureLine(6), TraceLevel.Info);
+                    Tracing.TraceRecord(CaptureMeterSet.CaptureMetersRecord, TemperatureLine(6), TraceLevel.Info);
                 },
-                partialMeterLine: TemperatureLine(0, "connection_dropped"));
+                partialMeterLine: TemperatureRecord(0, "connection_dropped"));
+            string receiveOnlyText = ArchivedText(receiveOnly);
+            EndRecording();
 
-            Assert.NotNull(notice.FileFacts);
-            Assert.True(notice.FileFacts.TemperatureReadingsWritten);
-            Assert.False(notice.FileFacts.PowerReadingsWritten);
-            Assert.False(notice.TailUncertain);
-            string text = notice.Explanation;
-            Assert.Contains("including the last amplifier temperature readings the radio sent", text, StringComparison.Ordinal);
-            Assert.Contains("It holds no forward or reflected power readings", text, StringComparison.Ordinal);
-            Assert.DoesNotContain("forward power, reflected power and the temperature", text, StringComparison.Ordinal);
-        }
-
-        /// <summary>
-        /// Sol's second counterexample: a temperature window can be
-        /// <c>paTemp none n=0</c>. Nothing transmitted and the radio sent no
-        /// temperature: the window promises no readings at all.
-        /// </summary>
-        [Fact]
-        public void A_session_with_no_reading_is_promised_none()
-        {
-            CaptureArchiveNotice notice = OneDrop(
+            CaptureArchiveNotice nothing = OneDrop(
                 duringTheWait: () => { },
                 beforeTheDrop: () => Tracing.TraceLine("propertyChanged:Slice:Freq", TraceLevel.Info),
-                partialMeterLine: TemperatureLine(0, "connection_dropped"));
+                partialMeterLine: null);
+            string nothingText = ArchivedText(nothing);
+            EndRecording();
 
-            Assert.False(notice.FileFacts.AnyReadingsWritten);
-            Assert.Contains("It holds no meter readings", notice.Explanation, StringComparison.Ordinal);
-            Assert.DoesNotContain("including the last", notice.Explanation, StringComparison.Ordinal);
-        }
-
-        /// <summary>
-        /// Positive control: a session that transmitted, with a temperature
-        /// window in its final partial line, gets the ordinary H7 sentence
-        /// — the instrument does choose it when the facts support it.
-        /// </summary>
-        [Fact]
-        public void A_session_with_both_kinds_of_reading_gets_the_ordinary_sentence()
-        {
-            CaptureArchiveNotice notice = OneDrop(
-                duringTheWait: () => { },
-                beforeTheDrop: () => Tracing.TraceLine(PowerLine, TraceLevel.Info),
-                partialMeterLine: TemperatureLine(2, "connection_dropped"));
-
-            Assert.True(notice.FileFacts.PowerReadingsWritten);
-            Assert.True(notice.FileFacts.TemperatureReadingsWritten, "the partial window is a terminal record and counts");
-            Assert.Contains("including the last readings the radio sent: forward power, reflected power and the temperature of the amplifier",
-                            notice.Explanation, StringComparison.Ordinal);
-        }
-
-        /// <summary>
-        /// Sol's third counterexample: the file died BEFORE the drop, the
-        /// last reading had been written before that, and no reading came
-        /// after. That reading is in the file, and the window says so
-        /// rather than "the last readings the radio sent are missing".
-        /// </summary>
-        [Fact]
-        public void A_reading_written_before_an_earlier_fault_is_said_to_be_in_the_file()
-        {
-            using var held = new HeldFaultRetire();
-            CaptureArchiveNotice notice = OneDrop(
+            CaptureArchiveNotice transmitting = OneDrop(
                 duringTheWait: () => { },
                 beforeTheDrop: () =>
                 {
-                    Tracing.TraceLine(TemperatureLine(6), TraceLevel.Info);
-                    DisposeLiveField("_writer");
-                    Tracing.TraceLine("the write that fails, not a reading", TraceLevel.Info);
-                    Assert.True(Tracing.LiveListener.IsClosed);
+                    Tracing.TraceRecord(CaptureMeterSet.TxMetersRecord, PowerLine, TraceLevel.Info);
+                    Tracing.TraceRecord(CaptureMeterSet.TxMetersRecord, PowerLine, TraceLevel.Info);
+                    Tracing.TraceRecord(MeterTraceStream.Record, MeterStreamLine);
                 },
-                partialMeterLine: TemperatureLine(0, "connection_dropped"));   // refused, and not a reading
+                partialMeterLine: TemperatureRecord(2, "connection_dropped"));
+            string transmittingText = ArchivedText(transmitting);
 
-            Assert.True(notice.TailUncertain);
-            Assert.True(notice.SinkFailedBeforeDrop);
-            Assert.True(notice.FileFacts.Faulted);
-            Assert.Equal(0, notice.FileFacts.LinesUnflushedAtFault);
-            Assert.False(notice.FileFacts.ReadingsMissingSinceFault);
-            Assert.True(notice.FileFacts.TemperatureReadingsWritten);
-            string text = notice.Explanation;
-            Assert.Contains("The last meter readings the radio sent came before that failure, so they are in the file above", text, StringComparison.Ordinal);
-            Assert.DoesNotContain("including the last readings the radio sent, is missing", text, StringComparison.Ordinal);
-            Assert.DoesNotContain("It holds everything up to the moment", text, StringComparison.Ordinal);
-        }
+            // The window: one sentence, whatever was written, and nothing in it
+            // about what was written.
+            foreach (CaptureArchiveNotice n in new[] { receiveOnly, nothing, transmitting })
+            {
+                Assert.False(n.TailUncertain);
+                AssertNoContentClaim(n);
+            }
+            Assert.Equal(receiveOnly.WhatWasSaved, nothing.WhatWasSaved);
+            Assert.Equal(receiveOnly.WhatWasSaved, transmitting.WhatWasSaved);
+            // Which sentence it is, by key, is RecordingHealthNoticeTests'
+            // business: that class sits in the statics collection the lexicon
+            // store requires, and this one does not.
+            Assert.Contains("The recording has been closed and saved.", receiveOnly.WhatWasSaved, StringComparison.Ordinal);
 
-        /// <summary>
-        /// The same earlier fault, but the drop's own window held samples:
-        /// that reading was refused by the dead file, so it IS missing, and
-        /// the H9 sentence is the right one.
-        /// </summary>
-        [Fact]
-        public void A_reading_refused_after_an_earlier_fault_is_said_to_be_missing()
-        {
-            using var held = new HeldFaultRetire();
-            CaptureArchiveNotice notice = OneDrop(
-                duringTheWait: () => { },
-                beforeTheDrop: () =>
+            // The file: each kind that was written introduces itself, once,
+            // directly ahead of its first line; a kind that was not written is
+            // not mentioned.
+            _out.WriteLine("--- receive-only archive");
+            _out.WriteLine(receiveOnlyText);
+            AssertIntroducedOnceBeforeFirst(receiveOnlyText, CaptureMeterSet.CaptureMetersRecord, CaptureMeterSet.CaptureMetersLine);
+            Assert.DoesNotContain(TraceSelfDescription.Introduction(CaptureMeterSet.TxMetersRecord), receiveOnlyText, StringComparison.Ordinal);
+            Assert.DoesNotContain(TraceSelfDescription.Introduction(MeterTraceStream.Record), receiveOnlyText, StringComparison.Ordinal);
+
+            _out.WriteLine("--- nothing-measured archive");
+            _out.WriteLine(nothingText);
+            Assert.DoesNotContain(TraceSelfDescription.Introduction(CaptureMeterSet.CaptureMetersRecord), nothingText, StringComparison.Ordinal);
+            Assert.DoesNotContain(TraceSelfDescription.Introduction(CaptureMeterSet.TxMetersRecord), nothingText, StringComparison.Ordinal);
+            Assert.DoesNotContain(TraceSelfDescription.Introduction(MeterTraceStream.Record), nothingText, StringComparison.Ordinal);
+
+            _out.WriteLine("--- transmitting archive");
+            _out.WriteLine(transmittingText);
+            AssertIntroducedOnceBeforeFirst(transmittingText, CaptureMeterSet.TxMetersRecord, CaptureMeterSet.TxMetersLine);
+            AssertIntroducedOnceBeforeFirst(transmittingText, MeterTraceStream.Record, "micData:");
+            // The partial window is a terminal record with its kind: it is the
+            // FIRST captureMeters line in this file, so its introduction sits
+            // among the terminal records, directly ahead of it.
+            AssertIntroducedOnceBeforeFirst(transmittingText, CaptureMeterSet.CaptureMetersRecord, CaptureMeterSet.CaptureMetersLine);
+
+            // Every archived file opens with the reading guide after its header
+            // and closes with why it ended, ahead of the terminal marker.
+            foreach (string text in new[] { receiveOnlyText, nothingText, transmittingText })
+            {
+                string[] lines = text.Split('\n').Select(l => l.TrimEnd('\r')).ToArray();
+                Assert.Contains("--- trace session ", lines[0], StringComparison.Ordinal);
+                foreach ((string guide, int i) in TraceSelfDescription.PartPreamble().Select((g, i) => (g, i + 1)))
                 {
-                    Tracing.TraceLine(TemperatureLine(6), TraceLevel.Info);
-                    DisposeLiveField("_writer");
-                    Tracing.TraceLine("the write that fails, not a reading", TraceLevel.Info);
-                },
-                partialMeterLine: TemperatureLine(3, "connection_dropped"));   // refused, and a reading
-
-            Assert.True(notice.SinkFailedBeforeDrop);
-            Assert.True(notice.FileFacts.ReadingsRefusedAfterFault);
-            Assert.Contains("including the last readings the radio sent, is missing from it", notice.Explanation, StringComparison.Ordinal);
-            Assert.DoesNotContain("came before that failure", notice.Explanation, StringComparison.Ordinal);
+                    Assert.Contains(guide, lines[i], StringComparison.Ordinal);
+                }
+                int closing = Array.FindIndex(lines, l => l.Contains(TraceSelfDescription.Marker + " this recording is closed.", StringComparison.Ordinal));
+                int lastState = Array.FindLastIndex(lines, l => l.Contains("CaptureState:", StringComparison.Ordinal));
+                Assert.True(closing > 0, "no closing line");
+                Assert.True(lastState > closing, "the closing line must come before the terminal marker");
+                Assert.Contains("Connection dropped", lines[closing], StringComparison.Ordinal);
+                Assert.Contains("The connection to 6300inshack dropped while this session was running", lines[closing], StringComparison.Ordinal);
+                AssertIntroducedOnceBeforeFirst(text, TraceStateMarker.Record, "CaptureState:");
+            }
         }
 
         /// <summary>
-        /// Sol's fourth counterexample: a failed flush can leave preceding
-        /// buffered text unwritten. Three lines enter the sink's buffer
-        /// under the gate, after the archive has read the sink as alive and
-        /// before it writes — exactly where a flush skipped behind a
-        /// transition leaves them in production — the stream is broken
-        /// there too, and the archive's own flush then fails. "Everything
-        /// before that point is in the file above" is NOT said; the window
-        /// says the lines just before may be missing as well.
+        /// <b>#625 — the reverse of H10's earlier-fault pair.</b> The file died
+        /// before the drop. Whether the last reading came before the fault or
+        /// a reading was refused after it, the window's caveat is ONE sentence
+        /// that says the file stopped taking lines earlier and what to tell
+        /// Noel, and names no reading either way. The two H10 sentences that
+        /// took sides ("came before that failure, so they are in the file",
+        /// "including the last readings the radio sent, is missing") are gone.
         /// </summary>
         [Fact]
-        public void A_close_that_loses_buffered_lines_does_not_claim_everything_before_it_is_in_the_file()
+        public void An_earlier_fault_gets_one_caveat_whatever_the_readings_did()
         {
-            CaptureArchiveNotice notice = OneDrop(
+            CaptureArchiveNotice readingKept, readingRefused;
+            using (new HeldFaultRetire())
+            {
+                readingKept = OneDrop(
+                    duringTheWait: () => { },
+                    beforeTheDrop: () =>
+                    {
+                        Tracing.TraceRecord(CaptureMeterSet.CaptureMetersRecord, TemperatureLine(6), TraceLevel.Info);
+                        DisposeLiveField("_writer");
+                        Tracing.TraceLine("the write that fails, not a reading", TraceLevel.Info);
+                        Assert.True(Tracing.LiveListener.IsClosed);
+                    },
+                    partialMeterLine: TemperatureRecord(0, "connection_dropped"));   // refused by the dead file
+            }
+            EndRecording();
+            using (new HeldFaultRetire())
+            {
+                readingRefused = OneDrop(
+                    duringTheWait: () => { },
+                    beforeTheDrop: () =>
+                    {
+                        Tracing.TraceRecord(CaptureMeterSet.CaptureMetersRecord, TemperatureLine(6), TraceLevel.Info);
+                        DisposeLiveField("_writer");
+                        Tracing.TraceLine("the write that fails, not a reading", TraceLevel.Info);
+                    },
+                    partialMeterLine: TemperatureRecord(3, "connection_dropped"));   // refused, and it held samples
+            }
+
+            foreach (CaptureArchiveNotice n in new[] { readingKept, readingRefused })
+            {
+                Assert.True(n.TailUncertain);
+                Assert.True(n.SinkFailedBeforeDrop);
+                AssertNoContentClaim(n);
+                Assert.Contains("had already stopped taking new lines before the connection went", n.TailCaveat, StringComparison.Ordinal);
+                Assert.DoesNotContain("came before that failure", n.Explanation, StringComparison.Ordinal);
+                Assert.DoesNotContain("including the last readings the radio sent, is missing", n.Explanation, StringComparison.Ordinal);
+                Assert.DoesNotContain("It holds everything up to the moment", n.Explanation, StringComparison.Ordinal);
+            }
+            Assert.Equal(readingKept.Explanation, readingRefused.Explanation);
+        }
+
+        /// <summary>
+        /// <b>#625 — the reverse of H10's close-time pair.</b> A write failed
+        /// as the recording was being closed. Whether or not lines sat
+        /// unflushed in the buffer when it did, the window's caveat is ONE
+        /// sentence: the last lines may be missing, so may lines just before
+        /// them, send it anyway. "Everything before that point is in the file
+        /// above" is never said — it was a claim about contents that needed
+        /// the sink's count to be exact, and the count is gone.
+        /// </summary>
+        [Fact]
+        public void A_close_time_fault_gets_one_caveat_whether_or_not_lines_were_buffered()
+        {
+            CaptureArchiveNotice buffered = OneDrop(
                 duringTheWait: () => { },
-                beforeTheDrop: () => Tracing.TraceLine(PowerLine, TraceLevel.Info),
-                partialMeterLine: TemperatureLine(2, "connection_dropped"),
+                beforeTheDrop: () => Tracing.TraceRecord(CaptureMeterSet.TxMetersRecord, PowerLine, TraceLevel.Info),
+                partialMeterLine: TemperatureRecord(2, "connection_dropped"),
                 underTheGate: point =>
                 {
                     if (point != "archive:owned") return;
@@ -420,38 +523,23 @@ namespace Radios.Tests
                     live.WriteLine("3 [T1] buffered three");
                     DisposeLiveField("_stream");
                 });
-
-            Assert.True(notice.TailUncertain);
-            Assert.False(notice.SinkFailedBeforeDrop, "the sink was alive when the archive read it");
-            Assert.True(notice.FileFacts.Faulted);
-            Assert.True(notice.FileFacts.LinesUnflushedAtFault >= 3,
-                        "expected at least the three buffered lines to be reported lost; " + notice.FileFacts);
-            string text = notice.Explanation;
-            Assert.Contains("the lines written just before it may be missing as well", text, StringComparison.Ordinal);
-            Assert.DoesNotContain("Everything before that point is in the file above", text, StringComparison.Ordinal);
-            Assert.Contains("as the recording was being closed", text, StringComparison.Ordinal);
-        }
-
-        /// <summary>
-        /// Positive control for the close case: the writer dies under the
-        /// gate with an empty buffer, so the terminal write fails and takes
-        /// only itself — and "Everything before that point is in the file
-        /// above" IS said.
-        /// </summary>
-        [Fact]
-        public void A_close_whose_fault_took_nothing_before_it_says_everything_before_it_is_in_the_file()
-        {
-            CaptureArchiveNotice notice = OneDrop(
+            EndRecording();
+            CaptureArchiveNotice empty = OneDrop(
                 duringTheWait: () => { },
-                beforeTheDrop: () => Tracing.TraceLine(PowerLine, TraceLevel.Info),
-                partialMeterLine: TemperatureLine(2, "connection_dropped"),
+                beforeTheDrop: () => Tracing.TraceRecord(CaptureMeterSet.TxMetersRecord, PowerLine, TraceLevel.Info),
+                partialMeterLine: TemperatureRecord(2, "connection_dropped"),
                 underTheGate: point => { if (point == "archive:owned") DisposeLiveField("_writer"); });
 
-            Assert.True(notice.TailUncertain);
-            Assert.False(notice.SinkFailedBeforeDrop);
-            Assert.Equal(0, notice.FileFacts.LinesUnflushedAtFault);
-            Assert.Contains("Everything before that point is in the file above", notice.Explanation, StringComparison.Ordinal);
-            Assert.DoesNotContain("may be missing as well", notice.Explanation, StringComparison.Ordinal);
+            foreach (CaptureArchiveNotice n in new[] { buffered, empty })
+            {
+                Assert.True(n.TailUncertain);
+                Assert.False(n.SinkFailedBeforeDrop, "the sink was alive when the archive read it");
+                AssertNoContentClaim(n);
+                Assert.Contains("as the recording was being closed", n.TailCaveat, StringComparison.Ordinal);
+                Assert.Contains("lines written just before it may be missing as well", n.TailCaveat, StringComparison.Ordinal);
+                Assert.DoesNotContain("Everything before that point is in the file above", n.Explanation, StringComparison.Ordinal);
+            }
+            Assert.Equal(buffered.Explanation, empty.Explanation);
         }
 
         /// <summary>

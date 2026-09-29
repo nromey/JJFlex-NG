@@ -46,7 +46,9 @@ namespace Radios
                     readSupplyVoltage(),
                     Transmit || _tuneCycleActive,
                     Environment.TickCount);
-                if (line != null) Tracing.TraceLine(line, TraceLevel.Info);
+                // A data record with its kind (#625): the file introduces the
+                // line where it first appears, in CaptureMeterSet's own words.
+                if (line != null) Tracing.TraceRecord(CaptureMeterSet.CaptureMetersRecord, line, TraceLevel.Info);
             }
             catch (Exception ex)
             {
@@ -83,6 +85,14 @@ namespace Radios
         /// rig without reflection; there is one production caller and it is the
         /// drop path.</para>
         ///
+        /// <para><b>Returned as a record with its kind, not a bare string</b>
+        /// (#625). This window is written into the archived file as a terminal
+        /// record by the trace boundary, and the boundary must not have to
+        /// guess what it is: the writer says so, here, and the kind travels
+        /// with the text through <c>CaptureArchiveRequest</c> to the sink,
+        /// which introduces it if no <c>captureMeters:</c> line has spoken for
+        /// itself in that part yet.</para>
+        ///
         /// <para><b>Read <c>state=</c> on a flushed line with #596 in mind.</b>
         /// An open window carries the state it earned from its own samples, but
         /// an EMPTY flush has nothing to go on and asks
@@ -94,15 +104,17 @@ namespace Radios
         /// this same path, which is a ruling rather than a tidy-up and is not
         /// this track's to make.</para>
         /// </summary>
-        internal string collectCaptureMeterFlush(string reason)
+        internal TraceRecord collectCaptureMeterFlush(string reason)
         {
             try
             {
-                return _captureMeters.Flush(
-                    readSupplyVoltage(),
-                    Transmit || _tuneCycleActive,
-                    reason,
-                    Environment.TickCount);
+                return new TraceRecord(
+                    _captureMeters.Flush(
+                        readSupplyVoltage(),
+                        Transmit || _tuneCycleActive,
+                        reason,
+                        Environment.TickCount),
+                    CaptureMeterSet.CaptureMetersRecord);
             }
             catch (Exception ex)
             {

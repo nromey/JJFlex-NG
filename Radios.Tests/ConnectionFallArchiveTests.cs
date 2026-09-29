@@ -928,8 +928,8 @@ namespace Radios.Tests
                     CaptureArchive.ArchiveHook = req =>
                     {
                         Interlocked.Increment(ref _archives);
-                        var lines = new List<string>();
-                        if (!string.IsNullOrEmpty(req.PartialMeterLine)) lines.Add(req.PartialMeterLine);
+                        var lines = new List<TraceRecord>();
+                        if (!string.IsNullOrEmpty(req.PartialMeterLine?.Text)) lines.Add(req.PartialMeterLine);
                         TraceTransitionResult archivedNow = TraceCoordinator.TryArchive(new TraceArchiveRequest
                         {
                             Expected = (TraceSessionHandle)req.ExpectedSession,
@@ -1127,7 +1127,7 @@ namespace Radios.Tests
                     {
                         Interlocked.Increment(ref _archives);
                         archiveExpected = (TraceSessionHandle)req.ExpectedSession;
-                        partialSeen = req.PartialMeterLine;
+                        partialSeen = req.PartialMeterLine?.Text;
                         archiveResult = TraceCoordinator.TryArchive(new TraceArchiveRequest
                         {
                             Expected = archiveExpected,
@@ -1354,7 +1354,7 @@ namespace Radios.Tests
                     CaptureArchive.ArchiveHook = req =>
                     {
                         Interlocked.Increment(ref _archives);
-                        partialSeen = req.PartialMeterLine;
+                        partialSeen = req.PartialMeterLine?.Text;
                         archiveResult = TraceCoordinator.TryArchive(new TraceArchiveRequest
                         {
                             Expected = (TraceSessionHandle)req.ExpectedSession,

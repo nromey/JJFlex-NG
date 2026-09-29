@@ -51,8 +51,15 @@ namespace JJTrace
         /// file it belongs to: collected by the caller, handed over as data,
         /// and written only if this operation wins. A losing caller's line is
         /// discarded rather than landing in somebody else's log.
+        ///
+        /// <para>A <see cref="TraceRecord"/> rather than a string since H16: a
+        /// terminal line that is a DATA record — the drop's partial meter
+        /// window — carries the kind its writer gave it, so it introduces
+        /// itself in the file like every other record of that kind (#625). A
+        /// plain string still converts, so an ordinary sentence is written as
+        /// it always was.</para>
         /// </summary>
-        public IReadOnlyList<string> TerminalLines { get; set; }
+        public IReadOnlyList<TraceRecord> TerminalLines { get; set; }
 
         public TraceResumeIntent Resume { get; set; } = TraceResumeIntent.Standing;
 
@@ -983,6 +990,20 @@ namespace JJTrace
         /// return. Lines queued during a drain wait for the next one: the end
         /// of the transition, or the pool drainer after it.</para>
         /// </summary>
+        /// <summary>
+        /// The kind of the refusal record the drain writes for a line bound to
+        /// a session that has since been archived. The drain is that line's
+        /// writer, so the drain describes it (#625). Sol's H10 review found
+        /// that a reader could take the quoted reading inside it for this
+        /// file's own; the introduction says outright that it is not. DRAFT
+        /// for Noel.
+        /// </summary>
+        internal static readonly TraceRecordKind DeferredRefusalRecord = new TraceRecordKind(
+            "TraceDeferredRefused",
+            "a line that begins 'TraceDeferred: REFUSED' quotes, at its end, a line that was written for an"
+            + " earlier recording after that recording had already been closed. It is kept here so the moment"
+            + " is not lost. It describes that earlier recording, not this one.");
+
         private static void DrainDeferredLocked()
         {
             bool any = false;
@@ -994,7 +1015,10 @@ namespace JJTrace
                 if (_sink == null) continue;   // nothing recording: as a direct write would be, dropped
                 if (line.BoundSession == Guid.Empty || line.BoundSession == current)
                 {
-                    if (line.NewLine) _sink.WriteLine(line.Text);
+                    // The kind the writer declared travelled with the deferred
+                    // line, so a data record still introduces itself where it
+                    // lands (#625). A fragment has no kind of its own.
+                    if (line.NewLine) _sink.WriteLine(line.Text, line.Kind);
                     else _sink.Write(line.Text);
                     continue;
                 }
@@ -1003,7 +1027,8 @@ namespace JJTrace
                     + "TraceDeferred: REFUSED — the following line was formatted while session "
                     + line.BoundSession + " was recording, and that session has since been archived"
                     + " (session " + current + " is current). It describes that session, not this one;"
-                    + " kept here so the moment is not lost: " + line.Text);
+                    + " kept here so the moment is not lost: " + line.Text,
+                    DeferredRefusalRecord);
             }
             if (any)
             {
@@ -1399,7 +1424,21 @@ namespace JJTrace
                         + startPartNumber.ToString("D3") + " opened "
                         + DateTime.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture)
                         + " ---");
-                if (!sink.WriteTerminalLine(Tracing.TracePrefix() + header))
+                bool opened = sink.WriteTerminalLine(Tracing.TracePrefix() + header);
+                // A fresh FILE carries the reading guide after its header (#625).
+                // An append continues a file that already has one — the
+                // checkpoint whose detach failed — so it gets none. The guide
+                // is part of the verified first write: a file that cannot take
+                // it cannot take anything, and is reported as an open that
+                // failed rather than left half-described.
+                if (opened && !append)
+                {
+                    foreach (string guide in TraceSelfDescription.PartPreamble())
+                    {
+                        if (!sink.WriteTerminalLine(Tracing.TracePrefix() + guide)) { opened = false; break; }
+                    }
+                }
+                if (!opened)
                 {
                     string fault = sink.WriteFault ?? "the first record could not be written";
                     try { sink.FlushAndClose(out _); } catch { }
@@ -1647,11 +1686,21 @@ namespace JJTrace
             bool tailUncertain = false;
             if (request.TerminalLines != null)
             {
-                foreach (string line in request.TerminalLines)
+                foreach (TraceRecord record in request.TerminalLines)
                 {
-                    if (string.IsNullOrEmpty(line)) continue;
-                    if (!sink.WriteTerminalLine(Tracing.TracePrefix() + line)) tailUncertain = true;
+                    if (record == null || string.IsNullOrEmpty(record.Text)) continue;
+                    if (!sink.WriteTerminalLine(Tracing.TracePrefix() + record.Text, record.Kind)) tailUncertain = true;
                 }
+            }
+
+            // Why the file is being closed, in the closer's own words, so a
+            // reader of the file learns it from the file (#625). The closer is
+            // the thing that knows, and it says so at the moment it acts; this
+            // is not a summary of what the file holds.
+            if (!sink.WriteTerminalLine(Tracing.TracePrefix()
+                    + TraceSelfDescription.Closing(archiving.Outcome, archiving.OutcomeDetail)))
+            {
+                tailUncertain = true;
             }
 
             // The archive marker, written BEFORE the rotation position is frozen
@@ -1659,7 +1708,8 @@ namespace JJTrace
             // duration of a terminal write, so the number below cannot go stale
             // underneath us.
             if (!sink.WriteTerminalLine(Tracing.TracePrefix()
-                    + TraceStateMarker.RenderTerminal(AppIdentity, archiving.BootTimeUtc, sink.FilePath)))
+                    + TraceStateMarker.RenderTerminal(AppIdentity, archiving.BootTimeUtc, sink.FilePath),
+                    TraceStateMarker.Record))
             {
                 tailUncertain = true;
             }
@@ -1683,11 +1733,6 @@ namespace JJTrace
                 faults.Add("TraceCoordinator: not every terminal record reached " + sourcePath
                            + " (" + sinkFault + "); the bytes that did land are retained, and the file's tail is uncertain");
             }
-            // What the file is KNOWN to hold, read after the close so the
-            // terminal records and the final flush are in it. The operator's
-            // window promises content from this and from nothing else.
-            TraceFileFacts fileFacts = sink.Facts;
-
             // Close and MOVE before a successor opens. The old path compressed
             // first and renamed afterwards, so the next FileMode.Create at the
             // live path could truncate the very bytes being read.
@@ -1742,7 +1787,6 @@ namespace JJTrace
                     TailUncertain = tailUncertain,
                     SinkFault = sinkFault,
                     SinkFailedBeforeArchive = sinkFailedBeforeArchive,
-                    FileFacts = fileFacts,
                     EndedDetailedCapture = endedCapture,
                     EndedCaptureId = endedCaptureId,
                     EndedCaptureStartedLocal = endedCaptureStarted,
@@ -1786,7 +1830,6 @@ namespace JJTrace
                     TailUncertain = tailUncertain,
                     SinkFault = sinkFault,
                     SinkFailedBeforeArchive = sinkFailedBeforeArchive,
-                    FileFacts = fileFacts,
                     EndedDetailedCapture = endedCapture,
                     EndedCaptureId = endedCaptureId,
                     EndedCaptureStartedLocal = endedCaptureStarted,
@@ -1826,14 +1869,13 @@ namespace JJTrace
                 TailUncertain = tailUncertain,
                 SinkFault = sinkFault,
                 SinkFailedBeforeArchive = sinkFailedBeforeArchive,
-                FileFacts = fileFacts,
                 ExpectedSessionId = expectedId,
                 ObservedSessionId = observedId,
                 EndedDetailedCapture = endedCapture,
                 EndedCaptureId = endedCaptureId,
                 EndedCaptureStartedLocal = endedCaptureStarted,
                 Explanation = "TraceCoordinator: archived session " + archiving.SessionId
-                              + " to " + detached + " (" + fileFacts + ")",
+                              + " to " + detached,
             };
 
             // The successor, decided here and reported as a fact rather than
@@ -2016,10 +2058,17 @@ namespace JJTrace
             // the part being frozen, ahead of its checkpoint record.
             DrainDeferredLocked();
 
+            // Why this part ends, for a reader of the part alone (#625), then
+            // the machine-readable checkpoint record.
             bool tailUncertain = !sink.WriteTerminalLine(Tracing.TracePrefix()
+                + TraceSelfDescription.CheckpointClosing(part));
+            if (!sink.WriteTerminalLine(Tracing.TracePrefix()
                 + "TraceCheckpoint: part " + part.ToString("D3")
                 + " frozen for a problem report; this session continues in part "
-                + (part + 1).ToString("D3"));
+                + (part + 1).ToString("D3")))
+            {
+                tailUncertain = true;
+            }
 
             string fileTag = session.ResolvePartFileTag();
             TraceSessionEntry entry = FreezeEntry(session, isFinalPart: false);

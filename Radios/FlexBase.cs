@@ -10800,7 +10800,7 @@ namespace Radios
                 if (census != _txMeterCensus)
                 {
                     _txMeterCensus = census;
-                    Tracing.TraceLine("txMeters: " + census, TraceLevel.Info);
+                    Tracing.TraceRecord(CaptureMeterSet.TxMetersRecord, "txMeters: " + census, TraceLevel.Info);
                 }
             }
             catch (Exception ex)
@@ -10841,7 +10841,7 @@ namespace Radios
                 // line the MeterInventory remarks asked for: a human can read
                 // which copy is believed and why, rather than inferring it from
                 // an ordering.
-                Tracing.TraceLine("txMeters: " + election.MeterName + " "
+                Tracing.TraceRecord(CaptureMeterSet.TxMetersRecord, "txMeters: " + election.MeterName + " "
                     + (outcome == TransmitMeterElection.Outcome.Elected ? "elected " : "re-elected ")
                     + election.Elected?.Label + " — " + election.LastElectionReason
                     + ". " + election.Describe(now), TraceLevel.Info);
@@ -10917,7 +10917,10 @@ namespace Radios
             // this line exists to make visible. "via" names the copy so a
             // floor reading can be told from a floor METER.
             string state = (Transmit && tuning) ? "tune+tx" : (tuning ? "tune" : "tx");
-            Tracing.TraceLine("txMeters: state=" + state
+            // A data record with its kind (#625): the file introduces this
+            // line where it first appears, in CaptureMeterSet's words, which
+            // name exactly the fields formatted here.
+            Tracing.TraceRecord(CaptureMeterSet.TxMetersRecord, "txMeters: state=" + state
                 + " SC_MIC=" + ScMicDb.ToString("F1")
                 + " (peak " + ScMicMaxDb.ToString("F1") + ")"
                 + " via " + (_scMicElection.Elected?.Label ?? "no copy has reported")

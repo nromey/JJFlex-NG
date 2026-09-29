@@ -348,7 +348,7 @@ namespace Radios.Tests
                 OperationId = Guid.NewGuid(),
                 Outcome = TraceSessionOutcome.ConnectionDropped,
                 OutcomeDetail = "a drop that lost the race",
-                TerminalLines = new[] { "captureMeters: partial=connection_dropped" },
+                TerminalLines = new TraceRecord[] { "captureMeters: partial=connection_dropped" },
                 Resume = TraceResumeIntent.Standing,
             });
 
@@ -404,7 +404,7 @@ namespace Radios.Tests
                 OperationId = Guid.NewGuid(),
                 Outcome = TraceSessionOutcome.ConnectionDropped,
                 OutcomeDetail = "The connection to 6300inshack dropped while this session was running",
-                TerminalLines = new[] { "captureMeters: paTemp none n=0 partial=connection_dropped" },
+                TerminalLines = new TraceRecord[] { "captureMeters: paTemp none n=0 partial=connection_dropped" },
                 Resume = TraceResumeIntent.Standing,
             });
 
@@ -2216,7 +2216,7 @@ namespace Radios.Tests
                 Assert.NotNull(sink.WriteFault);
                 Assert.Contains(sink.LastRotationError, sink.WriteFault, StringComparison.Ordinal);
                 Assert.NotEqual(sink.LastRotationError, sink.WriteFault);
-                Assert.True(sink.Facts.Faulted);
+                Assert.True(sink.Faulted);
 
                 // Retirement queued, and the drop-window reader already reads
                 // the closed file as not recording.
@@ -2821,7 +2821,7 @@ namespace Radios.Tests
                 OperationId = captureId,
                 Outcome = TraceSessionOutcome.CleanExit,
                 OutcomeDetail = "Detailed capture: 8:14 PM, about 3 minutes",
-                TerminalLines = new[] { "Detailed capture stopped" },
+                TerminalLines = new TraceRecord[] { "Detailed capture stopped" },
                 Resume = TraceResumeIntent.Standing,
             });
             Assert.Equal(TraceTransition.Accepted, stop.Status);   // was NoSession

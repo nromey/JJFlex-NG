@@ -294,17 +294,16 @@ namespace Radios.Tests
 
         /// <summary>
         /// <b>Sol's review of H8, blocker 2.</b> The WHOLE assembled notice,
-        /// for every combination of the three facts it is given — the tail is
-        /// uncertain, a successor opened, the sink had died before the drop —
-        /// and the claims each paragraph makes hold under that combination:
-        /// the last readings are promised only with a certain tail; recording
-        /// having restarted is promised only when a successor opened; "a
-        /// write failed as the recording was being closed" appears only when
-        /// the sink was alive until the archive; the earlier-fault sentence only
-        /// when it was not. Every paragraph ends in a full stop and leaks no
-        /// key. The ordinary window (tail certain, successor opened) is the
-        /// H7 prose, unchanged. Each assembled notice is written to the test
-        /// output so a person can read it end to end.
+        /// for every combination of the facts it is given — the tail is
+        /// uncertain, a successor opened, the sink had died before the drop,
+        /// recording now — and the claims each paragraph makes hold under that
+        /// combination: recording having restarted is promised only by the
+        /// state now; "a write failed as the recording was being closed"
+        /// appears only when the sink was alive until the archive; the
+        /// earlier-fault sentence only when it was not; and nothing about the
+        /// file's contents ever (#625). Every paragraph ends in a full stop and
+        /// leaks no key. Each assembled notice is written to the test output
+        /// so a person can read it end to end.
         /// </summary>
         [Fact]
         public void The_assembled_drop_notice_makes_only_the_claims_its_facts_support()
@@ -325,12 +324,14 @@ namespace Radios.Tests
                 _out.WriteLine(text);
                 _out.WriteLine(string.Empty);
 
-                // The absolute promise about content is made only when it
-                // holds — and these notices carry NO file facts, so the
-                // readings are never named (Sol's review of H9, blocker 2);
-                // the facts-driven paragraphs are read in the two tests below.
+                // No promise about content is ever made (#625): nothing a
+                // notice can be given describes the file, so no combination
+                // of the facts it IS given can name a reading.
                 Assert.DoesNotContain("including the last readings the radio sent: forward power", text, StringComparison.Ordinal);
-                Assert.DoesNotContain("power", text, StringComparison.OrdinalIgnoreCase);
+                foreach (string word in CaptureArchiveNoticeTests.ContentWords)
+                {
+                    Assert.DoesNotContain(word, text, StringComparison.OrdinalIgnoreCase);
+                }
                 Assert.Equal(!tail, text.Contains("It holds everything up to the moment", StringComparison.Ordinal));
                 Assert.Equal(tail, text.Contains("send it anyway", StringComparison.Ordinal));
                 // What happens next "is being kept" is promised only by the
@@ -344,9 +345,10 @@ namespace Radios.Tests
                 Assert.Equal(!recordingNow && successor, text.Contains("did start recording again after the connection went, but it is not recording now", StringComparison.Ordinal));
                 Assert.Equal(!recordingNow, text.Contains("Control J then Control R", StringComparison.Ordinal));
                 // The caveat names the right cause, and only with an uncertain
-                // tail — and with no facts it claims neither that everything
-                // before the fault is in the file nor that the last readings
-                // are missing.
+                // tail — and it claims neither that everything before the
+                // fault is in the file nor anything about readings, for any
+                // notice, because since H16 there are no facts that could
+                // license either (#625).
                 bool atTheClose = tail && !diedBefore;
                 bool earlier = tail && diedBefore;
                 Assert.Equal(atTheClose, text.Contains("as the recording was being closed", StringComparison.Ordinal));
@@ -371,10 +373,10 @@ namespace Radios.Tests
                 Assert.Contains(@"C:\Traces\one.zip", n.AsText(), StringComparison.Ordinal);
             }
 
-            // The ordinary window is the H7 prose, untouched — through both
-            // constructors: the six-argument one reads "recording now" as the
-            // successor bit (the H9 meaning), and the seven-argument one is
-            // what production builds.
+            // The ordinary window is one text — through both constructors:
+            // the six-argument one reads "recording now" as the successor bit
+            // (the H9 meaning), and the seven-argument one is the frozen form
+            // of what production builds.
             var same = new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
                                              tailUncertain: false, sinkFailedBeforeDrop: false);
             Assert.Equal(ordinary.Explanation, same.Explanation);
@@ -400,8 +402,7 @@ namespace Radios.Tests
             var n = new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", successorOpened: true,
                                           archivedSessionId: Guid.NewGuid(), tailUncertain: false,
                                           sinkFailedBeforeDrop: false,
-                                          recordingNow: () => { asked++; return recording; },
-                                          fileFacts: Facts(true, true));
+                                          recordingNow: () => { asked++; return recording; });
             Assert.Equal(0, asked);   // building the notice asks nothing
 
             // Composed while recording: the ordinary promise — the positive
@@ -439,146 +440,125 @@ namespace Radios.Tests
             // paragraph that promises nothing.
             var throwing = new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
                                                  tailUncertain: false, sinkFailedBeforeDrop: false,
-                                                 recordingNow: () => throw new InvalidOperationException("no"),
-                                                 fileFacts: Facts(true, true));
+                                                 recordingNow: () => throw new InvalidOperationException("no"));
             Assert.False(throwing.RecordingNow);
             Assert.DoesNotContain("is being kept too", throwing.Explanation, StringComparison.Ordinal);
             var none = new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
                                              tailUncertain: false, sinkFailedBeforeDrop: false,
-                                             recordingNow: (Func<bool>)null, fileFacts: Facts(true, true));
+                                             recordingNow: (Func<bool>)null);
             Assert.False(none.RecordingNow);
 
             // The Boolean overloads still mean a frozen fact, so every earlier
             // test keeps its meaning.
             var frozen = new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
-                                               tailUncertain: false, sinkFailedBeforeDrop: false, recordingNow: true,
-                                               fileFacts: Facts(true, true));
+                                               tailUncertain: false, sinkFailedBeforeDrop: false, recordingNow: true);
             Assert.Equal(before, frozen.Explanation);
         }
 
-        private static TraceFileFacts Facts(bool power, bool temperature, bool faulted = false,
-                                            int unflushed = 0, bool lost = false, bool refused = false) =>
-            new TraceFileFacts(power, temperature, faulted, unflushed, lost, refused);
-
         /// <summary>
-        /// <b>Sol's review of H9, blocker 2, first half.</b> With a certain
-        /// tail the saved paragraph names the readings the sink counted into
-        /// the file and no others. Sol's counterexamples: a receive-only
-        /// session has no transmit line; a temperature window can be
-        /// <c>n=0</c>. The whole assembled notice is read for each.
+        /// <b>#625, ruled by Noel 2026-09-25 — the reverse of what this test
+        /// asserted from H10 to H15.</b> It used to build the notice with each
+        /// combination of "power written" and "temperature written" and check
+        /// that the saved paragraph named exactly those readings. There is no
+        /// longer anything to combine: the notice cannot be told what the file
+        /// holds, so the saved paragraph is ONE sentence, the same for every
+        /// file, and it names no reading. The description moved into the file
+        /// itself (<c>TraceSelfDescriptionTests</c>). The ordinary window is
+        /// otherwise unchanged: the errand, the recording state, the path.
         /// </summary>
         [Fact]
-        public void The_saved_paragraph_names_only_the_readings_the_file_holds()
+        public void The_saved_paragraph_is_the_same_for_every_file_and_names_nothing_in_it()
         {
-            const string Both = "including the last readings the radio sent: forward power, reflected power and the temperature of the amplifier";
-            foreach (bool power in new[] { false, true })
-            foreach (bool temperature in new[] { false, true })
+            var n = new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
+                                          tailUncertain: false, sinkFailedBeforeDrop: false, recordingNow: true);
+            string text = n.Explanation;
+            _out.WriteLine(text);
+
+            Assert.Equal(Lexicon.Get("logging.capture.dropped.saved"), n.WhatWasSaved);
+            Assert.Contains("It holds everything up to the moment the connection went", text, StringComparison.Ordinal);
+            Assert.Contains("The file explains itself", text, StringComparison.Ordinal);
+            foreach (string word in CaptureArchiveNoticeTests.ContentWords)
             {
-                var n = new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
-                                              tailUncertain: false, sinkFailedBeforeDrop: false, recordingNow: true,
-                                              fileFacts: Facts(power, temperature));
-                string text = n.Explanation;
-                _out.WriteLine("--- power written: " + power + ", temperature written: " + temperature);
-                _out.WriteLine(text);
-                _out.WriteLine(string.Empty);
-
-                Assert.Contains("It holds everything up to the moment the connection went", text, StringComparison.Ordinal);
-                Assert.Equal(power && temperature, text.Contains(Both, StringComparison.Ordinal));
-                Assert.Equal(power && !temperature, text.Contains("including the last forward and reflected power readings", StringComparison.Ordinal));
-                Assert.Equal(power && !temperature, text.Contains("It holds no amplifier temperature readings", StringComparison.Ordinal));
-                Assert.Equal(!power && temperature, text.Contains("including the last amplifier temperature readings", StringComparison.Ordinal));
-                Assert.Equal(!power && temperature, text.Contains("It holds no forward or reflected power readings", StringComparison.Ordinal));
-                Assert.Equal(!power && !temperature, text.Contains("It holds no meter readings", StringComparison.Ordinal));
-                // A kind that was not written is never promised.
-                if (!power) Assert.DoesNotContain("including the last forward", text, StringComparison.Ordinal);
-                if (!temperature) Assert.DoesNotContain("including the last amplifier", text, StringComparison.Ordinal);
-                Assert.Equal(3, text.Split(new[] { Environment.NewLine + Environment.NewLine }, StringSplitOptions.None).Length);
-                foreach (string paragraph in text.Split(new[] { Environment.NewLine + Environment.NewLine }, StringSplitOptions.None))
-                {
-                    Assert.EndsWith(".", paragraph.TrimEnd(), StringComparison.Ordinal);
-                    Assert.DoesNotContain("logging.capture", paragraph, StringComparison.Ordinal);
-                }
+                Assert.DoesNotContain(word, n.WhatWasSaved, StringComparison.OrdinalIgnoreCase);
             }
-
-            // Positive control: with both kinds counted, the window is the
-            // H7 prose exactly — the ordinary case did not move.
-            var full = new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
-                                             tailUncertain: false, sinkFailedBeforeDrop: false, recordingNow: true,
-                                             fileFacts: Facts(true, true));
-            Assert.Equal(Lexicon.Get("logging.capture.dropped.saved"), full.WhatWasSaved);
-            Assert.Equal(Lexicon.Get("logging.capture.dropped.what_to_do"), full.WhatToDo);
+            // The old sentences, by their most distinctive fragments, are gone
+            // from the store as well as from the window: a key nobody reads is
+            // a draft nobody can rule on.
+            foreach (string retired in new[]
+            {
+                "logging.capture.dropped.saved_power_only",
+                "logging.capture.dropped.saved_temperature_only",
+                "logging.capture.dropped.saved_no_meters",
+                "logging.capture.dropped.saved_contents_unknown",
+                "logging.capture.dropped.tail_uncertain_buffered",
+                "logging.capture.dropped.tail_uncertain_earlier_readings_kept",
+                "logging.capture.dropped.tail_uncertain_earlier_unqualified",
+            })
+            {
+                Assert.False(Lexicon.Contains(retired), retired + " is still in the store");
+            }
+            Assert.Equal(3, text.Split(new[] { Environment.NewLine + Environment.NewLine }, StringSplitOptions.None).Length);
+            foreach (string paragraph in text.Split(new[] { Environment.NewLine + Environment.NewLine }, StringSplitOptions.None))
+            {
+                Assert.EndsWith(".", paragraph.TrimEnd(), StringComparison.Ordinal);
+                Assert.DoesNotContain("logging.capture", paragraph, StringComparison.Ordinal);
+            }
+            Assert.Equal(Lexicon.Get("logging.capture.dropped.what_to_do"), n.WhatToDo);
         }
 
         /// <summary>
-        /// <b>Sol's review of H9, blocker 2, second half.</b> The tail
-        /// caveats claim only what the fault facts establish. At the close:
-        /// "Everything before that point is in the file above" only when the
-        /// fault took nothing buffered before it. Earlier fault: "including
-        /// the last readings the radio sent, is missing" only when a reading
-        /// was lost at or refused after the fault; "came before that failure,
-        /// so they are in the file above" only when none was AND a reading
-        /// was written; otherwise the sentence that claims neither. Sol's
-        /// counterexamples are the second and third rows of each group. The
-        /// whole assembled notice is read for each.
+        /// <b>#625 — the reverse of the H10 caveat test.</b> Two caveats, one
+        /// per cause the application itself observed: a write failed as the
+        /// recording was closed, or the file had already died before the drop.
+        /// Neither names a reading, neither says "everything before that
+        /// point is in the file" (a claim about contents that needed the
+        /// sink's count to be exact), and neither has a stronger or weaker
+        /// variant to be chosen by facts about what the fault took. Both say
+        /// what did reach the disk is in the file — true by definition — and
+        /// what to tell Noel. The whole assembled notice is read for each.
         /// </summary>
         [Fact]
-        public void The_tail_caveat_claims_only_what_the_fault_facts_establish()
+        public void The_tail_caveat_says_only_why_the_tail_is_short_and_never_what_the_file_holds()
         {
-            void Read(string label, CaptureArchiveNotice n, string mustContain, params string[] mustNot)
+            const string Everything = "Everything before that point is in the file above";
+            const string Missing = "including the last readings the radio sent, is missing from it";
+            const string Kept = "The last meter readings the radio sent came before that failure";
+            const string WrittenBefore = "What was written before the failure is in the file above";
+            const string Reached = "What did reach the disk is in the file above";
+
+            var atTheClose = new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
+                                                   tailUncertain: true, sinkFailedBeforeDrop: false, recordingNow: true);
+            var earlier = new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
+                                                tailUncertain: true, sinkFailedBeforeDrop: true, recordingNow: true);
+            foreach ((string label, CaptureArchiveNotice n) in new[] { ("close", atTheClose), ("earlier", earlier) })
             {
                 string text = n.Explanation;
                 _out.WriteLine("--- " + label);
                 _out.WriteLine(text);
                 _out.WriteLine(string.Empty);
-                Assert.Contains(mustContain, text, StringComparison.Ordinal);
-                foreach (string s in mustNot) Assert.DoesNotContain(s, text, StringComparison.Ordinal);
                 Assert.Contains("One more thing.", text, StringComparison.Ordinal);
                 Assert.Contains("but it may stop short of the moment the connection went", text, StringComparison.Ordinal);
-                Assert.DoesNotContain("including the last readings the radio sent: forward power", text, StringComparison.Ordinal);
+                Assert.Contains(Reached, text, StringComparison.Ordinal);
+                foreach (string gone in new[] { Everything, Missing, Kept, WrittenBefore })
+                {
+                    Assert.DoesNotContain(gone, text, StringComparison.Ordinal);
+                }
+                foreach (string word in CaptureArchiveNoticeTests.ContentWords)
+                {
+                    Assert.DoesNotContain(word, n.TailCaveat, StringComparison.OrdinalIgnoreCase);
+                }
                 Assert.Equal(4, text.Split(new[] { Environment.NewLine + Environment.NewLine }, StringSplitOptions.None).Length);
                 Assert.DoesNotContain("logging.capture", text, StringComparison.Ordinal);
             }
-            CaptureArchiveNotice AtTheClose(TraceFileFacts f) =>
-                new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
-                                      tailUncertain: true, sinkFailedBeforeDrop: false, recordingNow: true, fileFacts: f);
-            CaptureArchiveNotice Earlier(TraceFileFacts f) =>
-                new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
-                                      tailUncertain: true, sinkFailedBeforeDrop: true, recordingNow: true, fileFacts: f);
-
-            const string Everything = "Everything before that point is in the file above";
-            const string Buffered = "the lines written just before it may be missing as well";
-            const string Missing = "including the last readings the radio sent, is missing from it";
-            const string Kept = "The last meter readings the radio sent came before that failure, so they are in the file above";
-            const string Reached = "What did reach the disk is in the file above";
-            const string WrittenBefore = "What was written before the failure is in the file above";
-
-            // At the close: a terminal write failed with an empty buffer.
-            Read("close, nothing buffered", AtTheClose(Facts(true, true, faulted: true, unflushed: 0)),
-                 Everything, Buffered, Reached);
-            // Sol: a failed flush can lose buffered text — three lines here.
-            Read("close, three lines buffered", AtTheClose(Facts(true, true, faulted: true, unflushed: 3)),
-                 Buffered, Everything, WrittenBefore);
-            // Facts not carried: the weaker sentence.
-            Read("close, facts unknown", AtTheClose(null), Buffered, Everything);
-
-            // Earlier fault: a reading was refused after it.
-            Read("earlier, reading refused after", Earlier(Facts(true, true, faulted: true, unflushed: 0, refused: true)),
-                 Missing, Kept, Reached);
-            // Earlier fault: the failing line was itself a reading.
-            Read("earlier, reading lost at the fault", Earlier(Facts(true, true, faulted: true, unflushed: 0, lost: true)),
-                 Missing, Kept, Reached);
-            // Sol: the last reading was written before the fault and none
-            // came after — it IS in the file, and the window says so.
-            Read("earlier, readings kept", Earlier(Facts(false, true, faulted: true, unflushed: 0)),
-                 Kept, Missing, WrittenBefore, Reached);
-            // No reading was ever written: nothing to say is kept.
-            Read("earlier, no readings at all", Earlier(Facts(false, false, faulted: true, unflushed: 0)),
-                 Reached, Kept, Missing, WrittenBefore);
-            // Buffered lines lost too: "what was written before the failure
-            // is in the file" is not established, whatever the readings did.
-            Read("earlier, buffered lines lost, reading refused", Earlier(Facts(true, true, faulted: true, unflushed: 2, refused: true)),
-                 Reached, Kept, Missing, WrittenBefore);
-            Read("earlier, facts unknown", Earlier(null), Reached, Kept, Missing, WrittenBefore);
+            Assert.Contains("as the recording was being closed", atTheClose.TailCaveat, StringComparison.Ordinal);
+            Assert.Contains("lines written just before it may be missing as well", atTheClose.TailCaveat, StringComparison.Ordinal);
+            Assert.Contains("had already stopped taking new lines", earlier.TailCaveat, StringComparison.Ordinal);
+            Assert.NotEqual(atTheClose.TailCaveat, earlier.TailCaveat);
+            // The tail-certain window carries no caveat at all, so the
+            // ordinary window is untouched — the positive control.
+            var certain = new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip", true, Guid.NewGuid(),
+                                                tailUncertain: false, sinkFailedBeforeDrop: false, recordingNow: true);
+            Assert.Equal(string.Empty, certain.TailCaveat);
         }
 
         /// <summary>

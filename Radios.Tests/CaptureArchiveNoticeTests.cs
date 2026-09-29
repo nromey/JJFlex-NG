@@ -43,37 +43,52 @@ namespace Radios.Tests
         private const string Path0 =
             @"C:\Users\nrome\AppData\Roaming\JJFlexRadio\Traces\2026\09\trace-20260922-201500-connection_dropped.zip";
 
-        /// <summary>The ordinary window: a certain tail, both kinds of
-        /// reading counted into the file, recording again now. The H7 prose
-        /// is asserted against THIS, because since H10 the content promise
-        /// is made only when the file's facts support it.</summary>
+        /// <summary>The ordinary window: a certain tail, recording again
+        /// now. Since H16 there is nothing else a window can be given about
+        /// the file: the content facts it used to carry are gone (#625).</summary>
         private static CaptureArchiveNotice Full(string name) =>
             new CaptureArchiveNotice(name, Path0, successorOpened: true, archivedSessionId: Guid.NewGuid(),
-                                  tailUncertain: false, sinkFailedBeforeDrop: false, recordingNow: true,
-                                  fileFacts: new TraceFileFacts(powerWritten: true, temperatureWritten: true,
-                                                                faulted: false, linesUnflushedAtFault: 0,
-                                                                readingsLostAtFault: false,
-                                                                readingsRefusedAfterFault: false));
+                                  tailUncertain: false, sinkFailedBeforeDrop: false, recordingNow: true);
         private static CaptureArchiveNotice Named() => Full("6300inshack");
         private static CaptureArchiveNotice Unnamed() => Full("");
 
         /// <summary>
-        /// The two-argument constructor carries no facts, so it names no
-        /// readings: "It holds everything up to the moment the connection
-        /// went." and nothing about what those lines are. Until H10 it made
-        /// the full three-reading promise on no evidence (Sol's review of
-        /// H9, blocker 2).
+        /// <b>#625, ruled by Noel 2026-09-25.</b> No constructor of this
+        /// notice can be given anything about the file's contents, and no
+        /// sentence of the window names a reading, a meter or a kind of line.
+        /// The two-argument form and the full production form say the same
+        /// thing about what was saved. Until H16 the window chose between
+        /// "power and temperature", "power only", "temperature only" and "no
+        /// meter readings" from a count kept by the sink, and three review
+        /// rounds found three ways for each of those to be false.
         /// </summary>
         [Fact]
-        public void A_notice_without_file_facts_names_no_readings()
+        public void No_form_of_the_notice_describes_what_the_file_contains()
         {
             var bare = new CaptureArchiveNotice("6300inshack", Path0);
-            Assert.Null(bare.FileFacts);
-            Assert.Equal("The recording has been closed and saved. It holds everything up to the moment the connection went.",
-                         bare.WhatWasSaved);
-            Assert.DoesNotContain("power", bare.Explanation, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("temperature", bare.Explanation, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(Named().WhatWasSaved, bare.WhatWasSaved);
+            foreach (CaptureArchiveNotice n in new[] { bare, Named(), Unnamed() })
+            {
+                string text = n.Explanation;
+                _out.WriteLine(text);
+                foreach (string contentWord in ContentWords)
+                {
+                    Assert.DoesNotContain(contentWord, text, StringComparison.OrdinalIgnoreCase);
+                }
+            }
         }
+
+        /// <summary>
+        /// The words the old content sentences were built from. A future edit
+        /// that puts any of them back into <c>logging.json</c>'s drop-window
+        /// keys is the ruling being quietly reversed, and this list is what
+        /// turns that red (the H16 mutation control put "power" back into
+        /// the saved sentence and watched this fail).
+        /// </summary>
+        internal static readonly string[] ContentWords =
+        {
+            "power", "temperature", "meter", "readings", "reading", "amplifier", "transmitting",
+        };
 
         // ────────────────────────────────────────────────────────────────
         //  The sentences
@@ -106,13 +121,19 @@ namespace Radios.Tests
                 Unnamed().WhatHappened);
         }
 
+        /// <summary>
+        /// What was saved: that it was, how far it reaches, and that the
+        /// file itself says what it holds. NOT what it holds — see
+        /// <see cref="No_form_of_the_notice_describes_what_the_file_contains"/>.
+        /// The sentence is a DRAFT for Noel (#625).
+        /// </summary>
         [Fact]
-        public void What_was_saved_says_what_is_in_it()
+        public void What_was_saved_says_the_recording_is_kept_and_that_the_file_explains_itself()
         {
             Assert.Equal(
-                "The recording has been closed and saved. It holds everything up to the "
-                + "moment the connection went, including the last readings the radio sent: "
-                + "forward power, reflected power and the temperature of the amplifier.",
+                "The recording has been closed and saved. It holds everything up to the moment the "
+                + "connection went. The file explains itself: its first lines say how to read it and how "
+                + "to find what it holds.",
                 Named().WhatWasSaved);
         }
 

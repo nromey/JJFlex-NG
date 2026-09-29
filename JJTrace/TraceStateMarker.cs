@@ -24,6 +24,20 @@ namespace JJTrace
     public static class TraceStateMarker
     {
         /// <summary>
+        /// The kind of the <c>CaptureState:</c> line, so it introduces itself
+        /// where it first appears in each part (#625). Both writers of the
+        /// line — the application's transitions and the coordinator's terminal
+        /// record — hand this to the sink, because this class is the one
+        /// renderer and therefore the one place that can truthfully describe
+        /// the line. DRAFT for Noel.
+        /// </summary>
+        public static readonly TraceRecordKind Record = new TraceRecordKind(
+            "CaptureState",
+            "lines that begin 'CaptureState:' record whether a detailed capture was on, the detail level being"
+            + " recorded, which copy of JJ Flexible wrote this file and where the file was. The last such line in"
+            + " a finished file marks the capture off and the level Off: it is written as the recording is closed.");
+
+        /// <summary>
         /// Render the line. Every field is passed explicitly: nothing here
         /// reads live state, so a terminal record describes the session being
         /// archived rather than whatever happens to be current.

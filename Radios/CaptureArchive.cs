@@ -31,8 +31,13 @@ namespace Radios
         /// The meter window this drop closed, already rendered, collected AFTER
         /// the claim was won. It is written into the accepted session's own file
         /// by the boundary, or discarded — never emitted globally (#618).
+        ///
+        /// <para>A record with its kind, not a bare string (#625): the writer
+        /// that rendered it says what it is, and the boundary hands that on to
+        /// the sink so the archived file introduces the line where it first
+        /// appears. Null when nothing was collected.</para>
         /// </summary>
-        public string PartialMeterLine { get; set; }
+        public TraceRecord PartialMeterLine { get; set; }
     }
 
     /// <summary>What the archiving hook did. Facts, not prose.</summary>
@@ -94,16 +99,6 @@ namespace Radios
         /// </summary>
         public bool SuccessorRecording { get; set; }
 
-        /// <summary>
-        /// What the archived file is known to contain — which kinds of meter
-        /// reading were written and flushed, and what a fault took — as the
-        /// sink that wrote it counted them
-        /// (<see cref="JJTrace.TraceTransitionResult.FileFacts"/>). Null when
-        /// the archive did not carry them. The operator's window chooses its
-        /// content paragraphs from this and claims nothing it does not
-        /// establish (Sol's review of H9, blocker 2).
-        /// </summary>
-        public TraceFileFacts FileFacts { get; set; }
     }
 
     /// <summary>
@@ -250,7 +245,7 @@ namespace Radios
         /// May be null.</param>
         public static void AfterConnectionDrop(object dropToken,
                                                string radioName,
-                                               Func<string> collectPartialMeterLine = null)
+                                               Func<TraceRecord> collectPartialMeterLine = null)
         {
             // One immutable read, on this thread. A handle, not a pointer into
             // anything the worker could find changed.
@@ -287,7 +282,7 @@ namespace Radios
         /// the fall, or null for nothing recording then.</param>
         public static void AfterConnectionDrop(object dropToken,
                                                string radioName,
-                                               Func<string> collectPartialMeterLine,
+                                               Func<TraceRecord> collectPartialMeterLine,
                                                TraceSessionHandle fallSession)
         {
             TraceSessionHandle expected = fallSession;
@@ -335,7 +330,7 @@ namespace Radios
             // rendered only by the removal that owns the drop, and it travels as
             // data so a session replacement between here and the boundary
             // cannot land it in a successor's log.
-            string partial = null;
+            TraceRecord partial = null;
             try { partial = collectPartialMeterLine?.Invoke(); }
             catch (Exception ex)
             {
@@ -502,18 +497,19 @@ namespace Radios
                     "CaptureArchive: the archive was refused (" + (result.RefusalReason ?? "no reason given")
                     + "); nothing was archived for this drop and there is no archive path to show the operator",
                     TraceLevel.Warning, about);
-                if (!string.IsNullOrEmpty(request.PartialMeterLine))
+                string partialText = request.PartialMeterLine?.Text;
+                if (!string.IsNullOrEmpty(partialText))
                 {
                     string kept = TraceCoordinator.KeepLateEvidence(about,
                         "CaptureArchive: the meter window this drop closed, kept as evidence because its session"
-                        + " had already been archived by another operation: " + request.PartialMeterLine,
+                        + " had already been archived by another operation: " + partialText,
                         LateEvidenceWait);
                     Tracing.TraceLineDeferred(
                         "CaptureArchive: the meter window this drop closed, kept as evidence because its session"
                         + " had already been archived by another operation"
                         + (kept != null ? " (also kept beside that session's archive at " + kept + ")"
                                         : " (that session has no archive here to keep it beside)")
-                        + ": " + request.PartialMeterLine,
+                        + ": " + partialText,
                         TraceLevel.Warning, about);
                 }
                 Tracing.FlushDeferred();
@@ -542,7 +538,7 @@ namespace Radios
             {
                 // The one caveat a committed archive can carry: its bytes may
                 // stop short. That is a property of the archived file, fixed at
-                // the archive. The index-file failure is NOT read here — this
+                // the archive. The index-file failure is NOT read here: this
                 // window opens only with a committed archive, which needs no
                 // index file, and the pre-wait bit could be stale by now anyway
                 // (the worker retries the record before compressing). The
@@ -561,12 +557,22 @@ namespace Radios
                 // for the window, on the UI thread, at render. The successor
                 // bit is still the archive's own fact and still tells the two
                 // not-recording paragraphs apart.
+                //
+                // AND NOTHING ABOUT THE FILE'S CONTENTS IS READ HERE (#625,
+                // ruled by Noel 2026-09-25). H10 carried the sink's count of
+                // meter lines into the notice and the window described the
+                // file from it; three review rounds found three ways for that
+                // description to be false, because a count kept by an observer
+                // cannot see a writer it was not taught. The file describes
+                // itself now — each writer introduces its own lines in the
+                // file as it writes them — and the window says only what the
+                // application always knows: saved, where, and whether the tail
+                // may be short.
                 ArchivedAfterDrop?.Invoke(new CaptureArchiveNotice(
                     radioName, result.ArchivePath, result.SuccessorOpened, result.ArchivedSessionId,
                     tailUncertain: result.TailUncertain,
                     sinkFailedBeforeDrop: result.SinkFailedBeforeDrop,
-                    recordingNow: CaptureArchiveNotice.LiveRecordingState,
-                    fileFacts: result.FileFacts));
+                    recordingNow: CaptureArchiveNotice.LiveRecordingState));
             }
             catch (Exception ex)
             {

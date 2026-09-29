@@ -86,7 +86,7 @@ public sealed class CaptureArchivedDialogTests
         var notice = new CaptureArchiveNotice("6300inshack", @"C:\Traces\one.zip",
             successorOpened: true, archivedSessionId: Guid.NewGuid(),
             tailUncertain: false, sinkFailedBeforeDrop: false,
-            recordingNow: () => recording, fileFacts: null);
+            recordingNow: () => recording);
         // The worker's moment: the ordinary promise. Positive control.
         Assert.Contains("is being kept too", notice.Explanation, StringComparison.Ordinal);
 
