@@ -6561,7 +6561,67 @@ namespace Radios
 
         #endregion
 
-        private void wanRadioListReceivedHandler(string accountId, IReadOnlyList<Radio> lst, WanListArrival arrival, WanListProvenance provenance)
+        /// <summary>
+        /// Where a list is inside the intake, for the suite's parking hook
+        /// <see cref="WanIntakeStageReached"/>.
+        /// </summary>
+        internal enum WanIntakeStage
+        {
+            /// <summary>The replay has taken its snapshot of a held session
+            /// and decided to replay it, and has not yet entered the intake.
+            /// Outside the intake lock.</summary>
+            ReplaySnapshotTaken,
+
+            /// <summary>The intake has asked the session whether the list is
+            /// still current, been told yes, and written nothing. Inside the
+            /// intake lock.</summary>
+            CurrencyChecked,
+
+            /// <summary>The intake has written the connect flow's latch and
+            /// not yet re-validated it. Inside the intake lock.</summary>
+            LatchWritten,
+        }
+
+        /// <summary>
+        /// For the suite only. Raised at each <see cref="WanIntakeStage"/> on
+        /// the thread carrying the list, so a test can park a list at exactly
+        /// the point Sol's review of L6 named and change the session's state
+        /// underneath it — a dial, a death, a disconnect — rather than
+        /// approximating the order with a list delivered after the fact. Null
+        /// in production and never read by anything else.
+        /// </summary>
+        internal Action<WanIntakeStage> WanIntakeStageReached;
+
+        /// <summary>
+        /// Whether the connect flow's latch is set, read the way the flow
+        /// must read it: never inside an intake. The intake writes the latch
+        /// and re-validates it as one critical section (see
+        /// <see cref="wanRadioListReceivedHandler"/>), and a latch it later
+        /// takes back must never have been seen; so this asks the intake's
+        /// lock without waiting for it, and an intake in progress reads as
+        /// "not yet". It never blocks, because the intake can be raising
+        /// events into the picker, which marshals to the UI thread and
+        /// waits for it.
+        /// </summary>
+        internal bool ConnectListLatched()
+        {
+            if (!System.Threading.Monitor.TryEnter(_wanIntakeLock)) return false;
+            try { return wanListReceived; }
+            finally { System.Threading.Monitor.Exit(_wanIntakeLock); }
+        }
+
+        /// <summary>
+        /// The one currency question the intake asks of every list, pushed or
+        /// replayed: is the list, by its own generation, still the session's
+        /// current knowledge right now (#619)?
+        /// </summary>
+        private static bool ListStillCurrent(WanListProvenance provenance) =>
+            provenance.Session.ListIsCurrent(provenance.ConnectionGeneration);
+
+        /// <returns>Whether the list was consumed. False when it was refused
+        /// as no longer the session's current knowledge, or the intake
+        /// failed.</returns>
+        private bool wanRadioListReceivedHandler(string accountId, IReadOnlyList<Radio> lst, WanListArrival arrival, WanListProvenance provenance)
         {
             try
             {
@@ -6569,30 +6629,84 @@ namespace Radios
               {
                 Tracing.TraceLine($"wanRadioListReceivedHandler: account={accountId} count={lst.Count} arrival={arrival} from {provenance}", TraceLevel.Info);
 
-                // Is this list still the session's current knowledge NOW, at
-                // the moment of consuming — not at the moment the owner
-                // accepted it? The owner decides under its lock and forwards
-                // outside it, so a push can pause between the two while a
-                // dial begins and the next connection's push is accepted,
-                // forwarded and consumed here; then it arrives, and every
-                // line below would treat it as the newer, fuller list — the
-                // latch, radios, the ghost sweep, the WAN bank, the cache. The
-                // session is asked with the list's own generation, under this
-                // lock, so the answer and the consumption are one step (#619,
-                // Sol's review of L5). A replay is decided by its caller from
-                // one snapshot and is not asked again here.
-                if (arrival == WanListArrival.ServerPush && !provenance.Session.ListIsCurrent(provenance.ConnectionGeneration))
+                // ══ IS THIS LIST STILL CURRENT? PUSH AND REPLAY ALIKE ══════
+                //
+                // Asked at the moment of consuming, not the moment the list
+                // was accepted or snapshotted. The owner decides under its
+                // lock and forwards outside it, so a push can pause between
+                // the two while a dial begins; and a replay takes its
+                // snapshot, releases it, and reaches this line later, when a
+                // dial, a disconnect or the transport's death may already
+                // have happened. Either way, every line below would treat an
+                // obsolete list as the account's full current one — the
+                // latch, radios, the ghost sweep, the WAN bank, the cache.
+                // Until Track L7 only a push was asked; a replay was trusted
+                // to its caller's snapshot (#619, Sol's review of L6).
+                //
+                // The owner's gate is NOT held across this work, on purpose
+                // (L6a): the intake raises events into the picker and the
+                // coordinator, arbitrary callbacks, one of which takes a lock
+                // of its own. So the question is asked twice around the latch:
+                //
+                //   1. here, the last point before anything is written;
+                //   2. again straight AFTER the latch is written, still under
+                //      this lock. If the answer has changed, the latch is put
+                //      back exactly as it was and nothing else is written.
+                //
+                // The second question is what closes the window between the
+                // first and the write. A latch that survives it was written
+                // while its list was current: the re-validation came after
+                // the write, so any dial, disconnect or death that follows is
+                // later than the write, and the latch then holds what a list
+                // consumed an instant before that change would hold. The
+                // connect flow reads the latch through ConnectListLatched,
+                // which never looks inside an intake, so a latch taken back
+                // at step 2 is never seen.
+                //
+                // Step 1 is subsumed by step 2 for correctness: removing it
+                // turns no test red, measured on Track L7. It stays because it
+                // is the ruled check, and because it keeps a list that was
+                // already stale when it arrived — the common case, a late
+                // callback or a replay after a dial — from touching the latch
+                // at all, so the take-back runs only for the narrow race.
+                //
+                // THE RESIDUAL WINDOW, STATED EXACTLY: between step 2 and the
+                // display writes that follow it — the ghost sweep and its
+                // RadioRemoved, the WAN bank, the account-list cache, the
+                // merge and its RadioFound, and the rows' provenance — a
+                // dial, disconnect or death can land, and those writes then
+                // happen after it. Nothing false results, for three reasons.
+                // They describe the list the session held as current at step
+                // 2, and this lock guarantees no newer list was consumed in
+                // between, so the state they leave is exactly the state a
+                // consumption finishing at step 2 would have left; a
+                // following connection's list waits on this lock and
+                // replaces it. The session keeps its list across a drop for
+                // display by design, so rows describing the last thing the
+                // server said are what a drop leaves anyway. And the one
+                // decision that asks whether rows speak for the LIVE
+                // connection, OwnRowsMayAnswerTheConnect, compares the rows'
+                // recorded provenance — this list's own generation — with
+                // the session's snapshot at the moment it asks, so it is
+                // told no. Those writes raise events and cannot be taken
+                // back, which is why they are not bracketed like the latch.
+                if (!ListStillCurrent(provenance))
                 {
                     Tracing.TraceLine(
-                        $"wanRadioListReceivedHandler: list of {lst.Count} radio(s) for {accountId} from {provenance} is no longer that session's current knowledge — a newer connection has been dialed, or that one has been closed, has died, or the session is going away — so it is not consumed (#619)",
+                        $"wanRadioListReceivedHandler: {arrival} list of {lst.Count} radio(s) for {accountId} from {provenance} is no longer that session's current knowledge — a newer connection has been dialed, or that one has been closed, has died, or the session is going away — so it is not consumed (#619)",
                         TraceLevel.Info);
-                    return;
+                    return false;
                 }
+                WanIntakeStageReached?.Invoke(WanIntakeStage.CurrencyChecked);
 
                 // The connect flow's one-shot latch belongs to the account it
                 // is waiting on; a push from another held session must not
                 // satisfy it with the wrong account's radios.
-                if (string.Equals(accountId, CurrentSessionKey, StringComparison.OrdinalIgnoreCase))
+                bool latchIsOurs = string.Equals(accountId, CurrentSessionKey, StringComparison.OrdinalIgnoreCase);
+                var radiosBefore = radios;
+                bool latchBefore = wanListReceived;
+                var serverListBefore = _serverListThisCall;
+                if (latchIsOurs)
                 {
                     radios = lst.ToList();
                     wanListReceived = true;
@@ -6605,6 +6719,19 @@ namespace Radios
                             accountId,
                             lst.Select(r => r.Serial).Where(x => !string.IsNullOrEmpty(x)).ToList(),
                             SmartLinkRegistrationEvidence.ListSource.ServerPushThisCall);
+                }
+                WanIntakeStageReached?.Invoke(WanIntakeStage.LatchWritten);
+
+                // Step 2: the same question, after the write. See above.
+                if (!ListStillCurrent(provenance))
+                {
+                    radios = radiosBefore;
+                    wanListReceived = latchBefore;
+                    _serverListThisCall = serverListBefore;
+                    Tracing.TraceLine(
+                        $"wanRadioListReceivedHandler: {arrival} list of {lst.Count} radio(s) for {accountId} from {provenance} stopped being that session's current knowledge while it was being taken — a dial, a disconnect or the transport's death landed between the check and the latch — so the latch is put back as it was and nothing else is written (#619)",
+                        TraceLevel.Info);
+                    return false;
                 }
 
                 // Ghost sweep, scoped to THIS account: the list is the
@@ -6713,11 +6840,13 @@ namespace Radios
                 // session's snapshot before it lets the rows stand in for the
                 // server's list (#619).
                 _wanRowsFrom[accountId ?? ""] = provenance;
+                return true;
               } // _wanIntakeLock
             }
             catch (Exception ex)
             {
                 Tracing.TraceLine("wanRadioListReceivedHandler:exception:" + ex.Message, TraceLevel.Error);
+                return false;
             }
         }
         /// <summary>
@@ -7895,9 +8024,17 @@ namespace Radios
                     Tracing.TraceLine(
                         $"ConnectToSmartLink: replaying held session's cached list for {held.AccountId} ({cached.Count} radio(s), session {snapshot.SessionId} connection {snapshot.ConnectionGeneration}) through the intake{at()}",
                         TraceLevel.Info);
-                    wanRadioListReceivedHandler(held.AccountId, cached, WanListArrival.ReplayOfHeldCopy,
-                        new WanListProvenance(held, snapshot.SessionId, snapshot.ConnectionGeneration));
-                    replayed++;
+                    // The snapshot above is one moment, and the intake is a
+                    // later one: a dial, a disconnect or the transport's
+                    // death can land between them. The intake asks the
+                    // session again, with the snapshot's generation, exactly
+                    // as it asks for a push, and refuses a list that has
+                    // stopped being current (#619, Sol's review of L6). Only
+                    // a list it actually took is counted.
+                    WanIntakeStageReached?.Invoke(WanIntakeStage.ReplaySnapshotTaken);
+                    if (wanRadioListReceivedHandler(held.AccountId, cached, WanListArrival.ReplayOfHeldCopy,
+                            new WanListProvenance(held, snapshot.SessionId, snapshot.ConnectionGeneration)))
+                        replayed++;
                 }
                 catch (Exception replayEx)
                 {
@@ -8097,7 +8234,17 @@ namespace Radios
                 int listWaitMs = haveCachedList ? 2000 : 10000;
 
                 Tracing.TraceLine($"ConnectToSmartLink: registration sent, waiting up to {listWaitMs / 1000}s for radio list (cached={myRadioList.Count}) ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                if (!await(() => wanListReceived || session.Status == Radios.SmartLink.SessionStatus.AuthorizationExpired, listWaitMs))
+                // The latch is read through ConnectListLatched, which never
+                // looks inside an intake: the intake writes the latch and
+                // re-validates it as one step, and may take it back (#619).
+                // A list whose intake is still running when the window ends
+                // is settled by one read that waits for the intake to finish.
+                bool listArrived = await(() => ConnectListLatched() || session.Status == Radios.SmartLink.SessionStatus.AuthorizationExpired, listWaitMs);
+                if (!listArrived)
+                {
+                    lock (_wanIntakeLock) listArrived = wanListReceived;
+                }
+                if (!listArrived)
                 {
                     // The server sends the radio list once per TLS session. On a
                     // re-entry into ConnectToSmartLink over a session that is

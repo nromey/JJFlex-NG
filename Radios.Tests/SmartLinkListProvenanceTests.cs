@@ -128,6 +128,35 @@ namespace Radios.Tests
             typeof(FlexBase).GetField("myRadioList", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly MethodInfo? ForgetWanRadiosForAccount =
             typeof(FlexBase).GetMethod("ForgetWanRadiosForAccount", BindingFlags.NonPublic | BindingFlags.Static);
+        private static readonly FieldInfo? LatchField =
+            typeof(FlexBase).GetField("wanListReceived", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly FieldInfo? ServerListThisCallField =
+            typeof(FlexBase).GetField("_serverListThisCall", BindingFlags.NonPublic | BindingFlags.Instance);
+
+        /// <summary>The raw latch field, read without the intake's lock —
+        /// what an unguarded reader would see.</summary>
+        private static bool LatchFieldOf(FlexBase rig)
+        {
+            Assert.True(LatchField != null, "FlexBase.wanListReceived is not where this test reads it.");
+            return (bool)LatchField!.GetValue(rig)!;
+        }
+
+        private static bool ServerSpokeThisCall(FlexBase rig)
+        {
+            Assert.True(ServerListThisCallField != null, "FlexBase._serverListThisCall is not where this test reads it.");
+            return ServerListThisCallField!.GetValue(rig) != null;
+        }
+
+        /// <summary>What ConnectToSmartLink does when a call begins: the
+        /// latch and the server-spoke capture are cleared, so the next list
+        /// is the one this call is waiting for.</summary>
+        private static void BeginACall(FlexBase rig)
+        {
+            Assert.True(LatchField != null && ServerListThisCallField != null,
+                "The connect flow's latch fields are not where this test clears them.");
+            LatchField!.SetValue(rig, false);
+            ServerListThisCallField!.SetValue(rig, null);
+        }
 
         /// <summary>The serials of the list the connect flow reads downstream.</summary>
         private static List<string> RadiosOf(FlexBase rig)
@@ -577,6 +606,193 @@ namespace Radios.Tests
             finally
             {
                 releaseDial.Set();
+                owner.Dispose();
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // 5. The intake's own window (Sol's review of L6)
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// The replay takes one snapshot of a held session, decides from it,
+        /// and reaches the intake later. The replay is parked exactly there —
+        /// snapshot taken, intake not entered — while the transport dies and
+        /// the monitor dials connection 2. Until Track L7 the intake asked
+        /// only a PUSH whether its list was still current, so the replay
+        /// delivered connection 1's list as the account's full current list:
+        /// the latch, <c>radios</c>, the rows, the ghost sweep, the bank.
+        /// </summary>
+        /// <remarks>
+        /// The first rig's replay is the positive control: with nothing
+        /// between the snapshot and the intake, the same list is taken.
+        /// Exempting a replay from the intake's currency question turns the
+        /// parked rig's replay count and rows red.
+        /// </remarks>
+        [Fact]
+        public void A_replay_whose_list_stops_being_current_after_its_snapshot_is_not_consumed()
+        {
+            var (owner, wan) = NewSession();
+            var release = new ManualResetEventSlim();
+            try
+            {
+                ConnectAndList(owner, wan, Listed);
+
+                var control = NewRig();
+                Assert.Equal(1, control.ReplayHeldListsIntoTheIntake(Account, sessionWasAlreadyConnected: true));
+                Assert.Equal(new[] { Listed }, WanSerialsInMyRadioList(control));
+                Assert.Equal(new[] { Listed }, RadiosOf(control));
+
+                var rig = NewRig();
+                var parked = new ManualResetEventSlim();
+                rig.WanIntakeStageReached = stage =>
+                {
+                    if (stage != FlexBase.WanIntakeStage.ReplaySnapshotTaken) return;
+                    rig.WanIntakeStageReached = null;
+                    parked.Set();
+                    Assert.True(release.Wait(5000), "the parked replay was never released");
+                };
+                var replay = Task.Run(() => rig.ReplayHeldListsIntoTheIntake(Account, sessionWasAlreadyConnected: true));
+                Assert.True(parked.Wait(5000), "the replay never took its snapshot");
+
+                DropAndRedial(owner, wan);
+                Assert.Equal(2, wan.ConnectionGeneration);
+                // The trap, stated: the replay holds connection 1's list, the
+                // session still holds it too, and it is no longer current.
+                Assert.Contains(owner.AvailableRadios, r => r.Serial == Listed);
+                Assert.False(owner.ListIsCurrent(1));
+
+                release.Set();
+                Assert.True(replay.Wait(5000), "the parked replay never finished");
+                Assert.Equal(0, replay.Result);
+                Assert.Empty(WanSerialsInMyRadioList(rig));
+                Assert.Empty(RadiosOf(rig));
+                Assert.False(rig.ConnectListLatched(),
+                    "A replayed list that stopped being current between its snapshot and the intake set the connect latch (#619, Sol's review of L6).");
+            }
+            finally
+            {
+                release.Set();
+                owner.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// A push that the intake has asked about and been told is current,
+        /// parked after that answer and before the latch is written, while
+        /// the transport dies and connection 2 is dialed. L6a's check was the
+        /// only question, so the latch, <c>radios</c>, the server-spoke
+        /// capture and the rows all took connection 1's list after
+        /// connection 2 existed. The intake now asks again straight after
+        /// writing the latch and puts it back when the answer has changed.
+        /// </summary>
+        /// <remarks>
+        /// The first push is the positive control that this rig is the
+        /// intake; connection 2's push at the end is the control that the
+        /// latch can still be set. Removing the re-validation turns the
+        /// latch, <c>radios</c>, the capture and the rows red.
+        /// </remarks>
+        [Fact]
+        public void A_push_whose_connection_is_replaced_after_its_currency_check_leaves_the_latch_as_it_was()
+        {
+            var (owner, wan) = NewSession();
+            var release = new ManualResetEventSlim();
+            try
+            {
+                var rig = NewRig();
+                rig.EngageSmartLinkPresence();
+                ConnectAndList(owner, wan, Listed);
+                Assert.Equal(new[] { Listed }, RadiosOf(rig));
+                BeginACall(rig);
+
+                var checkedCurrent = new ManualResetEventSlim();
+                rig.WanIntakeStageReached = stage =>
+                {
+                    if (stage != FlexBase.WanIntakeStage.CurrencyChecked) return;
+                    rig.WanIntakeStageReached = null;
+                    checkedCurrent.Set();
+                    Assert.True(release.Wait(5000), "the parked push was never released");
+                };
+                var late = Task.Run(() =>
+                    wan.RaiseWanRadioRadioListReceivedFrom(1, new[] { WanRadio(Other) }));
+                Assert.True(checkedCurrent.Wait(5000), "the intake never checked the push");
+
+                DropAndRedial(owner, wan);
+                Assert.Equal(2, wan.ConnectionGeneration);
+                Assert.False(owner.ListIsCurrent(1));
+
+                release.Set();
+                Assert.True(late.Wait(5000), "the parked push never finished");
+
+                Assert.False(LatchFieldOf(rig),
+                    "A push whose connection was replaced after its currency check set the connect latch (#619, Sol's review of L6).");
+                Assert.False(ServerSpokeThisCall(rig));
+                Assert.Equal(new[] { Listed }, RadiosOf(rig));
+                Assert.Equal(new[] { Listed }, WanSerialsInMyRadioList(rig));
+
+                // Control: connection 2's own list sets it.
+                wan.RaiseWanRadioRadioListReceived(new[] { WanRadio(Third) });
+                Assert.True(rig.ConnectListLatched());
+                Assert.True(ServerSpokeThisCall(rig));
+                Assert.Equal(new[] { Third }, RadiosOf(rig));
+            }
+            finally
+            {
+                release.Set();
+                owner.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// The latch is written before it is re-validated, so for a moment
+        /// inside the intake it can hold a list that the re-validation will
+        /// take back. The connect flow must never see that moment. The push
+        /// is parked there — latch written, not yet re-validated — and the
+        /// flow's reader must say "not yet" whatever the field holds.
+        /// </summary>
+        /// <remarks>
+        /// The release is the positive control: the same list, re-validated,
+        /// is read as latched. Reading the field without regard to the
+        /// intake turns the parked assertion red.
+        /// </remarks>
+        [Fact]
+        public void The_connect_flow_never_reads_a_latch_the_intake_has_not_yet_re_validated()
+        {
+            var (owner, wan) = NewSession();
+            var release = new ManualResetEventSlim();
+            try
+            {
+                var rig = NewRig();
+                rig.EngageSmartLinkPresence();
+                ConnectAndList(owner, wan, Listed);
+                BeginACall(rig);
+
+                var written = new ManualResetEventSlim();
+                rig.WanIntakeStageReached = stage =>
+                {
+                    if (stage != FlexBase.WanIntakeStage.LatchWritten) return;
+                    rig.WanIntakeStageReached = null;
+                    written.Set();
+                    Assert.True(release.Wait(5000), "the parked push was never released");
+                };
+                var push = Task.Run(() =>
+                    wan.RaiseWanRadioRadioListReceived(new[] { WanRadio(Other) }));
+                Assert.True(written.Wait(5000), "the intake never wrote the latch");
+
+                // The trap, stated: the field is set, and it is not yet known
+                // to be kept.
+                Assert.True(LatchFieldOf(rig));
+                Assert.False(rig.ConnectListLatched(),
+                    "The connect flow read a latch the intake had written and not yet re-validated (#619).");
+
+                release.Set();
+                Assert.True(push.Wait(5000), "the parked push never finished");
+                Assert.True(rig.ConnectListLatched());
+                Assert.Equal(new[] { Other }, RadiosOf(rig));
+            }
+            finally
+            {
+                release.Set();
                 owner.Dispose();
             }
         }
