@@ -235,14 +235,18 @@ namespace Radios.Tests
             Assert.False(b.Rig.RadioHasConfirmedClient(9));
             Assert.False(b.Rig.DisconnectGuiClient(9),
                 "a client only SmartLink's list reported could be disconnected from its row before the radio identified it (#634)");
-            // Still named as company for a blast-radius warning — with the caveat.
-            Assert.Contains("WA2IWC", b.Rig.OtherConnectedStations);
+            // Named as company that may be affected — and NOT in the definite
+            // claim. L6 asserted the opposite here, pinning the false claim
+            // Sol's review of L6 found (#634, Track L7).
+            Assert.DoesNotContain("WA2IWC", b.Rig.OtherConnectedStations);
             Assert.Equal(new[] { "WA2IWC" }, b.Rig.UnconfirmedOtherStations);
             Assert.Equal(Lexicon.Get("connect.client.unconfirmed_affected", ("clients", "WA2IWC")), b.Rig.UnconfirmedCompanyCaveat);
 
-            // The radio identifies him: no caveat, and the row is his to disconnect.
+            // The radio identifies him: named as connected, no caveat, and
+            // the row is his to disconnect.
             b.RadioSays("S0|client 9 connected client_id=don program=SmartSDR station=WA2IWC local_ptt=0");
             Assert.True(b.Rig.RadioHasConfirmedClient(9));
+            Assert.Equal(new[] { "WA2IWC" }, b.Rig.OtherConnectedStations);
             Assert.Empty(b.Rig.UnconfirmedOtherStations);
             Assert.Null(b.Rig.UnconfirmedCompanyCaveat);
             Assert.True(ClientRowPhrase.MayDisconnect(b.Row(9)));
@@ -488,6 +492,88 @@ namespace Radios.Tests
             Assert.Equal(failed, line.TextFor(don));
             Assert.Equal(failed, line.TextFor(don));
             Assert.Equal(unavailable, line.TextFor(justin));
+        }
+
+        // ------------------------------------------------------------------
+        // Radio-wide confirmations claim only what the radio confirmed (Track L7)
+        // ------------------------------------------------------------------
+
+        private static readonly FieldInfo IsConnectedField =
+            typeof(FlexBase).GetField("_IsConnected", BindingFlags.NonPublic | BindingFlags.Instance);
+
+        /// <summary>
+        /// Sol's review of L6: the static-IP, registration and firmware
+        /// preflights and the reboot confirmation named every client in the
+        /// vendor's merged list as connected — including one only a stale
+        /// SmartLink list mentioned — and L6's caveat after the claim could
+        /// not make the claim true. A mixed company now splits: the client
+        /// the radio confirmed is named as connected, the one only a list
+        /// reported is named as possibly affected, never both; and a company
+        /// the radio has confirmed none of makes no definite claim at all.
+        /// Driven through the rig's two properties, which all four sites
+        /// read, and through the static-IP preflight's assembled warnings.
+        /// </summary>
+        /// <remarks>
+        /// Reading the definite list from the vendor's merged list again, as
+        /// L6 did, turns the "no definite claim" and "never both"
+        /// assertions red.
+        /// </remarks>
+        [Fact]
+        public void A_radio_wide_confirmation_names_as_connected_only_the_clients_the_radio_confirmed()
+        {
+            using var b = new Bench();
+            OurClientIsEstablished(b);
+            Assert.True(IsConnectedField != null, "FlexBase._IsConnected is not where this test sets it, so the preflight would refuse before the company lines.");
+            IsConnectedField.SetValue(b.Rig, true);
+
+            // All unconfirmed: a list names Don and Justin, the radio neither.
+            var justin = new GUIClient(10, null, "SmartSDR", "KD2XYZ", false);
+            b.ListSays(Account, Own(), Don(), justin);
+            Assert.Empty(b.Rig.OtherConnectedStations);
+            Assert.Equal(new[] { "WA2IWC", "KD2XYZ" }, b.Rig.UnconfirmedOtherStations);
+            var allReported = b.Rig.PreflightStaticIp("192.0.2.1", "192.0.2.254", "255.255.255.0");
+            Assert.True(allReported.CanProceed, allReported.BlockReason);
+            Assert.DoesNotContain(allReported.Warnings, w => w.Contains("are connected", StringComparison.Ordinal));
+            Assert.Equal(new[] { Lexicon.Get("connect.client.unconfirmed_affected", ("clients", "WA2IWC, KD2XYZ")) }, allReported.Warnings);
+
+            // Mixed: the radio confirms Don. He moves to the definite claim
+            // and out of the caveat; Justin stays reported.
+            b.RadioSays("S0|client 9 connected client_id=don program=SmartSDR station=WA2IWC local_ptt=0");
+            Assert.Equal(new[] { "WA2IWC" }, b.Rig.OtherConnectedStations);
+            Assert.Equal(new[] { "KD2XYZ" }, b.Rig.UnconfirmedOtherStations);
+            var mixed = b.Rig.PreflightStaticIp("192.0.2.1", "192.0.2.254", "255.255.255.0");
+            Assert.Equal(new[]
+            {
+                "Other stations are connected and will need to reconnect: WA2IWC",
+                Lexicon.Get("connect.client.unconfirmed_affected", ("clients", "KD2XYZ")),
+            }, mixed.Warnings);
+        }
+
+        /// <summary>
+        /// The split itself, read without a rig: our own client is in
+        /// neither list; a confirmed client is definite; a reported one, from
+        /// either source, and a confirmed one something has since stopped
+        /// listing are caveat material; and a client with no station is named
+        /// by its program, or by the unknown-client word when it has neither.
+        /// </summary>
+        [Fact]
+        public void The_company_split_puts_each_client_in_exactly_one_list()
+        {
+            var ours = new ClientRow("JJFlex", "K5TEST", 7, true, "", ClientRowSource.Radio, false);
+            var don = new ClientRow("SmartSDR", "WA2IWC", 9, false, "", ClientRowSource.Radio, false);
+            var nameless = new ClientRow("Maestro", "", 11, false, "", ClientRowSource.Radio, false);
+            var justin = new ClientRow("SmartSDR", "KD2XYZ", 10, false, "", ClientRowSource.SmartLinkList, false);
+            var lan = new ClientRow("SmartSDR", "N0LAN", 12, false, "", ClientRowSource.LocalDiscovery, false);
+            var maybeGone = new ClientRow("SmartSDR", "W1GONE", 13, false, "", ClientRowSource.Radio, true);
+            var anonymous = new ClientRow("Unknown", "", 14, false, "", ClientRowSource.SmartLinkList, false);
+
+            var mixed = ClientRowPhrase.Company(new[] { ours, don, nameless, justin, lan, maybeGone, anonymous });
+            Assert.Equal(new[] { "WA2IWC", "Maestro" }, mixed.Confirmed);
+            Assert.Equal(new[] { "KD2XYZ", "N0LAN", "W1GONE", Lexicon.Get("connect.client.unknown_added") }, mixed.Reported);
+
+            var noneConfirmed = ClientRowPhrase.Company(new[] { ours, justin, lan });
+            Assert.Empty(noneConfirmed.Confirmed);
+            Assert.Equal(new[] { "KD2XYZ", "N0LAN" }, noneConfirmed.Reported);
         }
 
         // ------------------------------------------------------------------

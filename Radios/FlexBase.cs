@@ -4232,7 +4232,9 @@ namespace Radios
             var others = OtherConnectedStations;
             if (others.Count > 0)
                 check.Warnings.Add("Other stations are connected and will need to reconnect: " + string.Join(", ", others));
-            // Some of that company may be a list's word, not the radio's (#634).
+            // Only clients the radio has confirmed are named above; the ones a
+            // list or a broadcast reported are named here instead, as possibly
+            // affected, and never in both (#634, Track L7).
             var caveat = UnconfirmedCompanyCaveat;
             if (caveat != null) check.Warnings.Add(caveat);
 
@@ -4617,7 +4619,9 @@ namespace Radios
             var others = OtherConnectedStations;
             if (others.Count > 0)
                 check.Warnings.Add("Other stations are connected to this radio: " + string.Join(", ", others));
-            // Some of that company may be a list's word, not the radio's (#634).
+            // Only clients the radio has confirmed are named above; the ones a
+            // list or a broadcast reported are named here instead, as possibly
+            // affected, and never in both (#634, Track L7).
             var companyCaveat = UnconfirmedCompanyCaveat;
             if (companyCaveat != null) check.Warnings.Add(companyCaveat);
 
@@ -5803,7 +5807,9 @@ namespace Radios
                 check.Warnings.Add(
                     "Other stations are connected and will lose the radio: " + string.Join(", ", others));
             }
-            // Some of that company may be a list's word, not the radio's (#634).
+            // Only clients the radio has confirmed are named above; the ones a
+            // list or a broadcast reported are named here instead, as possibly
+            // affected, and never in both (#634, Track L7).
             var companyCaveat = UnconfirmedCompanyCaveat;
             if (companyCaveat != null) check.Warnings.Add(companyCaveat);
 
@@ -10424,14 +10430,27 @@ namespace Radios
         }
 
         /// <summary>
-        /// Station names of every GUI client connected to this radio other than us.
-        /// Empty when we're the only station, the radio is null, or the other clients
-        /// haven't reported a station name yet.
+        /// The other clients the RADIO has reported connected on this
+        /// connection, and that nothing has since stopped listing — the only
+        /// clients a confirmation may name in a definite claim: "are
+        /// connected", "will disconnect", "will lose the radio". Named by
+        /// station, else program, else the unknown-client word. Empty when
+        /// we're the only station, the radio is null, or no other client is
+        /// confirmed.
         ///
         /// Callers use this to tell the user who else is affected before taking an
         /// action with radio-wide blast radius (reboot, firmware update, port-forward
         /// changes). On a MultiFlex radio "who else am I about to disconnect" is the
         /// single most useful thing to put in a confirmation prompt.
+        ///
+        /// <para><b>From the roster's rows, not the vendor's list (#634, Sol's
+        /// review of L6).</b> Until Track L7 this read the vendor's merged
+        /// client list, so a client only a stale SmartLink list or a broadcast
+        /// mentioned was named here as connected, on the decisions that
+        /// restart or reconfigure a shared radio; L6's caveat after the claim
+        /// could not make the claim true. Those clients are in
+        /// <see cref="UnconfirmedOtherStations"/> now, and only there. One
+        /// split, <see cref="ClientRowPhrase.Company"/>, feeds both.</para>
         ///
         /// Never throws — information gathering must not block the operation it's
         /// describing.
@@ -10440,24 +10459,15 @@ namespace Radios
         {
             get
             {
-                var others = new System.Collections.Generic.List<string>();
                 try
                 {
-                    if (theRadio == null) return others;
-                    lock (theRadio.GuiClientsLockObj)
-                    {
-                        foreach (GUIClient c in theRadio.GuiClients)
-                        {
-                            if (!myClient(c.ClientHandle) && !string.IsNullOrEmpty(c.Station))
-                                others.Add(c.Station);
-                        }
-                    }
+                    return ClientRowPhrase.Company(GetGuiClients()).Confirmed.ToList();
                 }
                 catch (Exception ex)
                 {
                     Tracing.TraceLine($"OtherConnectedStations: {ex.Message}", TraceLevel.Error);
+                    return new System.Collections.Generic.List<string>();
                 }
-                return others;
             }
         }
 
@@ -10466,32 +10476,24 @@ namespace Radios
         /// reported connected on this connection — rows a SmartLink list or a
         /// discovery broadcast supplied, and rows marked as possibly gone.
         /// Named by station, else program, else the unknown-client word.
-        /// Every blast-radius confirmation that names
-        /// <see cref="OtherConnectedStations"/> adds a caveat from this list,
-        /// so the operator reads that some of the company named was reported
-        /// rather than confirmed (#634). Never throws.
+        /// Every blast-radius confirmation adds a caveat from this list —
+        /// "may be affected" — and never names these clients in its definite
+        /// claim (<see cref="OtherConnectedStations"/>), so no client is in
+        /// both (#634, Track L7). Never throws.
         /// </summary>
         public System.Collections.Generic.List<string> UnconfirmedOtherStations
         {
             get
             {
-                var names = new System.Collections.Generic.List<string>();
                 try
                 {
-                    if (theRadio == null) return names;
-                    foreach (var entry in RosterTracker.Snapshot().Others)
-                    {
-                        if (RadioHasConfirmedClient(entry.Handle) && !entry.ReportedGoneByDiscovery) continue;
-                        names.Add(!string.IsNullOrEmpty(entry.Station) ? entry.Station
-                            : !string.IsNullOrEmpty(entry.Program) ? entry.Program
-                            : Lexicon.Get("connect.client.unknown_added"));
-                    }
+                    return ClientRowPhrase.Company(GetGuiClients()).Reported.ToList();
                 }
                 catch (Exception ex)
                 {
                     Tracing.TraceLine($"UnconfirmedOtherStations: {ex.Message}", TraceLevel.Error);
+                    return new System.Collections.Generic.List<string>();
                 }
-                return names;
             }
         }
 

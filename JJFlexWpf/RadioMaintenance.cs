@@ -46,10 +46,12 @@ namespace JJFlexWpf
             }
 
             // Name names. On a MultiFlex radio, "this will disconnect Don" is the
-            // single most decision-relevant fact, and JJ Flex already knows it.
+            // single most decision-relevant fact, and JJ Flex already knows it —
+            // but only for the clients the radio itself has confirmed (#634).
             var others = rig.OtherConnectedStations;
-            // Some of that company may be a list's word, not the radio's (#634):
-            // the dialog says so in a readable line, beside the names.
+            // The company a list or a broadcast reported is never in the names
+            // above; the dialog says it may be affected, in a readable line
+            // beside them (#634, Track L7).
             var caveat = rig.UnconfirmedCompanyCaveat;
 
             // No Owner assignment: JJ Flex's WPF main window is hosted in an

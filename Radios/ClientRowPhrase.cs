@@ -172,6 +172,46 @@ namespace Radios
             if (selected is not { } row || row.IsThisClient) return null;
             return MayDisconnect(row) ? null : Lexicon.Get("connect.multiflex.disconnect_unavailable");
         }
+
+        /// <summary>
+        /// The other clients on the radio, split by what a confirmation may
+        /// say about them (#634, Sol's review of L6). <c>Confirmed</c> are the
+        /// ones the radio itself has reported connected on this connection
+        /// and nothing has since omitted: only they may be named in a
+        /// definite claim — "are connected", "will disconnect", "will lose the
+        /// radio". <c>Reported</c> are the rest — a SmartLink list's or a
+        /// broadcast's word, or a confirmed client something has since stopped
+        /// listing — and they go into the "may be affected" caveat instead.
+        /// Never both; our own client is in neither.
+        /// </summary>
+        /// <remarks>
+        /// Until Track L7 the definite list was the vendor's merged client
+        /// list, so a client only a stale list mentioned was named as
+        /// connected on the decisions that restart or reconfigure a shared
+        /// radio, and L6's caveat after it could not make that claim true.
+        /// A confirmed client with no station is now named by its program,
+        /// where the old list left it out of the claim altogether.
+        /// </remarks>
+        public static (IReadOnlyList<string> Confirmed, IReadOnlyList<string> Reported) Company(IEnumerable<ClientRow> rows)
+        {
+            var confirmed = new List<string>();
+            var reported = new List<string>();
+            foreach (var row in rows ?? Array.Empty<ClientRow>())
+            {
+                if (row.IsThisClient) continue;
+                (row.Unconfirmed ? reported : confirmed).Add(CompanyName(row));
+            }
+            return (confirmed, reported);
+        }
+
+        /// <summary>A client as a confirmation names it: station, else
+        /// program, else the unknown-client word. <c>"Unknown"</c> is the
+        /// program <see cref="FlexBase.GetGuiClients"/> writes for a client
+        /// that reported none, and is not a name.</summary>
+        public static string CompanyName(ClientRow row) =>
+            !string.IsNullOrEmpty(row.Station) ? row.Station
+            : !string.IsNullOrEmpty(row.Program) && row.Program != "Unknown" ? row.Program
+            : Lexicon.Get("connect.client.unknown_added");
     }
 
     /// <summary>
