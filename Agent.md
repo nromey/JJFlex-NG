@@ -3,11 +3,153 @@
 This document captures the current state of JJ-Flex repository and active work.
 
 **Repository root:** `C:\dev\JJFlex-NG`
-**Branch:** `honest-tx-audio` — **this is where all current work lives**, 867 commits ahead of `main` and 0 behind (corrected 2026-08-25; it said 19, and had said so for a long time). **The FlexLib fast-forward is DONE:** `main` vendors **FlexLib 4.2.20.41343** as of 2026-08-11, so main and the old track branch no longer diverge and the "305 commits behind" warning that stood here is retired. Verified 2026-08-12: `main` and `honest-tx-audio` share the same last FlexLib commit (`625bdbae`).
+**Branch:** *(as of 2026-09-30 all current work is on `sprint45/*` branches; integration is `sprint45/integration`. This header named `honest-tx-audio` as "where all current work lives" long after that stopped being true -- the same drift the note below warns about. Run `git rev-parse --abbrev-ref HEAD`.)* `honest-tx-audio` — historically this era's trunk, 867 commits ahead of `main` and 0 behind (corrected 2026-08-25; it said 19, and had said so for a long time). **The FlexLib fast-forward is DONE:** `main` vendors **FlexLib 4.2.20.41343** as of 2026-08-11, so main and the old track branch no longer diverge and the "305 commits behind" warning that stood here is retired. Verified 2026-08-12: `main` and `honest-tx-audio` share the same last FlexLib commit (`625bdbae`).
 
 *This header claimed work lived on `track/flexlib-4220` with main 305 commits behind until 2026-08-12 — a day after the merge made that false. It is the same drift documented in `memory/project_description_drift_pattern.md`; check `git rev-parse --abbrev-ref HEAD` rather than trusting this line.*
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
+
+## END-OF-DAY SEAL — 2026-09-30 — FIVE DAYS SEALED AT ONCE, TWO RULINGS RECOVERED FROM SIX WEEKS AGO, AND THE FIFTH ROUND OF ONE BUG POINTS AT AN UNBUILT FIX
+
+**Sealed 2026-09-30 on `sprint45/integration` at `23523697`, covering FIVE days —
+2026-09-26 through 2026-09-30.** The previous seal was 2026-09-25, so 09-26
+onward had no record. **09-27 and 09-28 were completely idle**: zero commits on
+any branch, zero tasks opened. The substance is three working days.
+
+**12 commits on integration, 27 on `sprint45/track-l`, 2 on `sprint45/track-n`.
+Nothing on `main` in five days.** jjf-private: 5 commits today.
+`Radios.Tests` **3,834 passed / 0 failed** on merged integration; the
+`JJFlexWpf.Tests` desk-safe filter **52 passed / 1 failed** — the known-red
+`DelegateSurfaceTests` (#591), unchanged from the 09-25 seal and deliberately
+still in the filter. Tasks **#640 through #669** opened across the window,
+**38 in all**; register **381 open**. Dependency advisories: **zero**. No build
+published, no tester pinged.
+
+### What landed on integration
+
+**09-26.** Don's notes stop underlining their headings, and the reason
+generalises to every plain-text artifact a screen reader reads — a row of hyphens
+is punctuation the reader announces, so it is noise between a heading and its
+text (`1bce7216`). Then `seal` became `archive` throughout Track H (`dcce4838`,
+#626), because *seal* is the operator's own ritual word and should not be spoken
+back to him as a feature name.
+
+**09-29, Track H16 through H19, then the merge.** The drop window stopped
+describing the saved file and the file began describing itself in a header
+(#625). `txMeters` numbers are now written identically on every machine, so a
+culture that formats decimals differently no longer produces a trace its own
+auditor cannot read. The rate limiter moved off a 32-bit `TickCount`, so a
+machine up 25 days still limits correctly (#649). A connection forgets the
+previous radio's meters before hooking the new one's, so nothing it reports can
+be erased. And `TxFactAudit` keeps tune and transmit apart, so a tune's carrier
+never reads as a transmission's power (#625). **Track H merged** at `442a506a`,
+3,834 / 0, and the lexicon gate was fixed to print the fingerprints it had been
+leaving to be worked out by hand (`23523697`, #629).
+
+### The theme — the register learns what the mailboxes already knew
+
+**Two unrelated threads converged on one disease: a decision that existed, in
+writing, somewhere nothing would look.**
+
+A triage of `for-noel` found the mic-profile ownership design complete and dated
+**2026-08-18**, with answers to all six of its questions dated **2026-08-19** —
+including the single word *"ratified"*, and including the Margaret test's
+conclusion that ownership cannot be derived from a SmartLink account, because
+connecting to someone else's radio with their account makes you the owner as far
+as SmartLink can tell. **That same conclusion was reached again from first
+principles on 2026-09-29.** The answer file had been processed and archived;
+processing had meant *built*, not *recorded*.
+
+The iterator lane's fifth consecutive round on the same #619 ruling pointed the
+same way. Every round fixed a consumer of stale WAN evidence. **The source fix
+was ruled YES on 2026-09-25 as #620 and is unbuilt.**
+
+**A shipped implementation is not a record of the ruling behind it.** Code says
+what was built, never what was chosen or chosen against. That is now the second
+clause of the disposal test in
+`memory/feedback_important_stuff_gets_archived_or_annotated.md`: not "has this
+been acted on?" but "is the DECISION recorded where a future session will look?"
+
+### #619 after five rounds — the blocker is a second evidence path
+
+**The picker learns WAN availability two ways**, and every fix since L6 hardened
+one of them:
+
+1. a `RadioFound` sighting carrying `WanListProvenance`, which
+   `PickerSighting.Decide` and `Reassess` both understand; and
+2. `ReconcileAvailability`, reading the process-wide static `_wanRadiosBySerial`
+   bank, **which sets `WanAvailable` and leaves the sighting null.**
+
+`Reassess` guards on `wanSighting is FlexBase.RigData`, so a bank-fed row falls
+through to `Ignored` — it has nothing to be asked about. After a drop it still
+reads online and `AutoConnectMayChoose` accepts it, so the timer can dial a
+handle the server has already forgotten. **An ordinary saved-radio path, not an
+artificial state.**
+
+**#620 is the fix and it is not a redesign.** The bank already clears itself on
+every teardown the application initiates — `CycleWanSession` and a forced
+`apiInit`, three call sites — and the invariant is written down twice by its own
+author, including *"a stale handle must never be dialled."* **The gap is one
+event class: the far end dying never reaches machinery that already exists and
+already states the right rule.**
+
+### #634 — the defect was ROUTING, and a wording fix could not reach it
+
+Three of the operator's own rewrites had moved a fact, and correcting them was
+still not enough: **one lexicon key served two states**, so the corrected
+sentence 6 remained false for a client the radio HAD identified but which may
+have left since. Fixed in L11 and verified by review.
+
+**No wording of a single key is true for two states that differ in the thing the
+sentence asserts.** So the review question is not "is this sentence true?" but
+**"how many states reach this key, and is it true for every one?"** Reading the
+string cannot answer that; the call sites can. Recorded in
+`memory/feedback_read_assembled_sentences_not_source_lines.md`.
+
+### Two sentences that pull against each other
+
+**#663 asks to shorten the discovery count for terse verbosity. #555 records
+that the operator diagnosed an eight-hour power outage 400 miles away using that
+count alone.** Shortening it to "3 radios" is terse and deletes a diagnostic
+already used in anger; "3 radios, 1 offline" satisfies both. Both tasks now say
+so, because either one fixed alone would undo the other.
+
+### Unmerged and why
+
+`track-l` (31 ahead, NOT CLEAN, one blocker), `track-n` (1 ahead, needs a rebase
+50 behind plus the corrected predicate), `track-i`/`-j`/`-k` (one unit, awaiting
+a GO), `track-m` (retired rather than merged, #627). **Every uncontained branch
+has a recorded reason** — the containment sweep passed with no surprises.
+
+### Housekeeping worth knowing
+
+- **Mailbox retention ran for the first time.** `for-claude` went from 13 live
+  files to 1; `for-noel` from 46 to 3. Every transfer is an exact rename with a
+  manifest naming where each file's content is annotated. **All nine older `ASK-`
+  files turned out to be already answered** — one of them six days after its
+  question was ruled.
+- **NVDA transcripts were archived for the first time in five days**, compressed
+  because today's is 11 MB where the 09-25 precedent was 10 KB.
+- **The drift checker sweeps six fixed trees and no worktrees**, so during a
+  sprint any entry naming a branch-local symbol reads as stale. Today's two new
+  symbol flags are exactly that and should not be "fixed".
+- **`open-tasks-summary.md` was stale when checked** — the register was appended
+  to after the regeneration. The mtime check caught it, which is the whole reason
+  that check is written as an mtime comparison.
+
+### Setup for tomorrow
+
+**Four things wait on the operator:** the I/J/K carry-forward GO; a new draft
+sentence for the may-have-left disconnect reason; whether "3 clients connected:"
+may head a list containing a may-have-left row; and confirmation that
+auto-connect waiting for a current list is the intended trade — **if it waits, it
+should say what it is waiting for.**
+
+**The recommended next build is #620, not a sixth scoped patch.**
+
+**Three threads now converge on one unruled question** — whether autoconnect may
+act on evidence it has not confirmed. #638's startup bypass, #619's bank-fed row,
+and L11's startup-drop bench question. **One ruling closes all three.**
 
 ## END-OF-DAY SEAL — 2026-09-25 — THE FACT STORE MERGES, SIX RULINGS ARRIVE AND FIVE OF THEM DELETE WORK, AND A RULING NOBODY COULD MAKE UNTIL IT WAS TOLD AS A STORY
 
