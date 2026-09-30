@@ -1320,6 +1320,317 @@ namespace Radios.Tests
             }
         }
 
+        // ------------------------------------------------------------------
+        // Track L11: a picker already open when SmartLink drops (#619)
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Sol's review of L9. <see cref="PickerSighting.Decide"/> runs only
+        /// when a sighting arrives, and a drop raises none, so a picker
+        /// already open kept the SmartLink row it had taken as live reading
+        /// online — IsLive, the occupancy clause, auto-connect eligible —
+        /// until another list happened to come. Noel's ruling of 2026-09-30:
+        /// last-list radios are shown as last seen, never online, and stay
+        /// selectable. The session now signals when its lists may have
+        /// stopped being current, and the picker re-asks every row through
+        /// <see cref="PickerSighting.Reassess"/>, which asks the same
+        /// question of the same sighting.
+        /// </summary>
+        /// <remarks>
+        /// The picker's row is held here exactly as the dialog holds it — the
+        /// paths <see cref="PickerSighting.Decide"/> returned and the sighting
+        /// <see cref="PickerSighting.WanHalfSighting"/> recorded — and the
+        /// signal is taken from the process coordinator, the instance the
+        /// dialog subscribes to. The monitor is held before it redials, so
+        /// the transport's own edge is the only thing that has spoken. The
+        /// reassessment before the drop is the control: a current list is
+        /// not withdrawn. Dropping the edge's signal, raising it before the
+        /// death is recorded, a reassessment that withdraws nothing, an
+        /// auto-connect decision that accepts a path to try, and a LAN
+        /// sighting replacing the list's sighting each turn this red.
+        /// </remarks>
+        [Fact]
+        public void A_picker_already_open_when_SmartLink_drops_shows_its_live_row_as_last_seen_and_auto_connect_refuses_it()
+        {
+            var (owner, wan) = NewSession();
+            var coordinator = SmartLinkServices.Coordinator;
+            var releaseDial = new ManualResetEventSlim();
+            using var sightings = new AllSightings();
+
+            // The open picker's row for the radio, as the dialog holds it.
+            PickerRowPaths row = default;
+            object? wanHalf = null;
+            var atSignal = new List<(bool ListStillCurrent, PickerSightingOutcome Reassessed)>();
+            EventHandler<IWanSessionOwner> onSignal = (_, _) =>
+            {
+                var reassessed = PickerSighting.Reassess(row, wanHalf!);
+                lock (atSignal) atSignal.Add((owner.ListIsCurrent(1), reassessed));
+            };
+            coordinator.SessionListCurrencyMayHaveChanged += onSignal;
+            try
+            {
+                var rig = NewRig();
+                rig.EngageSmartLinkPresence();
+                ConnectAndList(owner, wan, Listed);
+
+                var sighting = sightings.Last(Listed);
+                var taken = PickerSighting.Decide(sighting, sighting.LanAvailable, sighting.WanAvailable, null, null);
+                Assert.Equal(PickerSightingTreatment.Live, taken.Treatment);
+                row = taken.Paths;
+                wanHalf = PickerSighting.WanHalfSighting(sighting, null!);
+                Assert.Same(sighting, wanHalf);
+
+                // Control: nothing has changed, so the row stays live and the
+                // timer may choose it.
+                Assert.True(row.IsLive);
+                Assert.True(PickerSighting.AutoConnectMayChoose(row));
+                Assert.Equal(PickerSightingTreatment.Ignored, PickerSighting.Reassess(row, wanHalf).Treatment);
+
+                // A LAN broadcast of a dual-homed radio refreshes the row's
+                // rig data every second; it says nothing about SmartLink, so
+                // the list's sighting stays the one the row re-asks.
+                var lan = new FlexBase.RigData { Serial = Listed };
+                Assert.Same(sighting, PickerSighting.WanHalfSighting(lan, wanHalf));
+
+                int before;
+                lock (atSignal) before = atSignal.Count;
+
+                // The drop, with the redial held: only the transport's own
+                // edge has spoken.
+                var heldBeforeDial = new ManualResetEventSlim();
+                wan.BeforeDialHook = () =>
+                {
+                    wan.BeforeDialHook = null;
+                    heldBeforeDial.Set();
+                    releaseDial.Wait(30000);
+                };
+                wan.ForceIsConnected(false);
+                Assert.True(heldBeforeDial.Wait(5000), "the monitor never got as far as deciding to dial");
+                Assert.Equal(1, wan.ConnectionGeneration);
+
+                List<(bool ListStillCurrent, PickerSightingOutcome Reassessed)> fromTheDrop;
+                lock (atSignal) fromTheDrop = atSignal.Skip(before).ToList();
+                Assert.True(fromTheDrop.Count > 0,
+                    "A SmartLink drop told the open picker nothing, so the row it had taken as live went on reading online (#619, Sol's review of L9).");
+                Assert.False(fromTheDrop[0].ListStillCurrent,
+                    "The drop was signalled before it was recorded, so a picker re-asking at once was told the dead list was current.");
+                Assert.Equal(PickerSightingTreatment.LastSeen, fromTheDrop[0].Reassessed.Treatment);
+
+                var lastSeen = PickerSighting.Reassess(row, wanHalf);
+                Assert.Equal(PickerSightingTreatment.LastSeen, lastSeen.Treatment);
+                Assert.False(lastSeen.Arrived);
+                Assert.False(lastSeen.Paths.IsLive,
+                    "After a SmartLink drop the open picker's row still read online (#619, Noel 2026-09-30).");
+                Assert.False(PickerSighting.AutoConnectMayChoose(lastSeen.Paths),
+                    "The auto-connect timer could still choose a row whose only evidence is a list that is no longer current (#619, Sol's review of L9).");
+                Assert.True(lastSeen.Paths.HasPathToTry, "a last-seen row was not selectable");
+                Assert.True(lastSeen.Paths.Wan);
+                Assert.True(lastSeen.Paths.WanUnconfirmed);
+
+                // A dual-homed row keeps its local half and loses only the
+                // SmartLink one; a row with no SmartLink half, one already
+                // last seen, and one no list ever spoke for are left alone.
+                var dual = PickerSighting.Reassess(new PickerRowPaths(true, true, false), wanHalf);
+                Assert.Equal(PickerSightingTreatment.LastSeen, dual.Treatment);
+                Assert.Equal(new PickerRowPaths(true, true, true), dual.Paths);
+                Assert.True(dual.Paths.IsLive, "the local half was withdrawn by a SmartLink drop");
+                Assert.Equal(PickerSightingTreatment.Ignored,
+                    PickerSighting.Reassess(new PickerRowPaths(true, false, false), wanHalf).Treatment);
+                Assert.Equal(PickerSightingTreatment.Ignored, PickerSighting.Reassess(lastSeen.Paths, wanHalf).Treatment);
+                Assert.Equal(PickerSightingTreatment.Ignored, PickerSighting.Reassess(row, null!).Treatment);
+                Assert.Equal(PickerSightingTreatment.Ignored, PickerSighting.Reassess(row, lan).Treatment);
+
+                // The new connection's list brings it back, through the
+                // ordinary sighting decision, and the timer may choose it.
+                releaseDial.Set();
+                WaitUntil(() => wan.ConnectionGeneration == 2 && owner.IsConnected, "the session never reconnected");
+                wan.RaiseWanRadioRadioListReceived(new[] { WanRadio(Listed) });
+                var confirmed = sightings.Last(Listed);
+                var back = PickerSighting.Decide(confirmed, confirmed.LanAvailable, confirmed.WanAvailable,
+                    lastSeen.Paths, wanHalf);
+                Assert.Equal(PickerSightingTreatment.Live, back.Treatment);
+                Assert.True(PickerSighting.AutoConnectMayChoose(back.Paths));
+                Assert.Equal(PickerSightingTreatment.Ignored,
+                    PickerSighting.Reassess(back.Paths, PickerSighting.WanHalfSighting(confirmed, wanHalf)).Treatment);
+            }
+            finally
+            {
+                coordinator.SessionListCurrencyMayHaveChanged -= onSignal;
+                releaseDial.Set();
+                owner.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// Every change that can take a list out of currency is signalled,
+        /// after it is recorded, on the thread that made it: the transport's
+        /// death, a dial, the operator's Disconnect and Dispose. A transport
+        /// coming up is not, because nothing becomes stale by it.
+        /// </summary>
+        /// <remarks>
+        /// Each is pinned where only it can have spoken: the dial between the
+        /// mock's two dial hooks, the death on the thread that reported it
+        /// with the redial held, Disconnect and Dispose on the calling thread
+        /// before the monitor has acted. Removing any one of the four signals
+        /// turns exactly its own assertion red; signalling the transport's
+        /// up edge turns the "not signalled" assertion red.
+        /// </remarks>
+        [Fact]
+        public void Every_change_that_can_take_a_list_out_of_currency_is_signalled_once_it_is_recorded()
+        {
+            var (owner, wan) = NewSession();
+            var coordinator = SmartLinkServices.Coordinator;
+            var releaseDial = new ManualResetEventSlim();
+            int testThread = Environment.CurrentManagedThreadId;
+            var signals = new List<(int Thread, bool FirstCurrent, bool SecondCurrent, IWanSessionOwner From)>();
+            EventHandler<IWanSessionOwner> onSignal = (_, from) =>
+            {
+                var entry = (Environment.CurrentManagedThreadId, owner.ListIsCurrent(1), owner.ListIsCurrent(2), from);
+                lock (signals) signals.Add(entry);
+            };
+            coordinator.SessionListCurrencyMayHaveChanged += onSignal;
+            int Count() { lock (signals) return signals.Count; }
+            List<(int Thread, bool FirstCurrent, bool SecondCurrent, IWanSessionOwner From)> Since(int n)
+            {
+                lock (signals) return signals.Skip(n).ToList();
+            }
+
+            try
+            {
+                // Connection 1 dials: signalled. Its transport comes up: not.
+                int atBeforeDial = -1, atDial = -1;
+                wan.BeforeDialHook = () => { wan.BeforeDialHook = null; atBeforeDial = Count(); };
+                wan.DialHook = () => { wan.DialHook = null; atDial = Count(); };
+                ConnectAndList(owner, wan, Listed);
+                Assert.True(atBeforeDial >= 0 && atDial >= 0, "the mock never dialed");
+                Assert.Equal(atBeforeDial + 1, atDial);
+                Assert.Equal(atDial, Count());
+                Assert.All(Since(0), s => Assert.Same(owner, s.From));
+                Assert.True(owner.ListIsCurrent(1));
+
+                // The transport dies: signalled on the thread that reported
+                // it, already recorded. The redial is held so nothing else
+                // can have spoken.
+                var heldBeforeDial = new ManualResetEventSlim();
+                wan.BeforeDialHook = () =>
+                {
+                    wan.BeforeDialHook = null;
+                    atBeforeDial = Count();
+                    heldBeforeDial.Set();
+                    releaseDial.Wait(30000);
+                };
+                wan.DialHook = () => { wan.DialHook = null; atDial = Count(); };
+                int beforeDeath = Count();
+                wan.ForceIsConnected(false);
+                var death = Since(beforeDeath);
+                Assert.True(death.Count >= 1 && death[0].Thread == testThread,
+                    "A transport's death was not signalled on the thread that reported it (#619, Sol's review of L9).");
+                Assert.False(death[0].FirstCurrent);
+
+                // Connection 2 dials: signalled.
+                Assert.True(heldBeforeDial.Wait(5000), "the monitor never got as far as deciding to dial");
+                releaseDial.Set();
+                WaitUntil(() => wan.ConnectionGeneration == 2 && owner.IsConnected, "the session never reconnected");
+                Assert.Equal(atBeforeDial + 1, atDial);
+                wan.RaiseWanRadioRadioListReceived(new[] { WanRadio(Other) });
+                Assert.True(owner.ListIsCurrent(2));
+
+                // The operator disconnects: signalled on the caller's thread,
+                // before the monitor tears anything down.
+                int beforeDisconnect = Count();
+                owner.Disconnect();
+                Assert.Contains(Since(beforeDisconnect), s => s.Thread == testThread && !s.SecondCurrent);
+
+                // Dispose: the same.
+                int beforeDispose = Count();
+                owner.Dispose();
+                Assert.Contains(Since(beforeDispose), s => s.Thread == testThread);
+            }
+            finally
+            {
+                coordinator.SessionListCurrencyMayHaveChanged -= onSignal;
+                releaseDial.Set();
+                owner.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// The two tests above hold the decisions; the dialog that acts on
+        /// them is a WPF window no unit test constructs, so its source is
+        /// read. The picker subscribes to the coordinator's signal before its
+        /// opening replay and unsubscribes on Closing; the handler only
+        /// queues the re-ask on the dispatcher; the re-ask goes through
+        /// <see cref="PickerSighting.Reassess"/> under the list lock and
+        /// repaints; the auto-connect timer asks
+        /// <see cref="PickerSighting.AutoConnectMayChoose"/>; and every row
+        /// write in the sighting handler records which list the SmartLink
+        /// half came from.
+        /// </summary>
+        /// <remarks>
+        /// Deleting the subscription, re-asking on the SmartLink thread,
+        /// letting the timer read IsLive past the seam, or a row write that
+        /// forgets its list each turn this red.
+        /// </remarks>
+        [Fact]
+        public void The_open_picker_re_asks_its_rows_when_a_session_says_its_lists_may_be_history()
+        {
+            string source = ReadRepoFile("JJFlexWpf/Dialogs/RigSelectorDialog.xaml.cs");
+
+            int subscribe = source.IndexOf("_listCurrencySource.SessionListCurrencyMayHaveChanged += OnWanListCurrencyMayHaveChanged;", StringComparison.Ordinal);
+            int replay = source.IndexOf("_callbacks.ReplayDiscoveredRadios?.Invoke();", StringComparison.Ordinal);
+            Assert.True(subscribe >= 0, "The picker no longer subscribes to the sessions' list-currency signal (#619, Sol's review of L9).");
+            Assert.True(replay > subscribe, "The picker subscribes after its opening replay, so a drop during the opening pass is missed.");
+            Assert.Contains("_listCurrencySource = Radios.SmartLink.SmartLinkServices.Coordinator;", source, StringComparison.Ordinal);
+
+            string closing = Body(source, "private void RigSelectorDialog_Closing(");
+            Assert.Contains("_listCurrencySource.SessionListCurrencyMayHaveChanged -= OnWanListCurrencyMayHaveChanged;", closing, StringComparison.Ordinal);
+
+            string handler = Body(source, "private void OnWanListCurrencyMayHaveChanged(");
+            Assert.Contains("Dispatcher.BeginInvoke(new Action(ReassessWanRows))", handler, StringComparison.Ordinal);
+            Assert.DoesNotContain("lock (", handler, StringComparison.Ordinal);
+            Assert.DoesNotContain("Dispatcher.Invoke(", handler, StringComparison.Ordinal);
+
+            string reassess = Body(source, "private void ReassessWanRows()");
+            int lockAt = reassess.IndexOf("lock (_radiosLock)", StringComparison.Ordinal);
+            int ask = reassess.IndexOf("Radios.PickerSighting.Reassess(row.Paths, row.WanSighting)", StringComparison.Ordinal);
+            int write = reassess.IndexOf("row.WanUnconfirmed = outcome.Paths.WanUnconfirmed;", StringComparison.Ordinal);
+            int flag = reassess.IndexOf("_anyLiveRadioSeen = _radiosList.Any(r => r.IsLive);", StringComparison.Ordinal);
+            int repaint = reassess.IndexOf("RefreshRadiosList();", StringComparison.Ordinal);
+            Assert.True(lockAt >= 0 && ask > lockAt && write > ask && flag > write,
+                "The re-ask does not go through PickerSighting.Reassess under the list lock (#619).");
+            Assert.True(repaint > flag, "The rows are withdrawn but the list is not repainted.");
+
+            string tick = Body(source, "private void AutoConnectTimer_Tick(");
+            Assert.Contains("Radios.PickerSighting.AutoConnectMayChoose(r.Paths)", tick, StringComparison.Ordinal);
+            Assert.DoesNotContain("r.IsLive", tick, StringComparison.Ordinal);
+
+            string found = Body(source, "private void OnRadioFound(RadioListItem radio)");
+            Assert.Contains("row?.Paths, row?.WanSighting ?? row?.RigData);", found, StringComparison.Ordinal);
+            Assert.Equal(4, Count(found, "WanSighting = Radios.PickerSighting.WanHalfSighting(radio.RigData,"));
+
+            static string Body(string text, string signature)
+            {
+                int start = text.IndexOf(signature, StringComparison.Ordinal);
+                Assert.True(start >= 0, signature + " is not where this test reads it.");
+                int open = text.IndexOf('{', start);
+                int depth = 0;
+                for (int i = open; i < text.Length; i++)
+                {
+                    if (text[i] == '{') depth++;
+                    else if (text[i] == '}' && --depth == 0) return text.Substring(start, i - start + 1);
+                }
+                Assert.Fail("The body of " + signature + " never closes.");
+                return "";
+            }
+
+            static int Count(string text, string what)
+            {
+                int n = 0, at = 0;
+                while ((at = text.IndexOf(what, at, StringComparison.Ordinal)) >= 0) { n++; at += what.Length; }
+                return n;
+            }
+        }
+
         private static string ReadRepoFile(string relative)
         {
             var dir = new System.IO.DirectoryInfo(AppContext.BaseDirectory);

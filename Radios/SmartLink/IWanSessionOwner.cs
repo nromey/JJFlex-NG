@@ -143,6 +143,35 @@ namespace Radios.SmartLink
         /// </remarks>
         bool ListIsCurrent(long connectionGeneration);
 
+        /// <summary>
+        /// Fired when something has happened that can make a list this
+        /// session delivered stop being current: the live connection's
+        /// transport reported itself gone, a new connection began dialing,
+        /// the operator asked the session to disconnect, or the session is
+        /// being disposed. It carries no verdict. A consumer holding a
+        /// sighting from one of this session's lists asks
+        /// <see cref="ListIsCurrent"/> again, with that sighting's own
+        /// generation, and acts on the answer.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Why a consumer needs a signal and not only a question
+        /// (#619, Noel's ruling of 2026-09-30).</b> The picker asks
+        /// <see cref="ListIsCurrent"/> whenever a sighting arrives, and that
+        /// is enough for a picker opened after a drop. But a drop raises no
+        /// sighting, so a picker already open kept the SmartLink rows it had
+        /// taken as live reading online, and eligible for auto-connect, until
+        /// another list happened to arrive. The rows keep describing the last
+        /// list; this tells the consumer that list may now be history.</para>
+        /// <para>Raised outside this owner's lock, after the change is
+        /// recorded, so a consumer that asks at once already gets the new
+        /// answer. It fires on whichever thread witnessed the change — the
+        /// transport's, the monitor's, or the caller of
+        /// <see cref="Disconnect"/> or Dispose — so a consumer marshals before
+        /// touching a window. Being raised when nothing a consumer holds has
+        /// changed is harmless: the consumer re-asks and nothing moves.</para>
+        /// </remarks>
+        event EventHandler? ListCurrencyMayHaveChanged;
+
         /// <summary>Audio output primitive for this session (D2 discipline).</summary>
         ISessionAudioSink AudioSink { get; }
 

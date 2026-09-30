@@ -142,6 +142,74 @@ namespace Radios
             sighting is not FlexBase.RigData rd || rd.StillCurrent();
 
         /// <summary>
+        /// Re-ask a row the picker already holds, when a session signals that
+        /// its lists may have stopped being current
+        /// (<see cref="SmartLink.SmartLinkSessionCoordinator.SessionListCurrencyMayHaveChanged"/>).
+        /// A row whose SmartLink half a list vouched for, and whose list is
+        /// no longer current, becomes LAST SEEN — not live, not an auto-connect
+        /// candidate, no occupancy read as online — and keeps its SmartLink
+        /// leg so choosing it still starts a connect (Noel's ruling of
+        /// 2026-09-30). Anything else is left exactly as it was.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Why (#619, Sol's review of L9).</b> <see cref="Decide"/>
+        /// runs only when a sighting arrives, and a drop raises none. A
+        /// picker opened after a drop was right, because its opening replay
+        /// asks; one already open kept the rows it had taken as live reading
+        /// online until another list happened to come, and the auto-connect
+        /// timer could choose one of them from old evidence.</para>
+        /// <para>The same question <see cref="Decide"/> asks, of the same
+        /// sighting: <see cref="FlexBase.RigData.StillCurrent"/>. There is no
+        /// second provenance here. It only ever takes the SmartLink half
+        /// away; a row comes back live only when a sighting from a current
+        /// list arrives, through <see cref="Decide"/>, exactly as it does
+        /// after a picker opens on a dropped session.</para>
+        /// <para>The local half is never touched: a list going stale says
+        /// nothing about the local network.</para>
+        /// </remarks>
+        /// <param name="row">The row's facts now.</param>
+        /// <param name="wanSighting">The sighting whose SmartLink list the
+        /// row's SmartLink half was last taken from —
+        /// <see cref="WanHalfSighting"/> — or null when no list ever spoke
+        /// for it in this picker.</param>
+        public static PickerSightingOutcome Reassess(PickerRowPaths row, object wanSighting)
+        {
+            if (row.Wan && !row.WanUnconfirmed
+                && wanSighting is FlexBase.RigData rd
+                && !rd.StillCurrent())
+            {
+                return new PickerSightingOutcome(
+                    PickerSightingTreatment.LastSeen, row with { WanUnconfirmed = true }, false);
+            }
+            return new PickerSightingOutcome(PickerSightingTreatment.Ignored, row, false);
+        }
+
+        /// <summary>
+        /// Which sighting a row's SmartLink half speaks for after the row
+        /// takes <paramref name="sighting"/>: the new sighting when it came
+        /// from a SmartLink list (or is a held SmartLink row no list is
+        /// recorded for), otherwise the one the row already held. A
+        /// local-network sighting says nothing about the SmartLink half, so
+        /// it does not replace the list that did — which is what lets a
+        /// dual-homed row, whose rig data a LAN broadcast refreshes every
+        /// second, still be re-asked when SmartLink drops.
+        /// </summary>
+        public static object WanHalfSighting(object sighting, object held) =>
+            sighting is FlexBase.RigData rd && (rd.FromWanList != null || rd.HeldWithoutAList)
+                ? sighting
+                : held;
+
+        /// <summary>
+        /// Whether the auto-connect timer may choose this row for the saved
+        /// radio: only a row something confirms this moment. A last-seen row
+        /// stays selectable by the operator, because connecting is itself the
+        /// check, but an automatic connect started from old evidence is not
+        /// the operator's check — it is the picker acting on a list it knows
+        /// may be history (#619, Sol's review of L9).
+        /// </summary>
+        public static bool AutoConnectMayChoose(PickerRowPaths row) => row.IsLive;
+
+        /// <summary>
         /// Where a last-seen row is, in words: the row's place clause, at the
         /// operator's verbosity. DRAFT sentences, unruled (#629, #617). Terse
         /// is deliberately short — Noel asked that terse be short.

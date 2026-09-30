@@ -52,6 +52,18 @@ namespace Radios.SmartLink
         /// </summary>
         public event EventHandler<SessionRadioListEventArgs>? SessionRadioListReceived;
 
+        /// <summary>
+        /// One subscription point for <see cref="IWanSessionOwner.ListCurrencyMayHaveChanged"/>
+        /// from EVERY session this coordinator holds, with the session that
+        /// raised it. Carries no verdict: a consumer holding sightings from a
+        /// session's lists asks each one again whether its list is still
+        /// current (#619). The radio picker is the consumer this exists for:
+        /// a SmartLink drop while it is open raises no sighting, so without
+        /// this its rows went on reading online. Fires on whichever thread
+        /// the session witnessed the change on; consumers must marshal.
+        /// </summary>
+        public event EventHandler<IWanSessionOwner>? SessionListCurrencyMayHaveChanged;
+
         public SmartLinkSessionCoordinator(Func<string, IWanSessionOwner> sessionFactory)
         {
             _sessionFactory = sessionFactory ?? throw new ArgumentNullException(nameof(sessionFactory));
@@ -161,6 +173,7 @@ namespace Radios.SmartLink
                         ?? throw new InvalidOperationException("Session factory returned null");
             _sessions[owner.SessionId] = owner;
             owner.RadioListReceived += OnSessionRadioListReceived;
+            owner.ListCurrencyMayHaveChanged += OnSessionListCurrencyMayHaveChanged;
             Tracing.TraceLine($"Coordinator: created session id={owner.SessionId} account={accountId}", TraceLevel.Info);
             return owner;
         }
@@ -175,6 +188,12 @@ namespace Radios.SmartLink
             // it consumes (#619).
             SessionRadioListReceived?.Invoke(this,
                 new SessionRadioListEventArgs(owner.AccountId, owner.SessionId, e.Radios, e.ConnectionGeneration, owner));
+        }
+
+        private void OnSessionListCurrencyMayHaveChanged(object? sender, EventArgs e)
+        {
+            if (sender is not IWanSessionOwner owner) return;
+            SessionListCurrencyMayHaveChanged?.Invoke(this, owner);
         }
 
         /// <summary>
@@ -206,6 +225,9 @@ namespace Radios.SmartLink
                 removed.RadioListReceived -= OnSessionRadioListReceived;
                 try { removed.Disconnect(); } catch (Exception ex) { TraceWarn("Disconnect threw", ex); }
                 try { removed.Dispose(); } catch (Exception ex) { TraceWarn("Dispose threw", ex); }
+                // Unsubscribed only now, so the removed session's own "my
+                // lists are history" reaches the consumers first (#619).
+                removed.ListCurrencyMayHaveChanged -= OnSessionListCurrencyMayHaveChanged;
 
                 if (wasActive)
                 {
@@ -280,6 +302,7 @@ namespace Radios.SmartLink
             {
                 owner.RadioListReceived -= OnSessionRadioListReceived;
                 try { owner.Dispose(); } catch (Exception ex) { TraceWarn("Session dispose threw", ex); }
+                owner.ListCurrencyMayHaveChanged -= OnSessionListCurrencyMayHaveChanged;
             }
 
             Tracing.TraceLine("Coordinator: disposed", TraceLevel.Info);

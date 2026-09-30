@@ -59,6 +59,21 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         public bool WanUnconfirmed { get; set; }
 
+        /// <summary>
+        /// The sighting whose SmartLink list this row's SmartLink half was
+        /// last taken from, or null when no list has spoken for it in this
+        /// picker. Kept apart from <see cref="RigData"/> because a
+        /// dual-homed radio's rig data is refreshed by its LAN broadcast
+        /// about once a second, and a LAN sighting says nothing about the
+        /// SmartLink half. It is what the picker re-asks when a session
+        /// signals that its lists may have stopped being current, so a
+        /// SmartLink drop while the picker is open turns the rows it had
+        /// taken as live into last seen (#619, Noel's ruling of 2026-09-30;
+        /// Sol's review of L9). Written only through
+        /// <see cref="Radios.PickerSighting.WanHalfSighting"/>.
+        /// </summary>
+        public object? WanSighting { get; set; }
+
         /// <summary>The row's availability facts, as the sighting decision
         /// reads them.</summary>
         public Radios.PickerRowPaths Paths =>
@@ -734,8 +749,19 @@ namespace JJFlexWpf.Dialogs
         /// read once per launch — one write per radio per open is plenty.</summary>
         private readonly HashSet<string> _sightingsRecorded = new(StringComparer.OrdinalIgnoreCase);
 
-        /// <summary>True once any radio has been seen live in this session.</summary>
+        /// <summary>
+        /// True while the picker has taken a radio as live. Set by a live
+        /// sighting; recomputed from the rows when a SmartLink drop turns
+        /// rows last seen (<see cref="ReassessWanRows"/>), because its
+        /// readers — the opening pass's settle wait and summary line, and the
+        /// empty-list line — all ask "is anything live", and a row the
+        /// picker has just withdrawn as history is not.
+        /// </summary>
         private bool _anyLiveRadioSeen;
+
+        /// <summary>The coordinator this picker subscribed to for list
+        /// currency, kept so Closing unsubscribes from the same instance.</summary>
+        private readonly Radios.SmartLink.SmartLinkSessionCoordinator _listCurrencySource;
 
         /// <summary>Guards the Shift+Tab focus redirect against re-entering
         /// itself if the item container cannot be realized.</summary>
@@ -866,6 +892,14 @@ namespace JJFlexWpf.Dialogs
             // Register for radio discovery events
             _callbacks.RegisterRadioFound(OnRadioFound);
             _callbacks.RegisterRadioRemoved?.Invoke(OnRadioRemoved);
+
+            // A SmartLink drop raises no sighting, so without this a row taken
+            // as live from the last list kept reading online, and stayed an
+            // auto-connect candidate, for as long as the picker was open
+            // (#619, Sol's review of L9). Subscribed before the replay below,
+            // so a drop landing during the opening pass is not missed.
+            _listCurrencySource = Radios.SmartLink.SmartLinkServices.Coordinator;
+            _listCurrencySource.SessionListCurrencyMayHaveChanged += OnWanListCurrencyMayHaveChanged;
 
             // Collect the backlog FIRST. Discovery now runs before this dialog
             // is created, so that the operator meets a settled list instead of
@@ -1396,6 +1430,74 @@ namespace JJFlexWpf.Dialogs
         // Discovery
         // ------------------------------------------------------------------
 
+        /// <summary>
+        /// A SmartLink session says its lists may have stopped being current
+        /// (<see cref="Radios.SmartLink.SmartLinkSessionCoordinator.SessionListCurrencyMayHaveChanged"/>).
+        /// Raised on the transport's, the monitor's or a caller's thread, so
+        /// this only queues the re-ask on the dispatcher and returns: it never
+        /// waits on the list lock or the window from a SmartLink thread, the
+        /// same reason the owner's gate is never held across the UI.
+        /// </summary>
+        private void OnWanListCurrencyMayHaveChanged(object? sender, Radios.SmartLink.IWanSessionOwner session)
+        {
+            try { Dispatcher.BeginInvoke(new Action(ReassessWanRows)); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"RigSelector.OnWanListCurrencyMayHaveChanged: {ex.Message}",
+                    System.Diagnostics.TraceLevel.Warning);
+            }
+        }
+
+        /// <summary>
+        /// Re-ask every row's SmartLink half through
+        /// <see cref="Radios.PickerSighting.Reassess"/>: a row taken as live
+        /// from a list that is no longer current becomes last seen — not
+        /// live, so not an auto-connect candidate and no occupancy read as
+        /// online — and keeps its SmartLink leg, so Enter still starts a
+        /// connect (#619, Noel's ruling of 2026-09-30; Sol's review of L9).
+        /// Nothing is spoken: the row's words change, which is what the ruling
+        /// asks for. It comes back live only when a sighting from a current
+        /// list arrives, through <see cref="OnRadioFound"/>.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>The live flag is recomputed here, not left latched.</b>
+        /// Its readers are the opening pass — whose wait ends early and
+        /// whose closing line says "loaded" when it is set, and "nothing
+        /// online" otherwise — and the empty-list line. All of them ask
+        /// whether anything is live. A drop inside the opening pass that
+        /// withdraws the only live row must let that pass end on the true
+        /// line, not on one from evidence just declared history. It is only
+        /// recomputed when something was withdrawn, and the next live
+        /// sighting sets it again.</para>
+        /// <para>The arrival memo is deliberately NOT cleared: a SmartLink
+        /// reconnect would otherwise re-announce every radio on the account
+        /// as arriving, and the radio did not go anywhere we know of.</para>
+        /// </remarks>
+        private void ReassessWanRows()
+        {
+            var withdrawn = new List<string>();
+            lock (_radiosLock)
+            {
+                foreach (var row in _radiosList)
+                {
+                    var outcome = Radios.PickerSighting.Reassess(row.Paths, row.WanSighting);
+                    if (outcome.Treatment != Radios.PickerSightingTreatment.LastSeen) continue;
+                    row.WanAvailable = outcome.Paths.Wan;
+                    row.WanUnconfirmed = outcome.Paths.WanUnconfirmed;
+                    withdrawn.Add(row.Serial);
+                }
+                if (withdrawn.Count > 0)
+                    _anyLiveRadioSeen = _radiosList.Any(r => r.IsLive);
+            }
+            if (withdrawn.Count == 0) return;
+
+            Tracing.TraceLine(
+                $"RigSelector.ReassessWanRows: {string.Join(", ", withdrawn)} came from a SmartLink list that is no longer current — shown as last seen and still selectable, no longer an auto-connect candidate (#619, Noel 2026-09-30)",
+                System.Diagnostics.TraceLevel.Info);
+            RefreshRadiosList();
+            SyncPathAffordance();
+        }
+
         private void OnRadioFound(RadioListItem radio)
         {
             // Apply saved auto-connect state
@@ -1449,9 +1551,12 @@ namespace JJFlexWpf.Dialogs
             {
                 int existing = _radiosList.FindIndex(r => r.Serial == radio.Serial);
                 var row = existing >= 0 ? _radiosList[existing] : null;
+                // The row's SmartLink half is vouched for by the list it was
+                // last taken from, which for a dual-homed row is not the rig
+                // data a LAN broadcast keeps refreshing (Track L11).
                 outcome = Radios.PickerSighting.Decide(
                     radio.RigData, radio.LanAvailable, radio.WanAvailable,
-                    row?.Paths, row?.RigData);
+                    row?.Paths, row?.WanSighting ?? row?.RigData);
                 arrived = outcome.Arrived;
 
                 if (outcome.TakenAsLive)
@@ -1479,6 +1584,7 @@ namespace JJFlexWpf.Dialogs
                         row.LanAvailable = outcome.Paths.Lan;
                         row.WanAvailable = outcome.Paths.Wan;
                         row.WanUnconfirmed = outcome.Paths.WanUnconfirmed;
+                        row.WanSighting = Radios.PickerSighting.WanHalfSighting(radio.RigData, row.WanSighting);
                         row.GuiClientStations = radio.GuiClientStations;
                         // A sighting always carries the radio's current client
                         // list (both discovery channels parse gui_client_*), so
@@ -1504,6 +1610,7 @@ namespace JJFlexWpf.Dialogs
                         // favorite flag from disk here would put file IO under
                         // this lock on the discovery thread for no possible gain.
                         radio.WanUnconfirmed = outcome.Paths.WanUnconfirmed;
+                        radio.WanSighting = Radios.PickerSighting.WanHalfSighting(radio.RigData, null);
                         _radiosList.Add(radio);
                     }
                 }
@@ -1519,6 +1626,7 @@ namespace JJFlexWpf.Dialogs
                         bool rowWasLive = row.IsLive;
                         row.WanAvailable = outcome.Paths.Wan;
                         row.WanUnconfirmed = outcome.Paths.WanUnconfirmed;
+                        row.WanSighting = Radios.PickerSighting.WanHalfSighting(radio.RigData, row.WanSighting);
                         if (row.RigData == null || !rowWasLive) row.RigData = radio.RigData;
                     }
                     else
@@ -1526,6 +1634,7 @@ namespace JJFlexWpf.Dialogs
                         radio.LanAvailable = outcome.Paths.Lan;
                         radio.WanAvailable = outcome.Paths.Wan;
                         radio.WanUnconfirmed = outcome.Paths.WanUnconfirmed;
+                        radio.WanSighting = Radios.PickerSighting.WanHalfSighting(radio.RigData, null);
                         // The client list is the last list's, not a delivery
                         // about now; the row is not live, so it speaks none.
                         radio.OccupancyKnown = false;
@@ -4147,8 +4256,11 @@ namespace JJFlexWpf.Dialogs
             RadioListItem? radio = null;
             lock (_radiosLock)
             {
+                // Only a row something confirms now: a last-seen row stays
+                // the operator's to choose, never the timer's (#619).
                 radio = _radiosList.Find(r =>
-                    r.Serial == _callbacks.AutoConnectSerial && r.IsLive);
+                    r.Serial == _callbacks.AutoConnectSerial
+                    && Radios.PickerSighting.AutoConnectMayChoose(r.Paths));
             }
 
             if (radio != null)
@@ -4459,6 +4571,7 @@ namespace JJFlexWpf.Dialogs
             _pendingConnectForced = null;
             _callbacks.UnregisterRadioFound();
             _callbacks.UnregisterRadioRemoved?.Invoke();
+            _listCurrencySource.SessionListCurrencyMayHaveChanged -= OnWanListCurrencyMayHaveChanged;
         }
     }
 }

@@ -192,6 +192,25 @@ namespace Radios.SmartLink
         public event EventHandler<SignalThresholdEventArgs>? SignalThresholdCrossed;
         public event EventHandler<NetworkDiagnosticReport>? NetworkReportReady;
         public event EventHandler<WanRadioListReceivedEventArgs>? RadioListReceived;
+        public event EventHandler? ListCurrencyMayHaveChanged;
+
+        /// <summary>
+        /// Tell consumers that a list this session delivered may have stopped
+        /// being current. Called after the change is recorded and outside
+        /// _stateGate, so a consumer that asks <see cref="ListIsCurrent"/> at
+        /// once gets the new answer and cannot re-enter the lock from here.
+        /// A consumer's exception is traced, never thrown back into the
+        /// transport, the monitor or the operator's call that raised it.
+        /// </summary>
+        private void RaiseListCurrencyMayHaveChanged(string why)
+        {
+            Tracing.TraceLine($"{_tracePrefix} list currency may have changed — {why} (#619)", TraceLevel.Info);
+            try { ListCurrencyMayHaveChanged?.Invoke(this, EventArgs.Empty); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"{_tracePrefix} a list-currency consumer threw: {ex.Message}", TraceLevel.Warning);
+            }
+        }
 
         public WanSessionOwner(
             string sessionId,
@@ -353,6 +372,12 @@ namespace Radios.SmartLink
 
             // Fail any in-flight ConnectToRadio so waiters don't hang.
             CancelPendingRadioConnect("session disconnected");
+
+            // The operator's intent is one of RefusalFor's clauses, so every
+            // list this session holds stopped being current on the line above
+            // that cleared it. Said here, on the caller's thread, before the
+            // monitor wakes and tears the transport down (#619).
+            RaiseListCurrencyMayHaveChanged("the session was asked to disconnect");
 
             _wakeEvent.Set();
         }
@@ -860,6 +885,12 @@ namespace Radios.SmartLink
             Tracing.TraceLine(
                 $"{_tracePrefix} connection {generation} dialing — connection {retiredFrom} is retired; a list must say {generation} to be this session's current knowledge (#619)",
                 TraceLevel.Info);
+            // Every list from an earlier connection is history from the
+            // record above. A drop normally says so first, through its
+            // transport's own edge; a redial the operator asked for (Reset,
+            // a refresh) retires the connection without that edge having
+            // been seen here first, so the dial says it too.
+            RaiseListCurrencyMayHaveChanged($"connection {generation} is dialing");
         }
 
         /// <summary>
@@ -871,6 +902,7 @@ namespace Radios.SmartLink
         private void OnWanTransportStateChanged(object? sender, WanTransportStateEventArgs e)
         {
             string note;
+            bool liveTransportDied = false;
             lock (_stateGate)
             {
                 if (e.ConnectionGeneration != _liveConnectionGeneration)
@@ -880,11 +912,22 @@ namespace Radios.SmartLink
                 else
                 {
                     _liveTransportState = e.IsConnected ? TransportState.Up : TransportState.Down;
+                    liveTransportDied = !e.IsConnected;
                     note = $"connection {e.ConnectionGeneration}'s transport reported {(e.IsConnected ? "up" : "gone")}"
                          + (e.IsConnected ? "" : " — its list is history from here, whatever the session status still says (#619)");
                 }
             }
             Tracing.TraceLine($"{_tracePrefix} {note}", TraceLevel.Info);
+
+            // The moment a SmartLink drop becomes true here, and the one the
+            // open picker has to hear about: the rows it took as live from
+            // this connection's list are last seen from now, and nothing else
+            // would tell it until another list arrived (#619, Noel's ruling
+            // of 2026-09-30; Sol's review of L9). Only the live connection's
+            // death counts: a replaced transport's edge changes nothing any
+            // list's currency depends on.
+            if (liveTransportDied)
+                RaiseListCurrencyMayHaveChanged($"connection {e.ConnectionGeneration}'s transport reported itself gone");
         }
 
         private void OnWanRadioListReceived(object? sender, WanRadioListReceivedEventArgs e)
@@ -1041,6 +1084,10 @@ namespace Radios.SmartLink
             // read the delegate.
             lock (_stateGate) _liveConnectionRetired = true;
             CancelPendingRadioConnect("session disposed");
+            // Before the unsubscribes below, so a consumer holding this
+            // session's rows hears that they are history rather than being
+            // left holding rows from a session that no longer exists (#619).
+            RaiseListCurrencyMayHaveChanged("the session is being disposed");
             _wakeEvent.Set();
 
             if (_started)
