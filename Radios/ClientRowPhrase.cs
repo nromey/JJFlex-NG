@@ -73,8 +73,21 @@ namespace Radios
         public string NameForSentence => !string.IsNullOrEmpty(Station) ? Station : Program;
 
         /// <summary>A row the operator reads with a caveat: not ours, and
-        /// either not the radio's own word or marked as possibly gone.</summary>
-        public bool Unconfirmed => !IsThisClient && (!ConfirmedByRadio || MayHaveLeft);
+        /// either not the radio's own word or marked as possibly gone. What a
+        /// confirmation may not name as definitely connected
+        /// (<see cref="ClientRowPhrase.Company"/>).</summary>
+        /// <remarks>Named <c>Unconfirmed</c> until Track L11, which was false
+        /// for half of what it covers: a row the radio confirmed that may
+        /// have left since IS confirmed by the radio, and the summary line
+        /// read the name and said so (#634, Sol's scoped review of L9 and
+        /// L10). "Not confirmed by the radio" is <see cref="AwaitingRadio"/>.</remarks>
+        public bool Uncertain => !IsThisClient && (!ConfirmedByRadio || MayHaveLeft);
+
+        /// <summary>Not ours, and the radio has not confirmed it: only a
+        /// SmartLink list, a broadcast, or no observed source has reported
+        /// it. A row the radio confirmed that may have left since is NOT
+        /// this — the radio did confirm it, and its caveat is sentence 3's.</summary>
+        public bool AwaitingRadio => !IsThisClient && !ConfirmedByRadio;
     }
 
     /// <summary>
@@ -191,10 +204,22 @@ namespace Radios
         /// sentence 5 when some rows are a list's word rather than the radio's;
         /// the plain count otherwise.
         /// </summary>
+        /// <remarks>
+        /// Sentence 5 says "Some entries have not been confirmed by the
+        /// radio", so it counts only rows the radio has not confirmed
+        /// (<see cref="ClientRow.AwaitingRadio"/>). A row the radio confirmed
+        /// that a list has since stopped mentioning does not trigger it: the
+        /// radio did confirm it, and its own row already says it may have
+        /// disconnected (sentence 3). Until Track L11 it did trigger it, and
+        /// the summary said something false about it (#634, Sol's scoped
+        /// review of L9 and L10). When only such rows are uncertain the
+        /// ordinary count line is read, on Noel's authority of 2026-09-30 to
+        /// fit wording to the actual situation.
+        /// </remarks>
         public static string Summary(IReadOnlyList<ClientRow> rows, bool informationUnavailable)
         {
             if (informationUnavailable) return Lexicon.Get("connect.client.info_unavailable");
-            if (rows.Any(r => r.Unconfirmed)) return Lexicon.Get("connect.multiflex.some_unconfirmed");
+            if (rows.Any(r => r.AwaitingRadio)) return Lexicon.Get("connect.multiflex.some_unconfirmed");
             return rows.Count == 1
                 ? Lexicon.Get("connect.multiflex.one_client")
                 : Lexicon.Get("connect.multiflex.many_clients", ("count", rows.Count));
@@ -263,7 +288,7 @@ namespace Radios
             foreach (var row in rows ?? Array.Empty<ClientRow>())
             {
                 if (row.IsThisClient) continue;
-                (row.Unconfirmed ? reported : confirmed).Add(CompanyName(row));
+                (row.Uncertain ? reported : confirmed).Add(CompanyName(row));
             }
             return (confirmed, reported);
         }

@@ -467,7 +467,8 @@ namespace Radios.Tests
             Assert.NotNull(don);
             Assert.Equal(ClientRowSource.Unknown, don.Value.Source);
             Assert.False(don.Value.ConfirmedByRadio);
-            Assert.True(don.Value.Unconfirmed);
+            Assert.True(don.Value.Uncertain);
+            Assert.True(don.Value.AwaitingRadio);
             string line = ClientRowPhrase.Line(don.Value);
             Assert.Equal("WA2IWC. Not yet confirmed.", line);
             Assert.DoesNotContain("SmartLink", line, StringComparison.Ordinal);
@@ -686,6 +687,59 @@ namespace Radios.Tests
             Assert.Equal(
                 Lexicon.Get("connect.multiflex.disconnect_unavailable_may_have_left", VerbosityLevel.Terse, ("station", "WA2IWC")),
                 Lexicon.Get("connect.multiflex.disconnect_unavailable_may_have_left", VerbosityLevel.Chatty, ("station", "WA2IWC")));
+        }
+
+        /// <summary>
+        /// Sol's scoped review of L9 and L10: the summary above the MultiFlex
+        /// list said "Some entries have not been confirmed by the radio"
+        /// whenever a row was uncertain, including a row the radio confirmed
+        /// that a list has since stopped mentioning — which the radio did
+        /// confirm. Sentence 5 now counts only rows the radio has not
+        /// confirmed; when the only uncertainty is a confirmed client that
+        /// may have left, the ordinary count line is read, because that
+        /// row's own sentence 3 already says it may have disconnected.
+        /// </summary>
+        /// <remarks>
+        /// Counting every uncertain row again, as L10 did, turns the two
+        /// count-line assertions red. The confirmation split is unchanged:
+        /// a may-have-left client is still only "reported", never named as
+        /// connected, which the last assertion holds.
+        /// </remarks>
+        [Fact]
+        public void The_summary_says_some_entries_are_unconfirmed_only_when_the_radio_has_not_confirmed_one()
+        {
+            var ours = new ClientRow("JJFlex", "K5TEST", 7, true, "A", ClientRowSource.Radio, false);
+            var confirmed = new ClientRow("SmartSDR", "WA2IWC", 9, false, "", ClientRowSource.Radio, false);
+            var radioMaybeGone = new ClientRow("SmartSDR", "KD2XYZ", 10, false, "", ClientRowSource.Radio, true);
+            var listMaybeGone = new ClientRow("SmartSDR", "KD2XYZ", 11, false, "", ClientRowSource.SmartLinkList, true);
+            var broadcast = new ClientRow("SmartSDR", "N0CALL", 12, false, "", ClientRowSource.LocalDiscovery, false);
+            var unknown = new ClientRow("SmartSDR", "N0CALL", 13, false, "", ClientRowSource.Unknown, false);
+            string someUnconfirmed = Lexicon.Get("connect.multiflex.some_unconfirmed");
+
+            Assert.True(radioMaybeGone.Uncertain);
+            Assert.False(radioMaybeGone.AwaitingRadio,
+                "A client the radio confirmed was counted as one the radio has not confirmed (#634, Sol's scoped review of L10).");
+
+            Assert.Equal("2 clients connected:",
+                ClientRowPhrase.Summary(new[] { ours, radioMaybeGone }, informationUnavailable: false));
+            Assert.Equal("3 clients connected:",
+                ClientRowPhrase.Summary(new[] { ours, confirmed, radioMaybeGone }, informationUnavailable: false));
+
+            // Any row the radio has not confirmed still reads sentence 5,
+            // including one a list has since dropped, and alongside a
+            // confirmed may-have-left row.
+            Assert.Equal(someUnconfirmed, ClientRowPhrase.Summary(new[] { ours, listMaybeGone }, informationUnavailable: false));
+            Assert.Equal(someUnconfirmed, ClientRowPhrase.Summary(new[] { ours, radioMaybeGone, broadcast }, informationUnavailable: false));
+            Assert.Equal(someUnconfirmed, ClientRowPhrase.Summary(new[] { ours, unknown }, informationUnavailable: false));
+
+            // Our own row never counts, whatever it carries.
+            Assert.False((ours with { Source = ClientRowSource.SmartLinkList }).AwaitingRadio);
+
+            // What a confirmation may say is unchanged: the may-have-left
+            // client is reported, not named as connected.
+            var (definite, reported) = ClientRowPhrase.Company(new[] { ours, confirmed, radioMaybeGone });
+            Assert.Equal(new[] { "WA2IWC" }, definite);
+            Assert.Equal(new[] { "KD2XYZ" }, reported);
         }
 
         /// <summary>
