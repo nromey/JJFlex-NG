@@ -71,7 +71,7 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void TheNineShippedLaddersStillResolveAtEveryTierTheyDefine()
+        public void TheShippedLaddersStillResolveAtEveryTierTheyDefine()
         {
             // The positive control for the whole migration. An envelope format
             // that handled only strings would damage behaviour that works
@@ -99,7 +99,11 @@ namespace Radios.Tests
                 }
             }
 
-            Assert.Equal(9, ladders);
+            // Nine until Track L9, which added the two forms of the picker's
+            // last-seen SmartLink row (#619): Noel asked for a terse form
+            // that is short, and a ladder is how a key carries one. The test
+            // was named for the count; it is named for the rule now.
+            Assert.Equal(11, ladders);
             Assert.True(tiers >= 27, "only " + tiers + " ladder tiers were seen");
         }
 
@@ -628,6 +632,12 @@ namespace Radios.Tests
             // inferring SmartLink from the object's channel. Frozen as
             // DRAFTS for the same reason. When Track I merges on top of
             // this, it reads 3,047.
+            //
+            // Then 2,827 on Track L9 (#619, Noel's ruling of 2026-09-30):
+            // the two forms of the picker row for a radio last seen on
+            // SmartLink and not currently confirmed, each a terse and chatty
+            // ladder. Frozen as DRAFTS for the same reason. When Track I
+            // merges on top of this, it reads 3,049.
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -640,7 +650,7 @@ namespace Radios.Tests
                 }
             }
 
-            Assert.Equal(2825, unclassified);
+            Assert.Equal(2827, unclassified);
             Assert.All(classified, key =>
                 Assert.StartsWith("facts.", key, StringComparison.Ordinal));
             Assert.True(classified.Count > 30,

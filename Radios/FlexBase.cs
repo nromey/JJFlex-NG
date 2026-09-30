@@ -157,13 +157,29 @@ namespace Radios
             /// <summary>
             /// The SmartLink list this sighting was raised from — the session
             /// and the connection generation the list was born on — when the
-            /// WAN intake raised it. Null for every other sighting: a local
-            /// discovery broadcast, a LAN radio's per-broadcast roster
-            /// refresh, and the picker's replay of rows already held. Those
-            /// carry no WAN generation, so <see cref="StillCurrent"/> has
-            /// nothing to ask and answers yes.
+            /// WAN intake raised it, or when the picker's replay re-raises a
+            /// SmartLink row the intake took (the replay carries the list the
+            /// intake recorded for that row, since Track L9 — Sol's review of
+            /// L8 found it raising the row bare, which read as a fresh live
+            /// sighting after any drop). Null for every other sighting: a
+            /// local discovery broadcast, a LAN radio's per-broadcast roster
+            /// refresh, and the replay of a LAN row. Those carry no WAN
+            /// generation, so <see cref="StillCurrent"/> has nothing to ask
+            /// and answers yes.
             /// </summary>
             internal WanListProvenance? FromWanList { get; set; }
+
+            /// <summary>
+            /// True for a replayed SmartLink row that no list is recorded as
+            /// having described — nothing this rig holds vouches that it is
+            /// current, so <see cref="StillCurrent"/> answers no and the
+            /// picker shows it as last seen (#619, Noel's ruling of
+            /// 2026-09-30). Every WAN row reaches <c>myRadioList</c> through
+            /// the intake, which records the list first, so this is the
+            /// defensive answer for a row that somehow did not; it is never
+            /// set on a live raise.
+            /// </summary>
+            internal bool HeldWithoutAList { get; set; }
 
             /// <summary>
             /// Whether the list behind this sighting is still the session's
@@ -202,13 +218,15 @@ namespace Radios
             /// </remarks>
             public bool StillCurrent()
             {
+                if (HeldWithoutAList) return false;
                 var from = FromWanList;
                 return from == null || from.Value.Session.ListIsCurrent(from.Value.ConnectionGeneration);
             }
 
             /// <summary>Which list this sighting speaks for, for a trace line:
             /// the session and connection, or "local discovery".</summary>
-            public string Origin => FromWanList?.ToString() ?? "local discovery";
+            public string Origin => FromWanList?.ToString()
+                ?? (HeldWithoutAList ? "a held SmartLink row with no list recorded" : "local discovery");
 
             internal RigData() { }
         }
@@ -1521,6 +1539,30 @@ namespace Radios
         /// Safe to call more than once: the selector keys rows by serial, so a
         /// replayed radio updates its row rather than adding another.
         /// </summary>
+        /// <remarks>
+        /// <para><b>A SmartLink row is replayed WITH the list it came from
+        /// (#619, Sol's review of L8; Noel's ruling of 2026-09-30).</b> The
+        /// replay used to raise every held row bare, and a bare sighting has
+        /// no WAN generation to ask about, so it answered "current" — and a
+        /// WAN row kept across a SmartLink drop reached the picker as a fresh
+        /// live sighting: online, the connecting window closed, eligible for
+        /// an arrival. Each SmartLink row now carries the list the intake
+        /// recorded for it (<see cref="_wanRowFrom"/>), so a consumer asks
+        /// that list, at its own decision, whether it is still current. Noel
+        /// ruled what the picker does with the answer: the row stays, reads
+        /// as last seen, and stays selectable, because connecting is itself
+        /// the check. A SmartLink row with no recorded list is marked
+        /// historical outright (<see cref="RigData.HeldWithoutAList"/>) —
+        /// nothing vouches for it.</para>
+        /// <para>A LAN row is replayed bare, as before: it is held only while
+        /// discovery keeps hearing it. For a dual-homed radio the row object
+        /// is the LAN one, so its SmartLink half still reads from the WAN bank
+        /// as it always has; that half is not addressed here.</para>
+        /// <para>The recorded list is read under its own small lock, never the
+        /// intake's. The intake raises into the picker while holding its
+        /// lock and the picker marshals to the UI thread, and this runs ON the
+        /// UI thread, so waiting for the intake's lock here could deadlock.</para>
+        /// </remarks>
         public void ReplayDiscoveredRadios()
         {
             // ToList first - myRadioList is appended to from the discovery
@@ -1533,9 +1575,38 @@ namespace Radios
             foreach (var r in known)
             {
                 if (string.IsNullOrWhiteSpace(r.Serial)) continue;
-                RaiseRadioFound(null, BuildRigData(r));
+                if (!r.IsWan)
+                {
+                    RaiseRadioFound(null, BuildRigData(r));
+                    continue;
+                }
+
+                WanListProvenance from = default;
+                bool recorded;
+                lock (_wanRowFromLock) { recorded = _wanRowFrom.TryGetValue(r.Serial, out from); }
+                var rd = BuildRigData(r, recorded ? from : (WanListProvenance?)null);
+                if (!recorded) rd.HeldWithoutAList = true;
+                Tracing.TraceLine(
+                    $"ReplayDiscoveredRadios: {r.Serial} is a held SmartLink row from {rd.Origin} — replayed with that list, so the picker asks whether it is still current (#619)",
+                    TraceLevel.Info);
+                RaiseRadioFound(null, rd);
             }
         }
+
+        /// <summary>
+        /// Serial → the SmartLink list this rig's row for that radio was last
+        /// taken from. Written by the intake for every radio in a list it
+        /// consumes, under <see cref="_wanIntakeLock"/> and then this lock;
+        /// read by <see cref="ReplayDiscoveredRadios"/> under this lock alone
+        /// (see its remarks for why never the intake's). Per serial rather
+        /// than per account (<see cref="_wanRowsFrom"/>) so the replay asks
+        /// exactly the list that last described the row, with no attribution
+        /// lookup in between. An entry for a serial no longer held is never
+        /// read: the replay walks only rows <c>myRadioList</c> still holds.
+        /// </summary>
+        private readonly Dictionary<string, WanListProvenance> _wanRowFrom =
+            new Dictionary<string, WanListProvenance>(StringComparer.OrdinalIgnoreCase);
+        private readonly object _wanRowFromLock = new object();
 
         private Radio findRadioInAPI(string serial)
         {
@@ -7007,6 +7078,14 @@ namespace Radios
 
                 foreach (Radio r in lst)
                 {
+                    // The list this row now describes, recorded before the
+                    // sighting is raised, so a replay of the row asks this
+                    // list whether it is still current (#619, Sol's review
+                    // of L8). Recorded for the merge branch too: a row the
+                    // intake adopted or refreshed was described by this list.
+                    if (!string.IsNullOrWhiteSpace(r.Serial))
+                        lock (_wanRowFromLock) { _wanRowFrom[r.Serial] = provenance; }
+
                     Radio oldRadio = findRadioInAPI(r.Serial);
 
                     // The radio we are CONNECTED to (or connecting to) may not

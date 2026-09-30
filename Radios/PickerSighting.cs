@@ -1,0 +1,158 @@
+namespace Radios
+{
+    /// <summary>
+    /// The three availability facts a radio-picker row carries, as the
+    /// picker's sighting decision reads and writes them.
+    /// </summary>
+    /// <param name="Lan">Local discovery can see the radio.</param>
+    /// <param name="Wan">A SmartLink list carried the radio, so the SmartLink
+    /// leg is one a connect may try.</param>
+    /// <param name="WanUnconfirmed">The list that carried it is no longer
+    /// the session's current knowledge: the SmartLink half is LAST SEEN, not
+    /// online (#619, Noel's ruling of 2026-09-30).</param>
+    public readonly record struct PickerRowPaths(bool Lan, bool Wan, bool WanUnconfirmed)
+    {
+        /// <summary>Reachable by a path something currently confirms.</summary>
+        public bool IsLive => Lan || (Wan && !WanUnconfirmed);
+
+        /// <summary>A connect has at least one leg to try — live, or last
+        /// seen on SmartLink. Choosing a last-seen row starts a fresh
+        /// connection attempt, because connecting is itself the check.</summary>
+        public bool HasPathToTry => Lan || Wan;
+    }
+
+    /// <summary>What the picker does with one sighting.</summary>
+    public enum PickerSightingTreatment
+    {
+        /// <summary>News about now: the row is rewritten as reachable, the
+        /// connecting window may close, an arrival may be announced, and the
+        /// sighting is recorded to the roster.</summary>
+        Live,
+
+        /// <summary>From a list that is no longer current: the row shows the
+        /// radio as last seen on SmartLink and keeps it selectable, and
+        /// nothing live happens — no "radios have arrived", no arrival, no
+        /// roster record.</summary>
+        LastSeen,
+
+        /// <summary>From a list that is no longer current, about a row a
+        /// current list vouches for right now: the older sighting does not
+        /// speak over the newer one, and the row is left alone.</summary>
+        Ignored,
+    }
+
+    /// <summary>The picker's decision about one sighting.</summary>
+    public readonly record struct PickerSightingOutcome(
+        PickerSightingTreatment Treatment, PickerRowPaths Paths, bool Arrived)
+    {
+        /// <summary>Whether the sighting may be treated as live news.</summary>
+        public bool TakenAsLive => Treatment == PickerSightingTreatment.Live;
+    }
+
+    /// <summary>
+    /// The radio picker's two decisions about a sighting, stated away from the
+    /// window so the suite can hold them (#619). Sol's review of Track L8 found
+    /// both dialog decisions untested because both lived inside a WPF handler
+    /// no test constructs; this is the seam.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Decision one, Noel's ruling of 2026-09-30.</b> After a
+    /// SmartLink drop, a radio from the last SmartLink list is shown as LAST
+    /// SEEN, not online, and stays selectable: choosing it starts a fresh
+    /// connection attempt, because connecting is itself the check. So a
+    /// sighting whose list is no longer current neither sets the picker's
+    /// "a live radio has been seen", nor closes the connecting window, nor
+    /// announces an arrival, nor reads as online. Before this, the replay the
+    /// picker asks for on opening raised every held row with no list at all,
+    /// which answered "current", and the rows of a dropped session opened as
+    /// online.</para>
+    /// <para><b>Decision two, the same ruling.</b> The arrival announcement
+    /// is made on the UI thread, a dispatch after the row decision, and the
+    /// list can stop being current in between. So the sighting is asked
+    /// again at the last instant, on the dispatcher, immediately before the
+    /// announcement: <see cref="MayAnnounceArrival"/>. The owner's gate is
+    /// NOT held across the UI to close the rest of the window — that risks
+    /// freezing the connection behind a busy window — and the remainder, the
+    /// distance from that check to the next line, is accepted by ruling.</para>
+    /// </remarks>
+    public static class PickerSighting
+    {
+        /// <summary>
+        /// Decide what a sighting does to its row. Called by the picker under
+        /// its list lock, at the moment it decides.
+        /// </summary>
+        /// <param name="sighting">The sighting's <see cref="FlexBase.RigData"/>,
+        /// as the row carries it. Anything else is a sighting with no
+        /// SmartLink list behind it, and is live.</param>
+        /// <param name="sightingLan">The sighting's local-network flag.</param>
+        /// <param name="sightingWan">The sighting's SmartLink flag.</param>
+        /// <param name="row">The row's facts before this sighting, or null
+        /// when the picker has no row for the radio yet.</param>
+        /// <param name="rowSighting">The sighting the row last took, or null.</param>
+        public static PickerSightingOutcome Decide(
+            object sighting, bool sightingLan, bool sightingWan,
+            PickerRowPaths? row, object rowSighting)
+        {
+            var rd = sighting as FlexBase.RigData;
+            bool wasLive = row?.IsLive ?? false;
+
+            if (rd == null || rd.StillCurrent())
+            {
+                // A sighting whose list is current confirms the SmartLink half
+                // it reports. One with no list behind it — a local-network
+                // sighting, whose SmartLink flag is read from the WAN bank —
+                // confirms nothing about that half and leaves it as it was.
+                bool confirmsWan = rd != null && rd.FromWanList != null;
+                var paths = new PickerRowPaths(
+                    sightingLan,
+                    sightingWan,
+                    confirmsWan ? false : (row?.WanUnconfirmed ?? false));
+                return new PickerSightingOutcome(
+                    PickerSightingTreatment.Live, paths, !wasLive && paths.IsLive);
+            }
+
+            // The list behind this sighting is no longer current. A row that a
+            // CURRENT list vouches for right now is not spoken over by it: a
+            // replay reads its list, releases the lock and raises later, and a
+            // current push can land in between.
+            if (row != null
+                && rowSighting is FlexBase.RigData held
+                && held.FromWanList != null
+                && held.StillCurrent())
+            {
+                return new PickerSightingOutcome(PickerSightingTreatment.Ignored, row.Value, false);
+            }
+
+            // Last seen. Never local evidence, so the local flag is the row's
+            // own; the SmartLink leg stays one a connect may try.
+            var lastSeen = new PickerRowPaths(
+                row?.Lan ?? false,
+                sightingWan || (row?.Wan ?? false),
+                sightingWan || (row?.WanUnconfirmed ?? false));
+            return new PickerSightingOutcome(PickerSightingTreatment.LastSeen, lastSeen, false);
+        }
+
+        /// <summary>
+        /// The last-instant check before an arrival is spoken (Noel's ruling of
+        /// 2026-09-30): asked on the dispatcher, immediately before the
+        /// announcement. False when the list behind the sighting has stopped
+        /// being current since the row decision took it as live.
+        /// </summary>
+        public static bool MayAnnounceArrival(object sighting) =>
+            sighting is not FlexBase.RigData rd || rd.StillCurrent();
+
+        /// <summary>
+        /// Where a last-seen row is, in words: the row's place clause, at the
+        /// operator's verbosity. DRAFT sentences, unruled (#629, #617). Terse
+        /// is deliberately short — Noel asked that terse be short.
+        /// </summary>
+        /// <param name="brokerAccount">The account a SmartLink connect would
+        /// route through when it is not the one in play; empty otherwise, as
+        /// for a live SmartLink row.</param>
+        /// <param name="level">The operator's verbosity.</param>
+        public static string LastSeenWhere(string brokerAccount, VerbosityLevel level) =>
+            string.IsNullOrWhiteSpace(brokerAccount)
+                ? Lexicon.Get("connect.row.last_seen_unconfirmed", level)
+                : Lexicon.Get("connect.row.last_seen_unconfirmed_via", level, ("account", brokerAccount));
+    }
+}

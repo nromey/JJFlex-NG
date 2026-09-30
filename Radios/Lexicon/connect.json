@@ -273,6 +273,16 @@
   "connect.row.favorite_prefix": "Favorite, ",
   "connect.row.last_seen_local": "on the local network",
   "connect.row.last_seen_remote": "over SmartLink",
+  "connect.row.last_seen_unconfirmed": {
+    "critical": "last seen on SmartLink",
+    "terse": "last seen on SmartLink",
+    "chatty": "last seen on SmartLink, not currently confirmed"
+  },
+  "connect.row.last_seen_unconfirmed_via": {
+    "critical": "last seen on SmartLink via {account}",
+    "terse": "last seen on SmartLink via {account}",
+    "chatty": "last seen on SmartLink via {account}, not currently confirmed"
+  },
   "connect.row.local": "on the local network",
   "connect.row.lowbw_marker": "[LowBW] ",
   "connect.row.model_with_account": "{modelPart} on {account}",

@@ -479,7 +479,7 @@ namespace Radios.Tests
             string flex = Read(Flex);
 
             Assert.Contains(".WanAvailable = e.WanAvailable,", globals, StringComparison.Ordinal);
-            Assert.Contains("row.WanAvailable = radio.WanAvailable;", dialog, StringComparison.Ordinal);
+            Assert.Contains("row.WanAvailable = outcome.Paths.Wan;", dialog, StringComparison.Ordinal);
             Assert.Contains("if (r.IsWan) RememberWanRadio(r);", flex, StringComparison.Ordinal);
 
             Assert.DoesNotContain("NoSuchOccupancySymbol", globals, StringComparison.Ordinal);

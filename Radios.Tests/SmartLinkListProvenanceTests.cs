@@ -1038,5 +1038,298 @@ namespace Radios.Tests
                 owner.Dispose();
             }
         }
+
+        // ------------------------------------------------------------------
+        // Track L9: Noel's two picker rulings of 2026-09-30 (#619)
+        // ------------------------------------------------------------------
+
+        /// <summary>Every sighting raised, in order — the replay raises a
+        /// serial the intake has already raised, so the one-per-serial
+        /// collector above cannot hold these.</summary>
+        private sealed class AllSightings : IDisposable
+        {
+            private readonly List<FlexBase.RigData> _seen = new();
+            private readonly FlexBase.RadioFoundDel _onFound;
+
+            public AllSightings()
+            {
+                _onFound = (_, r) => { lock (_seen) _seen.Add(r); };
+                FlexBase.RadioFound += _onFound;
+            }
+
+            public int Count(string serial)
+            {
+                lock (_seen) return _seen.Count(r => r.Serial == serial);
+            }
+
+            public FlexBase.RigData Last(string serial)
+            {
+                lock (_seen)
+                {
+                    var last = _seen.LastOrDefault(r => r.Serial == serial);
+                    Assert.True(last != null, $"no RadioFound was raised for {serial}");
+                    return last!;
+                }
+            }
+
+            public void Dispose() => FlexBase.RadioFound -= _onFound;
+        }
+
+        /// <summary>
+        /// Ruling one. Sol's review of L8: the picker asks for a replay of
+        /// every held row when it opens, the replay raised each row with no
+        /// list behind it, a sighting with no list answers "current", and so
+        /// a SmartLink row kept across an ordinary drop opened as ONLINE —
+        /// setting "a live radio has been seen", closing the connecting
+        /// window, eligible for an arrival. Noel ruled: the row is shown as
+        /// LAST SEEN, not online, and stays selectable, because connecting is
+        /// itself the check. So the replayed row carries the list it came
+        /// from, answers "not current" after the drop, and the picker's
+        /// decision takes it as last seen: not live, no arrival, the
+        /// SmartLink leg still there to try.
+        /// </summary>
+        /// <remarks>
+        /// The replay before the drop is the positive control: the same
+        /// replay of the same row, from a list that IS current, is live and
+        /// arrives — so "last seen" below is the drop speaking, not the
+        /// replay. Replaying bare, as before L9, turns the stale sighting's
+        /// currency assertion red; a decision that takes a stale sighting as
+        /// live turns the treatment assertions red.
+        /// </remarks>
+        [Fact]
+        public void After_a_drop_a_replayed_SmartLink_row_is_last_seen_never_live_and_stays_selectable()
+        {
+            var (owner, wan) = NewSession();
+            using var sightings = new AllSightings();
+            try
+            {
+                var rig = NewRig();
+                rig.EngageSmartLinkPresence();
+                ConnectAndList(owner, wan, Listed);
+
+                // Control: nothing has changed, so the replayed row is news
+                // about now.
+                rig.ReplayDiscoveredRadios();
+                var current = sightings.Last(Listed);
+                Assert.True(current.WanAvailable);
+                Assert.True(current.StillCurrent(),
+                    "the control replay, from a list that is still current, answered no");
+                var live = PickerSighting.Decide(current, current.LanAvailable, current.WanAvailable, null, null);
+                Assert.Equal(PickerSightingTreatment.Live, live.Treatment);
+                Assert.True(live.Arrived);
+                Assert.True(live.Paths.IsLive);
+
+                // The drop the ruling is about: the transport dies and the
+                // session redials, and the new connection has sent no list.
+                DropAndRedial(owner, wan);
+                Assert.False(owner.ListIsCurrent(1));
+
+                int before = sightings.Count(Listed);
+                rig.ReplayDiscoveredRadios();
+                Assert.Equal(before + 1, sightings.Count(Listed));
+                var held = sightings.Last(Listed);
+
+                Assert.True(held.WanAvailable,
+                    "the replayed row lost its SmartLink leg; a last-seen radio must stay selectable");
+                Assert.False(held.StillCurrent(),
+                    "A SmartLink row replayed after a drop still claimed its list was current, so the picker would open it as online (#619, Sol's review of L8).");
+                Assert.Contains("connection 1", held.Origin, StringComparison.Ordinal);
+
+                // A picker opening now has no row for it yet...
+                var fresh = PickerSighting.Decide(held, held.LanAvailable, held.WanAvailable, null, null);
+                AssertLastSeen(fresh);
+
+                // ...or a roster row painted from history, not live.
+                var roster = PickerSighting.Decide(held, held.LanAvailable, held.WanAvailable,
+                    new PickerRowPaths(false, false, false), null);
+                AssertLastSeen(roster);
+
+                // A local-network sighting is not SmartLink's word: it makes
+                // the row live by its own path and leaves the SmartLink half
+                // last seen.
+                var lan = new FlexBase.RigData { Serial = Listed };
+                var lanTaken = PickerSighting.Decide(lan, true, true, fresh.Paths, held);
+                Assert.Equal(PickerSightingTreatment.Live, lanTaken.Treatment);
+                Assert.True(lanTaken.Paths.IsLive);
+                Assert.True(lanTaken.Paths.WanUnconfirmed,
+                    "a local-network sighting confirmed a SmartLink half no current list had carried");
+
+                // The new connection's own list confirms it: live again, and
+                // that IS an arrival.
+                wan.RaiseWanRadioRadioListReceived(new[] { WanRadio(Listed) });
+                var confirmed = sightings.Last(Listed);
+                Assert.True(confirmed.StillCurrent());
+                var back = PickerSighting.Decide(confirmed, confirmed.LanAvailable, confirmed.WanAvailable,
+                    fresh.Paths, held);
+                Assert.Equal(PickerSightingTreatment.Live, back.Treatment);
+                Assert.True(back.Arrived);
+                Assert.False(back.Paths.WanUnconfirmed);
+
+                // And an older sighting landing after it — a replay reads its
+                // list, releases the lock and raises later — does not speak
+                // over the row a current list vouches for.
+                var late = PickerSighting.Decide(held, held.LanAvailable, held.WanAvailable,
+                    back.Paths, confirmed);
+                Assert.Equal(PickerSightingTreatment.Ignored, late.Treatment);
+                Assert.Equal(back.Paths, late.Paths);
+                Assert.False(late.Arrived);
+
+                // Replayed now, the row carries connection 2's list.
+                rig.ReplayDiscoveredRadios();
+                Assert.True(sightings.Last(Listed).StillCurrent());
+
+                // A held SmartLink row with no list recorded for it has
+                // nothing vouching for it, and is historical outright.
+                var rowFrom = typeof(FlexBase).GetField("_wanRowFrom", BindingFlags.NonPublic | BindingFlags.Instance);
+                Assert.True(rowFrom != null, "FlexBase._wanRowFrom is not where this test reads it.");
+                ((System.Collections.IDictionary)rowFrom!.GetValue(rig)!).Clear();
+                rig.ReplayDiscoveredRadios();
+                var unvouched = sightings.Last(Listed);
+                Assert.False(unvouched.StillCurrent(),
+                    "a held SmartLink row with no list recorded for it answered current");
+                AssertLastSeen(PickerSighting.Decide(unvouched, unvouched.LanAvailable, unvouched.WanAvailable, null, null));
+            }
+            finally
+            {
+                owner.Dispose();
+            }
+
+            static void AssertLastSeen(PickerSightingOutcome outcome)
+            {
+                Assert.Equal(PickerSightingTreatment.LastSeen, outcome.Treatment);
+                Assert.False(outcome.TakenAsLive,
+                    "a sighting from a list that is no longer current was taken as live: it would set the picker's live-radio flag and close the connecting window (#619, Noel 2026-09-30)");
+                Assert.False(outcome.Arrived, "a last-seen row was announced as arriving");
+                Assert.False(outcome.Paths.IsLive, "a last-seen row read as online");
+                Assert.True(outcome.Paths.HasPathToTry, "a last-seen row was not selectable");
+                Assert.True(outcome.Paths.Wan);
+                Assert.True(outcome.Paths.WanUnconfirmed);
+            }
+        }
+
+        /// <summary>
+        /// Ruling two. The picker's row decision takes a sighting as live on
+        /// the discovery thread, and the arrival is spoken a dispatch later on
+        /// the UI thread; the list can stop being current in between. Noel
+        /// ruled: ask again at the last instant, immediately before speaking,
+        /// and say nothing if it is no longer current. Here the row decision
+        /// takes a current sighting as an arrival, the transport dies and the
+        /// session redials in the dispatch gap, and the last-instant question
+        /// answers no — so no arrival is announced.
+        /// </summary>
+        /// <remarks>
+        /// The same question asked before the drop is the positive control,
+        /// and a local-network sighting always answers yes. A last-instant
+        /// check that does not ask the sighting turns the refusal red.
+        /// </remarks>
+        [Fact]
+        public void A_list_that_stops_being_current_before_the_arrival_is_spoken_produces_no_announcement()
+        {
+            var (owner, wan) = NewSession();
+            using var sightings = new AllSightings();
+            try
+            {
+                var rig = NewRig();
+                rig.EngageSmartLinkPresence();
+                ConnectAndList(owner, wan, Listed);
+                var sighting = sightings.Last(Listed);
+
+                // The row decision, on the discovery thread: live, an arrival.
+                var decided = PickerSighting.Decide(sighting, sighting.LanAvailable, sighting.WanAvailable, null, null);
+                Assert.True(decided.TakenAsLive);
+                Assert.True(decided.Arrived);
+
+                // Control: with nothing changed, the last instant says speak.
+                Assert.True(PickerSighting.MayAnnounceArrival(sighting));
+
+                // The dispatch gap: the list stops being current.
+                DropAndRedial(owner, wan);
+
+                Assert.False(PickerSighting.MayAnnounceArrival(sighting),
+                    "An arrival would have been spoken for a radio whose list stopped being current between the row decision and the announcement (#619, Noel 2026-09-30).");
+
+                // A sighting with no SmartLink list behind it always speaks.
+                Assert.True(PickerSighting.MayAnnounceArrival(new FlexBase.RigData { Serial = Other }));
+                Assert.True(PickerSighting.MayAnnounceArrival(null!));
+            }
+            finally
+            {
+                owner.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// The two decisions are only as good as the handler that asks them,
+        /// and that handler is a WPF window no unit test constructs. So its
+        /// source is read: the row decision goes through
+        /// <see cref="PickerSighting.Decide"/>, the live treatment — the
+        /// live-radio flag, the roster record, the connecting window — sits
+        /// behind its answer, and the last-instant question is asked inside
+        /// the dispatch, as the statement immediately before the arrival.
+        /// </summary>
+        /// <remarks>
+        /// Deleting the last-instant check, or moving it out of the dispatch
+        /// to before it, turns this red; so does setting the live-radio flag
+        /// ahead of the decision.
+        /// </remarks>
+        [Fact]
+        public void The_picker_handler_asks_both_decisions_where_the_ruling_puts_them()
+        {
+            string source = ReadRepoFile("JJFlexWpf/Dialogs/RigSelectorDialog.xaml.cs");
+            int start = source.IndexOf("private void OnRadioFound(RadioListItem radio)", StringComparison.Ordinal);
+            Assert.True(start >= 0, "RigSelectorDialog.OnRadioFound is not where this test reads it.");
+            int end = source.IndexOf("private readonly HashSet<string> _arrivalsAnnounced", start, StringComparison.Ordinal);
+            Assert.True(end > start, "The end of OnRadioFound is not where this test reads it.");
+            string handler = source.Substring(start, end - start);
+
+            int decide = handler.IndexOf("Radios.PickerSighting.Decide(", StringComparison.Ordinal);
+            int liveBranch = handler.IndexOf("if (outcome.TakenAsLive)", StringComparison.Ordinal);
+            int liveFlag = handler.IndexOf("_anyLiveRadioSeen = true;", StringComparison.Ordinal);
+            int notLiveReturn = handler.IndexOf("if (!outcome.TakenAsLive)", StringComparison.Ordinal);
+            int record = handler.IndexOf("RecordSightingOnce(radio);", StringComparison.Ordinal);
+            int dispatch = handler.LastIndexOf("Dispatcher.Invoke(() =>", StringComparison.Ordinal);
+            int close = handler.IndexOf("_closeConnecting();", StringComparison.Ordinal);
+            int recheck = handler.IndexOf("Radios.PickerSighting.MayAnnounceArrival(radio.RigData)", StringComparison.Ordinal);
+            int announce = handler.IndexOf("AnnounceArrival(radio, arrived);", StringComparison.Ordinal);
+
+            Assert.True(decide >= 0, "OnRadioFound no longer asks PickerSighting.Decide.");
+            Assert.True(liveBranch > decide && liveFlag > liveBranch && liveFlag < notLiveReturn,
+                "The live-radio flag is set outside the branch the decision's live answer guards (#619).");
+            Assert.Equal(1, Count(handler, "_anyLiveRadioSeen = true;"));
+            Assert.True(record > notLiveReturn,
+                "The roster record is made before the not-live sighting has returned (#619).");
+            Assert.True(dispatch > record && close > dispatch,
+                "The connecting window's close is not behind the live-only dispatch (#619).");
+            Assert.True(recheck > dispatch,
+                "The last-instant currency check is not inside the dispatch that speaks the arrival (#619, Noel 2026-09-30).");
+            Assert.True(announce > recheck, "The arrival is spoken before the last-instant check.");
+            Assert.Equal(1, Count(handler, "AnnounceArrival(radio, arrived);"));
+
+            // Nothing but the refusal stands between the check and the
+            // announcement: the check is the statement immediately before it.
+            string between = handler.Substring(recheck, announce - recheck);
+            Assert.Equal(1, Count(between, "return;"));
+            Assert.DoesNotContain("Refresh", between, StringComparison.Ordinal);
+            Assert.DoesNotContain("Focus", between, StringComparison.Ordinal);
+
+            static int Count(string text, string what)
+            {
+                int n = 0, at = 0;
+                while ((at = text.IndexOf(what, at, StringComparison.Ordinal)) >= 0) { n++; at += what.Length; }
+                return n;
+            }
+        }
+
+        private static string ReadRepoFile(string relative)
+        {
+            var dir = new System.IO.DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "JJFlexRadio.sln")))
+                dir = dir.Parent;
+            Assert.True(dir != null, "Could not find the repository root above " + AppContext.BaseDirectory);
+            string path = System.IO.Path.Combine(dir!.FullName, relative.Replace('/', System.IO.Path.DirectorySeparatorChar));
+            Assert.True(System.IO.File.Exists(path),
+                "Could not find " + relative + ". A test that cannot find its subject proves nothing about it.");
+            return System.IO.File.ReadAllText(path);
+        }
     }
 }

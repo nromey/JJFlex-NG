@@ -41,12 +41,37 @@ namespace JJFlexWpf.Dialogs
         /// <summary>Local discovery can see this radio right now.</summary>
         public bool LanAvailable { get; set; }
 
-        /// <summary>The SmartLink account's radio list carries it right now.</summary>
+        /// <summary>A SmartLink list carries it, so the SmartLink leg is one a
+        /// connect may try. Whether that list is still current is
+        /// <see cref="WanUnconfirmed"/>'s question.</summary>
         public bool WanAvailable { get; set; }
 
-        /// <summary>Reachable by at least one path this moment. A row that is not
-        /// live is a ROSTER row — real history, nothing to dial.</summary>
-        public bool IsLive => LanAvailable || WanAvailable;
+        /// <summary>
+        /// The SmartLink list that carried this radio is no longer the
+        /// session's current knowledge, so the row shows the radio as LAST
+        /// SEEN on SmartLink rather than online, and keeps it selectable
+        /// (#619, Noel's ruling of 2026-09-30). Set and cleared only by the
+        /// picker's sighting decision, <see cref="Radios.PickerSighting.Decide"/>:
+        /// a sighting from a list that is no longer current sets it, and one
+        /// from a current list clears it. Deliberately NOT touched by the
+        /// availability reconcile, whose SmartLink answer comes from the WAN
+        /// bank, which keeps its list across a drop.
+        /// </summary>
+        public bool WanUnconfirmed { get; set; }
+
+        /// <summary>The row's availability facts, as the sighting decision
+        /// reads them.</summary>
+        public Radios.PickerRowPaths Paths =>
+            new(LanAvailable, WanAvailable, WanUnconfirmed);
+
+        /// <summary>Reachable by a path something confirms this moment. A row
+        /// that is not live is a ROSTER row, or a last-seen one.</summary>
+        public bool IsLive => Paths.IsLive;
+
+        /// <summary>A connect has a leg to try: live, or last seen on
+        /// SmartLink. Choosing a last-seen row starts a fresh connection
+        /// attempt, because connecting is itself the check (Noel, 2026-09-30).</summary>
+        public bool HasPathToTry => Paths.HasPathToTry;
 
         /// <summary>Answers on both paths, so the operator gets to choose.</summary>
         public bool DualHomed => LanAvailable && WanAvailable;
@@ -311,13 +336,24 @@ namespace JJFlexWpf.Dialogs
                 // carries ("online with 0 connected clients"), so a positive
                 // row states its state rather than implying it by the absence
                 // of bad news.
-                if (DualHomed)
+                if (DualHomed && !WanUnconfirmed)
                 {
                     return string.IsNullOrWhiteSpace(BrokerAccount)
                         ? Lexicon.Get("connect.row.dual")
                         : Lexicon.Get("connect.row.dual_via", ("account", BrokerAccount));
                 }
                 if (LanAvailable) return Lexicon.Get("connect.row.local");
+
+                // Last seen on SmartLink: the list that carried it is no
+                // longer current, so the row does not say "on SmartLink" and
+                // carries no occupancy clause, and Enter still tries it
+                // (#619, Noel's ruling of 2026-09-30). At the operator's
+                // verbosity, because Noel asked that terse be short.
+                if (WanAvailable && WanUnconfirmed)
+                {
+                    return Radios.PickerSighting.LastSeenWhere(
+                        BrokerAccount, Radios.ScreenReaderOutput.CurrentVerbosity);
+                }
                 if (WanAvailable)
                 {
                     return string.IsNullOrWhiteSpace(BrokerAccount)
@@ -1384,38 +1420,41 @@ namespace JJFlexWpf.Dialogs
 
             // ***** IS THIS SIGHTING STILL NEWS ABOUT NOW? (#619) *****
             //
-            // Everything below treats the sighting as LIVE: the row is
-            // rewritten as reachable, _anyLiveRadioSeen is set, the
-            // connecting window is closed because "radios have arrived", and
-            // an arrival may be announced. A SmartLink sighting speaks for
+            // The live treatment is: the row rewritten as reachable,
+            // _anyLiveRadioSeen set, the connecting window closed because
+            // "radios have arrived", the sighting recorded to the roster, and
+            // an arrival possibly announced. A SmartLink sighting speaks for
             // the server list it came from, and that list can stop being the
-            // session's current knowledge — a redial, the transport dying,
-            // the operator disconnecting — between the intake's own last
-            // check and this line. Sol's review of Track L7 traced that
-            // window to exactly here: the intake could no longer be fooled,
-            // and this handler still took whatever arrived as fresh.
+            // session's current knowledge — a redial, the transport dying, the
+            // operator disconnecting. Sol's review of Track L7 traced that
+            // window to this handler, and his review of L8 found the replay
+            // this dialog asks for on opening raising held SmartLink rows with
+            // no list at all, so a dropped session's rows opened as online.
             //
             // So the decision asks the sighting itself, at the moment it
-            // decides, inside the lock the row write takes. A sighting that
-            // answers no is not taken at all — not marked historical, not
-            // partly applied — which leaves the row exactly as a refused list
-            // would have left it: describing the last list taken, with the
-            // next current list on its way to bring it up to date. A LAN
-            // sighting carries no WAN list and always answers yes.
+            // decides, inside the lock the row write takes — through
+            // PickerSighting.Decide, which the suite holds without a window.
+            // Noel ruled on 2026-09-30 what a sighting from a list that is no
+            // longer current does: the radio is shown as LAST SEEN, not
+            // online, and stays selectable, because connecting is itself the
+            // check. It gets none of the live treatment. A LAN sighting
+            // carries no SmartLink list and is always live.
             //
             // The trace is written after the lock is released: no file IO
             // under _radiosLock, which the UI thread also takes.
             var sighting = radio.RigData as Radios.FlexBase.RigData;
-            bool refused = false;
+            Radios.PickerSightingOutcome outcome;
 
             lock (_radiosLock)
             {
-                if (sighting != null && !sighting.StillCurrent())
-                {
-                    refused = true;
-                    arrived = false;
-                }
-                else
+                int existing = _radiosList.FindIndex(r => r.Serial == radio.Serial);
+                var row = existing >= 0 ? _radiosList[existing] : null;
+                outcome = Radios.PickerSighting.Decide(
+                    radio.RigData, radio.LanAvailable, radio.WanAvailable,
+                    row?.Paths, row?.RigData);
+                arrived = outcome.Arrived;
+
+                if (outcome.TakenAsLive)
                 {
                     _anyLiveRadioSeen = true;
 
@@ -1432,16 +1471,14 @@ namespace JJFlexWpf.Dialogs
                     // discovery event knows nothing about — the favorite flag,
                     // the operator's chosen connection path, the roster's
                     // last-seen wording.
-                    int existing = _radiosList.FindIndex(r => r.Serial == radio.Serial);
-                    arrived = existing < 0 || !_radiosList[existing].IsLive;
-                    if (existing >= 0)
+                    if (row != null)
                     {
-                        var row = _radiosList[existing];
                         row.Name = radio.Name;
                         row.ModelName = radio.ModelName;
                         row.RigData = radio.RigData;
-                        row.LanAvailable = radio.LanAvailable;
-                        row.WanAvailable = radio.WanAvailable;
+                        row.LanAvailable = outcome.Paths.Lan;
+                        row.WanAvailable = outcome.Paths.Wan;
+                        row.WanUnconfirmed = outcome.Paths.WanUnconfirmed;
                         row.GuiClientStations = radio.GuiClientStations;
                         // A sighting always carries the radio's current client
                         // list (both discovery channels parse gui_client_*), so
@@ -1466,16 +1503,54 @@ namespace JJFlexWpf.Dialogs
                         // install, so it cannot be a favorite. Reading the
                         // favorite flag from disk here would put file IO under
                         // this lock on the discovery thread for no possible gain.
+                        radio.WanUnconfirmed = outcome.Paths.WanUnconfirmed;
+                        _radiosList.Add(radio);
+                    }
+                }
+                else if (outcome.Treatment == Radios.PickerSightingTreatment.LastSeen)
+                {
+                    // Last seen, and still selectable. The row keeps the
+                    // sighting's rig data so Enter has something to connect
+                    // with — unless the row is live some other way, in which
+                    // case what it already holds is the better handle. Nothing
+                    // here is local evidence, so the local flag stays the row's.
+                    if (row != null)
+                    {
+                        bool rowWasLive = row.IsLive;
+                        row.WanAvailable = outcome.Paths.Wan;
+                        row.WanUnconfirmed = outcome.Paths.WanUnconfirmed;
+                        if (row.RigData == null || !rowWasLive) row.RigData = radio.RigData;
+                    }
+                    else
+                    {
+                        radio.LanAvailable = outcome.Paths.Lan;
+                        radio.WanAvailable = outcome.Paths.Wan;
+                        radio.WanUnconfirmed = outcome.Paths.WanUnconfirmed;
+                        // The client list is the last list's, not a delivery
+                        // about now; the row is not live, so it speaks none.
+                        radio.OccupancyKnown = false;
                         _radiosList.Add(radio);
                     }
                 }
             }
 
-            if (refused)
+            if (!outcome.TakenAsLive)
             {
                 Tracing.TraceLine(
-                    $"RigSelector.OnRadioFound: {radio.Serial} arrived from {sighting!.Origin}, which is no longer that session's current knowledge — not taken as a live sighting; the row keeps the last list taken (#619)",
+                    outcome.Treatment == Radios.PickerSightingTreatment.Ignored
+                        ? $"RigSelector.OnRadioFound: {radio.Serial} arrived from {sighting?.Origin}, which is no longer that session's current knowledge, and a current list already vouches for the row — left as it is (#619)"
+                        : $"RigSelector.OnRadioFound: {radio.Serial} arrived from {sighting?.Origin}, which is no longer that session's current knowledge — shown as last seen and still selectable, not as a live sighting: no arrival, the connecting window left open (#619, Noel 2026-09-30)",
                     System.Diagnostics.TraceLevel.Info);
+                if (outcome.Treatment == Radios.PickerSightingTreatment.LastSeen)
+                {
+                    // Repaint only: the row has to show, and nothing here
+                    // closes the connecting window or speaks.
+                    Dispatcher.Invoke(() =>
+                    {
+                        RefreshRadiosList();
+                        SyncPathAffordance();
+                    });
+                }
                 return;
             }
 
@@ -1497,6 +1572,26 @@ namespace JJFlexWpf.Dialogs
 
                 RefreshRadiosList();
                 SyncPathAffordance();
+
+                // ***** ASK AGAIN AT THE LAST INSTANT (#619) *****
+                //
+                // The row decision above asked whether the sighting's list
+                // was current, on the discovery thread; this runs a dispatch
+                // later, and a redial or a transport death can land in
+                // between. Noel ruled on 2026-09-30: ask again here, on the
+                // dispatcher, immediately before speaking, and say nothing if
+                // the answer is no. The owner's gate is deliberately NOT held
+                // across the UI to close the rest — that risks freezing the
+                // connection behind a busy window, which an earlier round
+                // rejected. The remainder, the distance from this check to
+                // the next line, is accepted by that ruling.
+                if (!Radios.PickerSighting.MayAnnounceArrival(radio.RigData))
+                {
+                    Tracing.TraceLine(
+                        $"RigSelector.OnRadioFound: {radio.Serial}'s list from {sighting?.Origin} stopped being current before its arrival could be spoken — not announced (#619, Noel 2026-09-30)",
+                        System.Diagnostics.TraceLevel.Info);
+                    return;
+                }
                 AnnounceArrival(radio, arrived);
             });
         }
@@ -2452,7 +2547,12 @@ namespace JJFlexWpf.Dialogs
             // to the row's account, announced before any session opens, and
             // runs the standard forced refresh under it. Session-only switch:
             // the saved default is untouched.
-            if (!radio.IsLive && radio.ForeignAccount && !string.IsNullOrWhiteSpace(radio.BoundAccount)
+            //
+            // HasPathToTry, not IsLive: a row last seen on SmartLink is not
+            // live but still has its SmartLink leg, and choosing it starts a
+            // fresh connection attempt on that leg, exactly as it did before
+            // the row learned to say "last seen" (#619, Noel 2026-09-30).
+            if (!radio.HasPathToTry && radio.ForeignAccount && !string.IsNullOrWhiteSpace(radio.BoundAccount)
                 && !_accountSwitchTried.Contains(radio.Serial))
             {
                 var target = Radios.FlexBase.SharedAccountManager.GetAccountByEmail(radio.BoundAccount);
@@ -4308,7 +4408,10 @@ namespace JJFlexWpf.Dialogs
                 return;
             }
 
-            if (!radio.IsLive)
+            // A row last seen on SmartLink is testable, as it was before it
+            // learned to say "last seen": a test is a connection attempt, and
+            // connecting is itself the check (#619, Noel 2026-09-30).
+            if (!radio.HasPathToTry)
             {
                 _callbacks.ScreenReaderSpeak?.Invoke(
                     Lexicon.Get("connect.selector.test_offline", ("rowName", RowName(radio))), true);

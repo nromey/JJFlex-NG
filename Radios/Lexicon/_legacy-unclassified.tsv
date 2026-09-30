@@ -1280,6 +1280,8 @@ connect.row.dual_via	0c29e2091c3317b7
 connect.row.favorite_prefix	254ae0670a758b32
 connect.row.last_seen_local	2b3331b3695cfe3f
 connect.row.last_seen_remote	59198e06778c01aa
+connect.row.last_seen_unconfirmed	96b9ba979c1895ed
+connect.row.last_seen_unconfirmed_via	908d7f2e5cdf449f
 connect.row.local	2b3331b3695cfe3f
 connect.row.lowbw_marker	bab021b24ca4886f
 connect.row.model_with_account	0bc52799ee7f98c4
