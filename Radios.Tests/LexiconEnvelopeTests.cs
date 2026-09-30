@@ -103,7 +103,11 @@ namespace Radios.Tests
             // last-seen SmartLink row (#619): Noel asked for a terse form
             // that is short, and a ladder is how a key carries one. The test
             // was named for the count; it is named for the rule now.
-            Assert.Equal(11, ladders);
+            // Fifteen from Track L10: Noel's approved terse and chatty pairs
+            // for four MultiFlex rows a radio has not confirmed (#634), the
+            // SmartLink row with and without a station name, and the local
+            // network and unknown-source rows in their pattern.
+            Assert.Equal(15, ladders);
             Assert.True(tiers >= 27, "only " + tiers + " ladder tiers were seen");
         }
 

@@ -20,10 +20,10 @@ namespace JJFlexWpf.Dialogs
     /// mentioning — kept, because a list can omit a live client, and shown as
     /// possibly gone rather than gone.
     ///
-    /// EVERY SENTENCE BELOW IS A DRAFT. They are Noel's words from the
-    /// 2026-09-26 question file, carried in so the surface can be built, and
-    /// none was ruled on. FOR NOEL'S PROSE REVIEW: connect.client.* and
-    /// connect.multiflex.* keys named here.
+    /// The client sentences are Noel's wording, APPROVED 2026-09-30 with
+    /// only false facts corrected on his authority (Track L10). The two
+    /// no-station companions in ClientRowPhrase are still drafts; the
+    /// approval gave them no wording.
     /// </remarks>
     public class MultiFlexClientInfo
     {
@@ -41,8 +41,10 @@ namespace JJFlexWpf.Dialogs
         public bool MayHaveLeft => Row.MayHaveLeft;
 
         /// <summary>The list row's words live in <see cref="ClientRowPhrase"/>,
-        /// in Radios, where the suite reads them assembled without a window.</summary>
-        public override string ToString() => ClientRowPhrase.Line(Row);
+        /// in Radios, where the suite reads them assembled without a window.
+        /// The not-yet-confirmed rows are terse and chatty pairs, read at
+        /// the operator's verbosity as the picker's last-seen row is.</summary>
+        public override string ToString() => ClientRowPhrase.Line(Row, ScreenReaderOutput.CurrentVerbosity);
     }
 
     /// <summary>
@@ -209,7 +211,7 @@ namespace JJFlexWpf.Dialogs
             var now = _callbacks.GetClients().FirstOrDefault(c => c.Handle == selected.Handle);
             if (now == null || !ClientRowPhrase.MayDisconnect(now.Row))
             {
-                string changed = Lexicon.Get("connect.multiflex.changed_while_confirming"); // Draft 7.
+                string changed = Lexicon.Get("connect.multiflex.changed_while_confirming"); // Sentence 7, approved 2026-09-30.
                 RefreshClientList();
                 ShowDisconnectReason(changed);
                 ScreenReaderOutput.Speak(changed, true);
@@ -219,11 +221,12 @@ namespace JJFlexWpf.Dialogs
             if (_callbacks.DisconnectClient(selected.Handle))
             {
                 // The request went to the radio; whether the client left is
-                // the radio's to report. Draft 8 replaces a line that claimed
-                // the disconnect had happened. It stays on the line until the
-                // operator moves to another row or the radio reports the
-                // client gone; the refresh below reads it back rather than
-                // overwriting it (#643, Sol's review of L6).
+                // the radio's to report. Sentence 8 (approved 2026-09-30)
+                // replaces a line that claimed the disconnect had happened.
+                // It stays on the line until the operator moves to another
+                // row or the radio reports the client gone; the refresh below
+                // reads it back rather than overwriting it (#643, Sol's
+                // review of L6).
                 string sent = Lexicon.Get("connect.multiflex.disconnect_requested", ("station", selected.Row.NameForSentence));
                 _outcome.Record(selected.Handle, sent);
                 ShowDisconnectReason(sent);

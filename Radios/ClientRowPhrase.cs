@@ -94,19 +94,24 @@ namespace Radios
     /// since omitted is KEPT and shown as possibly gone, because a list can
     /// omit a live client.</para>
     ///
-    /// <para><b>EVERY SENTENCE HERE IS A DRAFT.</b> They are Noel's words from
-    /// the 2026-09-26 question file, carried in unpolished so the surface can
-    /// be built, and none was ruled on. FOR NOEL'S PROSE REVIEW:
-    /// <c>connect.client.reported_by_smartlink</c>,
+    /// <para><b>The wording is Noel's, APPROVED 2026-09-30</b> (Track L10),
+    /// with his own capitalisation and punctuation kept and only the facts
+    /// his drafts stated falsely corrected, on his authority: a client may
+    /// have left, not been disconnected by us; client information is not
+    /// available yet, not undetectable; Disconnect waits for the radio, not
+    /// SmartLink. The not-yet-confirmed rows are terse and chatty ladders,
+    /// and <see cref="Line(ClientRow, VerbosityLevel)"/> takes the operator's
+    /// verbosity. Approved: <c>connect.client.reported_by_smartlink</c>,
     /// <c>connect.client.reported_by_smartlink_no_station</c>,
     /// <c>connect.client.reported_on_local_network</c>,
-    /// <c>connect.client.reported_on_local_network_no_station</c>,
     /// <c>connect.client.not_yet_confirmed</c>,
-    /// <c>connect.client.not_yet_confirmed_no_station</c>,
     /// <c>connect.client.may_have_left</c>,
     /// <c>connect.client.info_unavailable</c>,
     /// <c>connect.multiflex.some_unconfirmed</c>,
-    /// <c>connect.multiflex.disconnect_unavailable</c>.</para>
+    /// <c>connect.multiflex.disconnect_unavailable</c>. STILL DRAFTS, because
+    /// the approval gave them no wording: the two no-station companions,
+    /// <c>connect.client.reported_on_local_network_no_station</c> and
+    /// <c>connect.client.not_yet_confirmed_no_station</c>.</para>
     ///
     /// <para><b>Readable, not only spoken (#643).</b> These are the texts of
     /// controls — the list's rows, the summary line, the reason line under
@@ -114,8 +119,15 @@ namespace Radios
     /// </remarks>
     public static class ClientRowPhrase
     {
-        /// <summary>The list row for one client.</summary>
-        public static string Line(ClientRow row)
+        /// <summary>The list row for one client, in its chatty form. The
+        /// dialog calls <see cref="Line(ClientRow, VerbosityLevel)"/> with the
+        /// operator's verbosity; this overload is the long form.</summary>
+        public static string Line(ClientRow row) => Line(row, VerbosityLevel.Chatty);
+
+        /// <summary>The list row for one client at a verbosity tier. The
+        /// not-yet-confirmed rows carry Noel's terse and chatty pairs
+        /// (approved 2026-09-30); every other row reads the same at both.</summary>
+        public static string Line(ClientRow row, VerbosityLevel level)
         {
             string slices = !string.IsNullOrEmpty(row.OwnedSlices)
                 ? Lexicon.Get("connect.multiflex.slices_suffix", ("ownedSlices", row.OwnedSlices))
@@ -123,38 +135,41 @@ namespace Radios
 
             if (row.MayHaveLeft && !row.IsThisClient)
             {
-                // Draft 3: "{station} was reported earlier. The radio has not
-                // confirmed that this client left."
+                // Sentence 3, approved 2026-09-30, one text for both tiers.
+                // {station} is the station, else the program (NameForSentence).
                 return Lexicon.Get("connect.client.may_have_left", ("station", row.NameForSentence)) + slices;
             }
             if (!row.ConfirmedByRadio && !row.IsThisClient)
             {
                 // Not yet confirmed, and the sentence names the source that
-                // actually reported it (#634, Sol's review of L6). Drafts 1
-                // and 2 for SmartLink; the local-network pair mirrors them
-                // in the wording of Noel's draft 11. All four are drafts.
+                // actually reported it (#634, Sol's review of L6). Sentences
+                // 1 and 2 for SmartLink, and the local-network and
+                // unknown-source companions in their pattern, are Noel's
+                // approved terse and chatty pairs of 2026-09-30. They name
+                // the station only: the drafts' "{program}, station" lead-in
+                // is gone from the approved wording, so the program is no
+                // longer passed. The two no-station companions had no
+                // approved wording and are still drafts, one text for both.
                 //
                 // A client no source was observed reporting names none
-                // (Sol's review of L7): the same sentences without the
-                // "reported by" clause, Noel's own tail standing alone.
-                // Both DRAFTS, unruled.
+                // (Sol's review of L7).
                 if (row.Source == ClientRowSource.Unknown)
                 {
                     return (string.IsNullOrEmpty(row.Station)
-                            ? Lexicon.Get("connect.client.not_yet_confirmed_no_station")
-                            : Lexicon.Get("connect.client.not_yet_confirmed",
-                                ("program", row.Program), ("station", row.Station)))
+                            ? Lexicon.Get("connect.client.not_yet_confirmed_no_station", level)
+                            : Lexicon.Get("connect.client.not_yet_confirmed", level,
+                                ("station", row.Station)))
                         + slices;
                 }
                 bool lan = row.Source == ClientRowSource.LocalDiscovery;
                 return (string.IsNullOrEmpty(row.Station)
                         ? Lexicon.Get(lan
                             ? "connect.client.reported_on_local_network_no_station"
-                            : "connect.client.reported_by_smartlink_no_station")
+                            : "connect.client.reported_by_smartlink_no_station", level)
                         : Lexicon.Get(lan
                             ? "connect.client.reported_on_local_network"
-                            : "connect.client.reported_by_smartlink",
-                            ("program", row.Program), ("station", row.Station)))
+                            : "connect.client.reported_by_smartlink", level,
+                            ("station", row.Station)))
                     + slices;
             }
 
@@ -167,9 +182,9 @@ namespace Radios
         }
 
         /// <summary>
-        /// The line above the list. Draft 4 when the rig cannot say who is on
+        /// The line above the list. Sentence 4 when the rig cannot say who is on
         /// the radio at all — an empty list would read as an empty radio;
-        /// draft 5 when some rows are a list's word rather than the radio's;
+        /// sentence 5 when some rows are a list's word rather than the radio's;
         /// the plain count otherwise.
         /// </summary>
         public static string Summary(IReadOnlyList<ClientRow> rows, bool informationUnavailable)
@@ -192,7 +207,7 @@ namespace Radios
 
         /// <summary>
         /// The readable reason Disconnect is unavailable for the selected
-        /// row (draft 6), or null when it is available or nothing that needs
+        /// row (sentence 6, approved 2026-09-30), or null when it is available or nothing that needs
         /// a reason is selected. Our own row needs none: the button has
         /// always been disabled for it.
         /// </summary>
