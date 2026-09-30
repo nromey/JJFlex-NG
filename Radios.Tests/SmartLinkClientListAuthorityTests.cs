@@ -640,6 +640,55 @@ namespace Radios.Tests
         // ------------------------------------------------------------------
 
         /// <summary>
+        /// Sol's scoped review of L9 and L10: a client the radio identified,
+        /// that a list or a broadcast has since stopped mentioning, was given
+        /// the Disconnect reason "Unable to disconnect this client until the
+        /// radio identifies it" — false for it, because the radio did. Its
+        /// uncertainty is that it may have left, and the reason now says so,
+        /// in the terms of sentence 3, named as sentence 3 names it: station,
+        /// else program. A client the radio never identified keeps the
+        /// approved sentence, whether or not a list has since dropped it too.
+        /// </summary>
+        /// <remarks>
+        /// Routing every refused row to the approved sentence, as L10 did,
+        /// turns the first three assertions red. The readable line under the
+        /// list reads the same reason when no outcome is pinned.
+        /// </remarks>
+        [Fact]
+        public void A_client_the_radio_identified_that_may_have_left_is_never_said_to_be_waiting_for_the_radio()
+        {
+            var radioMaybeGone = new ClientRow("SmartSDR", "WA2IWC", 9, false, "", ClientRowSource.Radio, true);
+            var namelessRadioMaybeGone = new ClientRow("Maestro", "", 11, false, "", ClientRowSource.Radio, true);
+            var listMaybeGone = new ClientRow("SmartSDR", "KD2XYZ", 10, false, "", ClientRowSource.SmartLinkList, true);
+            var listed = new ClientRow("SmartSDR", "KD2XYZ", 10, false, "", ClientRowSource.SmartLinkList, false);
+            var broadcast = new ClientRow("SmartSDR", "KD2XYZ", 12, false, "", ClientRowSource.LocalDiscovery, false);
+            var unknown = new ClientRow("SmartSDR", "KD2XYZ", 13, false, "", ClientRowSource.Unknown, false);
+            const string awaitingRadio = "Unable to disconnect this client until the radio identifies it.";
+
+            Assert.False(ClientRowPhrase.MayDisconnect(radioMaybeGone));
+            Assert.Equal("Unable to disconnect WA2IWC; it may have disconnected already.",
+                ClientRowPhrase.DisconnectReason(radioMaybeGone));
+            Assert.Equal("Unable to disconnect Maestro; it may have disconnected already.",
+                ClientRowPhrase.DisconnectReason(namelessRadioMaybeGone));
+            Assert.Equal(
+                Lexicon.Get("connect.multiflex.disconnect_unavailable_may_have_left", ("station", radioMaybeGone.NameForSentence)),
+                new DisconnectOutcomeLine().TextFor(radioMaybeGone));
+            Assert.DoesNotContain("identifies", ClientRowPhrase.DisconnectReason(radioMaybeGone)!, StringComparison.Ordinal);
+
+            // Never identified by the radio: the approved sentence, for every
+            // source, and still when a list has since dropped it.
+            Assert.Equal(awaitingRadio, ClientRowPhrase.DisconnectReason(listMaybeGone));
+            Assert.Equal(awaitingRadio, ClientRowPhrase.DisconnectReason(listed));
+            Assert.Equal(awaitingRadio, ClientRowPhrase.DisconnectReason(broadcast));
+            Assert.Equal(awaitingRadio, ClientRowPhrase.DisconnectReason(unknown));
+
+            // One text at both tiers.
+            Assert.Equal(
+                Lexicon.Get("connect.multiflex.disconnect_unavailable_may_have_left", VerbosityLevel.Terse, ("station", "WA2IWC")),
+                Lexicon.Get("connect.multiflex.disconnect_unavailable_may_have_left", VerbosityLevel.Chatty, ("station", "WA2IWC")));
+        }
+
+        /// <summary>
         /// The words are Noel's, approved 2026-09-30 (Track L10), and this
         /// test pins them exactly: the chatty and terse forms of each
         /// not-yet-confirmed row, one text at both tiers for everything else.
@@ -707,7 +756,9 @@ namespace Radios.Tests
             Assert.Null(ClientRowPhrase.DisconnectReason(ours));
             Assert.Null(ClientRowPhrase.DisconnectReason(null));
             Assert.Equal("Unable to disconnect this client until the radio identifies it.", ClientRowPhrase.DisconnectReason(reported));
-            Assert.Equal("Unable to disconnect this client until the radio identifies it.", ClientRowPhrase.DisconnectReason(maybeGone));
+            // The radio identified this one; its reason is that it may have
+            // left, never that the radio has not identified it (Track L11).
+            Assert.Equal("Unable to disconnect WA2IWC; it may have disconnected already.", ClientRowPhrase.DisconnectReason(maybeGone));
 
             // Sentences 7 and 8, which the dialog reads straight from the
             // lexicon; one text at both tiers.

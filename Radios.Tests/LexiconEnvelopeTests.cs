@@ -642,6 +642,12 @@ namespace Radios.Tests
             // SmartLink and not currently confirmed, each a terse and chatty
             // ladder. Frozen as DRAFTS for the same reason. When Track I
             // merges on top of this, it reads 3,049.
+            //
+            // Then 2,828 on Track L11 (#634, Sol's scoped review of L9 and
+            // L10): the Disconnect reason for a client the radio identified
+            // that may have left since, which the approved "until the radio
+            // identifies it" states falsely. Frozen as a DRAFT for the same
+            // reason. When Track I merges on top of this, it reads 3,050.
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -654,7 +660,7 @@ namespace Radios.Tests
                 }
             }
 
-            Assert.Equal(2827, unclassified);
+            Assert.Equal(2828, unclassified);
             Assert.All(classified, key =>
                 Assert.StartsWith("facts.", key, StringComparison.Ordinal));
             Assert.True(classified.Count > 30,

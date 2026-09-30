@@ -1207,6 +1207,7 @@ connect.multiflex.disconnect_question	ad320013bc8479c7
 connect.multiflex.disconnect_requested	0427c70fe79d1b5e
 connect.multiflex.disconnect_title	accaf7d5a6815647
 connect.multiflex.disconnect_unavailable	13b601bd9fa6eb51
+connect.multiflex.disconnect_unavailable_may_have_left	94a165e048d29b84
 connect.multiflex.disconnect_warning	10bec65abe762915
 connect.multiflex.disconnect_yes	efc244542e764455
 connect.multiflex.disconnected	326d34093b266e7a

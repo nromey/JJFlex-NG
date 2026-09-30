@@ -111,7 +111,11 @@ namespace Radios
     /// <c>connect.multiflex.disconnect_unavailable</c>. STILL DRAFTS, because
     /// the approval gave them no wording: the two no-station companions,
     /// <c>connect.client.reported_on_local_network_no_station</c> and
-    /// <c>connect.client.not_yet_confirmed_no_station</c>.</para>
+    /// <c>connect.client.not_yet_confirmed_no_station</c>; and
+    /// <c>connect.multiflex.disconnect_unavailable_may_have_left</c> (Track
+    /// L11), the Disconnect reason for a client the radio identified that may
+    /// have left since, written in sentence 3's terms on Noel's authority of
+    /// 2026-09-30 to fit wording to the actual situation.</para>
     ///
     /// <para><b>Readable, not only spoken (#643).</b> These are the texts of
     /// controls — the list's rows, the summary line, the reason line under
@@ -207,14 +211,30 @@ namespace Radios
 
         /// <summary>
         /// The readable reason Disconnect is unavailable for the selected
-        /// row (sentence 6, approved 2026-09-30), or null when it is available or nothing that needs
-        /// a reason is selected. Our own row needs none: the button has
-        /// always been disabled for it.
+        /// row, or null when it is available or nothing that needs a reason
+        /// is selected. Our own row needs none: the button has always been
+        /// disabled for it.
         /// </summary>
+        /// <remarks>
+        /// <para>Two reasons, because there are two situations (#634, Sol's
+        /// scoped review of L9 and L10). A row the radio never identified
+        /// waits for the radio: sentence 6, approved 2026-09-30, "until the
+        /// radio identifies it". A row the radio DID identify, that a list or
+        /// a broadcast has since stopped mentioning, is not waiting for
+        /// anything — its uncertainty is that it may have left, so sentence 6
+        /// would state a reason that is false for it. That row gets
+        /// <c>connect.multiflex.disconnect_unavailable_may_have_left</c>, in
+        /// the terms of sentence 3, which the same row already reads, and
+        /// named the way sentence 3 names it: station, else program. DRAFT
+        /// (Track L11), one text for both tiers.</para>
+        /// </remarks>
         public static string? DisconnectReason(ClientRow? selected)
         {
             if (selected is not { } row || row.IsThisClient) return null;
-            return MayDisconnect(row) ? null : Lexicon.Get("connect.multiflex.disconnect_unavailable");
+            if (MayDisconnect(row)) return null;
+            return row.ConfirmedByRadio && row.MayHaveLeft
+                ? Lexicon.Get("connect.multiflex.disconnect_unavailable_may_have_left", ("station", row.NameForSentence))
+                : Lexicon.Get("connect.multiflex.disconnect_unavailable");
         }
 
         /// <summary>
