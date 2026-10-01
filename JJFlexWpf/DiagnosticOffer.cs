@@ -51,6 +51,20 @@ namespace JJFlexWpf
     ///   ReportingFailed — the pipeline itself broke. The record IS the fallback
     ///     here: if the bundle would not build, knowing that is what is left.
     ///
+    ///   RecordingRecoveryAtRisk — a recording that has ended is kept as plain
+    ///     text but is not yet safely filed: its recovery index could not be
+    ///     written, its archive would not commit, or its tail is uncertain.
+    ///     The operator may be about to send that file, and should know its
+    ///     details may not be recovered automatically (Sprint 45 Track H7,
+    ///     Astra's ruling: the failure must not depend on the failing disk to
+    ///     be told).
+    ///
+    ///   RecordingStopped — nothing is being written to the diagnostic log and
+    ///     the operator did not turn it off. Its own kind, not folded into the
+    ///     one above, because "evidence from now on is not being kept" and
+    ///     "evidence already kept is not yet filed" call for different action
+    ///     and each deserves its one announcement.
+    ///
     /// WHAT IS DELIBERATELY NOT SURFACED:
     ///
     ///   Crashes. CrashReporter already shows a bundle prompt with a full
@@ -147,7 +161,29 @@ namespace JJFlexWpf
                 // RECORD FIRST, unconditionally, before any judgement about
                 // whether to speak. Everything below can decide to stay quiet;
                 // none of it may decide to forget.
-                ProblemLog.Record(e.Kind, e.What, e.Detail);
+                //
+                // A RESOLUTION replaces the entry for its key with the
+                // sentence that is true now — the thing came right — and
+                // that is ALL it does. It is never spoken, and if no entry
+                // carries the key there is nothing to record: a resolution
+                // is not a problem, and recording it as one would announce
+                // good news with the problem earcon (Sprint 45 Track H9,
+                // Sol's review of H8, blocker 3).
+                if (e.IsResolution)
+                {
+                    ProblemLog.Update(e.Key!, e.What, e.Detail);
+                    return;
+                }
+
+                // An UPDATE replaces the entry for its key and is never spoken:
+                // the operator already heard there was a problem with this
+                // thing, and what changed is what to do about it, which they
+                // read on demand. Only if there is no entry to replace — the
+                // original was pushed out, or reported before this was
+                // listening — is it new to the list, and then it is treated
+                // as such (Sprint 45 Track H8, Sol's review of H7, finding 4).
+                if (e.IsUpdate && ProblemLog.Update(e.Key!, e.What, e.Detail)) return;
+                ProblemLog.Record(e.Kind, e.What, e.Detail, e.Key);
 
                 if (!ShouldAnnounce(e.Kind)) return;
 

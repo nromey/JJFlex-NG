@@ -64,6 +64,24 @@ namespace Radios
             set => _enabled = value;
         }
 
+        /// <summary>
+        /// What this stream's lines are, in this class's own words, handed to
+        /// the sink with every line so the file introduces them where they
+        /// first appear (#625). This is the writer Sol's H10 review found the
+        /// old content count could not see: the count knew two kinds of meter
+        /// line, and this class writes a third under the operator's opt-in.
+        /// The file no longer needs anyone to know about this class in
+        /// advance; the class says so itself. DRAFT for Noel.
+        /// </summary>
+        public static readonly TraceRecordKind Record = new TraceRecordKind(
+            "meterStream",
+            "lines such as 'micData: min= max= last= n=' are the radio's continuous meter stream, one line per"
+            + " meter per second, summarising every sample that arrived in that second: the lowest, the highest,"
+            + " the last, and how many. They are here because 'Record the meter stream' is on in Settings,"
+            + " Diagnostics. The meters that can appear this way are micData, micPeakData, compPeakData,"
+            + " hwALCData, forwardPower, reflectedPower, SWRData, paTemp, and sMeterData followed by the slice"
+            + " number.");
+
         private sealed class Channel
         {
             public float Min, Max, Last;
@@ -136,7 +154,7 @@ namespace Radios
 
             if (line != null)
             {
-                Tracing.TraceLine(line);
+                Tracing.TraceRecord(Record, line);
                 System.Threading.Interlocked.Increment(ref _linesWritten);
             }
         }

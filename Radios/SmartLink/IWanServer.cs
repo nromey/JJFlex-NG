@@ -38,6 +38,92 @@ namespace Radios.SmartLink
         /// </summary>
         bool IsConnected { get; }
 
+        /// <summary>
+        /// Which connection is the newest one dialed: 0 before the first
+        /// <see cref="Connect"/>, and one higher after every <see cref="Connect"/>
+        /// that dials, whether or not the dial succeeds. A list whose
+        /// <see cref="WanRadioListReceivedEventArgs.ConnectionGeneration"/> is
+        /// below this came from a transport that has since been replaced.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Not the thing a list is accepted against.</b> Track L4 had
+        /// the owner's list handler read this, lock-free, and then take its
+        /// own lock to accept the list — two steps, and Sol's review of L4
+        /// found the gap between them: an old connection's callback could read
+        /// "newest is 1", pause, and resume after a dial had published 2, and
+        /// store its list as current. A second read would only shrink that
+        /// window. So the acceptance is now serialized with the retirement
+        /// instead: the adapter raises <see cref="ConnectionDialing"/> before
+        /// the new transport exists, the owner records it under the same lock
+        /// its list handler decides under, and this property is read only for
+        /// tracing and by the suite (#619).</para>
+        ///
+        /// <para>Lock-free because its readers are on the receive thread,
+        /// which must never wait behind the adapter's lock — the monitor
+        /// thread may be inside a dial holding it for up to fifteen
+        /// seconds.</para>
+        /// </remarks>
+        long ConnectionGeneration { get; }
+
+        /// <summary>
+        /// A new connection is being dialed, and the value carried is its
+        /// generation — the one <see cref="ConnectionGeneration"/> now reports.
+        /// Raised synchronously on the dialing thread, inside
+        /// <see cref="Connect"/>, AFTER the generation has advanced and BEFORE
+        /// the transport that will carry it exists. Every connection dialed
+        /// earlier is retired the moment this returns.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>This is the boundary that makes list acceptance atomic
+        /// with retirement (#619).</b> A subscriber that records the value
+        /// under the same lock it decides list acceptance under has exactly
+        /// two possible orders for any callback: the callback is decided
+        /// before this event has been recorded, in which case its connection
+        /// really was the newest one at that moment, or after, in which case
+        /// a list from an earlier generation is refused. There is no third
+        /// order, because there is no gap between the check and the decision.
+        /// And no list stamped with the new generation can be decided before
+        /// this has been raised, because the transport that would carry it
+        /// is created after.</para>
+        ///
+        /// <para>Implementers MUST raise it on every dial. The owner learns
+        /// which connection is live from this event alone; it no longer reads
+        /// the generation back after the dial, because a fallback that catches
+        /// up later is precisely a window.</para>
+        ///
+        /// <para>The handler runs while the adapter holds its lock, so it must
+        /// not call back into the server; recording a number under a lock of
+        /// its own is what it is for.</para>
+        /// </remarks>
+        event EventHandler<long>? ConnectionDialing;
+
+        /// <summary>
+        /// A connection's transport reported that it is up, or that it has
+        /// gone, and the value says WHICH connection: the generation stamped
+        /// where that transport was created, never the newest one dialed.
+        /// Raised synchronously on the thread the transport reported on,
+        /// before <see cref="INotifyPropertyChanged.PropertyChanged"/> for
+        /// <c>IsConnected</c>.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Why the edge carries a generation (#619, Sol's review of
+        /// L5).</b> The owner learns that a transport has died from this
+        /// edge, and a monitor that then changes the session's status is not
+        /// an instantaneous witness: between the edge and the status change
+        /// the session still reads Connected, and a list held from that
+        /// transport still reads as the live connection's. So the owner
+        /// records the edge itself, under the lock it decides lists under —
+        /// which is only safe if the edge says which connection it is about.
+        /// A replaced transport's read loop can report its death AFTER the
+        /// next connection has been dialed; an unstamped edge landing then
+        /// would mark the NEW connection dead before it had ever come up.</para>
+        ///
+        /// <para>The <c>PropertyChanged</c> edge survives beside this, as the
+        /// monitor's wake-up. It carries no generation and no subscriber may
+        /// do bookkeeping from it.</para>
+        /// </remarks>
+        event EventHandler<WanTransportStateEventArgs>? TransportStateChanged;
+
         /// <summary>Initiate a SmartLink session connect.</summary>
         void Connect();
 
@@ -121,14 +207,67 @@ namespace Radios.SmartLink
         }
     }
 
-    /// <summary>Event payload for <see cref="IWanServer.WanRadioRadioListReceived"/>.</summary>
+    /// <summary>
+    /// Event payload for <see cref="IWanServer.WanRadioRadioListReceived"/>:
+    /// the list, and which connection it was born on.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The generation is provenance, stamped where the transport is
+    /// created, never decided when the handler happens to run.</b> FlexLib
+    /// invokes list handlers on the transport's own read loop, and closing
+    /// that transport cancels the loop without waiting for a handler already
+    /// in flight. So an old connection's callback can pause, the monitor can
+    /// dial a new connection, and the old callback can then reach our handler
+    /// after the new connection is up. Track L3 stamped the list with a
+    /// number the OWNER kept current at that moment, which labelled exactly
+    /// such a callback as the new connection's; Sol's review of L3 named it.
+    /// The adapter now subscribes each transport's list event with that
+    /// transport's generation captured in the subscription, so a late
+    /// callback carries the generation it was actually born under, and the
+    /// owner compares it with <see cref="IWanServer.ConnectionGeneration"/>
+    /// to decide whether it describes the live connection (#619).</para>
+    ///
+    /// <para>The constructor takes the generation as a required argument so
+    /// that no list can be raised without saying where it came from.</para>
+    /// </remarks>
     public sealed class WanRadioListReceivedEventArgs : EventArgs
     {
         public IReadOnlyList<Radio> Radios { get; }
 
-        public WanRadioListReceivedEventArgs(IReadOnlyList<Radio> radios)
+        /// <summary>
+        /// The <see cref="IWanServer.ConnectionGeneration"/> of the connection
+        /// whose transport delivered this list.
+        /// </summary>
+        public long ConnectionGeneration { get; }
+
+        public WanRadioListReceivedEventArgs(IReadOnlyList<Radio> radios, long connectionGeneration)
         {
             Radios = radios;
+            ConnectionGeneration = connectionGeneration;
+        }
+    }
+
+    /// <summary>
+    /// Event payload for <see cref="IWanServer.TransportStateChanged"/>: which
+    /// connection's transport reported, and whether it is up.
+    /// </summary>
+    public sealed class WanTransportStateEventArgs : EventArgs
+    {
+        /// <summary>
+        /// The <see cref="IWanServer.ConnectionGeneration"/> of the connection
+        /// whose transport reported. Stamped where the transport was created,
+        /// so a replaced transport's late report still names the connection it
+        /// belonged to.
+        /// </summary>
+        public long ConnectionGeneration { get; }
+
+        /// <summary>True when the transport came up; false when it has gone.</summary>
+        public bool IsConnected { get; }
+
+        public WanTransportStateEventArgs(long connectionGeneration, bool isConnected)
+        {
+            ConnectionGeneration = connectionGeneration;
+            IsConnected = isConnected;
         }
     }
 

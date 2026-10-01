@@ -162,6 +162,20 @@ namespace Radios.Speech
         public const string ProfileStationCompany = "profile-station-company";
 
         /// <summary>
+        /// Another operator arriving on or leaving the radio, as the RADIO'S
+        /// OWN status reported it — "{who} connected", "{who} disconnected".
+        /// One subject for both directions, because the later of the two is
+        /// the current state of that company and the earlier one is
+        /// worthless once it is heard: an arrival announced after the same
+        /// client's departure would describe a roster that no longer exists.
+        /// Emitted only for a report on this connection's command transport;
+        /// a client that appears in SmartLink's list or a discovery broadcast
+        /// is shown, labelled as reported, and never spoken under this subject
+        /// (#634, Track L6).
+        /// </summary>
+        public const string ClientPresence = "client-presence";
+
+        /// <summary>
         /// The radio the operator is on, as stated by the connect briefing's
         /// lead — "Connected to FLEX-8600, SmartLink, 4 slices." One
         /// connection at a time, so the next connect's lead replaces an
@@ -239,6 +253,22 @@ namespace Radios.Speech
         /// was, and a permanent notch survives a power cycle.</para>
         /// </summary>
         public const string TrackingNotch = "tracking-notch";
+
+        /// <summary>
+        /// Where the diagnostic recording went after a connection drop archived
+        /// it — the confirmation that its path is now on the clipboard (Sprint
+        /// 45 Track H, #566's bridge). One subject because the only utterances
+        /// on it are successive answers to "have I got the path?", and only the
+        /// newest is true: an unheard "Path copied" is worthless once a second
+        /// press has copied it again, and a failure sentence must replace a
+        /// success rather than queue behind it.
+        ///
+        /// <para>Nothing outside this window covers it. The radio reconnecting
+        /// does not un-copy a path, and the operator is mid-errand — they
+        /// pressed a button to get something they intend to paste somewhere
+        /// else.</para>
+        /// </summary>
+        public const string CaptureArchivedPath = "capture-archived-path";
 
         /// <summary>
         /// The value of one field, named by its label — the committed value

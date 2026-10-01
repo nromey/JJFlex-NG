@@ -256,6 +256,29 @@ namespace Radios
             Tracing.TraceLine("StationConnect: station handlers wired through " + binding, TraceLevel.Info);
         }
 
+        /// <summary>
+        /// Let go of the station wiring on <paramref name="radio"/>, when the
+        /// current wiring is on that object. Called at the end of a clean
+        /// <see cref="Disconnect"/>, once the object has reported itself
+        /// disconnected and the attempt is cancelled: every callback the
+        /// closures could still carry is one the trackers reject, but FlexLib
+        /// never unwires them itself and discovery keeps raising on the object
+        /// it built, so a subscription with nothing left to say is taken off
+        /// rather than left dropping callbacks until the next Connect replaces
+        /// it. Wiring on a different object is left alone — the next
+        /// <see cref="WireStationHandlers"/> unwires it, as it always did.
+        /// The producer seam on the same object is let go of beside this, by
+        /// <c>unwireProducerHandlers</c>.
+        /// </summary>
+        internal void UnwireStationHandlers(Radio radio)
+        {
+            var w = _stationWiring;
+            if (w == null || radio == null || !w.IsFor(radio)) return;
+            w.Unwire();
+            _stationWiring = null;
+            Tracing.TraceLine("StationConnect: unwired the station handlers of " + w.Binding + " (the connection ended)", TraceLevel.Info);
+        }
+
         private int _staleCallbacksDropped;
 
         /// <summary>Stale callbacks dropped whole this process, for the tests.</summary>

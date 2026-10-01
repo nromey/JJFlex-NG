@@ -192,9 +192,31 @@ namespace Radios.Tests
         /// a deliberately slow listener rather than against the real fault,
         /// which cannot be induced on an attended machine.
         /// </summary>
+        /// <summary>
+        /// The field behind the marker's once-a-minute budget. Process-wide,
+        /// so this test OWNS it: see the method below.
+        /// </summary>
+        private static readonly System.Reflection.FieldInfo SlowMarkerStamp =
+            typeof(Tracing).GetField("lastSlowMarkerStamp",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+
         [Fact]
         public void ASlowListenerEarnsAMarkerNamingTheListenerSet()
         {
+            // THIS TEST OWNS ITS BUDGET. The marker allows itself one line a
+            // minute, process-wide, and any slow trace write earlier in the run
+            // — a barrier test holding a writer at the gate, a real disk
+            // hiccup — spends it. That made this test depend on what ran
+            // before it, and the one test known to spend the budget gave it
+            // back in a finally that could not help if the two ever ran
+            // together (Sol's review of H6, verification notes). The suite
+            // runs sequentially by assembly policy, so "together" cannot
+            // happen today; the order dependence within a run is real, and
+            // resetting the budget here is what removes it, whatever ran
+            // before.
+            Assert.True(SlowMarkerStamp != null,
+                "Tracing.lastSlowMarkerStamp moved; this test can no longer own its budget and would be order-dependent");
+
             var slow = new SlowListener(TimeSpan.FromMilliseconds(1200));
             var capture = new CapturingListener();
 
@@ -204,8 +226,18 @@ namespace Radios.Tests
             try
             {
                 Tracing.On = true;
-                // Two lines: the first is slow and arms the marker, the marker
-                // itself lands on the write that follows it.
+
+                // Positive control for the budget itself: with the budget just
+                // spent, a slow write earns NO marker. If this passes without
+                // the reset below, the reset is not what this test relies on.
+                SlowMarkerStamp.SetValue(null, Stopwatch.GetTimestamp());
+                Tracing.TraceLine("#434 marker probe, budget spent");
+                Assert.DoesNotContain(capture.Lines,
+                                      l => l.Contains("SLOW TRACE WRITE", StringComparison.Ordinal));
+
+                // Now own the budget, and a fresh slow write earns one.
+                SlowMarkerStamp.SetValue(null, 0L);
+                slow.Rearm();
                 Tracing.TraceLine("#434 marker probe");
 
                 Assert.Contains(capture.Lines,
@@ -226,6 +258,9 @@ namespace Radios.Tests
                 Trace.Listeners.Remove(slow);
                 Trace.Listeners.Remove(capture);
                 Tracing.On = wasOn;
+                // Leave the budget as this test found nothing owed: the next
+                // marker in the process is somebody else's business.
+                SlowMarkerStamp.SetValue(null, 0L);
             }
         }
 
@@ -235,6 +270,9 @@ namespace Radios.Tests
             private bool _spent;
 
             public SlowListener(TimeSpan cost) { _cost = cost; }
+
+            /// <summary>Be slow once more.</summary>
+            public void Rearm() { _spent = false; }
 
             public override void Write(string message) { Stall(); }
             public override void WriteLine(string message) { Stall(); }
