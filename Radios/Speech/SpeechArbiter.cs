@@ -2104,6 +2104,7 @@ namespace Radios.Speech
                 foreach (var s in _held) if (!s.Protected) train.Add(s);
                 _held.Clear();
                 int handed = 0;
+                bool protectedHandedOver = false;
                 foreach (var s in train)
                 {
                     string? refusal = SalvageRefusalLocked(s, now, atRescue: false);
@@ -2134,10 +2135,34 @@ namespace Radios.Speech
                         continue;
                     }
 
-                    var requeued = _sink(s.Message, false, s.Intent, s.Level, s.Origin, salvaged: true);
+                    // **A protected retry takes the safety speaking turn, like
+                    // its first attempt did (#611, Sol's Track K review
+                    // section 1).** It used to be requeued here with
+                    // interrupt:false and no reservation at all, so it entered
+                    // the pump as ordinary work: alarms waiting their turn saw
+                    // a free token and went ahead of it, and anything already
+                    // in the FIFO was spoken first. Sorting the held set put
+                    // protected entries first in the TRAIN and governed nothing
+                    // outside it. Now the first protected entry in a release
+                    // reserves the turn and interrupts, exactly as Urgent
+                    // does; a second protected entry in the same release is
+                    // queued behind the first rather than cutting it, because
+                    // two safety sentences interrupting each other is the very
+                    // thing the coordinator exists to stop.
+                    SafetyTurn? turn = null;
+                    bool interruptForSafety = false;
+                    if (s.Protected)
+                    {
+                        interruptForSafety = !protectedHandedOver;
+                        if (interruptForSafety) turn = _safety.ReserveForSafety(s.Subject, now);
+                    }
+
+                    var requeued = _sink(s.Message, interruptForSafety,
+                        interruptForSafety ? SpeechIntent.Urgent : s.Intent, s.Level, s.Origin, salvaged: true);
                     if (!requeued.Reached)
                     {
                         _safety.NoteBackendFailed();
+                        if (turn != null) _safety.Abandon(turn, "the reader did not take a safety obligation's retry");
 
                         // **A protected obligation is RE-ENTERED here (#606).**
                         // It used to be dropped on the floor with one Warning
@@ -2212,6 +2237,12 @@ namespace Radios.Speech
                         // into evidence of hearing.
                         LedgerInsertLocked(s);
                         s.EstFinishUtc = DateTime.MaxValue;
+                        if (turn != null)
+                        {
+                            _safety.Bind(turn, requeued, EstimateLocked(s.Message), now);
+                            protectedHandedOver = true;
+                        }
+                        if (!requeued.Tracked) _readerBusyUntilUtc = now.AddMilliseconds(EstimateLocked(s.Message));
                     }
                     else LedgerEnterLocked(s, now);
                     handed++;

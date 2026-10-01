@@ -308,6 +308,55 @@ namespace Radios.Tests
             Assert.Single(owed);
         }
 
+        [Fact]
+        public void AProtectedRetry_TakesTheTurnAndInterrupts_SoAWaitingAlarmWaitsForItsAnswer()
+        {
+            // Sol's second gap on Track K: ReleaseHeld requeued a protected
+            // entry with interrupt:false and never reserved a SafetyTurn, so
+            // the retry entered the pump as ordinary work — alarms saw a free
+            // turn and went ahead of it, and ordinary follow-ups already in
+            // the FIFO were spoken first. Driven through the real pump, with
+            // the alarm arriving while the retry is in flight.
+            SpeakSafety(Cut, SpeechSubject.ReflectedPowerCut);
+            var callCut = _ch.WaitForCall();
+            _ch.Mark(callCut); _ch.Mark(callCut); _ch.Mark(callCut);
+            _ch.CancelFromOutside(callCut, marksReached: 3, elapsedMs: 900);
+            SettleForBackendWork();
+            Assert.Contains(Owed(), o => o.Message == Cut);
+
+            // An ordinary interrupt rescues the cut into the held train, and
+            // the interrupting action queues its own follow-up behind itself.
+            _arbiter.Emit("Slice A", interrupt: true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "keys",
+                SpeechSubject.WhereYouAre);
+            var callSlice = _ch.WaitForCall();
+            Assert.Equal("Slice A", callSlice.Text);
+            _arbiter.Emit("Slice A follow-up detail", interrupt: false, SpeechIntent.Queue, VerbosityLevel.Terse, "keys", null);
+            _ch.Complete(callSlice, 300);
+
+            // The settle window closes: the retry must come out INTERRUPTING,
+            // taking the channel from the follow-up rather than queueing
+            // behind it.
+            Thread.Sleep(SpeechArbiter.SalvageSettleMs + 500);
+            var retry = _ch.WaitForCall();
+            // Whatever the follow-up's fate, the retry is the newest start.
+            Assert.Equal(Cut, BackendStarts().Last());
+            Assert.Equal(Cut, retry.Text);
+
+            // An alarm arrives while the retry is sounding. Under the old
+            // code the turn was free and the alarm cut the retry off.
+            SpeakAlarm(AlarmA, SubjectA, () => AlarmA);
+            SettleForBackendWork();
+            Assert.DoesNotContain(AlarmA, BackendStarts());
+            Assert.Equal(1, _arbiter.AlarmPendingCount);
+
+            // The retry's OWN answer is what lets the alarm through — the
+            // positive control that the silence above was the rule.
+            _ch.Complete(retry, 2400);
+            var callA = _ch.WaitForCall();
+            Assert.Equal(AlarmA, callA.Text);
+            Assert.DoesNotContain(Owed(), o => o.Message == Cut);
+        }
+
         // ────────────────────────────────────────────────────────────────
         //  Silence, including across the cue seam.
         // ────────────────────────────────────────────────────────────────
