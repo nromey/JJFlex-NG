@@ -186,6 +186,30 @@ namespace Radios.Alarms
             : (float)value <= (float)Threshold;
 
         /// <summary>
+        /// Whether the clear margin survives the meter's precision: true when
+        /// the clear boundary and the trigger are DIFFERENT numbers once both
+        /// are floats. A margin that is positive in double and vanishes in
+        /// float is no band at all, and is judged as none.
+        /// </summary>
+        /// <remarks>
+        /// <b>Astra's Track IJK review, blocker 7 — introduced by the float
+        /// compare below.</b> <see cref="IsBeyondClear"/> chose between the
+        /// inclusive clear and the strict zero-margin rule on
+        /// <c>Hysteresis &gt; 0</c>, a DOUBLE question, and then compared the
+        /// boundaries as FLOATS. A margin of 0.0000001 at 60 is positive in
+        /// double and both boundaries are exactly 60f, so a constant reading
+        /// of 60 was on the alarm side and beyond the clear at once — the
+        /// finding-12 chatter, back under a margin the editor accepted. The
+        /// band is asked about at the precision the boundaries are compared
+        /// in, here and in <see cref="Validate"/>, so the two cannot disagree
+        /// again.
+        /// </remarks>
+        public bool HasRepresentableBand => (float)ClearBoundary != (float)Threshold;
+
+        /// <summary>The same question for a delta alarm, whose clear line is threshold minus margin whatever the direction.</summary>
+        public bool HasRepresentableChangeBand => (float)(Threshold - Hysteresis) != (float)Threshold;
+
+        /// <summary>
         /// True when <paramref name="value"/> is at or beyond the clear
         /// boundary — or, with NO margin, strictly past the line.
         /// </summary>
@@ -202,10 +226,12 @@ namespace Radios.Alarms
         /// clears, as the PA preset's 58 C always has. DRAFT for Noel: the
         /// review asked him to choose between this rule and requiring a
         /// positive margin; this is the one that changes no ruled number.
+        /// "No margin" means no REPRESENTABLE margin — see
+        /// <see cref="HasRepresentableBand"/>.
         /// </remarks>
         public bool IsBeyondClear(double value) => Direction == AlarmDirection.AtOrAbove
-            ? (Hysteresis > 0 ? (float)value <= (float)ClearBoundary : (float)value < (float)Threshold)
-            : (Hysteresis > 0 ? (float)value >= (float)ClearBoundary : (float)value > (float)Threshold);
+            ? (HasRepresentableBand ? (float)value <= (float)ClearBoundary : (float)value < (float)Threshold)
+            : (HasRepresentableBand ? (float)value >= (float)ClearBoundary : (float)value > (float)Threshold);
 
         /// <summary>
         /// The same question for a delta alarm, asked of the measured rise or
@@ -214,7 +240,7 @@ namespace Radios.Alarms
         /// below the threshold does. At the meter's precision, as above.
         /// </summary>
         public bool IsChangeBeyondClear(double change) =>
-            Hysteresis > 0 ? (float)change <= (float)(Threshold - Hysteresis) : (float)change < (float)Threshold;
+            HasRepresentableChangeBand ? (float)change <= (float)(Threshold - Hysteresis) : (float)change < (float)Threshold;
 
         /// <summary>
         /// Positive when <paramref name="later"/> is worse than <paramref name="earlier"/>
@@ -290,8 +316,9 @@ namespace Radios.Alarms
         /// Everything wrong with this definition, by field, each with a lexicon
         /// key. Empty means saveable. Mirrors design section 4's list: non-finite
         /// thresholds, negative hysteresis, zero or negative freshness, an invalid
-        /// trend interval, and a clear boundary equal to the trigger when nonzero
-        /// hysteresis was requested. An unusual threshold outside the published
+        /// trend interval, and a clear boundary equal to the trigger — at the
+        /// meter's own float precision — when nonzero hysteresis was requested.
+        /// An unusual threshold outside the published
         /// range is NOT a problem here — it may be intentional, and the editor
         /// shows a review message instead.
         /// </summary>
@@ -320,7 +347,14 @@ namespace Radios.Alarms
             if (!double.IsFinite(WorseningStep) || WorseningStep < 0)
                 problems.Add(new AlarmValidationProblem("worsening", "alarms.validation.worsening_negative"));
 
-            if (Condition == AlarmCondition.Level && Hysteresis > 0 && ClearBoundary == Threshold)
+            // Judged at the meter's precision, the same as IsBeyondClear: a
+            // margin that is positive in double and vanishes in float would
+            // otherwise pass here and chatter there (Astra's Track IJK review,
+            // blocker 7). A delta alarm's clear line is threshold minus margin
+            // and collapses the same way.
+            if (Hysteresis > 0
+                && ((Condition == AlarmCondition.Level && !HasRepresentableBand)
+                    || (Condition == AlarmCondition.RiseFromBaseline && !HasRepresentableChangeBand)))
                 problems.Add(new AlarmValidationProblem("hysteresis", "alarms.validation.clear_equals_trigger"));
 
             if (Condition == AlarmCondition.RisingFast)

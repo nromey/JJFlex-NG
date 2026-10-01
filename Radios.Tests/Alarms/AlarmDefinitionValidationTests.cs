@@ -80,6 +80,52 @@ namespace Radios.Tests.Alarms
         }
 
         [Fact]
+        public void A_positive_margin_too_small_for_the_meters_precision_is_refused_as_a_clear_line_equal_to_the_trigger()
+        {
+            // Astra's Track IJK review, blocker 7. Validation compared the two
+            // boundaries in double, judgement compares them in float: a margin
+            // of 0.0000001 at 60 passed as distinct and judged as equal, which
+            // is the zero-margin chatter under a margin the editor accepted.
+            // The question is asked at the precision the answer is given in.
+            var p = (Good() with { Hysteresis = 0.0000001 }).Validate().Single();
+            Assert.Equal("hysteresis", p.Field);
+            Assert.Equal("alarms.validation.clear_equals_trigger", p.LexiconKey);
+
+            // A delta alarm's clear line is threshold minus margin too.
+            var delta = AlarmDefinition.NewRiseFromBaseline("d", "Rise", "0000", MeterSelector.From(AlarmMonitorTests.PaTemp), 5, 0.0000001);
+            Assert.Equal("alarms.validation.clear_equals_trigger", delta.Validate().Single().LexiconKey);
+
+            // The positive controls: a margin a float can hold is accepted, and
+            // the shipped presets' margins are all of that kind.
+            Assert.Empty((Good() with { Hysteresis = 0.01 }).Validate());
+            Assert.Empty((Good() with { Threshold = 12, Direction = AlarmDirection.AtOrBelow, Hysteresis = 0.2 }).Validate());
+        }
+
+        [Fact]
+        public void A_margin_below_the_meters_precision_cannot_make_one_reading_both_on_the_alarm_side_and_clear()
+        {
+            var above = Good() with { Hysteresis = 0.0000001 };
+            Assert.True(above.IsOnAlarmSide(60));
+            Assert.False(above.IsBeyondClear(60));        // the pair Astra named: both were true
+            Assert.True(above.IsBeyondClear(59.99));       // strictly past the line clears
+
+            var below = Good() with { Direction = AlarmDirection.AtOrBelow, Threshold = 12, Hysteresis = 0.0000001 };
+            Assert.True(below.IsOnAlarmSide(12));
+            Assert.False(below.IsBeyondClear(12));
+            Assert.True(below.IsBeyondClear(12.01));
+
+            var delta = AlarmDefinition.NewRiseFromBaseline("d", "Rise", "0000", MeterSelector.From(AlarmMonitorTests.PaTemp), 5, 0.0000001);
+            Assert.False(delta.IsChangeBeyondClear(5));
+            Assert.True(delta.IsChangeBeyondClear(4.99));
+
+            // Positive control: a representable margin keeps the inclusive clear.
+            var banded = Good() with { Hysteresis = 0.5 };
+            Assert.True(banded.IsOnAlarmSide(60));
+            Assert.False(banded.IsBeyondClear(60));
+            Assert.True(banded.IsBeyondClear(59.5));
+        }
+
+        [Fact]
         public void The_rising_fast_preset_ships_disabled()
         {
             Assert.False(AlarmDefinition.NewRisingFast("t", "Rising", "0000", MeterSelector.From(AlarmMonitorTests.PaTemp)).Enabled);

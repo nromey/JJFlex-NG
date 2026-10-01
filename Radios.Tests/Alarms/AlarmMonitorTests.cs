@@ -273,6 +273,51 @@ namespace Radios.Tests.Alarms
         }
 
         [Fact]
+        public void A_margin_below_the_meters_precision_is_judged_as_no_margin_so_a_reading_at_the_line_fires_once_and_never_clears()
+        {
+            // Astra's Track IJK review, blocker 7 — introduced by the float
+            // compare that repaired the 12.2 V reset. The margin was tested in
+            // DOUBLE (Hysteresis > 0) while both boundaries were compared in
+            // FLOAT, so a positive margin smaller than a float can resolve at
+            // the line — 60 minus 0.0000001 is 60f exactly — passed validation,
+            // chose the inclusive clear, and a constant 60 fired, cleared two
+            // samples later and fired again: the zero-margin chatter, back
+            // under a margin the editor accepted. The band is now judged at
+            // the precision the question is asked in, and an empty band is no
+            // band.
+            var above = new AlarmMonitor(Level(60, hysteresis: 0.0000001, clearSamples: 2, clearSeconds: 1));
+            var events = Run(above, (1000, 60f), (3000, 60f), (5000, 60f), (7000, 60f), (9000, 60f));
+            Assert.Equal(1, Count(events, AlarmEventKind.Fired));
+            Assert.Equal(0, Count(events, AlarmEventKind.Cleared));
+            Assert.Equal(AlarmConditionState.Active, above.Condition);
+
+            var below = new AlarmMonitor(Level(12, hysteresis: 0.0000001, direction: AlarmDirection.AtOrBelow, clearSamples: 2, clearSeconds: 1));
+            var belowEvents = Run(below, (1000, 12f), (3000, 12f), (5000, 12f), (7000, 12f), (9000, 12f));
+            Assert.Equal(1, Count(belowEvents, AlarmEventKind.Fired));
+            Assert.Equal(0, Count(belowEvents, AlarmEventKind.Cleared));
+
+            // The positive control, in the same test: strictly past the line
+            // still clears, so the silence above is the rule and not a dead
+            // monitor.
+            Assert.Equal(1, Count(Run(above, (11000, 59.9f), (13000, 59.9f)), AlarmEventKind.Cleared));
+            Assert.Equal(1, Count(Run(below, (11000, 12.1f), (13000, 12.1f)), AlarmEventKind.Cleared));
+        }
+
+        [Fact]
+        public void A_delta_alarm_with_a_margin_below_the_meters_precision_does_not_chatter_either()
+        {
+            var m = new AlarmMonitor(AlarmDefinition.NewRiseFromBaseline("r", "Rise", "0000", MeterSelector.From(PaTemp), 5, 0.0000001)
+                with { Enabled = true, ClearSamples = 2, ClearSeconds = 1 });
+            var feed = new Feed();
+            m.Observe(feed.At(1000, 25f), 1000);
+            m.CaptureBaseline(1001);
+            var events = new List<AlarmEvent>();
+            foreach (long t in new long[] { 3000, 5000, 7000, 9000 }) events.AddRange(m.Observe(feed.At(t, 30f), t));
+            Assert.Equal(1, Count(events, AlarmEventKind.Fired));
+            Assert.Equal(0, Count(events, AlarmEventKind.Cleared));
+        }
+
+        [Fact]
         public void A_delta_alarm_with_no_margin_does_not_chatter_at_an_exact_rise_either()
         {
             var m = new AlarmMonitor(AlarmDefinition.NewRiseFromBaseline("r", "Rise", "0000", MeterSelector.From(PaTemp), 5, 0)
