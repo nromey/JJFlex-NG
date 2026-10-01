@@ -29,7 +29,11 @@ namespace Radios.Alarms
     /// </remarks>
     public static class AlarmPhrasing
     {
-        /// <summary>A value in its meter's units, at the precision the ear needs: whole tenths for temperature, hundredths for volts.</summary>
+        /// <summary>
+        /// A READING in its meter's units, at the precision the ear needs: whole
+        /// tenths for temperature, hundredths for volts. For a measurement
+        /// only — a configured line goes through <see cref="AsEntered"/>.
+        /// </summary>
         public static string Value(double value, MeterUnits units)
         {
             if (double.IsNaN(value)) return "";
@@ -42,6 +46,51 @@ namespace Radios.Alarms
                 _ => "0.##",
             };
             return value.ToString(format, CultureInfo.CurrentCulture);
+        }
+
+        /// <summary>
+        /// A CONFIGURED boundary — a threshold, or the clear line derived from
+        /// it — spoken as the operator entered it: every digit, no rounding, no
+        /// padding.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Two kinds of number, two formatters (Astra's Track IJK5 review,
+        /// the formatting blocker, and the class behind it).</b> A reading is a
+        /// measurement, and <see cref="Value"/> rounds it to the precision the
+        /// meter is worth hearing at. A threshold is not a measurement: it is a
+        /// number the operator typed, and the monitor compares against every
+        /// digit of it. Until this method existed every boundary the alarms
+        /// spoke — the firing frame's "at or above {threshold}", the still-active
+        /// frames' "clears below {clear}", the list row's and the status line's
+        /// "at or above 60 degrees C", the editor's summary — went through the
+        /// measurement formatter, so a line of 60.04 was spoken "60" while the
+        /// monitor held the alarm at 60.04: "is 60 degrees C. The alarm clears
+        /// below 60 degrees C" promised a clearance the reading already met, and
+        /// a low line of 11.996 volts was spoken "12.00". The defect was not in
+        /// any one sentence; it was that one formatter answered both questions.
+        /// </para>
+        /// <para>
+        /// <b>Fifteen significant digits, not seventeen.</b> The shortest
+        /// round-trip form of a stored double is exact, but a clear line is
+        /// computed — threshold minus margin — and binary arithmetic leaves a
+        /// one-ulp residue on it: 11.996 plus 0.005 is 12.001000000000001 in
+        /// double, and no operator typed that. Fifteen digits is more than a
+        /// person types and one short of where the residue appears, so what is
+        /// spoken is the decimal the operator's two entries make, and nothing
+        /// the arithmetic added. Scientific notation is never spoken: a value
+        /// so small or so large that "G15" would write an exponent is expanded
+        /// through <see cref="decimal"/>, which has none.
+        /// </para>
+        /// </remarks>
+        public static string AsEntered(double value)
+        {
+            if (double.IsNaN(value) || double.IsInfinity(value)) return "";
+            if (value == 0) return "0";   // and not "-0"
+            string s = value.ToString("G15", CultureInfo.CurrentCulture);
+            if (s.IndexOf('E') < 0 && s.IndexOf('e') < 0) return s;
+            try { return ((decimal)value).ToString(CultureInfo.CurrentCulture); }
+            catch (OverflowException) { return s; }
         }
 
         private static string Units(MeterUnits units) => MeterReading.UnitsText(units);
@@ -228,8 +277,10 @@ namespace Radios.Alarms
                 // pair is chosen on HasRepresentableBand, the same flag
                 // IsBeyondClear branches on, so the sentence and the rule
                 // cannot diverge again; and the number stated is the line the
-                // rule compares against in that branch, the threshold, not a
-                // clear boundary that only displays as the threshold.
+                // rule compares against in that branch, the threshold, not the
+                // clear boundary — which with no band is the same float but
+                // not always the same decimal (Astra's Track IJK5 review,
+                // question 3: 60.05000001 against 60.04999991).
                 if (def.HasRepresentableBand)
                     key = def.Direction == AlarmDirection.AtOrAbove ? "alarms.meter.still_active_above" : "alarms.meter.still_active_below";
                 else
@@ -247,9 +298,17 @@ namespace Radios.Alarms
 
             // The operator's name goes LAST so a name that happens to contain
             // "{value}" is inserted after every other placeholder is gone.
+            //
+            // {value} and {change} are READINGS and take the measurement
+            // formatter; {threshold} and {clear} are the CONFIGURED line and
+            // are spoken as entered (AsEntered). This one substitution list
+            // serves every generic frame — firing, still-active, reminder,
+            // worsened, rise, fall, trend — so the rule is applied once, here,
+            // and no frame can round a boundary on its own (Astra's Track IJK5
+            // review, the formatting blocker).
             string sentence = Lexicon.Get(key,
                 ("meter", meter.Label), ("value", value), ("units", Units(units)),
-                ("threshold", Value(def.Threshold, units)), ("clear", Value(clearLine, units)),
+                ("threshold", AsEntered(def.Threshold)), ("clear", AsEntered(clearLine)),
                 ("change", change), ("interval", interval),
                 ("alarm", def.Name));
 
@@ -320,11 +379,19 @@ namespace Radios.Alarms
 
         // ── status and the list ──
 
-        /// <summary>The configured line in words: "at or above 60 degrees C", "a fall of 0.50 volts below the captured baseline".</summary>
+        /// <summary>
+        /// The configured line in words: "at or above 60 degrees C", "a fall of
+        /// 0.5 volts below the captured baseline". Spoken in the list row, the
+        /// status line and the editor's summary, and the number is the one the
+        /// operator typed, as they typed it (<see cref="AsEntered"/>): this was
+        /// the second place the measurement formatter rounded a configured line,
+        /// so a status line said "Line: at or above 60 degrees C" of an alarm
+        /// set at 60.04.
+        /// </summary>
         public static string Boundary(AlarmDefinition def)
         {
             MeterUnits units = def.Selector.Units;
-            string threshold = Value(def.Threshold, units);
+            string threshold = AsEntered(def.Threshold);
             string key = def.Condition switch
             {
                 AlarmCondition.RiseFromBaseline => def.Direction == AlarmDirection.AtOrAbove ? "alarms.boundary.rise" : "alarms.boundary.fall",

@@ -236,7 +236,7 @@ namespace Radios.Tests.Alarms
         public void A_level_warning_re_read_inside_its_margin_below_states_the_reading_and_what_clears_it(float value, string spoken)
         {
             string s = AlarmPhrasing.Warning(Ev(LowVolts(), SupplyA8600, value, tx: false));
-            Assert.Equal("Your alarm named Low volts is still active: +13.8A (+13.8V at PA) is " + spoken + " volts. The alarm clears at or above 12.20 volts.", s);
+            Assert.Equal("Your alarm named Low volts is still active: +13.8A (+13.8V at PA) is " + spoken + " volts. The alarm clears at or above 12.2 volts.", s);
             Assert.DoesNotContain("at or below", s);
         }
 
@@ -245,7 +245,7 @@ namespace Radios.Tests.Alarms
         [InlineData(11.9f, "11.90")]
         public void A_level_warning_re_read_on_the_alarm_side_below_keeps_the_fired_frame(float value, string spoken)
         {
-            Assert.Equal("Your alarm named Low volts fired: +13.8A (+13.8V at PA) is " + spoken + " volts, at or below 12.00 volts.",
+            Assert.Equal("Your alarm named Low volts fired: +13.8A (+13.8V at PA) is " + spoken + " volts, at or below 12 volts.",
                 AlarmPhrasing.Warning(Ev(LowVolts(), SupplyA8600, value, tx: false)));
         }
 
@@ -259,10 +259,18 @@ namespace Radios.Tests.Alarms
         //  Noel's ruling, 2026-10-01, "less than 60". The frame said "clears at
         //  or below 60", a clearance the monitor never grants however many
         //  samples of exactly 60 arrive. The frame must state the strict
-        //  boundary and the threshold. (The phrasing feeds def.Threshold, not
-        //  ClearBoundary, in this branch by construction; no sentence test can
-        //  see the difference, because 59.9999999 displays as 60 — feeding
-        //  ClearBoundary there leaves every test here green.)
+        //  boundary and the threshold.
+        //
+        //  The phrasing feeds def.Threshold, not ClearBoundary, in this
+        //  branch, and a sentence test CAN see the difference. This section
+        //  said it could not — "59.9999999 displays as 60, feeding
+        //  ClearBoundary leaves every test green" — and that was a false
+        //  coverage claim, true only of the integer fixtures here (Astra's
+        //  Track IJK5 review, question 3). Two doubles with equal FLOAT casts
+        //  are not the same decimal: 60.05000001 with a margin of 0.0000001
+        //  has no representable band, and its clear boundary is 60.04999991.
+        //  The guard below uses those values, so feeding the wrong field now
+        //  fails a test rather than passing one.
         // ────────────────────────────────────────────────────────────────
 
         [Theory]
@@ -296,7 +304,7 @@ namespace Radios.Tests.Alarms
             Assert.False(def.HasRepresentableBand);
 
             string s = AlarmPhrasing.Warning(Ev(def, SupplyA8600, value, tx: false));
-            Assert.Equal("Your alarm named Low volts is still active: +13.8A (+13.8V at PA) is " + spoken + " volts. The alarm clears above 12.00 volts.", s);
+            Assert.Equal("Your alarm named Low volts is still active: +13.8A (+13.8V at PA) is " + spoken + " volts. The alarm clears above 12 volts.", s);
             Assert.DoesNotContain("at or above", s);
             Assert.DoesNotContain("at or below", s);
             Assert.False(def.IsBeyondClear(12));
@@ -308,11 +316,160 @@ namespace Radios.Tests.Alarms
             // Controls for the pair choice: the inclusive frame stays where its
             // claim is true, including a band as small as the meter can hold.
             Assert.EndsWith("The alarm clears at or below 58 degrees C.", AlarmPhrasing.Warning(Ev(Heat(), Pa, 59f, tx: false)));
-            Assert.EndsWith("The alarm clears at or above 12.20 volts.", AlarmPhrasing.Warning(Ev(LowVolts(), SupplyA8600, 12.1f, tx: false)));
+            Assert.EndsWith("The alarm clears at or above 12.2 volts.", AlarmPhrasing.Warning(Ev(LowVolts(), SupplyA8600, 12.1f, tx: false)));
             var tinyBand = AlarmDefinition.NewLevel("lv", "Low volts", Serial, MeterSelector.From(SupplyA8600), AlarmDirection.AtOrBelow, 12, 0.01)
                 with { Action = AlarmActionClass.NotifyOnly };
             Assert.True(tinyBand.HasRepresentableBand);
             Assert.EndsWith("The alarm clears at or above 12.01 volts.", AlarmPhrasing.Warning(Ev(tinyBand, SupplyA8600, 12.005f, tx: false)));
+        }
+
+        /// <summary>
+        /// The guard IJK5 deleted, restored with Astra's values. The no-band
+        /// branch must state the THRESHOLD, which is the number the strict rule
+        /// compares against. With a margin of 0.0000001 the clear boundary is
+        /// the same float but a different decimal, so a sentence that fed it
+        /// would say 60.04999991 — and this test would say so.
+        /// </summary>
+        [Fact]
+        public void The_no_margin_frame_states_the_threshold_not_the_clear_boundary()
+        {
+            var heat = AlarmDefinition.NewLevel("heat", "Heat", Serial, MeterSelector.From(Pa), AlarmDirection.AtOrAbove, 60.05000001, 0.0000001)
+                with { Action = AlarmActionClass.NotifyOnly };
+            Assert.False(heat.HasRepresentableBand);
+            Assert.Equal((float)heat.Threshold, (float)heat.ClearBoundary);      // the same float...
+            Assert.NotEqual(AlarmPhrasing.AsEntered(heat.Threshold), AlarmPhrasing.AsEntered(heat.ClearBoundary));   // ...not the same decimal
+            string s = AlarmPhrasing.Warning(Ev(heat, Pa, 60f, tx: false));
+            Assert.Equal("Your alarm named Heat is still active: PATEMP (PA Temperature) is 60 degrees C. The alarm clears below 60.05000001 degrees C.", s);
+            Assert.DoesNotContain("60.0499", s);
+
+            var low = AlarmDefinition.NewLevel("lv", "Low volts", Serial, MeterSelector.From(SupplyA8600), AlarmDirection.AtOrBelow, 12.00500001, 0.0000001)
+                with { Action = AlarmActionClass.NotifyOnly };
+            Assert.False(low.HasRepresentableBand);
+            string v = AlarmPhrasing.Warning(Ev(low, SupplyA8600, 12.1f, tx: false));
+            Assert.Equal("Your alarm named Low volts is still active: +13.8A (+13.8V at PA) is 12.10 volts. The alarm clears above 12.00500001 volts.", v);
+            Assert.DoesNotContain("12.0049", v);
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        //  A configured boundary is spoken as entered, a reading at display
+        //  precision (Astra's Track IJK5 review, the formatting blocker — and
+        //  the class it belongs to)
+        //
+        //  Every boundary the alarms spoke went through Value, the MEASUREMENT
+        //  formatter: temperature to tenths, volts to hundredths. So a Heat
+        //  alarm set at 60.04 said "clears below 60 degrees C" of a reading of
+        //  60 that the monitor already counts as clearing, and a low line of
+        //  11.996 volts was spoken "12.00". One shared substitution list feeds
+        //  every generic frame, so the fix is there and these tests walk the
+        //  frames: firing, still-active, reminder and worsened, both
+        //  directions, and the list row and status line that speak the same
+        //  number. The READING keeps display precision on purpose: it is a
+        //  measurement, and "is 60 degrees C" of 60.0 is right.
+        // ────────────────────────────────────────────────────────────────
+
+        private static AlarmDefinition FineHeat(double margin) =>
+            AlarmDefinition.NewLevel("heat", "Heat", Serial, MeterSelector.From(Pa), AlarmDirection.AtOrAbove, 60.04, margin)
+                with { Action = AlarmActionClass.NotifyOnly };
+
+        private static AlarmDefinition FineLowVolts(double margin) =>
+            AlarmDefinition.NewLevel("lv", "Low volts", Serial, MeterSelector.From(SupplyA8600), AlarmDirection.AtOrBelow, 11.996, margin)
+                with { Action = AlarmActionClass.NotifyOnly };
+
+        /// <summary>Astra's case: a line of 60.04 with no margin, the reading at 60, which the monitor counts as a clearing sample.</summary>
+        [Fact]
+        public void A_threshold_of_60_point_04_is_spoken_as_60_point_04_in_every_frame_that_states_it()
+        {
+            var def = FineHeat(0);
+            Assert.False(def.HasRepresentableBand);
+            Assert.True(def.IsBeyondClear(60));            // 60 is on the clearing side of 60.04
+
+            // Still active, Astra's sentence: not "clears below 60".
+            Assert.Equal("Your alarm named Heat is still active: PATEMP (PA Temperature) is 60 degrees C. The alarm clears below 60.04 degrees C.",
+                AlarmPhrasing.Warning(Ev(def, Pa, 60f, tx: false)));
+            // Firing: the line is stated as entered, the reading at display precision.
+            Assert.Equal("Your alarm named Heat fired: PATEMP (PA Temperature) is 61 degrees C, at or above 60.04 degrees C.",
+                AlarmPhrasing.Warning(Ev(def, Pa, 61f, tx: false)));
+            // Reminder and worsened state no boundary, and gain none.
+            Assert.Equal("Heat: PATEMP (PA Temperature) still 61 degrees C.", AlarmPhrasing.Warning(Ev(def, Pa, 61f, tx: false, kind: AlarmEventKind.Reminder)));
+            Assert.Equal("Heat: PATEMP (PA Temperature) now 61 degrees C.", AlarmPhrasing.Warning(Ev(def, Pa, 61f, tx: false, kind: AlarmEventKind.Worsened)));
+            // The list row and the status line speak the same number.
+            Assert.Equal("at or above 60.04 degrees C", AlarmPhrasing.Boundary(def));
+            Assert.Contains("Line: at or above 60.04 degrees C.",
+                AlarmPhrasing.Status(Snap(def with { Enabled = true }, AlarmDataState.Fresh, AlarmConditionState.Active, AlarmNotificationState.None,
+                    MeterSelectorStatus.Resolved, MeterObservation.Measured(Pa, 60f, 5, 1000, DateTime.UtcNow, 1, null), 3)));
+            Assert.Contains(". at or above 60.04 degrees C. ",
+                AlarmPhrasing.Row(Snap(def with { Enabled = true }, AlarmDataState.Fresh, AlarmConditionState.Active, AlarmNotificationState.None,
+                    MeterSelectorStatus.Resolved, MeterObservation.Measured(Pa, 60f, 5, 1000, DateTime.UtcNow, 1, null), 3)));
+        }
+
+        /// <summary>The mirror: a low line of 11.996 volts with no margin, the reading at 12, which clears.</summary>
+        [Fact]
+        public void A_low_line_of_11_point_996_volts_is_spoken_as_11_point_996_in_every_frame_that_states_it()
+        {
+            var def = FineLowVolts(0);
+            Assert.False(def.HasRepresentableBand);
+            Assert.True(def.IsBeyondClear(12));
+
+            Assert.Equal("Your alarm named Low volts is still active: +13.8A (+13.8V at PA) is 12.00 volts. The alarm clears above 11.996 volts.",
+                AlarmPhrasing.Warning(Ev(def, SupplyA8600, 12f, tx: false)));
+            Assert.Equal("Your alarm named Low volts fired: +13.8A (+13.8V at PA) is 11.90 volts, at or below 11.996 volts.",
+                AlarmPhrasing.Warning(Ev(def, SupplyA8600, 11.9f, tx: false)));
+            Assert.Equal("Low volts: +13.8A (+13.8V at PA) still 11.90 volts.", AlarmPhrasing.Warning(Ev(def, SupplyA8600, 11.9f, tx: false, kind: AlarmEventKind.Reminder)));
+            Assert.Equal("Low volts: +13.8A (+13.8V at PA) now 11.90 volts.", AlarmPhrasing.Warning(Ev(def, SupplyA8600, 11.9f, tx: false, kind: AlarmEventKind.Worsened)));
+            Assert.Equal("at or below 11.996 volts", AlarmPhrasing.Boundary(def));
+            Assert.Contains("Line: at or below 11.996 volts.",
+                AlarmPhrasing.Status(Snap(def with { Enabled = true }, AlarmDataState.Fresh, AlarmConditionState.Active, AlarmNotificationState.None,
+                    MeterSelectorStatus.Resolved, MeterObservation.Measured(SupplyA8600, 12f, 5, 1000, DateTime.UtcNow, 1, null), 3, resolved: SupplyA8600)));
+        }
+
+        /// <summary>
+        /// A representable band whose clear line is finer than the display
+        /// precision: 60.04 with a 0.01 margin clears at 60.03, and 11.996 with
+        /// 0.005 clears at 12.001. The clear line is spoken as the operator's
+        /// two entries make it, with none of the arithmetic's residue
+        /// (11.996 + 0.005 is 12.001000000000001 in double).
+        /// </summary>
+        [Fact]
+        public void A_fine_clear_line_inside_a_representable_band_is_spoken_exactly()
+        {
+            var heat = FineHeat(0.01);
+            Assert.True(heat.HasRepresentableBand);
+            Assert.Equal("Your alarm named Heat is still active: PATEMP (PA Temperature) is 60 degrees C. The alarm clears at or below 60.03 degrees C.",
+                AlarmPhrasing.Warning(Ev(heat, Pa, 60.03f, tx: false)));
+            Assert.Equal("Your alarm named Heat fired: PATEMP (PA Temperature) is 60 degrees C, at or above 60.04 degrees C.",
+                AlarmPhrasing.Warning(Ev(heat, Pa, 60.04f, tx: false)));   // 60.04 reads "60" at display precision; the line is still 60.04
+
+            var low = FineLowVolts(0.005);
+            Assert.True(low.HasRepresentableBand);
+            string s = AlarmPhrasing.Warning(Ev(low, SupplyA8600, 11.998f, tx: false));
+            Assert.Equal("Your alarm named Low volts is still active: +13.8A (+13.8V at PA) is 12.00 volts. The alarm clears at or above 12.001 volts.", s);
+            Assert.DoesNotContain("12.001000000000001", s);
+            Assert.Equal("Your alarm named Low volts fired: +13.8A (+13.8V at PA) is 11.99 volts, at or below 11.996 volts.",
+                AlarmPhrasing.Warning(Ev(low, SupplyA8600, 11.99f, tx: false)));
+        }
+
+        /// <summary>
+        /// The formatter itself, at its edges: what a person types comes back
+        /// as typed, a computed line loses only the arithmetic's residue, a
+        /// whole number has no padding, and nothing is ever spoken in
+        /// scientific notation.
+        /// </summary>
+        [Theory]
+        [InlineData(60.04, "60.04")]
+        [InlineData(11.996, "11.996")]
+        [InlineData(60.05000001, "60.05000001")]
+        [InlineData(12.0, "12")]
+        [InlineData(0.5, "0.5")]
+        [InlineData(-3.5, "-3.5")]
+        [InlineData(60.0 - 2.0, "58")]
+        [InlineData(11.996 + 0.005, "12.001")]
+        [InlineData(0.1 + 0.2, "0.3")]
+        [InlineData(0.0000001, "0.0000001")]
+        [InlineData(1e15, "1000000000000000")]
+        [InlineData(-0.0, "0")]
+        public void A_configured_line_is_spoken_as_entered(double value, string spoken)
+        {
+            Assert.Equal(spoken, AlarmPhrasing.AsEntered(value));
         }
 
         [Fact]
@@ -350,7 +507,7 @@ namespace Radios.Tests.Alarms
             var onVolts = pa with { Selector = MeterSelector.From(SupplyA8600), Threshold = 12, Direction = AlarmDirection.AtOrBelow };
             Assert.False(AlarmPresets.WordingApplies(onVolts));
             string s = AlarmPhrasing.Warning(Ev(onVolts, SupplyA8600, 11.9f, tx: true));
-            Assert.Equal("Release transmit now. Your alarm named High PA temperature fired: +13.8A (+13.8V at PA) is 11.90 volts, at or below 12.00 volts.", s);
+            Assert.Equal("Release transmit now. Your alarm named High PA temperature fired: +13.8A (+13.8V at PA) is 11.90 volts, at or below 12 volts.", s);
             Assert.DoesNotContain("degrees", s);
 
             // Same preset, action changed to notify-only: no instruction at all.
@@ -489,8 +646,8 @@ namespace Radios.Tests.Alarms
         public void Boundaries_read_as_inclusive_lines_in_the_meter_units()
         {
             Assert.Equal("at or above 60 degrees C", AlarmPhrasing.Boundary(AlarmPresets.Build(AlarmPresets.PaTemperature, Pa, Serial, "x")));
-            Assert.Equal("at or below 12.00 volts", AlarmPhrasing.Boundary(AlarmPresets.Build(AlarmPresets.VoltageLow, SupplyA6300, Serial, "x")));
-            Assert.Equal("a fall of 0.50 volts below the captured baseline", AlarmPhrasing.Boundary(AlarmPresets.Build(AlarmPresets.VoltageDrop, SupplyA6300, Serial, "x")));
+            Assert.Equal("at or below 12 volts", AlarmPhrasing.Boundary(AlarmPresets.Build(AlarmPresets.VoltageLow, SupplyA6300, Serial, "x")));
+            Assert.Equal("a fall of 0.5 volts below the captured baseline", AlarmPhrasing.Boundary(AlarmPresets.Build(AlarmPresets.VoltageDrop, SupplyA6300, Serial, "x")));
             Assert.Equal("a rise of 5 degrees C above the captured baseline", AlarmPhrasing.Boundary(AlarmPresets.Build(AlarmPresets.PaRiseFromBaseline, Pa, Serial, "x")));
             Assert.Equal("a rise of 12 degrees C over about 90 seconds", AlarmPhrasing.Boundary(AlarmPresets.Build(AlarmPresets.PaRisingFast, Pa, Serial, "x")));
         }
@@ -632,7 +789,7 @@ namespace Radios.Tests.Alarms
 
             var reading = MeterObservation.Measured(SupplyA6300, 12.6f, 5, 1000, DateTime.UtcNow, 1, null);
 
-            Assert.Equal("Low supply voltage before the fuse. +13.8A (Main radio input voltage before fuse). at or below 12.00 volts. active",
+            Assert.Equal("Low supply voltage before the fuse. +13.8A (Main radio input voltage before fuse). at or below 12 volts. active",
                 AlarmPhrasing.Row(Snap(low, AlarmDataState.Fresh, AlarmConditionState.Active, AlarmNotificationState.Unacknowledged,
                     MeterSelectorStatus.Resolved, reading, 2, resolved: SupplyA6300)));
 

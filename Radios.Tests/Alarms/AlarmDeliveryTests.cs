@@ -205,7 +205,7 @@ namespace Radios.Tests.Alarms
                 Assert.True(_service.Add(AlarmDefinition.NewLevel("lv", "Low volts", Serial, MeterSelector.From(supplyA), AlarmDirection.AtOrBelow, 12, 0.2)
                     with { Enabled = true, Action = AlarmActionClass.NotifyOnly }));
                 meter = supplyA; fired = 11.9f; inBand = 12.1f;
-                expected = "Your alarm named Low volts is still active: +13.8A (+13.8V at PA) is 12.10 volts. The alarm clears at or above 12.20 volts.";
+                expected = "Your alarm named Low volts is still active: +13.8A (+13.8V at PA) is 12.10 volts. The alarm clears at or above 12.2 volts.";
             }
 
             _clock.Advance(2000); _feed.Deliver(meter, fired);   // Fired: the worker takes it and is held
@@ -267,7 +267,7 @@ namespace Radios.Tests.Alarms
                 def = AlarmDefinition.NewLevel("lv", "Low volts", Serial, MeterSelector.From(supplyA), AlarmDirection.AtOrBelow, 12, 0)
                     with { Enabled = true, Action = AlarmActionClass.NotifyOnly };
                 meter = supplyA; fired = 11.9f; offSide = 12.1f;
-                expected = "Your alarm named Low volts is still active: +13.8A (+13.8V at PA) is 12.10 volts. The alarm clears above 12.00 volts.";
+                expected = "Your alarm named Low volts is still active: +13.8A (+13.8V at PA) is 12.10 volts. The alarm clears above 12 volts.";
                 falsePromise = "at or above 12";
             }
             Assert.Equal(2, def.ClearSamples);
@@ -286,6 +286,77 @@ namespace Radios.Tests.Alarms
             Assert.Equal(expected, w.Text);
             Assert.DoesNotContain(falsePromise, w.Text);
             Assert.Single(_reports, r => r.Event.Kind == AlarmEventKind.Fired && r.SpeechRequested);
+        }
+
+        /// <summary>
+        /// Astra's Track IJK5 review, the formatting blocker — introduced by
+        /// the strict sentence above, and belonging to a class older than it:
+        /// every configured boundary the alarms spoke went through the
+        /// MEASUREMENT formatter, which rounds. A valid Heat alarm at 60.04
+        /// with no margin fires at 61; the dispatch is held; one fresh 60
+        /// arrives, which the monitor counts as a clearing sample because 60
+        /// is below 60.04; release with the sound off. The sentence said
+        /// "clears below 60 degrees C" — excluding the very reading that
+        /// clears. It now states the line as the operator entered it. And the
+        /// mirror: a low alarm at 11.996 volts, fired at 11.9, re-read at 12.
+        /// Driven through the real service, as the finding describes.
+        /// </summary>
+        [Theory]
+        [InlineData("above")]
+        [InlineData("below")]
+        public void With_the_sound_off_a_late_warning_speaks_the_configured_line_as_entered_not_rounded(string side)
+        {
+            var supplyA = new MeterDescriptor(2, "+13.8A", "+13.8V at PA", "RAD", 2, MeterUnits.Volts, 10.5, 15);
+            _warningsSoundOn = false;
+            _service = new AlarmService(_feed, new AlarmDefinitionStore(_root), _clock, null, startWatchdog: false);
+            var gate = new ManualResetEventSlim(false);
+            _service.EventDispatched += e => { if (e.Kind == AlarmEventKind.Fired) gate.Wait(5000); };
+            _delivery = new AlarmDelivery(_service, _speaker, () => _sounds.Add("tone"), _speechClock,
+                () => _warningsSoundOn, () => false, () => true, () => _cohort);
+            _delivery.Reported += r => { lock (_reports) _reports.Add(r); };
+            _feed.Connect(Serial, Pa, supplyA);
+
+            MeterDescriptor meter;
+            float fired, clearing;
+            string expected, rounded;
+            AlarmDefinition def;
+            if (side == "above")
+            {
+                def = AlarmDefinition.NewLevel("heat", "Heat", Serial, MeterSelector.From(Pa), AlarmDirection.AtOrAbove, 60.04, 0)
+                    with { Enabled = true, Action = AlarmActionClass.NotifyOnly };
+                meter = Pa; fired = 61f; clearing = 60f;
+                expected = "Your alarm named Heat is still active: PATEMP (PA Temperature) is 60 degrees C. The alarm clears below 60.04 degrees C.";
+                rounded = "below 60 degrees";
+            }
+            else
+            {
+                def = AlarmDefinition.NewLevel("lv", "Low volts", Serial, MeterSelector.From(supplyA), AlarmDirection.AtOrBelow, 11.996, 0)
+                    with { Enabled = true, Action = AlarmActionClass.NotifyOnly };
+                meter = supplyA; fired = 11.9f; clearing = 12f;
+                expected = "Your alarm named Low volts is still active: +13.8A (+13.8V at PA) is 12.00 volts. The alarm clears above 11.996 volts.";
+                rounded = "above 12.00 volts";
+            }
+            Assert.Empty(def.Validate());                 // an accepted definition, not a collapsed-margin probe
+            Assert.True(def.IsBeyondClear(clearing));     // the fresh reading IS a clearing sample
+            Assert.True(_service.Add(def));
+
+            _clock.Advance(2000); _feed.Deliver(meter, fired);     // Fired: the worker takes it and is held
+            Thread.Sleep(100);
+            _clock.Advance(2000); _feed.Deliver(meter, clearing);  // one clearing sample of two: still active
+            Assert.Equal(AlarmConditionState.Active, _service.SnapshotOf(def.Id)!.Condition);
+
+            gate.Set();
+            Assert.True(_service.DrainDispatch(5000));
+
+            var w = Assert.Single(_speaker.Warnings);
+            Assert.Equal(expected, w.Text);
+            Assert.DoesNotContain(rounded, w.Text);
+            Assert.Single(_reports, r => r.Event.Kind == AlarmEventKind.Fired && r.SpeechRequested);
+
+            // And the second clearing sample does clear it: the sentence's
+            // promise and the monitor's rule agree at the line stated.
+            _clock.Advance(2000); _feed.Deliver(meter, clearing);
+            Assert.Equal(AlarmConditionState.Normal, _service.SnapshotOf(def.Id)!.Condition);
         }
 
         /// <summary>
