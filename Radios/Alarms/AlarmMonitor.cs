@@ -578,13 +578,13 @@ namespace Radios.Alarms
                     if (!onAlarmSide)
                     {
                         // In the hysteresis band: still active, nothing to say.
-                        if (Condition == AlarmConditionState.LastKnownActive) Condition = AlarmConditionState.Active;
+                        if (Condition == AlarmConditionState.LastKnownActive) Reacquire();
                         return;
                     }
 
                     if (Condition == AlarmConditionState.LastKnownActive)
                     {
-                        Condition = AlarmConditionState.Active;
+                        Reacquire();
                         Warn(AlarmEventKind.Reminder, obs, nowMs, AlarmReminderReason.DataResumed, change, interval);
                         return;
                     }
@@ -610,6 +610,30 @@ namespace Radios.Alarms
                         Warn(AlarmEventKind.Reminder, obs, nowMs, AlarmReminderReason.Interval, change, interval);
                     }
                     return;
+            }
+        }
+
+        /// <summary>
+        /// A last-known episode has fresh data again: it is ACTIVE, and the
+        /// operator's answer to it starts over.
+        ///
+        /// <para><b>Why the notification state is restored here (Astra's Track
+        /// I review, finding 2).</b> Losing the data set Notification to None
+        /// — rightly, since a warning that returns after a loss is a new
+        /// warning whatever the operator said about the old one — but nothing
+        /// set it back when the episode was reacquired. The resumed warning was
+        /// spoken once and then every interval reminder failed its
+        /// Unacknowledged test for ever: a reconnected 61 C episode said "61"
+        /// once and never again. Reacquiring sets Unacknowledged, which is what
+        /// a new warning is.</para>
+        /// </summary>
+        private void Reacquire()
+        {
+            Condition = AlarmConditionState.Active;
+            if (Notification == AlarmNotificationState.None)
+            {
+                Notification = AlarmNotificationState.Unacknowledged;
+                _notificationRevision++;
             }
         }
 

@@ -610,6 +610,49 @@ namespace Radios.Tests.Alarms
         }
 
         [Fact]
+        public void A_reacquired_episode_after_reconnect_warns_once_for_the_data_and_then_keeps_reminding()
+        {
+            // Astra's Track I review, finding 2: the data loss set Notification
+            // to None and nothing set it back when the episode was reacquired,
+            // so the resumed warning was spoken once and every interval
+            // reminder after it failed its Unacknowledged test for ever.
+            var m = new AlarmMonitor(Level(60, reminder: 30));
+            var feed = new Feed();
+            m.Observe(feed.At(1000, 61f), 1000);
+            m.NewConnection(2, 5000);
+            feed.Generation = 2;
+
+            var resumed = m.Observe(feed.At(6000, 61f), 6000).ToList();
+            Assert.Single(resumed, e => e.Kind == AlarmEventKind.Reminder && e.ReminderReason == AlarmReminderReason.DataResumed);
+            Assert.Equal(AlarmConditionState.Active, m.Condition);
+            Assert.Equal(AlarmNotificationState.Unacknowledged, m.Notification);
+
+            // Flat and high every two seconds for the next ninety: three more
+            // interval reminders, at the interval, not none.
+            int reminders = 0;
+            for (long t = 8000; t <= 96000; t += 2000)
+                reminders += m.Observe(feed.At(t, 61f), t).Count(e => e.Kind == AlarmEventKind.Reminder && e.ReminderReason == AlarmReminderReason.Interval);
+            Assert.Equal(3, reminders);
+        }
+
+        [Fact]
+        public void A_reacquired_episode_that_returns_inside_the_band_is_active_and_unacknowledged_too()
+        {
+            // The sibling path: the first fresh sample after the loss sits in
+            // the hysteresis band — still active, nothing to say yet — and the
+            // notification state must still come back, or the next on-side
+            // sample inherits the dead None.
+            var m = new AlarmMonitor(Level(60, hysteresis: 2, reminder: 30));
+            var feed = new Feed();
+            m.Observe(feed.At(1000, 61f), 1000);
+            m.NewConnection(2, 5000);
+            feed.Generation = 2;
+            m.Observe(feed.At(6000, 59f), 6000);   // in the band: 58 to 60
+            Assert.Equal(AlarmConditionState.Active, m.Condition);
+            Assert.Equal(AlarmNotificationState.Unacknowledged, m.Notification);
+        }
+
+        [Fact]
         public void An_old_generation_callback_after_reconnect_is_discarded()
         {
             var m = new AlarmMonitor(Level(60));
