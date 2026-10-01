@@ -216,6 +216,29 @@ public sealed class ConnectOwnershipTests : IDisposable
         AssertPersisted(ownership, ProfileGuestIntent.LoadMineAndPutBack);
     }
 
+    /// <summary>
+    /// The regression #638 names: answering "someone else's" persists
+    /// <c>SomeoneElses</c> + <c>NotAnswered</c>, and a predicate that reads the
+    /// intent without the ownership asked again on every later connect. This is
+    /// the state the dialog itself creates by being used, which is why the
+    /// defect reached a build — the sibling above covers a declared LOAD intent,
+    /// and nothing covered a declared answer with no intent.
+    /// </summary>
+    [Theory]
+    [InlineData(RadioOwnership.Mine)]
+    [InlineData(RadioOwnership.SomeoneElses)]
+    public void DeclaredOwnershipWithNoIntentIsNotAskedAgain(RadioOwnership ownership)
+    {
+        var config = RadioConfig.LoadForRadio(_serial);
+        config.Ownership = ownership;
+        config.ProfileIntent = ProfileGuestIntent.NotAnswered;
+        Assert.True(config.SaveForRadio(_serial));
+        dynamic s = Selector(RadioOwnership.Mine);
+        s.Connect();
+        Assert.Equal(0, (int)s.Asks);
+        AssertPersisted(ownership, ProfileGuestIntent.NotAnswered);
+    }
+
     [Theory]
     [InlineData(ProfileGuestIntent.NotAnswered)]
     [InlineData(ProfileGuestIntent.LoadMineAndPutBack)]
@@ -260,12 +283,28 @@ public sealed class ConnectOwnershipTests : IDisposable
                 HoldArmed = hold, WantedGlobal = "Test global"
             };
             string refusal = StationCoordinator.AutomaticStewardshipRefusal(facts);
-            // Only an unanswered profile intent, or the ownership refusal for
-            // an UNSET declaration, can be resolved by this question. A guest's
-            // declared ownership is settled even when the ladder refuses it.
-            bool answerCanHelp = refusal == "the profile question for this radio is not answered"
-                || (ownership == RadioOwnership.Unset
-                    && refusal == "this connection is not the declared owner's; only the owner's connection restores a station (ruled 2026-09-21, #590)");
+            // An ownership answer can only help while ownership is UNSET.
+            // A declared answer — Mine OR SomeoneElses — is settled, and
+            // re-asking is the defect #638 names; the RadioOwnership enum says
+            // so itself: Unset is "the only value that lets the question be
+            // raised, so a radio that has been answered — either way — is never
+            // asked about again."
+            //
+            // This clause tested the refusal STRING alone until 2026-10-01, so
+            // it expected the question to help for SomeoneElses + NotAnswered —
+            // which is the state answering "someone else's" persists (see
+            // SomeoneElsesRecordsOwnershipOnlyAndDoesNotWriteLeaveAlone). The
+            // test therefore pinned the re-ask as desired behaviour.
+            //
+            // Within Unset it helps when the ladder's refusal is one that
+            // declaring ownership clears: the unanswered profile question, or
+            // #590's owner gate. LeaveAlone and UseMyTransmitAudio are refused
+            // at gates three and four regardless of ownership, so an answer
+            // there unblocks nothing and would invite re-claiming a radio the
+            // operator correctly declined.
+            bool answerCanHelp = ownership == RadioOwnership.Unset
+                && (refusal == "the profile question for this radio is not answered"
+                    || refusal == "this connection is not the declared owner's; only the owner's connection restores a station (ruled 2026-09-21, #590)");
             Assert.Equal(answerCanHelp,
                 StationCoordinator.OwnershipQuestionWouldHelp(ownership, intent, hold));
             if (answerCanHelp)

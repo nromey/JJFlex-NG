@@ -204,13 +204,38 @@ namespace Radios.StationConnect
         /// exhaustive ownership/intent/hold test ties the two together.
         /// A settled guest intent is not an invitation to claim the radio.
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Ownership gates the whole question, because ownership is the thing
+        /// being asked.</b> Ruled form (#638): <c>Unset</c> AND
+        /// (<c>NotAnswered</c> OR <c>LoadMineAndPutBack</c>) AND not held.
+        /// </para>
+        /// <para>
+        /// <b>The ownership conjunct applied to the load branch alone until
+        /// 2026-10-01, and that re-asked forever on a radio declared someone
+        /// else's.</b> Answering "someone else's" persists
+        /// <c>SomeoneElses</c> + <c>NotAnswered</c> — see
+        /// <c>ConnectOwnershipTests.SomeoneElsesRecordsOwnershipOnlyAndDoesNotWriteLeaveAlone</c>
+        /// — so a predicate testing only the intent matched that state on every
+        /// later connect. The dialog's own promise
+        /// (<c>RadioOwnershipDialog</c>) and the <c>RadioOwnership</c> enum doc
+        /// both say a declared answer is not asked again.
+        /// </para>
+        /// <para>
+        /// <b><c>LeaveAlone</c> and <c>UseMyTransmitAudio</c> stay out on
+        /// purpose.</b> Gates three and four of
+        /// <see cref="AutomaticStewardshipRefusal"/> refuse those regardless of
+        /// ownership, so an ownership answer there unblocks nothing and would
+        /// invite re-claiming a radio the operator correctly declined.
+        /// </para>
+        /// </remarks>
         public static bool OwnershipQuestionWouldHelp(
             RadioOwnership ownership, ProfileGuestIntent intent, bool holdArmed)
         {
             return !holdArmed
+                && ownership == RadioOwnership.Unset
                 && (intent == ProfileGuestIntent.NotAnswered
-                    || (intent == ProfileGuestIntent.LoadMineAndPutBack
-                        && ownership == RadioOwnership.Unset));
+                    || intent == ProfileGuestIntent.LoadMineAndPutBack);
         }
 
         /// <summary>Step 2's exits, and the #590 ruling, as one sentence or null.</summary>
