@@ -121,10 +121,11 @@ namespace Radios
     /// <c>connect.client.may_have_left</c>,
     /// <c>connect.client.info_unavailable</c>,
     /// <c>connect.multiflex.some_unconfirmed</c>,
-    /// <c>connect.multiflex.disconnect_unavailable</c>. STILL DRAFTS, because
-    /// the approval gave them no wording: the two no-station companions,
-    /// <c>connect.client.reported_on_local_network_no_station</c> and
-    /// <c>connect.client.not_yet_confirmed_no_station</c>; and
+    /// <c>connect.multiflex.disconnect_unavailable</c>. The two no-station
+    /// companions, <c>connect.client.reported_on_local_network_no_station</c>
+    /// and <c>connect.client.not_yet_confirmed_no_station</c>, are Noel's
+    /// terse and chatty pairs APPROVED 2026-10-01 (Track L13), exactly as
+    /// written. STILL A DRAFT:
     /// <c>connect.multiflex.disconnect_unavailable_may_have_left</c> (Track
     /// L11), the Disconnect reason for a client the radio identified that may
     /// have left since, written in sentence 3's terms on Noel's authority of
@@ -165,8 +166,9 @@ namespace Radios
                 // approved terse and chatty pairs of 2026-09-30. They name
                 // the station only: the drafts' "{program}, station" lead-in
                 // is gone from the approved wording, so the program is no
-                // longer passed. The two no-station companions had no
-                // approved wording and are still drafts, one text for both.
+                // longer passed. The two no-station companions for the local
+                // network and an unknown source are Noel's terse and chatty
+                // pairs approved 2026-10-01 (Track L13).
                 //
                 // A client no source was observed reporting names none
                 // (Sol's review of L7).

@@ -107,7 +107,9 @@ namespace Radios.Tests
             // for four MultiFlex rows a radio has not confirmed (#634), the
             // SmartLink row with and without a station name, and the local
             // network and unknown-source rows in their pattern.
-            Assert.Equal(15, ladders);
+            // Seventeen from Track L13: Noel's approved pairs for the two
+            // no-station companions, local network and unknown source (#634).
+            Assert.Equal(17, ladders);
             Assert.True(tiers >= 27, "only " + tiers + " ladder tiers were seen");
         }
 

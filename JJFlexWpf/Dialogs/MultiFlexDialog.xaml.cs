@@ -22,8 +22,8 @@ namespace JJFlexWpf.Dialogs
     ///
     /// The client sentences are Noel's wording, APPROVED 2026-09-30 with
     /// only false facts corrected on his authority (Track L10). The two
-    /// no-station companions in ClientRowPhrase are still drafts; the
-    /// approval gave them no wording.
+    /// no-station companions in ClientRowPhrase followed, approved
+    /// 2026-10-01 exactly as written (Track L13).
     /// </remarks>
     public class MultiFlexClientInfo
     {

@@ -38,7 +38,11 @@
     "terse": "{station} unconfirmed.",
     "chatty": "{station}. Not yet confirmed."
   },
-  "connect.client.not_yet_confirmed_no_station": "A client with no station name has not yet been confirmed by the radio.",
+  "connect.client.not_yet_confirmed_no_station": {
+    "critical": "station unconfirmed",
+    "terse": "station unconfirmed",
+    "chatty": "A client with no station name is currently not confirmed."
+  },
   "connect.client.reported_by_smartlink": {
     "critical": "{station} SmartLink Responded; unconfirmed.",
     "terse": "{station} SmartLink Responded; unconfirmed.",
@@ -54,7 +58,11 @@
     "terse": "{station} local network; unconfirmed.",
     "chatty": "{station}. Reported on the local network; not yet confirmed."
   },
-  "connect.client.reported_on_local_network_no_station": "A client with no station name was reported on the local network; the radio has not confirmed it.",
+  "connect.client.reported_on_local_network_no_station": {
+    "critical": "station reporting via local network, unconfirmed",
+    "terse": "station reporting via local network, unconfirmed",
+    "chatty": "A client with no station name was reported on the local network and it's currently not confirmed."
+  },
   "connect.client.unconfirmed_affected": "Other operators may be affected. These clients were reported: {clients}.",
   "connect.client.unknown_added": "Another client",
   "connect.client.unknown_removed": "A client",

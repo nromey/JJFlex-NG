@@ -391,7 +391,7 @@ namespace Radios.Tests
             string line = ClientRowPhrase.Line(don.Value);
             Assert.Equal("WA2IWC. Reported on the local network; not yet confirmed.", line);
             Assert.DoesNotContain("SmartLink", line, StringComparison.Ordinal);
-            Assert.Equal("A client with no station name was reported on the local network; the radio has not confirmed it.",
+            Assert.Equal("A client with no station name was reported on the local network and it's currently not confirmed.",
                 ClientRowPhrase.Line(b.Row(10).Value));
             Assert.False(ClientRowPhrase.MayDisconnect(b.Row(9)));
 
@@ -473,7 +473,7 @@ namespace Radios.Tests
             Assert.Equal("WA2IWC. Not yet confirmed.", line);
             Assert.DoesNotContain("SmartLink", line, StringComparison.Ordinal);
             Assert.DoesNotContain("local network", line, StringComparison.Ordinal);
-            Assert.Equal("A client with no station name has not yet been confirmed by the radio.",
+            Assert.Equal("A client with no station name is currently not confirmed.",
                 ClientRowPhrase.Line(b.Row(10).Value));
             Assert.False(ClientRowPhrase.MayDisconnect(don));
 
@@ -747,8 +747,8 @@ namespace Radios.Tests
         /// test pins them exactly: the chatty and terse forms of each
         /// not-yet-confirmed row, one text at both tiers for everything else.
         /// The two no-station companions for the local network and an
-        /// unknown source are still drafts; the approval gave them no
-        /// wording, so they read the same at both tiers.
+        /// unknown source followed on 2026-10-01 (Track L13), approved
+        /// exactly as written, and are pinned at both tiers too.
         /// </summary>
         [Fact]
         public void The_rows_say_how_we_know_and_the_summary_says_when_some_are_only_reported()
@@ -770,9 +770,9 @@ namespace Radios.Tests
             Assert.Equal("WA2IWC. Reported by SmartLink; not yet confirmed.", ClientRowPhrase.Line(reported, VerbosityLevel.Chatty));
             Assert.Equal("A client with no station name was reported by SmartLink and it's currently not confirmed.", ClientRowPhrase.Line(nameless));
             Assert.Equal("WA2IWC. Reported on the local network; not yet confirmed.", ClientRowPhrase.Line(broadcast));
-            Assert.Equal("A client with no station name was reported on the local network; the radio has not confirmed it.", ClientRowPhrase.Line(namelessBroadcast));
+            Assert.Equal("A client with no station name was reported on the local network and it's currently not confirmed.", ClientRowPhrase.Line(namelessBroadcast));
             Assert.Equal("WA2IWC. Not yet confirmed.", ClientRowPhrase.Line(unknown));
-            Assert.Equal("A client with no station name has not yet been confirmed by the radio.", ClientRowPhrase.Line(namelessUnknown));
+            Assert.Equal("A client with no station name is currently not confirmed.", ClientRowPhrase.Line(namelessUnknown));
             Assert.Equal("Heads up: WA2IWC was reported earlier, but may have disconnected.", ClientRowPhrase.Line(maybeGone));
 
             // Terse. Noel's own capitalisation and punctuation, kept.
@@ -781,8 +781,10 @@ namespace Radios.Tests
             Assert.Equal("WA2IWC local network; unconfirmed.", ClientRowPhrase.Line(broadcast, VerbosityLevel.Terse));
             Assert.Equal("WA2IWC unconfirmed.", ClientRowPhrase.Line(unknown, VerbosityLevel.Terse));
             Assert.Equal("Heads up: WA2IWC was reported earlier, but may have disconnected.", ClientRowPhrase.Line(maybeGone, VerbosityLevel.Terse));
-            Assert.Equal(ClientRowPhrase.Line(namelessBroadcast), ClientRowPhrase.Line(namelessBroadcast, VerbosityLevel.Terse));
-            Assert.Equal(ClientRowPhrase.Line(namelessUnknown), ClientRowPhrase.Line(namelessUnknown, VerbosityLevel.Terse));
+            Assert.Equal("station reporting via local network, unconfirmed", ClientRowPhrase.Line(namelessBroadcast, VerbosityLevel.Terse));
+            Assert.Equal("station unconfirmed", ClientRowPhrase.Line(namelessUnknown, VerbosityLevel.Terse));
+            Assert.Equal("A client with no station name was reported on the local network and it's currently not confirmed.", ClientRowPhrase.Line(namelessBroadcast, VerbosityLevel.Chatty));
+            Assert.Equal("A client with no station name is currently not confirmed.", ClientRowPhrase.Line(namelessUnknown, VerbosityLevel.Chatty));
             Assert.Equal("SmartSDR on WA2IWC — Slices: B", ClientRowPhrase.Line(confirmed, VerbosityLevel.Terse));
 
             // The approved row sentences name the station only; the drafts'
