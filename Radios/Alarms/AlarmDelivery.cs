@@ -435,6 +435,16 @@ namespace Radios.Alarms
         /// <para>And the episode must be the one the event belongs to. A newer
         /// episode's own Fired event speaks for it; an older event's refresh
         /// returning the new value would say it twice.</para>
+        /// <para><b>Active is not "still beyond the line" (Astra's Track IJK2
+        /// review, blocker 3).</b> The monitor keeps an episode Active inside
+        /// its clear margin, so the current reading this substitutes can be
+        /// below a 60-degree line while the event's Kind is still Fired. The
+        /// sentence for that state is the phrasing's business —
+        /// <see cref="AlarmPhrasing.Warning(AlarmEvent, bool)"/> picks a
+        /// still-active frame when the value it is given is not on the alarm
+        /// side — and this method deliberately keeps re-reading rather than
+        /// treating the margin as a clear. The warning is preserved and its
+        /// claim corrected, not withdrawn.</para>
         /// </remarks>
         private string? Refresh(AlarmEvent e, bool dataLost)
         {

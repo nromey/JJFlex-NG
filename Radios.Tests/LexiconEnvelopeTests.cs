@@ -700,6 +700,13 @@ namespace Radios.Tests
             // alarms.point.meter (+1) names a meter we have not met. Net +5.
             // Twenty-eight reworded keys were re-frozen with the gate's
             // printed fingerprints, not classified (#629 stands).
+            //
+            // 3,070 with alarms.meter.still_active_above and _below (Track
+            // IJK4, 2026-10-01, Astra's round-two blocker 3): the frame for a
+            // re-read level warning whose current reading is inside the clear
+            // margin, where "at or above the line" would be false of the
+            // number stated. Frozen with the gate's printed lines, not
+            // classified (#629 stands).
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -712,7 +719,7 @@ namespace Radios.Tests
                 }
             }
 
-            Assert.Equal(3068, unclassified);
+            Assert.Equal(3070, unclassified);
             Assert.All(classified, key =>
                 Assert.StartsWith("facts.", key, StringComparison.Ordinal));
             Assert.True(classified.Count > 30,

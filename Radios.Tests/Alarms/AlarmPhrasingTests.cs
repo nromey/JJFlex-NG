@@ -177,6 +177,95 @@ namespace Radios.Tests.Alarms
             Assert.Equal("on meter +13.8C", AlarmPhrasing.MeasurementPoint(SupplyUnmet));
         }
 
+        // ────────────────────────────────────────────────────────────────
+        //  A re-read warning whose current reading is inside the clear margin
+        //  (Astra's Track IJK2 review, blocker 3 — introduced on the sound-off
+        //  route by the B3 fix, pre-existing on the tone route)
+        //
+        //  The refresh substitutes the CURRENT reading into the event the
+        //  alarm fired with, keeping Kind=Fired, and the monitor keeps an
+        //  episode active inside its margin by design. So a Heat alarm at 60
+        //  with a 2-degree margin, fired at 61 and re-read at 59, said "is 59
+        //  degrees C, at or above 60 degrees C" — a comparison false of the
+        //  number it states. These are created-state tests: every value the
+        //  still-active band allows, both directions, through the same event
+        //  shape Refresh builds. The service-level cases are in
+        //  AlarmDeliveryTests.
+        // ────────────────────────────────────────────────────────────────
+
+        private static AlarmDefinition Heat() =>
+            AlarmDefinition.NewLevel("heat", "Heat", Serial, MeterSelector.From(Pa), AlarmDirection.AtOrAbove, 60, 2)
+                with { Action = AlarmActionClass.NotifyOnly };
+
+        private static AlarmDefinition LowVolts() =>
+            AlarmDefinition.NewLevel("lv", "Low volts", Serial, MeterSelector.From(SupplyA8600), AlarmDirection.AtOrBelow, 12, 0.2)
+                with { Action = AlarmActionClass.NotifyOnly };
+
+        [Theory]
+        [InlineData(58f, "58")]       // ON the clear line: one clearing sample in, the episode is still active, and the frame may not say "at or above 60"
+        [InlineData(58.1f, "58.1")]
+        [InlineData(59f, "59")]
+        [InlineData(59.9f, "59.9")]
+        public void A_level_warning_re_read_inside_its_margin_above_states_the_reading_and_what_clears_it(float value, string spoken)
+        {
+            string s = AlarmPhrasing.Warning(Ev(Heat(), Pa, value, tx: false));
+            Assert.Equal("Your alarm named Heat is still active: PATEMP (PA Temperature) is " + spoken + " degrees C. The alarm clears at or below 58 degrees C.", s);
+            Assert.DoesNotContain("at or above", s);
+            Assert.DoesNotContain("fired", s);
+        }
+
+        [Theory]
+        [InlineData(60f, "60")]       // the line itself is on the alarm side
+        [InlineData(61f, "61")]
+        [InlineData(63.5f, "63.5")]
+        public void A_level_warning_re_read_on_the_alarm_side_above_keeps_the_fired_frame_whose_comparison_is_true(float value, string spoken)
+        {
+            Assert.Equal("Your alarm named Heat fired: PATEMP (PA Temperature) is " + spoken + " degrees C, at or above 60 degrees C.",
+                AlarmPhrasing.Warning(Ev(Heat(), Pa, value, tx: false)));
+        }
+
+        [Theory]
+        [InlineData(12.01f, "12.01")]
+        [InlineData(12.1f, "12.10")]
+        [InlineData(12.19f, "12.19")]
+        [InlineData(12.2f, "12.20")]  // on the clear line, symmetric with 58 above
+        public void A_level_warning_re_read_inside_its_margin_below_states_the_reading_and_what_clears_it(float value, string spoken)
+        {
+            string s = AlarmPhrasing.Warning(Ev(LowVolts(), SupplyA8600, value, tx: false));
+            Assert.Equal("Your alarm named Low volts is still active: +13.8A (+13.8V at PA) is " + spoken + " volts. The alarm clears at or above 12.20 volts.", s);
+            Assert.DoesNotContain("at or below", s);
+        }
+
+        [Theory]
+        [InlineData(12f, "12.00")]
+        [InlineData(11.9f, "11.90")]
+        public void A_level_warning_re_read_on_the_alarm_side_below_keeps_the_fired_frame(float value, string spoken)
+        {
+            Assert.Equal("Your alarm named Low volts fired: +13.8A (+13.8V at PA) is " + spoken + " volts, at or below 12.00 volts.",
+                AlarmPhrasing.Warning(Ev(LowVolts(), SupplyA8600, value, tx: false)));
+        }
+
+        [Fact]
+        public void The_still_active_frame_takes_the_action_first_like_every_other_warning()
+        {
+            var stop = Heat() with { Action = AlarmActionClass.StopTransmit };
+            Assert.Equal("Release transmit now. Your alarm named Heat is still active: PATEMP (PA Temperature) is 59 degrees C. The alarm clears at or below 58 degrees C.",
+                AlarmPhrasing.Warning(Ev(stop, Pa, 59f, tx: true)));
+            Assert.Equal("Stay in receive. Your alarm named Heat is still active: PATEMP (PA Temperature) is 59 degrees C. The alarm clears at or below 58 degrees C.",
+                AlarmPhrasing.Warning(Ev(stop, Pa, 59f, tx: false)));
+        }
+
+        [Fact]
+        public void The_reminder_and_worsened_frames_assert_no_comparison_and_are_unchanged_inside_the_margin()
+        {
+            // Controls: these frames state a value and nothing about the line,
+            // so a reading inside the margin was never false in them.
+            Assert.Equal("Heat: PATEMP (PA Temperature) still 59 degrees C.",
+                AlarmPhrasing.Warning(Ev(Heat(), Pa, 59f, tx: false, kind: AlarmEventKind.Reminder)));
+            Assert.Equal("Heat: PATEMP (PA Temperature) now 59 degrees C.",
+                AlarmPhrasing.Warning(Ev(Heat(), Pa, 59f, tx: false, kind: AlarmEventKind.Worsened)));
+        }
+
         [Fact]
         public void An_edited_preset_keeps_its_wording_only_while_the_words_are_still_true()
         {

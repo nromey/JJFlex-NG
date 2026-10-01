@@ -199,6 +199,25 @@ namespace Radios.Alarms
             string key;
             if (e.Kind == AlarmEventKind.Reminder) key = "alarms.meter.reminder";
             else if (e.Kind == AlarmEventKind.Worsened) key = "alarms.meter.worsened";
+            else if (def.Condition == AlarmCondition.Level && !float.IsNaN(e.Value) && !def.IsOnAlarmSide(e.Value))
+            {
+                // **The value stated is INSIDE the clear margin, so the firing
+                // frame's comparison would be false of it (Astra's Track IJK2
+                // review, blocker 3).** A warning is re-read before it is
+                // spoken and carries the CURRENT reading, not the one it fired
+                // on; an episode stays active inside its margin by design; so
+                // "fired at 61" can be spoken when the reading is 59, and the
+                // frame "is 59 degrees C, at or above 60 degrees C" asserts
+                // something false of the number it states. The still-active
+                // frame states the current reading and says what clears the
+                // alarm instead — the same place the operator's question "why
+                // is it still alarming at 59" is actually answered. Judged at
+                // the meter's precision, as the monitor judges it, so the
+                // sentence and the episode cannot disagree. A Fired event the
+                // monitor itself emits is always on the alarm side and never
+                // comes here; only a re-read does.
+                key = def.Direction == AlarmDirection.AtOrAbove ? "alarms.meter.still_active_above" : "alarms.meter.still_active_below";
+            }
             else key = def.Condition switch
             {
                 AlarmCondition.RiseFromBaseline => def.Direction == AlarmDirection.AtOrAbove ? "alarms.meter.rise" : "alarms.meter.fall",
@@ -210,7 +229,8 @@ namespace Radios.Alarms
             // "{value}" is inserted after every other placeholder is gone.
             string sentence = Lexicon.Get(key,
                 ("meter", meter.Label), ("value", value), ("units", Units(units)),
-                ("threshold", Value(def.Threshold, units)), ("change", change), ("interval", interval),
+                ("threshold", Value(def.Threshold, units)), ("clear", Value(def.ClearBoundary, units)),
+                ("change", change), ("interval", interval),
                 ("alarm", def.Name));
 
             // The action first, as in the preset frames, so it survives a cut.

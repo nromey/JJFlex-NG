@@ -31,10 +31,12 @@
   "alarms.voltage.drop_tx.terse": "Release transmit. Supply voltage {point} fell {change} volts from baseline to {value} volts.",
   "alarms.voltage.drop_rx.terse": "Stay in receive. Supply voltage {point} fell {change} volts from baseline to {value} volts.",
 
-  "_review_generic": "An alarm the operator defined, or a shipped preset edited so its own words no longer hold. The action clause goes FIRST when there is one. The firing frames say 'Your alarm named ... fired' because the name is the operator's data and may no longer describe the meter after an edit, and the line carries its unit as the value does (Sol's language pass, 2026-10-01).",
+  "_review_generic": "An alarm the operator defined, or a shipped preset edited so its own words no longer hold. The action clause goes FIRST when there is one. The firing frames say 'Your alarm named ... fired' because the name is the operator's data and may no longer describe the meter after an edit, and the line carries its unit as the value does (Sol's language pass, 2026-10-01). The still_active frames are spoken when a re-read warning's CURRENT reading is inside the clear margin, where 'at or above the line' would be false of the number stated; they give the reading and what clears the alarm instead (Astra's Track IJK2 review, blocker 3; DRAFT, 2026-10-01).",
 
   "alarms.meter.above": "Your alarm named {alarm} fired: {meter} is {value} {units}, at or above {threshold} {units}.",
   "alarms.meter.below": "Your alarm named {alarm} fired: {meter} is {value} {units}, at or below {threshold} {units}.",
+  "alarms.meter.still_active_above": "Your alarm named {alarm} is still active: {meter} is {value} {units}. The alarm clears at or below {clear} {units}.",
+  "alarms.meter.still_active_below": "Your alarm named {alarm} is still active: {meter} is {value} {units}. The alarm clears at or above {clear} {units}.",
   "alarms.meter.rise": "Your alarm named {alarm} fired: {meter} is up {change} {units} from the baseline, now {value} {units}.",
   "alarms.meter.fall": "Your alarm named {alarm} fired: {meter} is down {change} {units} from the baseline, now {value} {units}.",
   "alarms.meter.trend": "Your alarm named {alarm} fired: {meter} rose {change} {units} in {interval} seconds, now {value} {units}.",

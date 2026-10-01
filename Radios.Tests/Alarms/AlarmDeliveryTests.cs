@@ -163,6 +163,103 @@ namespace Radios.Tests.Alarms
                 Assert.Single(_speaker.Status, s => s.Text.StartsWith("High PA temperature cleared"));
         }
 
+        /// <summary>
+        /// Astra's Track IJK2 review, blocker 3 — introduced on the sound-off
+        /// route by the re-read above. The refresh correctly withdraws a
+        /// cleared or disabled episode, but an episode inside its clear margin
+        /// is still ACTIVE, so the re-read substituted the current reading into
+        /// the Fired frame: "Your alarm named Heat fired: PATEMP (PA
+        /// Temperature) is 59 degrees C, at or above 60 degrees C." The
+        /// comparison was false of the number stated. Driven exactly as the
+        /// finding describes: a custom level alarm, dispatch worker held on
+        /// the Fired event, a fresh in-band reading, release with the sound
+        /// off. Both directions.
+        /// </summary>
+        [Theory]
+        [InlineData("above")]
+        [InlineData("below")]
+        public void With_the_sound_off_a_late_warning_whose_reading_is_now_inside_the_margin_states_the_reading_without_the_false_comparison(string side)
+        {
+            var supplyA = new MeterDescriptor(2, "+13.8A", "+13.8V at PA", "RAD", 2, MeterUnits.Volts, 10.5, 15);
+            _warningsSoundOn = false;
+            _service = new AlarmService(_feed, new AlarmDefinitionStore(_root), _clock, null, startWatchdog: false);
+            var gate = new ManualResetEventSlim(false);
+            _service.EventDispatched += e => { if (e.Kind == AlarmEventKind.Fired) gate.Wait(5000); };
+            _delivery = new AlarmDelivery(_service, _speaker, () => _sounds.Add("tone"), _speechClock,
+                () => _warningsSoundOn, () => false, () => true, () => _cohort);
+            _delivery.Reported += r => { lock (_reports) _reports.Add(r); };
+            _feed.Connect(Serial, Pa, supplyA);
+
+            MeterDescriptor meter;
+            float fired, inBand;
+            string expected;
+            if (side == "above")
+            {
+                Assert.True(_service.Add(AlarmDefinition.NewLevel("heat", "Heat", Serial, MeterSelector.From(Pa), AlarmDirection.AtOrAbove, 60, 2)
+                    with { Enabled = true, Action = AlarmActionClass.NotifyOnly }));
+                meter = Pa; fired = 61f; inBand = 59f;
+                expected = "Your alarm named Heat is still active: PATEMP (PA Temperature) is 59 degrees C. The alarm clears at or below 58 degrees C.";
+            }
+            else
+            {
+                Assert.True(_service.Add(AlarmDefinition.NewLevel("lv", "Low volts", Serial, MeterSelector.From(supplyA), AlarmDirection.AtOrBelow, 12, 0.2)
+                    with { Enabled = true, Action = AlarmActionClass.NotifyOnly }));
+                meter = supplyA; fired = 11.9f; inBand = 12.1f;
+                expected = "Your alarm named Low volts is still active: +13.8A (+13.8V at PA) is 12.10 volts. The alarm clears at or above 12.20 volts.";
+            }
+
+            _clock.Advance(2000); _feed.Deliver(meter, fired);   // Fired: the worker takes it and is held
+            Thread.Sleep(100);
+            _clock.Advance(2000); _feed.Deliver(meter, inBand);  // inside the margin: still active, nothing to say
+            string id = side == "above" ? "heat" : "lv";
+            Assert.Equal(AlarmConditionState.Active, _service.SnapshotOf(id)!.Condition);
+
+            gate.Set();
+            Assert.True(_service.DrainDispatch(5000));
+
+            var w = Assert.Single(_speaker.Warnings);
+            Assert.Equal(expected, w.Text);
+            Assert.DoesNotContain(side == "above" ? "at or above" : "at or below", w.Text);
+            Assert.Single(_reports, r => r.Event.Kind == AlarmEventKind.Fired && r.SpeechRequested);
+        }
+
+        /// <summary>
+        /// The same question on the tone route's refresh, which had the
+        /// pre-existing form of the defect: the closure handed to speech is
+        /// asked again later, with the reading wherever it has gone. Inside
+        /// the margin it states the reading and what clears the alarm; back on
+        /// the alarm side it is the fired frame again, whose comparison is
+        /// true; past the clear line, after the clearing samples, nothing.
+        /// </summary>
+        [Fact]
+        public void The_refresh_closure_follows_the_reading_through_the_margin_and_back_without_a_false_comparison()
+        {
+            _service = new AlarmService(_feed, new AlarmDefinitionStore(_root), _clock, null, startWatchdog: false);
+            _delivery = new AlarmDelivery(_service, _speaker, () => _sounds.Add("tone"), _speechClock,
+                () => _warningsSoundOn, () => false, () => true, () => _cohort);
+            _feed.Connect(Serial, Pa);
+            Assert.True(_service.Add(AlarmDefinition.NewLevel("heat", "Heat", Serial, MeterSelector.From(Pa), AlarmDirection.AtOrAbove, 60, 2)
+                with { Enabled = true, Action = AlarmActionClass.NotifyOnly }));
+
+            Deliver(61f);
+            _speechClock.Advance(AlarmDelivery.ToneLeadMs);
+            var refresh = _speaker.Warnings[0].Refresh;
+            Assert.Equal("Your alarm named Heat fired: PATEMP (PA Temperature) is 61 degrees C, at or above 60 degrees C.", refresh());
+
+            Deliver(59f);   // inside the margin
+            Assert.Equal("Your alarm named Heat is still active: PATEMP (PA Temperature) is 59 degrees C. The alarm clears at or below 58 degrees C.", refresh());
+
+            Deliver(62f);   // back on the alarm side: the fired frame is true again
+            Assert.Equal("Your alarm named Heat fired: PATEMP (PA Temperature) is 62 degrees C, at or above 60 degrees C.", refresh());
+
+            Deliver(58f);   // one clearing sample: still active, and still no false comparison
+            Assert.Equal("Your alarm named Heat is still active: PATEMP (PA Temperature) is 58 degrees C. The alarm clears at or below 58 degrees C.", refresh());
+
+            Deliver(58f);   // the second clearing sample: cleared, nothing to say
+            Assert.Equal(AlarmConditionState.Normal, _service.SnapshotOf("heat")!.Condition);
+            Assert.Null(refresh());
+        }
+
         [Fact]
         public void The_refresh_re_reads_the_current_value_and_says_nothing_once_cleared_or_acknowledged()
         {

@@ -168,6 +168,8 @@ alarms.meter.below	809f07906dae56fb
 alarms.meter.fall	dfb6b6a0ce71f1a8
 alarms.meter.reminder	79761ad72092b539
 alarms.meter.rise	b4cc39c6ba6e6f44
+alarms.meter.still_active_above	929d44ad276997ce
+alarms.meter.still_active_below	1f6434baebfcdc85
 alarms.meter.trend	fe043c2b764feed5
 alarms.meter.worsened	b1abd42f3c9be8b6
 alarms.nothing_active	ad6695face644403
