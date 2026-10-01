@@ -54,13 +54,13 @@ namespace Radios
         /// the trace says so once: a capture that silently records nothing is
         /// the #494 failure again, and an absence must be visible.
         /// </summary>
-        private bool isSelectedForCapture(string meterName)
+        private bool isSelectedForCapture(string meterName, bool traceIfNoSelection = true)
         {
             lock (_captureSelectionGate)
             {
                 if (_captureSelection == null)
                 {
-                    if (!_captureSelectionMissingTraced)
+                    if (traceIfNoSelection && !_captureSelectionMissingTraced)
                     {
                         _captureSelectionMissingTraced = true;
                         Tracing.TraceLine("recordCaptureMeters: no recorded-meter selection has been pushed to this rig, so the "
@@ -129,7 +129,9 @@ namespace Radios
             {
                 // Recorded only while the operator's set holds PA temperature
                 // (#566). A radio with no alarm file yet is seeded with it, so
-                // the ordinary case records as it always did.
+                // the ordinary case records as it always did. With temperature
+                // unticked the window is driven by the supply meter instead —
+                // see recordCaptureMetersFromVolts.
                 if (!isSelectedForCapture(CaptureMeterSet.PaTemperatureMeterName)) return;
                 string line = _captureMeters.Report(
                     celsius,
@@ -146,6 +148,41 @@ namespace Radios
                 // runs on FlexLib's packet thread, where an escaping exception
                 // has no owner at all.
                 Tracing.TraceLine("recordCaptureMeters: " + ex.Message, TraceLevel.Warning);
+            }
+        }
+
+        /// <summary>
+        /// The supply meter's reading arrived. When PA temperature is NOT in
+        /// the recorded set but a supply meter is, this drives the
+        /// <c>captureMeters:</c> window on the supply meter's own cadence, so
+        /// the voltage history is still written once a window. Called from
+        /// <c>VoltsDataHandler</c>, on FlexLib's meter packet thread.
+        ///
+        /// <para><b>Astra's Track IJK review, blocker 4 — introduced by the
+        /// one-selection fold.</b> <see cref="recordCaptureMeters"/> returned
+        /// unless PATEMP was selected, and it was the only thing that fed the
+        /// window, so a selection of supply voltage without temperature
+        /// recorded NOTHING periodically while the dialog said the supply
+        /// meter was recorded; a terminal flush on the drop could not restore
+        /// the samples in between. While temperature IS selected this does
+        /// nothing: the temperature handler owns the window, and two drivers
+        /// would close it twice.</para>
+        /// </summary>
+        private void recordCaptureMetersFromVolts()
+        {
+            try
+            {
+                if (isSelectedForCapture(CaptureMeterSet.PaTemperatureMeterName)) return;
+                if (!supplyVoltageSelected()) return;
+                string line = _captureMeters.ReportWithoutTemperature(
+                    readSupplyVoltage(),
+                    Transmit || _tuneCycleActive,
+                    Environment.TickCount);
+                if (line != null) Tracing.TraceRecord(CaptureMeterSet.CaptureMetersRecord, line, TraceLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("recordCaptureMetersFromVolts: " + ex.Message, TraceLevel.Warning);
             }
         }
 
@@ -203,7 +240,11 @@ namespace Radios
                         readSupplyVoltage(),
                         Transmit || _tuneCycleActive,
                         reason,
-                        Environment.TickCount),
+                        Environment.TickCount,
+                        // Quietly: this runs on the transport thread on the
+                        // drop path, and the missing-selection line, if it is
+                        // owed at all, belongs to the handlers that record.
+                        temperatureSelected: isSelectedForCapture(CaptureMeterSet.PaTemperatureMeterName, traceIfNoSelection: false)),
                     CaptureMeterSet.CaptureMetersRecord);
             }
             catch (Exception ex)

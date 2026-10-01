@@ -118,6 +118,121 @@ namespace Radios.Tests
             Assert.Single(captured, l => l.Contains("no recorded-meter selection has been pushed", StringComparison.Ordinal));
         }
 
+        /// <summary>
+        /// Astra's Track IJK review, blocker 4 — introduced by the
+        /// one-selection fold. <c>recordCaptureMeters</c> returned unless PATEMP
+        /// was selected and was the only thing feeding the window, so keeping a
+        /// supply meter ticked and unticking temperature lost every periodic
+        /// line, voltage history included. Driven through the production volts
+        /// handler on a radioless rig: the inventory is empty there, so the
+        /// voltage field reads <c>unknown</c>; what this proves is that the
+        /// supply meter's cadence writes the line at all, once a window, and
+        /// that the line says temperature was NOT SELECTED rather than that the
+        /// radio sent none.
+        /// </summary>
+        [Fact]
+        public void The_production_volts_handler_writes_the_window_when_supply_voltage_is_recorded_without_temperature()
+        {
+            var captured = new List<string>();
+            var listener = new CapturingListener(captured);
+            Trace.Listeners.Add(listener);
+            bool wasOn = Tracing.On;
+            var savedSwitch = Tracing.TheSwitch;
+            bool meterStreamWas = MeterTraceStream.Enabled;
+            FlexBase rig = null;
+            try
+            {
+                MeterTraceStream.Enabled = false;
+                Tracing.TheSwitch = new TraceSwitch("captureMeters", "captureMeters") { Level = TraceLevel.Info };
+                Tracing.On = true;
+                rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+                rig.SetCaptureSelection(new[] { CaptureMeterSet.PreferredSupplyVoltageMeterName });   // volts, no PATEMP
+                typeof(FlexBase).GetField("_Transmit", BindingFlags.NonPublic | BindingFlags.Instance)?.SetValue(rig, true);
+                MethodInfo volts = typeof(FlexBase).GetMethod("VoltsDataHandler", BindingFlags.NonPublic | BindingFlags.Instance);
+                Assert.NotNull(volts);
+                volts.Invoke(rig, new object[] { 13.8f });
+                System.Threading.Thread.Sleep(CaptureMeterSet.TransmitWindowMs + 120);
+                volts.Invoke(rig, new object[] { 13.7f });
+            }
+            finally
+            {
+                Tracing.On = wasOn;
+                Tracing.TheSwitch = savedSwitch;
+                MeterTraceStream.Enabled = meterStreamWas;
+                Trace.Listeners.Remove(listener);
+                try { rig?.Dispose(); } catch { }
+            }
+            string emitted = Assert.Single(captured, l => l.Contains(CaptureMeterSet.CaptureMetersLine, StringComparison.Ordinal));
+            _out.WriteLine(emitted);
+            Assert.Contains(" state=tx ", emitted, StringComparison.Ordinal);
+            Assert.Contains(" paTemp not-selected ", emitted, StringComparison.Ordinal);
+            Assert.DoesNotContain("paTemp none", emitted, StringComparison.Ordinal);
+            Assert.Contains(" volts=", emitted, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The negative control for the test above: with temperature selected
+        /// the temperature handler owns the window, and the volts handler
+        /// writes nothing — otherwise two drivers would close one window
+        /// twice.
+        /// </summary>
+        [Fact]
+        public void The_production_volts_handler_writes_nothing_while_temperature_is_selected()
+        {
+            var captured = new List<string>();
+            var listener = new CapturingListener(captured);
+            Trace.Listeners.Add(listener);
+            bool wasOn = Tracing.On;
+            var savedSwitch = Tracing.TheSwitch;
+            bool meterStreamWas = MeterTraceStream.Enabled;
+            FlexBase rig = null;
+            try
+            {
+                MeterTraceStream.Enabled = false;
+                Tracing.TheSwitch = new TraceSwitch("captureMeters", "captureMeters") { Level = TraceLevel.Info };
+                Tracing.On = true;
+                rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+                rig.SetCaptureSelection(new[] { CaptureMeterSet.PaTemperatureMeterName, CaptureMeterSet.PreferredSupplyVoltageMeterName });
+                typeof(FlexBase).GetField("_Transmit", BindingFlags.NonPublic | BindingFlags.Instance)?.SetValue(rig, true);
+                MethodInfo volts = typeof(FlexBase).GetMethod("VoltsDataHandler", BindingFlags.NonPublic | BindingFlags.Instance);
+                volts.Invoke(rig, new object[] { 13.8f });
+                System.Threading.Thread.Sleep(CaptureMeterSet.TransmitWindowMs + 120);
+                volts.Invoke(rig, new object[] { 13.7f });
+            }
+            finally
+            {
+                Tracing.On = wasOn;
+                Tracing.TheSwitch = savedSwitch;
+                MeterTraceStream.Enabled = meterStreamWas;
+                Trace.Listeners.Remove(listener);
+                try { rig?.Dispose(); } catch { }
+            }
+            Assert.DoesNotContain(captured, l => l.Contains(CaptureMeterSet.CaptureMetersLine, StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void A_window_driven_by_the_supply_meter_alone_closes_on_its_cadence_and_names_temperature_as_not_selected()
+        {
+            var set = new CaptureMeterSet();
+            var volts = SupplyVoltage.Reading(13.61f, TimeSpan.FromMilliseconds(80));
+            Assert.Null(set.ReportWithoutTemperature(volts, transmittingOrTuning: true, nowTick: 1000));
+            Assert.Null(set.ReportWithoutTemperature(volts, transmittingOrTuning: true, nowTick: 1500));
+            string line = set.ReportWithoutTemperature(volts, transmittingOrTuning: true, nowTick: 2000);
+            Assert.Equal("captureMeters: state=tx paTemp not-selected degC volts=13.61", line);
+
+            // And a flush with temperature unticked says the same thing rather
+            // than claiming the radio sent none.
+            set.ReportWithoutTemperature(volts, transmittingOrTuning: false, nowTick: 2100);
+            string flushed = set.Flush(volts, transmittingOrTuning: false, CaptureMeterSet.PartialConnectionDropped, 2600,
+                temperatureSelected: false);
+            Assert.Equal("captureMeters: state=rest paTemp not-selected degC volts=13.61 partial=connection_dropped", flushed);
+
+            // Positive control: with temperature selected an empty flush keeps
+            // its original meaning — the radio sent none.
+            Assert.Equal("captureMeters: state=rest paTemp none n=0 degC volts=13.61 partial=connection_dropped",
+                set.Flush(volts, transmittingOrTuning: false, CaptureMeterSet.PartialConnectionDropped, 2700));
+        }
+
         [Fact]
         public void A_supply_meter_the_operator_did_not_select_is_written_as_a_choice_not_an_absence()
         {
@@ -680,6 +795,13 @@ namespace Radios.Tests
             int at = source.IndexOf("private void PATempDataHandler(float data)", StringComparison.Ordinal);
             string body = source.Substring(at, Math.Min(2400, source.Length - at));
             Assert.Contains("recordCaptureMeters(data);", body, StringComparison.Ordinal);
+
+            // And the supply meter's handler drives the window when temperature
+            // is not selected (blocker 4) — the same one-caller rule.
+            int volts = source.IndexOf("private void VoltsDataHandler(float data)", StringComparison.Ordinal);
+            Assert.True(volts > 0, "VoltsDataHandler not found");
+            string voltsBody = source.Substring(volts, Math.Min(1200, source.Length - volts));
+            Assert.Contains("recordCaptureMetersFromVolts();", voltsBody, StringComparison.Ordinal);
         }
 
         internal static string RepoRoot()
