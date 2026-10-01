@@ -12,13 +12,14 @@ namespace Radios.Tests.Alarms
     /// <summary>A rig a test drives by hand: readings, census, connect, transmit.</summary>
     internal sealed class FakeAlarmFeed : IAlarmMeterFeed
     {
-        public event Action<MeterDescriptor, float>? Reading;
+        public event Action<MeterDescriptor, float, int>? Reading;
         public event Action? InventoryChanged;
         public event Action<string>? Connected;
         public event Action? Disconnected;
         public event Action<bool>? TransmitChanged;
 
         public IReadOnlyList<MeterDescriptor> Inventory { get; set; } = Array.Empty<MeterDescriptor>();
+        public int InventoryEpoch { get; private set; }
         public bool IsConnected { get; private set; }
         public bool IsTransmitting { get; private set; }
         public string ConnectedSerial { get; private set; } = "";
@@ -26,6 +27,7 @@ namespace Radios.Tests.Alarms
         public void Connect(string serial, params MeterDescriptor[] inventory)
         {
             Inventory = inventory;
+            InventoryEpoch++;
             IsConnected = true;
             ConnectedSerial = serial;
             Connected?.Invoke(serial);
@@ -35,16 +37,22 @@ namespace Radios.Tests.Alarms
         {
             IsConnected = false;
             Inventory = Array.Empty<MeterDescriptor>();
+            InventoryEpoch++;
             Disconnected?.Invoke();
         }
 
         public void Publish(params MeterDescriptor[] inventory)
         {
             Inventory = inventory;
+            InventoryEpoch++;
             InventoryChanged?.Invoke();
         }
 
-        public void Deliver(MeterDescriptor meter, float value) => Reading?.Invoke(meter, value);
+        /// <summary>A reading from the CURRENT census, as the production feed delivers one.</summary>
+        public void Deliver(MeterDescriptor meter, float value) => Reading?.Invoke(meter, value, InventoryEpoch);
+
+        /// <summary>A reading stamped with an older census — the late callback of finding 3.</summary>
+        public void DeliverFromEpoch(MeterDescriptor meter, float value, int epoch) => Reading?.Invoke(meter, value, epoch);
 
         public void Key(bool tx)
         {
@@ -282,6 +290,72 @@ namespace Radios.Tests.Alarms
             Assert.Equal(AlarmStoreState.Unavailable, s.StoreState);
             Assert.False(s.Add(PaLevel()));
             Assert.Equal("{ not json", File.ReadAllText(path));
+        }
+
+        [Fact]
+        public void A_late_reading_from_an_older_census_is_discarded_even_when_its_index_is_current()
+        {
+            // Astra's Track I review, finding 3: the service routed by numeric
+            // index alone and stamped the connection generation after taking
+            // its lock, so a stale callback with a reused index became a fresh
+            // observation. The epoch travels with the reading now.
+            var s = Service();
+            _feed.Connect(Serial, Pa);
+            s.Add(PaLevel());
+            int oldEpoch = _feed.InventoryEpoch;
+            _feed.Publish(Pa, Fwd);   // a rebuild: new epoch, same PATEMP at the same index
+
+            Step(500);
+            _feed.DeliverFromEpoch(Pa, 70f, oldEpoch);   // the late one
+            Assert.DoesNotContain(Dispatched(), e => e.Kind == AlarmEventKind.Fired);
+            Assert.Equal(1, s.RejectedStaleReadings);
+            Assert.Equal(AlarmDataState.Waiting, s.SnapshotOf("pa")!.Data);   // not even counted as a sample
+
+            // Positive control: the same value from the current census fires.
+            _feed.Deliver(Pa, 70f);
+            Assert.Contains(Dispatched(), e => e.Kind == AlarmEventKind.Fired);
+        }
+
+        [Fact]
+        public void A_reading_whose_descriptor_is_not_the_one_bound_at_that_index_is_discarded()
+        {
+            var s = Service();
+            _feed.Connect(Serial, Pa);
+            s.Add(PaLevel());
+            Step(500);
+            // Same index, same epoch, a different meter standing where PATEMP was bound.
+            _feed.Deliver(Pa with { Name = "FWDPWR", Description = "RF Power Forward", Units = MeterUnits.Dbm }, 70f);
+            Assert.DoesNotContain(Dispatched(), e => e.Kind == AlarmEventKind.Fired);
+            Assert.Equal(1, s.RejectedStaleReadings);
+        }
+
+        [Fact]
+        public void A_meter_replaced_at_rebind_loses_its_baseline_and_resumes_afresh_rather_than_continuing()
+        {
+            // The same selector resolves before and after, but to a different
+            // descriptor: a baseline captured on the old object must not be
+            // continued onto the new one as if nothing happened.
+            var s = Service();
+            _feed.Connect(Serial, Pa);
+            var rise = AlarmDefinition.NewRiseFromBaseline("rise", "PA rise", Serial, MeterSelector.From(Pa), 5, 1) with { Enabled = true };
+            Assert.True(s.Add(rise));
+            Step(500);
+            _feed.Deliver(Pa, 25f);
+            Assert.Contains(s.CaptureBaseline("rise"), e => e.Kind == AlarmEventKind.BaselineCaptured);
+            Assert.Equal(AlarmBaselineState.Captured, s.SnapshotOf("rise")!.Baseline);
+
+            // Firmware moves PATEMP to another index with another range: same identity, different descriptor.
+            _feed.Publish(PaMoved with { High = 150 });
+            var events = Dispatched();
+            Assert.Contains(events, e => e.Kind == AlarmEventKind.DataMissing && e.Detail.StartsWith("meter replaced"));
+            Assert.Contains(events, e => e.Kind == AlarmEventKind.BaselineInvalidated);
+            Assert.Equal(AlarmBaselineState.NotCaptured, s.SnapshotOf("rise")!.Baseline);
+
+            // And the first reading on the new binding is a resumption, not a continuation.
+            Step(500);
+            _feed.Deliver(PaMoved with { High = 150 }, 31f);
+            Assert.Contains(Dispatched(), e => e.Kind == AlarmEventKind.DataResumed);
+            Assert.DoesNotContain(Dispatched(), e => e.Kind == AlarmEventKind.Fired);
         }
 
         [Fact]

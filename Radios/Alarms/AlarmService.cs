@@ -518,25 +518,55 @@ namespace Radios.Alarms
 
         // ── the feed ──
 
-        private void OnReading(MeterDescriptor meter, float value)
+        private void OnReading(MeterDescriptor meter, float value, int inventoryEpoch)
         {
             // THE meter-thread path. Build one observation, run the bound
             // monitors, post the conclusions. No speech, no marshal, no file,
             // no radio call — and the recorder only enqueues.
+            //
+            // Receipt is stamped BEFORE the lock (finding 3): a callback that
+            // waits behind a configuration edit must not be given the time it
+            // finally got in, which would hide its age from the freshness rule.
+            long now = _clock.NowMs;
+            DateTime nowUtc = _clock.UtcNow;
+
             List<(Entry, IReadOnlyList<AlarmEvent>)>? results = null;
             lock (_gate)
             {
                 if (!_connected) return;
+
+                // **Identity, not just an index (finding 3).** The reading must
+                // come from the census the bindings were made against, and the
+                // descriptor at that index must be the one bound there. A late
+                // callback from an old meter object whose index was reused fails
+                // one or the other and is discarded with a line, instead of
+                // being judged as a fresh observation of the current meter.
+                if (inventoryEpoch != _boundEpoch)
+                {
+                    Interlocked.Increment(ref _rejectedStale);
+                    Tracing.TraceLine("AlarmService: discarded a reading from inventory epoch " + inventoryEpoch
+                        + " (bound under " + _boundEpoch + "): " + meter.Name + " index " + meter.Index + " = " + value,
+                        TraceLevel.Verbose);
+                    return;
+                }
+
                 long seq = ++_sequence;
-                long now = _clock.NowMs;
                 _reported.Add(meter.Index);
-                var obs = MeterObservation.Measured(meter, value, seq, now, _clock.UtcNow, _generation, null);
+                var obs = MeterObservation.Measured(meter, value, seq, now, nowUtc, _generation, null);
 
                 if (_recordedIndices.Contains(meter.Index)) _recorder.Record(obs);
 
                 if (!_byIndex.TryGetValue(meter.Index, out List<Entry>? bound)) return;
                 foreach (Entry e in bound)
                 {
+                    if (!meter.Equals(e.Resolution.Match))
+                    {
+                        Interlocked.Increment(ref _rejectedStale);
+                        Tracing.TraceLine("AlarmService: discarded a reading whose descriptor is not the one bound at index "
+                            + meter.Index + " for '" + e.Monitor.Definition.Name + "': got " + meter.Label + ", bound "
+                            + (e.Resolution.Match?.Label ?? "nothing"), TraceLevel.Warning);
+                        continue;
+                    }
                     IReadOnlyList<AlarmEvent> events = e.Monitor.Observe(
                         obs.ClassifiedAgainst(e.Monitor.Definition.SentinelValue), now);
                     if (events.Count == 0) continue;
@@ -547,6 +577,13 @@ namespace Radios.Alarms
                     foreach (var (e, events) in results) Post(e, events);
             }
         }
+
+        /// <summary>The feed epoch the current bindings were made against; a reading from another is discarded.</summary>
+        private int _boundEpoch;
+        private long _rejectedStale;
+
+        /// <summary>Readings discarded for carrying an old inventory epoch or a descriptor other than the bound one. Diagnostics.</summary>
+        public long RejectedStaleReadings => Interlocked.Read(ref _rejectedStale);
 
         /// <summary>The watchdog. Public so a harness can drive it on a manual clock.</summary>
         public void Tick(long nowMs)
@@ -700,13 +737,34 @@ namespace Radios.Alarms
         {
             _byIndex.Clear();
             _recordedIndices.Clear();
+            // Epoch first, inventory second: if a rebuild lands between the two
+            // reads the epoch is OLDER than the list, so the next reading (which
+            // carries the newer epoch) forces a rebind rather than slipping
+            // through. The other order could bind a new list under an old epoch.
+            _boundEpoch = _feed.InventoryEpoch;
             IReadOnlyList<MeterDescriptor> inventory = _feed.Inventory;
             long now = _clock.NowMs;
 
             foreach (Entry e in _entries.Values)
             {
+                MeterDescriptor? wasBoundTo = e.Resolution.IsResolved ? e.Resolution.Match : null;
                 MeterSelectorResolution r = e.Monitor.Definition.Selector.Resolve(inventory);
                 e.Resolution = r;
+
+                // **A replaced meter is a lost meter (finding 3).** The selector
+                // resolved before and resolves now, but to a DIFFERENT descriptor
+                // — another index, another description, another range. The
+                // readings that follow are from a different object, and the
+                // baseline, dwell and trend history built on the old one must not
+                // be continued onto it as if nothing happened. The monitor is told
+                // the data went missing; the first reading on the new binding is
+                // then a resumption, judged afresh.
+                if (wasBoundTo != null && r.IsResolved && !wasBoundTo.Equals(r.Match))
+                {
+                    Post(e, e.Monitor.MarkMissing(now, "meter replaced: was " + wasBoundTo.Label + " at index " + wasBoundTo.Index
+                        + ", now " + r.Match!.Label + " at index " + r.Match.Index));
+                }
+
                 if (r.IsResolved)
                 {
                     int index = r.Match!.Index;

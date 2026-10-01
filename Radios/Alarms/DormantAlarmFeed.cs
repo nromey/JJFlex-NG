@@ -13,7 +13,7 @@ namespace Radios.Alarms
     public sealed class DormantAlarmFeed : IAlarmMeterFeed
     {
 #pragma warning disable CS0067 // never raised: that is the point
-        public event Action<MeterDescriptor, float>? Reading;
+        public event Action<MeterDescriptor, float, int>? Reading;
         public event Action? InventoryChanged;
         public event Action<string>? Connected;
         public event Action? Disconnected;
@@ -21,6 +21,7 @@ namespace Radios.Alarms
 #pragma warning restore CS0067
 
         public IReadOnlyList<MeterDescriptor> Inventory => Array.Empty<MeterDescriptor>();
+        public int InventoryEpoch => 0;
         public bool IsConnected => false;
         public bool IsTransmitting => false;
         public string ConnectedSerial => "";
