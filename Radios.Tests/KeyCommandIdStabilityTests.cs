@@ -143,6 +143,10 @@ namespace Radios.Tests
                 Assert.Equal(name, Enum.GetName(type, (CommandValues)value));
             }
 
+            // 126 as of 2026-09-24 (#617), which appended
+            // ShowUndeliveredDetails = 124 — the list of things the radio said
+            // that were not delivered, unbound by default and reached through
+            // Command Finder, the Hotkey Editor and a button in Status. Was
             // 125 as of 2026-08-31 (#433), which appended RepeatNextMessage =
             // 122 (Ctrl+F5, the forward half of the speech-history walk) and
             // CopyRecentMessage = 123 (Ctrl+J, Ctrl+C). Was 123 at Sprint 36
@@ -150,7 +154,7 @@ namespace Radios.Tests
             // build chord (#269). Bump this deliberately when a command is
             // added; a test that counts is how an accidental renumbering gets
             // noticed.
-            Assert.Equal(125, names.Length);
+            Assert.Equal(126, names.Length);
         }
     }
 }

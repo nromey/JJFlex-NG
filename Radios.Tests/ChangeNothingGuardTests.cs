@@ -187,8 +187,12 @@ namespace Radios.Tests
             // named slots. A clause whose slot is missing from the template
             // silently never renders — the argument is simply unused — so the
             // slot itself has to be pinned.
-            using var doc = JsonDocument.Parse(Read(SettingsJson));
-            string template = doc.RootElement.GetProperty("settings.profile.describe").GetString() ?? "";
+            // Read through the parser rather than off the raw JSON value: an
+            // entry that becomes a verbosity ladder or a delivery envelope has
+            // no single raw string, and GetString would throw on the shape
+            // rather than tell anyone the slot went missing.
+            var entries = LexiconBaseline.Parse(Read(SettingsJson));
+            string template = entries["settings.profile.describe"].Resolve(VerbosityLevel.Chatty) ?? "";
             Assert.Contains("{changeNothing}", template, StringComparison.Ordinal);
         }
 
@@ -510,10 +514,10 @@ namespace Radios.Tests
 
         private static HashSet<string> StoreKeys()
         {
-            using var doc = JsonDocument.Parse(Read(SettingsJson));
-            var keys = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var p in doc.RootElement.EnumerateObject()) keys.Add(p.Name);
-            return keys;
+            // Key enumeration stays valid with envelopes, and going through the
+            // parser drops the partition's leading _comment note, which was
+            // never an entry and used to be counted as one.
+            return new HashSet<string>(LexiconBaseline.Parse(Read(SettingsJson)).Keys, StringComparer.Ordinal);
         }
 
         private static string Read(string relative)

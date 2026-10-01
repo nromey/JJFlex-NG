@@ -16,18 +16,32 @@ namespace Radios.Tests.StationConnect
     /// exactly what FlexLib sent and replay the radio's reply by sequence
     /// number. No socket, no thread.
     /// </summary>
-    internal sealed class FakeCommandTransport : ICommandCommunication
+    // Derives from the vendor's producer-identity base (Track H, #637) rather
+    // than implementing the interface by hand: the base owns the immutable
+    // CommandConnection, the qualified ConnectionChanged/DataReceived events
+    // and the identity-returning Connect, so this fake stays a real
+    // transport as far as the contract is concerned. Its one connection is
+    // begun and published connected at construction, so IsConnected reads
+    // true as it always did here; nothing subscribes to the fake's events —
+    // the Radio's own subscriptions are on the transport it built, and this
+    // one is planted into the field afterwards, as before.
+    internal sealed class FakeCommandTransport : CommandCommunicationBase
     {
         public readonly List<string> Written = new List<string>();
-        public bool IsConnected => true;
-        public IPAddress LocalIp { get; set; } = IPAddress.Loopback;
-#pragma warning disable CS0067 // the vendor interface declares them; nothing here raises them
-        public event TcpCommandCommunication.TcpDataReceivedReadyEventHandler DataReceivedReady;
-        public event TcpCommandCommunication.IsConnectedChangedEventHandler IsConnectedChanged;
-#pragma warning restore CS0067
-        public bool Connect(IPAddress radioIp, int radioPort = 4992, int srcPort = 0) => true;
-        public void Disconnect() { }
-        public void Write(string msg) { lock (Written) Written.Add(msg ?? ""); }
+        private IPAddress _localIp = IPAddress.Loopback;
+        public override IPAddress LocalIp { get => _localIp; set => _localIp = value; }
+        public FakeCommandTransport()
+        {
+            var connection = BeginConnection();
+            PublishConnected(connection);
+        }
+        public override bool Connect(IPAddress radioIp, int radioPort, int srcPort, out CommandConnection connection)
+        {
+            connection = CurrentConnection;
+            return true;
+        }
+        public override void Disconnect() { }
+        public override void Write(string msg) { lock (Written) Written.Add(msg ?? ""); }
 
         /// <summary>The commands as text, without the "C&lt;seq&gt;|" prefix or the newline.</summary>
         public List<string> Commands

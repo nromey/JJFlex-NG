@@ -3720,10 +3720,10 @@ namespace JJFlexWpf.Dialogs
             return new ConnectWaitVoice
             {
                 What = "smartlink: reaching the account",
-                StillTerse = Lexicon.Get("connect.selector.still_reaching_smartlink_terse"),
+                StillTerse = Lexicon.Get("connect.selector.still_connecting_smartlink_terse"),
                 StillChatty = named
-                    ? Lexicon.Get("connect.selector.still_reaching_smartlink_chatty", ("email", email))
-                    : Lexicon.Get("connect.selector.still_reaching_smartlink_terse"),
+                    ? Lexicon.Get("connect.selector.still_connecting_smartlink_chatty", ("email", email))
+                    : Lexicon.Get("connect.selector.still_connecting_smartlink_terse"),
             };
         }
 

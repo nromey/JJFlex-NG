@@ -486,9 +486,16 @@ Content flows forward: nightly → stable → public. Nothing skips tiers. See `
   is a REGULAR channel, not an exception — Noel and Don correspond this way
   often, and only with Don. **Match the house style**, which the existing
   notes establish: plain ASCII (no em dashes or smart quotes), ALL-CAPS
-  section headings underlined with hyphens, wrapped near 70 columns, and a
+  section headings, wrapped near 70 columns, and a
   `WHAT IS IN THIS FOLDER` section first. The voice is Noel's, first person,
   ham to ham, and it tells Don plainly when he can ignore something.
+  **Do NOT underline the headings.** This line said "underlined with hyphens"
+  until 2026-09-26, when Noel ruled it out — *"No need to underline stuff"* —
+  and the reason generalises to every plain-text artifact a tester reads: a
+  row of hyphens is punctuation a screen reader announces, so it is noise
+  between the heading and the text it introduces. The capitals already mark
+  the heading. `build-debug.bat`'s generated NOTES was already doing this
+  correctly; only this sentence was wrong.
   **Claude may write these when asked; Claude never sends anything else to a
   tester** — the standing rule that Noel handles tester communication is
   unchanged, and this folder is the one place he delegates the drafting.
@@ -572,7 +579,7 @@ always-loaded core indefinitely.
 Added 2026-08-06 after the index hit the warning threshold; rewritten
 2026-08-19 when the flat index reached 18.5KB and was split into a 9.8KB core.
 2. **Memory backup — ALL projects, not just JJFlex:** `backup-memory-to-nas.ps1` snapshots **every** per-project Claude memory tree found under `C:\Users\nrome\.claude\projects\`. JJFlex keeps its legacy flat path (`historical\memory\memory-<ts>.zip`) so its dated series stays unbroken; every other project lands at `historical\memory\projects\<slug>\memory-<ts>.zip`. As of 2026-08-01 this picks up **Freight Fate** (`C--dev-Freight-Fate`, ~118 files) and **Civ VI Access** (`c--dev-Civ-vi-access`, ~175 files), neither of which had ever been backed up. Pass `-PrimaryOnly` for the old JJFlex-only behaviour. **Critical:** these trees live under the user profile, so the `C:\dev` mirror in step 3a does NOT cover them — this script and step 2a are their only backup paths. Keep running it even though 2a also sweeps up `memory\`: this one produces the per-project dated series that `memory-<ts>.zip` history depends on.
-2a. **Claude Code state backup:** `backup-claude-state-to-nas.ps1` snapshots the whole `C:\Users\nrome\.claude` tree plus `~\.claude.json` to NAS `historical\claude-state\claude-state-<ts>.zip`. Keeps the last 12, prunes older. This is the **session transcripts** — the `.jsonl` files under `.claude\projects\<slug>\` that hold every conversation Claude Code has had, and the only thing `claude --resume` can read. Nothing else backs them up: step 3a mirrors `C:\dev` and these live under the user profile; step 2 takes `memory\` only; git covers none of it. They are also on a retention timer — Claude Code sweeps transcripts older than `cleanupPeriodDays` at startup, and on 2026-08-01 that removed nine June sessions across Civ VI Access and the flashdrive project. `cleanupPeriodDays` is now pinned to **365** in `~\.claude\settings.json`, but retention only widens the window; it is not a backup. Excludes regenerable state (`cache`, `plugins`, `shell-snapshots`) and `.credentials.json` — that is a live OAuth token, and re-auth is one `claude` launch. `file-history\` (the ~150 MB `/rewind` snapshot tree) is opt-in via `-IncludeFileHistory`. Expect ~180 MB compressed from ~415 MB raw.
+2a. **Claude Code state backup:** `backup-claude-state-to-nas.ps1` snapshots the whole `C:\Users\nrome\.claude` tree plus `~\.claude.json` to NAS `historical\claude-state\claude-state-<ts>.zip`. Keeps the last 12, prunes older. This is the **session transcripts** — the `.jsonl` files under `.claude\projects\<slug>\` that hold every conversation Claude Code has had, and the only thing `claude --resume` can read. Nothing else backs them up: step 3a mirrors `C:\dev` and these live under the user profile; step 2 takes `memory\` only; git covers none of it. They are also on a retention timer — Claude Code sweeps transcripts older than `cleanupPeriodDays` at startup, and on 2026-08-01 that removed nine June sessions across Civ VI Access and the flashdrive project. `cleanupPeriodDays` is now pinned to **365** in `~\.claude\settings.json`, but retention only widens the window; it is not a backup. Excludes regenerable state (`cache`, `plugins`, `shell-snapshots`) and `.credentials.json` — that is a live OAuth token, and re-auth is one `claude` launch. `file-history\` (the ~150 MB `/rewind` snapshot tree) is opt-in via `-IncludeFileHistory`. **Measured 2026-09-30: 575 MB compressed from 1,813 MB raw, across 2,353 files.** This line said "~180 MB compressed from ~415 MB raw" and was roughly 4x low -- long sessions with large contexts grow the transcript tree fast, so budget minutes for the step and several GB on the NAS for the twelve retained snapshots. Re-measure rather than trusting this number.
 
    **Codex's home folder, `%USERPROFILE%\.codex`, is NOT covered by this or any other script yet (#575).** It holds `config.toml`, written by hand with its reasoning in the comments, and Codex's session history. Whatever eventually backs it up must leave out `auth.json` — a live ChatGPT sign-in token, excluded for the same reason as `.credentials.json` above — and must not copy the SQLite files while Codex is running.
 3. **Private docs backup:** `backup-private-to-nas.ps1` snapshots `C:\Users\nrome\JJFlex-private\` to NAS `historical\private\<date>\`. Captures easter eggs, unlock codes, and other private-docs state.
@@ -630,6 +637,14 @@ Added 2026-08-06 after the index hit the warning threshold; rewritten
    SmartLink section promised a legacy `AuthForm.cs` fallback that was deleted
    in `ba6b2e2b`; and eleven memory entries named `KeyCommands.vb` or
    `publish-daily-to-dropbox.ps1`, neither of which exists.
+
+   **IT DOES NOT SWEEP WORKTREES, so a sprint manufactures false positives.** Verified
+   2026-09-30: it walks six fixed trees (`JJFlex-NG`, `jjf-data`, `jjflexible-connect`,
+   `rigmeter`, `prism`, `JJFlex-private`) and no `jjflex-*` worktree. A memory entry or task
+   naming a symbol that exists only on an unmerged track branch therefore reads as stale --
+   `ClientRowPhrase` flagged that day purely because it lives on `sprint45/track-l`. **Check a
+   flagged symbol against the track branches (`git grep <name> <branch>`) before calling an
+   entry stale**, and expect the count to rise during a sprint and fall at the merge.
 
    **Do not chase the count to zero.** Roughly half the remaining hits are
    entries legitimately naming files in estates this machine does not hold
@@ -799,7 +814,7 @@ Added 2026-08-06 after the index hit the warning threshold; rewritten
    codex debug prompt-input | findstr /c:"Claude Code leads this"
    ```
 
-   No output means every Codex session is starting without the rules. (`codex` only resolves in a terminal opened after the install; otherwise call it by full path under `%USERPROFILE%\.codex\packages\standalone\releases\`.)
+   No output means every Codex session is starting without the rules. (`codex` only resolves in a terminal opened after the install; otherwise call it by full path. **Measured 2026-09-30, it installs to `%LOCALAPPDATA%\Programs\OpenAI\Codex\bin\codex.exe`** -- this line said `%USERPROFILE%\.codex\packages\standalone\releases\`, which is not where it lives. Resolve it with `Get-Command codex` and search both trees before concluding Codex is absent.)
 
    **Sandbox health: `%USERPROFILE%\.codex\.sandbox\setup_error.json` must not exist.** Do not use `codex doctor` for this — its "sandbox backend" line reports the CONFIGURED mode, and on 2026-09-16 it said `elevated` the whole time every command was failing (#576, upstream openai/codex#36475). A Codex update can bring that failure back; the recovery recipe is in the evaluation log.
 

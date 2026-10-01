@@ -236,6 +236,14 @@ namespace Radios.Tests
             internal int LexiconEntries { get; set; }
 
             /// <summary>
+            /// How many individual pieces of TEXT the lexicon held — one per
+            /// plain entry, one per ladder tier. Reported beside the entry
+            /// count because a ladder that lost a tier keeps its key, so the
+            /// entry count alone cannot see it.
+            /// </summary>
+            internal int LexiconTiers { get; set; }
+
+            /// <summary>
             /// <c>SetName</c> calls whose name argument is a variable, a
             /// concatenation or an interpolation. Not defects and not readable
             /// here — but the count is reported, because a scan that silently
@@ -274,7 +282,10 @@ namespace Radios.Tests
                 }
             }
 
-            return Scan(xaml, code, ReadLexicon(root));
+            var lexicon = ReadLexicon(root, out int tiers);
+            Result result = Scan(xaml, code, lexicon);
+            result.LexiconTiers = tiers;
+            return result;
         }
 
         internal static Result Scan(
@@ -304,21 +315,43 @@ namespace Radios.Tests
         private static string Relative(string root, string path)
             => Path.GetRelativePath(root, path).Replace('\\', '/');
 
+        /// <summary>
+        /// Every key and the text an accessible name would get from it.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Goes through the real parser now, and that is a coverage fix
+        /// rather than tidying.</b> This used to read the raw JSON and skip any
+        /// value that was not a bare string, which quietly dropped the nine
+        /// verbosity ladders and quietly KEPT each partition's <c>_comment</c>
+        /// — a two-kilobyte block of editing instructions counted as an
+        /// accessible name. Under the version-2 envelope it would have dropped
+        /// every classified entry too, and gone on passing while inspecting
+        /// less and less. A falling inspected-entry count is not a clean
+        /// migration.
+        /// </para>
+        /// <para>
+        /// <see cref="Result.LexiconTiers"/> is reported beside the entry count
+        /// for the same reason: an entry count alone cannot see a ladder losing
+        /// a tier.
+        /// </para>
+        /// </remarks>
         internal static Dictionary<string, string> ReadLexicon(string root)
+            => ReadLexicon(root, out _);
+
+        internal static Dictionary<string, string> ReadLexicon(string root, out int tiers)
         {
             var map = new Dictionary<string, string>(StringComparer.Ordinal);
+            tiers = 0;
+
             string dir = Path.Combine(root, LexiconDirectory.Replace('/', Path.DirectorySeparatorChar));
             if (!Directory.Exists(dir)) return map;
 
             foreach (string path in Directory.EnumerateFiles(dir, "*.json"))
             {
-                using var doc = JsonDocument.Parse(File.ReadAllText(path));
-                if (doc.RootElement.ValueKind != JsonValueKind.Object) continue;
-                foreach (var property in doc.RootElement.EnumerateObject())
-                {
-                    if (property.Value.ValueKind != JsonValueKind.String) continue;
-                    map[property.Name] = property.Value.GetString() ?? "";
-                }
+                var entries = LexiconBaseline.Parse(File.ReadAllText(path));
+                foreach (var pair in LexiconBaseline.TextByKey(entries)) map[pair.Key] = pair.Value;
+                foreach (var _ in LexiconBaseline.TextProjection(entries)) tiers++;
             }
             return map;
         }

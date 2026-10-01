@@ -1,4 +1,4 @@
-﻿#nullable enable
+#nullable enable
 namespace Radios.Speech
 {
     /// <summary>
@@ -341,6 +341,22 @@ namespace Radios.Speech
         /// subject), because "cleared" must not be able to retire "63 degrees".
         /// </summary>
         public const string OperatorAlarmStatus = "operator-alarm-status";
+
+        /// <summary>
+        /// Where the diagnostic recording went after a connection drop archived
+        /// it — the confirmation that its path is now on the clipboard (Sprint
+        /// 45 Track H, #566's bridge). One subject because the only utterances
+        /// on it are successive answers to "have I got the path?", and only the
+        /// newest is true: an unheard "Path copied" is worthless once a second
+        /// press has copied it again, and a failure sentence must replace a
+        /// success rather than queue behind it.
+        ///
+        /// <para>Nothing outside this window covers it. The radio reconnecting
+        /// does not un-copy a path, and the operator is mid-errand — they
+        /// pressed a button to get something they intend to paste somewhere
+        /// else.</para>
+        /// </summary>
+        public const string CaptureArchivedPath = "capture-archived-path";
 
         /// <summary>
         /// The value of one field, named by its label — the committed value

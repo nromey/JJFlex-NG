@@ -29,6 +29,25 @@ namespace JJTrace
         private string _partFileTag;
 
         /// <summary>
+        /// True when this session object is an INVENTORY identity: it was made
+        /// at boot to file raw trace files whose real session nothing recorded
+        /// — a previous run's rotated parts with no durable record beside them.
+        /// Its <see cref="SessionId"/> is not, and must never be read as, the
+        /// id of the session that wrote those bytes. Carried onto the manifest
+        /// entry as <c>orphaned</c> (Astra's ruling on the pending-record
+        /// failure, implementation note 5: "If an import needs an inventory
+        /// id, keep it separate from the unrecovered original session id").
+        /// </summary>
+        public bool IdentityUnknown { get; private set; }
+
+        /// <summary>Mark this session as an inventory identity for orphaned
+        /// evidence. One way; see <see cref="IdentityUnknown"/>.</summary>
+        public void MarkIdentityUnknown()
+        {
+            lock (_lock) { IdentityUnknown = true; }
+        }
+
+        /// <summary>
         /// The outcome tag baked into every part FILENAME of this session,
         /// frozen at the first rotation.
         ///
@@ -194,7 +213,8 @@ namespace JJTrace
                     TraceSizeCompressedBytes = compressedSize,
                     VerbosityLevel = VerbosityLevel,
                     AppVersion = AppVersion,
-                    KeyEvents = KeyEvents.Count == 0 ? null : new List<string>(KeyEvents)
+                    KeyEvents = KeyEvents.Count == 0 ? null : new List<string>(KeyEvents),
+                    Orphaned = IdentityUnknown ? true : (bool?)null,
                 };
             }
         }
@@ -227,33 +247,33 @@ namespace JJTrace
     /// </summary>
     public static class TraceSessionContext
     {
-        private static TraceSession _current;
-        private static readonly object _lock = new object();
+        /// <summary>
+        /// The live session, or null.
+        ///
+        /// <para><b>There is one pointer now, and it lives in
+        /// <see cref="TraceCoordinator"/>.</b> This type used to hold a second
+        /// copy behind its own lock, which is why a caller could read a session
+        /// here, close a listener over there, and clear a third thing — the
+        /// three were never one transition (#612). Everything below is a view
+        /// onto the coordinator's state so the pointer and the sink cannot
+        /// disagree.</para>
+        /// </summary>
+        public static TraceSession Current => TraceCoordinator.CurrentSession;
 
-        public static TraceSession Current
-        {
-            get { lock (_lock) { return _current; } }
-        }
+        /// <summary>
+        /// Begin a session with no file behind it. Production opens a session
+        /// and its sink together, through <see cref="TraceCoordinator.Begin"/>;
+        /// this remains for runs where the lifecycle wants a session object and
+        /// nothing is being written.
+        /// </summary>
+        public static TraceSession BeginSession() => TraceCoordinator.BeginSessionOnly();
 
-        public static TraceSession BeginSession()
-        {
-            lock (_lock)
-            {
-                _current = new TraceSession();
-                return _current;
-            }
-        }
-
-        public static TraceSession EndSession()
-        {
-            lock (_lock)
-            {
-                TraceSession ending = _current;
-                ending?.End();
-                _current = null;
-                return ending;
-            }
-        }
+        /// <summary>
+        /// Drop the session pointer. Production ends a session through the
+        /// boundary, which closes its sink and detaches its bytes in the same
+        /// transition; this remains for the no-file path.
+        /// </summary>
+        public static TraceSession EndSession() => TraceCoordinator.EndSessionOnly();
 
         /// <summary>
         /// Convenience for consumer code: tag a key event on the current session if
