@@ -787,6 +787,8 @@ namespace Radios.Alarms
                 }
             }
 
+            if (_connected && _storeState == AlarmStoreState.Empty) SeedDefaultRecordOnlyLocked(inventory);
+
             foreach (MeterSelector s in _recordOnly)
             {
                 MeterSelectorResolution r = s.Resolve(inventory);
@@ -797,6 +799,45 @@ namespace Radios.Alarms
             foreach (MeterDescriptor d in inventory)
                 if (_recordedIndices.Contains(d.Index)) recorded.Add(d);
             _recorder.RecordedSetChanged(_generation, recorded);
+        }
+
+        /// <summary>
+        /// The recorded set a radio starts with before the operator has saved
+        /// anything: its PA temperature meter and its supply-voltage meters,
+        /// whichever of them it publishes.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Why there is a default at all (#566, the one-selection ruling,
+        /// folded 2026-10-01).</b> Noel ruled that ONE operator-chosen set
+        /// feeds both the alarms and the diagnostic capture, with no hardcoded
+        /// list in either place. Until this fold the capture had its own list
+        /// in <c>CaptureMeterSet</c> — PA temperature and <c>+13.8A</c> — put
+        /// there by a measurement: a bench capture across a real transmission
+        /// carried 258 power lines and zero temperature lines, because the
+        /// only path to temperature was an opt-in switch nobody knew about
+        /// (#494). An operator who has never opened the alarms dialog must not
+        /// lose that evidence again. So a radio with no alarm file yet starts
+        /// with those meters in its record-only set, discovered from its own
+        /// census rather than named model-wide.
+        /// </para>
+        /// <para>
+        /// <b>A default, not a list.</b> It is seeded only while the store is
+        /// Empty — before anything has ever been saved for this radio — and it
+        /// is visible and untickable in the Recorded meters dialog. The first
+        /// save writes whatever the operator left ticked, the store is then
+        /// Loaded, and nothing is seeded again: unticking supply voltage stays
+        /// unticked across reconnects. Seeding writes no file by itself.
+        /// </para>
+        /// </remarks>
+        private void SeedDefaultRecordOnlyLocked(IReadOnlyList<MeterDescriptor> inventory)
+        {
+            foreach (MeterDescriptor d in inventory)
+            {
+                if (!AlarmPresets.IsPaTemperature(d) && !AlarmPresets.IsSupplyVoltage(d)) continue;
+                MeterSelector s = MeterSelector.From(d);
+                if (!_recordOnly.Contains(s) && s.Resolve(inventory).IsResolved) _recordOnly.Add(s);
+            }
         }
 
         private void Post(Entry entry, IReadOnlyList<AlarmEvent> events)

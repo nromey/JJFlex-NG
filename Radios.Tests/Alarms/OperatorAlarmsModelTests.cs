@@ -320,21 +320,30 @@ namespace Radios.Tests.Alarms
             model.Save(editor, out _);
             Assert.True(model.SetRecorded(Fwd, true));
 
+            // The radio had no alarm file, so its PA temperature and supply
+            // meter were seeded into the record-only set (#566's one
+            // selection): PATEMP is recorded BY THE OPERATOR'S DEFAULT, not by
+            // the disabled alarm, and the dialog says which.
             var disabled = model.RecordedChoices();
             Assert.False(disabled.Single(c => c.Meter.Name == "PATEMP").ByAlarm);
-            Assert.DoesNotContain("PATEMP", _service!.RecordedMeters.Select(m => m.Name));
+            Assert.True(disabled.Single(c => c.Meter.Name == "PATEMP").ByOperator);
+            Assert.True(disabled.Single(c => c.Meter.Name == "+13.8A").ByOperator);
+            Assert.False(disabled.Single(c => c.Meter.Name == "FWDPWR").ByAlarm);
 
             model.SetEnabled(editor.Id, true);
             var enabled = model.RecordedChoices();
             Assert.True(enabled.Single(c => c.Meter.Name == "PATEMP").ByAlarm);
             Assert.True(enabled.Single(c => c.Meter.Name == "FWDPWR").ByOperator);
-            Assert.False(enabled.Single(c => c.Meter.Name == "+13.8A").ByAlarm || enabled.Single(c => c.Meter.Name == "+13.8A").ByOperator);
-            Assert.Contains("PATEMP", _service.RecordedMeters.Select(m => m.Name));
+            Assert.False(enabled.Single(c => c.Meter.Name == "+13.8A").ByAlarm);
+            Assert.Contains("PATEMP", _service!.RecordedMeters.Select(m => m.Name));
 
-            // And disabling again takes it back out, leaving the operator's own choice alone.
+            // Untick the seeded temperature and disable the alarm: PATEMP leaves
+            // the set only when neither an enabled alarm nor the operator wants it.
+            Assert.True(model.SetRecorded(Pa, false));
+            Assert.Contains("PATEMP", _service.RecordedMeters.Select(m => m.Name));   // the enabled alarm still records it
             model.SetEnabled(editor.Id, false);
-            Assert.Equal(new[] { "FWDPWR" }, _service.RecordedMeters.Select(m => m.Name));
-            Assert.Equal(new[] { "FWDPWR" }, _service.RecordedMetersResolved.Select(m => m.Name));
+            Assert.Equal(new[] { "+13.8A", "FWDPWR" }, _service.RecordedMeters.Select(m => m.Name));
+            Assert.Equal(new[] { "+13.8A", "FWDPWR" }, _service.RecordedMetersResolved.Select(m => m.Name));
         }
 
         [Fact]

@@ -46,27 +46,83 @@ namespace Radios.Tests
             SupplyVoltage.Reading(v, TimeSpan.Zero);
 
         // ────────────────────────────────────────────────────────────────
-        //  The recorded set — one list, in one place
+        //  The recorded set — ONE selection, owned by the alarm subsystem
+        //  (#566, folded 2026-10-01)
         // ────────────────────────────────────────────────────────────────
 
+        /// <summary>
+        /// The list that used to live here is gone, and the fold has one shape:
+        /// the alarm service's recorded set reaches the rig through
+        /// SetCaptureSelection, pushed by the host on attach and on change, and
+        /// the rig records temperature only while PATEMP is selected. Pinned
+        /// against the source, the way SafetyRouteShapeTests pins its adapters,
+        /// because a second list quietly re-growing here is exactly the
+        /// two-vocabularies collision the integration pass exists to catch.
+        /// </summary>
         [Fact]
-        public void The_recorded_set_is_the_four_meters_the_shutdown_question_needs()
+        public void There_is_no_hardcoded_recorded_list_and_the_selection_reaches_the_rig_from_the_alarm_service()
         {
-            var names = CaptureMeterSet.Recorded.Select(m => m.RadioMeterName).ToArray();
-            Assert.Equal(new[] { "FWDPWR", "REFPWR", "PATEMP", "+13.8A" }, names);
+            string set = File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "CaptureMeterSet.cs"));
+            Assert.DoesNotContain("IReadOnlyList<RecordedMeter> Recorded", set);
+            Assert.DoesNotContain("struct RecordedMeter", set);
+            Assert.DoesNotContain("const string SupplyVoltageMeterName", set);
+            Assert.Contains("const string PreferredSupplyVoltageMeterName", set);   // a preference between selected meters, not a list
+
+            string rig = File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "FlexBase.CaptureMeters.cs"));
+            Assert.Contains("public void SetCaptureSelection(", rig);
+            Assert.Contains("if (!isSelectedForCapture(CaptureMeterSet.PaTemperatureMeterName)) return;", rig);
+            Assert.Contains("if (!supplyVoltageSelected()) return SupplyVoltage.NotSelected();", rig);
+
+            string host = File.ReadAllText(Path.Combine(RepoRoot(), "JJFlexWpf", "OperatorAlarmHost.cs"));
+            Assert.Contains("Service.Changed += PushCaptureSelection;", host);
+            Assert.Contains("rig.SetCaptureSelection(names);", host);
+            Assert.Contains("service.RecordedMetersResolved", host);
         }
 
         [Fact]
-        public void Temperature_and_volts_ride_the_capture_line_power_rides_txMeters()
+        public void With_no_selection_pushed_the_rig_records_no_temperature_line_and_says_so_once()
         {
-            // The split is the whole design: forward and reflected already
-            // reach an ordinary capture on the txMeters line, so nothing
-            // re-emits them. If a future edit moves one, this says so.
-            var byName = CaptureMeterSet.Recorded.ToDictionary(m => m.RadioMeterName);
-            Assert.Equal(CaptureMeterSet.TxMetersLine, byName["FWDPWR"].CarriedBy);
-            Assert.Equal(CaptureMeterSet.TxMetersLine, byName["REFPWR"].CarriedBy);
-            Assert.Equal(CaptureMeterSet.CaptureMetersLine, byName["PATEMP"].CarriedBy);
-            Assert.Equal(CaptureMeterSet.CaptureMetersLine, byName["+13.8A"].CarriedBy);
+            // The negative control for the gate below: the same handler, the
+            // same keyed rig, and no SetCaptureSelection — nothing is written,
+            // and the trace carries one Warning saying why. Silent absence is
+            // the #494 failure, and this is the test that it is not silent.
+            var captured = new List<string>();
+            var listener = new CapturingListener(captured);
+            Trace.Listeners.Add(listener);
+            bool wasOn = Tracing.On;
+            var savedSwitch = Tracing.TheSwitch;
+            bool meterStreamWas = MeterTraceStream.Enabled;
+            FlexBase rig = null;
+            try
+            {
+                MeterTraceStream.Enabled = false;
+                Tracing.TheSwitch = new TraceSwitch("captureMeters", "captureMeters") { Level = TraceLevel.Info };
+                Tracing.On = true;
+                rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+                typeof(FlexBase).GetField("_Transmit", BindingFlags.NonPublic | BindingFlags.Instance)?.SetValue(rig, true);
+                MethodInfo handler = typeof(FlexBase).GetMethod("PATempDataHandler", BindingFlags.NonPublic | BindingFlags.Instance);
+                handler.Invoke(rig, new object[] { 44.0f });
+                handler.Invoke(rig, new object[] { 71.5f });
+                System.Threading.Thread.Sleep(CaptureMeterSet.TransmitWindowMs + 120);
+                handler.Invoke(rig, new object[] { 70.0f });
+            }
+            finally
+            {
+                Tracing.On = wasOn;
+                Tracing.TheSwitch = savedSwitch;
+                MeterTraceStream.Enabled = meterStreamWas;
+                Trace.Listeners.Remove(listener);
+                try { rig?.Dispose(); } catch { }
+            }
+            Assert.DoesNotContain(captured, l => l.Contains(CaptureMeterSet.CaptureMetersLine, StringComparison.Ordinal));
+            Assert.Single(captured, l => l.Contains("no recorded-meter selection has been pushed", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void A_supply_meter_the_operator_did_not_select_is_written_as_a_choice_not_an_absence()
+        {
+            Assert.Equal("volts=not-selected", CaptureMeterSet.FormatVolts(SupplyVoltage.NotSelected(), CaptureMeterSet.TransmitWindowMs));
+            Assert.Equal(SupplyVoltageState.NotSelected, SupplyVoltage.NotSelected().State);
         }
 
         // ────────────────────────────────────────────────────────────────
@@ -142,14 +198,14 @@ namespace Radios.Tests
         [Fact]
         public void A_six_thousand_three_hundred_is_expected_to_publish_the_meter()
         {
-            // #566's 2026-09-22 correction, from Don's own capture: his 6300
+            // #566's 2026-09-22 correction, from a 6300's own capture: it
             // publishes +13.8A before the fuse and +13.8B after it. The code
             // this replaced asserted the opposite WHILE CITING #566 as its
-            // authority. Only +13.8A is recorded; +13.8B is a different
-            // measurement and choosing between them is #566's selection job.
-            Assert.Equal("+13.8A", CaptureMeterSet.SupplyVoltageMeterName);
-            Assert.Contains(CaptureMeterSet.Recorded,
-                m => m.RadioMeterName == CaptureMeterSet.SupplyVoltageMeterName);
+            // authority. +13.8A is the meter the voltage field PREFERS when the
+            // operator has selected more than one supply meter, so the field
+            // keeps meaning what every capture before the fold meant; which
+            // meters are recorded at all is the alarm subsystem's selection.
+            Assert.Equal("+13.8A", CaptureMeterSet.PreferredSupplyVoltageMeterName);
         }
 
         // ────────────────────────────────────────────────────────────────
@@ -406,6 +462,10 @@ namespace Radios.Tests
                 Tracing.On = true;
 
                 rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+
+                // The operator's recorded set, as the alarm host pushes it
+                // (#566): temperature is recorded only while PATEMP is in it.
+                rig.SetCaptureSelection(new[] { CaptureMeterSet.PaTemperatureMeterName });
 
                 // Keyed, so the window is a second rather than thirty. The
                 // field is what the Transmit property reads; nothing else in

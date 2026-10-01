@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using JJTrace;
 
@@ -24,6 +25,91 @@ namespace Radios
         private readonly CaptureMeterSet _captureMeters = new CaptureMeterSet();
 
         /// <summary>
+        /// THE ONE SELECTION (#566): the meter names the operator's recorded
+        /// set holds, as the alarm subsystem last pushed them, or null while
+        /// nothing has pushed one. Replaces the list <c>CaptureMeterSet</c>
+        /// used to carry.
+        /// </summary>
+        private HashSet<string> _captureSelection;
+        private readonly object _captureSelectionGate = new object();
+        private bool _captureSelectionMissingTraced;
+
+        /// <summary>
+        /// The operator's recorded-meter set, as the radio names the meters.
+        /// Called by <c>OperatorAlarmHost</c> when the alarm service attaches
+        /// and whenever its recorded set changes; a test calls it directly.
+        /// Thread-safe: the set is replaced whole under a short lock, and the
+        /// meter thread reads it under the same lock.
+        /// </summary>
+        public void SetCaptureSelection(IEnumerable<string> meterNames)
+        {
+            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (meterNames != null) foreach (string n in meterNames) if (!string.IsNullOrEmpty(n)) set.Add(n);
+            lock (_captureSelectionGate) _captureSelection = set;
+        }
+
+        /// <summary>
+        /// Whether a meter is in the recorded set. With NO selection ever
+        /// pushed — the alarm subsystem not attached — nothing is recorded, and
+        /// the trace says so once: a capture that silently records nothing is
+        /// the #494 failure again, and an absence must be visible.
+        /// </summary>
+        private bool isSelectedForCapture(string meterName)
+        {
+            lock (_captureSelectionGate)
+            {
+                if (_captureSelection == null)
+                {
+                    if (!_captureSelectionMissingTraced)
+                    {
+                        _captureSelectionMissingTraced = true;
+                        Tracing.TraceLine("recordCaptureMeters: no recorded-meter selection has been pushed to this rig, so the "
+                            + "temperature window records nothing until the alarm subsystem attaches (#566)", TraceLevel.Warning);
+                    }
+                    return false;
+                }
+                return _captureSelection.Contains(meterName);
+            }
+        }
+
+        /// <summary>
+        /// The supply-voltage meter the voltage field follows: the preferred
+        /// one when it is selected and published, else the first other
+        /// selected meter the inventory holds in volts, else null for "not
+        /// selected". Inventory order, so two operators with the same radio
+        /// and selection get the same meter.
+        /// </summary>
+        private MeterReading selectedSupplyMeter(MeterInventory inv)
+        {
+            HashSet<string> selection;
+            lock (_captureSelectionGate) selection = _captureSelection;
+            if (selection == null || selection.Count == 0) return null;
+
+            if (selection.Contains(CaptureMeterSet.PreferredSupplyVoltageMeterName))
+            {
+                MeterReading preferred = inv.Find(CaptureMeterSet.PreferredSupplyVoltageMeterName);
+                if (preferred != null) return preferred;
+            }
+            foreach (string name in selection)
+            {
+                MeterReading m = inv.Find(name);
+                if (m != null && m.Units == Flex.Smoothlake.FlexLib.MeterUnits.Volts) return m;
+            }
+            return null;
+        }
+
+        /// <summary>True when any selected meter is a supply-voltage meter by name, whether or not this radio publishes it.</summary>
+        private bool supplyVoltageSelected()
+        {
+            HashSet<string> selection;
+            lock (_captureSelectionGate) selection = _captureSelection;
+            if (selection == null) return false;
+            foreach (string name in selection)
+                if (name.StartsWith("+13.8", StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        /// <summary>
         /// Record one PA temperature reading into the ordinary diagnostic
         /// capture. Called from <c>PATempDataHandler</c>, on FlexLib's meter
         /// packet thread, at meter rate — so the common path is an accumulate
@@ -41,6 +127,10 @@ namespace Radios
         {
             try
             {
+                // Recorded only while the operator's set holds PA temperature
+                // (#566). A radio with no alarm file yet is seeded with it, so
+                // the ordinary case records as it always did.
+                if (!isSelectedForCapture(CaptureMeterSet.PaTemperatureMeterName)) return;
                 string line = _captureMeters.Report(
                     celsius,
                     readSupplyVoltage(),
@@ -141,10 +231,16 @@ namespace Radios
         /// </summary>
         private SupplyVoltage readSupplyVoltage()
         {
+            // The selection decides WHICH supply meter, and whether one at all
+            // (#566): no supply meter in the recorded set is a choice, written
+            // as not-selected; a selected one the radio does not publish is
+            // no-meter, which on a 6300 is a finding (#597).
+            if (!supplyVoltageSelected()) return SupplyVoltage.NotSelected();
+
             MeterInventory inv = MeterInventory;
             if (inv == null || inv.Count == 0) return SupplyVoltage.Unknown();
 
-            MeterReading m = inv.Find(CaptureMeterSet.SupplyVoltageMeterName);
+            MeterReading m = selectedSupplyMeter(inv);
             if (m == null) return SupplyVoltage.NoMeter();
             if (!m.HasReading) return SupplyVoltage.NoSample();
             return SupplyVoltage.Reading(m.Value, m.Age);

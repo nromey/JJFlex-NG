@@ -224,6 +224,41 @@ namespace Radios.Tests.Alarms
         }
 
         [Fact]
+        public void A_radio_with_no_alarm_file_starts_with_its_temperature_and_supply_meters_recorded_and_the_first_save_fixes_the_choice()
+        {
+            // #566's one-selection ruling, folded 2026-10-01: the capture used
+            // to have its own list (PATEMP and +13.8A) because a bench capture
+            // carried 258 power lines and zero temperature lines (#494). That
+            // evidence must survive the fold for an operator who never opens
+            // the alarms dialog, so a radio with no alarm file yet is seeded
+            // from its own census — and only while nothing has been saved.
+            var s = Service();
+            var supplyA = new MeterDescriptor(2, "+13.8A", "+13.8V at PA", "RAD", 2, MeterUnits.Volts, 10.5, 15);
+            var supplyB = new MeterDescriptor(3, "+13.8B", "+13.8V at CPU", "RAD", 3, MeterUnits.Volts, 10.5, 15);
+            _feed.Connect(Serial, Fwd, Pa, supplyA, supplyB);
+
+            Assert.Equal(AlarmStoreState.Empty, s.StoreState);
+            Assert.Equal(new[] { "PATEMP", "+13.8A", "+13.8B" }, s.RecordedMetersResolved.Select(m => m.Name));
+            Assert.DoesNotContain("FWDPWR", s.RecordedMetersResolved.Select(m => m.Name));   // power is txMeters evidence, not a selection
+            Assert.False(File.Exists(new AlarmDefinitionStore(_root).PathFor(Serial)));       // seeding writes nothing
+
+            // The operator unticks the second supply meter: the first save
+            // records the choice, and a reconnect does not seed it back.
+            Assert.True(s.SetRecordOnly(MeterSelector.From(supplyB), false));
+            Assert.Equal(AlarmStoreState.Loaded, s.StoreState);
+            Assert.Equal(new[] { "PATEMP", "+13.8A" }, s.RecordedMetersResolved.Select(m => m.Name));
+            _feed.Disconnect();
+            _feed.Connect(Serial, Fwd, Pa, supplyA, supplyB);
+            Assert.Equal(new[] { "PATEMP", "+13.8A" }, s.RecordedMetersResolved.Select(m => m.Name));
+
+            // Positive control: a radio that publishes no supply meter is
+            // seeded with temperature alone, nothing invented.
+            _feed.Disconnect();
+            _feed.Connect("9999-0000-0000-0000", Fwd, Pa);
+            Assert.Equal(new[] { "PATEMP" }, s.RecordedMetersResolved.Select(m => m.Name));
+        }
+
+        [Fact]
         public void The_recorded_set_is_the_alarm_meters_plus_the_operator_extras_and_nothing_else()
         {
             var s = Service();
@@ -378,6 +413,7 @@ namespace Radios.Tests.Alarms
             Assert.Equal(AlarmNotificationState.Acknowledged, before.Notification);
             Assert.True(s.DrainDispatch(2000));
             int eventsBefore; lock (_dispatched) eventsBefore = _dispatched.Count;
+            var recordOnlyBefore = s.RecordOnlyMeters.ToList();   // the seeded default, saved by Add
 
             // Make the next write fail: the file's path is now a directory, so
             // the atomic move cannot replace it.
@@ -396,7 +432,7 @@ namespace Radios.Tests.Alarms
             Assert.Equal(AlarmConditionState.Active, after.Condition);
             Assert.Equal(AlarmNotificationState.Acknowledged, after.Notification);
             Assert.True(after.Definition.Enabled);
-            Assert.Empty(s.RecordOnlyMeters);
+            Assert.Equal(recordOnlyBefore, s.RecordOnlyMeters);
             Assert.True(s.DrainDispatch(2000));
             lock (_dispatched) Assert.Equal(eventsBefore, _dispatched.Count);   // no ConfigurationChanged, no Disabled, nothing
         }

@@ -38,45 +38,36 @@ namespace Radios
     /// carries (<c>DiagnosticsConfig.TraceLevel</c> maps Normal to Info). No
     /// switch, no setting, no instruction to give a tester.</para>
     ///
-    /// <para><b>#566 REPLACES THIS LIST.</b> Ruled by Noel 2026-09-22: the same
-    /// operator-chosen meter selection feeds the alarms and the capture, so an
-    /// alarm on a meter means that meter is recorded, and a meter can be
-    /// recorded without an alarm on it. Until that subsystem exists the set is
-    /// hardcoded — forward power, reflected power, PA temperature, and supply
-    /// voltage where the radio publishes one — and it is hardcoded HERE, in one
-    /// readable list, so the subsystem has one thing to replace rather than a
-    /// handler-by-handler hunt. Today's set being an accident of which handlers
-    /// somebody happened to instrument is the exact complaint #566 records.</para>
+    /// <para><b>#566 REPLACED THE LIST THAT USED TO LIVE HERE (folded
+    /// 2026-10-01, Track IJK).</b> Ruled by Noel 2026-09-22: ONE operator-chosen
+    /// meter selection feeds the alarms and the capture, so an alarm on a meter
+    /// means that meter is recorded, a meter can be recorded without an alarm
+    /// on it, and there is no hardcoded list in either place. Until the fold
+    /// this class carried a four-entry list — forward power, reflected power,
+    /// PA temperature, <c>+13.8A</c> — beside the alarm subsystem's own
+    /// recorded set, which is two vocabularies for one thing. The list is
+    /// gone. What the <c>captureMeters:</c> line records is now the alarm
+    /// service's recorded set (<c>Radios.Alarms.AlarmService.RecordedMetersResolved</c>:
+    /// every ENABLED alarm's meter plus the operator's record-only choices,
+    /// seeded for a radio with no alarm file yet with its PA temperature and
+    /// supply meters, which is the measurement that put them here), pushed to
+    /// the rig by <c>JJFlexWpf.OperatorAlarmHost</c> through
+    /// <c>FlexBase.SetCaptureSelection</c>. Temperature is written only while
+    /// PATEMP is selected; the voltage field follows the selected supply meter
+    /// and says <c>not-selected</c> when none is.</para>
+    ///
+    /// <para><b>Forward and reflected power are NOT a selection, and that is
+    /// deliberate.</b> They ride the <c>txMeters:</c> line, which is the
+    /// transmit-safety evidence record the reflected-power cut and
+    /// <c>TxFactAudit</c> read (#625). An operator's recording preference must
+    /// not be able to switch off the evidence that a cut was right, so that
+    /// line is owned by the kill switch's own path and stays outside the
+    /// recorded set. DRAFT for Noel: the ruling says "no hardcoded list in
+    /// either place", and this is the one place a fixed pair remains, for a
+    /// stated reason.</para>
     /// </summary>
     public sealed class CaptureMeterSet
     {
-        /// <summary>
-        /// One meter in the recorded set: what the radio calls it, what we call
-        /// it in the trace, and which line carries it.
-        /// </summary>
-        public readonly struct RecordedMeter
-        {
-            public RecordedMeter(string radioMeterName, string traceField, string unit, string carriedBy)
-            {
-                RadioMeterName = radioMeterName;
-                TraceField = traceField;
-                Unit = unit;
-                CarriedBy = carriedBy;
-            }
-
-            /// <summary>The radio's own name for the meter, as the meter
-            /// inventory prints it.</summary>
-            public string RadioMeterName { get; }
-
-            /// <summary>The field name in the trace line.</summary>
-            public string TraceField { get; }
-
-            /// <summary>Unit, for a reader of the line.</summary>
-            public string Unit { get; }
-
-            /// <summary>Which trace line carries it today.</summary>
-            public string CarriedBy { get; }
-        }
 
         /// <summary>The <c>txMeters:</c> line, written by
         /// <c>FlexBase.traceTxMeters</c> while transmitting or tuning.</summary>
@@ -163,20 +154,11 @@ namespace Radios
             + " 'partial=connection_dropped' is a window cut short because the connection to the radio was lost.");
 
         /// <summary>
-        /// THE RECORDED SET. Four meters, and the two lines that carry them.
-        /// Forward and reflected power already reach an ordinary capture on the
-        /// <c>txMeters:</c> line and are listed here because a list of what a
-        /// capture records that leaves out half of it is not a list — it is a
-        /// second place to look. Nothing re-emits them; #566 replaces the whole
-        /// table with the operator's selection.
+        /// The radio's own name for its PA temperature meter — the one meter
+        /// this class's window is about. Used by the rig to ask the selection
+        /// whether temperature is recorded at all; it names nothing else.
         /// </summary>
-        public static readonly IReadOnlyList<RecordedMeter> Recorded = new[]
-        {
-            new RecordedMeter("FWDPWR", "fwdW",    "watts",   TxMetersLine),
-            new RecordedMeter("REFPWR", "reflW",   "watts",   TxMetersLine),
-            new RecordedMeter("PATEMP", "paTemp",  "C",       CaptureMetersLine),
-            new RecordedMeter("+13.8A", "volts",   "V",       CaptureMetersLine),
-        };
+        public const string PaTemperatureMeterName = "PATEMP";
 
         /// <summary>
         /// How often a <c>captureMeters:</c> line is written while the radio is
@@ -214,27 +196,26 @@ namespace Radios
         public const int StaleWindowMs = 4 * RestingWindowMs;
 
         /// <summary>
-        /// The radio's own name for the supply-voltage meter we record — the one
-        /// FlexLib subscribes <c>Volts_DataReady</c> to.
+        /// The supply meter the voltage field prefers when the operator has
+        /// selected more than one: <c>+13.8A</c>, the one FlexLib subscribes
+        /// <c>Volts_DataReady</c> to and the one every capture before the fold
+        /// carried, so the field keeps meaning the same thing across the
+        /// change. Any other selected volts meter is used when this one is not
+        /// selected or not published.
         ///
-        /// <para><b>A FLEX-6300 DOES publish it.</b> This constant replaces a
-        /// helper that decided presence by asking whether the last reading was
-        /// above zero, under a comment saying Don's 6300 "publishes no volts at
-        /// all (#566, verified against his own meter inventory)". #566's
-        /// 2026-09-22 correction, taken from Don's own capture, records
+        /// <para><b>A FLEX-6300 DOES publish it.</b> The constant this replaced
+        /// stood in for a helper that decided presence by asking whether the
+        /// last reading was above zero, under a comment saying a 6300 "publishes
+        /// no volts at all (#566, verified against its meter inventory)". #566's
+        /// 2026-09-22 correction, taken from a 6300's own capture, records
         /// <c>+13.8A</c> before the fuse and <c>+13.8B</c> after it, and strikes
         /// that sentence through — it had claimed to be verified against an
-        /// inventory that said the opposite. <b>So a "no meter" reading in one
-        /// of Don's captures is a FINDING to chase, not the model behaving
+        /// inventory that said the opposite. <b>So a "no meter" reading in a
+        /// 6300 capture is a FINDING to chase, not the model behaving
         /// normally</b> (#597), and voltage sag under load is one of the three
         /// standing explanations for a 6300 shutting itself off.</para>
-        ///
-        /// <para>Only <c>+13.8A</c> is recorded here. <c>+13.8B</c> is a second
-        /// meter with its own story to tell — after the fuse rather than before
-        /// — and choosing between them is #566's selection job, not a silent
-        /// fallback.</para>
         /// </summary>
-        public const string SupplyVoltageMeterName = "+13.8A";
+        public const string PreferredSupplyVoltageMeterName = "+13.8A";
 
         /// <summary>
         /// Why a window was closed early. Appears on the line as
@@ -270,6 +251,11 @@ namespace Radios
                     return "volts=unknown";
                 case SupplyVoltageState.NoMeter:
                     return "volts=no-meter";
+                case SupplyVoltageState.NotSelected:
+                    // The operator took supply voltage out of the recorded set
+                    // (#566). Not "no meter" — the radio may well publish one —
+                    // and not "no sample": a choice, written as one.
+                    return "volts=not-selected";
                 case SupplyVoltageState.NoSample:
                     return "volts=no-sample";
                 default:
@@ -470,10 +456,12 @@ namespace Radios
         /// a 6300 publishes no voltage meter survived long enough to reach
         /// shipped code.</summary>
         InventoryUnknown,
-        /// <summary>The radio published a meter list and
-        /// <see cref="CaptureMeterSet.SupplyVoltageMeterName"/> is not in
-        /// it.</summary>
+        /// <summary>The radio published a meter list and the selected supply
+        /// meter is not in it.</summary>
         NoMeter,
+        /// <summary>The operator's recorded set (#566) holds no supply-voltage
+        /// meter, so none is read. A choice, not an absence.</summary>
+        NotSelected,
         /// <summary>The meter exists and has never reported a value.</summary>
         NoSample,
         /// <summary>A real reading, zero included.</summary>
@@ -520,6 +508,10 @@ namespace Radios
         /// them.</summary>
         public static SupplyVoltage NoMeter() =>
             new SupplyVoltage(SupplyVoltageState.NoMeter, 0f, null);
+
+        /// <summary>The recorded set holds no supply-voltage meter.</summary>
+        public static SupplyVoltage NotSelected() =>
+            new SupplyVoltage(SupplyVoltageState.NotSelected, 0f, null);
 
         /// <summary>The meter exists and has never reported.</summary>
         public static SupplyVoltage NoSample() =>

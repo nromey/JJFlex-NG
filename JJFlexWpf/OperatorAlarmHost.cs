@@ -37,6 +37,7 @@ namespace JJFlexWpf
     {
         private static FlexBaseAlarmFeed? _feed;
         private static AlarmJournal? _journal;
+        private static FlexBase? _rig;
         private static bool _captureWasOn;
 
         public static AlarmService? Service { get; private set; }
@@ -61,6 +62,14 @@ namespace JJFlexWpf
                 if (_journal != null) Delivery.Reported += _journal.RecordDelivery;
                 Presets = OperatorPresetStore.Default();
 
+                // THE ONE SELECTION (#566, folded 2026-10-01): the service's
+                // recorded set is also what the diagnostic capture records for
+                // temperature and supply voltage. Pushed to the rig now and on
+                // every change, so CaptureMeterSet has no list of its own.
+                _rig = rig;
+                Service.Changed += PushCaptureSelection;
+                PushCaptureSelection();
+
                 _captureWasOn = DiagnosticsBridge.IsCapturing?.Invoke() ?? false;
                 DiagnosticsBridge.StateChanged += OnDiagnosticsStateChanged;
                 Tracing.TraceLine("OperatorAlarmHost: attached" + (_journal == null ? " (no journal: settings root unresolved)" : ""),
@@ -70,6 +79,24 @@ namespace JJFlexWpf
             {
                 Tracing.TraceLine("OperatorAlarmHost: could not attach — " + ex.Message, TraceLevel.Error);
                 Detach();
+            }
+        }
+
+        /// <summary>The recorded set, as meter names, to the rig's capture writer. Cheap; the service already built the list.</summary>
+        private static void PushCaptureSelection()
+        {
+            AlarmService? service = Service;
+            FlexBase? rig = _rig;
+            if (service == null || rig == null) return;
+            try
+            {
+                var names = new System.Collections.Generic.List<string>();
+                foreach (MeterDescriptor d in service.RecordedMetersResolved) names.Add(d.Name);
+                rig.SetCaptureSelection(names);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("OperatorAlarmHost: could not push the capture selection — " + ex.Message, TraceLevel.Warning);
             }
         }
 
@@ -92,6 +119,8 @@ namespace JJFlexWpf
         public static void Detach()
         {
             DiagnosticsBridge.StateChanged -= OnDiagnosticsStateChanged;
+            if (Service != null) Service.Changed -= PushCaptureSelection;
+            _rig = null;
             try { Delivery?.Dispose(); } catch { }
             try { Service?.Dispose(); } catch { }
             try { _journal?.Dispose(); } catch { }

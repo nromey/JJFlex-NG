@@ -185,7 +185,7 @@
   "alarms.dialog.history_empty": "Nothing has happened yet.",
   "alarms.dialog.history_row": "{when}: {event}",
   "alarms.dialog.recorded_title": "Recorded meters — JJ Flexible",
-  "alarms.dialog.recorded_intro": "Every meter with an alarm is recorded per reading while the alarm is enabled. Tick any other meter to record it too, without an alarm.",
+  "alarms.dialog.recorded_intro": "Every meter with an enabled alarm is recorded per reading. Tick any other meter to record it too, without an alarm. The ticked meters are also what a diagnostic capture records for PA temperature and supply voltage.",
   "alarms.dialog.recorded_by_alarm": "{meter} (recorded because an alarm watches it)",
 
   "_review_editor": "The Add and Edit form, in the design's field order. Units go in the accessible name of every numeric field. Delete lives here, after Save and Save as preset, and only when an existing alarm is open — ruled by Noel 2026-09-22 (#566): 'move it in.'",
