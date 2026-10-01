@@ -21,6 +21,8 @@ namespace Radios.Tests
         private bool _isConnected;
 
         public event PropertyChangedEventHandler? PropertyChanged;
+        public event EventHandler<long>? ConnectionDialing;
+        public event EventHandler<WanTransportStateEventArgs>? TransportStateChanged;
         public event EventHandler<WanRadioConnectReadyEventArgs>? WanRadioConnectReady;
         public event EventHandler? WanApplicationRegistrationInvalid;
         public event EventHandler<WanRadioListReceivedEventArgs>? WanRadioRadioListReceived;
@@ -53,6 +55,28 @@ namespace Radios.Tests
         /// </summary>
         public Action? OnPropertyChangedHook { get; set; }
 
+        /// <summary>
+        /// Runs inside <see cref="Connect"/> on a dial, after the generation
+        /// and <see cref="ConnectionDialing"/> have been published and before
+        /// anything else happens — where the real adapter is creating and
+        /// dialing its transport, for up to fifteen seconds. A test that
+        /// blocks here holds a dial in progress, which is the only way to
+        /// decide a parked callback DURING a dial rather than before or
+        /// after it (#619).
+        /// </summary>
+        public Action? DialHook { get; set; }
+
+        /// <summary>
+        /// Runs at the top of <see cref="Connect"/>, BEFORE the generation
+        /// advances and before <see cref="ConnectionDialing"/> is published —
+        /// where the real monitor thread stands between deciding to dial and
+        /// the adapter's Connect. A test that blocks here holds the monitor
+        /// with a dial decided but not begun, which is the ordering Sol's
+        /// review of L5 named for Dispose and Disconnect overlapping a dial
+        /// (#619).
+        /// </summary>
+        public Action? BeforeDialHook { get; set; }
+
         // --- Observable call counters ---
 
         private int _connectCallCount;
@@ -70,9 +94,28 @@ namespace Radios.Tests
             get => _isConnected;
         }
 
+        private long _connectionGeneration;
+
+        /// <summary>
+        /// Advances on every <see cref="Connect"/> that dials, as the real
+        /// adapter's does — before the connection is up, so a list raised from
+        /// inside the connect (via <see cref="OnPropertyChangedHook"/>) already
+        /// carries the new generation, which is the ordering the reverse race
+        /// in #619 needs. <see cref="ConnectionDialing"/> is raised right
+        /// after, as the adapter raises it before its transport exists.
+        /// </summary>
+        public long ConnectionGeneration => Volatile.Read(ref _connectionGeneration);
+
         public void Connect()
         {
             Interlocked.Increment(ref _connectCallCount);
+            if (!_isConnected)
+            {
+                BeforeDialHook?.Invoke();
+                long generation = Interlocked.Increment(ref _connectionGeneration);
+                ConnectionDialing?.Invoke(this, generation);
+                DialHook?.Invoke();
+            }
 
             if (ConnectDelay is { } delay)
             {
@@ -135,9 +178,23 @@ namespace Radios.Tests
             WanRadioConnectReady?.Invoke(this, new WanRadioConnectReadyEventArgs(handle, serial));
         }
 
+        /// <summary>
+        /// A list from the connection most recently dialed, as a live push is.
+        /// </summary>
         public void RaiseWanRadioRadioListReceived(IReadOnlyList<Radio> radios)
         {
-            WanRadioRadioListReceived?.Invoke(this, new WanRadioListReceivedEventArgs(radios));
+            RaiseWanRadioRadioListReceivedFrom(ConnectionGeneration, radios);
+        }
+
+        /// <summary>
+        /// A list stamped with a chosen connection generation. With one below
+        /// <see cref="ConnectionGeneration"/> this is the late callback Sol
+        /// named in his review of Track L3: a transport that has since been
+        /// replaced delivering its list after the reconnect (#619).
+        /// </summary>
+        public void RaiseWanRadioRadioListReceivedFrom(long connectionGeneration, IReadOnlyList<Radio> radios)
+        {
+            WanRadioRadioListReceived?.Invoke(this, new WanRadioListReceivedEventArgs(radios, connectionGeneration));
         }
 
         public void RaiseWanApplicationRegistrationInvalid()
@@ -162,6 +219,10 @@ namespace Radios.Tests
             if (_isConnected == value) return;
             _isConnected = value;
             OnPropertyChangedHook?.Invoke();
+            // Stamped with the connection most recently dialed, as the real
+            // adapter stamps each transport's edge with its own generation;
+            // the stamped edge precedes the unstamped wake-up, as there.
+            TransportStateChanged?.Invoke(this, new WanTransportStateEventArgs(ConnectionGeneration, value));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsConnected)));
         }
     }

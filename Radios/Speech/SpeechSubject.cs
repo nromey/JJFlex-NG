@@ -162,6 +162,20 @@ namespace Radios.Speech
         public const string ProfileStationCompany = "profile-station-company";
 
         /// <summary>
+        /// Another operator arriving on or leaving the radio, as the RADIO'S
+        /// OWN status reported it — "{who} connected", "{who} disconnected".
+        /// One subject for both directions, because the later of the two is
+        /// the current state of that company and the earlier one is
+        /// worthless once it is heard: an arrival announced after the same
+        /// client's departure would describe a roster that no longer exists.
+        /// Emitted only for a report on this connection's command transport;
+        /// a client that appears in SmartLink's list or a discovery broadcast
+        /// is shown, labelled as reported, and never spoken under this subject
+        /// (#634, Track L6).
+        /// </summary>
+        public const string ClientPresence = "client-presence";
+
+        /// <summary>
         /// The radio the operator is on, as stated by the connect briefing's
         /// lead — "Connected to FLEX-8600, SmartLink, 4 slices." One
         /// connection at a time, so the next connect's lead replaces an

@@ -1,9 +1,9 @@
-﻿<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.MultiFlexDialog"
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.MultiFlexDialog"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="clr-namespace:JJFlexWpf"
     Title="MultiFlex Clients"
-    Width="420" Height="340"
+    Width="460" Height="420"
     ResizeMode="NoResize">
     <DockPanel Margin="12">
         <!-- Buttons at bottom -->
@@ -17,9 +17,19 @@
                     Click="CloseButton_Click"/>
         </StackPanel>
 
+        <!-- Why Disconnect is unavailable for the selected row, when it is.
+             A readable line, not only an announcement: a disabled button
+             says nothing about why, and speech does not survive a focus
+             change (#643). Empty and collapsed when the button is enabled. -->
+        <TextBlock x:Name="DisconnectReasonText" DockPanel.Dock="Bottom"
+                   Style="{StaticResource DialogLabel}" Margin="0,8,0,0"
+                   TextWrapping="Wrap" Visibility="Collapsed"
+                   AutomationProperties.LiveSetting="Polite"/>
+
         <StackPanel>
             <TextBlock x:Name="SummaryText" Text="Connected clients:"
-                       Style="{StaticResource DialogLabel}" Margin="0,0,0,8"/>
+                       Style="{StaticResource DialogLabel}" Margin="0,0,0,8"
+                       TextWrapping="Wrap"/>
             <ListBox x:Name="ClientList" Height="200"
                      AutomationProperties.Name="Connected clients"
                      SelectionChanged="ClientList_SelectionChanged"/>

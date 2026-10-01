@@ -86,6 +86,92 @@ namespace Radios.SmartLink
         /// </summary>
         DateTime? LastRadioListUtc { get; }
 
+        /// <summary>
+        /// The latest radio list together with the two facts that say whether
+        /// it describes the present — is the session connected, and did the
+        /// list arrive on the connection that is live now — read under one
+        /// lock, so the three can never come from different moments.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Why <see cref="LastRadioListUtc"/> is not enough.</b> A
+        /// session keeps its list across a drop, on purpose: the post-drop
+        /// diagnostic probe reads it to choose which radio to test, and the
+        /// connect flow replays it for discovery. So after a reconnect, and
+        /// before the new connection's first list, a connected session is
+        /// still carrying the previous connection's list with a non-null
+        /// timestamp. A non-null timestamp proves the session received SOME
+        /// list, not that its current connection did — and a reader asking
+        /// about now could take a listing the radio has since left as a
+        /// current answer (#619).</para>
+        ///
+        /// <para><b>Where "arrived on the live connection" comes from.</b>
+        /// Each list carries the generation of the transport it was born on,
+        /// stamped by the adapter at the moment that transport was created —
+        /// never a number the owner happened to hold when the callback
+        /// reached it, which is what Track L3 did and what let a callback
+        /// from a replaced transport, arriving late, read as the new
+        /// connection's (Sol's review of L3). A list from a replaced transport
+        /// is not held at all, so nothing here can be one.</para>
+        ///
+        /// <para>This does not replace <see cref="AvailableRadios"/> or
+        /// <see cref="LastRadioListUtc"/>, whose meanings are unchanged. It is
+        /// for a reader whose sentence is in the present tense.</para>
+        /// </remarks>
+        SessionRadioListSnapshot RadioListSnapshot { get; }
+
+        /// <summary>
+        /// Whether a list born on <paramref name="connectionGeneration"/> is
+        /// this session's current knowledge AT THIS MOMENT: that connection
+        /// is the newest dialed, this owner has not torn it down, its
+        /// transport has not reported itself gone, and the operator still
+        /// wants the session up. The same predicate the owner's own list
+        /// handler accepts under; a consumer that receives a list later than
+        /// that decision asks it again, with the list's own generation.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Why a consumer asks twice (#619, Sol's review of L5).</b>
+        /// The owner accepts a list under its lock, releases the lock, and
+        /// forwards it. Between those two a dial can begin and the NEXT
+        /// connection's list can be accepted and forwarded, so the first
+        /// list arrives at the consumer after the second and would be read
+        /// as newer. Holding the owner's lock across the forward would
+        /// serialize that, at the price of holding it through the
+        /// coordinator and the intake — arbitrary callbacks, one of which
+        /// takes the intake's own lock. So the provenance travels with the
+        /// list instead, and the consumer compares it with the live one at
+        /// the moment it consumes, under its own lock.</para>
+        /// </remarks>
+        bool ListIsCurrent(long connectionGeneration);
+
+        /// <summary>
+        /// Fired when something has happened that can make a list this
+        /// session delivered stop being current: the live connection's
+        /// transport reported itself gone, a new connection began dialing,
+        /// the operator asked the session to disconnect, or the session is
+        /// being disposed. It carries no verdict. A consumer holding a
+        /// sighting from one of this session's lists asks
+        /// <see cref="ListIsCurrent"/> again, with that sighting's own
+        /// generation, and acts on the answer.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Why a consumer needs a signal and not only a question
+        /// (#619, Noel's ruling of 2026-09-30).</b> The picker asks
+        /// <see cref="ListIsCurrent"/> whenever a sighting arrives, and that
+        /// is enough for a picker opened after a drop. But a drop raises no
+        /// sighting, so a picker already open kept the SmartLink rows it had
+        /// taken as live reading online, and eligible for auto-connect, until
+        /// another list happened to arrive. The rows keep describing the last
+        /// list; this tells the consumer that list may now be history.</para>
+        /// <para>Raised outside this owner's lock, after the change is
+        /// recorded, so a consumer that asks at once already gets the new
+        /// answer. It fires on whichever thread witnessed the change — the
+        /// transport's, the monitor's, or the caller of
+        /// <see cref="Disconnect"/> or Dispose — so a consumer marshals before
+        /// touching a window. Being raised when nothing a consumer holds has
+        /// changed is harmless: the consumer re-asks and nothing moves.</para>
+        /// </remarks>
+        event EventHandler? ListCurrencyMayHaveChanged;
+
         /// <summary>Audio output primitive for this session (D2 discipline).</summary>
         ISessionAudioSink AudioSink { get; }
 
@@ -210,6 +296,38 @@ namespace Radios.SmartLink
         /// </summary>
         event EventHandler<NetworkDiagnosticReport>? NetworkReportReady;
     }
+
+    /// <summary>
+    /// A session's latest radio list and how current it is, read together —
+    /// see <see cref="IWanSessionOwner.RadioListSnapshot"/>.
+    /// </summary>
+    /// <param name="Radios">The latest list the server sent this session, on
+    /// any connection. Empty before the first list.</param>
+    /// <param name="ReceivedUtc">When it arrived, or null if no list ever
+    /// has. Same value as <see cref="IWanSessionOwner.LastRadioListUtc"/>.</param>
+    /// <param name="SessionConnected">The session is connected now.</param>
+    /// <param name="ArrivedOnTheLiveConnection">The list arrived on the
+    /// connection that is live now, and that connection's transport has not
+    /// reported itself gone. False whenever the session is not connected,
+    /// false after a reconnect until the new connection's first list lands,
+    /// and false from the moment the transport reports its death — before
+    /// the monitor has changed the session's status (#619).</param>
+    /// <param name="ConnectionGeneration">The
+    /// <see cref="IWanServer.ConnectionGeneration"/> of the connection the
+    /// list arrived on; -1 before any list. With <see cref="SessionId"/> this
+    /// names the list exactly, so a consumer that took rows from it can later
+    /// prove those rows came from the list that is current now, rather than
+    /// from an earlier connection's that happened to describe the same
+    /// account.</param>
+    /// <param name="SessionId">The session that holds the list, so the
+    /// generation is scoped: generations restart when a session is rebuilt.</param>
+    public readonly record struct SessionRadioListSnapshot(
+        IReadOnlyList<Radio> Radios,
+        DateTime? ReceivedUtc,
+        bool SessionConnected,
+        bool ArrivedOnTheLiveConnection,
+        long ConnectionGeneration,
+        string SessionId);
 
     /// <summary>Event payload for signal-strength threshold crossings.</summary>
     public sealed class SignalThresholdEventArgs : EventArgs

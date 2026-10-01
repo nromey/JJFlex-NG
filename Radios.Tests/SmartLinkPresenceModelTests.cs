@@ -238,6 +238,15 @@ namespace Radios.Tests
 
         // --- Coordinator: attributed aggregation, passive creation ---
 
+        /// <summary>The session, once its mock transport reports connected.</summary>
+        private static IWanSessionOwner Connected(IWanSessionOwner session)
+        {
+            session.Connect();
+            Assert.True(SpinWait.SpinUntil(() => session.IsConnected, 5000),
+                "the mock session never reported connected");
+            return session;
+        }
+
         private static SmartLinkSessionCoordinator BuildCoordinator(Dictionary<string, MockWanServer> wansByAccount)
         {
             return new SmartLinkSessionCoordinator(accountId =>
@@ -293,8 +302,11 @@ namespace Radios.Tests
             var seen = new List<string>();
             coordinator.SessionRadioListReceived += (_, e) => { lock (seen) seen.Add(e.AccountId); };
 
-            coordinator.GetOrCreateSession("noel@example.test");
-            coordinator.GetOrCreateSession("don@example.test");
+            // Connected first: the server only pushes to a session that asked
+            // to be connected, and the owner refuses a list on one that did
+            // not (#619, Track L6a).
+            Connected(coordinator.GetOrCreateSession("noel@example.test"));
+            Connected(coordinator.GetOrCreateSession("don@example.test"));
 
             wans["don@example.test"].RaiseWanRadioRadioListReceived(Array.Empty<Radio>());
             wans["noel@example.test"].RaiseWanRadioRadioListReceived(Array.Empty<Radio>());
@@ -312,7 +324,7 @@ namespace Radios.Tests
             int fired = 0;
             coordinator.SessionRadioListReceived += (_, _) => Interlocked.Increment(ref fired);
 
-            var session = coordinator.GetOrCreateSession("don@example.test");
+            var session = Connected(coordinator.GetOrCreateSession("don@example.test"));
             wans["don@example.test"].RaiseWanRadioRadioListReceived(Array.Empty<Radio>());
             Assert.Equal(1, fired);
 

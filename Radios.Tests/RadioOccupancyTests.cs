@@ -450,8 +450,9 @@ namespace Radios.Tests
             string flex = Read(Flex);
             string globals = Read(Globals);
 
-            // The dropped push still banks the freshly parsed objects.
-            Assert.Contains("RememberWanRadio(r, e.AccountId);",
+            // The dropped push still banks the freshly parsed objects — with
+            // the list they came from, since Track L12 (#619).
+            Assert.Contains("RememberWanRadio(r, e.AccountId, provenance);",
                 flex, StringComparison.Ordinal);
             // The dialog reads that bank for rows nothing has fed.
             Assert.Contains("FlexBase.TryGetWanGuiClientStations(serial, out var banked)",
@@ -479,8 +480,8 @@ namespace Radios.Tests
             string flex = Read(Flex);
 
             Assert.Contains(".WanAvailable = e.WanAvailable,", globals, StringComparison.Ordinal);
-            Assert.Contains("row.WanAvailable = radio.WanAvailable;", dialog, StringComparison.Ordinal);
-            Assert.Contains("if (r.IsWan) RememberWanRadio(r);", flex, StringComparison.Ordinal);
+            Assert.Contains("row.WanAvailable = outcome.Paths.Wan;", dialog, StringComparison.Ordinal);
+            Assert.Contains("if (r.IsWan) RememberWanRadio(r, null, fromWanList);", flex, StringComparison.Ordinal);
 
             Assert.DoesNotContain("NoSuchOccupancySymbol", globals, StringComparison.Ordinal);
             Assert.DoesNotContain("NoSuchOccupancySymbol", dialog, StringComparison.Ordinal);

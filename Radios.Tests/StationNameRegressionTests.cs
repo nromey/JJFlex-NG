@@ -97,6 +97,22 @@ namespace Radios.Tests
             return (coordinator, wan!);
         }
 
+        /// <summary>
+        /// Bring <paramref name="account"/>'s session up the way production
+        /// does, through Connect(). The server only pushes a list to a
+        /// session that asked to be connected, and since Track L6a the owner
+        /// refuses a list on a session nobody asked for (#619) — so a test
+        /// that pushes must connect first, as the server's client would have.
+        /// </summary>
+        private static IWanSessionOwner ConnectedSession(string account)
+        {
+            var session = SmartLinkServices.Coordinator.GetSessionForAccount(account);
+            Assert.NotNull(session);
+            session!.Connect();
+            WaitUntil(() => session.IsConnected, "the mock session never reported connected");
+            return session;
+        }
+
         private FlexBase NewRig(string stationName = "K5TEST")
         {
             var rig = new FlexBase(new FlexBase.OpenParms
@@ -165,6 +181,7 @@ namespace Radios.Tests
             rig.EngageSmartLinkPresence();
             rig.Dispose();
             Assert.Null(FlexBase.PresenceIntake);
+            ConnectedSession(account);
 
             var serial = UniqueSerial();
 
@@ -191,20 +208,18 @@ namespace Radios.Tests
             rig.EngageSmartLinkPresence();
             rig.Dispose();
 
-            var serial = UniqueSerial();
-            wan.RaiseWanRadioRadioListReceived(new[] { NewWanRadio(serial) });
-            Assert.Equal(owner, FlexBase.WanAccountForSerial(serial));
-
             // The owning account's session is up: the connect will route
             // through it, so the sentence must name it — not the account in
             // play. This divergence is the whole of #401. IsConnected is the
             // OWNER's state machine, so bring it up the way production does —
             // through Connect() — rather than poking the mock's flag.
-            var session = SmartLinkServices.Coordinator.GetSessionForAccount(owner);
-            Assert.NotNull(session);
-            session!.Connect();
-            WaitUntil(() => session.IsConnected,
+            var session = ConnectedSession(owner);
+            Assert.True(session.IsConnected,
                 "the owning session never reached Connected, so this test is not measuring the resolver");
+
+            var serial = UniqueSerial();
+            wan.RaiseWanRadioRadioListReceived(new[] { NewWanRadio(serial) });
+            Assert.Equal(owner, FlexBase.WanAccountForSerial(serial));
 
             Assert.Equal(owner, FlexBase.AccountThatWillBroker(serial, "in-play@example.test"));
         }
@@ -219,15 +234,24 @@ namespace Radios.Tests
             rig.EngageSmartLinkPresence();
             rig.Dispose();
 
+            // The owning session lists the radio while it is up, then goes
+            // down. Until Track L6a this test pushed on a never-connected
+            // session; the owner refuses that now (#619), which left the
+            // serial unbanked and the fallback below true for the wrong
+            // reason. The bank assertion is the positive control that the
+            // fallback is now being measured.
+            var session = ConnectedSession(owner);
             var serial = UniqueSerial();
             wan.RaiseWanRadioRadioListReceived(new[] { NewWanRadio(serial) });
+            Assert.Equal(owner, FlexBase.WanAccountForSerial(serial));
 
-            // Session exists but was never connected: sendRemoteConnect would
-            // fall through to the active session, so the words must too.
-            var session = SmartLinkServices.Coordinator.GetSessionForAccount(owner);
-            Assert.NotNull(session);
-            Assert.False(session!.IsConnected,
-                "the never-connected session reports Connected, so the fallback below would be untested");
+            session.Disconnect();
+            WaitUntil(() => session.Status == SessionStatus.Disconnected,
+                "the owning session never went down, so the fallback below would be untested");
+
+            // Session exists but is down: sendRemoteConnect would fall
+            // through to the active session, so the words must too.
+            Assert.False(session.IsConnected);
             Assert.Equal("in-play@example.test",
                 FlexBase.AccountThatWillBroker(serial, "in-play@example.test"));
         }

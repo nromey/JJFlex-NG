@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Threading;
 using Flex.Smoothlake.FlexLib;
 using JJTrace;
 
@@ -28,13 +29,36 @@ namespace Radios.SmartLink
     /// wrapped <see cref="WanServer"/>, so with one session held open per
     /// SmartLink account each session hears only its own account's lists.
     /// </para>
+    ///
+    /// <para>
+    /// <b>One <see cref="WanServer"/> per dial (Sprint 45 Track L4, #619).</b>
+    /// "For this connection" in that event's name means "for this WanServer
+    /// instance", and a WanServer reused across reconnects — which this
+    /// adapter did, one instance for its whole life — cannot say which of its
+    /// transports a list came from: <c>WanServer.Connect</c> creates a fresh
+    /// <c>SslClient</c> per dial, holds it in a private field, and the message
+    /// delegate carries only the text. So the adapter retires its WanServer on
+    /// every dial and creates a new one, which makes a WanServer's identity
+    /// the same thing as its one transport's identity, and subscribes the new
+    /// instance's list event with the new generation captured in the
+    /// subscription. A list from an old transport can only ever reach the old
+    /// instance's handler, and that handler can only ever say the old
+    /// generation — however late the callback arrives. Nothing in the vendor
+    /// tree changed for this.
+    /// </para>
     /// </summary>
     public sealed class WanServerAdapter : IWanServer
     {
-        private readonly WanServer _wan;
+        // The instance for the connection most recently dialed. Replaced under
+        // _gate by every Connect() that dials; read under _gate everywhere else.
+        private WanServer _wan;
         private readonly System.Threading.Lock _gate = new();
         private readonly string _tracePrefix;
         private bool _disposed;
+
+        // Written under _gate, BEFORE the WanServer that carries the value is
+        // created; read without the lock (see IWanServer.ConnectionGeneration).
+        private long _connectionGeneration;
 
         /// <summary>
         /// Create an adapter wrapping a fresh <see cref="WanServer"/> instance.
@@ -45,15 +69,26 @@ namespace Radios.SmartLink
         /// (D3 discipline — per-session trace tagging).
         /// </param>
         public WanServerAdapter(string tracePrefix = "")
+            : this(tracePrefix, static () => new WanServer())
+        {
+        }
+
+        /// <summary>
+        /// For the suite: the same adapter, with the <see cref="WanServer"/>
+        /// instances supplied by <paramref name="newWanServer"/>, so the
+        /// dial-retire-dial path can run against instances that never reach
+        /// a network. Production uses the public constructor.
+        /// </summary>
+        internal WanServerAdapter(string tracePrefix, Func<WanServer> newWanServer)
         {
             _tracePrefix = string.IsNullOrEmpty(tracePrefix) ? "" : tracePrefix + " ";
-            _wan = new WanServer();
-            _wan.PropertyChanged += OnWanPropertyChanged;
-            _wan.WanRadioConnectReady += OnWanRadioConnectReady;
-            _wan.WanApplicationRegistrationInvalid += OnWanApplicationRegistrationInvalid;
-            _wan.TestConnectionResultsReceived += OnTestConnectionResultsReceived;
-            _wan.RadioListReceivedForThisConnection += OnWanRadioRadioListReceived;
+            _newWanServer = newWanServer ?? throw new ArgumentNullException(nameof(newWanServer));
+            // Generation 0: never dialed, so nothing can ever arrive on it. It
+            // exists so IsConnected and the no-op sends have something to ask.
+            _wan = Hook(_newWanServer(), generation: 0);
         }
+
+        private readonly Func<WanServer> _newWanServer;
 
         // --- IWanServer surface ---
 
@@ -65,11 +100,39 @@ namespace Radios.SmartLink
             }
         }
 
+        public long ConnectionGeneration => Volatile.Read(ref _connectionGeneration);
+
         public void Connect()
         {
             Tracing.TraceLine($"{_tracePrefix}WanServerAdapter.Connect", TraceLevel.Info);
             lock (_gate)
             {
+                // Stock WanServer.Connect returns when it already holds a
+                // transport; the same rule here, so a redundant Connect does
+                // not retire a live connection.
+                if (_wan.IsConnected) return;
+
+                var previous = _wan;
+                long generation = _connectionGeneration + 1;
+                // The generation is published, and every subscriber told,
+                // before the transport that will carry it exists. So by the
+                // time any list can say this generation, the owner has already
+                // recorded it — and a list from the OLD instance, even one
+                // whose callback was already at the owner's door when this
+                // dial began, is decided either before the owner records this
+                // (its connection really was the newest then) or after (it is
+                // refused). The decision lives in WanSessionOwner, under the
+                // lock it records this under; the ordering that leaves it no
+                // third case lives here (#619).
+                //
+                // Raised while _gate is held. The owner's handler takes its
+                // own _stateGate inside; nothing on the owner takes _stateGate
+                // and then calls into this adapter, so the order is one-way.
+                Volatile.Write(ref _connectionGeneration, generation);
+                ConnectionDialing?.Invoke(this, generation);
+                Retire(previous);
+                _wan = Hook(_newWanServer(), generation);
+                Tracing.TraceLine($"{_tracePrefix}WanServerAdapter.Connect dialing connection {generation}", TraceLevel.Info);
                 _wan.Connect();
             }
         }
@@ -119,12 +182,76 @@ namespace Radios.SmartLink
         // --- Events (re-raised from FlexLib) ---
 
         public event PropertyChangedEventHandler? PropertyChanged;
+        public event EventHandler<long>? ConnectionDialing;
+        public event EventHandler<WanTransportStateEventArgs>? TransportStateChanged;
         public event EventHandler<WanRadioConnectReadyEventArgs>? WanRadioConnectReady;
         public event EventHandler? WanApplicationRegistrationInvalid;
         public event EventHandler<WanRadioListReceivedEventArgs>? WanRadioRadioListReceived;
         public event EventHandler<WanTestConnectionResultsEventArgs>? TestConnectionResultsReceived;
 
+        // --- Instance lifetime ---
+
+        /// <summary>
+        /// Subscribe a fresh <see cref="WanServer"/>, with the generation of the
+        /// one connection it will ever dial captured in its list subscription.
+        /// </summary>
+        /// <remarks>
+        /// The list subscription is a closure over <paramref name="generation"/>
+        /// and is never unhooked, not even by <see cref="Retire"/>: a callback
+        /// from a transport that has been replaced still arrives, still
+        /// labelled with the generation it was born under, and the owner
+        /// traces it as stale rather than mistaking it for the live
+        /// connection's. Keeping it visible is the point. The retired instance
+        /// is referenced by nothing else once its read loop ends, so it is
+        /// collected in the ordinary way.
+        /// </remarks>
+        private WanServer Hook(WanServer wan, long generation)
+        {
+            // Two subscriptions to one vendor event, on purpose. The first is
+            // stamped like the list subscription, and for the same reason: a
+            // replaced transport's read loop can report its own death after
+            // the next connection has been dialed, and an edge that did not
+            // say whose it was would land on the new connection (#619, Sol's
+            // review of L5). Never unhooked, like the list event, so the late
+            // report arrives labelled and the owner ignores it by name. The
+            // second is the unstamped wake-up the monitor sleeps on; Retire
+            // unhooks it, so a dead transport cannot wake anything. Stamped
+            // first, so a subscriber has recorded the edge before the wake.
+            wan.PropertyChanged += (sender, e) => OnWanTransportStateChanged(generation, sender, e);
+            wan.PropertyChanged += OnWanPropertyChanged;
+            wan.WanRadioConnectReady += OnWanRadioConnectReady;
+            wan.WanApplicationRegistrationInvalid += OnWanApplicationRegistrationInvalid;
+            wan.TestConnectionResultsReceived += OnTestConnectionResultsReceived;
+            wan.RadioListReceivedForThisConnection += radios => OnWanRadioRadioListReceived(generation, radios);
+            return wan;
+        }
+
+        /// <summary>
+        /// Unhook a <see cref="WanServer"/> whose one transport is gone. Its
+        /// connection-state wake-up, connect-ready, registration and probe
+        /// events can only describe that dead transport, so they are no
+        /// longer forwarded; its list event and its STAMPED connection-state
+        /// event stay hooked, each carrying its generation (see
+        /// <see cref="Hook"/>).
+        /// </summary>
+        private void Retire(WanServer wan)
+        {
+            wan.PropertyChanged -= OnWanPropertyChanged;
+            wan.WanRadioConnectReady -= OnWanRadioConnectReady;
+            wan.WanApplicationRegistrationInvalid -= OnWanApplicationRegistrationInvalid;
+            wan.TestConnectionResultsReceived -= OnTestConnectionResultsReceived;
+        }
+
         // --- FlexLib bridging handlers ---
+
+        private void OnWanTransportStateChanged(long generation, object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != nameof(WanServer.IsConnected) || sender is not WanServer wan) return;
+            Tracing.TraceLine(
+                $"{_tracePrefix}WanServerAdapter.TransportStateChanged connection={generation} isConnected={wan.IsConnected} newest={ConnectionGeneration}",
+                TraceLevel.Info);
+            TransportStateChanged?.Invoke(this, new WanTransportStateEventArgs(generation, wan.IsConnected));
+        }
 
         private void OnWanPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
@@ -152,12 +279,12 @@ namespace Radios.SmartLink
             WanApplicationRegistrationInvalid?.Invoke(this, EventArgs.Empty);
         }
 
-        private void OnWanRadioRadioListReceived(List<Radio> radios)
+        private void OnWanRadioRadioListReceived(long generation, List<Radio> radios)
         {
             Tracing.TraceLine(
-                $"{_tracePrefix}WanServerAdapter.WanRadioRadioListReceived count={radios.Count}",
+                $"{_tracePrefix}WanServerAdapter.WanRadioRadioListReceived count={radios.Count} connection={generation} newest={ConnectionGeneration}",
                 TraceLevel.Info);
-            WanRadioRadioListReceived?.Invoke(this, new WanRadioListReceivedEventArgs(radios));
+            WanRadioRadioListReceived?.Invoke(this, new WanRadioListReceivedEventArgs(radios, generation));
         }
 
         private void OnTestConnectionResultsReceived(WanTestConnectionResults r)
@@ -183,21 +310,19 @@ namespace Radios.SmartLink
 
             Tracing.TraceLine($"{_tracePrefix}WanServerAdapter.Dispose", TraceLevel.Info);
 
-            _wan.PropertyChanged -= OnWanPropertyChanged;
-            _wan.WanRadioConnectReady -= OnWanRadioConnectReady;
-            _wan.WanApplicationRegistrationInvalid -= OnWanApplicationRegistrationInvalid;
-            _wan.TestConnectionResultsReceived -= OnTestConnectionResultsReceived;
-            _wan.RadioListReceivedForThisConnection -= OnWanRadioRadioListReceived;
-
-            try
+            lock (_gate)
             {
-                lock (_gate) { _wan.Disconnect(); }
-            }
-            catch (Exception ex)
-            {
-                Tracing.TraceLine(
-                    $"{_tracePrefix}WanServerAdapter.Dispose Disconnect threw: {ex.Message}",
-                    TraceLevel.Error);
+                Retire(_wan);
+                try
+                {
+                    _wan.Disconnect();
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine(
+                        $"{_tracePrefix}WanServerAdapter.Dispose Disconnect threw: {ex.Message}",
+                        TraceLevel.Error);
+                }
             }
         }
     }
