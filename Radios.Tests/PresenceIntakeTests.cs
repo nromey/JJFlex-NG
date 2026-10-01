@@ -111,8 +111,16 @@ namespace Radios.Tests
             SmartLinkServices.Override(coordinator);
 
             // Registers the owner with the coordinator, which is what wires its
-            // list event through to SessionRadioListReceived. Does not connect.
-            coordinator.GetOrCreateSession(Account);
+            // list event through to SessionRadioListReceived — and connects
+            // it, because the server only ever pushes a list to a session
+            // that asked to be connected, and since Track L6a the owner
+            // refuses a list on a session nobody asked for (#619). The mock
+            // could always raise one on a never-connected session; these
+            // tests are about the intake, not about that state.
+            var session = coordinator.GetOrCreateSession(Account);
+            session.Connect();
+            Assert.True(System.Threading.SpinWait.SpinUntil(() => session.IsConnected, 5000),
+                "the mock session never reported connected");
 
             Assert.NotNull(wan);
             return (coordinator, wan!);

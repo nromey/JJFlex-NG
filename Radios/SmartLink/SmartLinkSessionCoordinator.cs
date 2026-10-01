@@ -52,6 +52,18 @@ namespace Radios.SmartLink
         /// </summary>
         public event EventHandler<SessionRadioListEventArgs>? SessionRadioListReceived;
 
+        /// <summary>
+        /// One subscription point for <see cref="IWanSessionOwner.ListCurrencyMayHaveChanged"/>
+        /// from EVERY session this coordinator holds, with the session that
+        /// raised it. Carries no verdict: a consumer holding sightings from a
+        /// session's lists asks each one again whether its list is still
+        /// current (#619). The radio picker is the consumer this exists for:
+        /// a SmartLink drop while it is open raises no sighting, so without
+        /// this its rows went on reading online. Fires on whichever thread
+        /// the session witnessed the change on; consumers must marshal.
+        /// </summary>
+        public event EventHandler<IWanSessionOwner>? SessionListCurrencyMayHaveChanged;
+
         public SmartLinkSessionCoordinator(Func<string, IWanSessionOwner> sessionFactory)
         {
             _sessionFactory = sessionFactory ?? throw new ArgumentNullException(nameof(sessionFactory));
@@ -161,6 +173,7 @@ namespace Radios.SmartLink
                         ?? throw new InvalidOperationException("Session factory returned null");
             _sessions[owner.SessionId] = owner;
             owner.RadioListReceived += OnSessionRadioListReceived;
+            owner.ListCurrencyMayHaveChanged += OnSessionListCurrencyMayHaveChanged;
             Tracing.TraceLine($"Coordinator: created session id={owner.SessionId} account={accountId}", TraceLevel.Info);
             return owner;
         }
@@ -168,8 +181,19 @@ namespace Radios.SmartLink
         private void OnSessionRadioListReceived(object? sender, WanRadioListReceivedEventArgs e)
         {
             if (sender is not IWanSessionOwner owner) return;
+            // The generation travels on: the owner accepted this list under
+            // its lock and is forwarding it outside that lock, so by the time
+            // a consumer reads it the live connection may have moved on. The
+            // consumer asks the session, with this generation, at the moment
+            // it consumes (#619).
             SessionRadioListReceived?.Invoke(this,
-                new SessionRadioListEventArgs(owner.AccountId, owner.SessionId, e.Radios));
+                new SessionRadioListEventArgs(owner.AccountId, owner.SessionId, e.Radios, e.ConnectionGeneration, owner));
+        }
+
+        private void OnSessionListCurrencyMayHaveChanged(object? sender, EventArgs e)
+        {
+            if (sender is not IWanSessionOwner owner) return;
+            SessionListCurrencyMayHaveChanged?.Invoke(this, owner);
         }
 
         /// <summary>
@@ -201,6 +225,9 @@ namespace Radios.SmartLink
                 removed.RadioListReceived -= OnSessionRadioListReceived;
                 try { removed.Disconnect(); } catch (Exception ex) { TraceWarn("Disconnect threw", ex); }
                 try { removed.Dispose(); } catch (Exception ex) { TraceWarn("Dispose threw", ex); }
+                // Unsubscribed only now, so the removed session's own "my
+                // lists are history" reaches the consumers first (#619).
+                removed.ListCurrencyMayHaveChanged -= OnSessionListCurrencyMayHaveChanged;
 
                 if (wasActive)
                 {
@@ -275,6 +302,7 @@ namespace Radios.SmartLink
             {
                 owner.RadioListReceived -= OnSessionRadioListReceived;
                 try { owner.Dispose(); } catch (Exception ex) { TraceWarn("Session dispose threw", ex); }
+                owner.ListCurrencyMayHaveChanged -= OnSessionListCurrencyMayHaveChanged;
             }
 
             Tracing.TraceLine("Coordinator: disposed", TraceLevel.Info);
@@ -293,17 +321,39 @@ namespace Radios.SmartLink
         /// <summary>Session that delivered it, for trace correlation.</summary>
         public string SessionId { get; }
 
-        /// <summary>The server's FULL current list for this account.</summary>
+        /// <summary>The server's FULL current list for this account — as of
+        /// the connection it arrived on. Whether that is still the live
+        /// connection is a question for <see cref="Session"/>, asked with
+        /// <see cref="ConnectionGeneration"/> at the moment of consuming.</summary>
         public System.Collections.Generic.IReadOnlyList<Flex.Smoothlake.FlexLib.Radio> Radios { get; }
+
+        /// <summary>
+        /// The <see cref="IWanServer.ConnectionGeneration"/> of the connection
+        /// this list was born on, carried from the adapter's stamp through the
+        /// owner unchanged (#619).
+        /// </summary>
+        public long ConnectionGeneration { get; }
+
+        /// <summary>
+        /// The session that delivered the list, so a consumer can ask
+        /// <see cref="IWanSessionOwner.ListIsCurrent"/> when it consumes
+        /// rather than when the list was forwarded. Read it for that question
+        /// only; D4 still forbids capturing it into a field.
+        /// </summary>
+        public IWanSessionOwner Session { get; }
 
         public SessionRadioListEventArgs(
             string accountId,
             string sessionId,
-            System.Collections.Generic.IReadOnlyList<Flex.Smoothlake.FlexLib.Radio> radios)
+            System.Collections.Generic.IReadOnlyList<Flex.Smoothlake.FlexLib.Radio> radios,
+            long connectionGeneration,
+            IWanSessionOwner session)
         {
             AccountId = accountId;
             SessionId = sessionId;
             Radios = radios;
+            ConnectionGeneration = connectionGeneration;
+            Session = session ?? throw new ArgumentNullException(nameof(session));
         }
     }
 }
