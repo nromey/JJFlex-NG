@@ -112,7 +112,10 @@ namespace Radios.Alarms
             string change = Value(Math.Abs(e.Change), units);
             string interval = double.IsNaN(e.IntervalSeconds) ? "" : Math.Round(e.IntervalSeconds).ToString("0", CultureInfo.CurrentCulture);
 
-            switch (def.PresetKey)
+            // A preset's sentences only while the definition still IS that
+            // preset in the ways the sentences assume (finding 7); an edited
+            // one takes the generic assembly below, which is true of any meter.
+            switch (AlarmPresets.WordingApplies(def) ? def.PresetKey : "")
             {
                 case AlarmPresets.PaTemperature:
                     return Lexicon.Get(tx ? "alarms.pa.high_tx" : "alarms.pa.high_rx", ("value", value));

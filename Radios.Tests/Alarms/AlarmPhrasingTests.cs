@@ -107,6 +107,56 @@ namespace Radios.Tests.Alarms
         }
 
         [Fact]
+        public void An_edited_preset_keeps_its_wording_only_while_the_words_are_still_true()
+        {
+            // Astra's Track I review, finding 7: a PA preset edited onto a
+            // voltage meter announced the volts as "PA temperature ... degrees
+            // C"; one changed to notify-only still told the operator to
+            // release transmit. The sentence was false, not awkward.
+            var pa = AlarmPresets.Build(AlarmPresets.PaTemperature, Pa, Serial, "pa");
+            Assert.True(AlarmPresets.WordingApplies(pa));
+
+            // Same preset key, the meter changed to supply voltage and the line to 12 V.
+            var onVolts = pa with { Selector = MeterSelector.From(SupplyA8600), Threshold = 12, Direction = AlarmDirection.AtOrBelow };
+            Assert.False(AlarmPresets.WordingApplies(onVolts));
+            string s = AlarmPhrasing.Warning(Ev(onVolts, SupplyA8600, 11.9f, tx: true));
+            Assert.Equal("High PA temperature: +13.8A (+13.8V at PA) is 11.90 volts, at or below 12.00. Release transmit now.", s);
+            Assert.DoesNotContain("degrees", s);
+
+            // Same preset, action changed to notify-only: no instruction at all.
+            var notify = pa with { Action = AlarmActionClass.NotifyOnly };
+            Assert.False(AlarmPresets.WordingApplies(notify));
+            string n = AlarmPhrasing.Warning(Ev(notify, Pa, 63.5f, tx: true));
+            Assert.Equal("High PA temperature: PATEMP (PA Temperature) is 63.5 degrees C, at or above 60.", n);
+            Assert.DoesNotContain("Release transmit", n);
+
+            // Same preset, condition changed to a trend: the generic trend sentence, with the change it measured.
+            var trend = pa with { Condition = AlarmCondition.RisingFast, Threshold = 12, TrendResetRise = 10 };
+            Assert.False(AlarmPresets.WordingApplies(trend));
+            Assert.StartsWith("High PA temperature: PATEMP (PA Temperature) rose 12.3 degrees C in 90 seconds, now 42.9 degrees C.",
+                AlarmPhrasing.Warning(Ev(trend, Pa, 42.9f, tx: false, change: 12.3f, interval: 90.3)));
+
+            // Positive control: an untouched preset, and one whose edits leave
+            // the words true (a different line, a different margin), keep them.
+            Assert.True(AlarmPresets.WordingApplies(pa with { Threshold = 65, Hysteresis = 3, ReminderIntervalSeconds = 60 }));
+            Assert.Equal("PA temperature 66 degrees C. Release transmit now.",
+                AlarmPhrasing.Warning(Ev(pa with { Threshold = 65 }, Pa, 66f, tx: true)));
+
+            // And every voltage preset moved onto the PA meter loses its words
+            // too: the generic frame names the METER and never says volts. (The
+            // alarm's NAME still says "supply voltage", because a name is the
+            // operator's data and is not rewritten for them.)
+            foreach (string key in new[] { AlarmPresets.VoltageLow, AlarmPresets.VoltageHigh, AlarmPresets.VoltageDrop })
+            {
+                var v = AlarmPresets.Build(key, SupplyA8600, Serial, "v") with { Selector = MeterSelector.From(Pa) };
+                Assert.False(AlarmPresets.WordingApplies(v));
+                string w = AlarmPhrasing.Warning(Ev(v, Pa, 61f, tx: false, change: 5f));
+                Assert.Contains("PATEMP (PA Temperature)", w);
+                Assert.DoesNotContain("volts", w);
+            }
+        }
+
+        [Fact]
         public void The_same_meter_names_mean_different_places_on_the_8600_and_the_sentence_says_each_radio_own()
         {
             // +13.8A and +13.8B are published by BOTH radios and mean different

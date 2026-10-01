@@ -79,13 +79,64 @@ namespace Radios.Alarms
         public const double ReminderSeconds = 30;
 
         public static bool IsPaTemperature(MeterDescriptor d) =>
-            string.Equals(d.Name, "PATEMP", StringComparison.OrdinalIgnoreCase) && d.Units == MeterUnits.DegreesC;
+            IsPaTemperature(d.Name, d.Units);
 
         /// <summary>A supply-voltage meter: volts, and named for the 13.8 V rail the way both radios name theirs.</summary>
         public static bool IsSupplyVoltage(MeterDescriptor d) =>
-            d.Units == MeterUnits.Volts
-            && (d.Name.StartsWith("+13.8", StringComparison.OrdinalIgnoreCase)
-                || d.Description.IndexOf("input voltage", StringComparison.OrdinalIgnoreCase) >= 0);
+            IsSupplyVoltage(d.Name, d.Description, d.Units);
+
+        private static bool IsPaTemperature(string name, MeterUnits units) =>
+            string.Equals(name, "PATEMP", StringComparison.OrdinalIgnoreCase) && units == MeterUnits.DegreesC;
+
+        private static bool IsSupplyVoltage(string name, string description, MeterUnits units) =>
+            units == MeterUnits.Volts
+            && (name.StartsWith("+13.8", StringComparison.OrdinalIgnoreCase)
+                || description.IndexOf("input voltage", StringComparison.OrdinalIgnoreCase) >= 0);
+
+        /// <summary>
+        /// Whether a definition that came from a shipped preset may still be
+        /// SPOKEN with that preset's sentences.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Astra's Track I review, finding 7.</b> A preset's wording is
+        /// written for one measurement and one action: "PA temperature
+        /// {value} degrees C. Release transmit now." An operator who edits the
+        /// PA preset onto a voltage meter, or changes its action to
+        /// notify-only, kept the preset key, and the warning then named the
+        /// wrong measurement in the wrong unit, or told them to release
+        /// transmit when they had asked only to be told. The sentence was
+        /// false, not awkward.
+        /// </para>
+        /// <para>
+        /// So the key is identity — where the definition came from — and the
+        /// WORDING is conditional on the constraints the words assume: the
+        /// condition and direction the preset has, a meter of the family it
+        /// was written for, and the stop-transmit action its sentences carry.
+        /// Anything else falls back to the generic condition, unit and action
+        /// assembly, which is true for any meter. Checked in phrasing, not
+        /// cleared in the editor, so a file edited by hand gets the same
+        /// honesty.
+        /// </para>
+        /// </remarks>
+        public static bool WordingApplies(AlarmDefinition def)
+        {
+            if (def == null || !IsShipped(def.PresetKey)) return false;
+            MeterSelector s = def.Selector;
+            bool pa = IsPaTemperature(s.Name, s.Units);
+            bool supply = IsSupplyVoltage(s.Name, s.Description, s.Units);
+            bool stop = def.Action == AlarmActionClass.StopTransmit;
+            return def.PresetKey switch
+            {
+                PaTemperature => pa && stop && def.Condition == AlarmCondition.Level && def.Direction == AlarmDirection.AtOrAbove,
+                PaRiseFromBaseline => pa && stop && def.Condition == AlarmCondition.RiseFromBaseline && def.Direction == AlarmDirection.AtOrAbove,
+                PaRisingFast => pa && stop && def.Condition == AlarmCondition.RisingFast,
+                VoltageLow => supply && stop && def.Condition == AlarmCondition.Level && def.Direction == AlarmDirection.AtOrBelow,
+                VoltageHigh => supply && stop && def.Condition == AlarmCondition.Level && def.Direction == AlarmDirection.AtOrAbove,
+                VoltageDrop => supply && stop && def.Condition == AlarmCondition.RiseFromBaseline && def.Direction == AlarmDirection.AtOrBelow,
+                _ => false,
+            };
+        }
 
         /// <summary>
         /// Every preset this connection can support, and every one it cannot,
