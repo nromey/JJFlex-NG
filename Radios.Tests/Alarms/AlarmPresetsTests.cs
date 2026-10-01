@@ -43,18 +43,18 @@ namespace Radios.Tests.Alarms
             Assert.Equal("PA temperature rising fast", offers.Single(o => o.Key == AlarmPresets.PaRisingFast).Definition!.Name);
 
             var lowA = offers.Single(o => o.Key == AlarmPresets.VoltageLow && o.Meter.Name == "+13.8A");
-            Assert.Equal("Low supply voltage before fuse", lowA.Definition!.Name);
+            Assert.Equal("Low supply voltage before the fuse", lowA.Definition!.Name);
             Assert.Equal(208, lowA.Definition.Selector.SourceIndex);
-            Assert.Equal("High supply voltage before fuse",
+            Assert.Equal("High supply voltage before the fuse",
                 offers.Single(o => o.Key == AlarmPresets.VoltageHigh && o.Meter.Name == "+13.8A").Definition!.Name);
-            Assert.Equal("Supply voltage fall before fuse",
+            Assert.Equal("Supply voltage fall before the fuse",
                 offers.Single(o => o.Key == AlarmPresets.VoltageDrop && o.Meter.Name == "+13.8A").Definition!.Name);
 
-            Assert.Equal("Low supply voltage after fuse",
+            Assert.Equal("Low supply voltage after the fuse",
                 offers.Single(o => o.Key == AlarmPresets.VoltageLow && o.Meter.Name == "+13.8B").Definition!.Name);
-            Assert.Equal("High supply voltage after fuse",
+            Assert.Equal("High supply voltage after the fuse",
                 offers.Single(o => o.Key == AlarmPresets.VoltageHigh && o.Meter.Name == "+13.8B").Definition!.Name);
-            Assert.Equal("Supply voltage fall after fuse",
+            Assert.Equal("Supply voltage fall after the fuse",
                 offers.Single(o => o.Key == AlarmPresets.VoltageDrop && o.Meter.Name == "+13.8B").Definition!.Name);
         }
 
@@ -133,9 +133,9 @@ namespace Radios.Tests.Alarms
             // The 8600 publishes the same two meter NAMES as the 6300 and means
             // different places by them, so the fuse must not follow them here.
             var lowA = offers.Single(o => o.Key == AlarmPresets.VoltageLow && o.Meter.Name == "+13.8A");
-            Assert.Equal("Low supply voltage at PA", lowA.Definition!.Name);
+            Assert.Equal("Low supply voltage at the PA", lowA.Definition!.Name);
             var dropB = offers.Single(o => o.Key == AlarmPresets.VoltageDrop && o.Meter.Name == "+13.8B");
-            Assert.Equal("Supply voltage fall at CPU", dropB.Definition!.Name);
+            Assert.Equal("Supply voltage fall at the CPU", dropB.Definition!.Name);
             Assert.DoesNotContain("fuse", dropB.Definition.Name);
             Assert.Equal(3, dropB.Definition.Selector.SourceIndex);
         }

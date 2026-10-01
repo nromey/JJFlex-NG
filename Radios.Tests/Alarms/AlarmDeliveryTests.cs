@@ -80,7 +80,7 @@ namespace Radios.Tests.Alarms
             _speechClock.Advance(1);
 
             var w = Assert.Single(_speaker.Warnings);
-            Assert.Equal("PA temperature 63.5 degrees C. Stay in receive and let the radio cool.", w.Text);
+            Assert.Equal("Stay in receive. PA temperature is 63.5 degrees C. Let the radio cool.", w.Text);
             Assert.Equal(SpeechSubject.OperatorAlarm("pa"), w.Subject);
             var report = Assert.Single(_reports);
             Assert.True(report.SoundRequested);
@@ -170,10 +170,10 @@ namespace Radios.Tests.Alarms
             Deliver(61f);
             _speechClock.Advance(AlarmDelivery.ToneLeadMs);
             var refresh = _speaker.Warnings[0].Refresh;
-            Assert.Equal("PA temperature 61 degrees C. Stay in receive and let the radio cool.", refresh());
+            Assert.Equal("Stay in receive. PA temperature is 61 degrees C. Let the radio cool.", refresh());
 
             Deliver(62.4f);   // in the reminder interval: no new event, but the value moved
-            Assert.Equal("PA temperature 62.4 degrees C. Stay in receive and let the radio cool.", refresh());
+            Assert.Equal("Stay in receive. PA temperature is 62.4 degrees C. Let the radio cool.", refresh());
 
             s.Acknowledge("pa");
             Assert.Null(refresh());
@@ -329,7 +329,7 @@ namespace Radios.Tests.Alarms
 
             Assert.Single(_sounds);
             var w = Assert.Single(_speaker.Warnings);
-            Assert.StartsWith("Test warning from the alarm High PA temperature. Nothing is wrong. A real warning would say: PA temperature 60 degrees C.", w.Text);
+            Assert.StartsWith("Test warning from the alarm High PA temperature. Nothing is wrong. A real warning would say: Stay in receive. PA temperature is 60 degrees C.", w.Text);
             Assert.True(_reports[0].IsPreview);
             Assert.Equal(AlarmConditionState.Normal, s.SnapshotOf("pa")!.Condition);
             Assert.Equal(w.Text, w.Refresh());   // a preview never re-reads a live value

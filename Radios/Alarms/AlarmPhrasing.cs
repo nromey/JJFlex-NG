@@ -18,8 +18,8 @@ namespace Radios.Alarms
     /// The distinction design section 5 insists on: a reflected-power cut
     /// reports an action already taken; an operator alarm reports a measured
     /// condition and the action the operator should take. Nothing here says
-    /// transmit was cut, because it was not. Subject, value, then action,
-    /// with the action in the first breath and no explanation in front of it.
+    /// transmit was cut, because it was not. The action comes first, then
+    /// the condition and its value, then any advice that can wait.
     /// </para>
     /// <para>
     /// The operator's name for an alarm is DATA: it is substituted into a
@@ -56,21 +56,27 @@ namespace Radios.Alarms
 
         /// <summary>
         /// Where on the supply the voltage is measured, in the few words a ham
-        /// says, at one of two lengths: "before fuse" and "at PA" at the normal
-        /// length, "before" and "PA" when <paramref name="terse"/>.
+        /// says: "before the fuse" and "after the fuse" on a 6300, "at the PA"
+        /// and "at the CPU" on an 8600. One length, everywhere it is said.
         /// </summary>
         /// <remarks>
         /// <para>
-        /// <b>RULED by Noel 2026-09-23 04:42 (#566): NO COMMAS, AND TWO
-        /// LENGTHS.</b> <i>"If verbosity is set to terse I'd just say before and
-        /// after, otherwise I'd just say 'before fuse' and 'after fuse', no
-        /// comma."</i> The first cut (2026-09-22) said "before the fuse" between
-        /// commas, and every sentence that led with a preset NAME then ran into
-        /// its verb at exactly the place the comma promised a pause: "Delete the
-        /// Low supply voltage, before the fuse alarm?" With no comma in the
-        /// phrase there is no collision to patch. The terse length is for the
-        /// spoken warning when verbosity is Terse; a preset NAME is stored data
-        /// and always takes the normal length (<see cref="AlarmPresets.PresetName"/>).
+        /// <b>RULED by Noel 2026-10-01 07:17 and 07:18 (#566): "low supply
+        /// voltage before THE fuse", and the same place phrase in preset names,
+        /// in the normal warning and in the terse warning.</b> A terse warning
+        /// is shortened by dropping the follow-up advice, never the place (see
+        /// <see cref="Warning(AlarmEvent, bool)"/>). This SUPERSEDES the
+        /// two-lengths part of his 2026-09-23 04:42 ruling, which gave terse a
+        /// bare "before" and "after": assembled, "Supply voltage before is 11.90
+        /// volts" left "before" with no object, and he judged that he had
+        /// misread the question the earlier ruling answered.
+        /// </para>
+        /// <para>
+        /// <b>NO COMMAS still stands from 2026-09-23.</b> The first cut
+        /// (2026-09-22) put the phrase between commas, and every sentence that
+        /// led with a preset NAME then ran into its verb at exactly the place the
+        /// comma promised a pause: "Delete the Low supply voltage, before the fuse
+        /// alarm?" With no comma in the phrase there is no collision to patch.
         /// </para>
         /// <para>
         /// <b>Keyed on the name AND the description together, not the name
@@ -82,54 +88,75 @@ namespace Radios.Alarms
         /// </para>
         /// <para>
         /// <b>A meter this build has not met is named by the radio's own meter
-        /// NAME</b> — "Supply voltage +13.8C is 11.90 volts" — rather than its
-        /// description. The description is where the place lives, but without
-        /// the commas a description inside this frame reads as the very
-        /// sentence Noel first objected to ("Supply voltage Main radio input
-        /// voltage before fuse is ..."); the description is still in the list
-        /// row, the status and the editor. DRAFT: this fallback was not part of
-        /// the ruling and is Noel's to confirm.
+        /// NAME, after the word "meter"</b> — "Low supply voltage on meter +13.8C
+        /// is 11.90 volts" — rather than its description. "Meter" tells the
+        /// listener what the unfamiliar code names (Sol's language pass,
+        /// 2026-10-01). The description is where the place lives, but inside
+        /// this frame it reads as the very sentence Noel first objected to
+        /// ("Supply voltage Main radio input voltage before fuse is ..."); the
+        /// description is still in the list row, the status and the editor. No
+        /// physical place is claimed for a meter we have no evidence about.
+        /// DRAFT: this fallback was not part of either ruling and is Noel's to
+        /// confirm.
         /// </para>
         /// </remarks>
-        public static string MeasurementPoint(MeterDescriptor m, bool terse = false)
+        public static string MeasurementPoint(MeterDescriptor m)
         {
-            foreach (var (name, description, key, terseKey) in KnownPoints)
+            foreach (var (name, description, key) in KnownPoints)
             {
                 if (string.Equals(m.Name, name, StringComparison.OrdinalIgnoreCase)
                     && string.Equals(m.Description, description, StringComparison.OrdinalIgnoreCase))
-                    return Lexicon.Get(terse ? terseKey : key);
+                    return Lexicon.Get(key);
             }
-            return m.Name;
+            return Lexicon.Get("alarms.point.meter", ("meter", m.Name));
         }
 
         /// <summary>
-        /// The spoken warning takes the terse place-phrase when the operator's
-        /// verbosity is Terse — the ruling's "if verbosity is set to terse" —
-        /// and the normal one otherwise. Read at speak time, so the setting
-        /// moving between two warnings changes the second.
+        /// The spoken warning takes its terse frame when the operator's
+        /// verbosity is Terse, and the normal one otherwise. Read at speak time,
+        /// so the setting moving between two warnings changes the second.
         /// </summary>
-        private static bool TersePlace => ScreenReaderOutput.CurrentVerbosity == VerbosityLevel.Terse;
+        private static bool Terse => ScreenReaderOutput.CurrentVerbosity == VerbosityLevel.Terse;
 
         /// <summary>
         /// The supply meters whose inventories we hold: a 6300, from a trace of
         /// 2026-09-06, and the bench 8600, from the capture of 2026-09-07. Nothing here is a model-wide claim — a radio that
         /// publishes a supply meter under other words falls back to its own.
         /// </summary>
-        private static readonly (string Name, string Description, string Key, string TerseKey)[] KnownPoints =
+        private static readonly (string Name, string Description, string Key)[] KnownPoints =
         {
-            ("+13.8A", "Main radio input voltage before fuse", "alarms.point.before_fuse", "alarms.point.before_fuse.terse"),
-            ("+13.8B", "Main radio input voltage after fuse", "alarms.point.after_fuse", "alarms.point.after_fuse.terse"),
-            ("+13.8A", "+13.8V at PA", "alarms.point.at_pa", "alarms.point.at_pa.terse"),
-            ("+13.8B", "+13.8V at CPU", "alarms.point.at_cpu", "alarms.point.at_cpu.terse"),
+            ("+13.8A", "Main radio input voltage before fuse", "alarms.point.before_fuse"),
+            ("+13.8B", "Main radio input voltage after fuse", "alarms.point.after_fuse"),
+            ("+13.8A", "+13.8V at PA", "alarms.point.at_pa"),
+            ("+13.8B", "+13.8V at CPU", "alarms.point.at_cpu"),
         };
 
         // ── the warnings ──
 
         /// <summary>The sentence for a firing, a reminder or a worsening, with the tx or rx action, at the operator's verbosity.</summary>
-        public static string Warning(AlarmEvent e) => Warning(e, TersePlace);
+        public static string Warning(AlarmEvent e) => Warning(e, Terse);
 
-        /// <summary>The same, with the place-phrase length chosen by the caller — the testable form.</summary>
-        public static string Warning(AlarmEvent e, bool tersePlace)
+        /// <summary>The same, with the length chosen by the caller — the testable form.</summary>
+        /// <remarks>
+        /// <para>
+        /// <b>The action comes FIRST</b> wherever the alarm has one — "Release
+        /// transmit now." or "Stay in receive." — so the first complete clause
+        /// still works if the rest of the sentence is cut off (Sol's language
+        /// pass, adopted 2026-10-01). That helps a partial delivery only; it does
+        /// nothing for a sentence cancelled before its first word (#643), where
+        /// the tone and the alarm list carry the warning.
+        /// </para>
+        /// <para>
+        /// <b><paramref name="terse"/> picks a genuinely shorter frame</b> for a
+        /// supply warning: the same place phrase, the same condition word and the
+        /// same action, without the follow-up advice to have the supply path
+        /// checked. Separate keys rather than a shorter place phrase, because one
+        /// frame cannot serve both lengths. The PA warnings and the generic
+        /// assembly have one length; nothing has yet asked for a terse form of
+        /// them.
+        /// </para>
+        /// </remarks>
+        public static string Warning(AlarmEvent e, bool terse)
         {
             AlarmDefinition def = e.Definition;
             MeterDescriptor meter = MeterOf(e);
@@ -153,12 +180,20 @@ namespace Radios.Alarms
                     return Lexicon.Get(tx ? "alarms.pa.rising_fast_tx" : "alarms.pa.rising_fast_rx",
                         ("change", change), ("interval", interval), ("value", value));
                 case AlarmPresets.VoltageLow:
-                    return Lexicon.Get(tx ? "alarms.voltage.low_tx" : "alarms.voltage.low_rx", ("point", MeasurementPoint(meter, tersePlace)), ("value", value));
+                    return Lexicon.Get(terse
+                            ? (tx ? "alarms.voltage.low_tx.terse" : "alarms.voltage.low_rx.terse")
+                            : (tx ? "alarms.voltage.low_tx" : "alarms.voltage.low_rx"),
+                        ("point", MeasurementPoint(meter)), ("value", value));
                 case AlarmPresets.VoltageHigh:
-                    return Lexicon.Get(tx ? "alarms.voltage.high_tx" : "alarms.voltage.high_rx", ("point", MeasurementPoint(meter, tersePlace)), ("value", value));
+                    return Lexicon.Get(terse
+                            ? (tx ? "alarms.voltage.high_tx.terse" : "alarms.voltage.high_rx.terse")
+                            : (tx ? "alarms.voltage.high_tx" : "alarms.voltage.high_rx"),
+                        ("point", MeasurementPoint(meter)), ("value", value));
                 case AlarmPresets.VoltageDrop:
-                    return Lexicon.Get(tx ? "alarms.voltage.drop_tx" : "alarms.voltage.drop_rx",
-                        ("point", MeasurementPoint(meter, tersePlace)), ("change", change), ("value", value));
+                    return Lexicon.Get(terse
+                            ? (tx ? "alarms.voltage.drop_tx.terse" : "alarms.voltage.drop_rx.terse")
+                            : (tx ? "alarms.voltage.drop_tx" : "alarms.voltage.drop_rx"),
+                        ("point", MeasurementPoint(meter)), ("change", change), ("value", value));
             }
 
             string key;
@@ -178,8 +213,9 @@ namespace Radios.Alarms
                 ("threshold", Value(def.Threshold, units)), ("change", change), ("interval", interval),
                 ("alarm", def.Name));
 
+            // The action first, as in the preset frames, so it survives a cut.
             string action = Action(def, tx);
-            return Tidy(action.Length == 0 ? sentence : sentence + " " + action);
+            return Tidy(action.Length == 0 ? sentence : action + " " + sentence);
         }
 
         /// <summary>The action clause for a generic alarm, from lexicon-owned templates. Empty for notify-only.</summary>
@@ -379,6 +415,7 @@ namespace Radios.Alarms
             if (all.Count == 0) return Lexicon.Get("alarms.summary.none");
 
             var active = new List<string>();
+            var lastKnown = new List<string>();
             int unavailable = 0;
             int notReady = 0;
             foreach (AlarmSnapshot s in all)
@@ -393,12 +430,17 @@ namespace Radios.Alarms
                 }
                 else if (s.Condition == AlarmConditionState.LastKnownActive)
                 {
-                    // A last-known value is history, and the sentence says so
-                    // rather than reading a stopped meter as a current one
-                    // (Astra's Track I review, prose qualifications).
-                    string value = s.LastFresh.HasValue ? Value(s.LastFresh.Value.Value, units) : "";
-                    active.Add(Tidy(Lexicon.Get("alarms.summary.item_last_known",
-                        ("value", value), ("units", value.Length == 0 ? "" : Units(units)), ("alarm", s.Definition.Name))));
+                    // A last-known value is history, and it gets a sentence of
+                    // its own rather than a place in the "active" count: "1 of 1
+                    // alarms active" is false when the meter has stopped
+                    // reporting (Sol's language pass, adopted 2026-10-01). A
+                    // monitor that lost its meter outright keeps no reading, so
+                    // that case has a frame without a value instead of a
+                    // dangling "at".
+                    lastKnown.Add(s.LastFresh.HasValue
+                        ? Tidy(Lexicon.Get("alarms.summary.last_known",
+                            ("value", Value(s.LastFresh.Value.Value, units)), ("units", Units(units)), ("alarm", s.Definition.Name)))
+                        : Lexicon.Get("alarms.summary.last_known_no_value", ("alarm", s.Definition.Name)));
                 }
 
                 bool resolvedAndFed = s.Resolution == MeterSelectorStatus.Resolved
@@ -421,15 +463,29 @@ namespace Radios.Alarms
                 }
             }
 
-            string head = active.Count == 0
-                ? Lexicon.Get("alarms.summary.quiet", ("count", all.Count.ToString(CultureInfo.CurrentCulture)))
-                : Lexicon.Get("alarms.summary.active", ("active", active.Count.ToString(CultureInfo.CurrentCulture)),
-                    ("count", all.Count.ToString(CultureInfo.CurrentCulture)), ("list", string.Join("; ", active)));
+            // The order, chosen 2026-10-01 when last-known alarms left the
+            // active count: what is active NOW, then what was active when its
+            // reading stopped, then how many cannot be watched, then how many
+            // are not ready. "N of M alarms active" counts only the alarms whose
+            // current reading is on the bad side. With nothing active now but
+            // something last-known, there is no head at all: "none active" would
+            // claim more than a stopped meter can tell us, so the last-known
+            // sentences lead. The unavailable count stays a count rather than
+            // "It": it covers every alarm, and a last-known alarm whose meter is
+            // merely waiting after a reconnect is counted as not ready instead.
+            var parts = new List<string>();
+            if (active.Count > 0)
+                parts.Add(Lexicon.Get("alarms.summary.active", ("active", active.Count.ToString(CultureInfo.CurrentCulture)),
+                    ("count", all.Count.ToString(CultureInfo.CurrentCulture)), ("list", string.Join("; ", active))));
+            else if (lastKnown.Count == 0)
+                parts.Add(Lexicon.Get("alarms.summary.quiet", ("count", all.Count.ToString(CultureInfo.CurrentCulture))));
+            parts.AddRange(lastKnown);
             if (unavailable > 0)
-                head += " " + Lexicon.Get("alarms.summary.unavailable", ("unavailable", unavailable.ToString(CultureInfo.CurrentCulture)));
+                parts.Add(Lexicon.Get("alarms.summary.unavailable", ("unavailable", unavailable.ToString(CultureInfo.CurrentCulture))));
             if (notReady > 0)
-                head += " " + Lexicon.Get("alarms.summary.not_ready", ("count", notReady.ToString(CultureInfo.CurrentCulture)));
-            return Tidy(head);
+                parts.Add(Lexicon.Get(notReady == 1 ? "alarms.summary.not_ready_one" : "alarms.summary.not_ready",
+                    ("count", notReady.ToString(CultureInfo.CurrentCulture))));
+            return Tidy(string.Join(" ", parts));
         }
 
         /// <summary>One history row's words, for a browsable recent-event list.</summary>

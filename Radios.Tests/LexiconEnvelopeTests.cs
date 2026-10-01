@@ -687,6 +687,19 @@ namespace Radios.Tests
             // down, which #617's 2026-09-24 ruling makes a state of its own —
             // not an acknowledgement — lasting until the reading worsens. Frozen
             // with the gate's printed line, not classified (#629 stands).
+            //
+            // 3,068 after Track IJK3's alarm prose pass (2026-10-01): Noel's
+            // 07:17 and 07:18 rulings give the place phrase ONE length, so the
+            // four alarms.point.*.terse keys leave (-4), and the terse WARNING
+            // gets its own six frames instead, alarms.voltage.*_tx.terse and
+            // *_rx.terse (+6). alarms.summary.item_last_known leaves (-1) for
+            // alarms.summary.last_known and last_known_no_value (+2), because a
+            // last-known alarm is no longer counted active and a meter lost
+            // outright has no value to quote; alarms.summary.not_ready_one
+            // (+1) is the singular of the new not-ready sentence; and
+            // alarms.point.meter (+1) names a meter we have not met. Net +5.
+            // Twenty-eight reworded keys were re-frozen with the gate's
+            // printed fingerprints, not classified (#629 stands).
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -699,7 +712,7 @@ namespace Radios.Tests
                 }
             }
 
-            Assert.Equal(3063, unclassified);
+            Assert.Equal(3068, unclassified);
             Assert.All(classified, key =>
                 Assert.StartsWith("facts.", key, StringComparison.Ordinal));
             Assert.True(classified.Count > 30,

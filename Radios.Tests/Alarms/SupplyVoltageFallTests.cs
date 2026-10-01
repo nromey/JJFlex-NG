@@ -44,10 +44,10 @@ namespace Radios.Tests.Alarms
 
         public static IEnumerable<object[]> Descriptors()
         {
-            yield return new object[] { A6300, "before fuse" };
-            yield return new object[] { B6300, "after fuse" };
-            yield return new object[] { A8600, "at PA" };
-            yield return new object[] { B8600, "at CPU" };
+            yield return new object[] { A6300, "before the fuse" };
+            yield return new object[] { B6300, "after the fuse" };
+            yield return new object[] { A8600, "at the PA" };
+            yield return new object[] { B8600, "at the CPU" };
         }
 
         /// <summary>
@@ -103,10 +103,10 @@ namespace Radios.Tests.Alarms
             Assert.Equal(AlarmDirection.AtOrBelow, fired.Definition.Direction);
             Assert.Equal(AlarmConditionState.Active, low.Condition);
 
-            // The sentence names the place without a comma, and the action.
-            string said = AlarmPhrasing.Warning(fired, tersePlace: false);
-            Assert.StartsWith("Supply voltage " + place + " is 11.", said);
-            Assert.EndsWith("Release transmit and have the supply path checked.", said);
+            // The action first, then the place without a comma, then the advice.
+            string said = AlarmPhrasing.Warning(fired, terse: false);
+            Assert.StartsWith("Release transmit now. Low supply voltage " + place + " is 11.", said);
+            Assert.EndsWith("Have the supply path checked.", said);
 
             // Still low for the rest of the keying: thirty rows, no clear, one
             // interval reminder at thirty seconds, and the rest inside it.
@@ -129,8 +129,8 @@ namespace Radios.Tests.Alarms
             Assert.InRange(fired.Change, 0.62f, 0.63f);
             Assert.Equal(AlarmDirection.AtOrBelow, fired.Definition.Direction);
 
-            string said = AlarmPhrasing.Warning(fired, tersePlace: false);
-            Assert.StartsWith("Supply voltage " + place + " fell 0.63 volts from the baseline, now 13.", said);
+            string said = AlarmPhrasing.Warning(fired, terse: false);
+            Assert.StartsWith("Release transmit now. Supply voltage " + place + " fell 0.63 volts from its baseline to 13.", said);
         }
 
         [Theory]
@@ -162,7 +162,7 @@ namespace Radios.Tests.Alarms
             // The fixture's own claim, pinned: these are the descriptor sets the
             // phrasing table holds, and no two share a place-phrase.
             var places = Descriptors().Select(d => AlarmPhrasing.MeasurementPoint((MeterDescriptor)d[0])).ToList();
-            Assert.Equal(new[] { "before fuse", "after fuse", "at PA", "at CPU" }, places);
+            Assert.Equal(new[] { "before the fuse", "after the fuse", "at the PA", "at the CPU" }, places);
             Assert.Equal(4, places.Distinct().Count());
         }
     }
