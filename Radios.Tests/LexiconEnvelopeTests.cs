@@ -651,6 +651,16 @@ namespace Radios.Tests
             // that may have left since, which the approved "until the radio
             // identifies it" states falsely. Frozen as a DRAFT for the same
             // reason. When Track I merges on top of this, it reads 3,050.
+            //
+            // Then 2,831 when integration merged into Track N (#638): the
+            // three keys the connect-time ownership question brought with it
+            // -- connect.ownership.reason, connect.ownership.silencing, and
+            // settings.silenced.ownership, the label the suppression store
+            // reads back. Frozen as DRAFTS for the same reason. The
+            // arithmetic, because the merge got it wrong once: merge base
+            // 2,757 + Track N's 3 + integration's 71. Only one of the three
+            // conflicted, so resolving the conflict alone undercounts by two.
+            // Whoever merges Track I on top of this adds the same 3.
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -663,7 +673,7 @@ namespace Radios.Tests
                 }
             }
 
-            Assert.Equal(2829, unclassified);
+            Assert.Equal(2831, unclassified);
             Assert.All(classified, key =>
                 Assert.StartsWith("facts.", key, StringComparison.Ordinal));
             Assert.True(classified.Count > 30,

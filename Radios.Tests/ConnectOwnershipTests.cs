@@ -452,7 +452,14 @@ public sealed class ConnectOwnershipTests : IDisposable
         using Radios = Headless;
         public class RadioListItem {
             public string Serial = "";
-            public bool IsLive = true, ForeignAccount, LanAvailable = true, WanAvailable = true;
+            public bool ForeignAccount, LanAvailable = true, WanAvailable = true, WanUnconfirmed;
+            // Availability is three facts and the rest is read from them,
+            // exactly as the production row does it (#619, Track L12). Keep
+            // these computed: a settable IsLive let the stub disagree with
+            // the shipped rule without anything noticing.
+            public global::Radios.PickerRowPaths Paths => new(LanAvailable, WanAvailable, WanUnconfirmed);
+            public bool IsLive => Paths.IsLive;
+            public bool HasPathToTry => Paths.HasPathToTry;
             public string BoundAccount = "", LastSeenViaAccount = "";
             public List<ConnectPathKind> EffectiveChain = new() { ConnectPathKind.Local, ConnectPathKind.SmartLink };
         }
@@ -465,6 +472,15 @@ public sealed class ConnectOwnershipTests : IDisposable
         public class Account { public string Email = "borrowed@example.invalid"; }
         public class Accounts { public Account GetAccountByEmail(string email) => new Account(); }
         public static class FlexBase { public static Accounts SharedAccountManager = new(); }
+        // A FORWARDER, not a stub. The harness aliases Radios to Headless so
+        // that the spliced picker source finds terminal collaborators here, and
+        // that alias also catches the sighting rules, which are real production
+        // logic. Forwarding means the test reads the SHIPPED answer; stubbing
+        // would have it read this file's opinion instead.
+        public static class PickerSighting {
+            public static bool AutoConnectMayChoose(global::Radios.PickerRowPaths row) =>
+                global::Radios.PickerSighting.AutoConnectMayChoose(row);
+        }
         namespace StationConnect {
             public static class StationCoordinator {
                 public static bool OwnershipQuestionWouldHelp(RadioOwnership ownership,
@@ -509,11 +525,11 @@ public sealed class ConnectOwnershipTests : IDisposable
             public void AutoConnect() => AutoConnectTimer_Tick(null, EventArgs.Empty);
             public void ForceConnect(ConnectPathKind path) => DoConnect(_radiosList[0], path);
             public void MakeForeign() {
-                var r = _radiosList[0]; r.IsLive = false; r.ForeignAccount = true;
+                var r = _radiosList[0]; r.ForeignAccount = true;
                 r.LanAvailable = r.WanAvailable = false; r.BoundAccount = "borrowed@example.invalid";
             }
             public void FinishDiscovery() {
-                var r = _radiosList[0]; r.IsLive = r.WanAvailable = true;
+                var r = _radiosList[0]; r.WanAvailable = true;
                 _remoteDiscoveryInFlight = false; _remoteListLive = true;
                 ResumePendingConnect(true);
             }
