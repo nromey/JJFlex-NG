@@ -2014,14 +2014,24 @@ namespace Radios.Tests
         /// <see cref="PickerSighting.Reconcile"/> with the answer's sighting;
         /// the bank's occupancy is asked for only while the SmartLink half is
         /// online; the app wires the callback to the overload that returns the
-        /// sighting; and the remote connect's wait for the radio takes only a
-        /// handle whose list is current.
+        /// sighting; and the remote connect's wait for the radio — the one an
+        /// operator's own choice of a row reaches — takes the HELD handle,
+        /// current list or not.
         /// </summary>
         /// <remarks>
-        /// Writing the bank's flag bare in either handler, asking the bank for
-        /// a last-seen row's occupancy, wiring the callback to the overload
-        /// with no sighting, or a connect wait that takes any banked handle
-        /// each turns this red.
+        /// <para>Writing the bank's flag bare in either handler, asking the
+        /// bank for a last-seen row's occupancy, wiring the callback to the
+        /// overload with no sighting, or a connect wait that refuses a handle
+        /// whose list is no longer current each turns this red.</para>
+        /// <para><b>The connect wait was the other way round in L12, and that
+        /// was the bug (L13).</b> Noel's ruling on #619 (2026-09-30): a
+        /// last-seen radio stays selectable BECAUSE connecting is itself the
+        /// check, and a recovery route when refresh is broken. L12 made the
+        /// wait take only <c>findCurrentWanRadio</c>, so when the refresh was
+        /// the broken thing the wait timed out with "never appeared" and no
+        /// dial was ever attempted (Sol's verification of L12). Currency is
+        /// still asked everywhere a handle is news about now; this wait is
+        /// where the operator has asked us to try.</para>
         /// </remarks>
         [Fact]
         public void Every_writer_from_the_banks_answer_asks_the_list_behind_it()
@@ -2051,8 +2061,16 @@ namespace Radios.Tests
 
             string flexBase = ReadRepoFile("Radios/FlexBase.cs");
             string reconnect = Body(flexBase, "public bool ReconnectRemote(");
-            Assert.Contains("? findCurrentWanRadio(serial)", reconnect, StringComparison.Ordinal);
-            Assert.DoesNotContain("findRadioForConnect(serial, forceWanPath)", reconnect, StringComparison.Ordinal);
+            Assert.Contains("foundRadio = findRadioForConnect(serial, forceWanPath);", reconnect, StringComparison.Ordinal);
+            Assert.DoesNotContain("findCurrentWanRadio(serial)", reconnect, StringComparison.Ordinal);
+            Assert.DoesNotContain("StillCurrent()", reconnect, StringComparison.Ordinal);
+            // The comment that tells the next reader not to "fix" it back.
+            Assert.Contains("Noel's ruling on #619", reconnect, StringComparison.Ordinal);
+            // And what the held handle is: on the SmartLink leg the bank's
+            // handle, whatever list wrote it — never only a current one.
+            string forConnect = Body(flexBase, "private Radio findRadioForConnect(");
+            Assert.Contains("if (preferWan) return findWanRadio(serial);", forConnect, StringComparison.Ordinal);
+            Assert.DoesNotContain("findCurrentWanRadio", forConnect, StringComparison.Ordinal);
 
             static string Body(string text, string signature)
             {

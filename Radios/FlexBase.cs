@@ -3490,7 +3490,6 @@ namespace Radios
                 Radio foundRadio = null;
                 var startTime = DateTime.Now;
 
-                bool skippedStaleHandle = false;
                 while ((DateTime.Now - startTime).TotalMilliseconds < timeoutMs)
                 {
                     // With forceWanPath this holds out for the WAN identity: the
@@ -3498,27 +3497,24 @@ namespace Radios
                     // millisecond and would end the wait before the fresh
                     // SmartLink list has even arrived.
                     //
-                    // And for a WAN identity from a CURRENT list (#619, Sol's
-                    // review of L11). This wait is for the radio to appear on
-                    // the account's list; the bank keeps the handle a dropped
-                    // session's list left, which used to end the wait at once
-                    // and send the connect after a radio the account had not
-                    // listed since. The operator choosing a last-seen row asked
-                    // for a fresh attempt, and this is where it becomes one: the
-                    // wait ends when a current list carries the radio, and says
-                    // "never appeared" when none does.
-                    foundRadio = forceWanPath
-                        ? findCurrentWanRadio(serial)
-                        : findRadioForConnect(serial, false);
+                    // DELIBERATELY the held handle, NOT findCurrentWanRadio —
+                    // do not "fix" this to ask whether the handle's list is
+                    // current. Noel's ruling on #619 (2026-09-30): a last-seen
+                    // radio stays selectable BECAUSE connecting is itself the
+                    // check, and a recovery route when refresh is broken. This
+                    // is the wait an operator's own choice of a row reaches.
+                    // L12 made it take only a handle from a current list, and
+                    // Sol's verification of L12 found the consequence: when the
+                    // refresh is the thing that is broken, the wait times out
+                    // with "never appeared" and no dial is ever attempted, so
+                    // the selectable row led nowhere. Restored in L13. Whether
+                    // a handle is CURRENT is still asked everywhere it is news
+                    // about now — the picker's row, occupancy, IsDualHomed,
+                    // the auto-connect timer — just not here, where the
+                    // operator has asked us to try.
+                    foundRadio = findRadioForConnect(serial, forceWanPath);
                     if (foundRadio != null)
                         break;
-                    if (forceWanPath && !skippedStaleHandle && findWanRadio(serial) != null)
-                    {
-                        skippedStaleHandle = true;
-                        Tracing.TraceLine(
-                            $"ReconnectRemote: the SmartLink handle held for {serial} came from a list that is no longer current — waiting for a current list to carry it (#619) ({sw.ElapsedMilliseconds}ms)",
-                            TraceLevel.Info);
-                    }
                     Thread.Sleep(100);
                 }
 
