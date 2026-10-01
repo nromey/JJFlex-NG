@@ -71,7 +71,7 @@ namespace Radios.Tests
             string rig = File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "FlexBase.CaptureMeters.cs"));
             Assert.Contains("public void SetCaptureSelection(", rig);
             Assert.Contains("if (!isSelectedForCapture(CaptureMeterSet.PaTemperatureMeterName)) return;", rig);
-            Assert.Contains("if (!supplyVoltageSelected()) return SupplyVoltage.NotSelected();", rig);
+            Assert.Contains("if (!supplyVoltageSelected(selection)) return SupplyVoltage.NotSelected();", rig);
 
             string host = File.ReadAllText(Path.Combine(RepoRoot(), "JJFlexWpf", "OperatorAlarmHost.cs"));
             Assert.Contains("Service.Changed += PushCaptureSelection;", host);
@@ -231,6 +231,220 @@ namespace Radios.Tests
             // its original meaning — the radio sent none.
             Assert.Equal("captureMeters: state=rest paTemp none n=0 degC volts=13.61 partial=connection_dropped",
                 set.Flush(volts, transmittingOrTuning: false, CaptureMeterSet.PartialConnectionDropped, 2700));
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        //  The selection changes hands while a window is open (Astra's Track
+        //  IJK2 review, blocker 2 — introduced by the B4 fix above)
+        //
+        //  The voltage driver closed whatever window was open with zeros in
+        //  the temperature fields and the REAL sample count, so unticking PA
+        //  temperature after the temperature handler had put a 61 in the
+        //  window wrote "paTemp min=0 max=0 last=0 n=1". Both B4 tests started
+        //  on an empty coalescer, so neither had a window holding a sample
+        //  when its driver changed. Two repairs, each with its own test: the
+        //  voltage driver prints the window's own samples whatever they are,
+        //  and the rig cuts the open window at a driver change so the next one
+        //  starts clean under the new selection.
+        // ────────────────────────────────────────────────────────────────
+
+        /// <summary>Astra's exact case, at the coalescer: a 61 in the window, temperature unticked, the voltage driver closes.</summary>
+        [Fact]
+        public void Unticking_temperature_with_a_real_sample_in_the_window_writes_that_sample_never_zeros()
+        {
+            var set = new CaptureMeterSet();
+            var volts = Volts(13.8f);
+            Assert.Null(set.Report(61f, volts, transmittingOrTuning: true, nowTick: 1000));
+
+            // The rig's cut at the untick, under the selection the window ran under.
+            string cut = set.CloseIfOpen(volts, nowTick: 1500, temperatureSelected: true);
+            Assert.Equal("captureMeters: state=tx paTemp min=61 max=61 last=61 n=1 degC volts=13.8 partial=recorded_set_changed", cut);
+
+            // The voltage driver then owns a NEW window with nothing of the old one in it.
+            Assert.Null(set.ReportWithoutTemperature(volts, transmittingOrTuning: true, nowTick: 2000));
+            Assert.Null(set.ReportWithoutTemperature(volts, transmittingOrTuning: true, nowTick: 2500));
+            string next = set.ReportWithoutTemperature(volts, transmittingOrTuning: true, nowTick: 3000);
+            Assert.Equal("captureMeters: state=tx paTemp not-selected degC volts=13.8", next);
+            Assert.DoesNotContain("min=0", cut + next, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Created state: the voltage driver closing a window that already
+        /// holds a temperature — the cut did not happen first, because a
+        /// temperature sample can land between the rig's selection swap and
+        /// its cut. The samples are printed, not replaced by zeros, and
+        /// "not-selected" is said only of a window holding none.
+        /// </summary>
+        [Fact]
+        public void The_voltage_driver_closing_a_window_that_holds_a_temperature_prints_that_temperature()
+        {
+            var set = new CaptureMeterSet();
+            var volts = Volts(13.8f);
+            Assert.Null(set.Report(61f, volts, transmittingOrTuning: true, nowTick: 1000));
+            Assert.Null(set.Report(63f, volts, transmittingOrTuning: true, nowTick: 1400));
+            string line = set.ReportWithoutTemperature(volts, transmittingOrTuning: true, nowTick: 2000);
+            Assert.Equal("captureMeters: state=tx paTemp min=61 max=63 last=63 n=2 degC volts=13.8", line);
+            // And the window after it is the voltage driver's own.
+            Assert.Null(set.ReportWithoutTemperature(volts, transmittingOrTuning: true, nowTick: 3000));
+            Assert.Equal("captureMeters: state=tx paTemp not-selected degC volts=13.8",
+                set.ReportWithoutTemperature(volts, transmittingOrTuning: true, nowTick: 4000));
+        }
+
+        /// <summary>The other direction: temperature TICKED while the voltage driver's window is open.</summary>
+        [Fact]
+        public void Ticking_temperature_cuts_the_voltage_window_as_not_selected_and_the_next_window_counts_only_new_samples()
+        {
+            var set = new CaptureMeterSet();
+            var volts = Volts(13.8f);
+            Assert.Null(set.ReportWithoutTemperature(volts, transmittingOrTuning: true, nowTick: 1000));
+
+            string cut = set.CloseIfOpen(volts, nowTick: 1400, temperatureSelected: false);
+            Assert.Equal("captureMeters: state=tx paTemp not-selected degC volts=13.8 partial=recorded_set_changed", cut);
+
+            Assert.Null(set.Report(61f, volts, transmittingOrTuning: true, nowTick: 2000));
+            Assert.Equal("captureMeters: state=tx paTemp min=61 max=62 last=62 n=2 degC volts=13.8",
+                set.Report(62f, volts, transmittingOrTuning: true, nowTick: 3000));
+        }
+
+        /// <summary>An untick ten milliseconds before the window would have closed on its own.</summary>
+        [Fact]
+        public void An_untick_just_before_periodic_closure_writes_the_window_as_cut_and_the_voltage_driver_starts_its_own()
+        {
+            var set = new CaptureMeterSet();
+            var volts = Volts(13.8f);
+            Assert.Null(set.Report(61f, volts, transmittingOrTuning: true, nowTick: 1000));
+            Assert.Null(set.Report(63f, volts, transmittingOrTuning: true, nowTick: 1500));
+            Assert.Equal("captureMeters: state=tx paTemp min=61 max=63 last=63 n=2 degC volts=13.8 partial=recorded_set_changed",
+                set.CloseIfOpen(volts, nowTick: 1990, temperatureSelected: true));
+            // The voltage driver's first arrival opens a new window; it closes a second later, not ten ms later.
+            Assert.Null(set.ReportWithoutTemperature(volts, transmittingOrTuning: true, nowTick: 2000));
+            Assert.Null(set.ReportWithoutTemperature(volts, transmittingOrTuning: true, nowTick: 2990));
+            Assert.Equal("captureMeters: state=tx paTemp not-selected degC volts=13.8",
+                set.ReportWithoutTemperature(volts, transmittingOrTuning: true, nowTick: 3000));
+        }
+
+        [Fact]
+        public void A_cut_with_no_window_open_writes_nothing_and_a_stale_window_is_abandoned_not_reported()
+        {
+            var set = new CaptureMeterSet();
+            var volts = Volts(13.8f);
+            Assert.Null(set.CloseIfOpen(volts, nowTick: 1000, temperatureSelected: true));
+
+            Assert.Null(set.Report(61f, volts, transmittingOrTuning: false, nowTick: 1000));
+            Assert.Null(set.CloseIfOpen(volts, nowTick: 1000 + CaptureMeterSet.StaleWindowMs + 1, temperatureSelected: true));
+            // Abandoned: the next samples open a fresh window and the 61 is not in it.
+            int t = 1000 + CaptureMeterSet.StaleWindowMs + 1000;
+            Assert.Null(set.Report(70f, volts, transmittingOrTuning: true, nowTick: t));
+            Assert.Equal("captureMeters: state=tx paTemp min=70 max=70 last=70 n=2 degC volts=13.8",
+                set.Report(70f, volts, transmittingOrTuning: true, nowTick: t + 1000));
+        }
+
+        /// <summary>
+        /// The production path: the real handlers on a radioless rig, the real
+        /// SetCaptureSelection in between. The inventory is empty there, so
+        /// volts reads unknown; what this proves is the cut line, its marker
+        /// and its samples, and that the voltage driver's first window after
+        /// the change carries nothing of the old one.
+        /// </summary>
+        [Fact]
+        public void The_rig_cuts_the_open_window_when_temperature_is_unticked_and_the_voltage_driver_starts_clean()
+        {
+            List<string> lines = OnATracedRig(rig =>
+            {
+                rig.SetCaptureSelection(new[] { CaptureMeterSet.PaTemperatureMeterName, CaptureMeterSet.PreferredSupplyVoltageMeterName });
+                MethodInfo temp = typeof(FlexBase).GetMethod("PATempDataHandler", BindingFlags.NonPublic | BindingFlags.Instance);
+                MethodInfo volts = typeof(FlexBase).GetMethod("VoltsDataHandler", BindingFlags.NonPublic | BindingFlags.Instance);
+                temp.Invoke(rig, new object[] { 61f });                       // a real temperature in the window
+                rig.SetCaptureSelection(new[] { CaptureMeterSet.PreferredSupplyVoltageMeterName });   // untick PATEMP
+                volts.Invoke(rig, new object[] { 13.8f });
+                System.Threading.Thread.Sleep(CaptureMeterSet.TransmitWindowMs + 120);
+                volts.Invoke(rig, new object[] { 13.7f });
+            });
+            foreach (string l in lines) _out.WriteLine(l);
+            Assert.Equal(2, lines.Count);
+            Assert.Contains(" paTemp min=61 max=61 last=61 n=1 ", lines[0], StringComparison.Ordinal);
+            Assert.EndsWith(" partial=recorded_set_changed", lines[0], StringComparison.Ordinal);
+            Assert.Contains(" paTemp not-selected ", lines[1], StringComparison.Ordinal);
+            Assert.DoesNotContain("partial=", lines[1], StringComparison.Ordinal);
+            Assert.DoesNotContain(lines, l => l.Contains("min=0", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void The_rig_cuts_the_open_voltage_window_when_temperature_is_ticked_and_the_temperature_window_counts_only_its_own()
+        {
+            List<string> lines = OnATracedRig(rig =>
+            {
+                rig.SetCaptureSelection(new[] { CaptureMeterSet.PreferredSupplyVoltageMeterName });
+                MethodInfo temp = typeof(FlexBase).GetMethod("PATempDataHandler", BindingFlags.NonPublic | BindingFlags.Instance);
+                MethodInfo volts = typeof(FlexBase).GetMethod("VoltsDataHandler", BindingFlags.NonPublic | BindingFlags.Instance);
+                volts.Invoke(rig, new object[] { 13.8f });                    // the voltage driver opens a window
+                rig.SetCaptureSelection(new[] { CaptureMeterSet.PaTemperatureMeterName, CaptureMeterSet.PreferredSupplyVoltageMeterName });
+                temp.Invoke(rig, new object[] { 61f });
+                System.Threading.Thread.Sleep(CaptureMeterSet.TransmitWindowMs + 120);
+                temp.Invoke(rig, new object[] { 62f });
+            });
+            foreach (string l in lines) _out.WriteLine(l);
+            Assert.Equal(2, lines.Count);
+            Assert.Contains(" paTemp not-selected ", lines[0], StringComparison.Ordinal);
+            Assert.EndsWith(" partial=recorded_set_changed", lines[0], StringComparison.Ordinal);
+            Assert.Contains(" paTemp min=61 max=62 last=62 n=2 ", lines[1], StringComparison.Ordinal);
+            Assert.DoesNotContain("partial=", lines[1], StringComparison.Ordinal);
+        }
+
+        /// <summary>A change that keeps the same driver cuts nothing; the positive control is the untick that follows.</summary>
+        [Fact]
+        public void A_selection_change_that_keeps_the_same_driver_cuts_no_window()
+        {
+            List<string> lines = OnATracedRig(rig =>
+            {
+                rig.SetCaptureSelection(new[] { CaptureMeterSet.PaTemperatureMeterName });
+                MethodInfo temp = typeof(FlexBase).GetMethod("PATempDataHandler", BindingFlags.NonPublic | BindingFlags.Instance);
+                temp.Invoke(rig, new object[] { 61f });
+                rig.SetCaptureSelection(new[] { CaptureMeterSet.PaTemperatureMeterName, CaptureMeterSet.PreferredSupplyVoltageMeterName });   // same driver
+                rig.SetCaptureSelection(new[] { CaptureMeterSet.PaTemperatureMeterName, "FWDPWR" });                                           // same driver
+                Assert.Empty(TracedCaptureLines());
+                rig.SetCaptureSelection(new[] { "FWDPWR" });                                                                                   // no driver at all: cut
+            });
+            var only = Assert.Single(lines);
+            Assert.Contains(" paTemp min=61 max=61 last=61 n=1 ", only, StringComparison.Ordinal);
+            Assert.EndsWith(" partial=recorded_set_changed", only, StringComparison.Ordinal);
+        }
+
+        private List<string> _tracedForRig;
+        private List<string> TracedCaptureLines()
+        {
+            lock (_tracedForRig)
+                return _tracedForRig.Where(l => l.Contains(CaptureMeterSet.CaptureMetersLine, StringComparison.Ordinal)).ToList();
+        }
+
+        /// <summary>A keyed radioless rig with tracing captured, torn down afterwards; returns the captureMeters lines in order.</summary>
+        private List<string> OnATracedRig(Action<FlexBase> body)
+        {
+            _tracedForRig = new List<string>();
+            var listener = new CapturingListener(_tracedForRig);
+            Trace.Listeners.Add(listener);
+            bool wasOn = Tracing.On;
+            var savedSwitch = Tracing.TheSwitch;
+            bool meterStreamWas = MeterTraceStream.Enabled;
+            FlexBase rig = null;
+            try
+            {
+                MeterTraceStream.Enabled = false;
+                Tracing.TheSwitch = new TraceSwitch("captureMeters", "captureMeters") { Level = TraceLevel.Info };
+                Tracing.On = true;
+                rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+                typeof(FlexBase).GetField("_Transmit", BindingFlags.NonPublic | BindingFlags.Instance)?.SetValue(rig, true);
+                body(rig);
+            }
+            finally
+            {
+                Tracing.On = wasOn;
+                Tracing.TheSwitch = savedSwitch;
+                MeterTraceStream.Enabled = meterStreamWas;
+                Trace.Listeners.Remove(listener);
+                try { rig?.Dispose(); } catch { }
+            }
+            return TracedCaptureLines();
         }
 
         [Fact]

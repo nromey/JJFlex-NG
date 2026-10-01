@@ -45,7 +45,51 @@ namespace Radios
         {
             var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (meterNames != null) foreach (string n in meterNames) if (!string.IsNullOrEmpty(n)) set.Add(n);
-            lock (_captureSelectionGate) _captureSelection = set;
+
+            // When the change moves the window from one driver to the other —
+            // temperature ticked or unticked while a supply meter is recorded,
+            // or the last recorded meter leaving — the open window is CUT under
+            // the selection it ran under, so a sample the radio sent is written
+            // rather than dropped or finished by a handler that was not asked
+            // for it (Astra's Track IJK2 review, blocker 2; the reasoning is
+            // on CaptureMeterSet.CloseIfOpen). The volts snapshot and the
+            // temperature flag describe the OLD selection, because the line
+            // describes that window. A change that keeps the same driver — a
+            // power meter added, the other supply meter ticked — cuts nothing.
+            HashSet<string> old;
+            lock (_captureSelectionGate)
+            {
+                old = _captureSelection;
+                _captureSelection = set;
+            }
+            if (captureDriverOf(old) == captureDriverOf(set)) return;
+            try
+            {
+                string cut = _captureMeters.CloseIfOpen(
+                    readSupplyVoltage(old),
+                    Environment.TickCount,
+                    temperatureSelected: old != null && old.Contains(CaptureMeterSet.PaTemperatureMeterName));
+                if (cut != null) Tracing.TraceRecord(CaptureMeterSet.CaptureMetersRecord, cut, TraceLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("SetCaptureSelection: could not close the open capture window — " + ex.Message, TraceLevel.Warning);
+            }
+        }
+
+        /// <summary>Which handler drives the <c>captureMeters:</c> window under a selection.</summary>
+        private enum CaptureDriver { None, Temperature, SupplyVoltage }
+
+        /// <summary>
+        /// The temperature handler while PATEMP is selected; the supply meter's
+        /// handler while a supply meter is and PATEMP is not; nothing
+        /// otherwise. The same rule the two handlers apply, written once.
+        /// </summary>
+        private static CaptureDriver captureDriverOf(HashSet<string> selection)
+        {
+            if (selection == null) return CaptureDriver.None;
+            if (selection.Contains(CaptureMeterSet.PaTemperatureMeterName)) return CaptureDriver.Temperature;
+            return supplyVoltageSelected(selection) ? CaptureDriver.SupplyVoltage : CaptureDriver.None;
         }
 
         /// <summary>
@@ -79,10 +123,8 @@ namespace Radios
         /// selected". Inventory order, so two operators with the same radio
         /// and selection get the same meter.
         /// </summary>
-        private MeterReading selectedSupplyMeter(MeterInventory inv)
+        private static MeterReading selectedSupplyMeter(MeterInventory inv, HashSet<string> selection)
         {
-            HashSet<string> selection;
-            lock (_captureSelectionGate) selection = _captureSelection;
             if (selection == null || selection.Count == 0) return null;
 
             if (selection.Contains(CaptureMeterSet.PreferredSupplyVoltageMeterName))
@@ -103,6 +145,11 @@ namespace Radios
         {
             HashSet<string> selection;
             lock (_captureSelectionGate) selection = _captureSelection;
+            return supplyVoltageSelected(selection);
+        }
+
+        private static bool supplyVoltageSelected(HashSet<string> selection)
+        {
             if (selection == null) return false;
             foreach (string name in selection)
                 if (name.StartsWith("+13.8", StringComparison.OrdinalIgnoreCase)) return true;
@@ -272,16 +319,25 @@ namespace Radios
         /// </summary>
         private SupplyVoltage readSupplyVoltage()
         {
+            HashSet<string> selection;
+            lock (_captureSelectionGate) selection = _captureSelection;
+            return readSupplyVoltage(selection);
+        }
+
+        /// <summary>The same, under a selection the caller names — the one a
+        /// window being cut ran under, which may no longer be current.</summary>
+        private SupplyVoltage readSupplyVoltage(HashSet<string> selection)
+        {
             // The selection decides WHICH supply meter, and whether one at all
             // (#566): no supply meter in the recorded set is a choice, written
             // as not-selected; a selected one the radio does not publish is
             // no-meter, which on a 6300 is a finding (#597).
-            if (!supplyVoltageSelected()) return SupplyVoltage.NotSelected();
+            if (!supplyVoltageSelected(selection)) return SupplyVoltage.NotSelected();
 
             MeterInventory inv = MeterInventory;
             if (inv == null || inv.Count == 0) return SupplyVoltage.Unknown();
 
-            MeterReading m = selectedSupplyMeter(inv);
+            MeterReading m = selectedSupplyMeter(inv, selection);
             if (m == null) return SupplyVoltage.NoMeter();
             if (!m.HasReading) return SupplyVoltage.NoSample();
             return SupplyVoltage.Reading(m.Value, m.Age);

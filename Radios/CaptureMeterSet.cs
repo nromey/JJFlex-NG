@@ -58,7 +58,11 @@ namespace Radios
     /// and temperature not, the supply meter's own cadence drives the window
     /// and the line says <c>paTemp not-selected</c>
     /// (<see cref="ReportWithoutTemperature"/>; Astra's Track IJK review,
-    /// blocker 4).</para>
+    /// blocker 4). A selection change that moves the window from one driver
+    /// to the other CUTS the open window under the selection it ran under,
+    /// marked <c>partial=recorded_set_changed</c>, so a sample the radio sent
+    /// is written and the next window starts clean (<see cref="CloseIfOpen"/>;
+    /// Astra's Track IJK2 review, blocker 2).</para>
     ///
     /// <para><b>Forward and reflected power are NOT a selection, and that is
     /// deliberate.</b> They ride the <c>txMeters:</c> line, which is the
@@ -156,7 +160,9 @@ namespace Radios
             + " voltsAge says how old that reading was when it is older than the window. state says whether the"
             + " window was taken while transmitting or tuning (tx) or at rest. One line a second while"
             + " transmitting or tuning, one every thirty seconds otherwise. A line that ends"
-            + " 'partial=connection_dropped' is a window cut short because the connection to the radio was lost.");
+            + " 'partial=connection_dropped' is a window cut short because the connection to the radio was lost; one"
+            + " that ends 'partial=recorded_set_changed' is a window cut short because the operator changed the recorded"
+            + " meters, and it describes the window under the selection it was taken with.");
 
         /// <summary>
         /// The radio's own name for its PA temperature meter — the one meter
@@ -228,6 +234,14 @@ namespace Radios
         /// ran its full course from one that was cut short.
         /// </summary>
         public const string PartialConnectionDropped = "connection_dropped";
+
+        /// <summary>
+        /// The window was cut short because the operator changed which meters
+        /// are recorded in a way that changed which handler drives the window
+        /// (PA temperature ticked or unticked). Appears on the line as
+        /// <c>partial=recorded_set_changed</c>. See <see cref="CloseIfOpen"/>.
+        /// </summary>
+        public const string PartialRecordedSetChanged = "recorded_set_changed";
 
         /// <summary>
         /// Render the supply-voltage field.
@@ -416,7 +430,61 @@ namespace Radios
                 OpenOrContinueLocked(transmittingOrTuning, nowTick);
                 if ((nowTick - _windowStart) < WindowFor(_windowTransmitting)) return null;
 
-                string line = Format(0f, 0f, 0f, _count, volts, _windowTransmitting, temperatureSelected: false);
+                // The window's OWN statistics, whatever they are. This passed
+                // zeros with the real count, on the reasoning that a window this
+                // method closes has no temperature in it — and that is false
+                // the moment the operator unticks temperature with a window
+                // open: the temperature handler had already put a real sample
+                // in it, and the line read "paTemp min=0 max=0 last=0 n=1" for
+                // a radio that had said 61 (Astra's Track IJK2 review, blocker
+                // 2). The rig now cuts the window at that change (see
+                // CloseIfOpen) so this normally closes a window it drove alone;
+                // when it does not, the samples are real and are printed, and
+                // "not-selected" is said only of a window that holds none.
+                string line = Format(_min, _max, _last, _count, volts, _windowTransmitting, temperatureSelected: false);
+                CloseLocked();
+                return line;
+            }
+        }
+
+        /// <summary>
+        /// Close the open window, if there is one, because the recorded set
+        /// changed hands: the line is marked <c>partial=recorded_set_changed</c>
+        /// and carries the window's own samples under the selection it ran
+        /// under. Returns null when no window is open, and null — abandoning
+        /// the window — when the open one has gone stale, since nothing has
+        /// died and a stale statistic is not worth a line.
+        ///
+        /// <para><b>Why the window is CUT rather than reset or carried over
+        /// (Astra's Track IJK2 review, blocker 2).</b> A window belongs to one
+        /// driver: the temperature handler while PATEMP is selected, the
+        /// supply meter's handler otherwise. When the selection changes the
+        /// driver, three things could happen to a window already holding
+        /// samples. Resetting it throws away a real reading the radio sent,
+        /// silently — a 61 that would have been the only temperature in the
+        /// capture. Letting the new driver finish it produces one line whose
+        /// first half was asked for and second half was not, with nothing on
+        /// the line to say so. Cutting it writes what the radio said, under the
+        /// selection that asked for it, with a marker a reader can see — the
+        /// same vocabulary the drop path already uses — and the next window
+        /// starts clean under the new selection with nothing of the old one in
+        /// it. Evidence is preserved and the discontinuity is on the line.</para>
+        /// </summary>
+        /// <param name="volts">What the meter inventory knows about supply
+        /// voltage under the selection the window ran under.</param>
+        /// <param name="nowTick"><c>Environment.TickCount</c>.</param>
+        /// <param name="temperatureSelected">Whether PA temperature was in the
+        /// recorded set the window ran under — the OLD selection, not the new
+        /// one, since the line describes that window.</param>
+        public string CloseIfOpen(SupplyVoltage volts, int nowTick, bool temperatureSelected)
+        {
+            lock (_gate)
+            {
+                if (!_open) return null;
+                bool stale = (nowTick - _windowStart) > StaleWindowMs;
+                string line = stale
+                    ? null
+                    : Format(_min, _max, _last, _count, volts, _windowTransmitting, PartialRecordedSetChanged, temperatureSelected);
                 CloseLocked();
                 return line;
             }
