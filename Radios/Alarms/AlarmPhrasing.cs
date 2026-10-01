@@ -56,53 +56,80 @@ namespace Radios.Alarms
 
         /// <summary>
         /// Where on the supply the voltage is measured, in the few words a ham
-        /// says: "before the fuse", "at the PA". Ruled by Noel 2026-09-22
-        /// (#566), on hearing "Supply voltage Main radio input voltage before
-        /// fuse is 11.90 volts" — <i>"before the fuse."</i>
+        /// says, at one of two lengths: "before fuse" and "at PA" at the normal
+        /// length, "before" and "PA" when <paramref name="terse"/>.
         /// </summary>
         /// <remarks>
         /// <para>
-        /// A meter this build has not met keeps the radio's own description, so
-        /// no radio is relabelled with another radio's words.
+        /// <b>RULED by Noel 2026-09-23 04:42 (#566): NO COMMAS, AND TWO
+        /// LENGTHS.</b> <i>"If verbosity is set to terse I'd just say before and
+        /// after, otherwise I'd just say 'before fuse' and 'after fuse', no
+        /// comma."</i> The first cut (2026-09-22) said "before the fuse" between
+        /// commas, and every sentence that led with a preset NAME then ran into
+        /// its verb at exactly the place the comma promised a pause: "Delete the
+        /// Low supply voltage, before the fuse alarm?" With no comma in the
+        /// phrase there is no collision to patch. The terse length is for the
+        /// spoken warning when verbosity is Terse; a preset NAME is stored data
+        /// and always takes the normal length (<see cref="AlarmPresets.PresetName"/>).
         /// </para>
         /// <para>
         /// <b>Keyed on the name AND the description together, not the name
         /// alone.</b> Both radios publish <c>+13.8A</c> and <c>+13.8B</c>: on
-        /// Don's 6300 those are before and after the fuse, on Noel's 8600 they
-        /// are at the PA and at the CPU. A table keyed on the name would give
-        /// one radio the other's place-phrase, which is the one outcome the
-        /// fallback exists to prevent.
+        /// the 6300 of the 2026-09-06 trace those are before and after the fuse,
+        /// on the bench 8600 they are at the PA and at the CPU. A table keyed on
+        /// the name would give one radio the other's place-phrase, which is the
+        /// one outcome the fallback exists to prevent.
+        /// </para>
+        /// <para>
+        /// <b>A meter this build has not met is named by the radio's own meter
+        /// NAME</b> — "Supply voltage +13.8C is 11.90 volts" — rather than its
+        /// description. The description is where the place lives, but without
+        /// the commas a description inside this frame reads as the very
+        /// sentence Noel first objected to ("Supply voltage Main radio input
+        /// voltage before fuse is ..."); the description is still in the list
+        /// row, the status and the editor. DRAFT: this fallback was not part of
+        /// the ruling and is Noel's to confirm.
         /// </para>
         /// </remarks>
-        public static string MeasurementPoint(MeterDescriptor m)
+        public static string MeasurementPoint(MeterDescriptor m, bool terse = false)
         {
-            foreach (var (name, description, key) in KnownPoints)
+            foreach (var (name, description, key, terseKey) in KnownPoints)
             {
                 if (string.Equals(m.Name, name, StringComparison.OrdinalIgnoreCase)
                     && string.Equals(m.Description, description, StringComparison.OrdinalIgnoreCase))
-                    return Lexicon.Get(key);
+                    return Lexicon.Get(terse ? terseKey : key);
             }
-            return m.Description.Length == 0 ? m.Name : m.Description;
+            return m.Name;
         }
 
         /// <summary>
-        /// The supply meters whose inventories we hold: Don's 6300, from his
-        /// trace of 2026-09-06, and Noel's bench 8600, from the capture of
-        /// 2026-09-07. Nothing here is a model-wide claim — a radio that
+        /// The spoken warning takes the terse place-phrase when the operator's
+        /// verbosity is Terse — the ruling's "if verbosity is set to terse" —
+        /// and the normal one otherwise. Read at speak time, so the setting
+        /// moving between two warnings changes the second.
+        /// </summary>
+        private static bool TersePlace => ScreenReaderOutput.CurrentVerbosity == VerbosityLevel.Terse;
+
+        /// <summary>
+        /// The supply meters whose inventories we hold: a 6300, from a trace of
+        /// 2026-09-06, and the bench 8600, from the capture of 2026-09-07. Nothing here is a model-wide claim — a radio that
         /// publishes a supply meter under other words falls back to its own.
         /// </summary>
-        private static readonly (string Name, string Description, string Key)[] KnownPoints =
+        private static readonly (string Name, string Description, string Key, string TerseKey)[] KnownPoints =
         {
-            ("+13.8A", "Main radio input voltage before fuse", "alarms.point.before_fuse"),
-            ("+13.8B", "Main radio input voltage after fuse", "alarms.point.after_fuse"),
-            ("+13.8A", "+13.8V at PA", "alarms.point.at_pa"),
-            ("+13.8B", "+13.8V at CPU", "alarms.point.at_cpu"),
+            ("+13.8A", "Main radio input voltage before fuse", "alarms.point.before_fuse", "alarms.point.before_fuse.terse"),
+            ("+13.8B", "Main radio input voltage after fuse", "alarms.point.after_fuse", "alarms.point.after_fuse.terse"),
+            ("+13.8A", "+13.8V at PA", "alarms.point.at_pa", "alarms.point.at_pa.terse"),
+            ("+13.8B", "+13.8V at CPU", "alarms.point.at_cpu", "alarms.point.at_cpu.terse"),
         };
 
         // ── the warnings ──
 
-        /// <summary>The sentence for a firing, a reminder or a worsening, with the tx or rx action.</summary>
-        public static string Warning(AlarmEvent e)
+        /// <summary>The sentence for a firing, a reminder or a worsening, with the tx or rx action, at the operator's verbosity.</summary>
+        public static string Warning(AlarmEvent e) => Warning(e, TersePlace);
+
+        /// <summary>The same, with the place-phrase length chosen by the caller — the testable form.</summary>
+        public static string Warning(AlarmEvent e, bool tersePlace)
         {
             AlarmDefinition def = e.Definition;
             MeterDescriptor meter = MeterOf(e);
@@ -126,12 +153,12 @@ namespace Radios.Alarms
                     return Lexicon.Get(tx ? "alarms.pa.rising_fast_tx" : "alarms.pa.rising_fast_rx",
                         ("change", change), ("interval", interval), ("value", value));
                 case AlarmPresets.VoltageLow:
-                    return Lexicon.Get(tx ? "alarms.voltage.low_tx" : "alarms.voltage.low_rx", ("point", MeasurementPoint(meter)), ("value", value));
+                    return Lexicon.Get(tx ? "alarms.voltage.low_tx" : "alarms.voltage.low_rx", ("point", MeasurementPoint(meter, tersePlace)), ("value", value));
                 case AlarmPresets.VoltageHigh:
-                    return Lexicon.Get(tx ? "alarms.voltage.high_tx" : "alarms.voltage.high_rx", ("point", MeasurementPoint(meter)), ("value", value));
+                    return Lexicon.Get(tx ? "alarms.voltage.high_tx" : "alarms.voltage.high_rx", ("point", MeasurementPoint(meter, tersePlace)), ("value", value));
                 case AlarmPresets.VoltageDrop:
                     return Lexicon.Get(tx ? "alarms.voltage.drop_tx" : "alarms.voltage.drop_rx",
-                        ("point", MeasurementPoint(meter)), ("change", change), ("value", value));
+                        ("point", MeasurementPoint(meter, tersePlace)), ("change", change), ("value", value));
             }
 
             string key;
@@ -353,19 +380,45 @@ namespace Radios.Alarms
 
             var active = new List<string>();
             int unavailable = 0;
+            int notReady = 0;
             foreach (AlarmSnapshot s in all)
             {
                 if (!s.Definition.Enabled) continue;
-                if (s.Condition is AlarmConditionState.Active or AlarmConditionState.LastKnownActive)
+                MeterUnits units = s.Definition.Selector.Units;
+                if (s.Condition == AlarmConditionState.Active)
                 {
-                    MeterUnits units = s.Definition.Selector.Units;
                     string value = s.LastFresh.HasValue ? Value(s.LastFresh.Value.Value, units) : "";
                     active.Add(Tidy(Lexicon.Get("alarms.summary.item",
                         ("value", value), ("units", value.Length == 0 ? "" : Units(units)), ("alarm", s.Definition.Name))));
                 }
-                if (s.Resolution != MeterSelectorStatus.Resolved
-                    || s.Data is AlarmDataState.Stale or AlarmDataState.Missing or AlarmDataState.Ambiguous)
+                else if (s.Condition == AlarmConditionState.LastKnownActive)
+                {
+                    // A last-known value is history, and the sentence says so
+                    // rather than reading a stopped meter as a current one
+                    // (Astra's Track I review, prose qualifications).
+                    string value = s.LastFresh.HasValue ? Value(s.LastFresh.Value.Value, units) : "";
+                    active.Add(Tidy(Lexicon.Get("alarms.summary.item_last_known",
+                        ("value", value), ("units", value.Length == 0 ? "" : Units(units)), ("alarm", s.Definition.Name))));
+                }
+
+                bool resolvedAndFed = s.Resolution == MeterSelectorStatus.Resolved
+                    && s.Data is AlarmDataState.Fresh or AlarmDataState.Recovering;
+                if (!resolvedAndFed && s.Data != AlarmDataState.Waiting)
+                {
                     unavailable++;
+                }
+                else if (s.Data == AlarmDataState.Waiting
+                         || s.Condition == AlarmConditionState.WaitingForScope
+                         || (s.Definition.Condition == AlarmCondition.RiseFromBaseline && s.Baseline != AlarmBaselineState.Captured)
+                         || (s.Definition.Condition == AlarmCondition.RisingFast
+                             && s.LastEvent?.Kind is AlarmEventKind.TrendWarmingUp or AlarmEventKind.TrendInsufficientCoverage))
+                {
+                    // Enabled and fed, but it cannot judge its condition yet:
+                    // no reading, no baseline, waiting for transmit, or a trend
+                    // without a full window. "Not active" must never read as
+                    // "watching successfully" (Astra's Track I review).
+                    notReady++;
+                }
             }
 
             string head = active.Count == 0
@@ -374,6 +427,8 @@ namespace Radios.Alarms
                     ("count", all.Count.ToString(CultureInfo.CurrentCulture)), ("list", string.Join("; ", active)));
             if (unavailable > 0)
                 head += " " + Lexicon.Get("alarms.summary.unavailable", ("unavailable", unavailable.ToString(CultureInfo.CurrentCulture)));
+            if (notReady > 0)
+                head += " " + Lexicon.Get("alarms.summary.not_ready", ("count", notReady.ToString(CultureInfo.CurrentCulture)));
             return Tidy(head);
         }
 

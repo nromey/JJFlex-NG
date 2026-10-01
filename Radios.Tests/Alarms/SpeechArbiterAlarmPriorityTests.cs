@@ -81,7 +81,7 @@ namespace Radios.Tests.Alarms
         {
             var a = NewArbiter();
             string pa = "PA temperature 63 degrees C. Release transmit now.";
-            string volts = "Supply voltage, at the PA, is 11.90 volts. Release transmit and have the supply path checked.";
+            string volts = "Supply voltage at PA is 11.90 volts. Release transmit and have the supply path checked.";
             a.UrgentAlarm(pa, VerbosityLevel.Critical, "pa", Subject("pa"), () => pa);
             a.UrgentAlarm(volts, VerbosityLevel.Critical, "v", Subject("v"), () => volts);
 

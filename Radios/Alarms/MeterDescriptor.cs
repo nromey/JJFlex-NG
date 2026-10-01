@@ -96,7 +96,7 @@ namespace Radios.Alarms
     /// <summary>
     /// The persisted identity of a meter: name, source, source index and unit,
     /// with the last description kept as context. NEVER the radio's numeric
-    /// index — Don's 6300 publishes PATEMP at index 9 and Noel's 8600 at 11,
+    /// index — the 6300 of the 2026-09-06 trace publishes PATEMP at index 9 and the bench 8600 at 11,
     /// and either can move with firmware.
     /// </summary>
     /// <remarks>

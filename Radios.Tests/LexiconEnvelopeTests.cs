@@ -610,6 +610,20 @@ namespace Radios.Tests
             // 3,037 after Track IJK's fixes to Track I's review findings: six
             // new alarms.validation.* sentences for a number the editor could
             // not read (finding 6), frozen by the gate's own printed lines.
+            //
+            // 3,039 with two more from the same review's prose qualifications:
+            // alarms.summary.not_ready (an enabled alarm that cannot judge its
+            // condition yet is said, not hidden under "none active") and
+            // alarms.summary.item_last_known (a stopped meter's last value is
+            // history, and the sentence says so).
+            //
+            // 3,043 with the four alarms.point.*.terse keys of Noel's
+            // 2026-09-23 ruling (#566: no commas, and the place phrase gets two
+            // lengths). The thirteen keys that ruling REWORDED were re-frozen
+            // with the gate's printed fingerprints rather than classified,
+            // which is the #629 tension taken the same way Tracks H and L took
+            // it: classification is a #617 speech decision and not this
+            // merge's to make.
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -622,7 +636,7 @@ namespace Radios.Tests
                 }
             }
 
-            Assert.Equal(3037, unclassified);
+            Assert.Equal(3043, unclassified);
             Assert.All(classified, key =>
                 Assert.StartsWith("facts.", key, StringComparison.Ordinal));
             Assert.True(classified.Count > 30,

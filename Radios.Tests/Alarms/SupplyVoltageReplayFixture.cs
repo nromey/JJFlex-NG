@@ -10,7 +10,7 @@ namespace Radios.Tests.Alarms
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Provenance.</b> Noel's bench FLEX-8600, the detailed capture begun
+    /// <b>Provenance.</b> The bench FLEX-8600, the detailed capture begun
     /// 2026-09-07 at 08:09:56 local time on build 4.1.16.1952, archived as
     /// <c>trace-20260907-080956-clean_exit.zip</c> under the local AppData
     /// Traces tree; read through 7-Zip without extracting on 2026-09-22 for
@@ -32,7 +32,7 @@ namespace Radios.Tests.Alarms
     /// </remarks>
     internal static class SupplyVoltageReplayFixture
     {
-        /// <summary>The 8600's +13.8A as its own inventory describes it; the source index is the radio's, not Don's.</summary>
+        /// <summary>The 8600's +13.8A as its own inventory describes it; the source index is the radio's, not the 6300's.</summary>
         internal static readonly MeterDescriptor Meter = new MeterDescriptor(
             2, "+13.8A", "+13.8V at PA", "RAD", 2, MeterUnits.Volts, 10.5, 15);
 

@@ -44,7 +44,7 @@ namespace Radios.Tests
         private const string Cut =
             "Transmit stopped. Eighty percent of your power is coming back on ANT2. You are no longer on the air.";
         private const string AlarmA = "PA temperature 61 degrees C. Release transmit now.";
-        private const string AlarmB = "Supply voltage, before the fuse, is 11.90 volts.";
+        private const string AlarmB = "Supply voltage before fuse is 11.90 volts.";
 
         private static string SubjectA => SpeechSubject.OperatorAlarm("pa");
         private static string SubjectB => SpeechSubject.OperatorAlarm("volts");

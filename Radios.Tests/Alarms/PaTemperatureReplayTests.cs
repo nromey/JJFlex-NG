@@ -108,13 +108,20 @@ namespace Radios.Tests.Alarms
         }
 
         [Fact]
-        public void The_rising_fast_trend_becomes_judgeable_exactly_once_at_the_last_row_and_does_not_fire()
+        public void The_rising_fast_trend_is_judgeable_at_the_last_two_rows_and_does_not_fire()
         {
-            // 102.6 s of data against a 100 s window: only the final row has a
-            // sample at or before the window's start. Bands of ten seconds at
-            // 2.1 s cadence hold four and five samples; the median observation
-            // times land 90.9 s apart, inside 85 to 95; the median rise is
-            // about 6.8 C, well under twelve. So: covered once, never fired.
+            // 102.6 s of data against a 100 s window: the window is covered
+            // from the first row at or past tick 56451 + 100000 = 156451, which
+            // is the LAST TWO rows, 156941 and 159051 — not "exactly once at
+            // the last row", as this test's name claimed until Astra's Track I
+            // review recounted the windows against the archive. Both have four
+            // early and five late samples in their ten-second bands; their
+            // median observation times are 90.898 and 90.928 s apart, inside
+            // 85 to 95; their median rises are 6.4375 and 6.7890625 C, well
+            // under twelve. So: judgeable twice, warming up once, never fired.
+            // The monitor emits coverage as TRANSITIONS, so the one WarmingUp
+            // below is the first row and the absence of Insufficient says the
+            // window never went uncovered once it was covered.
             var m = new AlarmMonitor(AlarmPresets.Build(AlarmPresets.PaRisingFast, PaTemperatureReplayFixture.Meter, Serial, "trend")
                 with { Enabled = true });
             var events = Replay(m);

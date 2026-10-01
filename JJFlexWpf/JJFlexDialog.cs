@@ -134,12 +134,12 @@ namespace JJFlexWpf
             // removing one they did not. A fix aimed at a duplicate had become
             // a way to lose the real thing.
             //
-            // Ownership is "did I queue the title that is still pending", kept
-            // as a plain claim rather than a ticket because the arbiter's
-            // tickets are internal to Radios and this is UI-thread-only code:
-            // Loaded and Closed both run on it, so no lock is involved. A
-            // dialog that never spoke a title never claims, and therefore can
-            // no longer withdraw somebody else's.
+            // The rule itself — who may withdraw, and when — lives in
+            // Radios.Speech.ArrivalTitleClaim, where a test drives the
+            // search-to-picker order without a window. It is a plain claim
+            // rather than a ticket because the arbiter's tickets are internal
+            // to Radios and this is UI-thread-only code: Loaded and Closed both
+            // run on it, so no lock is involved.
             Closed += (_, _) =>
             {
                 if (!ArrivalTitle.Release(this)) return;

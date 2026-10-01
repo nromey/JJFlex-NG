@@ -18,7 +18,7 @@ namespace Radios.Tests.Alarms
         [Fact]
         public void A_selector_resolves_by_name_source_source_index_and_units_whatever_the_index_is()
         {
-            // Don's 6300 publishes PATEMP at index 9; Noel's 8600 at 11. Same identity.
+            // The 6300 of the 2026-09-06 trace publishes PATEMP at index 9; the bench 8600 at 11. Same identity.
             var selector = MeterSelector.From(D(9, "PATEMP", "TX-", 4, description: "PA Temperature"));
             var resolution = selector.Resolve(new[] { D(11, "PATEMP", "TX-", 4) });
 
@@ -72,7 +72,7 @@ namespace Radios.Tests.Alarms
         [Fact]
         public void The_two_supply_meters_resolve_separately_by_source_index()
         {
-            // Don's capture: +13.8A RAD:208 before the fuse, +13.8B RAD:210 after it.
+            // The 6300 trace: +13.8A RAD:208 before the fuse, +13.8B RAD:210 after it.
             var a = MeterSelector.From(D(208, "+13.8A", "RAD", 208, MeterUnits.Volts));
             var b = MeterSelector.From(D(210, "+13.8B", "RAD", 210, MeterUnits.Volts));
             var inventory = new[]

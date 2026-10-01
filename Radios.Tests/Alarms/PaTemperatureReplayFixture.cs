@@ -10,7 +10,7 @@ namespace Radios.Tests.Alarms
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Provenance.</b> Noel's bench FLEX-8600, the detailed capture begun
+    /// <b>Provenance.</b> The bench FLEX-8600, the detailed capture begun
     /// 2026-08-22 at 20:35:46 local time on build 4.1.16.1378, archived as
     /// <c>trace-20260822-203546-clean_exit.zip</c> under the local AppData
     /// Traces tree. Read through 7-Zip without extracting on 2026-09-22 for
@@ -22,9 +22,12 @@ namespace Radios.Tests.Alarms
     /// </para>
     /// <para>
     /// <b>What it is and is not.</b> Real quantisation, real slow updates, a
-    /// real heating and cooling profile from a receive-only sitting. It never
-    /// reaches 60 C and its endpoint rise is about 8.08 C, so it exercises no
-    /// genuine warning and no fan fault. Lowering a threshold to fire on it is
+    /// real heating and cooling profile ACROSS TRANSMIT TRANSITIONS: the
+    /// original interval carries eighteen TransmitChange:True records,
+    /// including multi-second transmissions, so this is not a receive-only
+    /// control (it said it was until Astra's Track I review re-read the
+    /// archive). It never reaches 60 C and its endpoint rise is about 8.08 C,
+    /// so it exercises no genuine warning and no fan fault. Lowering a threshold to fire on it is
     /// legitimate RULE testing and is labelled as such wherever it is done.
     /// It is not a present-day SmartLink cadence measurement and not proof of
     /// sensor acquisition freshness. Only the numbers are here; the trace
