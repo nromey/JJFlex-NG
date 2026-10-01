@@ -31,15 +31,88 @@ namespace Radios
         /// used to carry.
         /// </summary>
         private HashSet<string> _captureSelection;
+
+        /// <summary>
+        /// THE ADMISSION LOCK for the <c>captureMeters:</c> window — not merely
+        /// the lock around the selection pointer.
+        ///
+        /// <para><b>Astra's Track IJK4 review, blocker 2 — introduced by the cut
+        /// in <see cref="SetCaptureSelection"/>.</b> The first cut swapped the
+        /// selection under this gate, RELEASED it, and then closed the open
+        /// window with the old selection's metadata; the coalescer has a gate
+        /// of its own, and the meter handlers took this one only for the
+        /// <c>Contains</c> check and let go of it before feeding the sample.
+        /// So the swap and the window boundary were two operations, and a
+        /// sample could pass its check under the new selection, open a NEW
+        /// window, and have that window closed and labelled with the OLD
+        /// selection: <c>paTemp min=61 ... volts=not-selected
+        /// partial=recorded_set_changed</c> for a window that never ran under
+        /// a selection without volts. The reverse interleaving — a temperature
+        /// sample landing in an open voltage window between the swap and the
+        /// cut — was the same gap from the other side. A lock around a pointer
+        /// and a separate lock around the window do not make a boundary.</para>
+        ///
+        /// <para><b>The rule now: every read of <see cref="_captureSelection"/>
+        /// that admits a sample to, or puts a boundary on, the coalescer
+        /// happens under this gate, in the SAME critical section as the
+        /// coalescer call.</b> A sample is checked and admitted under it; a
+        /// selection change swaps and cuts under it; the drop-path flush reads
+        /// its flags and flushes under it. So a sample that has passed its
+        /// check is in its window before any swap can begin, and a swap that
+        /// has begun is complete — new set published AND old window cut — before
+        /// any sample is checked against the new set. The reorder Astra
+        /// warned against is not what this is: no ordering of two unlocked
+        /// operations can give that guarantee, only one critical section can.
+        /// Chosen over stamping each sample with a selection generation
+        /// because the generation scheme still needs the OLD selection's
+        /// metadata to render a cut when a newer-generation sample arrives
+        /// first, which puts a lock back in the coalescer anyway, and because
+        /// a sample should never have to be refused or re-routed: under one
+        /// lock there is no sample in flight at a boundary.</para>
+        ///
+        /// <para><b>What is held under it, and what is not.</b> A
+        /// <c>HashSet.Contains</c>, a lock-free <see cref="MeterInventory"/>
+        /// read, two field reads, <c>Environment.TickCount</c>, and the
+        /// coalescer's own short lock: in-memory work, microseconds. Lock order
+        /// is this gate, then <c>CaptureMeterSet._gate</c>, and nothing takes
+        /// them the other way round. The trace write of the resulting line is
+        /// OUTSIDE it, so the meter thread never waits on the trace sink while
+        /// holding it; the one exception is the once-per-rig missing-selection
+        /// warning in <see cref="isSelectedForCapture"/>, which the drop path
+        /// asks to suppress. Nothing under it calls FlexLib or speech.</para>
+        ///
+        /// <para>The two <c>internal</c> hooks beside it are test seams,
+        /// null in production, invoked INSIDE the critical section so a test
+        /// can prove from outside that a competing operation is held at the
+        /// boundary rather than interleaved with it.</para>
+        /// </summary>
         private readonly object _captureSelectionGate = new object();
         private bool _captureSelectionMissingTraced;
+
+        /// <summary>
+        /// Test seam: runs inside <see cref="SetCaptureSelection"/>'s critical
+        /// section, after the new set is published and before the old window is
+        /// cut. One caller, <c>CaptureMeterSetTests</c>, which starts a meter
+        /// callback here and proves it does not land until the cut is done.
+        /// </summary>
+        internal Action CaptureSelectionSwapHook;
+
+        /// <summary>
+        /// Test seam: runs inside a meter handler's critical section, after the
+        /// sample has passed its selection check and before it is fed to the
+        /// coalescer. One caller, <c>CaptureMeterSetTests</c>, which starts a
+        /// selection change here and proves the sample lands in the OLD
+        /// selection's window and the boundary falls after it.
+        /// </summary>
+        internal Action CaptureAdmissionHook;
 
         /// <summary>
         /// The operator's recorded-meter set, as the radio names the meters.
         /// Called by <c>OperatorAlarmHost</c> when the alarm service attaches
         /// and whenever its recorded set changes; a test calls it directly.
-        /// Thread-safe: the set is replaced whole under a short lock, and the
-        /// meter thread reads it under the same lock.
+        /// Thread-safe, and more than that: the swap and the cut of the open
+        /// window are ONE operation with respect to sample admission — see
+        /// <see cref="_captureSelectionGate"/>.
         /// </summary>
         public void SetCaptureSelection(IEnumerable<string> meterNames)
         {
@@ -56,25 +129,35 @@ namespace Radios
             // temperature flag describe the OLD selection, because the line
             // describes that window. A change that keeps the same driver — a
             // power meter added, the other supply meter ticked — cuts nothing.
-            HashSet<string> old;
+            //
+            // Swap and cut under the admission lock, as one critical section
+            // (Astra's Track IJK4 review, blocker 2): every sample in the
+            // window being cut was admitted under `old`, and no sample can be
+            // admitted under `set` until the cut is done.
+            string cut = null;
+            string failure = null;
             lock (_captureSelectionGate)
             {
-                old = _captureSelection;
+                HashSet<string> old = _captureSelection;
                 _captureSelection = set;
+                CaptureSelectionSwapHook?.Invoke();
+                if (captureDriverOf(old) != captureDriverOf(set))
+                {
+                    try
+                    {
+                        cut = _captureMeters.CloseIfOpen(
+                            readSupplyVoltage(old),
+                            Environment.TickCount,
+                            temperatureSelected: old != null && old.Contains(CaptureMeterSet.PaTemperatureMeterName));
+                    }
+                    catch (Exception ex)
+                    {
+                        failure = ex.Message;
+                    }
+                }
             }
-            if (captureDriverOf(old) == captureDriverOf(set)) return;
-            try
-            {
-                string cut = _captureMeters.CloseIfOpen(
-                    readSupplyVoltage(old),
-                    Environment.TickCount,
-                    temperatureSelected: old != null && old.Contains(CaptureMeterSet.PaTemperatureMeterName));
-                if (cut != null) Tracing.TraceRecord(CaptureMeterSet.CaptureMetersRecord, cut, TraceLevel.Info);
-            }
-            catch (Exception ex)
-            {
-                Tracing.TraceLine("SetCaptureSelection: could not close the open capture window — " + ex.Message, TraceLevel.Warning);
-            }
+            if (cut != null) Tracing.TraceRecord(CaptureMeterSet.CaptureMetersRecord, cut, TraceLevel.Info);
+            if (failure != null) Tracing.TraceLine("SetCaptureSelection: could not close the open capture window — " + failure, TraceLevel.Warning);
         }
 
         /// <summary>Which handler drives the <c>captureMeters:</c> window under a selection.</summary>
@@ -97,6 +180,11 @@ namespace Radios
         /// pushed — the alarm subsystem not attached — nothing is recorded, and
         /// the trace says so once: a capture that silently records nothing is
         /// the #494 failure again, and an absence must be visible.
+        ///
+        /// <para>Takes the admission gate itself, and every caller already
+        /// holds it: a <c>Monitor</c> is re-entrant on its own thread, so the
+        /// check and the admission that follows it stay in one critical
+        /// section (<see cref="_captureSelectionGate"/>).</para>
         /// </summary>
         private bool isSelectedForCapture(string meterName, bool traceIfNoSelection = true)
         {
@@ -140,14 +228,15 @@ namespace Radios
             return null;
         }
 
-        /// <summary>True when any selected meter is a supply-voltage meter by name, whether or not this radio publishes it.</summary>
-        private bool supplyVoltageSelected()
-        {
-            HashSet<string> selection;
-            lock (_captureSelectionGate) selection = _captureSelection;
-            return supplyVoltageSelected(selection);
-        }
-
+        /// <summary>
+        /// True when any selected meter is a supply-voltage meter by name,
+        /// whether or not this radio publishes it. Takes the selection as a
+        /// parameter on purpose: there is no overload that snapshots
+        /// <see cref="_captureSelection"/> for itself, because a helper that
+        /// reads the selection on its own is a second, unsynchronised answer to
+        /// "what is selected" — the class of defect behind Astra's Track IJK4
+        /// blocker 2. The caller names the selection it holds under the gate.
+        /// </summary>
         private static bool supplyVoltageSelected(HashSet<string> selection)
         {
             if (selection == null) return false;
@@ -179,14 +268,26 @@ namespace Radios
                 // the ordinary case records as it always did. With temperature
                 // unticked the window is driven by the supply meter instead —
                 // see recordCaptureMetersFromVolts.
-                if (!isSelectedForCapture(CaptureMeterSet.PaTemperatureMeterName)) return;
-                string line = _captureMeters.Report(
-                    celsius,
-                    readSupplyVoltage(),
-                    Transmit || _tuneCycleActive,
-                    Environment.TickCount);
+                //
+                // Check and admit under the admission gate, as one critical
+                // section, with the volts snapshot read under the SAME
+                // selection the sample was checked against (Astra's Track IJK4
+                // review, blocker 2 — see _captureSelectionGate).
+                string line;
+                lock (_captureSelectionGate)
+                {
+                    if (!isSelectedForCapture(CaptureMeterSet.PaTemperatureMeterName)) return;
+                    CaptureAdmissionHook?.Invoke();
+                    line = _captureMeters.Report(
+                        celsius,
+                        readSupplyVoltage(_captureSelection),
+                        Transmit || _tuneCycleActive,
+                        Environment.TickCount);
+                }
                 // A data record with its kind (#625): the file introduces the
                 // line where it first appears, in CaptureMeterSet's own words.
+                // Written outside the gate: the meter thread must not hold the
+                // admission lock while it waits on the trace sink.
                 if (line != null) Tracing.TraceRecord(CaptureMeterSet.CaptureMetersRecord, line, TraceLevel.Info);
             }
             catch (Exception ex)
@@ -219,12 +320,22 @@ namespace Radios
         {
             try
             {
-                if (isSelectedForCapture(CaptureMeterSet.PaTemperatureMeterName)) return;
-                if (!supplyVoltageSelected()) return;
-                string line = _captureMeters.ReportWithoutTemperature(
-                    readSupplyVoltage(),
-                    Transmit || _tuneCycleActive,
-                    Environment.TickCount);
+                // Same critical section as recordCaptureMeters, for the same
+                // reason: the driver question, the volts snapshot and the
+                // arrival that may close the window are answered under one
+                // selection, and a swap waits for them (Astra's Track IJK4
+                // review, blocker 2).
+                string line;
+                lock (_captureSelectionGate)
+                {
+                    if (isSelectedForCapture(CaptureMeterSet.PaTemperatureMeterName)) return;
+                    if (!supplyVoltageSelected(_captureSelection)) return;
+                    CaptureAdmissionHook?.Invoke();
+                    line = _captureMeters.ReportWithoutTemperature(
+                        readSupplyVoltage(_captureSelection),
+                        Transmit || _tuneCycleActive,
+                        Environment.TickCount);
+                }
                 if (line != null) Tracing.TraceRecord(CaptureMeterSet.CaptureMetersRecord, line, TraceLevel.Info);
             }
             catch (Exception ex)
@@ -282,17 +393,30 @@ namespace Radios
         {
             try
             {
-                return new TraceRecord(
-                    _captureMeters.Flush(
-                        readSupplyVoltage(),
+                // Under the admission gate too (Astra's Track IJK4 review,
+                // blocker 2, the same class): the flags on the flushed line
+                // and the window they describe are read under ONE selection.
+                // Before this, the temperature flag and the volts snapshot were
+                // each read under their own brief lock and the flush ran under
+                // a third, so a selection change racing a drop could label the
+                // last window with the set that replaced the one it ran under.
+                // Still nothing here waits on the trace gate: the gate held is
+                // the in-memory admission lock, and the record is rendered,
+                // not written.
+                string line;
+                lock (_captureSelectionGate)
+                {
+                    line = _captureMeters.Flush(
+                        readSupplyVoltage(_captureSelection),
                         Transmit || _tuneCycleActive,
                         reason,
                         Environment.TickCount,
                         // Quietly: this runs on the transport thread on the
                         // drop path, and the missing-selection line, if it is
                         // owed at all, belongs to the handlers that record.
-                        temperatureSelected: isSelectedForCapture(CaptureMeterSet.PaTemperatureMeterName, traceIfNoSelection: false)),
-                    CaptureMeterSet.CaptureMetersRecord);
+                        temperatureSelected: isSelectedForCapture(CaptureMeterSet.PaTemperatureMeterName, traceIfNoSelection: false));
+                }
+                return new TraceRecord(line, CaptureMeterSet.CaptureMetersRecord);
             }
             catch (Exception ex)
             {
@@ -317,15 +441,15 @@ namespace Radios
         /// transmitting radio is the most interesting thing this field could
         /// ever carry.</para>
         /// </summary>
-        private SupplyVoltage readSupplyVoltage()
-        {
-            HashSet<string> selection;
-            lock (_captureSelectionGate) selection = _captureSelection;
-            return readSupplyVoltage(selection);
-        }
-
-        /// <summary>The same, under a selection the caller names — the one a
-        /// window being cut ran under, which may no longer be current.</summary>
+        /// <remarks>
+        /// Takes the selection as a parameter, and there is deliberately no
+        /// overload that snapshots the current one for itself: the caller
+        /// names the selection it is holding under the admission gate — the
+        /// one its sample was checked against, or the one the window being cut
+        /// ran under — so the volts field on a line can never describe a
+        /// different selection from the samples beside it (Astra's Track IJK4
+        /// review, blocker 2).
+        /// </remarks>
         private SupplyVoltage readSupplyVoltage(HashSet<string> selection)
         {
             // The selection decides WHICH supply meter, and whether one at all

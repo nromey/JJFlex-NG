@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using JJTrace;
 using Radios;
 using Xunit;
@@ -408,6 +409,288 @@ namespace Radios.Tests
             var only = Assert.Single(lines);
             Assert.Contains(" paTemp min=61 max=61 last=61 n=1 ", only, StringComparison.Ordinal);
             Assert.EndsWith(" partial=recorded_set_changed", only, StringComparison.Ordinal);
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        //  The swap and the cut are ONE operation with respect to sample
+        //  admission (Astra's Track IJK4 review, blocker 2 — introduced by the
+        //  cut above)
+        //
+        //  The cut published the new selection, released the gate, and only
+        //  then closed the open window with the OLD selection's metadata; the
+        //  handlers took the gate for their Contains check and let go before
+        //  feeding the sample. So a sample could pass its check under the new
+        //  set, open a NEW window, and have it closed and labelled with the old
+        //  set — "paTemp min=61 ... volts=not-selected partial=recorded_set_
+        //  changed" for a window that never ran without volts. The tests above
+        //  run their swaps and samples one after another and could not see it.
+        //  These drive the two operations against each other, deterministically,
+        //  through the two seams the rig exposes INSIDE its critical section,
+        //  and prove from outside that the competing operation is held at the
+        //  boundary rather than interleaved with it. The last one hammers both
+        //  from two real threads and checks every line's provenance.
+        // ────────────────────────────────────────────────────────────────
+
+        private static MethodInfo Handler(string name) =>
+            typeof(FlexBase).GetMethod(name, BindingFlags.NonPublic | BindingFlags.Instance);
+
+        /// <summary>
+        /// Run <paramref name="call"/> on its own thread. <c>started</c> is set
+        /// the instant before the call is made — the positive control that the
+        /// thread is alive and at the call, not merely slow to begin — and
+        /// <c>done</c> when it has returned.
+        /// </summary>
+        private static (ManualResetEventSlim started, ManualResetEventSlim done) OnAnotherThread(Action call)
+        {
+            var started = new ManualResetEventSlim(false);
+            var done = new ManualResetEventSlim(false);
+            var t = new Thread(() =>
+            {
+                started.Set();
+                try { call(); } finally { done.Set(); }
+            }) { IsBackground = true, Name = "competing meter callback" };
+            t.Start();
+            return (started, done);
+        }
+
+        /// <summary>
+        /// Astra's interleaving, and its mirror. The operator's change
+        /// publishes the new set; while it is still inside its critical
+        /// section a temperature sample arrives on the meter thread. The
+        /// sample must WAIT for the boundary — it is proven not to have landed
+        /// while the hook holds the section — and then land in a window under
+        /// the NEW selection, so no line ever attributes it to the old one.
+        /// </summary>
+        [Theory]
+        [InlineData("empty_set_gains_temperature")]
+        [InlineData("voltage_window_gains_temperature")]
+        public void A_sample_arriving_during_a_selection_swap_waits_for_the_boundary_and_lands_in_the_new_window(string from)
+        {
+            bool fromVoltageWindow = from == "voltage_window_gains_temperature";
+            List<string> lines = OnATracedRig(rig =>
+            {
+                MethodInfo temp = Handler("PATempDataHandler");
+                MethodInfo volts = Handler("VoltsDataHandler");
+                if (fromVoltageWindow)
+                {
+                    rig.SetCaptureSelection(new[] { CaptureMeterSet.PreferredSupplyVoltageMeterName });
+                    volts.Invoke(rig, new object[] { 13.8f });                      // the voltage driver's window is open
+                }
+                else
+                {
+                    rig.SetCaptureSelection(new string[0]);                          // Astra's case: the old set is empty, no window
+                }
+                Assert.Empty(TracedCaptureLines());
+
+                ManualResetEventSlim done = null;
+                rig.CaptureSelectionSwapHook = () =>
+                {
+                    // Inside the swap's critical section: the new set is
+                    // published, the old window is not yet cut. The meter
+                    // thread delivers 61 now.
+                    var (started, d) = OnAnotherThread(() => temp.Invoke(rig, new object[] { 61f }));
+                    done = d;
+                    Assert.True(started.Wait(5000), "the competing callback never started");
+                    // It must NOT have landed: it is held at the boundary.
+                    Assert.False(done.Wait(300), "the sample was admitted while the selection was mid-swap");
+                };
+                rig.SetCaptureSelection(new[] { CaptureMeterSet.PaTemperatureMeterName, CaptureMeterSet.PreferredSupplyVoltageMeterName });
+                rig.CaptureSelectionSwapHook = null;
+                Assert.NotNull(done);
+                Assert.True(done.Wait(5000), "the competing callback never completed after the swap");
+
+                // The 61 is in a window under the NEW selection: the next
+                // sample a second later closes it with both in it.
+                Thread.Sleep(CaptureMeterSet.TransmitWindowMs + 120);
+                temp.Invoke(rig, new object[] { 62f });
+            });
+            foreach (string l in lines) _out.WriteLine(l);
+
+            if (fromVoltageWindow)
+            {
+                // The voltage window was cut under ITS selection, with nothing of the 61 in it.
+                Assert.Equal(2, lines.Count);
+                Assert.Contains(" paTemp not-selected ", lines[0], StringComparison.Ordinal);
+                Assert.EndsWith(" partial=recorded_set_changed", lines[0], StringComparison.Ordinal);
+                Assert.DoesNotContain("61", lines[0], StringComparison.Ordinal);
+            }
+            else
+            {
+                // No window was open under the empty set, so nothing was cut —
+                // and in particular not the window the 61 opened.
+                Assert.Single(lines);
+            }
+            string window = lines[lines.Count - 1];
+            Assert.Contains(" paTemp min=61 max=62 last=62 n=2 ", window, StringComparison.Ordinal);
+            Assert.DoesNotContain("partial=", window, StringComparison.Ordinal);
+            // volts is unknown on a radioless rig, and it is NOT "not-selected":
+            // the window ran under a selection that holds a supply meter.
+            Assert.Contains(" volts=unknown", window, StringComparison.Ordinal);
+            Assert.DoesNotContain(lines, l => l.Contains("min=61", StringComparison.Ordinal) && l.Contains("volts=not-selected", StringComparison.Ordinal));
+        }
+
+        /// <summary>
+        /// The other half of the guarantee, the one Astra named: a callback
+        /// that has ALREADY passed its selection check. The operator's change
+        /// arrives while a 61 is between its check and its admission. The
+        /// change must wait — proven not to have completed while the hook
+        /// holds the section — and the 61 is then written under the selection
+        /// it was checked against, with the boundary falling after it.
+        /// </summary>
+        [Fact]
+        public void A_sample_that_passed_its_check_is_written_under_that_selection_and_the_swap_waits_for_it()
+        {
+            List<string> lines = OnATracedRig(rig =>
+            {
+                MethodInfo temp = Handler("PATempDataHandler");
+                MethodInfo volts = Handler("VoltsDataHandler");
+                rig.SetCaptureSelection(new[] { CaptureMeterSet.PaTemperatureMeterName });
+
+                ManualResetEventSlim done = null;
+                rig.CaptureAdmissionHook = () =>
+                {
+                    rig.CaptureAdmissionHook = null;   // once: the samples after this run plainly
+                    // The 61 has passed its check under {PATEMP}. The operator unticks temperature now.
+                    var (started, d) = OnAnotherThread(() => rig.SetCaptureSelection(new[] { CaptureMeterSet.PreferredSupplyVoltageMeterName }));
+                    done = d;
+                    Assert.True(started.Wait(5000), "the competing selection change never started");
+                    Assert.False(done.Wait(300), "the selection changed between a sample's check and its admission");
+                };
+                temp.Invoke(rig, new object[] { 61f });
+                Assert.NotNull(done);
+                Assert.True(done.Wait(5000), "the selection change never completed after the sample landed");
+
+                // The voltage driver's own window follows, clean.
+                volts.Invoke(rig, new object[] { 13.8f });
+                Thread.Sleep(CaptureMeterSet.TransmitWindowMs + 120);
+                volts.Invoke(rig, new object[] { 13.7f });
+            });
+            foreach (string l in lines) _out.WriteLine(l);
+            Assert.Equal(2, lines.Count);
+            // The cut carries the 61 under the selection it was admitted under: {PATEMP}, no supply meter.
+            Assert.Contains(" paTemp min=61 max=61 last=61 n=1 ", lines[0], StringComparison.Ordinal);
+            Assert.Contains(" volts=not-selected", lines[0], StringComparison.Ordinal);
+            Assert.EndsWith(" partial=recorded_set_changed", lines[0], StringComparison.Ordinal);
+            // And nothing of it in the voltage driver's window.
+            Assert.Contains(" paTemp not-selected ", lines[1], StringComparison.Ordinal);
+            Assert.Contains(" volts=unknown", lines[1], StringComparison.Ordinal);
+            Assert.DoesNotContain("partial=", lines[1], StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// A temperature sample arriving while temperature is being UNTICKED
+        /// waits for the boundary and is then judged against the new set — and
+        /// is not recorded, because the operator no longer asked for it. It is
+        /// neither slipped into the window being cut nor written anywhere else.
+        /// </summary>
+        [Fact]
+        public void A_temperature_sample_arriving_as_temperature_is_unticked_is_judged_against_the_new_set_and_not_written()
+        {
+            List<string> lines = OnATracedRig(rig =>
+            {
+                MethodInfo temp = Handler("PATempDataHandler");
+                MethodInfo volts = Handler("VoltsDataHandler");
+                rig.SetCaptureSelection(new[] { CaptureMeterSet.PaTemperatureMeterName, CaptureMeterSet.PreferredSupplyVoltageMeterName });
+                temp.Invoke(rig, new object[] { 61f });
+
+                ManualResetEventSlim done = null;
+                rig.CaptureSelectionSwapHook = () =>
+                {
+                    var (started, d) = OnAnotherThread(() => temp.Invoke(rig, new object[] { 63f }));
+                    done = d;
+                    Assert.True(started.Wait(5000));
+                    Assert.False(done.Wait(300), "the sample was admitted while the selection was mid-swap");
+                };
+                rig.SetCaptureSelection(new[] { CaptureMeterSet.PreferredSupplyVoltageMeterName });   // untick PATEMP
+                rig.CaptureSelectionSwapHook = null;
+                Assert.True(done.Wait(5000));
+
+                volts.Invoke(rig, new object[] { 13.8f });
+                Thread.Sleep(CaptureMeterSet.TransmitWindowMs + 120);
+                volts.Invoke(rig, new object[] { 13.7f });
+            });
+            foreach (string l in lines) _out.WriteLine(l);
+            Assert.Equal(2, lines.Count);
+            Assert.Contains(" paTemp min=61 max=61 last=61 n=1 ", lines[0], StringComparison.Ordinal);
+            Assert.EndsWith(" partial=recorded_set_changed", lines[0], StringComparison.Ordinal);
+            Assert.Contains(" paTemp not-selected ", lines[1], StringComparison.Ordinal);
+            Assert.DoesNotContain(lines, l => l.Contains("63", StringComparison.Ordinal));
+        }
+
+        /// <summary>
+        /// Created state, swept with real concurrency: one thread toggles the
+        /// selection between {PATEMP} and {+13.8A} as fast as it can while
+        /// another feeds temperature and voltage samples. Under {PATEMP} a line
+        /// carries temperature and says volts=not-selected; under {+13.8A} it
+        /// says paTemp not-selected and volts=unknown (radioless rig). Every
+        /// line — periodic or cut — must be one or the other, never a
+        /// temperature sample beside volts=unknown or an unselected
+        /// temperature beside volts=not-selected, because each of those is a
+        /// window labelled with a selection its samples were not admitted
+        /// under. Bounded to about a second.
+        /// </summary>
+        [Fact]
+        public void Under_concurrent_selection_changes_and_samples_every_line_describes_one_selection()
+        {
+            List<string> lines = OnATracedRig(rig =>
+            {
+                MethodInfo temp = Handler("PATempDataHandler");
+                MethodInfo volts = Handler("VoltsDataHandler");
+                rig.SetCaptureSelection(new[] { CaptureMeterSet.PaTemperatureMeterName });
+                var stop = new ManualResetEventSlim(false);
+                Exception failure = null;
+
+                var toggler = new Thread(() =>
+                {
+                    try
+                    {
+                        bool temperature = true;
+                        while (!stop.IsSet)
+                        {
+                            temperature = !temperature;
+                            rig.SetCaptureSelection(temperature
+                                ? new[] { CaptureMeterSet.PaTemperatureMeterName }
+                                : new[] { CaptureMeterSet.PreferredSupplyVoltageMeterName });
+                            Thread.Sleep(1);
+                        }
+                    }
+                    catch (Exception ex) { failure = ex; }
+                }) { IsBackground = true };
+                var sampler = new Thread(() =>
+                {
+                    try
+                    {
+                        int i = 0;
+                        while (!stop.IsSet)
+                        {
+                            if ((i++ & 1) == 0) temp.Invoke(rig, new object[] { 60f + (i % 7) });
+                            else volts.Invoke(rig, new object[] { 13.8f });
+                            Thread.Yield();
+                        }
+                    }
+                    catch (Exception ex) { failure = ex; }
+                }) { IsBackground = true };
+                toggler.Start(); sampler.Start();
+                Thread.Sleep(1100);
+                stop.Set();
+                Assert.True(toggler.Join(5000)); Assert.True(sampler.Join(5000));
+                Assert.Null(failure);
+            });
+            _out.WriteLine(lines.Count + " lines, " + lines.Count(l => l.Contains("partial=", StringComparison.Ordinal)) + " cut");
+
+            // Positive controls: both kinds of boundary were produced in volume.
+            Assert.True(lines.Count(l => l.Contains("partial=recorded_set_changed", StringComparison.Ordinal)) > 10, "too few cuts to have exercised the boundary");
+            Assert.Contains(lines, l => l.Contains("paTemp min=", StringComparison.Ordinal));
+            Assert.Contains(lines, l => l.Contains("paTemp not-selected", StringComparison.Ordinal));
+
+            foreach (string l in lines)
+            {
+                bool temperatureContent = l.Contains("paTemp min=", StringComparison.Ordinal) || l.Contains("paTemp none n=0", StringComparison.Ordinal);
+                bool temperatureUnselected = l.Contains("paTemp not-selected", StringComparison.Ordinal);
+                Assert.True(temperatureContent ^ temperatureUnselected, "neither or both: " + l);
+                if (temperatureContent) Assert.Contains(" volts=not-selected", l, StringComparison.Ordinal);
+                else Assert.Contains(" volts=unknown", l, StringComparison.Ordinal);
+            }
         }
 
         private List<string> _tracedForRig;

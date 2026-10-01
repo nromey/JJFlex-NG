@@ -62,7 +62,10 @@ namespace Radios
     /// to the other CUTS the open window under the selection it ran under,
     /// marked <c>partial=recorded_set_changed</c>, so a sample the radio sent
     /// is written and the next window starts clean (<see cref="CloseIfOpen"/>;
-    /// Astra's Track IJK2 review, blocker 2).</para>
+    /// Astra's Track IJK2 review, blocker 2) — and the swap and the cut are one
+    /// operation with respect to sample admission, under the rig's admission
+    /// lock, so no sample can be checked against one selection and written
+    /// under another (Astra's Track IJK4 review, blocker 2).</para>
     ///
     /// <para><b>Forward and reflected power are NOT a selection, and that is
     /// deliberate.</b> They ride the <c>txMeters:</c> line, which is the
@@ -469,6 +472,16 @@ namespace Radios
         /// same vocabulary the drop path already uses — and the next window
         /// starts clean under the new selection with nothing of the old one in
         /// it. Evidence is preserved and the discontinuity is on the line.</para>
+        ///
+        /// <para><b>This method does not make the boundary atomic; the rig
+        /// does (Astra's Track IJK4 review, blocker 2).</b> The gate here
+        /// serialises the window's statistics and nothing more. Whether the
+        /// samples in the window were admitted under the selection the
+        /// <paramref name="volts"/> and <paramref name="temperatureSelected"/>
+        /// arguments describe is decided by the caller holding its admission
+        /// lock across the check, the admission and this call —
+        /// <c>FlexBase._captureSelectionGate</c>. Called from anywhere else,
+        /// the arguments are a claim this method cannot check.</para>
         /// </summary>
         /// <param name="volts">What the meter inventory knows about supply
         /// voltage under the selection the window ran under.</param>
