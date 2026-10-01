@@ -256,7 +256,7 @@ namespace Radios.Alarms
                         float delta = (float)Definition.WorseningBetween(_baselineValue, obs.Value);
                         Judge(obs, nowMs,
                             onAlarmSide: delta >= Definition.Threshold,
-                            beyondClear: delta <= Definition.Threshold - Definition.Hysteresis,
+                            beyondClear: Definition.IsChangeBeyondClear(delta),
                             change: delta, interval: double.NaN);
                     }
                     break;

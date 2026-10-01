@@ -236,6 +236,56 @@ namespace Radios.Tests.Alarms
             Assert.NotEqual(fired[0].EpisodeId, fired[1].EpisodeId);
         }
 
+        [Fact]
+        public void With_no_margin_a_constant_reading_exactly_at_the_line_fires_once_and_never_clears_in_either_direction()
+        {
+            // Astra's Track I review, finding 12 — a defect in the design's own
+            // boundary specification. Both boundaries were inclusive, so with
+            // zero hysteresis a value EQUAL to the line was on the alarm side
+            // and beyond the clear at once: fire, clear two samples later,
+            // fire again, for ever. A value at the line is on the alarm side
+            // by definition; with no band, clearing needs it to have LEFT the
+            // line. DRAFT rule for Noel to confirm or overturn.
+            var above = new AlarmMonitor(Level(60, hysteresis: 0, clearSamples: 2, clearSeconds: 1));
+            var events = Run(above, (1000, 60f), (3000, 60f), (5000, 60f), (7000, 60f), (9000, 60f));
+            Assert.Equal(1, Count(events, AlarmEventKind.Fired));
+            Assert.Equal(0, Count(events, AlarmEventKind.Cleared));
+            Assert.Equal(AlarmConditionState.Active, above.Condition);
+
+            var below = new AlarmMonitor(Level(12, hysteresis: 0, direction: AlarmDirection.AtOrBelow, clearSamples: 2, clearSeconds: 1));
+            var belowEvents = Run(below, (1000, 12f), (3000, 12f), (5000, 12f), (7000, 12f), (9000, 12f));
+            Assert.Equal(1, Count(belowEvents, AlarmEventKind.Fired));
+            Assert.Equal(0, Count(belowEvents, AlarmEventKind.Cleared));
+
+            // Strictly past the line clears, in both directions.
+            Assert.Equal(1, Count(Run(above, (11000, 59.9f), (13000, 59.9f)), AlarmEventKind.Cleared));
+            Assert.Equal(1, Count(Run(below, (11000, 12.1f), (13000, 12.1f)), AlarmEventKind.Cleared));
+        }
+
+        [Fact]
+        public void With_a_margin_equality_at_the_reset_line_still_clears_as_the_PA_preset_always_has()
+        {
+            // The positive control for the zero-margin rule: a positive margin
+            // is untouched, and 58 still clears a 60-with-2 alarm.
+            var m = new AlarmMonitor(Level(60, hysteresis: 2, clearSamples: 2, clearSeconds: 1));
+            var events = Run(m, (1000, 61f), (3000, 58f), (5000, 58f));
+            Assert.Equal(1, Count(events, AlarmEventKind.Cleared));
+        }
+
+        [Fact]
+        public void A_delta_alarm_with_no_margin_does_not_chatter_at_an_exact_rise_either()
+        {
+            var m = new AlarmMonitor(AlarmDefinition.NewRiseFromBaseline("r", "Rise", "0000", MeterSelector.From(PaTemp), 5, 0)
+                with { Enabled = true, ClearSamples = 2, ClearSeconds = 1 });
+            var feed = new Feed();
+            m.Observe(feed.At(1000, 25f), 1000);
+            m.CaptureBaseline(1001);
+            var events = new List<AlarmEvent>();
+            foreach (long t in new long[] { 3000, 5000, 7000, 9000 }) events.AddRange(m.Observe(feed.At(t, 30f), t));
+            Assert.Equal(1, Count(events, AlarmEventKind.Fired));
+            Assert.Equal(0, Count(events, AlarmEventKind.Cleared));
+        }
+
         // ── dwell versus count ──
 
         [Fact]

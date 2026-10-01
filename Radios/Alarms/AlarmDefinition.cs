@@ -172,10 +172,36 @@ namespace Radios.Alarms
             ? value >= Threshold
             : value <= Threshold;
 
-        /// <summary>True when <paramref name="value"/> is at or beyond the clear boundary.</summary>
+        /// <summary>
+        /// True when <paramref name="value"/> is at or beyond the clear
+        /// boundary — or, with NO margin, strictly past the line.
+        /// </summary>
+        /// <remarks>
+        /// <b>The zero-margin rule, and why it is strict (Astra's Track I
+        /// review, finding 12, a defect in the design itself).</b> Both the
+        /// trigger and the clear were inclusive, so with a zero margin a value
+        /// EQUAL to the line was on the alarm side and beyond the clear at the
+        /// same time: a constant reading exactly at 60 fired, cleared two
+        /// samples later, and fired again, for ever. A value equal to the line
+        /// is on the alarm side by definition and cannot also be clear; with no
+        /// band to be inside, clearing needs the value to have left the line.
+        /// A positive margin is untouched — equality AT the reset line still
+        /// clears, as the PA preset's 58 C always has. DRAFT for Noel: the
+        /// review asked him to choose between this rule and requiring a
+        /// positive margin; this is the one that changes no ruled number.
+        /// </remarks>
         public bool IsBeyondClear(double value) => Direction == AlarmDirection.AtOrAbove
-            ? value <= ClearBoundary
-            : value >= ClearBoundary;
+            ? (Hysteresis > 0 ? value <= ClearBoundary : value < Threshold)
+            : (Hysteresis > 0 ? value >= ClearBoundary : value > Threshold);
+
+        /// <summary>
+        /// The same question for a delta alarm, asked of the measured rise or
+        /// fall rather than the level: with a margin, a change at or below
+        /// threshold minus margin clears; with none, only a change strictly
+        /// below the threshold does.
+        /// </summary>
+        public bool IsChangeBeyondClear(double change) =>
+            Hysteresis > 0 ? change <= Threshold - Hysteresis : change < Threshold;
 
         /// <summary>
         /// Positive when <paramref name="later"/> is worse than <paramref name="earlier"/>
