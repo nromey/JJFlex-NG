@@ -433,10 +433,19 @@ namespace Radios.Alarms
             Report(new AlarmDeliveryReport(e, sentence, false, true, 0, false));
         }
 
+        /// <summary>
+        /// The dispatch queue overflowed. Arrives on a thread-pool thread —
+        /// AlarmDispatchQueue hands the signal off rather than raising it on
+        /// the meter thread under the service lock — so speaking here takes
+        /// the arbiter's lock with nothing else held (finding 4).
+        /// </summary>
         private void OnDeliveryUnavailable(long dropped)
         {
             try { _speaker.SpeakStatus(AlarmPhrasing.DeliveryUnavailable(), VerbosityLevel.Critical, SpeechSubject.OperatorAlarmStatus); }
-            catch { /* best effort, off the meter thread already */ }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("AlarmDelivery: could not say that delivery is unavailable — " + ex.Message, TraceLevel.Warning);
+            }
         }
 
         private void Cancel(string alarmId)

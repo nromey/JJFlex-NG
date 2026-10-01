@@ -227,21 +227,47 @@ namespace Radios.Alarms
         }
 
         // ── definitions ──
+        //
+        // Every edit below has one shape, and the shape is the fix for the
+        // last of Astra's Track I review finding 4 and its "failed save
+        // mutates monitor state" observation: build the file the edit WOULD
+        // produce, write it with no lock the meter thread needs, and only then
+        // change the running monitors. The old order mutated first and rolled
+        // back on failure — but restoring a definition is not restoring the
+        // episode, the acknowledgement and the baseline it had closed on the
+        // way, and the write itself sat under the service lock, so a slow
+        // disk stalled every meter callback behind it. _saveGate serialises
+        // the operator's edits against each other; _gate is held only for the
+        // two short critical sections either side of the write.
+
+        /// <summary>Serialises configuration edits. Never taken by the meter thread, and never held under <see cref="_gate"/>.</summary>
+        private readonly object _saveGate = new object();
 
         /// <summary>Add a definition, save it, and start monitoring it. False when it is invalid or the store refused.</summary>
         public bool Add(AlarmDefinition definition)
         {
             if (definition == null || definition.Validate().Count != 0) return false;
-            lock (_gate)
+            lock (_saveGate)
             {
-                if (_entries.ContainsKey(definition.Id)) return false;
-                definition = definition with { RadioSerial = _serial };
-                var entry = new Entry(new AlarmMonitor(definition));
-                _entries[definition.Id] = entry;
-                if (!Persist()) { _entries.Remove(definition.Id); return false; }
-                entry.Monitor.NewConnection(_generation, _clock.NowMs);
-                Rebind();
-                if (_feed.IsTransmitting) Post(entry, entry.Monitor.SetTransmit(true, _clock.NowMs));
+                AlarmDefinitionFile file;
+                int generation;
+                lock (_gate)
+                {
+                    if (_entries.ContainsKey(definition.Id)) return false;
+                    definition = definition with { RadioSerial = _serial };
+                    file = FileLocked(f => f.Definitions.Add(definition));
+                    generation = _generation;
+                }
+                if (!Save(file)) return false;   // nothing running has moved
+                lock (_gate)
+                {
+                    if (generation != _generation) return true;   // a reconnect reloaded the saved file meanwhile
+                    var entry = new Entry(new AlarmMonitor(definition));
+                    _entries[definition.Id] = entry;
+                    entry.Monitor.NewConnection(_generation, _clock.NowMs);
+                    Rebind();
+                    if (_feed.IsTransmitting) Post(entry, entry.Monitor.SetTransmit(true, _clock.NowMs));
+                }
             }
             RaiseChanged();
             return true;
@@ -251,22 +277,34 @@ namespace Radios.Alarms
         public bool Update(AlarmDefinition definition)
         {
             if (definition == null || definition.Validate().Count != 0) return false;
-            lock (_gate)
+            lock (_saveGate)
             {
-                if (!_entries.TryGetValue(definition.Id, out Entry? entry)) return false;
-                AlarmDefinition next = definition with
+                AlarmDefinition next;
+                AlarmDefinitionFile file;
+                int generation;
+                lock (_gate)
                 {
-                    Revision = entry.Monitor.Definition.Revision + 1,
-                    RadioSerial = _serial,
-                };
-                AlarmDefinition previous = entry.Monitor.Definition;
-                Post(entry, entry.Monitor.Replace(next, _clock.NowMs));
-                if (!Persist())
-                {
-                    entry.Monitor.Replace(previous, _clock.NowMs);
-                    return false;
+                    if (!_entries.TryGetValue(definition.Id, out Entry? current)) return false;
+                    next = definition with
+                    {
+                        Revision = current.Monitor.Definition.Revision + 1,
+                        RadioSerial = _serial,
+                    };
+                    file = FileLocked(f =>
+                    {
+                        int at = f.Definitions.FindIndex(d => d.Id == next.Id);
+                        if (at >= 0) f.Definitions[at] = next; else f.Definitions.Add(next);
+                    });
+                    generation = _generation;
                 }
-                Rebind();
+                if (!Save(file)) return false;   // the running episode, acknowledgement and baseline are untouched
+                lock (_gate)
+                {
+                    if (generation != _generation) return true;
+                    if (!_entries.TryGetValue(definition.Id, out Entry? entry)) return true;
+                    Post(entry, entry.Monitor.Replace(next, _clock.NowMs));
+                    Rebind();
+                }
             }
             RaiseChanged();
             return true;
@@ -274,12 +312,23 @@ namespace Radios.Alarms
 
         public bool Remove(string alarmId)
         {
-            lock (_gate)
+            lock (_saveGate)
             {
-                if (!_entries.TryGetValue(alarmId, out Entry? entry)) return false;
-                _entries.Remove(alarmId);
-                if (!Persist()) { _entries[alarmId] = entry; return false; }
-                Rebind();
+                AlarmDefinitionFile file;
+                int generation;
+                lock (_gate)
+                {
+                    if (!_entries.ContainsKey(alarmId)) return false;
+                    file = FileLocked(f => f.Definitions.RemoveAll(d => d.Id == alarmId));
+                    generation = _generation;
+                }
+                if (!Save(file)) return false;
+                lock (_gate)
+                {
+                    if (generation != _generation) return true;
+                    _entries.Remove(alarmId);
+                    Rebind();
+                }
             }
             RaiseChanged();
             return true;
@@ -287,14 +336,30 @@ namespace Radios.Alarms
 
         public bool SetEnabled(string alarmId, bool enabled)
         {
-            lock (_gate)
+            lock (_saveGate)
             {
-                if (!_entries.TryGetValue(alarmId, out Entry? entry)) return false;
-                bool was = entry.Monitor.Enabled;
-                Post(entry, entry.Monitor.SetEnabled(enabled, _clock.NowMs));
-                if (!Persist()) { entry.Monitor.SetEnabled(was, _clock.NowMs); return false; }
-                // The recorded set follows the enabled state (finding 11).
-                Rebind();
+                AlarmDefinitionFile file;
+                int generation;
+                lock (_gate)
+                {
+                    if (!_entries.TryGetValue(alarmId, out Entry? current)) return false;
+                    AlarmDefinition flipped = current.Monitor.Definition with { Enabled = enabled };
+                    file = FileLocked(f =>
+                    {
+                        int at = f.Definitions.FindIndex(d => d.Id == alarmId);
+                        if (at >= 0) f.Definitions[at] = flipped;
+                    });
+                    generation = _generation;
+                }
+                if (!Save(file)) return false;
+                lock (_gate)
+                {
+                    if (generation != _generation) return true;
+                    if (!_entries.TryGetValue(alarmId, out Entry? entry)) return true;
+                    Post(entry, entry.Monitor.SetEnabled(enabled, _clock.NowMs));
+                    // The recorded set follows the enabled state (finding 11).
+                    Rebind();
+                }
             }
             RaiseChanged();
             return true;
@@ -304,20 +369,65 @@ namespace Radios.Alarms
         public bool SetRecordOnly(MeterSelector selector, bool record)
         {
             if (selector == null) return false;
-            lock (_gate)
+            lock (_saveGate)
             {
-                bool present = _recordOnly.Contains(selector);
-                if (record == present) return true;
-                if (record) _recordOnly.Add(selector); else _recordOnly.Remove(selector);
-                if (!Persist())
+                AlarmDefinitionFile file;
+                int generation;
+                lock (_gate)
                 {
-                    if (record) _recordOnly.Remove(selector); else _recordOnly.Add(selector);
-                    return false;
+                    bool present = _recordOnly.Contains(selector);
+                    if (record == present) return true;
+                    file = FileLocked(f =>
+                    {
+                        f.RecordOnlyMeters.RemoveAll(s => s.Equals(selector));
+                        if (record) f.RecordOnlyMeters.Add(selector);
+                    });
+                    generation = _generation;
                 }
-                Rebind();
+                if (!Save(file)) return false;
+                lock (_gate)
+                {
+                    if (generation != _generation) return true;
+                    _recordOnly.RemoveAll(s => s.Equals(selector));
+                    if (record) _recordOnly.Add(selector);
+                    Rebind();
+                }
             }
             RaiseChanged();
             return true;
+        }
+
+        /// <summary>The file this radio's configuration would be, with one edit applied. Under the lock; reads only.</summary>
+        private AlarmDefinitionFile FileLocked(Action<AlarmDefinitionFile> edit)
+        {
+            var file = new AlarmDefinitionFile { RadioSerial = _serial };
+            foreach (Entry e in _entries.Values) file.Definitions.Add(e.Monitor.Definition);
+            file.RecordOnlyMeters.AddRange(_recordOnly);
+            edit(file);
+            return file;
+        }
+
+        /// <summary>
+        /// Write a configuration file. Called with <see cref="_saveGate"/> held
+        /// and <see cref="_gate"/> NOT held, so disk IO never stalls a meter
+        /// callback. Refuses over an unavailable store: saving over a file the
+        /// operator has not seen the problem with is a deliberate act the
+        /// dialog asks about, not a side effect of an edit.
+        /// </summary>
+        private bool Save(AlarmDefinitionFile file)
+        {
+            AlarmStoreState state;
+            string problem;
+            lock (_gate) { state = _storeState; problem = _storeProblem; }
+            if (_store == null || state == AlarmStoreState.Unavailable)
+            {
+                Tracing.TraceLine("AlarmService: refusing to save over an unavailable configuration ("
+                    + problem + ")", TraceLevel.Warning);
+                return false;
+            }
+            bool ok = _store.Save(file);
+            if (ok) lock (_gate) _storeState = AlarmStoreState.Loaded;
+            return ok;
         }
 
         // ── operator actions on an episode ──
@@ -583,22 +693,6 @@ namespace Radios.Alarms
                 if (!seen.Contains(id)) _entries.Remove(id);
 
             _recordOnly.AddRange(load.File.RecordOnlyMeters);
-        }
-
-        private bool Persist()
-        {
-            if (_store == null || _storeState == AlarmStoreState.Unavailable)
-            {
-                Tracing.TraceLine("AlarmService: refusing to save over an unavailable configuration ("
-                    + _storeProblem + ")", TraceLevel.Warning);
-                return false;
-            }
-            var file = new AlarmDefinitionFile { RadioSerial = _serial };
-            foreach (Entry e in _entries.Values) file.Definitions.Add(e.Monitor.Definition);
-            file.RecordOnlyMeters.AddRange(_recordOnly);
-            bool ok = _store.Save(file);
-            if (ok) _storeState = AlarmStoreState.Loaded;
-            return ok;
         }
 
         /// <summary>Resolve every selector against the current census and rebuild the index tables.</summary>

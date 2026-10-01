@@ -33,10 +33,18 @@ namespace Radios.Tests.Alarms
         {
             var release = new ManualResetEventSlim(false);
             var started = new ManualResetEventSlim(false);
+            var announcedEvent = new ManualResetEventSlim(false);
             long announced = -1;
             int announcements = 0;
+            int announcingThread = -1;
             using var q = new AlarmDispatchQueue<int>(_ => { started.Set(); release.Wait(); }, "test", capacity: 4);
-            q.Overflowed += n => { announcements++; announced = n; };
+            q.Overflowed += n =>
+            {
+                Interlocked.Increment(ref announcements);
+                announced = n;
+                announcingThread = Environment.CurrentManagedThreadId;
+                announcedEvent.Set();
+            };
 
             // The worker takes the first item and blocks on it; four more fill the queue.
             Assert.True(q.Post(0));
@@ -45,8 +53,15 @@ namespace Radios.Tests.Alarms
             Assert.False(q.Post(99));
             Assert.False(q.Post(100));
             Assert.Equal(2, q.Dropped);
+
+            // Announced once — and NOT on the posting thread (Astra's Track I
+            // review, finding 4): the poster is the meter thread under the
+            // service lock, and the listener speaks.
+            Assert.True(announcedEvent.Wait(2000));
+            Thread.Sleep(50);
             Assert.Equal(1, announcements);
             Assert.Equal(1, announced);
+            Assert.NotEqual(Environment.CurrentManagedThreadId, announcingThread);
 
             release.Set();
             Assert.True(q.Drain(2000));

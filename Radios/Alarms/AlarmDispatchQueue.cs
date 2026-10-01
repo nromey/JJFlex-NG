@@ -67,7 +67,21 @@ namespace Radios.Alarms
             _worker.Start();
         }
 
-        /// <summary>Raised on the posting thread the first time a run of overflow begins; the count says how many were refused so far.</summary>
+        /// <summary>
+        /// Raised the first time a run of overflow begins; the count says how
+        /// many were refused so far.
+        ///
+        /// <para><b>On a thread-pool thread, NEVER the posting thread (Astra's
+        /// Track I review, finding 4).</b> The poster is FlexLib's meter
+        /// thread, holding the alarm service's lock; the listener is delivery,
+        /// which speaks, which takes the arbiter's lock. The arbiter, on its
+        /// own thread, holds its lock while it re-reads an alarm through the
+        /// service's. Raising this inline gave the two locks the reverse order
+        /// on the overflow path, and a deadlock was reachable — under a
+        /// comment claiming the work was already off the meter thread. The
+        /// signal is handed to an independent worker here, so the meter
+        /// thread never speaks and never waits.</para>
+        /// </summary>
         public event Action<long>? Overflowed;
 
         /// <summary>Items refused for lack of room, over the life of the queue.</summary>
@@ -109,7 +123,19 @@ namespace Radios.Alarms
                     "AlarmDispatchQueue: full at " + _capacity + " — refusing items until the worker catches up; "
                     + "monitoring delivery is unavailable while this lasts",
                     TraceLevel.Error);
-                try { Overflowed?.Invoke(dropped); } catch { /* a listener's failure must not reach the meter thread */ }
+                Action<long>? listeners = Overflowed;
+                if (listeners != null)
+                {
+                    long count = dropped;
+                    ThreadPool.UnsafeQueueUserWorkItem(_ =>
+                    {
+                        try { listeners(count); }
+                        catch (Exception ex)
+                        {
+                            Tracing.TraceLine("AlarmDispatchQueue: an overflow listener threw — " + ex.Message, TraceLevel.Warning);
+                        }
+                    }, null);
+                }
                 return false;
             }
             if (dropped != 0) return false;

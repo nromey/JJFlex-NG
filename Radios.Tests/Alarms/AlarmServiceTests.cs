@@ -285,6 +285,49 @@ namespace Radios.Tests.Alarms
         }
 
         [Fact]
+        public void A_save_that_fails_leaves_the_running_episode_exactly_as_it_was()
+        {
+            // Astra's Track I review, finding 4's tail: Update and SetEnabled
+            // mutated the monitor BEFORE persisting and rolled back the
+            // definition on failure — but restoring a definition is not
+            // restoring the episode, the acknowledgement and the baseline the
+            // mutation had closed. The write now comes first, outside the
+            // service lock, and a failure changes nothing that is running.
+            var s = Service();
+            _feed.Connect(Serial, Pa);
+            Assert.True(s.Add(PaLevel()));
+            Step(500);
+            _feed.Deliver(Pa, 61f);
+            Assert.Contains(s.Acknowledge("pa"), e => e.Kind == AlarmEventKind.Acknowledged);
+            AlarmSnapshot before = s.SnapshotOf("pa")!;
+            Assert.Equal(AlarmConditionState.Active, before.Condition);
+            Assert.Equal(AlarmNotificationState.Acknowledged, before.Notification);
+            Assert.True(s.DrainDispatch(2000));
+            int eventsBefore; lock (_dispatched) eventsBefore = _dispatched.Count;
+
+            // Make the next write fail: the file's path is now a directory, so
+            // the atomic move cannot replace it.
+            string path = new AlarmDefinitionStore(_root).PathFor(Serial);
+            File.Delete(path);
+            Directory.CreateDirectory(path);
+
+            Assert.False(s.Update(PaLevel(70)));
+            Assert.False(s.SetEnabled("pa", false));
+            Assert.False(s.Remove("pa"));
+            Assert.False(s.SetRecordOnly(MeterSelector.From(Fwd), true));
+
+            AlarmSnapshot after = s.SnapshotOf("pa")!;
+            Assert.Equal(before.Definition, after.Definition);
+            Assert.Equal(before.EpisodeId, after.EpisodeId);
+            Assert.Equal(AlarmConditionState.Active, after.Condition);
+            Assert.Equal(AlarmNotificationState.Acknowledged, after.Notification);
+            Assert.True(after.Definition.Enabled);
+            Assert.Empty(s.RecordOnlyMeters);
+            Assert.True(s.DrainDispatch(2000));
+            lock (_dispatched) Assert.Equal(eventsBefore, _dispatched.Count);   // no ConfigurationChanged, no Disabled, nothing
+        }
+
+        [Fact]
         public void Preview_exercises_the_output_path_with_test_provenance_and_never_touches_the_monitor()
         {
             var s = Service();
