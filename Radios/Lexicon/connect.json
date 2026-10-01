@@ -214,7 +214,7 @@
   "connect.multiflex.disconnect_requested": "Disconnect requested for {station}.",
   "connect.multiflex.disconnect_title": "Disconnect Client",
   "connect.multiflex.disconnect_unavailable": "Unable to disconnect this client until the radio identifies it.",
-  "connect.multiflex.disconnect_unavailable_may_have_left": "Unable to disconnect {station}; it may have disconnected already.",
+  "connect.multiflex.disconnect_unavailable_may_have_left": "Unable to disconnect {station}; the client may have disconnected already.",
   "connect.multiflex.disconnect_warning": "Slices {ownedSlices} will be released.",
   "connect.multiflex.disconnect_yes": "_Disconnect",
   "connect.multiflex.disconnected": "{program} disconnected",

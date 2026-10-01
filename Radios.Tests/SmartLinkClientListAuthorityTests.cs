@@ -667,9 +667,9 @@ namespace Radios.Tests
             const string awaitingRadio = "Unable to disconnect this client until the radio identifies it.";
 
             Assert.False(ClientRowPhrase.MayDisconnect(radioMaybeGone));
-            Assert.Equal("Unable to disconnect WA2IWC; it may have disconnected already.",
+            Assert.Equal("Unable to disconnect WA2IWC; the client may have disconnected already.",
                 ClientRowPhrase.DisconnectReason(radioMaybeGone));
-            Assert.Equal("Unable to disconnect Maestro; it may have disconnected already.",
+            Assert.Equal("Unable to disconnect Maestro; the client may have disconnected already.",
                 ClientRowPhrase.DisconnectReason(namelessRadioMaybeGone));
             Assert.Equal(
                 Lexicon.Get("connect.multiflex.disconnect_unavailable_may_have_left", ("station", radioMaybeGone.NameForSentence)),
@@ -814,7 +814,7 @@ namespace Radios.Tests
             Assert.Equal("Unable to disconnect this client until the radio identifies it.", ClientRowPhrase.DisconnectReason(reported));
             // The radio identified this one; its reason is that it may have
             // left, never that the radio has not identified it (Track L11).
-            Assert.Equal("Unable to disconnect WA2IWC; it may have disconnected already.", ClientRowPhrase.DisconnectReason(maybeGone));
+            Assert.Equal("Unable to disconnect WA2IWC; the client may have disconnected already.", ClientRowPhrase.DisconnectReason(maybeGone));
 
             // Sentences 7 and 8, which the dialog reads straight from the
             // lexicon; one text at both tiers.
