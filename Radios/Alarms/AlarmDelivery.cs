@@ -68,10 +68,13 @@ namespace Radios.Alarms
     /// </para>
     /// <para>
     /// <b>The refresh.</b> Every warning carries a way to re-read itself: the
-    /// service's snapshot for that alarm. When a deferred warning's turn
-    /// comes, or the one bounded retry fires, the arbiter asks it, and it
-    /// answers with the CURRENT value or with nothing — never the value it
-    /// was queued with.
+    /// service's snapshot for that alarm. Before its FIRST hand-over on either
+    /// path — after the tone, or at once with the sound off — and when a
+    /// deferred warning's turn comes, or the one bounded retry fires, the
+    /// warning is asked, and it answers with the CURRENT value or with nothing
+    /// — never the value it was queued with. The event reached this class
+    /// through an asynchronous dispatch queue, and "current when concluded"
+    /// is not "current when spoken".
     /// </para>
     /// <para>
     /// <b>Cleared is a state update</b>: queued, Terse, no tone, and no
@@ -259,13 +262,36 @@ namespace Radios.Alarms
             // says it again. A preview is a test and is not re-raised.
             Action? notDelivered = preview ? null : () => _service.WarningNotDelivered(alarmId);
 
+            bool speechRequested = true;
             lock (_gate)
             {
                 if (_disposed) return;
                 if (lead == 0)
                 {
                     CancelLocked(alarmId);
-                    _speaker.SpeakWarning(sentence, subject, refresh, notDelivered);
+
+                    // **Re-read before the first hand-over, exactly as the tone
+                    // continuation does (Astra's Track IJK review, blocker 3).**
+                    // This branch spoke the EVENT's own sentence, and the event
+                    // came through an asynchronous dispatch queue: a worker
+                    // delayed past the readings that cleared the episode, or
+                    // past the operator disabling or editing the alarm, spoke
+                    // the old measurement as current. The refresh judges the
+                    // live episode, the definition's enabled state and
+                    // revision (an edit closes the episode, so its id no
+                    // longer matches) and the acknowledgement against the
+                    // event's revision. A preview's refresh returns itself.
+                    string? current = refresh();
+                    if (current == null)
+                    {
+                        speechRequested = false;
+                        Tracing.TraceLine("AlarmDelivery: warning withdrawn before its first hand-over, no longer current when "
+                            + "the dispatch worker reached it [" + alarmId + "]: '" + sentence + "'", TraceLevel.Info);
+                    }
+                    else
+                    {
+                        _speaker.SpeakWarning(current, subject, refresh, notDelivered);
+                    }
                 }
                 else if (_continuations.TryGetValue(alarmId, out PendingWarning? waiting))
                 {
@@ -303,7 +329,7 @@ namespace Radios.Alarms
                 }
             }
 
-            Report(new AlarmDeliveryReport(e, sentence, soundOn, true, lead, preview));
+            Report(new AlarmDeliveryReport(e, sentence, soundOn, speechRequested, lead, preview));
         }
 
         private void Continue(string alarmId, int generation)

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using Flex.Smoothlake.FlexLib;
 using Radios.Alarms;
 using Radios.Speech;
@@ -96,6 +97,71 @@ namespace Radios.Tests.Alarms
             Assert.False(_reports[0].SoundRequested);
         }
 
+        /// <summary>
+        /// Astra's Track IJK review, blocker 3. With the warning sound off the
+        /// immediate branch handed the EVENT's own sentence to speech without
+        /// asking the refresh first, and the event had come through an
+        /// asynchronous dispatch queue: a worker delayed past the readings that
+        /// cleared the episode, or past the operator disabling the alarm, spoke
+        /// the old measurement as though it were current. The tone path
+        /// re-read before speaking; the sound-off path did not. Driven with the
+        /// dispatch worker genuinely held, which is the delay the finding
+        /// names, not a stub.
+        /// </summary>
+        [Theory]
+        [InlineData("cleared")]
+        [InlineData("disabled")]
+        [InlineData("none")]   // the positive control: nothing changed while the worker was held, and it speaks
+        public void With_the_sound_off_a_warning_dispatched_late_is_re_read_before_it_speaks(string meanwhile)
+        {
+            _warningsSoundOn = false;
+            _service = new AlarmService(_feed, new AlarmDefinitionStore(_root), _clock, null, startWatchdog: false);
+            var gate = new ManualResetEventSlim(false);
+            // Subscribed BEFORE the delivery, so it runs first on the worker
+            // and holds the Fired event there until the test lets go.
+            _service.EventDispatched += e => { if (e.Kind == AlarmEventKind.Fired) gate.Wait(5000); };
+            _delivery = new AlarmDelivery(_service, _speaker, () => _sounds.Add("tone"), _speechClock,
+                () => _warningsSoundOn, () => false, () => true, () => _cohort);
+            _delivery.Reported += r => { lock (_reports) _reports.Add(r); };
+            _feed.Connect(Serial, Pa);
+            Assert.True(_service.Add(AlarmPresets.Build(AlarmPresets.PaTemperature, Pa, Serial, "pa") with { Enabled = true }));
+
+            _clock.Advance(2000); _feed.Deliver(Pa, 63.5f);   // Fired: the worker takes it and is held
+            Thread.Sleep(100);
+
+            switch (meanwhile)
+            {
+                case "cleared":
+                    _clock.Advance(2000); _feed.Deliver(Pa, 57f);
+                    _clock.Advance(2000); _feed.Deliver(Pa, 57f);
+                    _clock.Advance(2000); _feed.Deliver(Pa, 57f);
+                    Assert.Equal(AlarmConditionState.Normal, _service.SnapshotOf("pa")!.Condition);
+                    break;
+                case "disabled":
+                    Assert.True(_service.SetEnabled("pa", false));
+                    break;
+            }
+
+            gate.Set();
+            Assert.True(_service.DrainDispatch(5000));
+
+            if (meanwhile == "none")
+            {
+                var w = Assert.Single(_speaker.Warnings);
+                Assert.Contains("63.5", w.Text);
+                Assert.Single(_reports, r => r.Event.Kind == AlarmEventKind.Fired && r.SpeechRequested);
+                return;
+            }
+
+            // The stale sentence is NOT spoken, and the report says speech was
+            // withdrawn rather than requested.
+            Assert.Empty(_speaker.Warnings);
+            var report = Assert.Single(_reports, r => r.Event.Kind == AlarmEventKind.Fired);
+            Assert.False(report.SpeechRequested);
+            if (meanwhile == "cleared")
+                Assert.Single(_speaker.Status, s => s.Text.StartsWith("High PA temperature cleared"));
+        }
+
         [Fact]
         public void The_refresh_re_reads_the_current_value_and_says_nothing_once_cleared_or_acknowledged()
         {
@@ -184,11 +250,16 @@ namespace Radios.Tests.Alarms
             var s = Up(withSound: false);
             Deliver(30f);
             _feed.Key(true);
-            for (int i = 0; i < 24; i++) { _clock.Advance(250); s.Tick(_clock.NowMs); }
+            // Stale is declared on the first tick past the five-second
+            // allowance: 5.25 s. Drained HERE, because the sentence is now
+            // re-read when it is spoken (blocker 3) and carries the age at
+            // that moment — ticking on to six seconds before draining would
+            // honestly say six.
+            for (int i = 0; i < 21; i++) { _clock.Advance(250); s.Tick(_clock.NowMs); }
             Assert.True(s.DrainDispatch(2000));
             var w = Assert.Single(_speaker.Warnings);
-            // Stale is declared on the first tick past the five-second allowance: 5.25 s, spoken as 5.
             Assert.Equal("High PA temperature: no PATEMP (PA Temperature) reading for 5 seconds. It cannot be watched. Stop the transmission.", w.Text);
+            for (int i = 0; i < 3; i++) { _clock.Advance(250); s.Tick(_clock.NowMs); }
 
             _feed.Key(false);
             Deliver(30f); Deliver(30f);   // resumes
