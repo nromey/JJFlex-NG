@@ -711,7 +711,12 @@ until it lands, the Radio menu's TX Filter submenu has a Read TX Filter item.
 radio, and transmit controls all open something, and the menu that opens them
 is the place you already go. Reboot is deliberately kept off a chord: it
 interrupts everyone on a MultiFlex radio, and the confirmation naming the other
-stations connected is the point of the slower route.
+stations connected is the point of the slower route. Operator alarms — the
+dialog where you set a line on PA temperature or supply voltage and get a
+warning when a reading crosses it — opens from the Tools menu, and the Command
+Finder finds it by "alarm", "temperature", "voltage" or "warning". It has no
+default key; if you check your alarms often, give it one in Tools → Hotkey
+Editor.
 
 **Waiting in the Command Finder on purpose.** Start scan, saved scan, switch S
 meter units, collect debug info, start audio check, and undelivered details.

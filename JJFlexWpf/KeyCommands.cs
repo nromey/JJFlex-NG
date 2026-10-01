@@ -443,6 +443,19 @@ public class KeyCommands
             new(CommandValues.OpenAudioWorkshop, KeyTypes.Command, OpenAudioWorkshopHandler,
                 "Open Audio Workshop dialog", "Audio Workshop", false, FunctionGroups.Dialog, KeyScope.Global)
                 { Keywords = new[] { "audio", "workshop", "tx", "transmit", "mic", "compander", "preset", "earcon" }, ShortActionLabel = "open audio workshop" },
+            // Sprint 45 Track IJK (#566): the Operator alarms dialog as a COMMAND,
+            // executable from the Command Finder and bindable in the Hotkey
+            // Editor — the half of Noel's 2026-09-22 20:25 ruling ("we can
+            // assign a command or the user can") that a Finder door row could
+            // not meet. Unbound by default; the Tools menu is the road. The
+            // keywords are the words an operator hunting a temperature or
+            // voltage warning would try, carried over from the door it replaces.
+            new(CommandValues.OpenOperatorAlarms, KeyTypes.Command, OpenOperatorAlarmsHandler,
+                "Open Operator alarms - warn when a meter crosses a line you set, with PA temperature and supply voltage presets",
+                "Operator alarms", false, FunctionGroups.Dialog, KeyScope.Global)
+                { Keywords = new[] { "alarm", "alarms", "temperature", "pa", "patemp", "voltage", "volts", "supply",
+                                     "threshold", "warning", "warn", "meter", "monitor", "hot", "overheat", "baseline" },
+                  ShortActionLabel = "open operator alarms" },
             // Audio Check: "check my transmit audio" — opens the workshop and
             // keys through the PTT safety controller with the safety line
             // first. Command Finder only, no key binding (QB Track G).
@@ -1205,6 +1218,17 @@ public class KeyCommands
         mw?.Dispatcher.Invoke(() => Dialogs.AudioWorkshopDialog.ShowOrFocus(rig, 0));
     }
 
+    /// <summary>
+    /// The Operator alarms dialog (#566), the same call the Tools menu makes.
+    /// No rig is fetched: the dialog reads the running subsystem through
+    /// OperatorAlarmHost and explains itself when no radio is attached.
+    /// </summary>
+    private void OpenOperatorAlarmsHandler()
+    {
+        var mw = _context.GetMainWindow();
+        mw?.Dispatcher.Invoke(() => Dialogs.OperatorAlarmsDialog.Show(System.Windows.Window.GetWindow(mw)));
+    }
+
     private void StartAudioCheckHandler()
     {
         var rig = _context.GetRigControl();
@@ -1834,6 +1858,15 @@ public class KeyCommands
             + "the Status dialog has a permanent button for it that works with no radio "
             + "connected. No default chord yet: Ctrl+J, U is the obvious candidate and is "
             + "Noel's to rule on."),
+        // Sprint 45 Track IJK (#566). The Tools menu opens it and the Command
+        // Finder finds it by alarm, temperature, voltage and warning; the
+        // command exists so the OPERATOR can give it a key, which Noel ruled
+        // 2026-09-22 and which a door row could not provide. No JJ key letter
+        // is allocated here — that is #518 and Noel's.
+        [CommandValues.OpenOperatorAlarms] = new(UnboundReason.MenuOrDialog,
+            "Tools menu, Operator alarms. Command Finder finds it by alarm, temperature, voltage "
+            + "or warning, and the Hotkey Editor can bind it; no default chord, because the JJ key "
+            + "letter for alarms is Noel's to allocate (#518)."),
         [CommandValues.StartAudioCheck] = new(UnboundReason.CommandFinderOnly,
             "Starts the Audio Check. Ctrl+Enter does it from inside the Audio Workshop, which "
             + "is where you are when you want it; a global chord that keys the transmitter "
@@ -2027,6 +2060,7 @@ public class KeyCommands
 
         // Audio Workshop, Tune, ATU, Meters
         new(Keys.W | Keys.Control | Keys.Shift, CommandValues.OpenAudioWorkshop, KeyScope.Global),
+        new(Keys.None, CommandValues.OpenOperatorAlarms, KeyScope.Global), // unbound: MenuOrDialog — Tools menu, Operator alarms
         new(Keys.None, CommandValues.StartAudioCheck, KeyScope.Radio), // unbound: CommandFinderOnly
         new(Keys.T | Keys.Control | Keys.Shift, CommandValues.TuneToggle, KeyScope.Radio),
         new(Keys.T | Keys.Control, CommandValues.ATUTune, KeyScope.Radio),

@@ -143,6 +143,11 @@ namespace Radios.Tests
                 Assert.Equal(name, Enum.GetName(type, (CommandValues)value));
             }
 
+            // 127 as of 2026-10-01 (#566, Track IJK), which appended
+            // OpenOperatorAlarms = 125 — the Operator alarms dialog as an
+            // executable, operator-bindable command, unbound by default; the
+            // Tools menu already opened it, and a Finder door row described it,
+            // but a door is not a command and could not be given a key. Was
             // 126 as of 2026-09-24 (#617), which appended
             // ShowUndeliveredDetails = 124 — the list of things the radio said
             // that were not delivered, unbound by default and reached through
@@ -154,7 +159,7 @@ namespace Radios.Tests
             // build chord (#269). Bump this deliberately when a command is
             // added; a test that counts is how an accidental renumbering gets
             // noticed.
-            Assert.Equal(126, names.Length);
+            Assert.Equal(127, names.Length);
         }
     }
 }

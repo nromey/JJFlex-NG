@@ -187,6 +187,13 @@ public enum CommandValues
     // would silently rebind every operator's customised key past the insertion
     // point.
     ShowUndeliveredDetails = 124,
+    // Sprint 45 Track IJK (#566). Appended, for the same reason as every entry
+    // above it. Noel ruled 2026-09-22 20:25 that Command Finder is the alarms'
+    // front door AND that "we can assign a command or the user can if they
+    // want to" — which needs a registry command, not a descriptive door row:
+    // only a CommandValues member is executable from the Finder and bindable
+    // in the Hotkey Editor. Unbound by default; the Tools menu is the road.
+    OpenOperatorAlarms = 125,
 }
 
 /// <summary>

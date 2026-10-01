@@ -1097,18 +1097,15 @@ public static class KeyInventory
     // ────────────────────────────────────────────────────────────────
     private static readonly FixedKeyEntry[] FinderDoors =
     {
-        // Sprint 45 Track I (#566). Operator alarms: no key of their own until
-        // Noel allocates the JJ key layer letter (#518), so the door is the
-        // Tools menu, and the keywords are the words an operator hunting a
-        // temperature or voltage warning would try.
-        new FixedKeyEntry
-        {
-            Description = "Operator alarms - warn when a meter crosses a line you set, with PA temperature and supply voltage presets",
-            Scope = "Global", Group = "Alarms",
-            MenuText = "Tools menu, Operator alarms",
-            Keywords = new[] { "alarm", "alarms", "temperature", "pa", "patemp", "voltage", "volts", "supply",
-                               "threshold", "warning", "warn", "meter", "monitor", "hot", "overheat", "baseline" },
-        },
+        // Sprint 45 Track I (#566) put an Operator alarms DOOR here. Track IJK
+        // (2026-10-01) replaced it with a registry command,
+        // CommandValues.OpenOperatorAlarms, because Noel's 2026-09-22 20:25
+        // ruling has two halves — Command Finder is the front door, AND a key
+        // can be assigned by us or by the operator — and a door row can be
+        // found but neither executed nor bound. The command row carries the
+        // same keywords; a second row for the same room would be the
+        // duplication the integration pass exists to catch.
+
         // Sprint 30 Track D. Three doors, because the operator hunting these
         // may search for any of "trace", "log", "diagnostic" or "bug" — the
         // vocabularies of the old surface, the new one, and the problem.
