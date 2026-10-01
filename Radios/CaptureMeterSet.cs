@@ -38,45 +38,47 @@ namespace Radios
     /// carries (<c>DiagnosticsConfig.TraceLevel</c> maps Normal to Info). No
     /// switch, no setting, no instruction to give a tester.</para>
     ///
-    /// <para><b>#566 REPLACES THIS LIST.</b> Ruled by Noel 2026-09-22: the same
-    /// operator-chosen meter selection feeds the alarms and the capture, so an
-    /// alarm on a meter means that meter is recorded, and a meter can be
-    /// recorded without an alarm on it. Until that subsystem exists the set is
-    /// hardcoded — forward power, reflected power, PA temperature, and supply
-    /// voltage where the radio publishes one — and it is hardcoded HERE, in one
-    /// readable list, so the subsystem has one thing to replace rather than a
-    /// handler-by-handler hunt. Today's set being an accident of which handlers
-    /// somebody happened to instrument is the exact complaint #566 records.</para>
+    /// <para><b>#566 REPLACED THE LIST THAT USED TO LIVE HERE (folded
+    /// 2026-10-01, Track IJK).</b> Ruled by Noel 2026-09-22: ONE operator-chosen
+    /// meter selection feeds the alarms and the capture, so an alarm on a meter
+    /// means that meter is recorded, a meter can be recorded without an alarm
+    /// on it, and there is no hardcoded list in either place. Until the fold
+    /// this class carried a four-entry list — forward power, reflected power,
+    /// PA temperature, <c>+13.8A</c> — beside the alarm subsystem's own
+    /// recorded set, which is two vocabularies for one thing. The list is
+    /// gone. What the <c>captureMeters:</c> line records is now the alarm
+    /// service's recorded set (<c>Radios.Alarms.AlarmService.RecordedMetersResolved</c>:
+    /// every ENABLED alarm's meter plus the operator's record-only choices,
+    /// seeded for a radio with no alarm file yet with its PA temperature and
+    /// supply meters, which is the measurement that put them here), pushed to
+    /// the rig by <c>JJFlexWpf.OperatorAlarmHost</c> through
+    /// <c>FlexBase.SetCaptureSelection</c>. Temperature is written only while
+    /// PATEMP is selected; the voltage field follows the selected supply meter
+    /// and says <c>not-selected</c> when none is. With a supply meter selected
+    /// and temperature not, the supply meter's own cadence drives the window
+    /// and the line says <c>paTemp not-selected</c>
+    /// (<see cref="ReportWithoutTemperature"/>; Astra's Track IJK review,
+    /// blocker 4). A selection change that moves the window from one driver
+    /// to the other CUTS the open window under the selection it ran under,
+    /// marked <c>partial=recorded_set_changed</c>, so a sample the radio sent
+    /// is written and the next window starts clean (<see cref="CloseIfOpen"/>;
+    /// Astra's Track IJK2 review, blocker 2) — and the swap and the cut are one
+    /// operation with respect to sample admission, under the rig's admission
+    /// lock, so no sample can be checked against one selection and written
+    /// under another (Astra's Track IJK4 review, blocker 2).</para>
+    ///
+    /// <para><b>Forward and reflected power are NOT a selection, and that is
+    /// deliberate.</b> They ride the <c>txMeters:</c> line, which is the
+    /// transmit-safety evidence record the reflected-power cut and
+    /// <c>TxFactAudit</c> read (#625). An operator's recording preference must
+    /// not be able to switch off the evidence that a cut was right, so that
+    /// line is owned by the kill switch's own path and stays outside the
+    /// recorded set. DRAFT for Noel: the ruling says "no hardcoded list in
+    /// either place", and this is the one place a fixed pair remains, for a
+    /// stated reason.</para>
     /// </summary>
     public sealed class CaptureMeterSet
     {
-        /// <summary>
-        /// One meter in the recorded set: what the radio calls it, what we call
-        /// it in the trace, and which line carries it.
-        /// </summary>
-        public readonly struct RecordedMeter
-        {
-            public RecordedMeter(string radioMeterName, string traceField, string unit, string carriedBy)
-            {
-                RadioMeterName = radioMeterName;
-                TraceField = traceField;
-                Unit = unit;
-                CarriedBy = carriedBy;
-            }
-
-            /// <summary>The radio's own name for the meter, as the meter
-            /// inventory prints it.</summary>
-            public string RadioMeterName { get; }
-
-            /// <summary>The field name in the trace line.</summary>
-            public string TraceField { get; }
-
-            /// <summary>Unit, for a reader of the line.</summary>
-            public string Unit { get; }
-
-            /// <summary>Which trace line carries it today.</summary>
-            public string CarriedBy { get; }
-        }
 
         /// <summary>The <c>txMeters:</c> line, written by
         /// <c>FlexBase.traceTxMeters</c> while transmitting or tuning.</summary>
@@ -155,28 +157,22 @@ namespace Radios
             "captureMeters",
             "lines that begin 'captureMeters:' are the amplifier temperature and the supply voltage as the radio"
             + " reported them. paTemp gives the lowest, highest and last temperature in degrees C over the window"
-            + " and n the number of samples; 'paTemp none n=0' means the radio sent no temperature in that window."
-            + " volts is the supply voltage at the moment the line was written, or the reason there is none, and"
+            + " and n the number of samples; 'paTemp none n=0' means the radio sent no temperature in that window,"
+            + " and 'paTemp not-selected' means the operator took PA temperature out of the recorded meters, so"
+            + " none was asked for. volts is the supply voltage at the moment the line was written, or the reason there is none, and"
             + " voltsAge says how old that reading was when it is older than the window. state says whether the"
             + " window was taken while transmitting or tuning (tx) or at rest. One line a second while"
             + " transmitting or tuning, one every thirty seconds otherwise. A line that ends"
-            + " 'partial=connection_dropped' is a window cut short because the connection to the radio was lost.");
+            + " 'partial=connection_dropped' is a window cut short because the connection to the radio was lost; one"
+            + " that ends 'partial=recorded_set_changed' is a window cut short because the operator changed the recorded"
+            + " meters, and it describes the window under the selection it was taken with.");
 
         /// <summary>
-        /// THE RECORDED SET. Four meters, and the two lines that carry them.
-        /// Forward and reflected power already reach an ordinary capture on the
-        /// <c>txMeters:</c> line and are listed here because a list of what a
-        /// capture records that leaves out half of it is not a list — it is a
-        /// second place to look. Nothing re-emits them; #566 replaces the whole
-        /// table with the operator's selection.
+        /// The radio's own name for its PA temperature meter — the one meter
+        /// this class's window is about. Used by the rig to ask the selection
+        /// whether temperature is recorded at all; it names nothing else.
         /// </summary>
-        public static readonly IReadOnlyList<RecordedMeter> Recorded = new[]
-        {
-            new RecordedMeter("FWDPWR", "fwdW",    "watts",   TxMetersLine),
-            new RecordedMeter("REFPWR", "reflW",   "watts",   TxMetersLine),
-            new RecordedMeter("PATEMP", "paTemp",  "C",       CaptureMetersLine),
-            new RecordedMeter("+13.8A", "volts",   "V",       CaptureMetersLine),
-        };
+        public const string PaTemperatureMeterName = "PATEMP";
 
         /// <summary>
         /// How often a <c>captureMeters:</c> line is written while the radio is
@@ -214,27 +210,26 @@ namespace Radios
         public const int StaleWindowMs = 4 * RestingWindowMs;
 
         /// <summary>
-        /// The radio's own name for the supply-voltage meter we record — the one
-        /// FlexLib subscribes <c>Volts_DataReady</c> to.
+        /// The supply meter the voltage field prefers when the operator has
+        /// selected more than one: <c>+13.8A</c>, the one FlexLib subscribes
+        /// <c>Volts_DataReady</c> to and the one every capture before the fold
+        /// carried, so the field keeps meaning the same thing across the
+        /// change. Any other selected volts meter is used when this one is not
+        /// selected or not published.
         ///
-        /// <para><b>A FLEX-6300 DOES publish it.</b> This constant replaces a
-        /// helper that decided presence by asking whether the last reading was
-        /// above zero, under a comment saying Don's 6300 "publishes no volts at
-        /// all (#566, verified against his own meter inventory)". #566's
-        /// 2026-09-22 correction, taken from Don's own capture, records
+        /// <para><b>A FLEX-6300 DOES publish it.</b> The constant this replaced
+        /// stood in for a helper that decided presence by asking whether the
+        /// last reading was above zero, under a comment saying a 6300 "publishes
+        /// no volts at all (#566, verified against its meter inventory)". #566's
+        /// 2026-09-22 correction, taken from a 6300's own capture, records
         /// <c>+13.8A</c> before the fuse and <c>+13.8B</c> after it, and strikes
         /// that sentence through — it had claimed to be verified against an
-        /// inventory that said the opposite. <b>So a "no meter" reading in one
-        /// of Don's captures is a FINDING to chase, not the model behaving
+        /// inventory that said the opposite. <b>So a "no meter" reading in a
+        /// 6300 capture is a FINDING to chase, not the model behaving
         /// normally</b> (#597), and voltage sag under load is one of the three
         /// standing explanations for a 6300 shutting itself off.</para>
-        ///
-        /// <para>Only <c>+13.8A</c> is recorded here. <c>+13.8B</c> is a second
-        /// meter with its own story to tell — after the fuse rather than before
-        /// — and choosing between them is #566's selection job, not a silent
-        /// fallback.</para>
         /// </summary>
-        public const string SupplyVoltageMeterName = "+13.8A";
+        public const string PreferredSupplyVoltageMeterName = "+13.8A";
 
         /// <summary>
         /// Why a window was closed early. Appears on the line as
@@ -242,6 +237,14 @@ namespace Radios
         /// ran its full course from one that was cut short.
         /// </summary>
         public const string PartialConnectionDropped = "connection_dropped";
+
+        /// <summary>
+        /// The window was cut short because the operator changed which meters
+        /// are recorded in a way that changed which handler drives the window
+        /// (PA temperature ticked or unticked). Appears on the line as
+        /// <c>partial=recorded_set_changed</c>. See <see cref="CloseIfOpen"/>.
+        /// </summary>
+        public const string PartialRecordedSetChanged = "recorded_set_changed";
 
         /// <summary>
         /// Render the supply-voltage field.
@@ -270,6 +273,11 @@ namespace Radios
                     return "volts=unknown";
                 case SupplyVoltageState.NoMeter:
                     return "volts=no-meter";
+                case SupplyVoltageState.NotSelected:
+                    // The operator took supply voltage out of the recorded set
+                    // (#566). Not "no meter" — the radio may well publish one —
+                    // and not "no sample": a choice, written as one.
+                    return "volts=not-selected";
                 case SupplyVoltageState.NoSample:
                     return "volts=no-sample";
                 default:
@@ -304,16 +312,22 @@ namespace Radios
         /// a reader who cannot tell them apart will average them.</param>
         /// <param name="partialReason">Non-null when the window was cut short
         /// rather than closing on its own.</param>
+        /// <param name="temperatureSelected">Whether PA temperature is in the
+        /// operator's recorded set (#566). False renders <c>paTemp not-selected</c>:
+        /// a window driven by the supply meter alone must not claim the radio
+        /// sent no temperature when nobody asked it for one — the same
+        /// distinction <see cref="FormatVolts"/> draws between
+        /// <c>not-selected</c> and <c>no-meter</c>.</param>
         public static string Format(float min, float max, float last, int count,
                                     SupplyVoltage volts, bool transmitting,
-                                    string partialReason = null)
+                                    string partialReason = null, bool temperatureSelected = true)
         {
             string paTemp = count > 0
                 ? "paTemp min=" + min.ToString("0.##", CultureInfo.InvariantCulture)
                   + " max=" + max.ToString("0.##", CultureInfo.InvariantCulture)
                   + " last=" + last.ToString("0.##", CultureInfo.InvariantCulture)
                   + " n=" + count.ToString(CultureInfo.InvariantCulture)
-                : "paTemp none n=0";
+                : temperatureSelected ? "paTemp none n=0" : "paTemp not-selected";
 
             string line = CaptureMetersLine
                 + " state=" + (transmitting ? "tx" : "rest")
@@ -335,6 +349,15 @@ namespace Radios
         private int _count;
         private int _windowStart;
         private bool _windowTransmitting;
+
+        /// <summary>
+        /// Whether a window is open at all — separate from <see cref="_count"/>
+        /// since Astra's Track IJK review (blocker 4), because a window can now
+        /// be open with no temperature in it: one driven by the supply meter
+        /// while PA temperature is not selected. Before that the two were one
+        /// fact, and "no samples" meant "no window".
+        /// </summary>
+        private bool _open;
 
         /// <summary>
         /// Feed one PA temperature reading. Returns the line to trace when the
@@ -359,24 +382,10 @@ namespace Radios
         {
             lock (_gate)
             {
-                // A gap longer than this means the window's oldest sample is
-                // describing a different situation — the radio went away and
-                // came back, or the machine slept. Reporting min and max across
-                // that is a false statistic, and n is then a count of nothing.
-                //
-                // Handled HERE rather than by a Reset() the disconnect path
-                // calls, because a hook with one caller is a hook with no
-                // caller the day somebody edits that path — and this catches
-                // every cause of a gap, not just the one anybody thought of.
-                if (_count > 0 && (nowTick - _windowStart) > StaleWindowMs)
-                {
-                    _count = 0;
-                }
+                OpenOrContinueLocked(transmittingOrTuning, nowTick);
 
                 if (_count == 0)
                 {
-                    _windowStart = nowTick;
-                    _windowTransmitting = transmittingOrTuning;
                     _min = _max = _last = celsius;
                     _count = 1;
                 }
@@ -386,11 +395,6 @@ namespace Radios
                     if (celsius > _max) _max = celsius;
                     _last = celsius;
                     _count++;
-                    // Keying up mid-window makes it a transmit window. The
-                    // alternative — keeping the state it opened with — labels
-                    // the first second of every transmission "rest", which is
-                    // the second a thermal question cares most about.
-                    if (transmittingOrTuning) _windowTransmitting = true;
                 }
 
                 // The window a sample belongs to is decided by the state of the
@@ -400,9 +404,144 @@ namespace Radios
                 if ((nowTick - _windowStart) < WindowFor(_windowTransmitting)) return null;
 
                 string line = Format(_min, _max, _last, _count, volts, _windowTransmitting);
-                _count = 0;
+                CloseLocked();
                 return line;
             }
+        }
+
+        /// <summary>
+        /// Feed one supply-voltage reading's ARRIVAL, for a radio whose
+        /// operator records supply voltage but not PA temperature. Returns the
+        /// line to trace when the window closed on this arrival, or null.
+        ///
+        /// <para><b>Why this exists (Astra's Track IJK review, blocker 4,
+        /// introduced by the one-selection fold).</b> The window was driven
+        /// only by PA temperature samples, and the fold made the rig return
+        /// before feeding one unless PATEMP was selected — so an operator who
+        /// kept a supply meter ticked and unticked temperature lost every
+        /// periodic <c>captureMeters:</c> line, voltage history included, while
+        /// the dialog said supply voltage was recorded. The supply meter's own
+        /// cadence now drives the window in that case. The reading's value is
+        /// not accumulated here: the voltage field was always a snapshot read
+        /// when the window closes (see <see cref="Report"/>), and this keeps
+        /// that one meaning rather than adding a second.</para>
+        /// </summary>
+        public string ReportWithoutTemperature(SupplyVoltage volts, bool transmittingOrTuning, int nowTick)
+        {
+            lock (_gate)
+            {
+                OpenOrContinueLocked(transmittingOrTuning, nowTick);
+                if ((nowTick - _windowStart) < WindowFor(_windowTransmitting)) return null;
+
+                // The window's OWN statistics, whatever they are. This passed
+                // zeros with the real count, on the reasoning that a window this
+                // method closes has no temperature in it — and that is false
+                // the moment the operator unticks temperature with a window
+                // open: the temperature handler had already put a real sample
+                // in it, and the line read "paTemp min=0 max=0 last=0 n=1" for
+                // a radio that had said 61 (Astra's Track IJK2 review, blocker
+                // 2). The rig now cuts the window at that change (see
+                // CloseIfOpen) so this normally closes a window it drove alone;
+                // when it does not, the samples are real and are printed, and
+                // "not-selected" is said only of a window that holds none.
+                string line = Format(_min, _max, _last, _count, volts, _windowTransmitting, temperatureSelected: false);
+                CloseLocked();
+                return line;
+            }
+        }
+
+        /// <summary>
+        /// Close the open window, if there is one, because the recorded set
+        /// changed hands: the line is marked <c>partial=recorded_set_changed</c>
+        /// and carries the window's own samples under the selection it ran
+        /// under. Returns null when no window is open, and null — abandoning
+        /// the window — when the open one has gone stale, since nothing has
+        /// died and a stale statistic is not worth a line.
+        ///
+        /// <para><b>Why the window is CUT rather than reset or carried over
+        /// (Astra's Track IJK2 review, blocker 2).</b> A window belongs to one
+        /// driver: the temperature handler while PATEMP is selected, the
+        /// supply meter's handler otherwise. When the selection changes the
+        /// driver, three things could happen to a window already holding
+        /// samples. Resetting it throws away a real reading the radio sent,
+        /// silently — a 61 that would have been the only temperature in the
+        /// capture. Letting the new driver finish it produces one line whose
+        /// first half was asked for and second half was not, with nothing on
+        /// the line to say so. Cutting it writes what the radio said, under the
+        /// selection that asked for it, with a marker a reader can see — the
+        /// same vocabulary the drop path already uses — and the next window
+        /// starts clean under the new selection with nothing of the old one in
+        /// it. Evidence is preserved and the discontinuity is on the line.</para>
+        ///
+        /// <para><b>This method does not make the boundary atomic; the rig
+        /// does (Astra's Track IJK4 review, blocker 2).</b> The gate here
+        /// serialises the window's statistics and nothing more. Whether the
+        /// samples in the window were admitted under the selection the
+        /// <paramref name="volts"/> and <paramref name="temperatureSelected"/>
+        /// arguments describe is decided by the caller holding its admission
+        /// lock across the check, the admission and this call —
+        /// <c>FlexBase._captureSelectionGate</c>. Called from anywhere else,
+        /// the arguments are a claim this method cannot check.</para>
+        /// </summary>
+        /// <param name="volts">What the meter inventory knows about supply
+        /// voltage under the selection the window ran under.</param>
+        /// <param name="nowTick"><c>Environment.TickCount</c>.</param>
+        /// <param name="temperatureSelected">Whether PA temperature was in the
+        /// recorded set the window ran under — the OLD selection, not the new
+        /// one, since the line describes that window.</param>
+        public string CloseIfOpen(SupplyVoltage volts, int nowTick, bool temperatureSelected)
+        {
+            lock (_gate)
+            {
+                if (!_open) return null;
+                bool stale = (nowTick - _windowStart) > StaleWindowMs;
+                string line = stale
+                    ? null
+                    : Format(_min, _max, _last, _count, volts, _windowTransmitting, PartialRecordedSetChanged, temperatureSelected);
+                CloseLocked();
+                return line;
+            }
+        }
+
+        /// <summary>
+        /// Open a window at <paramref name="nowTick"/> if none is open, or
+        /// continue the open one — abandoning it first if it has gone stale.
+        /// Under the gate.
+        /// </summary>
+        private void OpenOrContinueLocked(bool transmittingOrTuning, int nowTick)
+        {
+            // A gap longer than this means the window's oldest sample is
+            // describing a different situation — the radio went away and
+            // came back, or the machine slept. Reporting min and max across
+            // that is a false statistic, and n is then a count of nothing.
+            //
+            // Handled HERE rather than by a Reset() the disconnect path
+            // calls, because a hook with one caller is a hook with no
+            // caller the day somebody edits that path — and this catches
+            // every cause of a gap, not just the one anybody thought of.
+            if (_open && (nowTick - _windowStart) > StaleWindowMs) CloseLocked();
+
+            if (!_open)
+            {
+                _open = true;
+                _windowStart = nowTick;
+                _windowTransmitting = transmittingOrTuning;
+                _count = 0;
+            }
+            else if (transmittingOrTuning)
+            {
+                // Keying up mid-window makes it a transmit window. The
+                // alternative — keeping the state it opened with — labels
+                // the first second of every transmission "rest", which is
+                // the second a thermal question cares most about.
+                _windowTransmitting = true;
+            }
+        }
+
+        private void CloseLocked()
+        {
+            _open = false;
+            _count = 0;
         }
 
         /// <summary>
@@ -439,19 +578,23 @@ namespace Radios
         /// <param name="reason">Why the window is being cut short, e.g.
         /// <see cref="PartialConnectionDropped"/>.</param>
         /// <param name="nowTick"><c>Environment.TickCount</c>.</param>
-        public string Flush(SupplyVoltage volts, bool transmittingOrTuning, string reason, int nowTick)
+        /// <param name="temperatureSelected">Whether PA temperature is in the
+        /// recorded set at this moment; false renders <c>paTemp not-selected</c>
+        /// rather than claiming the radio sent none (#566, blocker 4).</param>
+        public string Flush(SupplyVoltage volts, bool transmittingOrTuning, string reason, int nowTick,
+                            bool temperatureSelected = true)
         {
             lock (_gate)
             {
-                bool stale = _count > 0 && (nowTick - _windowStart) > StaleWindowMs;
-                if (_count == 0 || stale)
+                bool stale = _open && (nowTick - _windowStart) > StaleWindowMs;
+                if (!_open || stale)
                 {
-                    _count = 0;
-                    return Format(0f, 0f, 0f, 0, volts, transmittingOrTuning, reason);
+                    CloseLocked();
+                    return Format(0f, 0f, 0f, 0, volts, transmittingOrTuning, reason, temperatureSelected);
                 }
 
-                string line = Format(_min, _max, _last, _count, volts, _windowTransmitting, reason);
-                _count = 0;
+                string line = Format(_min, _max, _last, _count, volts, _windowTransmitting, reason, temperatureSelected);
+                CloseLocked();
                 return line;
             }
         }
@@ -470,10 +613,12 @@ namespace Radios
         /// a 6300 publishes no voltage meter survived long enough to reach
         /// shipped code.</summary>
         InventoryUnknown,
-        /// <summary>The radio published a meter list and
-        /// <see cref="CaptureMeterSet.SupplyVoltageMeterName"/> is not in
-        /// it.</summary>
+        /// <summary>The radio published a meter list and the selected supply
+        /// meter is not in it.</summary>
         NoMeter,
+        /// <summary>The operator's recorded set (#566) holds no supply-voltage
+        /// meter, so none is read. A choice, not an absence.</summary>
+        NotSelected,
         /// <summary>The meter exists and has never reported a value.</summary>
         NoSample,
         /// <summary>A real reading, zero included.</summary>
@@ -520,6 +665,10 @@ namespace Radios
         /// them.</summary>
         public static SupplyVoltage NoMeter() =>
             new SupplyVoltage(SupplyVoltageState.NoMeter, 0f, null);
+
+        /// <summary>The recorded set holds no supply-voltage meter.</summary>
+        public static SupplyVoltage NotSelected() =>
+            new SupplyVoltage(SupplyVoltageState.NotSelected, 0f, null);
 
         /// <summary>The meter exists and has never reported.</summary>
         public static SupplyVoltage NoSample() =>

@@ -693,11 +693,25 @@ namespace Radios.Tests
             _clock.Advance(Settle);
             Assert.DoesNotContain(_calls, c => c.Salvaged);
 
-            // And the backlog stays gone: a later interrupt finds nothing.
+            // And the ORDINARY backlog stays gone: a later interrupt never
+            // brings "Session closed" back.
+            //
+            // NARROWED 2026-09-23, DELIBERATELY (#606). This assertion used to
+            // read "a later interrupt finds nothing", and it was written when
+            // an interrupting warning was ledgered NOWHERE — which is exactly
+            // the safety hole #571's third HIGH finding names: the one
+            // sentence that must survive an interruption was the one sentence
+            // that could not, so an interrupted transmit-cut announcement was
+            // lost permanently rather than delayed. The warning is a protected
+            // obligation now, so an ordinary interrupt arriving while it is
+            // still believed unspoken puts it back. That is the point: ordinary
+            // app speech may not take a safety outcome's slot.
             _clock.Advance(100);
             a.Emit("Receiving", true, SpeechIntent.Interrupt, VerbosityLevel.Critical, "t");
             _clock.Advance(Settle);
-            Assert.DoesNotContain(_calls, c => c.Salvaged);
+            Assert.DoesNotContain(_calls, c => c.Salvaged && c.Message == "Session closed");
+            Assert.Contains(_calls, c => c.Salvaged
+                && c.Message == "80 percent of your power is coming back on ANT2.");
         }
 
         [Fact]

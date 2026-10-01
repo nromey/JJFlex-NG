@@ -92,23 +92,32 @@ namespace Radios
         public const string Leader = "leader";
 
         /// <summary>
+        /// Operator alarms (#566): the spoken warnings, the status words, the
+        /// dialog and editor, validation, presets. Every sentence in it is
+        /// marked for Noel's review. Eager, because a warning is spoken from
+        /// the dispatch worker at the moment a meter crosses its line, and a
+        /// first-use file read there is a stall at exactly the wrong moment.
+        /// </summary>
+        public const string Alarms = "alarms";
+
+        /// <summary>
         /// The undelivered-details surface (#617): the list of things the radio
         /// said that did not land, and the history of the ones that could not
         /// wait. Its own partition because every sentence in it is provisional
-        /// and Noel reviews it as one file, rather than chasing drafts across
-        /// the other seven.
+        /// and Noel reviews it as one file, the way the alarms vocabulary was
+        /// reviewed.
         /// </summary>
         public const string FactsSurface = "facts";
 
         /// <summary>
-        /// The eight partitions, split for REVIEW rather than for speed. An
+        /// The nine partitions, split for REVIEW rather than for speed. An
         /// in-memory dictionary is the same speed whichever file it loaded
         /// from; saying so here stops someone splitting a hot set across files
         /// chasing a gain that does not exist.
         /// </summary>
         public static IReadOnlyList<string> Partitions { get; } = new[]
         {
-            Connect, Audio, Settings, Logging, Earcon, Help, Leader, FactsSurface,
+            Connect, Audio, Settings, Logging, Earcon, Help, Leader, Alarms, FactsSurface,
         };
 
         /// <summary>
@@ -123,14 +132,14 @@ namespace Radios
         /// the moment the operator is waiting to hear whether the chord took.
         /// </remarks>
         /// <remarks>
-        /// The facts surface is eager for a reason of its own: its words are
-        /// needed at the moment something failed to be delivered, and a
-        /// first-use file read there happens exactly when the machine is least
-        /// able to oblige.
+        /// The facts surface is eager for the same reason the alarms
+        /// vocabulary is: its words are needed at the moment something failed
+        /// to be delivered, and a first-use file read there happens exactly
+        /// when the machine is least able to oblige.
         /// </remarks>
         public static IReadOnlyList<string> EagerPartitions { get; } = new[]
         {
-            Connect, Audio, Settings, Logging, Earcon, Leader, FactsSurface,
+            Connect, Audio, Settings, Logging, Earcon, Leader, Alarms, FactsSurface,
         };
 
         private static readonly object Gate = new object();

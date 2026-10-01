@@ -153,8 +153,12 @@ namespace Radios.Tests
         [Fact]
         public void ForeignCancel_IsReportedAsNotOurs_AndWithdrawsTheWholeQueue()
         {
-            // #562, ruled by Noel 2026-09-07: "ctrl always means silence when
-            // it comes to NVDA's shut up key."
+            // Ctrl is the shut-up key and it means silence — Noel's ruling in
+            // **#182**, not the "#562" this comment cited until 2026-09-23.
+            // No such task exists in either register file, and neither does
+            // the quotation or the date that were attributed to him here. The
+            // ruling is real; the citation was not, and a fabricated citation
+            // is the hardest kind of claim to disagree with.
             //
             // This test asserted the opposite until that ruling — that the
             // keystroke destroyed one utterance and the backlog carried on.
@@ -198,7 +202,7 @@ namespace Radios.Tests
         [Fact]
         public void Completion_Does_NOT_WithdrawTheQueue()
         {
-            // The negative control #562 needs, and NOT the one I first wrote.
+            // The negative control #182's rule needs, and NOT the one I first wrote.
             // My first attempt asserted that our OWN cancel keeps the queue —
             // it does not, and never did: Interrupt withdraws by design, so
             // that test was asserting something false and failed immediately.
@@ -394,6 +398,57 @@ namespace Radios.Tests
             Assert.True(longMs <= PacedSpeechDelivery.DeadlineCapMs);
             int batch = PacedSpeechDelivery.DefaultDeadlineMs("Connected to FLEX-8600, SmartLink, 4 slices. This radio had no mic profile, so I loaded Default. PC audio off. Recording is on. JJ Flexible Home, Modern tuning mode");
             Assert.InRange(batch, 15000, 25000);   // measured 8079 ms; twice the ~8.8 s estimate plus slack
+        }
+
+        // ── Taking unsent work back (#606) ──
+
+        [Fact]
+        public void UnsentWork_CanBeWithdrawnBeforeTheReaderSeesIt()
+        {
+            // Supersession reached the arbiter's ledger and the held set and
+            // stopped there, so it governed what would be RESCUED and not what
+            // was about to be said — which is why two progress lines about the
+            // same wait could still be spoken back to back. Text still inside
+            // OUR queue can be taken back; the older rationale that submitted
+            // text cannot be is out of date since #521 put this queue in front
+            // of the reader's.
+            var p = NewPump();
+            long a = p.Enqueue(_ch, "Searching for radios.");
+            long b = p.Enqueue(_ch, "Still searching for radios.");
+
+            var callA = _ch.WaitForCall();
+            Assert.Equal(a, callA.Ticket);
+
+            Assert.True(p.WithdrawIfQueued(b, "superseded by the radio picker opening"));
+            Assert.Equal(0, p.QueuedCount);
+
+            _ch.Complete(callA, 700);
+            Assert.Equal(SpeechOutcomeKind.Completed, WaitForOutcome(a).Outcome.Kind);
+
+            Thread.Sleep(50);
+            Assert.Equal(new[] { a }, _ch.Seen.Select(s => s.Ticket).ToArray());
+
+            // Deliberately NO outcome for the withdrawn one: the arbiter
+            // removes its own ledger entry in the same breath, and reporting
+            // would re-enter it from inside its own lock.
+            lock (_outcomes) Assert.DoesNotContain(_outcomes, o => o.Ticket == b);
+        }
+
+        [Fact]
+        public void WorkTheReaderAlreadyHas_CannotBeWithdrawn()
+        {
+            // The honest half. Once it is in flight it is the reader's, and
+            // saying so is what keeps the arbiter from claiming it took
+            // something back that it did not.
+            var p = NewPump();
+            long a = p.Enqueue(_ch, "Searching for radios.");
+            var callA = _ch.WaitForCall();
+
+            Assert.False(p.WithdrawIfQueued(a, "superseded"));
+            Assert.False(p.WithdrawIfQueued(9999, "never existed"));
+
+            _ch.Complete(callA);
+            Assert.Equal(SpeechOutcomeKind.Completed, WaitForOutcome(a).Outcome.Kind);
         }
     }
 }

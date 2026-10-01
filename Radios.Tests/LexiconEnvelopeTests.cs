@@ -650,6 +650,71 @@ namespace Radios.Tests
             // that may have left since, which the approved "until the radio
             // identifies it" states falsely. Frozen as a DRAFT for the same
             // reason. When Track I merges on top of this, it reads 3,050.
+            //
+            // 3,031 since Track IJK brought Track I in (2026-10-01): the 222
+            // alarm keys left quarantine and are frozen live in the manifest,
+            // exactly as the paragraph above predicted. Still unclassified,
+            // still frozen by fingerprint, because classifying them is a #617
+            // speech decision that this merge does not take.
+            //
+            // 3,037 after Track IJK's fixes to Track I's review findings: six
+            // new alarms.validation.* sentences for a number the editor could
+            // not read (finding 6), frozen by the gate's own printed lines.
+            //
+            // 3,039 with two more from the same review's prose qualifications:
+            // alarms.summary.not_ready (an enabled alarm that cannot judge its
+            // condition yet is said, not hidden under "none active") and
+            // alarms.summary.item_last_known (a stopped meter's last value is
+            // history, and the sentence says so).
+            //
+            // 3,043 with the four alarms.point.*.terse keys of Noel's
+            // 2026-09-23 ruling (#566: no commas, and the place phrase gets two
+            // lengths). The thirteen keys that ruling REWORDED were re-frozen
+            // with the gate's printed fingerprints rather than classified,
+            // which is the #629 tension taken the same way Tracks H and L took
+            // it: classification is a #617 speech decision and not this
+            // merge's to make.
+            //
+            // 3,062 when Track IJK (I, J and K carried forward) merged on top of
+            // Track L, 2026-10-01: L's 19 over the 2,809 base (2,828) plus IJK's
+            // 234 (the 222 restored alarm keys and twelve new ones, 3,043 on its
+            // own branch). Each side's paragraphs above are kept so the figure can
+            // be re-derived; the number is the sum, confirmed by running this test
+            // on the merged tree rather than by arithmetic alone.
+            //
+            // 3,063 with alarms.event.silenced (Track IJK2, 2026-10-01): the
+            // history row for the operator's Ctrl standing an alarm's warning
+            // down, which #617's 2026-09-24 ruling makes a state of its own —
+            // not an acknowledgement — lasting until the reading worsens. Frozen
+            // with the gate's printed line, not classified (#629 stands).
+            //
+            // 3,068 after Track IJK3's alarm prose pass (2026-10-01): Noel's
+            // 07:17 and 07:18 rulings give the place phrase ONE length, so the
+            // four alarms.point.*.terse keys leave (-4), and the terse WARNING
+            // gets its own six frames instead, alarms.voltage.*_tx.terse and
+            // *_rx.terse (+6). alarms.summary.item_last_known leaves (-1) for
+            // alarms.summary.last_known and last_known_no_value (+2), because a
+            // last-known alarm is no longer counted active and a meter lost
+            // outright has no value to quote; alarms.summary.not_ready_one
+            // (+1) is the singular of the new not-ready sentence; and
+            // alarms.point.meter (+1) names a meter we have not met. Net +5.
+            // Twenty-eight reworded keys were re-frozen with the gate's
+            // printed fingerprints, not classified (#629 stands).
+            //
+            // 3,070 with alarms.meter.still_active_above and _below (Track
+            // IJK4, 2026-10-01, Astra's round-two blocker 3): the frame for a
+            // re-read level warning whose current reading is inside the clear
+            // margin, where "at or above the line" would be false of the
+            // number stated. Frozen with the gate's printed lines, not
+            // classified (#629 stands).
+            //
+            // 3,072 with alarms.meter.still_active_above_no_band and
+            // _below_no_band (Track IJK5, 2026-10-01, Astra's Track IJK4
+            // review, blocker 1): the same frame for an alarm with no clear
+            // margin the meter can represent, which clears only strictly past
+            // the line, so "at or below" would promise a clearance the monitor
+            // never grants. Frozen with the gate's printed lines, not
+            // classified (#629 stands).
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -662,7 +727,7 @@ namespace Radios.Tests
                 }
             }
 
-            Assert.Equal(2828, unclassified);
+            Assert.Equal(3072, unclassified);
             Assert.All(classified, key =>
                 Assert.StartsWith("facts.", key, StringComparison.Ordinal));
             Assert.True(classified.Count > 30,

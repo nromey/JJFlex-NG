@@ -12975,6 +12975,10 @@ namespace Radios
             // written is unchanged; only its kind travels with it now.
             Tracing.TraceRecord(SupplyVoltsRecord, "VoltsDataHandler:" + data.ToString(), TraceLevel.Verbose);
             _VoltsData = data;
+            // The ordinary capture's window, when supply voltage is recorded
+            // without PA temperature (#566; Astra's Track IJK review, blocker
+            // 4). A no-op while temperature is selected — see the method.
+            recordCaptureMetersFromVolts();
         }
 
         /// <summary>

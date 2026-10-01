@@ -218,7 +218,8 @@ namespace Radios
             SilenceBackendQuietly,
             RecordGated,
             CreateRateModel(),
-            ProbeIsSpeaking);
+            ProbeIsSpeaking,
+            WithdrawUnsentFromPump);
 
         /// <summary>
         /// The speaking-rate model the estimate path uses (#557), persisted
@@ -252,6 +253,22 @@ namespace Radios
                 return (_backend as Speech.PrismScreenReader)?.IsSpeaking();
             }
         }
+
+        /// <summary>
+        /// The quiet cohort every safety episode is admitted under (#182,
+        /// #611). Advanced by <see cref="Silence"/>; an episode admitted under
+        /// an older number is owed, reachable, and not re-offered by automatic
+        /// speech.
+        ///
+        /// <para><b>Exposed because the alarm cue stage arms a timer before
+        /// the arbiter ever sees the warning.</b> The warning earcon runs for
+        /// 750 ms and speech is handed over on a continuation after it, so a
+        /// silence during the tone reaches nothing inside the arbiter — the
+        /// sentence has not been submitted yet. The cue stage reads this
+        /// number when it arms and compares it when it fires, which is the
+        /// same barrier one stage earlier.</para>
+        /// </summary>
+        internal static long SafetyQuietGeneration => _arbiter.SafetyQuietGeneration;
 
         /// <summary>
         /// Test-only: drop the arbiter's transient state — pending coalesced
@@ -291,6 +308,27 @@ namespace Radios
         private static Speech.PacedSpeechDelivery PumpLocked()
         {
             return _pump ??= new Speech.PacedSpeechDelivery(SpeakThroughBackend, OnPacedOutcome);
+        }
+
+        /// <summary>
+        /// The arbiter's reach into the pump: take a superseded utterance back
+        /// before the reader sees it (#606). Returns false when there is no
+        /// pump, or the reader already has it — in which case supersession
+        /// does what it always did and stops it being rescued.
+        /// </summary>
+        private static bool WithdrawUnsentFromPump(long ticket, string reason)
+        {
+            Speech.PacedSpeechDelivery? pump;
+            lock (_backendLock) { pump = _pump; }
+            if (pump == null) return false;
+            try { return pump.WithdrawIfQueued(ticket, reason); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine(
+                    $"ScreenReaderOutput: could not withdraw #{ticket} from the delivery queue: {ex.Message}",
+                    TraceLevel.Warning);
+                return false;
+            }
         }
 
         /// <summary>
@@ -401,6 +439,15 @@ namespace Radios
         /// retires nothing itself, so an interrupt mid-entry re-speaks every
         /// digit typed so far, in order, rather than only the last one.
         /// </param>
+        /// <param name="stillValid">
+        /// Urgent only. The producer's answer to whether the PRESENT state this
+        /// sentence claims still holds, asked before every automatic replay of
+        /// an unheard copy. A transmit-cut sentence says the operator is no
+        /// longer on the air; keyed again, that is false, and the copy is
+        /// withdrawn rather than rescued into the new transmission (Astra's
+        /// Track IJK review, blocker 6). Null where the sentence makes no such
+        /// claim.
+        /// </param>
         public static void Speak(
             string message,
             Speech.SpeechIntent intent,
@@ -409,6 +456,7 @@ namespace Radios
             Speech.SpeechCoalesceKind kind = Speech.SpeechCoalesceKind.Value,
             string? subject = null,
             bool additive = false,
+            Func<bool>? stillValid = null,
             [CallerFilePath] string callerFile = "",
             [CallerLineNumber] int callerLine = 0,
             [CallerMemberName] string callerMember = "")
@@ -429,7 +477,16 @@ namespace Radios
                 case Speech.SpeechIntent.Urgent:
                     // Cut what is speaking AND drop what is queued, so nothing
                     // stale can play on top of a transmit warning.
-                    _arbiter.Urgent(message, level, origin);
+                    //
+                    // **The subject goes with it now (#606, #571).** This line
+                    // dropped the caller's subject on the floor, and the
+                    // arbiter supplied null in its place — so the one class of
+                    // utterance that most needs an owner and a lifecycle was
+                    // the one class that had neither, and a transmit-cut
+                    // sentence cut off part-way was gone rather than delayed.
+                    // Both safety callers have been passing ReflectedPowerCut
+                    // all along. The validity answer travels too (blocker 6).
+                    _arbiter.Urgent(message, level, origin, subject, stillValid);
                     return;
 
                 case Speech.SpeechIntent.Latest:
@@ -453,6 +510,44 @@ namespace Radios
                     _arbiter.Emit(message, interrupt: true, intent, level, origin, subject, additive);
                     return;
             }
+        }
+
+        /// <summary>
+        /// An operator alarm's warning (#566): Critical level, Urgent intent,
+        /// under the arbiter's alarm-aware priority contract. Critical because
+        /// the overload above checks level before intent and a Terse Urgent
+        /// would still be dropped; Urgent because it must get past stale
+        /// speech (#507, #554); tagged with the alarm's subject so an existing
+        /// cut announcement always wins and two alarms cannot cancel each
+        /// other. This is the ruled exception to the queued-never-interrupt
+        /// earcon convention, and a verbosity preference cannot silence it
+        /// (#322). <see cref="SuppressSpeech"/> still can, deliberately.
+        /// </summary>
+        /// <param name="refresh">
+        /// Re-read the condition and return the sentence to say now, or null
+        /// when it is no longer worth saying. Consulted when a deferred alarm's
+        /// turn comes and before the one bounded retry.
+        /// </param>
+        /// <param name="notDelivered">
+        /// Told, at most once, when the arbiter gives the warning up without
+        /// the reader ever taking it, so the alarm can say it again on its own
+        /// next fresh sample. Null when the caller does not care.
+        /// </param>
+        /// <param name="silenced">
+        /// Told, at most once, when the operator silenced speech while this
+        /// warning was sounding, waiting its turn or settling for its retry,
+        /// so the alarm can withhold its interval reminder until the reading
+        /// worsens (#617). Null when the caller does not care.
+        /// </param>
+        public static void SpeakAlarm(string message, string subject, Func<string?> refresh,
+            Action? notDelivered = null, Action? silenced = null,
+            [CallerFilePath] string callerFile = "",
+            [CallerLineNumber] int callerLine = 0,
+            [CallerMemberName] string callerMember = "")
+        {
+            if (string.IsNullOrEmpty(message)) return;
+            _arbiter.UrgentAlarm(message, VerbosityLevel.Critical,
+                FormatOrigin(callerFile, callerLine, callerMember), subject, refresh, notDelivered, silenced);
         }
 
         /// <summary>

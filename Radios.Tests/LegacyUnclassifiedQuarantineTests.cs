@@ -69,10 +69,12 @@ namespace Radios.Tests
         /// begin with <c>#</c>; only an entry carries a tab, because the live
         /// format is key-tab-fingerprint. Header prose never does.
         /// </summary>
-        private static IReadOnlyList<string> QuarantinedKeys()
+        private static IReadOnlyList<string> QuarantinedKeys() => QuarantinedKeysIn(ManifestText());
+
+        private static IReadOnlyList<string> QuarantinedKeysIn(string manifestText)
         {
             var keys = new List<string>();
-            foreach (string raw in ManifestText().Split('\n'))
+            foreach (string raw in manifestText.Split('\n'))
             {
                 string line = raw.Trim();
                 if (line.Length == 0 || line[0] != '#') continue;
@@ -144,18 +146,47 @@ namespace Radios.Tests
         }
 
         /// <summary>
-        /// A positive control. A guard over an empty set passes for the wrong
-        /// reason, and both tests above would do exactly that if the parser
-        /// stopped recognising a commented entry — which is one regex away.
+        /// The quarantine ENDED on 2026-10-01, when Track IJK brought Track I in
+        /// and restored the 222 lines live. This used to be the positive control
+        /// that the quarantine was non-empty; it is now the guard that it stays
+        /// empty. A commented entry in the manifest is a key hidden from the
+        /// classification gate, and with the one documented reason gone there
+        /// is no legitimate reason left.
+        /// </summary>
+        /// <remarks>
+        /// The class was kept rather than deleted when the quarantine closed:
+        /// the two rules above still hold (nothing may be commented, and if
+        /// something is, it had better be an alarm key), and a guard that
+        /// outlives its first reason costs nothing while a deleted one is an
+        /// absence nobody notices. The parser is exercised by
+        /// <see cref="TheParserStillRecognisesACommentedEntry"/>, so an empty
+        /// result here is a real zero, not a regex that stopped matching.
+        /// </remarks>
+        [Fact]
+        public void TheQuarantineStaysClosed()
+        {
+            var quarantined = QuarantinedKeys();
+            Assert.True(quarantined.Count == 0,
+                "The manifest " + LexiconSchema.ManifestPath + " has commented-out ENTRIES again:\n  " +
+                string.Join("\n  ", quarantined) +
+                "\n\nThe #627 quarantine closed on 2026-10-01 when Track I merged. Commenting a " +
+                "manifest line out hides that key from the classification gate. Classify the key, " +
+                "or freeze it live with its fingerprint; do not quarantine it.");
+        }
+
+        /// <summary>
+        /// The positive control for <see cref="TheQuarantineStaysClosed"/>: a
+        /// guard over an empty set passes for the wrong reason if the parser
+        /// stopped recognising a commented entry, which is one regex away. So
+        /// feed the parser one synthetic commented entry and one note, and
+        /// require it to tell them apart.
         /// </summary>
         [Fact]
-        public void TheQuarantineIsActuallyBeingRead()
+        public void TheParserStillRecognisesACommentedEntry()
         {
-            Assert.True(QuarantinedKeys().Count > 0,
-                "No quarantined entries were found in " + LexiconSchema.ManifestPath + ". Either " +
-                "Track I has merged and the quarantine is correctly gone — in which case DELETE " +
-                "this class, it has done its job — or the parser has stopped recognising a " +
-                "commented entry and both guards above are now passing over an empty set (#627).");
+            string sample = "# a note to the reader, no tab\n# alarms.sample\t0123456789abcdef\nlive.key\tfedcba9876543210\n";
+            var keys = QuarantinedKeysIn(sample);
+            Assert.Equal(new[] { "alarms.sample" }, keys);
         }
     }
 }

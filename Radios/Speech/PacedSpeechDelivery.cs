@@ -189,7 +189,7 @@ namespace Radios.Speech
         /// <summary>
         /// The reader was cancelled by something that is not us — the operator's
         /// Ctrl, or any other key. Give the queue back to the arbiter unspoken.
-        /// #562.
+        /// #182.
         /// </summary>
         private void WithdrawForForeignCancel(long afterTicket)
         {
@@ -216,11 +216,54 @@ namespace Radios.Speech
             // for the connect lead means the salvage may offer it again.
             foreach (var w in withdrawnItems)
                 ReportWithdrawn(w, byUs: false);
+
+            // **The cause is UNKNOWN, and this line used to assert one
+            // (#606).** It said "The operator asked for quiet" about an event
+            // this callback structurally cannot identify: Ctrl, any other key,
+            // a focus change and another program taking the foreground all
+            // arrive here identically. Recording an unknown as a known fact is
+            // the defect class this project loses the most time to, and a
+            // trace that states a cause is read later as evidence of one.
             Tracing.TraceLine(
-                $"PacedDelivery: #{afterTicket} was cancelled by something that is not us — "
-                + $"{withdrawn} queued withdrawn unspoken for the arbiter to judge. The "
-                + "operator asked for quiet.",
+                $"PacedDelivery: #{afterTicket} was cancelled by something that is not us — cause UNKNOWN "
+                + "(a key, a focus change or another program taking the foreground are indistinguishable "
+                + $"here); {withdrawn} queued withdrawn unspoken, before any of them said a word, for the "
+                + "arbiter to judge.",
                 TraceLevel.Verbose);
+        }
+
+        /// <summary>
+        /// Take an utterance back out of the queue, by ticket, if it is still
+        /// unsent. Returns true when it was, false when the reader already has
+        /// it or it has gone (#606).
+        ///
+        /// <para>The arbiter calls this when something newer supersedes an
+        /// utterance the pump has been handed and has not yet started. Until
+        /// #521 put our own queue in front of the reader's, submitted text
+        /// really could not be taken back; it can now, and not doing so is why
+        /// two progress lines about the same wait could still be spoken back to
+        /// back.</para>
+        ///
+        /// <para><b>Deliberately no outcome report.</b> The caller removes its
+        /// own ledger entry in the same breath, so there is nothing left to
+        /// account for — and reporting would re-enter the arbiter from inside
+        /// its own lock. The trace carries the record instead.</para>
+        /// </summary>
+        public bool WithdrawIfQueued(long ticket, string reason)
+        {
+            Item item;
+            lock (_lock)
+            {
+                if (_disposed) return false;
+                int at = _queue.FindIndex(q => q.Ticket == ticket);
+                if (at < 0) return false;
+                item = _queue[at];
+                _queue.RemoveAt(at);
+            }
+            Tracing.TraceLine(
+                $"PacedDelivery: withdrew #{ticket} before the reader saw it — {reason}. '{Clip(item.Text)}'",
+                TraceLevel.Info);
+            return true;
         }
 
         /// <summary>
@@ -422,8 +465,20 @@ namespace Radios.Speech
                         return;
                     }
 
-                    // #562, ruled by Noel 2026-09-07: "ctrl always means
-                    // silence when it comes to NVDA's shut up key."
+                    // Ctrl is the shut-up key, and it means silence. Ruled by
+                    // Noel in #182, whose reasoning is that "Ctrl is the
+                    // universal 'stop talking' for every screen reader, and
+                    // operators press it reflexively without deciding to" —
+                    // so a trained response that produces a partial result is
+                    // worse than no interrupt at all.
+                    //
+                    // **The citation was "#562" until 2026-09-23 and NO SUCH
+                    // TASK EXISTS**, in either register file. It appeared here
+                    // and in the tests, carrying a quotation and a date that
+                    // cannot be found anywhere either — which is worse than a
+                    // wrong number, because a quoted ruling reads as already
+                    // verified and stops the next person checking. The
+                    // BEHAVIOUR was right; only its authority was invented.
                     //
                     // A cancel that was not OURS is the operator asking for
                     // quiet. We cannot tell Ctrl from any other key — both come
@@ -438,6 +493,17 @@ namespace Radios.Speech
                     // delivery data instead of a guess, which is the difference
                     // between this and the pre-#521 behaviour that lost 89
                     // announcements in a day.
+                    //
+                    // **What the arbiter does with them changed on 2026-09-23
+                    // (#606).** Every item withdrawn here is reported at ZERO
+                    // marks, which is the honest report and is also the fact
+                    // the new recovery rule turns on: nothing was heard, so
+                    // the whole obligation is still owed and a later hand-over
+                    // is a first hearing rather than a repeat. The item that
+                    // was IN FLIGHT is a different case — it said some of
+                    // itself, by a cause nobody here can name, and the arbiter
+                    // pauses it rather than letting the next unrelated
+                    // interrupt replay it.
                     if (outcome.Kind == SpeechOutcomeKind.Cancelled && !outcome.CancelledByUs)
                         WithdrawForForeignCancel(item.Ticket);
 

@@ -40,6 +40,20 @@ namespace JJFlexWpf
         /// </summary>
         public static Func<nint>? OwnerHandleProvider { get; set; }
 
+        /// <summary>
+        /// Who owns the title currently pending under
+        /// <see cref="Radios.Speech.SpeechSubject.DialogArrival"/> — the
+        /// identity the close hook checks before withdrawing anything. The
+        /// rule itself lives in <see cref="Radios.Speech.ArrivalTitleClaim"/>
+        /// so the search-to-picker handoff order is tested without a window.
+        ///
+        /// <para>Static because the subject is global: only one window's title
+        /// can be the pending one, and which window that is has to be a fact
+        /// the OTHER window can read. UI thread only (Loaded and Closed both
+        /// run there), so it needs no synchronisation.</para>
+        /// </summary>
+        private static readonly Radios.Speech.ArrivalTitleClaim ArrivalTitle = new();
+
         private static nint ResolveOwnerHandle()
         {
             var provider = OwnerHandleProvider;
@@ -99,6 +113,39 @@ namespace JJFlexWpf
             // not just its edges — see StartStrandedFocusSentinel.
             Loaded += (_, _) => StartStrandedFocusSentinel();
             Closed += (_, _) => StopStrandedFocusSentinel();
+
+            // This window's own title is worthless once the window has gone,
+            // and until 2026-09-23 nothing said so: a title queued behind a
+            // backlog could still be spoken after the dialog it names had been
+            // replaced. Supersession reaches the delivery queue now, so an
+            // unsent copy is taken back rather than merely made unrescuable
+            // (#606).
+            //
+            // **Scoped to the window that actually owns the pending title, and
+            // that is a required correction rather than a tightening (#551).**
+            // DialogArrival is one global subject, so the close hook withdrew
+            // whatever title was pending — including a SUCCESSOR's.
+            // WindowHandoff.CloseAfterSuccessorShown exists precisely to
+            // overlap two dialogs: the outgoing search window is closed only
+            // AFTER the picker has rendered, and the picker queues its own
+            // title from Loaded first. The outgoing window's Closed then fired
+            // second and could take the picker's title back before it was ever
+            // said — deleting a title the operator needs, in the name of
+            // removing one they did not. A fix aimed at a duplicate had become
+            // a way to lose the real thing.
+            //
+            // The rule itself — who may withdraw, and when — lives in
+            // Radios.Speech.ArrivalTitleClaim, where a test drives the
+            // search-to-picker order without a window. It is a plain claim
+            // rather than a ticket because the arbiter's tickets are internal
+            // to Radios and this is UI-thread-only code: Loaded and Closed both
+            // run on it, so no lock is involved.
+            Closed += (_, _) =>
+            {
+                if (!ArrivalTitle.Release(this)) return;
+                Radios.ScreenReaderOutput.Supersede(
+                    Radios.Speech.SpeechSubject.DialogArrival, "the dialog closed");
+            };
         }
 
         /// <summary>
@@ -181,8 +228,42 @@ namespace JJFlexWpf
                 //
                 // A dialog opening is the START of a series, never a supersession
                 // of one. Surveyed and re-bucketed 2026-08-18.
+                //
+                // **It carries a subject now, and cannot outlive its own
+                // window (#606, #551).** Noel's transcript of 2026-09-23 has
+                // the search title arriving a third time at the moment that
+                // window was about to be replaced by the picker. A title still
+                // queued when its dialog closes is taken back by the
+                // supersede below rather than spoken over whatever replaced
+                // it, and a newer dialog's title retires an unheard older one,
+                // because only one window is in front of the operator at a
+                // time.
+                //
+                // **The line itself STAYS, and that is a decision rather than
+                // an omission.** Astra is right that this is a third producer
+                // of the window's name, beside the progress voice and NVDA's
+                // own narration of the native window, and that the
+                // architectural answer is for the focused accessibility
+                // surface to own window identity alone. But nothing here can
+                // know what the reader said — there is no channel that reports
+                // native narration — so the announcement cannot be made
+                // conditional on it, and taking it out for all 74 dialogs
+                // needs each affected arrival checked at the keyboard for a
+                // real named focus destination first. A dialog that announces
+                // nothing is worse than one that announces twice. Note also
+                // what the transcript actually shows: in that run OUR copy was
+                // withdrawn before it reached NVDA and the duplicate he heard
+                // was the reader's own, so removing this line would not have
+                // changed that launch.
                 Radios.ScreenReaderOutput.Speak(
-                    Title, Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Terse);
+                    Title, Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Terse,
+                    subject: Radios.Speech.SpeechSubject.DialogArrival);
+
+                // We are now the window whose title is pending. Claiming it
+                // here — after the announcement, on the UI thread — is what
+                // stops an outgoing dialog's Closed hook withdrawing it during
+                // a deliberate handoff; see the constructor.
+                ArrivalTitle.Claim(this);
             }
 
             // Focus first interactive control

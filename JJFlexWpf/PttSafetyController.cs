@@ -26,6 +26,30 @@ namespace JJFlexWpf
 
         public PttState State { get; private set; } = PttState.Idle;
 
+        /// <summary>
+        /// This controller's transmissions, counted by RF: the owner-side
+        /// identity a safety sentence about a transmission is valid under.
+        /// "You are no longer on the air" is true until the operator keys
+        /// again; "power is coming back" is true while THIS transmission is
+        /// still on the air; an unheard copy of either must not be replayed
+        /// into a state where it is false (Astra's Track IJK review, blocker 6;
+        /// #617).
+        ///
+        /// <para><b>Fed from <see cref="SetTx"/> and the external watch, and
+        /// from nowhere else</b> — not from the state transitions. The first
+        /// build advanced a counter at both <c>SetTx(true)</c> sites, and one
+        /// of them is a held PTT becoming a lock, where RF never stops: a
+        /// reflected-power warning cut short during the hold, and still true
+        /// during the lock, was withdrawn as history (Astra's Track IJK2
+        /// review, blocker 1). The rule — advance on the OFF-to-ON edge only
+        /// — lives in <see cref="Radios.Speech.TransmitEpisode"/>, where a test can drive
+        /// it; this class only reports what it has commanded.</para>
+        /// </summary>
+        private readonly Radios.Speech.TransmitEpisode _transmitEpisode = new Radios.Speech.TransmitEpisode();
+
+        /// <summary>What this controller last commanded the rig to do with RF.</summary>
+        private bool _rfCommandedOn;
+
         private readonly Func<FlexBase?> _getRigControl;
         private readonly Func<bool> _getRadioPowerOn;
         private readonly Action<string>? _updateStatusDisplay;
@@ -255,6 +279,7 @@ namespace JJFlexWpf
         public void BeginExternalTransmitWatch()
         {
             _externalWatchers++;
+            NoteRf();   // an external transmit is a transmission: its warnings are about it
             if (State == PttState.Idle)
             {
                 _healthReflectedWarned = false;
@@ -273,6 +298,7 @@ namespace JJFlexWpf
         public void EndExternalTransmitWatch()
         {
             if (_externalWatchers > 0) _externalWatchers--;
+            NoteRf();
             Tracing.TraceLine("PTT: external transmit watch off (" + _externalWatchers + ")",
                               TraceLevel.Info);
             // The tick stops itself on its next pass once Idle and unwatched.
@@ -454,12 +480,28 @@ namespace JJFlexWpf
             }
         }
 
+        /// <summary>
+        /// The ONE place this controller commands RF. The transmit episode is
+        /// told here and only here (plus the external watch), so a transition
+        /// that keeps RF on — a held PTT becoming a lock — is the same
+        /// transmission by construction, and a future state that calls this
+        /// cannot start a new episode by accident.
+        /// </summary>
         private void SetTx(bool on)
         {
+            _rfCommandedOn = on;
+            NoteRf();
             var rig = _getRigControl();
             if (rig != null)
                 rig.Transmit = on;
         }
+
+        /// <summary>
+        /// RF is on when this controller has keyed, or an external transmit it
+        /// watches is up. The episode advances only on the OFF-to-ON edge of
+        /// that, inside <see cref="Radios.Speech.TransmitEpisode"/>.
+        /// </summary>
+        private void NoteRf() => _transmitEpisode.RfIs(_rfCommandedOn || _externalWatchers > 0);
 
         // -------------------------------------------------------------------
         // Public actions (called from key handlers)
@@ -484,7 +526,7 @@ namespace JJFlexWpf
             {
                 _pttDownTicks = Stopwatch.GetTimestamp();   // #216, see NotePttRelease
                 State = PttState.PttHold;
-                SetTx(true);
+                SetTx(true);   // RF off to on: a new transmission, and every sentence about the last one's end is now history
                 StartFreshAudioSample();
                 if (_config.ChirpEnabled) EarconPlayer.TxStartTone();
                 _updateStatusDisplay?.Invoke(Lexicon.Get("audio.ptt.display_transmitting"));
@@ -584,6 +626,11 @@ namespace JJFlexWpf
             }
 
             State = PttState.Locked;
+            // From Idle this starts a transmission; from a held PTT it keeps
+            // one on, and the episode must NOT change — a reflected-power
+            // warning spoken during the hold is still about this RF. SetTx
+            // tells the episode what it commanded and the episode decides
+            // which of the two this was (Astra's Track IJK2 review, blocker 1).
             SetTx(true);
             if (_config.ChirpEnabled) EarconPlayer.TxStartTone();
             _lockStartTime = DateTime.UtcNow;
@@ -655,6 +702,17 @@ namespace JJFlexWpf
                     ? levelAdvice
                     : speechMessage + ". " + levelAdvice);
 
+            // The safety outcome says the transmission has ENDED and the
+            // operator is no longer on the air. That is true until they key
+            // again: an unheard copy retained by the speech layer must not be
+            // rescued into the next transmission, saying they are off the air
+            // while they are on it (Astra's Track IJK review, blocker 6). The
+            // episode this sentence is about is captured here, and the speech
+            // layer asks before every replay whether it is still the current
+            // one. Nothing here guesses what the speech layer will do with the
+            // answer. Captured AFTER SetTx(false) above, which is the ended
+            // transmission's episode: the answer stays yes until RF next goes
+            // on.
             if ((forceSpeech || _config.SpeechEnabled) && !string.IsNullOrEmpty(unkeyMessage))
                 ScreenReaderOutput.Speak(
                     unkeyMessage,
@@ -662,7 +720,8 @@ namespace JJFlexWpf
                         ? Radios.Speech.SpeechIntent.Urgent
                         : Radios.Speech.SpeechIntent.Interrupt,
                     VerbosityLevel.Critical,
-                    subject: subject);
+                    subject: subject,
+                    stillValid: forceSpeech ? _transmitEpisode.NoTransmissionSince() : null);
 
             Tracing.TraceLine($"PTT: Idle (was {wasState})", TraceLevel.Info);
         }
@@ -748,8 +807,19 @@ namespace JJFlexWpf
             // is about to stop transmitting. This is the one place in the
             // application where that ordering is a safety question rather than
             // a tidiness one.
+            // The subject is the time-limit incident, shared with the
+            // announcement that the transmission HAS ended (below, through
+            // GoIdle). Since an Urgent warning became a protected obligation,
+            // a sentence with no subject can be retired by nothing — so this
+            // one would have queued behind its own outcome instead of being
+            // covered by it.
+            // "About to end" is about THIS transmission while it is running;
+            // its outcome supersedes it by subject, and a new transmission
+            // withdraws an unheard copy the same way the cut's is (blocker 6).
             ScreenReaderOutput.Speak(
-                Lexicon.Get("audio.ptt.timeout_ending_now"), Radios.Speech.SpeechIntent.Urgent, VerbosityLevel.Critical);
+                Lexicon.Get("audio.ptt.timeout_ending_now"), Radios.Speech.SpeechIntent.Urgent, VerbosityLevel.Critical,
+                subject: Radios.Speech.SpeechSubject.TransmitTimeLimit,
+                stillValid: _transmitEpisode.StillThisTransmission());
             Tracing.TraceLine("PTT: OhCrap (1s beeps)", TraceLevel.Info);
 
             _beepTimer!.Stop();
@@ -762,7 +832,11 @@ namespace JJFlexWpf
         {
             Tracing.TraceLine("PTT: Timeout hard kill", TraceLevel.Warning);
             EarconPlayer.HardKillTone();
-            GoIdle(Lexicon.Get("audio.ptt.timed_out"), forceSpeech: true);
+            // The same owner as the "about to end" warning above: this is that
+            // incident's outcome, and it covers the warning's fact rather than
+            // queueing behind it.
+            GoIdle(Lexicon.Get("audio.ptt.timed_out"), forceSpeech: true,
+                   subject: Radios.Speech.SpeechSubject.TransmitTimeLimit);
         }
 
         private void BeepTimerTick(object? sender, EventArgs e)
@@ -986,10 +1060,14 @@ namespace JJFlexWpf
                     // Urgent, and worded for the fault it actually is: nothing
                     // reached the radio, which means the device, the profile or
                     // the microphone itself — not a level to nudge.
+                    // Its own owner, not a shared safety subject: transmitting
+                    // into silence and power coming back are different faults
+                    // and neither covers the other.
                     ScreenReaderOutput.Speak(
                         Lexicon.Get("audio.ptt.no_transmit_audio"),
                         Radios.Speech.SpeechIntent.Urgent,
-                        VerbosityLevel.Critical);
+                        VerbosityLevel.Critical,
+                        subject: Radios.Speech.SpeechSubject.NoTransmitAudio);
                     Tracing.TraceLine(
                         $"PTT: no transmit audio at all — SC_MIC peak still at the "
                         + $"{TransmitSafety.MicNothingArrivedDbfs:F0} dBFS floor after "
@@ -1227,11 +1305,25 @@ namespace JJFlexWpf
             // is the moment the cut would have acted, so the sentence says out
             // loud that no cut is coming — otherwise a safety they disarmed
             // weeks ago is still silently trusted at exactly the wrong moment.
+            // ReflectedPowerWarning, and deliberately NOT ReflectedPowerCut:
+            // a later warning must not be able to retire an unheard sentence
+            // saying the transmission was ended. Successive warnings on the
+            // same run do cover one another, which is what this subject is
+            // for — only the newest reading is true.
+            // "Power is coming back" is a claim about THIS transmission: once it
+            // has ended, or a new one begun, an unheard copy is withdrawn
+            // rather than replayed (blocker 6). "This transmission" is the RF,
+            // not the state: a hold that becomes a lock is the same one, and an
+            // external transmit under watch is one even though State is Idle
+            // (Astra's Track IJK2 review, blocker 1 and its producer-contract
+            // follow-up).
             ScreenReaderOutput.Speak(
                 TransmitSafety.ReflectedWarningText(back, antenna, rig.DummyLoadMode,
                     cutDisarmed: !_config.CutTransmitOnReflectedAlarm),
                 Radios.Speech.SpeechIntent.Urgent,
-                VerbosityLevel.Critical);
+                VerbosityLevel.Critical,
+                subject: Radios.Speech.SpeechSubject.ReflectedPowerWarning,
+                stillValid: _transmitEpisode.StillThisTransmission());
             Tracing.TraceLine(
                 $"PTT: Health warning — reflected power {back * 100f:F0}% "
                 + $"({reading}, {_reflectedRun}, "

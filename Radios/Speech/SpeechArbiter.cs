@@ -49,7 +49,9 @@ namespace Radios.Speech
     /// unspoken, in order, behind itself. <see cref="SpeechIntent.Urgent"/>
     /// alone discards — that is its entire meaning — and the operator's own
     /// Silence clears the ledger too, because resurrecting speech someone
-    /// just shut up would defy them.
+    /// just shut up would defy them. (Both halves of that sentence are
+    /// qualified as of 2026-09-23: neither may take a PROTECTED safety
+    /// obligation with it. See the recovery-rule section below.)
     ///
     /// **And the rescue is bounded.** A salvaged utterance re-enters the
     /// ledger, which is right — a second interrupt must not destroy what the
@@ -125,6 +127,56 @@ namespace Radios.Speech
     /// ledger believes the reader busy pulls the busy-until back to now — a
     /// correction to the estimate, never the basis of a queue.
     ///
+    /// **And recovery attaches to the OBLIGATION, not to the next utterance
+    /// (#606).** Everything above answers "what did the reader still have
+    /// when something flushed it". None of it asked the prior question: is
+    /// THIS interrupt a recovery opportunity for THIS unfinished unit at all?
+    /// Until 2026-09-23 the answer was always yes — any successful ordinary
+    /// interrupt swept the whole ledger — and an unrelated key acknowledgement
+    /// was therefore permission to replay an old string. Measured in Noel's
+    /// NVDA transcript of 2026-09-23 05:42: the listening sentence was
+    /// submitted three times and cut at four, four and two words of ten,
+    /// released 599 and 600 ms after the app acknowledged the JJ key and then
+    /// Escape. Behind it sat a clause saying the station restore was
+    /// unconfirmed; it was withdrawn before it ever started on every attempt,
+    /// spent both its rescues at ADMISSION, and was never spoken once. **The
+    /// lost information was the defect; the repetition was the symptom.**
+    ///
+    /// The rule, in Astra's words: recover an unfinished information
+    /// obligation when it is still valid, belongs in the receiving context,
+    /// and a known recovery opportunity permits it; never use an unrelated key
+    /// acknowledgement as permission to replay an old string. Here that is
+    /// <see cref="Owed"/> — what the transport actually established about the
+    /// last attempt — consulted by <see cref="RecoveryPermitted"/>:
+    ///
+    /// - **Nothing said yet** — the reader or our pump still has it, and this
+    ///   interrupt is about to destroy it. That IS the evidence, and it is the
+    ///   whole pre-#521 contract. Recoverable.
+    /// - **Cut by us** — we caused the loss, so we owe the put-back.
+    ///   Recoverable.
+    /// - **Never begun** — withdrawn at zero marks, or refused outright.
+    ///   Nothing was heard, so handing it over again is a FIRST hearing, not a
+    ///   repeat: recoverable, and it spends no rescue, because the cap bounds
+    ///   repeats the operator may actually have heard.
+    /// - **Paused, cause unknown** — cut part-way by something that is not us.
+    ///   The completion callback cannot tell Ctrl from a focus change from
+    ///   another program taking the foreground, so the cause stays unknown and
+    ///   an unrelated later interrupt is NOT permission. It waits, owed,
+    ///   until the ceiling retires it or its owner covers it.
+    ///
+    /// **Safety information is protected and is the exception to every bound
+    /// here.** An interrupting warning used to be emitted and not ledgered at
+    /// all, so an interrupted transmit-cut sentence was lost permanently
+    /// rather than delayed. It is ledgered now, it survives the discard an
+    /// urgent warning performs, it survives a Silence, and it is exempt from
+    /// the salvage cap, the ceiling, the word-count bound and the ledger's
+    /// overflow eviction — ordinary verbosity, navigation, a timer expiring
+    /// and a rescue count running out may not retire it. What may: its owner
+    /// saying something newer on the same subject. What still governs it is
+    /// EVIDENCE: nothing is recovered without positive evidence the unit was
+    /// lost, and an estimate saying the reader finished is evidence of
+    /// delivery, not a bound on the obligation.
+    ///
     /// Instance-based with an injected <see cref="ISpeechClock"/> so every
     /// timing constant here is testable exactly — advance a manual clock,
     /// assert precisely one utterance, assert when. Production wiring lives
@@ -132,6 +184,35 @@ namespace Radios.Speech
     /// </summary>
     internal sealed class SpeechArbiter
     {
+        /// <summary>
+        /// What the transport established about an entry's LAST delivery
+        /// attempt — which is what decides whether a later interrupt may
+        /// recover it. Deliberately not "how long ago was it": an elapsed
+        /// estimate, a missing completion event and an unrelated keypress are
+        /// none of them proof of loss (#606).
+        /// </summary>
+        internal enum Owed
+        {
+            /// <summary>Handed over; nobody has said anything about it yet. The reader or our pump still holds it.</summary>
+            Pending,
+
+            /// <summary>Our own interrupt, Silence or Urgent cut it. We caused the loss, so recovery is ours to offer.</summary>
+            CutByUs,
+
+            /// <summary>
+            /// It never said a word: withdrawn at zero marks, or the reader
+            /// refused the text. Fully owed — re-handing it is a first
+            /// hearing, not a repeat.
+            /// </summary>
+            NeverStarted,
+
+            /// <summary>
+            /// Cut part-way by something that is not us. The cause is
+            /// unclassified and must stay unclassified, so no unrelated
+            /// interrupt may use it as permission to replay.
+            /// </summary>
+            PausedUnknownCause,
+        }
         // ── Latest (lead-then-settle) constants ──
 
         /// <summary>Quiet period after the LAST change before a Latest utterance speaks.</summary>
@@ -323,6 +404,69 @@ namespace Radios.Speech
         internal const int MaxSalvages = 2;
 
         /// <summary>
+        /// How many consecutive hand-overs of a PROTECTED obligation may come
+        /// back having said nothing at all before automatic recovery backs off.
+        ///
+        /// A safety obligation is exempt from <see cref="MaxSalvages"/> and
+        /// from <see cref="SalvageCeilingMs"/> on purpose — a rescue count
+        /// running out may not retire it, and the hazard has not ceased just
+        /// because a sentence was cut. But "never give up" and "chase every
+        /// keypress forever" are different promises, and on a live desk every
+        /// key the operator presses cancels the reader. So repeated
+        /// cancellation WITHOUT PROGRESS pauses the automatic attempts — the
+        /// obligation stays owed and is traced as undelivered rather than
+        /// dropped. Any progress at all resets the count: a sentence getting
+        /// further each time is not a loop.
+        ///
+        /// <para><b>What may un-pause it changed (#611).</b> It used to be any
+        /// delivery completing anywhere, which is "an unrelated success
+        /// happened" dressed as a recovery event. It is now a BACKEND-RECOVERY
+        /// EDGE — the transition out of a channel known to be refusing or
+        /// absent — taken exactly once per transition, and never for an
+        /// obligation the operator silenced.</para>
+        /// </summary>
+        internal const int ProtectedAttemptsWithoutProgress = 3;
+
+        /// <summary>
+        /// How many automatic hand-overs one protected obligation may have
+        /// before automatic speech for it pauses — counting every attempt,
+        /// including ones nobody ever reported on.
+        ///
+        /// <para><see cref="ProtectedAttemptsWithoutProgress"/> counts what the
+        /// transport SAID, so on an untracked backend it stays at zero forever
+        /// and bounds nothing: such an obligation would chase every interrupt
+        /// for as long as the application ran. This budget is the other half —
+        /// one initial attempt and one automatic retry, after which the fact is
+        /// still owed, still in the ledger and still reachable, and automatic
+        /// work for it stops until a recovery edge or an explicit replay.</para>
+        ///
+        /// <para>Pausing is not dropping, and the distinction is the whole
+        /// point: "we have stopped trying for now" and "nothing is owed" are
+        /// different states.</para>
+        /// </summary>
+        internal const int ProtectedAutomaticAttempts = 2;
+
+        /// <summary>
+        /// How many protected obligations may be registered at once.
+        ///
+        /// <para>Protected entries were exempt from the cap, the ceiling, the
+        /// word-count bound and overflow eviction — correctly, each one for its
+        /// own reason — which left them exempt from EVERYTHING, so repeated
+        /// unkeyed warnings could accumulate without limit and take release
+        /// slots from one another. A fixed condition has a finite catalogue and
+        /// a slot each, so the realistic occupancy is small; this ceiling
+        /// exists for the case where it is not.</para>
+        ///
+        /// <para><b>Overflow REFUSES the new registration, loudly, and never
+        /// evicts an unheard one.</b> Silently discarding a warning while
+        /// continuing to behave as though it were being monitored is the
+        /// failure this whole class exists to end. The warning is still spoken;
+        /// what it does not get is a retained obligation, and the trace says
+        /// exactly that.</para>
+        /// </summary>
+        internal const int ProtectedSlotCap = 8;
+
+        /// <summary>
         /// Age bound, as a multiple of the utterance's OWN estimated duration,
         /// measured from FIRST emission rather than the latest re-queue.
         ///
@@ -482,8 +626,113 @@ namespace Radios.Speech
             public int MarksReached;
             public int MarkCount;
 
+            /// <summary>
+            /// The furthest any attempt on this obligation ever got. Kept
+            /// because <see cref="ReleaseHeld"/> used to zero the marks on
+            /// every re-hand, which threw away the one fact that says whether
+            /// the operator heard any of it — and therefore whether handing it
+            /// over again is a repeat or a first hearing (#606).
+            /// </summary>
+            public int MarksReachedEver;
+
             /// <summary>The last thing the channel said about this entry, for the trace; null when it has said nothing yet.</summary>
             public SpeechOutcomeKind? LastOutcome;
+
+            /// <summary>
+            /// What the transport established about the last attempt — see
+            /// <see cref="Owed"/>. This, not the clock and not the arrival of
+            /// an unrelated interrupt, is what decides recovery.
+            /// </summary>
+            public Owed State = Owed.Pending;
+
+            /// <summary>
+            /// A safety obligation (<see cref="SpeechIntent.Urgent"/>). Exempt
+            /// from the cap, the ceiling, the word-count bound and the
+            /// overflow eviction; survives the discard an urgent warning
+            /// performs and survives a Silence. Only its owner's own newer
+            /// statement on the same subject retires it.
+            /// </summary>
+            public bool Protected;
+
+            /// <summary>
+            /// Consecutive attempts that came back having said nothing. Drives
+            /// <see cref="ProtectedAttemptsWithoutProgress"/>; reset by any
+            /// progress at all.
+            /// </summary>
+            public int AttemptsWithoutProgress;
+
+            /// <summary>
+            /// Set when a protected obligation's automatic attempts have backed
+            /// off. It is still owed and still in the ledger; it simply stops
+            /// chasing every interrupt until a genuine recovery edge.
+            /// </summary>
+            public bool AutoRecoveryPaused;
+
+            /// <summary>
+            /// Every automatic hand-over of this obligation, whether or not
+            /// anything ever reported on it. The sibling
+            /// <see cref="AttemptsWithoutProgress"/> counts what the TRANSPORT
+            /// said, and an untracked backend never says anything at all — so
+            /// on that path it stays at zero forever and bounds nothing. This
+            /// one bounds the attempts themselves
+            /// (<see cref="ProtectedAutomaticAttempts"/>), which is the budget
+            /// Astra's contract asks for: two counters because there are two
+            /// different ways for an attempt to be wasted.
+            /// </summary>
+            public int AutomaticAttempts;
+
+            /// <summary>
+            /// Extra attempts granted by a backend-recovery edge, one per
+            /// edge. Added to <see cref="ProtectedAutomaticAttempts"/> rather
+            /// than resetting <see cref="AutomaticAttempts"/>, because a
+            /// recovery edge grants one probe and does not clear what the
+            /// episode has already spent — otherwise a flapping channel
+            /// manufactures fresh budgets forever.
+            /// </summary>
+            public int ProbesGranted;
+
+            /// <summary>The automatic attempts this obligation has left, counting any probe a recovery edge granted.</summary>
+            public bool AutomaticBudgetLeft => AutomaticAttempts < ProtectedAutomaticAttempts + ProbesGranted;
+
+            /// <summary>
+            /// True once an attempt's occupancy estimate ran out with nobody
+            /// able to report on it, or the maximum turn was reached. The
+            /// obligation is NOT discharged by either — "we cannot tell
+            /// whether this was heard" is recorded as itself.
+            /// </summary>
+            public bool DeliveryUnknown;
+
+            /// <summary>
+            /// The quiet cohort this obligation was admitted under. An
+            /// obligation from an older cohort was stopped by the operator and
+            /// is not resurrected by a passing interrupt (#182); it waits for
+            /// an explicit replay or a known owner recovery event.
+            /// </summary>
+            public long QuietGeneration;
+
+            /// <summary>
+            /// The producer's own answer to "is the state this sentence claims
+            /// still the state", or null where the producer declared none. A
+            /// PROTECTED sentence that claims a PRESENT state — "you are no
+            /// longer on the air" — is asked this before every replay, and is
+            /// withdrawn, with a trace saying what it was and why, when the
+            /// answer is no (Astra's Track IJK review, blocker 6; #617's rule
+            /// that each fact carries the condition that makes it true).
+            /// Only the producer can answer it, because only the producer
+            /// knows what "the same transmission" means; the arbiter asks and
+            /// does not guess.
+            /// </summary>
+            public Func<bool>? StillValid;
+
+            /// <summary>
+            /// A PROTECTED obligation whose retry is ready but found a
+            /// transmit-safety attempt holding the speaking turn — the live
+            /// cut, or the protected entry a release handed over just before
+            /// it. It stays in the ledger, owed, and is handed over by the
+            /// turn waiter when the turn is free, with a reservation of its own
+            /// (Astra's Track IJK review, blocker 1).
+            /// </summary>
+            public bool AwaitingTurn;
 
             /// <summary>
             /// When this utterance FIRST reached the reader. Never moves, however
@@ -580,6 +829,76 @@ namespace Radios.Speech
 
         private readonly object _lock = new object();
 
+        /// <summary>
+        /// The one scheduler for the safety speaking turn (#611). Transmit
+        /// safety, the transmit-safety retry and every operator alarm take
+        /// their turn from here, so a turn can be reasoned about rather than
+        /// inferred from a deadline and a flag. Touched only under
+        /// <see cref="_lock"/>, which is also what serialises the sink call
+        /// against the outcome callback — that is what makes
+        /// reserve-hand-over-bind atomic.
+        /// </summary>
+        private readonly SafetyDeliveryCoordinator _safety;
+
+        /// <summary>The quiet cohort the arbiter is currently serving. Read by the alarm cue stage, which arms timers before the arbiter ever sees the warning.</summary>
+        internal long SafetyQuietGeneration { get { lock (_lock) return _safety.QuietGeneration; } }
+
+        /// <summary>
+        /// What one safety obligation is, seen from outside the ledger: the
+        /// fact, whose it is, and the three separate things that are NOT the
+        /// same question — has it been delivered, is automatic speech still
+        /// trying, and did the operator stop it.
+        /// </summary>
+        internal readonly record struct OwedSafety(
+            string Message,
+            string? Subject,
+            bool DeliveryUnknown,
+            bool AutomaticSpeechPaused,
+            bool SilencedByOperator,
+            int Attempts);
+
+        /// <summary>
+        /// The safety obligations still owed, in the order they were admitted.
+        ///
+        /// <para><b>Why this exists, and why it is not a product surface.</b>
+        /// "Retained but paused" and "silently dropped" are indistinguishable
+        /// from the outside — both are silence — so a test asserting that a
+        /// silenced warning survives has nothing to look at and an absence
+        /// proves the wrong thing. This is the honest observation that makes
+        /// the claim checkable.</para>
+        ///
+        /// <para>It is also the shape the operator's reachable pending list
+        /// will read when somebody builds it, which is the biggest thing this
+        /// layer still owes: today an undelivered safety obligation is
+        /// recorded here and traced at Error, and <b>a trace is not operator
+        /// awareness</b>.</para>
+        /// </summary>
+        internal IReadOnlyList<OwedSafety> OwedSafetyObligations
+        {
+            get
+            {
+                lock (_lock)
+                {
+                    var owed = new List<OwedSafety>();
+                    foreach (var e in _believedQueued)
+                    {
+                        if (!e.Protected) continue;
+                        owed.Add(new OwedSafety(e.Message, e.Subject, e.DeliveryUnknown,
+                            e.AutoRecoveryPaused || !e.AutomaticBudgetLeft,
+                            !_safety.InCurrentCohort(e.QuietGeneration), e.AutomaticAttempts));
+                    }
+                    foreach (var e in _held)
+                    {
+                        if (!e.Protected) continue;
+                        owed.Add(new OwedSafety(e.Message, e.Subject, e.DeliveryUnknown,
+                            e.AutoRecoveryPaused || !e.AutomaticBudgetLeft,
+                            !_safety.InCurrentCohort(e.QuietGeneration), e.AutomaticAttempts));
+                    }
+                    return owed;
+                }
+            }
+        }
+
         private readonly ISpeechClock _clock;
         private readonly Func<VerbosityLevel> _verbosity;
         private readonly SpeechSink _sink;
@@ -587,6 +906,7 @@ namespace Radios.Speech
         private readonly Action<string, VerbosityLevel, SpeechIntent?, string?> _recordGated;
         private readonly SpeechRateModel _rate;
         private readonly Func<bool?>? _isSpeaking;
+        private readonly Func<long, string, bool>? _withdrawUnsent;
 
         /// <param name="clock">Time source. Inject a manual clock to test.</param>
         /// <param name="verbosity">Read at flush time — the setting can move while a value is pending.</param>
@@ -604,6 +924,19 @@ namespace Radios.Speech
         /// CORRECTION to the estimate — a "no" while the ledger believes the
         /// reader busy clamps the busy-until — never as the basis of a queue.
         /// </param>
+        /// <param name="withdrawUnsent">
+        /// Take an utterance back out of the delivery pump by ticket, if it is
+        /// still unsent, and say true when it was. Null where there is no pump.
+        ///
+        /// <para><b>Why supersession needs this (#606).</b> Marking an entry
+        /// superseded stops it being RESCUED and does nothing about a copy the
+        /// pump has already been handed and has not yet started — so a progress
+        /// heartbeat and the line that answers it could still be spoken back to
+        /// back, and a dialog's title could still arrive after the dialog had
+        /// gone. The old source comment said submitted text cannot be taken
+        /// back; that stopped being true when #521 put our own queue in front
+        /// of the reader's, and this is the consequence nobody collected.</para>
+        /// </param>
         public SpeechArbiter(
             ISpeechClock clock,
             Func<VerbosityLevel> verbosity,
@@ -611,7 +944,8 @@ namespace Radios.Speech
             Action silenceBackend,
             Action<string, VerbosityLevel, SpeechIntent?, string?> recordGated,
             SpeechRateModel? rate = null,
-            Func<bool?>? isSpeaking = null)
+            Func<bool?>? isSpeaking = null,
+            Func<long, string, bool>? withdrawUnsent = null)
         {
             _clock = clock;
             _verbosity = verbosity;
@@ -620,6 +954,13 @@ namespace Radios.Speech
             _recordGated = recordGated;
             _rate = rate ?? new SpeechRateModel();
             _isSpeaking = isSpeaking;
+            _withdrawUnsent = withdrawUnsent;
+
+            // The maximum turn's cancellation request is the same cut an
+            // urgent warning makes: silence the backend. The coordinator asks
+            // for it under this lock and the pump answers by ticket, which is
+            // what turns the limit into a handshake (#611).
+            _safety = new SafetyDeliveryCoordinator(() => { try { _silenceBackend(); } catch { } });
         }
 
         /// <summary>
@@ -840,14 +1181,745 @@ namespace Radios.Speech
         /// Transmit safety: cut what is speaking AND drop what is queued —
         /// ours and the reader's — so nothing stale can play on top of the
         /// warning. The one intent for which discard is the point.
+        ///
+        /// <para><b>What changed, and it is the half that was missing (#606,
+        /// #571's third HIGH finding).</b> The discard used to take EVERYTHING,
+        /// including any earlier safety obligation still owed, and the warning
+        /// itself was then emitted and never entered in the ledger — so an
+        /// interrupted transmit-cut sentence was lost permanently rather than
+        /// delayed, and the one sentence that must survive was the one that
+        /// did not. Now the discard clears the ORDINARY backlog and spares
+        /// protected obligations, and the warning enters the ledger as one —
+        /// BEFORE the handoff, so a reader that refuses it leaves a fact
+        /// behind rather than nothing at all.</para>
+        ///
+        /// <para><paramref name="subject"/> is carried through rather than
+        /// dropped. It is what lets the safety owner's next episode retire an
+        /// unheard earlier one — the only lifecycle event that may — and the
+        /// callers have been passing it all along into a parameter that threw
+        /// it away.</para>
+        ///
+        /// <para><b>And it takes the safety speaking turn (#611).</b> Priority
+        /// is an explicit class held by <see cref="SafetyDeliveryCoordinator"/>,
+        /// never the absence of a subject string. An operator alarm that is
+        /// sounding is pre-empted here and an alarm waiting its turn waits
+        /// behind this one; the pre-empted alarm's own record stays with the
+        /// alarm subsystem, which owns it.</para>
         /// </summary>
-        public void Urgent(string message, VerbosityLevel level, string? origin)
+        /// <param name="stillValid">
+        /// The producer's answer to whether the PRESENT state this sentence
+        /// claims still holds — asked before every automatic replay, never
+        /// before the first hand-over, which is true by construction. A
+        /// transmit-cut sentence says the operator is no longer on the air;
+        /// once they have keyed again that is false, and an unheard copy must
+        /// be withdrawn rather than rescued into the new transmission (Astra's
+        /// Track IJK review, blocker 6). Null where the sentence makes no
+        /// present-state claim, or the producer declines to answer; such a
+        /// sentence is replayed under the existing rules.
+        /// </param>
+        public void Urgent(string message, VerbosityLevel level, string? origin, string? subject = null,
+            Func<bool>? stillValid = null)
         {
             lock (_lock)
             {
-                DiscardAllLocked("an urgent warning discards everything queued");
+                var now = _clock.UtcNow;
+                SafetyTurn turn = _safety.ReserveForSafety(subject, now);
+
+                DiscardOrdinaryLocked("an urgent warning discards everything queued");
                 try { _silenceBackend(); } catch { }
-                EmitLocked(message, interrupt: true, SpeechIntent.Urgent, level, origin, subject: null);
+                EmitUrgentLocked(message, level, origin, subject, additive: false, now, turn, stillValid);
+
+                // Alarms that were waiting behind whatever held the turn now
+                // wait behind this one, and so does a protected retry waiting
+                // its turn. Re-armed rather than left pointing at a deadline
+                // that no longer exists.
+                if (_alarmPending.Count > 0 || AnyProtectedAwaitingTurnLocked()) ArmAlarmTimerLocked(now);
+            }
+        }
+
+        // ── Operator alarms: the alarm-aware urgent (#566, design section 5) ──
+        //
+        // Urgent alone gets an alarm past stale speech; it cannot promise the
+        // alarm's own sentence will finish, and two alarms using it would cut
+        // each other off forever. So an alarm carries a SUBJECT (its identity)
+        // and a REFRESH (how to re-read the condition), and it takes its turn
+        // from the same coordinator transmit safety takes its turn from: a
+        // transmit-safety announcement always wins, and an alarm that arrives
+        // while any safety attempt holds the turn waits, re-reads itself when
+        // its turn comes, and speaks only if it is still true.
+        //
+        // **What changed at the merge (#611).** Track I represented the turn
+        // as a pair of fields — a deadline and a flag — and remembered the
+        // last alarm's ticket beside them. An alarm's LATE completion, arriving
+        // after a transmit cut had taken over, matched that remembered ticket,
+        // collapsed the deadline and released a queued alarm; that alarm's
+        // handoff then called the FULL teardown, which really does clear
+        // protected entries, and the cut sentence was gone. Both halves are
+        // closed here: the turn is a token that only its own ticket can
+        // release, and the alarm handoff takes the ordinary discard.
+        //
+        // Neither the alarm's condition evaluation nor its acknowledgement,
+        // snooze or reminder semantics moved. Those belong to the alarm
+        // subsystem and stay there; this is a speech-boundary integration.
+
+        /// <summary>How many alarm sentences may wait behind a sounding safety attempt. Overflow drops the OLDEST and says so.</summary>
+        internal const int AlarmPendingCap = 8;
+
+        /// <summary>Waiting longer than this is recorded as a delivery-late condition — never a reason to pre-empt the cut.</summary>
+        internal const int AlarmDeliveryLateMs = 5000;
+
+        /// <summary>How long after a cancellation that said nothing to let the reader settle before the one retry.</summary>
+        internal const int AlarmRetrySettleMs = 600;
+
+        /// <summary>The retry happens inside this window from the original hand-over, or not at all.</summary>
+        internal const int AlarmRetryWindowMs = 5000;
+
+        /// <summary>
+        /// How many times in a row a waiting alarm's refresh may THROW before
+        /// the arbiter stops asking and lets the warning go — telling the alarm
+        /// it was not delivered, and claiming nothing about the condition.
+        ///
+        /// <para>Sol's Track K review, section 2: a throwing refresh was caught
+        /// into null, and null means "no longer current", so a failed re-read
+        /// read as the condition having cleared and the pending warning was
+        /// removed. A failed observation is not proof of anything. The refresh
+        /// is re-asked on the retry settle, and after this many failures the
+        /// sentence the alarm was queued with is NOT spoken — it may be stale —
+        /// and the alarm's own next fresh sample says what is true now.</para>
+        /// </summary>
+        internal const int AlarmRefreshFailureCap = 3;
+
+        private sealed class PendingAlarm
+        {
+            public string Subject = string.Empty;
+            public string Message = string.Empty;
+            public VerbosityLevel Level;
+            public string? Origin;
+            public Func<string?> Refresh = () => null;
+            public Action? NotDelivered;
+            public Action? Silenced;
+            public DateTime QueuedUtc;
+            public int RefreshFailures;
+
+            /// <summary>
+            /// True when the waiting warning IS the one bounded retry, parked
+            /// here because the safety turn was held when its settle elapsed.
+            /// Carried so the eventual hand-over is still a retry: without
+            /// this it was recorded as a first attempt and a second foreign
+            /// cancellation earned another retry instead of telling the alarm
+            /// (Astra's Track IJK2 review, delivery-bound qualification).
+            /// </summary>
+            public bool IsRetry;
+        }
+
+        /// <summary>
+        /// Tell an alarm its warning was given up without the reader taking
+        /// it. Never for a silence: the operator keeps that quiet (#617).
+        /// </summary>
+        private static void TellNotDelivered(Action? notDelivered, string subject, string why)
+        {
+            Tracing.TraceLine($"SpeechArbiter: an alarm warning was NOT DELIVERED, {why} [subject '{subject}']; "
+                + "the alarm is told, so its next fresh reading says it again. Its condition is unchanged and still in the alarms list.",
+                TraceLevel.Error);
+            try { notDelivered?.Invoke(); }
+            catch (Exception ex) { Tracing.TraceLine($"SpeechArbiter: the not-delivered callback threw — {ex.Message}", TraceLevel.Warning); }
+        }
+
+        private readonly List<PendingAlarm> _alarmPending = new List<PendingAlarm>();
+
+        private ISpeechTimer? _alarmTimer;
+        private int _alarmGeneration;
+
+        /// <summary>
+        /// One TRACKED hand-over of an alarm warning, from the moment the pump
+        /// accepted it until the reader's answer about that exact ticket
+        /// arrives. Untracked hand-overs are never listed: nobody will report
+        /// on them, and the estimate path governs the turn.
+        ///
+        /// <para><b>Why a list by ticket and not "the last alarm" (Astra's
+        /// Track IJK review, blocker 2).</b> The retry logic remembered one
+        /// alarm — the last handed over — and consulted it only when the
+        /// reader's answer ENDED the current turn. Production accepts a
+        /// tracked ticket before the backend has answered, so a later
+        /// Unknown or Refused outcome for that ticket arrived, released the
+        /// turn, and was dropped on the floor: the alarm was never told, and
+        /// with interval reminders off a flat bad reading kept its silence
+        /// after the backend recovered. An attempt pre-empted by a cut was
+        /// not the current turn when its cancellation arrived and was never
+        /// told either. Every tracked attempt is now accounted for by its own
+        /// ticket, whatever the turn is doing when the answer lands.</para>
+        /// </summary>
+        private sealed class AlarmAttempt
+        {
+            public long Ticket;
+            public string Subject = string.Empty;
+            public string Message = string.Empty;
+            public VerbosityLevel Level;
+            public string? Origin;
+            public Func<string?> Refresh = () => null;
+            public Action? NotDelivered;
+            public Action? Silenced;
+            public DateTime EmittedUtc;
+            public long Cohort;
+
+            /// <summary>True when this hand-over IS the one bounded retry: a second failure is reported, not retried again.</summary>
+            public bool IsRetry;
+
+            /// <summary>The settle timer for this attempt's retry, while one is pending.</summary>
+            public ISpeechTimer? RetryTimer;
+        }
+
+        /// <summary>Tracked alarm hand-overs awaiting the reader's answer, oldest first.</summary>
+        private readonly List<AlarmAttempt> _alarmAttempts = new List<AlarmAttempt>();
+
+        /// <summary>
+        /// The last UNTRACKED alarm hand-over — one nobody will report on, so it
+        /// is never in <see cref="_alarmAttempts"/> — kept only so a Silence
+        /// while it is believed sounding can tell its alarm (#617). Cleared by
+        /// the next alarm hand-over of any kind.
+        /// </summary>
+        private string? _lastUntrackedAlarmSubject;
+        private Action? _lastUntrackedAlarmSilenced;
+
+        /// <summary>Alarm attempts whose one retry is settling, oldest first.</summary>
+        private readonly List<AlarmAttempt> _alarmRetriesPending = new List<AlarmAttempt>();
+
+        /// <summary>
+        /// How many tracked alarm attempts may await an answer at once. The
+        /// pump answers for every ticket, so the realistic depth is one or
+        /// two; past this the oldest is treated as delivery UNKNOWN and its
+        /// alarm is told, rather than the list growing without bound.
+        /// </summary>
+        internal const int AlarmAttemptsCap = 16;
+
+        /// <summary>Alarm sentences waiting behind a sounding safety attempt. Tests.</summary>
+        internal int AlarmPendingCount { get { lock (_lock) return _alarmPending.Count; } }
+
+        /// <summary>
+        /// Speak an operator alarm's warning as an urgent, under the priority
+        /// contract above.
+        /// </summary>
+        /// <param name="subject">The alarm's identity (<see cref="SpeechSubject.OperatorAlarm"/>). One pending sentence per subject.</param>
+        /// <param name="refresh">
+        /// Re-read the condition and return the sentence to say NOW, or null
+        /// when there is nothing left to say — cleared, acknowledged, data
+        /// gone. Called under the arbiter's lock; must be cheap and must not
+        /// speak.
+        /// </param>
+        /// <param name="notDelivered">
+        /// Told, at most once, when this warning is given up without the reader
+        /// ever taking it — refused by the backend, let go from the waiting
+        /// set, or its condition unreadable — so the alarm can say it again on
+        /// its own next fresh sample. Never told for a silence.
+        /// </param>
+        /// <param name="silenced">
+        /// Told, at most once, when the operator silences speech while this
+        /// warning is sounding, waiting its turn or settling for its retry
+        /// (#617): the alarm then withholds its interval reminder until the
+        /// reading worsens. Never told together with
+        /// <paramref name="notDelivered"/> for the same hand-over.
+        /// </param>
+        public void UrgentAlarm(string message, VerbosityLevel level, string? origin,
+            string subject, Func<string?> refresh, Action? notDelivered = null, Action? silenced = null)
+        {
+            if (string.IsNullOrEmpty(message)) return;
+            lock (_lock)
+            {
+                var now = _clock.UtcNow;
+                SafetyTurn? turn = _safety.TryReserveForAlarm(subject, now);
+                if (turn == null)
+                {
+                    DeferAlarmLocked(message, level, origin, subject, refresh, notDelivered, silenced, now);
+                    return;
+                }
+                EmitAlarmLocked(turn, message, level, origin, subject, refresh, notDelivered, silenced, now, deferredMs: 0, why: null);
+            }
+        }
+
+        /// <summary>Something holds the turn: wait, keeping one pending sentence per alarm.</summary>
+        private void DeferAlarmLocked(string message, VerbosityLevel level, string? origin,
+            string subject, Func<string?> refresh, Action? notDelivered, Action? silenced, DateTime now,
+            bool isRetry = false)
+        {
+            DateTime? ends = _safety.EndsAtUtc;
+            int waitMs = ends == null ? 0 : Math.Max(0, (int)(ends.Value - now).TotalMilliseconds);
+
+            PendingAlarm? existing = _alarmPending.Find(p => string.Equals(p.Subject, subject, StringComparison.Ordinal));
+            if (existing != null)
+            {
+                // A newer statement on the same subject replaces the waiting
+                // one; the queue position is kept, so one noisy producer
+                // cannot reset every other producer's wait. The newest
+                // instruction also decides whether this is still a retry.
+                existing.Message = message;
+                existing.Level = level;
+                existing.Origin = origin;
+                existing.Refresh = refresh;
+                existing.NotDelivered = notDelivered;
+                existing.Silenced = silenced;
+                existing.IsRetry = isRetry;
+            }
+            else
+            {
+                if (_alarmPending.Count >= AlarmPendingCap)
+                {
+                    // One entry per alarm, so the real bound is the number of
+                    // enabled alarms and this cap is defensive. It used to
+                    // evict the OLDEST, which had waited longest and said
+                    // nothing to anyone (Astra's Track I review, finding 5).
+                    // The newest is refused instead, and its alarm is TOLD, so
+                    // the warning comes back on the alarm's own next fresh
+                    // sample rather than depending on a reminder that may be
+                    // switched off.
+                    Tracing.TraceLine(
+                        $"SpeechArbiter: alarm pending set full at {AlarmPendingCap}; refusing the newest, "
+                        + $"'{message}' [subject '{subject}'], rather than evicting one that has waited longer.",
+                        TraceLevel.Warning);
+                    TellNotDelivered(notDelivered, subject, "the waiting set was full");
+                    return;
+                }
+                _alarmPending.Add(new PendingAlarm
+                {
+                    Subject = subject, Message = message, Level = level, Origin = origin,
+                    Refresh = refresh, NotDelivered = notDelivered, Silenced = silenced, QueuedUtc = now,
+                    IsRetry = isRetry,
+                });
+            }
+
+            Tracing.TraceLine(
+                $"SpeechArbiter: alarm deferred about {waitMs} ms behind "
+                + (_safety.SafetyHoldsTheTurn(now) ? "a transmit-safety announcement" : "another alarm")
+                + $": '{message}' [subject '{subject}']", TraceLevel.Info);
+            ArmAlarmTimerLocked(now);
+        }
+
+        /// <summary>
+        /// The hand-over itself: cancel the ORDINARY transport, cut the
+        /// reader, emit, and bind the turn to the ticket that came back.
+        ///
+        /// <para><b>The discard here is the ordinary one, and that is the
+        /// #611 fix.</b> Track I called <c>DiscardAllLocked</c>, which is
+        /// intentionally the full teardown and really does clear protected
+        /// entries and the held set. Track J changed the safety caller of that
+        /// method, not its meaning, and Track I supplied another caller — so a
+        /// normally admitted alarm could erase an unfinished transmit-cut
+        /// fact. An alarm needs the channel clear of runnable ordinary text;
+        /// it has never needed to delete a safety obligation.</para>
+        /// </summary>
+        private void EmitAlarmLocked(SafetyTurn turn, string message, VerbosityLevel level, string? origin,
+            string subject, Func<string?> refresh, Action? notDelivered, Action? silenced, DateTime now, int deferredMs, string? why)
+        {
+            DiscardOrdinaryLocked("an alarm warning discards everything queued");
+            try { _silenceBackend(); } catch { }
+            var handoff = _sink(message, true, SpeechIntent.Urgent, level, origin, salvaged: false);
+            if (!handoff.Reached)
+            {
+                _safety.Abandon(turn, "the reader did not take an alarm warning (suppressed or no backend)");
+                TellNotDelivered(notDelivered, subject, "the reader did not take it (suppressed or no backend)");
+                return;
+            }
+
+            int estimate = EstimateLocked(message);
+            _safety.Bind(turn, handoff, estimate, now);
+            if (!handoff.Tracked) _readerBusyUntilUtc = now.AddMilliseconds(estimate);
+
+            _lastUntrackedAlarmSubject = handoff.Tracked ? null : subject;
+            _lastUntrackedAlarmSilenced = handoff.Tracked ? null : silenced;
+
+            if (handoff.Tracked)
+            {
+                // A newer hand-over on the same subject carries the
+                // obligation from here: an older attempt's late answer must
+                // not tell the alarm about a warning that has since been said
+                // again. Its retry, if one was settling, goes too.
+                RetireAlarmAttemptsLocked(subject, "a newer hand-over on the same subject");
+
+                if (_alarmAttempts.Count >= AlarmAttemptsCap)
+                {
+                    AlarmAttempt oldest = _alarmAttempts[0];
+                    _alarmAttempts.RemoveAt(0);
+                    TellNotDelivered(oldest.NotDelivered, oldest.Subject,
+                        $"no answer ever came for delivery #{oldest.Ticket} and {AlarmAttemptsCap} newer attempts are waiting for theirs, so its delivery is unknown");
+                }
+                _alarmAttempts.Add(new AlarmAttempt
+                {
+                    Ticket = handoff.Ticket, Subject = subject, Message = message, Level = level, Origin = origin,
+                    Refresh = refresh, NotDelivered = notDelivered, Silenced = silenced, EmittedUtc = now, Cohort = turn.QuietGeneration,
+                    IsRetry = why != null && why.StartsWith("retry", StringComparison.Ordinal),
+                });
+            }
+
+            if (deferredMs > 0)
+            {
+                Tracing.TraceLine(
+                    $"SpeechArbiter: alarm spoken after a {deferredMs} ms deferral"
+                    + (deferredMs > AlarmDeliveryLateMs ? " — DELIVERY LATE, over the five-second bound" : string.Empty)
+                    + $": '{message}' [subject '{subject}']",
+                    deferredMs > AlarmDeliveryLateMs ? TraceLevel.Warning : TraceLevel.Info);
+            }
+            else if (why != null)
+            {
+                Tracing.TraceLine($"SpeechArbiter: alarm {why}: '{message}' [subject '{subject}']", TraceLevel.Info);
+            }
+        }
+
+        private void ArmAlarmTimerLocked(DateTime now)
+        {
+            DateTime? ends = _safety.EndsAtUtc;
+            int due = ends == null ? 50 : Math.Max(50, (int)(ends.Value - now).TotalMilliseconds + 50);
+            _alarmTimer?.Dispose();
+            int generation = ++_alarmGeneration;
+            _alarmTimer = _clock.StartTimer(due, () => ReleaseAlarms(generation));
+        }
+
+        /// <summary>
+        /// The safety turn is believed free: give the next waiting alarm its
+        /// turn — after asking it whether it is still true. One at a time,
+        /// each re-arming for the next, so two alarms follow one another
+        /// rather than cancelling one another.
+        /// </summary>
+        private void ReleaseAlarms(int generation)
+        {
+            lock (_lock)
+            {
+                if (generation != _alarmGeneration) return;
+                _alarmTimer = null;
+                var now = _clock.UtcNow;
+
+                // **Protected retries waiting their turn go FIRST (blocker
+                // 1).** A safety obligation outranks an alarm, and one that
+                // waited for a transmit-safety attempt to answer is handed
+                // over with a turn of its own the moment the turn is free —
+                // one at a time, its own answer re-arming for the next.
+                while (true)
+                {
+                    BelievedQueued? next = _believedQueued.Find(e => e.Protected && e.AwaitingTurn);
+                    if (next == null) break;
+                    if (_safety.IsBusy(now))
+                    {
+                        ArmAlarmTimerLocked(now);
+                        return;
+                    }
+                    next.AwaitingTurn = false;
+                    if (!_safety.InCurrentCohort(next.QuietGeneration))
+                    {
+                        // Silenced while it waited: owed, reachable, and not
+                        // re-offered by automatic speech (#182).
+                        Tracing.TraceLine(
+                            "SpeechArbiter: a SAFETY obligation waiting its turn was silenced by the operator meanwhile "
+                            + $"and stays paused: '{Clip(next.Message)}'", TraceLevel.Info);
+                        continue;
+                    }
+                    if (next.AutoRecoveryPaused || !next.AutomaticBudgetLeft)
+                    {
+                        next.AutoRecoveryPaused = true;
+                        Tracing.TraceLine(
+                            "SpeechArbiter: a SAFETY obligation waiting its turn has no automatic attempts left "
+                            + $"({next.AutomaticAttempts} hand-over(s)); it remains owed and waits for an explicit replay "
+                            + $"or a backend-recovery edge: '{Clip(next.Message)}'", TraceLevel.Error);
+                        continue;
+                    }
+                    string? refusal = SalvageRefusalLocked(next, now, atRescue: false);
+                    if (refusal != null)
+                    {
+                        _believedQueued.Remove(next);
+                        TraceDropLocked(next, refusal, now);
+                        continue;
+                    }
+                    _believedQueued.Remove(next);   // the hand-over re-inserts it
+                    HandOverProtectedLocked(next, now);
+                    if (AnyProtectedAwaitingTurnLocked() || _alarmPending.Count > 0) ArmAlarmTimerLocked(now);
+                    return;
+                }
+
+                while (_alarmPending.Count > 0)
+                {
+                    if (_safety.IsBusy(now))
+                    {
+                        // Still occupied — a cut that is running long, or a
+                        // newer safety announcement that took the turn while
+                        // this timer was pending. Wait again rather than
+                        // speaking over it.
+                        ArmAlarmTimerLocked(now);
+                        return;
+                    }
+
+                    PendingAlarm next = _alarmPending[0];
+                    _alarmPending.RemoveAt(0);
+
+                    // **A refresh that THROWS is unknown, not cleared (Sol's
+                    // Track K review, section 2).** It used to be caught into
+                    // null, and null is the alarm saying "nothing left to
+                    // say" — so a failed re-read removed the warning as though
+                    // the condition had cleared. The warning stays waiting and
+                    // is asked again after the retry settle; past the cap it
+                    // is let go WITHOUT speaking the sentence it was queued
+                    // with, which may be stale, and the alarm is told so its
+                    // own next fresh sample says what is true now.
+                    string? current = null;
+                    bool refreshFailed = false;
+                    try { current = next.Refresh(); }
+                    catch (Exception ex)
+                    {
+                        refreshFailed = true;
+                        next.RefreshFailures++;
+                        Tracing.TraceLine(
+                            $"SpeechArbiter: a waiting alarm's refresh threw ({next.RefreshFailures} of {AlarmRefreshFailureCap}) — "
+                            + $"{ex.Message}. A failed re-read is UNKNOWN, not cleared; the warning stays waiting "
+                            + $"[subject '{next.Subject}']", TraceLevel.Error);
+                    }
+                    if (refreshFailed)
+                    {
+                        if (next.RefreshFailures >= AlarmRefreshFailureCap)
+                        {
+                            TellNotDelivered(next.NotDelivered, next.Subject,
+                                $"its condition could not be re-read {next.RefreshFailures} times running, and the "
+                                + "sentence it was queued with is not spoken because it may be stale");
+                            continue;
+                        }
+                        _alarmPending.Insert(0, next);
+                        _alarmTimer?.Dispose();
+                        int retryGeneration = ++_alarmGeneration;
+                        _alarmTimer = _clock.StartTimer(AlarmRetrySettleMs, () => ReleaseAlarms(retryGeneration));
+                        return;
+                    }
+
+                    if (current == null)
+                    {
+                        Tracing.TraceLine(
+                            $"SpeechArbiter: a waiting alarm was dropped because its own refresh says it is no longer current: "
+                            + $"'{next.Message}' [subject '{next.Subject}']", TraceLevel.Info);
+                        continue;
+                    }
+
+                    SafetyTurn? turn = _safety.TryReserveForAlarm(next.Subject, now);
+                    if (turn == null)
+                    {
+                        _alarmPending.Insert(0, next);
+                        ArmAlarmTimerLocked(now);
+                        return;
+                    }
+
+                    int deferredMs = (int)(now - next.QueuedUtc).TotalMilliseconds;
+                    // A parked retry is still the one retry when it finally
+                    // speaks: "one bounded retry" must hold on this route too.
+                    EmitAlarmLocked(turn, current, next.Level, next.Origin, next.Subject, next.Refresh, next.NotDelivered,
+                        next.Silenced, now, deferredMs,
+                        why: next.IsRetry ? "retry once, made after waiting behind the safety turn" : null);
+                    break;
+                }
+
+                if (_alarmPending.Count > 0) ArmAlarmTimerLocked(now);
+            }
+        }
+
+        /// <summary>
+        /// The reader's answer about a safety hand-over — transmit safety or
+        /// alarm — routed through the one occupancy token (#611).
+        ///
+        /// <para><b>An answer releases the turn only when it is the CURRENT
+        /// turn's own ticket.</b> A late Completed and a late Cancelled from
+        /// an attempt something else has since pre-empted both fall here,
+        /// update that attempt's own evidence in the ledger through the
+        /// ordinary path below, and free nothing. That is the whole of the
+        /// permitted alarm / cut / alarm interleaving, closed.</para>
+        /// </summary>
+        private void OnSafetyOutcomeLocked(long ticket, SpeechOutcome outcome, DateTime now)
+        {
+            bool completed = outcome.Kind == SpeechOutcomeKind.Completed;
+            SafetyTurn? ended = _safety.TakeOutcome(ticket, completed, now);
+            if (ended == null) return;
+
+            if (_alarmPending.Count > 0 || AnyProtectedAwaitingTurnLocked()) ArmAlarmTimerLocked(now);
+        }
+
+        /// <summary>
+        /// The reader's answer about one tracked ALARM hand-over, by ticket,
+        /// whatever the turn is doing — this is the accounting that used to
+        /// hang off "did this answer end the current turn", and did not run
+        /// when it did not (Astra's Track IJK review, blocker 2).
+        ///
+        /// <para>Every answer but Completed is an unsuccessful attempt on a
+        /// warning whose condition may still be current, and the alarm is TOLD
+        /// so its own next fresh sample says what is true now — with two
+        /// exceptions. A cancellation NOT by us, on a first attempt, inside the
+        /// window, earns the one bounded retry first (below). And an attempt
+        /// the operator silenced tells nobody: the quiet cohort advanced, and
+        /// the operator keeps that silence until the condition worsens
+        /// (#617) — the alarm's own event, never this callback's guess.</para>
+        ///
+        /// <para>A cancellation BY US is a cut's Urgent pre-empting the alarm,
+        /// an ordinary interrupt taking the reader, or a withdrawal. In each
+        /// the operator did not hear the end of it and nothing here knows
+        /// whether they heard the beginning; the alarm is told, and its next
+        /// fresh sample re-raises the warning, which then waits its turn
+        /// behind whatever took it.</para>
+        /// </summary>
+        private void OnAlarmOutcomeLocked(long ticket, SpeechOutcome outcome, DateTime now)
+        {
+            if (ticket == 0) return;
+            AlarmAttempt? attempt = _alarmAttempts.Find(a => a.Ticket == ticket);
+            if (attempt == null) return;
+            _alarmAttempts.Remove(attempt);
+
+            switch (outcome.Kind)
+            {
+                case SpeechOutcomeKind.Completed:
+                    return;
+
+                case SpeechOutcomeKind.Cancelled:
+                    if (!_safety.InCurrentCohort(attempt.Cohort))
+                    {
+                        Tracing.TraceLine(
+                            $"SpeechArbiter: no alarm retry and nobody told — the operator silenced this cohort [subject '{attempt.Subject}']. "
+                            + "The condition is unchanged and is still in the alarms list.", TraceLevel.Info);
+                        return;
+                    }
+                    if (!outcome.CancelledByUs && !attempt.IsRetry
+                        && (now - attempt.EmittedUtc).TotalMilliseconds <= AlarmRetryWindowMs)
+                    {
+                        ArmAlarmRetryLocked(attempt, outcome);
+                        return;
+                    }
+                    TellNotDelivered(attempt.NotDelivered, attempt.Subject,
+                        outcome.CancelledByUs
+                            ? $"delivery #{ticket} was cut at word {outcome.MarksReached} of {outcome.MarkCount} by this application (a transmit-safety announcement, an interrupt or a withdrawal took the reader)"
+                            : attempt.IsRetry
+                                ? $"its one retry (delivery #{ticket}) was cut at word {outcome.MarksReached} of {outcome.MarkCount} by a cause this callback cannot identify"
+                                : $"delivery #{ticket} was cut at word {outcome.MarksReached} of {outcome.MarkCount} and the retry window had passed");
+                    return;
+
+                default:
+                    TellNotDelivered(attempt.NotDelivered, attempt.Subject,
+                        outcome.UnknownReason == SpeechUnknownReason.Refused
+                            ? $"the reader refused delivery #{ticket} after accepting it"
+                            : $"delivery #{ticket} ended with its outcome unknown ({outcome.UnknownReason}); unknown is not heard");
+                    return;
+            }
+        }
+
+        /// <summary>
+        /// The one bounded retry, and what it is now allowed to assume.
+        ///
+        /// <para>Track I retried on any cancellation not by us, and its trace
+        /// named the cause: "a focus change or the operator's key". <b>The
+        /// callback cannot know that</b> — Ctrl, a focus change and another
+        /// program taking the foreground are indistinguishable there, which is
+        /// the same claim Track J had to take out of the withdrawal trace one
+        /// file over. The retry goes through the QUIET CONTRACT instead of
+        /// through a guess: if the operator really did silence speech, the
+        /// cohort advanced and this warning is not retried at all. If the
+        /// cohort is unchanged, nothing here claims to know what happened, and
+        /// the trace says so.</para>
+        ///
+        /// <para><b>What this deliberately does NOT do.</b> Astra's design
+        /// goes further and would pause the retry after ANY unidentifiable
+        /// cancellation, "including zero-word withdrawals", until an explicit
+        /// replay. That rule needs a reachable pending surface to replay FROM,
+        /// and there is none yet — so adopting it here would turn one stray
+        /// keypress into a warning the operator cannot get back. The brief
+        /// scopes the pause to deliberate silence, which is what is built.
+        /// The difference is reported rather than decided here.</para>
+        /// </summary>
+        private void ArmAlarmRetryLocked(AlarmAttempt attempt, SpeechOutcome outcome)
+        {
+            Tracing.TraceLine(
+                $"SpeechArbiter: an alarm was cancelled at word {outcome.MarksReached} of {outcome.MarkCount} by a "
+                + "cause this callback cannot identify — the operator's key, a focus change and another program "
+                + "taking the foreground all arrive here alike, and the operator has not silenced speech. One retry "
+                + $"in {AlarmRetrySettleMs} ms if it is still true [subject '{attempt.Subject}']", TraceLevel.Info);
+            _alarmRetriesPending.Add(attempt);
+            attempt.RetryTimer = _clock.StartTimer(AlarmRetrySettleMs, () => RetryAlarm(attempt));
+        }
+
+        /// <summary>
+        /// The retry settle elapsed. The attempt is retried if it still may be,
+        /// WAITS ITS TURN if a safety announcement holds the reader, and tells
+        /// its alarm if it cannot be made at all — it used to return silently
+        /// in both of the latter cases, which lost the warning (blocker 2).
+        /// </summary>
+        private void RetryAlarm(AlarmAttempt attempt)
+        {
+            lock (_lock)
+            {
+                if (!_alarmRetriesPending.Remove(attempt)) return;   // silenced or discarded while it settled
+                attempt.RetryTimer = null;
+                var now = _clock.UtcNow;
+                string subject = attempt.Subject;
+
+                if (!_safety.InCurrentCohort(attempt.Cohort)) return;   // silenced while it settled: quiet, by the contract
+                if (_alarmAttempts.Exists(a => string.Equals(a.Subject, subject, StringComparison.Ordinal))
+                    || _alarmPending.Exists(p => string.Equals(p.Subject, subject, StringComparison.Ordinal)))
+                {
+                    // Something newer on the same subject is already sounding
+                    // or waiting; it carries the obligation.
+                    return;
+                }
+                if ((now - attempt.EmittedUtc).TotalMilliseconds > AlarmRetryWindowMs)
+                {
+                    TellNotDelivered(attempt.NotDelivered, subject, "the retry window passed before the retry could be made");
+                    return;
+                }
+
+                SafetyTurn? turn = _safety.TryReserveForAlarm(subject, now);
+                if (turn == null)
+                {
+                    // A safety announcement got in first; it wins — and the
+                    // warning WAITS behind it rather than vanishing. The
+                    // waiting set re-reads it when its turn comes.
+                    Tracing.TraceLine(
+                        $"SpeechArbiter: the alarm retry found the safety turn held, so the warning waits its turn instead [subject '{subject}']",
+                        TraceLevel.Info);
+                    DeferAlarmLocked(attempt.Message, attempt.Level, attempt.Origin, subject, attempt.Refresh,
+                        attempt.NotDelivered, attempt.Silenced, now, isRetry: true);
+                    return;
+                }
+
+                // The same rule as the waiting set: a refresh that throws is
+                // unknown, and an unknown is not retried with a possibly stale
+                // sentence — the alarm is told, and its next fresh sample says
+                // what is true.
+                string? current = null;
+                try { current = attempt.Refresh(); }
+                catch (Exception ex)
+                {
+                    _safety.ReleaseUnused(turn, "the alarm's condition could not be re-read, so the retry was not made");
+                    TellNotDelivered(attempt.NotDelivered, subject,
+                        $"its condition could not be re-read before the one retry ({ex.Message})");
+                    return;
+                }
+                if (current == null)
+                {
+                    _safety.ReleaseUnused(turn, "the alarm is no longer current, so the retry was not made");
+                    Tracing.TraceLine($"SpeechArbiter: alarm retry not made, its own refresh says it is no longer current [subject '{subject}']", TraceLevel.Info);
+                    return;
+                }
+                EmitAlarmLocked(turn, current, attempt.Level, attempt.Origin, subject, attempt.Refresh, attempt.NotDelivered,
+                    attempt.Silenced, now, deferredMs: 0, why: "retry once, because the first hand-over said nothing at all");
+            }
+        }
+
+        /// <summary>
+        /// Forget every tracked attempt and settling retry on
+        /// <paramref name="subject"/> — or on every subject when null — without
+        /// telling their alarms. Used where a newer statement carries the
+        /// obligation, and where the operator silenced speech.
+        /// </summary>
+        private void RetireAlarmAttemptsLocked(string? subject, string why)
+        {
+            for (int i = _alarmAttempts.Count - 1; i >= 0; i--)
+            {
+                if (subject != null && !string.Equals(_alarmAttempts[i].Subject, subject, StringComparison.Ordinal)) continue;
+                Tracing.TraceLine($"SpeechArbiter: alarm delivery #{_alarmAttempts[i].Ticket} no longer awaited, {why} [subject '{_alarmAttempts[i].Subject}']",
+                    TraceLevel.Verbose);
+                _alarmAttempts.RemoveAt(i);
+            }
+            for (int i = _alarmRetriesPending.Count - 1; i >= 0; i--)
+            {
+                if (subject != null && !string.Equals(_alarmRetriesPending[i].Subject, subject, StringComparison.Ordinal)) continue;
+                _alarmRetriesPending[i].RetryTimer?.Dispose();
+                _alarmRetriesPending[i].RetryTimer = null;
+                _alarmRetriesPending.RemoveAt(i);
             }
         }
 
@@ -861,22 +1933,130 @@ namespace Radios.Speech
         /// trace says so: it was the same backlog, one stage further from the
         /// reader.
         /// </summary>
+        /// <para><b>A protected obligation is not forgotten here (#606).</b>
+        /// Silence stops the sound; it is not the operator saying they
+        /// understood a transmit-safety condition, and the hazard has not
+        /// ceased because a key was pressed. So a safety obligation still owed
+        /// is kept, paused, and the ordinary backlog around it goes.</para>
+        ///
+        /// <para><b>And "paused" now means something enforceable (#182).</b>
+        /// Keeping the obligation was only half of it: the next unrelated
+        /// interrupt treated every protected entry as recoverable, including
+        /// one the operator had just stopped, and requeued it 600 ms later.
+        /// So the QUIET COHORT advances here. Every safety episode admitted
+        /// before this instant — the sounding attempt, the ledger entries, the
+        /// held train, the alarms waiting their turn and the alarm retry —
+        /// belongs to the old cohort, and automatic speech does not serve it
+        /// again. Nothing is acknowledged, nothing is erased and no condition
+        /// is disabled; an explicit replay, or a positively correlated owner
+        /// recovery event, is what makes it eligible again.</para>
         public void OnSilenced()
         {
             lock (_lock)
             {
-                _believedQueued.Clear();
+                var now = _clock.UtcNow;
+
+                // Asked before the turn is ended below, while it can still be.
+                SafetyTurn? holding = _safety.Current;
+                _untrackedAlarmWasSoundingAtSilence = holding != null && holding.Class == SafetyClass.OperatorAlarm
+                    && holding.Bound && !holding.Tracked;
+
+                // First, so that everything below is judged against the NEW
+                // cohort. A callback still in flight for an attempt admitted
+                // before this line inherits the pause when it lands, because
+                // the cohort is identified by when the episode was ADMITTED,
+                // not by when its answer arrives.
+                _safety.Silence(now);
+
+                KeepProtectedLocked("the operator silenced speech");
                 _readerBusyUntilUtc = DateTime.MinValue;
-                EndHoldLocked("the operator silenced speech");
+                EndHoldLocked("the operator silenced speech", keepProtected: true);
+
+                // Alarms waiting their turn, and the one bounded retry, go
+                // too: the operator asked for quiet, and an alarm that
+                // matters is still in the alarms list and in Read active
+                // alarms, which is where its record lives.
+                if (_alarmPending.Count > 0)
+                    Tracing.TraceLine($"SpeechArbiter: {_alarmPending.Count} waiting alarm(s) let go, the operator silenced speech; "
+                        + "every one of their conditions is unchanged and still in the alarms list",
+                        TraceLevel.Info);
+
+                // **Every alarm whose warning this silence stood down is TOLD
+                // it was silenced (#617, ruled 2026-09-24), once per alarm:**
+                // the one sounding, the ones waiting their turn, and the one
+                // settling for its retry. Not "not delivered" — that would make
+                // the alarm's next reading overrule the shut-up key — but
+                // "silenced", so the alarm withholds its interval reminder of
+                // the same reading until the reading worsens. Collected before
+                // anything is cleared, and invoked after the lock's own
+                // bookkeeping, so a callback that re-enters the alarm service
+                // finds this arbiter consistent.
+                var silencedSubjects = new HashSet<string>(StringComparer.Ordinal);
+                var tell = new List<(string Subject, Action Silenced)>();
+                foreach (var p in _alarmPending)
+                    if (p.Silenced != null && silencedSubjects.Add(p.Subject)) tell.Add((p.Subject, p.Silenced));
+                foreach (var a in _alarmAttempts)
+                    if (a.Silenced != null && silencedSubjects.Add(a.Subject)) tell.Add((a.Subject, a.Silenced));
+                foreach (var a in _alarmRetriesPending)
+                    if (a.Silenced != null && silencedSubjects.Add(a.Subject)) tell.Add((a.Subject, a.Silenced));
+                // An untracked alarm nobody reports on is believed sounding
+                // while its estimate runs; the turn it holds says so.
+                if (_untrackedAlarmWasSoundingAtSilence
+                    && _lastUntrackedAlarmSilenced != null && _lastUntrackedAlarmSubject != null
+                    && silencedSubjects.Add(_lastUntrackedAlarmSubject))
+                    tell.Add((_lastUntrackedAlarmSubject, _lastUntrackedAlarmSilenced));
+                _untrackedAlarmWasSoundingAtSilence = false;
+
+                _alarmPending.Clear();
+                _alarmTimer?.Dispose(); _alarmTimer = null; _alarmGeneration++;
+                // Attempts still awaiting an answer, and retries settling, are
+                // forgotten WITHOUT telling their alarms "not delivered": a
+                // silence is the operator's.
+                RetireAlarmAttemptsLocked(null, "the operator silenced speech");
+                _lastUntrackedAlarmSubject = null;
+                _lastUntrackedAlarmSilenced = null;
+
+                foreach (var (subject, silenced) in tell)
+                {
+                    Tracing.TraceLine($"SpeechArbiter: the operator silenced an alarm's warning [subject '{subject}']; the alarm is told, "
+                        + "so its interval reminder of the same reading is withheld until the reading worsens (#617). "
+                        + "Nothing is acknowledged and the condition is unchanged.", TraceLevel.Info);
+                    try { silenced(); }
+                    catch (Exception ex) { Tracing.TraceLine($"SpeechArbiter: the silenced callback threw — {ex.Message}", TraceLevel.Warning); }
+                }
             }
         }
 
-        /// <summary>Drop all pending state. Shutdown, and Urgent's first step.</summary>
+        /// <summary>
+        /// Set at the top of <see cref="OnSilenced"/>, before the coordinator's
+        /// turn is ended, when the turn being ended is an UNTRACKED alarm's:
+        /// the only moment the question "was the untracked alarm sounding"
+        /// can still be answered.
+        /// </summary>
+        private bool _untrackedAlarmWasSoundingAtSilence;
+
+        /// <summary>
+        /// Drop all pending state, protected obligations included. Shutdown
+        /// and the test reset, and nothing else — an urgent warning takes
+        /// <see cref="DiscardOrdinaryLocked"/> now, because a safety outcome
+        /// still owed is not something a newer warning may erase, and so does
+        /// an alarm's hand-over.
+        ///
+        /// <para>This is NOT a silence: it claims nothing about the operator
+        /// and does not advance the quiet cohort. It is the process going away
+        /// or a test starting from nothing.</para>
+        /// </summary>
         public void DiscardAll()
         {
             lock (_lock)
             {
                 DiscardAllLocked("all speech state discarded");
+                _safety.Reset();
+                _alarmPending.Clear();
+                _alarmTimer?.Dispose(); _alarmTimer = null; _alarmGeneration++;
+                RetireAlarmAttemptsLocked(null, "all speech state discarded");
+                _lastUntrackedAlarmSubject = null;
+                _lastUntrackedAlarmSilenced = null;
             }
         }
 
@@ -913,13 +2093,39 @@ namespace Radios.Speech
                 return;
             }
 
+            if (intent == SpeechIntent.Urgent)
+            {
+                // Urgent reaches here only through Urgent(), which has already
+                // taken the safety turn — so the current turn IS this call's,
+                // and rebinding it is right. Anything else presenting the
+                // intent takes a turn of its own rather than sounding with
+                // nobody owning the channel, and must never be bound onto an
+                // ALARM's turn: that is the merge defect in miniature.
+                SafetyTurn? held = _safety.Current;
+                SafetyTurn mine = held != null && held.Class == SafetyClass.TransmitSafety && !held.Bound
+                    ? held
+                    : _safety.ReserveForSafety(subject, now);
+                EmitUrgentLocked(message, level, origin, subject, additive, now, mine);
+                return;
+            }
+
             var sounding = _sink(message, true, intent, level, origin, salvaged: false);
             if (!sounding.Reached)
             {
                 // Suppressed or no backend: the reader never saw the cancel,
                 // so its queue — and our ledger — stand untouched.
+                _safety.NoteBackendFailed();
                 return;
             }
+
+            // This interrupt cut whatever the reader was saying — a safety
+            // attempt included. A TRACKED attempt reports that itself through
+            // the pump; an UNTRACKED one has no reporter, and would otherwise
+            // be believed to hold the turn until its estimate elapsed, while
+            // the reader had in fact already been cut by us (blocker 1: a
+            // protected retry that waits for the turn must not wait on an
+            // attempt that is no longer sounding).
+            _safety.NoteOrdinaryInterruptCutTheReader(now);
 
             // The interrupt flushed the reader. Everything believed unspoken
             // is gone from its queue and must be re-queued, in order, behind
@@ -927,22 +2133,14 @@ namespace Radios.Speech
             // is the lead of an action whose own follow-ups are about to be
             // queued by the same handler, and the backlog belongs behind
             // those. It is judged now, held through the settle window, and
-            // handed over by ReleaseHeld. Urgent skips all of it on purpose
-            // (ledger and held set already cleared by DiscardAllLocked, but
-            // the check keeps the policy explicit rather than an artifact of
-            // call order).
+            // handed over by ReleaseHeld. Urgent skips all of it on purpose —
+            // its own branch below ledgers the warning and nothing else.
             //
             // A TRACKED interrupter does not touch the busy-until: the
             // channel will say when it finished, and the estimate path is
             // for entries nobody will report on.
             if (!sounding.Tracked)
                 _readerBusyUntilUtc = now.AddMilliseconds(EstimateLocked(message));
-
-            if (intent == SpeechIntent.Urgent)
-            {
-                _believedQueued.Clear();
-                return;
-            }
 
             if (_believedQueued.Count == 0 && _held.Count == 0) return;
 
@@ -963,8 +2161,31 @@ namespace Radios.Speech
             // third press under the old contract).
             int carried = ReviewHeldLocked(now);
 
-            var salvage = _believedQueued.ToArray();
+            // **Only what THIS interrupt is a recovery opportunity for (#606).**
+            // Sweeping the whole ledger is what made an unrelated keypress
+            // acknowledgement into permission to replay an old string. An
+            // entry the transport says was cut part-way by something that is
+            // not us stays exactly where it is: its cause is unknown, this
+            // interrupt did not cause it, and an interrupt is not evidence
+            // about it.
+            var salvage = new List<BelievedQueued>(_believedQueued.Count);
+            var declined = new List<BelievedQueued>();
+            foreach (var e in _believedQueued)
+            {
+                if (RecoveryPermitted(e)) salvage.Add(e); else declined.Add(e);
+            }
             _believedQueued.Clear();
+            _believedQueued.AddRange(declined);
+
+            if (declined.Count > 0)
+            {
+                Tracing.TraceLine(
+                    $"SpeechArbiter: '{Clip(message)}' is not a recovery opportunity for "
+                    + $"{declined.Count} owed utterance(s) — they were cut by something that is not us and "
+                    + $"their cause is unknown, so an unrelated interrupt does not replay them: {Quote(declined)}",
+                    TraceLevel.Info);
+            }
+
             int added = 0;
             foreach (var s in salvage)
             {
@@ -990,6 +2211,172 @@ namespace Radios.Speech
         }
 
         /// <summary>
+        /// The safety warning's own hand-over: retain the fact, THEN try to
+        /// say it.
+        ///
+        /// <para><b>The order is the point (#606, Astra section 2).</b> The
+        /// old code called the sink first and returned without ledgering
+        /// anything when the handoff did not reach a backend — and
+        /// <c>ScreenReaderOutput.EmitCore</c> has three real not-reached cases:
+        /// speech suppressed, no backend, and the reader refusing. In every
+        /// one of them an interrupted transmit-cut sentence left NOTHING
+        /// behind: no obligation, no pending state, one Warning line in a trace
+        /// nobody is reading at the moment the radio stops transmitting. The
+        /// fact is admitted before the first handoff now, so a refusal
+        /// downgrades the DELIVERY and never the fact.</para>
+        /// </summary>
+        private void EmitUrgentLocked(string message, VerbosityLevel? level, string? origin,
+            string? subject, bool additive, DateTime now, SafetyTurn turn, Func<bool>? stillValid = null)
+        {
+            // The ordinary backlog is already gone — Urgent() discarded it
+            // before silencing the backend — and this repeats the removal so
+            // the policy is explicit rather than an artifact of call order.
+            // What is NOT removed is any other protected obligation: clearing
+            // runnable text for a cut must not erase a safety outcome still
+            // owed.
+            RemoveOrdinaryLocked();
+
+            // A newer safety episode retires an unheard older one on the SAME
+            // subject — the one lifecycle event that may, and the reason a
+            // subject is an owner rather than a label. An episode with no
+            // declared owner retires nothing and is retired by nothing; it is
+            // given no house subject, because one broad subject would let a
+            // temperature warning retire a reflected-power cut.
+            if (!additive) MarkSupersededLocked(subject, $"'{message}'", origin, now);
+
+            BelievedQueued? owed = AdmitProtectedLocked(message, level, origin, subject, now, stillValid);
+
+            var sounding = _sink(message, true, SpeechIntent.Urgent, level, origin, salvaged: false);
+            if (!sounding.Reached)
+            {
+                _safety.Abandon(turn, "the reader did not take the safety warning (suppressed, refused or no backend)");
+                if (owed != null)
+                {
+                    owed.State = Owed.NeverStarted;
+                    owed.AttemptsWithoutProgress++;
+                    owed.AutomaticAttempts++;
+                }
+                Tracing.TraceLine(
+                    "SpeechArbiter: the reader did not take a SAFETY warning (suppressed, refused or no backend): "
+                    + $"'{Clip(message)}'"
+                    + (owed != null
+                        ? ". It is retained as an undelivered obligation and is owed in full."
+                        : ". Nothing could be retained for it — see the refusal above."),
+                    TraceLevel.Error);
+                return;
+            }
+
+            if (!sounding.Tracked)
+                _readerBusyUntilUtc = now.AddMilliseconds(EstimateLocked(message));
+
+            if (owed != null)
+            {
+                owed.Ticket = sounding.Ticket;
+                owed.State = Owed.Pending;
+                owed.AutomaticAttempts++;
+                // A tracked entry is retired by the reader's own answer; an
+                // untracked one by nothing at all, because for a protected
+                // obligation an elapsed estimate is delivery-unknown rather
+                // than delivery. Either way the clock does not discharge it.
+                owed.EstFinishUtc = DateTime.MaxValue;
+            }
+
+            _safety.Bind(turn, sounding, EstimateLocked(message), now);
+        }
+
+        /// <summary>
+        /// Register a safety obligation before anything is said about it, or
+        /// refuse visibly when the slot ceiling is reached. Returns the entry,
+        /// or null when nothing could be retained.
+        /// </summary>
+        private BelievedQueued? AdmitProtectedLocked(string message, VerbosityLevel? level,
+            string? origin, string? subject, DateTime now, Func<bool>? stillValid = null)
+        {
+            int protectedNow = 0;
+            foreach (var e in _believedQueued) if (e.Protected) protectedNow++;
+            if (protectedNow >= ProtectedSlotCap)
+            {
+                Tracing.TraceLine(
+                    $"SpeechArbiter: the safety obligation ceiling of {ProtectedSlotCap} is full, so this warning "
+                    + $"is spoken but NOT retained: '{Clip(message)}'"
+                    + (subject != null ? $" [subject '{subject}']" : " [no subject declared]")
+                    + $". {protectedNow} obligation(s) are already owed: {Quote(_believedQueued)}. "
+                    + "Refusing the registration is deliberate — evicting an unheard warning would claim it had "
+                    + "been delivered.",
+                    TraceLevel.Error);
+                return null;
+            }
+
+            var entry = new BelievedQueued
+            {
+                Message = message,
+                Intent = SpeechIntent.Urgent,
+                Level = level,
+                Origin = origin,
+                Subject = subject,
+                FirstEmittedUtc = now,
+                SalvageCount = 0,
+                Ticket = 0,
+                Protected = true,
+                QuietGeneration = _safety.QuietGeneration,
+                StillValid = stillValid,
+                // Not on the estimate path: admitted before any handoff, it
+                // occupies nothing yet, and stacking an estimate onto the
+                // reader's busy-until here would charge for speech that has
+                // not been attempted.
+                EstFinishUtc = DateTime.MaxValue,
+            };
+            LedgerInsertLocked(entry);
+            return entry;
+        }
+
+        /// <summary>
+        /// Ask a protected obligation's producer whether the state it claims
+        /// still holds. True where no producer answers. A predicate that THROWS
+        /// is "cannot say", and cannot-say is not permission to assert a
+        /// present state to the operator: the sentence is not replayed, and
+        /// the trace says the question could not be asked.
+        /// </summary>
+        private static bool StillTrue(BelievedQueued e)
+        {
+            if (e.StillValid == null) return true;
+            try { return e.StillValid(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine(
+                    $"SpeechArbiter: a SAFETY obligation's producer could not say whether it is still true ({ex.Message}); "
+                    + $"it is not replayed: '{Clip(e.Message)}'", TraceLevel.Error);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Withdraw every protected obligation whose producer now says its
+        /// present-state claim no longer holds — on the way through the
+        /// ledger, so the owed list and the next release agree, and with a
+        /// trace that is the only record this route has of information the
+        /// operator was owed and did not get (blocker 6). The reachable
+        /// history surface for it is the fact store's, by Noel's 2026-09-30
+        /// ruling; this is the honest half that fits on the alarms' own route.
+        /// </summary>
+        private void WithdrawNoLongerTrueLocked(DateTime now)
+        {
+            for (int i = _believedQueued.Count - 1; i >= 0; i--)
+            {
+                var e = _believedQueued[i];
+                if (!e.Protected || e.StillValid == null || StillTrue(e)) continue;
+                _believedQueued.RemoveAt(i);
+                Tracing.TraceLine(
+                    "SpeechArbiter: a SAFETY obligation was WITHDRAWN, not delivered — its producer says the state it "
+                    + $"claimed no longer holds, so replaying it would tell the operator something false. It was {DescribeState(e)} "
+                    + $"after {e.AutomaticAttempts} hand-over(s), {(int)(now - e.FirstEmittedUtc).TotalMilliseconds} ms after first "
+                    + $"emission: '{e.Message}'" + (e.Subject != null ? $" [subject '{e.Subject}']" : string.Empty)
+                    + ". The information is history now, and this line is its record on this route.",
+                    TraceLevel.Warning);
+            }
+        }
+
+        /// <summary>
         /// Put a rescued entry into the held set. The same cap as the ledger,
         /// for the same reason: purely defensive, and a train this deep is
         /// itself the bug the #197 transcript rule exists to catch. Overflow
@@ -1000,15 +2387,74 @@ namespace Radios.Speech
         {
             if (_held.Count >= LedgerCap)
             {
-                var oldest = _held[0];
-                _held.RemoveAt(0);
-                Tracing.TraceLine(
-                    $"SpeechArbiter: dropped a salvage (held set full at {LedgerCap}, oldest first) "
-                    + $"after {oldest.SalvageCount} rescue(s): '{oldest.Message}'",
-                    TraceLevel.Warning);
+                // The oldest ORDINARY entry, never a protected one: queue
+                // overflow may not retire a safety obligation (#606).
+                int victim = _held.FindIndex(e => !e.Protected);
+                if (victim >= 0)
+                {
+                    var oldest = _held[victim];
+                    _held.RemoveAt(victim);
+                    Tracing.TraceLine(
+                        $"SpeechArbiter: dropped a salvage (held set full at {LedgerCap}, oldest first) "
+                        + $"after {oldest.SalvageCount} rescue(s): '{oldest.Message}'",
+                        TraceLevel.Warning);
+                }
             }
             _held.Add(entry);
         }
+
+        /// <summary>
+        /// Is this interrupt a recovery opportunity for this obligation
+        /// (#606)? Everything except an entry the transport says was cut
+        /// part-way by a cause nobody can name — and a protected obligation
+        /// whose automatic attempts have backed off, which is owed and
+        /// waiting rather than declined.
+        ///
+        /// Note what is NOT asked here: how old it is, or whether an interrupt
+        /// happened. Age is asked later, by
+        /// <see cref="SalvageRefusalLocked"/>, and the interrupt is the
+        /// occasion rather than the permission.
+        /// </summary>
+        /// <para>A PROTECTED obligation is eligible whatever cut it. Ordinary
+        /// navigation may not take a safety outcome's slot, so an interrupt
+        /// that arrives while one is still owed puts it back rather than
+        /// inheriting it — and the hazard has not ceased because a sentence
+        /// was cut by something nobody can name.</para>
+        ///
+        /// <para><b>Except when the operator stopped it (#182).</b> Keeping a
+        /// safety fact through a Silence was right and was only half the rule:
+        /// the very next unrelated interrupt treated it as recoverable and
+        /// handed it back 600 ms later, which is the same defiance of the
+        /// shut-up key in a better-named place. An obligation admitted under an
+        /// older QUIET COHORT is owed, reachable and not automatically
+        /// re-offered. Ctrl stops the cohort's speech; it acknowledges nothing
+        /// and disables nothing.</para>
+        ///
+        /// <para><b>What is still NOT asked here, and it is deliberate.</b>
+        /// Sol's review names a second validity question: whether the
+        /// obligation still belongs in the RECEIVING CONTEXT. A zero-mark
+        /// connect clause is handed over behind JJ or Escape merely because
+        /// they happened, and if the connect phase has moved on since, that
+        /// delivers an obsolete first hearing inside an unrelated action.
+        /// Every obligation now carries the two things such a rule needs — an
+        /// owner (its subject) and a generation — but <b>no owner advances a
+        /// context generation yet</b>, so the check would never fire and is
+        /// not written. Wiring one is a decision about WHICH events end a
+        /// context, and getting it wrong deletes the very clause #606 exists
+        /// to deliver: it is reported for a ruling rather than guessed at
+        /// here.</para>
+        private bool RecoveryPermitted(BelievedQueued e) =>
+            !e.AutoRecoveryPaused
+            && _safety.InCurrentCohort(e.QuietGeneration)
+            && (e.Protected || e.State != Owed.PausedUnknownCause);
+
+        /// <summary>
+        /// Everything but the protected obligations leaves the ledger. Used
+        /// where the old code cleared it outright — an urgent warning's
+        /// discard and the operator's Silence — because neither of those is a
+        /// statement that a safety outcome has been heard.
+        /// </summary>
+        private void RemoveOrdinaryLocked() => _believedQueued.RemoveAll(e => !e.Protected);
 
         /// <summary>
         /// Judge every held entry again, now, and drop — with the reason —
@@ -1120,7 +2566,13 @@ namespace Radios.Speech
                 _holdTimer.Dispose();
                 _holdTimer = null;
 
-                var train = _held.ToArray();
+                // Protected obligations go to the reader FIRST. Ordinary app
+                // speech cannot preempt a safety outcome, and a train handed
+                // over in arrival order would queue a transmit-cut sentence
+                // behind whatever ordinary narration happened to be older.
+                var train = new List<BelievedQueued>(_held.Count);
+                foreach (var s in _held) if (s.Protected) train.Add(s);
+                foreach (var s in _held) if (!s.Protected) train.Add(s);
                 _held.Clear();
                 int handed = 0;
                 foreach (var s in train)
@@ -1132,13 +2584,73 @@ namespace Radios.Speech
                         continue;
                     }
 
+                    // A protected obligation that has come back saying nothing
+                    // at all, over and over, stops chasing interrupts — and is
+                    // kept, owed, rather than dropped. The distinction matters:
+                    // "we have stopped trying for now" and "nothing is owed"
+                    // are different states and only one of them is true.
+                    if (s.Protected
+                        && (s.AttemptsWithoutProgress >= ProtectedAttemptsWithoutProgress
+                            || !s.AutomaticBudgetLeft))
+                    {
+                        s.AutoRecoveryPaused = true;
+                        LedgerEnterLocked(s, now);
+                        Tracing.TraceLine(
+                            "SpeechArbiter: a SAFETY obligation is still undelivered and its automatic "
+                            + $"attempts have backed off after {s.AutomaticAttempts} hand-over(s), "
+                            + $"{s.AttemptsWithoutProgress} of them consecutively saying nothing at all: "
+                            + $"'{s.Message}'. It remains owed and waits for an explicit replay or a "
+                            + "backend-recovery edge.",
+                            TraceLevel.Error);
+                        continue;
+                    }
+
+                    // **A protected retry takes the safety speaking turn, like
+                    // its first attempt did (#611, Sol's Track K review
+                    // section 1) — EVERY protected retry, each with a turn of
+                    // its own (Astra's Track IJK review, blocker 1).** It used
+                    // to be requeued here with interrupt:false and no
+                    // reservation at all, so it entered the pump as ordinary
+                    // work: alarms waiting their turn saw a free token and went
+                    // ahead of it. The first repair gave the FIRST protected
+                    // entry in a release the turn and queued the rest behind it
+                    // unowned — so when the first completed and freed its
+                    // token, a waiting alarm saw a free turn and interrupted
+                    // the second. Now a protected entry that finds a
+                    // transmit-safety attempt holding the turn WAITS in the
+                    // ledger, owed, and the turn waiter hands it over with its
+                    // own reservation when that attempt's own answer frees the
+                    // turn; one that finds the turn free, or held only by an
+                    // alarm, takes it now, exactly as Urgent does.
+                    if (s.Protected)
+                    {
+                        s.AwaitingTurn = false;
+                        if (_safety.SafetyHoldsTheTurn(now))
+                        {
+                            s.AwaitingTurn = true;
+                            LedgerInsertLocked(s);
+                            Tracing.TraceLine(
+                                "SpeechArbiter: a SAFETY obligation's retry waits its turn — a transmit-safety attempt "
+                                + $"holds the speaking turn ({_safety.Current}); it is handed over, with a turn of its own, "
+                                + $"when that attempt's answer frees it: '{Clip(s.Message)}'"
+                                + (s.Subject != null ? $" [subject '{s.Subject}']" : string.Empty),
+                                TraceLevel.Info);
+                            continue;
+                        }
+                        if (HandOverProtectedLocked(s, now)) handed++;
+                        continue;
+                    }
+
                     var requeued = _sink(s.Message, false, s.Intent, s.Level, s.Origin, salvaged: true);
                     if (!requeued.Reached)
                     {
+                        _safety.NoteBackendFailed();
+
                         // Suppressed, or the backend went away while the
                         // train waited. Not re-entered, because it occupies
                         // nothing — but said, because silence here is the
-                        // original sin.
+                        // original sin. (A protected obligation is re-entered
+                        // instead, in HandOverProtectedLocked.)
                         Tracing.TraceLine(
                             $"SpeechArbiter: the reader did not take a salvage (suppressed or no backend) "
                             + $"after {s.SalvageCount} rescue(s): '{s.Message}'",
@@ -1149,18 +2661,51 @@ namespace Radios.Speech
                     // Re-enter the ledger so a SECOND interrupt cannot destroy
                     // what the first one already had to salvage — bounded, now,
                     // by the count it carries with it. A fresh ticket, because
-                    // this hand-over is a new question to the reader; the
-                    // marks it reached last time are history, not progress.
-                    s.SalvageCount++;
+                    // this hand-over is a new question to the reader.
+                    //
+                    // **A rescue is spent only on an attempt that said
+                    // something (#606).** The cap bounds repeats the operator
+                    // may actually have heard, and an attempt withdrawn before
+                    // the reader started it is not one of those — it was
+                    // spending the budget for a hearing that never happened,
+                    // which is how a clause saying the station restore was
+                    // unconfirmed exhausted both its rescues without ever
+                    // being spoken once.
+                    //
+                    // And the marks are kept rather than zeroed. The old line
+                    // threw away the only record of how far the obligation had
+                    // ever got, which is the fact that says whether handing it
+                    // over again is a repeat or a first hearing.
+                    // The exemption needs POSITIVE evidence that no attempt
+                    // ever began — the transport saying so. An entry nobody
+                    // can report on keeps the old accounting exactly: with no
+                    // delivery data the honest assumption is still that the
+                    // reader started it, which is the whole pre-#521 contract
+                    // and what bounds an untracked rescue.
+                    bool neverBegun = s.State == Owed.NeverStarted && s.MarksReachedEver == 0;
+                    if (!neverBegun) s.SalvageCount++;
                     s.Ticket = requeued.Ticket;
                     s.MarksReached = 0;
                     s.LastOutcome = null;
+                    s.State = Owed.Pending;
                     LedgerEnterLocked(s, now);
                     handed++;
+                    if (neverBegun)
+                    {
+                        Tracing.TraceLine(
+                            "SpeechArbiter: handed over again without spending a rescue — no attempt on this "
+                            + $"one has ever said a word, so this is a first hearing: '{Clip(s.Message)}'"
+                            + (s.Subject != null ? $" [subject '{s.Subject}']" : string.Empty),
+                            TraceLevel.Info);
+                    }
                 }
 
+                // Anything left waiting for the turn is served by the turn
+                // waiter when the attempt holding it answers.
+                if (AnyProtectedAwaitingTurnLocked()) ArmAlarmTimerLocked(now);
+
                 Tracing.TraceLine(
-                    $"SpeechArbiter: released {handed} of {train.Length} held salvage(s) {heldMs} ms after "
+                    $"SpeechArbiter: released {handed} of {train.Count} held salvage(s) {heldMs} ms after "
                     + $"'{_holdBehind}' ({_holdInterrupts} interrupt(s) in the window); "
                     + (_wentFirst.Count == 0
                         ? "nothing went first"
@@ -1174,17 +2719,106 @@ namespace Radios.Speech
         }
 
         /// <summary>
+        /// Hand a PROTECTED obligation to the reader again, with a safety turn
+        /// of its own: reserve, interrupt as Urgent, re-enter the ledger, bind
+        /// the ticket. Returns true when the reader took it. The entry must
+        /// not be in the ledger when called; both paths re-insert it.
+        ///
+        /// <para>Called from <see cref="ReleaseHeld"/> for an entry that finds
+        /// the turn free (or held only by an alarm, which a safety attempt
+        /// outranks), and from the turn waiter in <see cref="ReleaseAlarms"/>
+        /// for an entry that waited for a transmit-safety attempt to answer.
+        /// One method, so the two cannot drift apart (blocker 1).</para>
+        /// </summary>
+        private bool HandOverProtectedLocked(BelievedQueued s, DateTime now)
+        {
+            SafetyTurn turn = _safety.ReserveForSafety(s.Subject, now);
+            var requeued = _sink(s.Message, true, SpeechIntent.Urgent, s.Level, s.Origin, salvaged: true);
+            if (!requeued.Reached)
+            {
+                _safety.NoteBackendFailed();
+                _safety.Abandon(turn, "the reader did not take a safety obligation's retry");
+
+                // **A protected obligation is RE-ENTERED here (#606).** It used
+                // to be dropped on the floor with one Warning line, which is
+                // the same hole the initial handoff had: a retry that cannot
+                // reach speech was erasing the fact it was retrying.
+                s.State = Owed.NeverStarted;
+                s.AttemptsWithoutProgress++;
+                s.AutomaticAttempts++;
+                s.Ticket = 0;
+                s.EstFinishUtc = DateTime.MaxValue;
+                LedgerInsertLocked(s);
+                Tracing.TraceLine(
+                    "SpeechArbiter: the reader did not take a SAFETY obligation's retry (suppressed, "
+                    + $"refused or no backend) after {s.SalvageCount} rescue(s): '{s.Message}'. "
+                    + "It stays owed in full — the reader took nothing, so none of it has been heard.",
+                    TraceLevel.Error);
+                return false;
+            }
+
+            // A rescue is spent only on an attempt that said something (#606);
+            // the marks are kept — see the ordinary path in ReleaseHeld.
+            bool neverBegun = s.State == Owed.NeverStarted && s.MarksReachedEver == 0;
+            if (!neverBegun) s.SalvageCount++;
+            s.AutomaticAttempts++;
+            s.Ticket = requeued.Ticket;
+            s.MarksReached = 0;
+            s.LastOutcome = null;
+            s.State = Owed.Pending;
+            // The clock does not discharge a safety obligation, tracked or
+            // not: an elapsed estimate is delivery unknown, which is recorded
+            // rather than converted into evidence of hearing.
+            LedgerInsertLocked(s);
+            s.EstFinishUtc = DateTime.MaxValue;
+            _safety.Bind(turn, requeued, EstimateLocked(s.Message), now);
+            if (!requeued.Tracked) _readerBusyUntilUtc = now.AddMilliseconds(EstimateLocked(s.Message));
+            if (neverBegun)
+            {
+                Tracing.TraceLine(
+                    "SpeechArbiter: handed over again without spending a rescue — no attempt on this "
+                    + $"one has ever said a word, so this is a first hearing: '{Clip(s.Message)}'"
+                    + (s.Subject != null ? $" [subject '{s.Subject}']" : string.Empty),
+                    TraceLevel.Info);
+            }
+            return true;
+        }
+
+        private bool AnyProtectedAwaitingTurnLocked() => _believedQueued.Exists(e => e.Protected && e.AwaitingTurn);
+
+        /// <summary>
         /// Close the hold without handing anything over. With a reason, the
         /// held entries are let go and the trace names them and it; with
         /// none, the caller has already refused each entry with its own line
         /// and only the empty hold is being tidied away.
         /// </summary>
-        private void EndHoldLocked(string? letGoReason)
+        /// <param name="keepProtected">
+        /// True where the caller is silencing or discarding ORDINARY work: a
+        /// protected obligation held here goes back to the ledger rather than
+        /// being let go, because neither a Silence nor an urgent warning is a
+        /// statement that a safety outcome has been heard (#606).
+        /// </param>
+        private void EndHoldLocked(string? letGoReason, bool keepProtected = false)
         {
             bool wasHolding = _holdTimer != null;
             _holdTimer?.Dispose();
             _holdTimer = null;
             if (wasHolding) _holdGeneration++;
+
+            if (keepProtected)
+            {
+                for (int i = _held.Count - 1; i >= 0; i--)
+                {
+                    if (!_held[i].Protected) continue;
+                    var kept = _held[i];
+                    _held.RemoveAt(i);
+                    LedgerEnterLocked(kept, _clock.UtcNow);
+                    Tracing.TraceLine(
+                        $"SpeechArbiter: a SAFETY obligation was held when {letGoReason ?? "the hold ended"}; "
+                        + $"it goes back to the ledger still owed rather than being let go: '{Clip(kept.Message)}'",
+                        TraceLevel.Info);
+                }
+            }
 
             if (_held.Count > 0)
             {
@@ -1226,6 +2860,8 @@ namespace Radios.Speech
                 + (s.Subject != null ? $" [subject '{s.Subject}']" : string.Empty),
                 TraceLevel.Warning);
         }
+
+        private static string Clip(string s) => s.Length > 60 ? s.Substring(0, 60) + "…" : s;
 
         /// <summary>A short quoted list for the hold traces: the first three, each clipped, and a count of the rest.</summary>
         private static string Quote(IReadOnlyList<BelievedQueued> entries)
@@ -1289,12 +2925,38 @@ namespace Radios.Speech
                         : $" from {entry.SupersededByOrigin}");
             }
 
+            // A protected sentence that claims a PRESENT state is asked its
+            // producer whether that state still holds before every replay
+            // (blocker 6). "You are no longer on the air" after the operator
+            // has keyed again is false, and a false safety sentence is worse
+            // than silence (#617).
+            if (entry.Protected && entry.StillValid != null && !StillTrue(entry))
+                return "no longer true: its producer says the state it claimed has changed since, and a replay would "
+                    + "tell the operator something false";
+
+            // A safety obligation is exempt from every bound below. Ordinary
+            // verbosity, navigation, a timer expiring, queue overflow and a
+            // rescue count running out may not retire it; only its owner's own
+            // newer statement, checked immediately above, may (#606) — and its
+            // own producer's answer that it is no longer true. What still
+            // governs it is evidence — it is not recovered at all without
+            // something saying the unit was lost.
+            if (entry.Protected) return null;
+
             if (entry.SalvageCount >= MaxSalvages)
                 return $"salvage cap: already rescued {entry.SalvageCount} times, limit {MaxSalvages}";
 
             if (ageMs > SalvageCeilingMs)
                 return $"ceiling: {ageMs} ms old against the {SalvageCeilingMs} ms lifetime"
                     + (entry.Subject != null ? ", never superseded" : string.Empty);
+
+            // The word-count bound asks "has this been on the reader long
+            // enough that it was probably heard by now?" — and an attempt that
+            // never said a word certainly was not. Asking it of an obligation
+            // the transport says never began is the same error as spending a
+            // rescue on one: charging for a hearing that did not happen. The
+            // ceiling above still bounds it, so nothing lives forever (#606).
+            if (entry.MarksReachedEver == 0 && entry.State == Owed.NeverStarted) return null;
 
             if (atRescue && entry.Subject == null)
             {
@@ -1321,6 +2983,44 @@ namespace Radios.Speech
             // reader: "XIT +0" queued a millisecond after "RIT off" must
             // retire a held "XIT +100" exactly as it would a ledgered one.
             MarkSupersededIn(_held, subject!, by, origin, now);
+            WithdrawSupersededFromPumpLocked(now);
+        }
+
+        /// <summary>
+        /// Reach past the ledger into the delivery pump: a superseded entry
+        /// the pump still holds UNSENT is taken back, and its ledger entry
+        /// goes with it, because it will now never be spoken (#606).
+        ///
+        /// <para>Supersession reached the ledger and the held set and stopped
+        /// there, so it governed what would be RESCUED and not what was about
+        /// to be said. That is why a progress heartbeat could still be spoken
+        /// immediately behind the line that answered it, and why a dialog's
+        /// title could arrive after the dialog had been replaced. The pump
+        /// owns the unsent text since #521; text still inside it can be taken
+        /// back, and the older rationale that it could not is simply out of
+        /// date.</para>
+        ///
+        /// <para>No outcome is reported for a withdrawal: the entry leaves the
+        /// ledger here, in the same breath, so there is nothing left for an
+        /// outcome to account for — and reporting one would re-enter this
+        /// class from the pump's own thread mid-supersession.</para>
+        /// </summary>
+        private void WithdrawSupersededFromPumpLocked(DateTime now)
+        {
+            if (_withdrawUnsent == null) return;
+            for (int i = _believedQueued.Count - 1; i >= 0; i--)
+            {
+                var e = _believedQueued[i];
+                if (e.SupersededBy == null || e.Ticket == 0) continue;
+                if (e.State != Owed.Pending) continue;   // the pump cannot still be holding it
+                bool taken;
+                try { taken = _withdrawUnsent(e.Ticket, $"superseded by {e.SupersededBy}"); }
+                catch { taken = false; }
+                if (!taken) continue;
+                _believedQueued.RemoveAt(i);
+                TraceDropLocked(e, "taken back from the delivery queue before it was said, "
+                    + $"superseded by {e.SupersededBy}", now);
+            }
         }
 
         private static void MarkSupersededIn(List<BelievedQueued> entries,
@@ -1336,12 +3036,22 @@ namespace Radios.Speech
             }
         }
 
-        /// <summary>A first entry into the ledger: this is emission number one.</summary>
+        /// <summary>
+        /// A first entry into the ledger for an ORDINARY queued utterance:
+        /// this is emission number one.
+        ///
+        /// <para>It used to take the protected warning too, with two flags for
+        /// the ways that case differed. A safety obligation is now admitted by
+        /// <see cref="AdmitProtectedLocked"/> BEFORE its first handoff, which
+        /// is a different question asked at a different moment, so the flags
+        /// went with it rather than staying here as parameters no caller
+        /// ever sets.</para>
+        /// </summary>
         private void LedgerAddLocked(string message,
             SpeechIntent? intent, VerbosityLevel? level, string? origin, string? subject, DateTime now,
             long ticket)
         {
-            LedgerEnterLocked(new BelievedQueued
+            var entry = new BelievedQueued
             {
                 Message = message,
                 Intent = intent,
@@ -1351,7 +3061,10 @@ namespace Radios.Speech
                 FirstEmittedUtc = now,
                 SalvageCount = 0,
                 Ticket = ticket,
-            }, now);
+                Protected = false,
+                QuietGeneration = _safety.QuietGeneration,
+            };
+            LedgerEnterLocked(entry, now);
         }
 
         /// <summary>
@@ -1386,12 +3099,29 @@ namespace Radios.Speech
                 entry.EstFinishUtc = finish;
             }
 
-            if (_believedQueued.Count >= LedgerCap) _believedQueued.RemoveAt(0);
+            LedgerInsertLocked(entry);
+        }
+
+        /// <summary>
+        /// Put an entry in, evicting the oldest ORDINARY one on overflow — a
+        /// protected obligation is never evicted by queue pressure (#606). A
+        /// ledger this deep is itself the bug the #197 transcript rule exists
+        /// to catch, so this stays purely defensive.
+        /// </summary>
+        private void LedgerInsertLocked(BelievedQueued entry)
+        {
+            if (_believedQueued.Count >= LedgerCap)
+            {
+                int victim = _believedQueued.FindIndex(e => !e.Protected);
+                if (victim >= 0) _believedQueued.RemoveAt(victim);
+            }
             _believedQueued.Add(entry);
         }
 
         private void PruneLedgerLocked(DateTime now)
         {
+            WithdrawNoLongerTrueLocked(now);
+
             // The is-speaking correction (#557): if the backend can say it is
             // NOT speaking while the estimate says it should be, the estimate
             // is wrong in the direction that keeps stale entries alive, and
@@ -1423,8 +3153,65 @@ namespace Radios.Speech
             // Estimated-finished utterances leave the ledger; salvaging them
             // would repeat speech the operator (probably) heard. A tracked
             // entry's finish is MaxValue and never passes.
-            _believedQueued.RemoveAll(e => e.EstFinishUtc <= now);
+            //
+            // **A PROTECTED obligation never leaves on an estimate (#611).**
+            // For an untracked backend there is no reporter at all, so an
+            // elapsed estimate says only "we assume the channel is free
+            // again". Letting it also discharge the fact would convert a timer
+            // into evidence of hearing, which is the one conversion this
+            // contract forbids — and it is exactly how a warning could vanish
+            // on a desk where nothing can report. It is recorded as delivery
+            // UNKNOWN instead, which is what it is.
+            for (int i = _believedQueued.Count - 1; i >= 0; i--)
+            {
+                var e = _believedQueued[i];
+                if (e.EstFinishUtc > now) continue;
+                if (!e.Protected) { _believedQueued.RemoveAt(i); continue; }
+                if (e.DeliveryUnknown) continue;
+                e.DeliveryUnknown = true;
+                e.EstFinishUtc = DateTime.MaxValue;
+                Tracing.TraceLine(
+                    "SpeechArbiter: a SAFETY obligation's occupancy estimate elapsed with nobody able to report "
+                    + $"on it; delivery is UNKNOWN and it stays owed: '{Clip(e.Message)}'"
+                    + (e.Subject != null ? $" [subject '{e.Subject}']" : string.Empty),
+                    TraceLevel.Warning);
+            }
+
+            // **And the ceiling retires a tracked entry too now (#606).** A
+            // tracked entry is stored with an infinite estimated finish, so
+            // the line above can never reach one — which is right while the
+            // reader still owes us an answer, and wrong once it has given one
+            // and the answer was "cut". Such an entry waited indefinitely for
+            // any interrupt to arrive and judge it, and that single fact is
+            // what made an unrelated keypress able to revive a sentence from
+            // minutes ago. An entry that has been answered and is past its
+            // lifetime leaves here, on its own, with a line saying it expired
+            // unheard — a salvage that gives up silently is the defect every
+            // bound in this class exists to end. Protected obligations are
+            // exempt; an entry still in flight is left to the reader.
+            for (int i = _believedQueued.Count - 1; i >= 0; i--)
+            {
+                var e = _believedQueued[i];
+                if (e.Protected || e.State == Owed.Pending) continue;
+                int ageMs = (int)(now - e.FirstEmittedUtc).TotalMilliseconds;
+                if (ageMs <= SalvageCeilingMs) continue;
+                _believedQueued.RemoveAt(i);
+                Tracing.TraceLine(
+                    $"SpeechArbiter: an owed utterance expired unheard at {ageMs} ms against the "
+                    + $"{SalvageCeilingMs} ms lifetime, {DescribeState(e)}: '{Clip(e.Message)}'"
+                    + (e.Subject != null ? $" [subject '{e.Subject}']" : string.Empty),
+                    TraceLevel.Warning);
+            }
         }
+
+        private static string DescribeState(BelievedQueued e) => e.State switch
+        {
+            Owed.CutByUs => $"cut by us at word {e.MarksReachedEver} of {e.MarkCount}",
+            Owed.NeverStarted => "never begun",
+            Owed.PausedUnknownCause =>
+                $"paused at word {e.MarksReachedEver} of {e.MarkCount} by a cause nobody can name",
+            _ => "still in flight",
+        };
 
         /// <summary>
         /// The reader's answer about one hand-over, by ticket (#521). Called
@@ -1445,10 +3232,13 @@ namespace Radios.Speech
         ///   foreign cancel of its own accord: on a live desk the operator's
         ///   keys cancel NVDA constantly, and a rescue per keystroke is #554's
         ///   runaway with a better excuse.
-        /// - **Unknown, refused** — it leaves the ledger. The reader took
-        ///   nothing, so nothing is occupied and nothing is owed; the trace
-        ///   says so loudly because a refusal is a fault in the app or the
-        ///   reader's mode, not a normal outcome.
+        /// - **Unknown, refused** — it STAYS, as never started (inverted
+        ///   2026-09-23, #606). The reader took nothing, so none of it has
+        ///   been heard and all of it is still owed; the trace says so loudly
+        ///   because a refusal is a fault in the app or the reader's mode, not
+        ///   a normal outcome. This line said "it leaves the ledger ... nothing
+        ///   is owed" for a week after the code stopped doing that (Astra's
+        ///   Track IJK review, J8 follow-up).
         /// - **Unknown, anything else** — it becomes an UNTRACKED entry on
         ///   the estimate path from now, exactly as if #521 had never landed
         ///   for this one utterance, and the trace says the ledger is
@@ -1461,6 +3251,57 @@ namespace Radios.Speech
             {
                 var now = _clock.UtcNow;
                 if (outcome.WasHeard) _rate.Observe(message, outcome.ElapsedMs);
+
+                // The one occupancy token, before anything else (#611): only
+                // the CURRENT turn's own ticket may end the current turn.
+                OnSafetyOutcomeLocked(ticket, outcome, now);
+
+                // And the alarm's own accounting, by ticket, whether or not
+                // that ticket owned the turn (blocker 2).
+                OnAlarmOutcomeLocked(ticket, outcome, now);
+
+                if (outcome.Kind == SpeechOutcomeKind.Unknown
+                    && outcome.UnknownReason == SpeechUnknownReason.Refused)
+                {
+                    _safety.NoteBackendFailed();
+                }
+
+                // **A BACKEND-RECOVERY EDGE, not merely a success (#611).**
+                // This used to fire on any delivery completing anywhere, and
+                // "an unrelated sentence finished" is the generic-key-
+                // acknowledgement defect wearing a different hat: it is not
+                // evidence about this obligation, only about the machine. The
+                // edge is the transition OUT of a channel known to be refusing
+                // or absent, taken exactly once, so duplicate successes cannot
+                // replenish a budget. An obligation the operator silenced is
+                // skipped: a recovering backend is not permission to overrule
+                // the shut-up key (#182).
+                if (outcome.WasHeard && _safety.NoteBackendWorkedAndTakeEdge())
+                {
+                    foreach (var e in _believedQueued)
+                    {
+                        if (!e.AutoRecoveryPaused) continue;
+                        if (!_safety.InCurrentCohort(e.QuietGeneration))
+                        {
+                            Tracing.TraceLine(
+                                "SpeechArbiter: the speech channel recovered, but this SAFETY obligation was "
+                                + $"silenced by the operator and stays paused: '{Clip(e.Message)}'",
+                                TraceLevel.Info);
+                            continue;
+                        }
+                        e.AutoRecoveryPaused = false;
+                        e.AttemptsWithoutProgress = 0;
+                        // ONE probe, and the spent-repeat count is not
+                        // cleared: a flapping channel cannot manufacture an
+                        // unlimited supply of fresh budgets.
+                        e.ProbesGranted++;
+                        Tracing.TraceLine(
+                            "SpeechArbiter: the speech channel recovered after refusing, so the SAFETY obligation "
+                            + $"that had backed off gets ONE further attempt (probe {e.ProbesGranted}, "
+                            + $"{e.AutomaticAttempts} attempt(s) already spent): '{Clip(e.Message)}'",
+                            TraceLevel.Info);
+                    }
+                }
 
                 var inLedger = true;
                 var entry = _believedQueued.Find(e => e.Ticket == ticket && ticket != 0);
@@ -1497,19 +3338,60 @@ namespace Radios.Speech
                     case SpeechOutcomeKind.Cancelled:
                         entry.MarksReached = outcome.MarksReached;
                         entry.MarkCount = outcome.MarkCount;
+                        if (outcome.MarksReached > entry.MarksReachedEver)
+                            entry.MarksReachedEver = outcome.MarksReached;
+                        if (outcome.MarksReached == 0) entry.AttemptsWithoutProgress++;
+                        else entry.AttemptsWithoutProgress = 0;
+
+                        // **The one place the cause is written down (#606).**
+                        // Zero marks means the reader never started it — it
+                        // was withdrawn from our own queue — whoever asked, so
+                        // the whole of it is still owed and nothing has been
+                        // repeated by saying it. Otherwise: if the cut was
+                        // ours we caused the loss and may offer the put-back;
+                        // if it was not, the callback cannot tell Ctrl from a
+                        // focus change from another program taking the
+                        // foreground, so the cause stays unknown and no
+                        // unrelated interrupt may treat itself as permission.
+                        entry.State =
+                            outcome.MarksReached == 0 ? Owed.NeverStarted
+                            : outcome.CancelledByUs ? Owed.CutByUs
+                            : Owed.PausedUnknownCause;
+
                         Tracing.TraceLine(
-                            $"SpeechArbiter: delivery #{ticket} {outcome} — '{message}' stays "
-                            + (inLedger ? "in the ledger for the next interrupt to judge" : "held; the settle window will judge it"),
+                            $"SpeechArbiter: delivery #{ticket} {outcome} — '{message}' is "
+                            + entry.State switch
+                            {
+                                Owed.NeverStarted =>
+                                    "still wholly owed: it never said a word, so a later hand-over is a first "
+                                    + "hearing and spends no rescue",
+                                Owed.CutByUs =>
+                                    "owed from where it was cut; we cut it, so the put-back is ours to offer",
+                                _ =>
+                                    "owed and PAUSED: the cause of the cut is unknown, so an unrelated later "
+                                    + "interrupt is not permission to replay it",
+                            }
+                            + (inLedger ? string.Empty : " (held; the settle window will judge it)"),
                             TraceLevel.Info);
                         return;
 
                     default:
                         if (outcome.UnknownReason == SpeechUnknownReason.Refused)
                         {
-                            if (inLedger) _believedQueued.Remove(entry); else _held.Remove(entry);
+                            // **INVERTED 2026-09-23 (#606).** This used to
+                            // remove the entry and trace "nothing is owed",
+                            // and a test asserted that as the contract. A
+                            // refusal is the reader taking NOTHING — NVDA
+                            // asleep for the focused application — which
+                            // means the operator heard none of it, which
+                            // means all of it is still owed. "The delivery
+                            // failed" and "there was nothing to deliver" are
+                            // different facts, and only one of them was true.
+                            entry.State = Owed.NeverStarted;
+                            entry.AttemptsWithoutProgress++;
                             Tracing.TraceLine(
-                                $"SpeechArbiter: delivery #{ticket} {outcome} — '{message}' left the ledger: "
-                                + "the reader took nothing, so nothing is owed",
+                                $"SpeechArbiter: delivery #{ticket} {outcome} — '{message}' stays owed: "
+                                + "the reader took nothing, so none of it has been heard",
                                 TraceLevel.Warning);
                             return;
                         }
@@ -1612,6 +3494,43 @@ namespace Radios.Speech
 
         private void DiscardAllLocked(string reason)
         {
+            ClearTransientLocked();
+            _believedQueued.Clear();
+            _readerBusyUntilUtc = DateTime.MinValue;
+            EndHoldLocked(reason);
+        }
+
+        /// <summary>
+        /// An urgent warning's discard: everything ordinary goes, and a
+        /// protected obligation still owed does not (#606). Clearing the
+        /// runnable text for a cut must not erase the cut, nor another safety
+        /// outcome the operator has still not heard.
+        /// </summary>
+        private void DiscardOrdinaryLocked(string reason)
+        {
+            ClearTransientLocked();
+            KeepProtectedLocked(reason);
+            _readerBusyUntilUtc = DateTime.MinValue;
+            EndHoldLocked(reason, keepProtected: true);
+        }
+
+        /// <summary>Everything but the protected obligations leaves the ledger, each ordinary drop traced as a set.</summary>
+        private void KeepProtectedLocked(string reason)
+        {
+            int before = _believedQueued.Count;
+            RemoveOrdinaryLocked();
+            int kept = _believedQueued.Count;
+            if (kept > 0)
+            {
+                Tracing.TraceLine(
+                    $"SpeechArbiter: {before - kept} ordinary utterance(s) forgotten because {reason}; "
+                    + $"{kept} SAFETY obligation(s) kept, still owed: {Quote(_believedQueued)}",
+                    TraceLevel.Info);
+            }
+        }
+
+        private void ClearTransientLocked()
+        {
             foreach (var entry in _pending.Values) entry.Timer?.Dispose();
             _pending.Clear();
 
@@ -1619,10 +3538,6 @@ namespace Radios.Speech
             // an urgent warning always speaks rather than being suppressed
             // as a duplicate of something the flush just discarded.
             _lastByKey.Clear();
-
-            _believedQueued.Clear();
-            _readerBusyUntilUtc = DateTime.MinValue;
-            EndHoldLocked(reason);
         }
     }
 }

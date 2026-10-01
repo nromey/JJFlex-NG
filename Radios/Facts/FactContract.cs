@@ -10,9 +10,21 @@ namespace Radios.Facts
     /// contract, never by the message key.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// <b>A key cannot buy priority.</b> An urgent-sounding lexicon entry grants
     /// nothing; a producer gets the priority its registered contract declares
     /// and no other.
+    /// </para>
+    /// <para>
+    /// <b><see cref="OperatorAlarm"/> has no producer yet, and that is a
+    /// ruling (Noel, 2026-09-30).</b> The operator alarms (#566) ship on their
+    /// own route — <c>Radios.Alarms.AlarmDelivery</c> into the arbiter's
+    /// alarm-aware urgent — and do not publish onto this slot class. The
+    /// capacity reservation in <c>FactStoreCapacity</c> and this value are the
+    /// store's half of a seam whose other half is documented at the top of
+    /// <c>AlarmDelivery</c>; the move onto the store is later work, and that
+    /// comment is its map.
+    /// </para>
     /// </remarks>
     public enum DeliveryPriority
     {

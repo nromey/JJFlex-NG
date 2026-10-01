@@ -104,8 +104,11 @@ namespace Radios.Speech
         /// For Cancelled: true when the cut was OUR cancel (an interrupt, a
         /// Silence, an Urgent), false when something outside this application
         /// cancelled NVDA — the operator's own keystroke does that on every
-        /// press. The arbiter's interrupt path has already accounted for the
-        /// first kind; the second is new information.
+        /// press, and so do a focus change and another program taking the
+        /// foreground. The arbiter's interrupt path has already accounted for
+        /// the first kind; the second is new information, and WHICH of those
+        /// outside events it was is not knowable here. The arbiter treats it
+        /// as unknown rather than picking one (#606).
         /// </summary>
         public bool CancelledByUs { get; }
 
@@ -151,8 +154,17 @@ namespace Radios.Speech
                 case SpeechOutcomeKind.Completed:
                     return $"heard to the end in {ElapsedMs} ms ({MarkCount} word(s))";
                 case SpeechOutcomeKind.Cancelled:
+                    // "NOT by us" is knowledge; what caused it is not. This
+                    // line read "the operator's key or a focus change" until
+                    // 2026-09-23, which names two candidates as though they
+                    // were the set and reads later as evidence of a cause
+                    // (#606). Another program taking the foreground is a
+                    // third, and the callback cannot separate any of them.
                     return $"cancelled at word {MarksReached} of {MarkCount} after {ElapsedMs} ms, "
-                        + (CancelledByUs ? "by us" : "NOT by us — the operator's key or a focus change");
+                        + (CancelledByUs
+                            ? "by us"
+                            : "NOT by us — cause unknown: a key, a focus change and another program "
+                              + "taking the foreground are indistinguishable here");
                 default:
                     return $"UNKNOWN ({UnknownReason}) after {ElapsedMs} ms"
                         + (MarkCount > 0 ? $", {MarksReached} of {MarkCount} word(s) reached" : string.Empty)

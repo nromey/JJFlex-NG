@@ -15,248 +15,254 @@
 #
 # Delete this file when the last line leaves it.
 
-# ---------------------------------------------------------------------------
-# QUARANTINED -- #627, 2026-09-25. The 222 entries below belong to Track I (the
-# operator alarms), which is NOT merged. Their keys do not exist on this
-# branch, so leaving them live fails three tests.
-#
-# They are COMMENTED, NOT DELETED, on Noel's ruling: "I agree with you on
-# quarantining." A deletion that a later merge has to reverse is an absence,
-# and absences are the failure this project does not notice -- nothing fails,
-# the list is just quietly shorter, which reads as fine.
-#
-# UNCOMMENT THEM WHEN TRACK I MERGES. LegacyUnclassifiedQuarantineTests fails
-# if any of these keys ships while it is still commented here, so the return is
-# enforced by the suite rather than by somebody remembering.
-#
-# This is NOT a third classification state, and the file's own rule that "the
-# only legal direction of travel is out" is intact. These entries are not
-# classified differently -- their KEYS DO NOT EXIST on this branch, which is a
-# condition this file does not model. Conflating the two is what broke the
-# tests.
-# ---------------------------------------------------------------------------
-# alarms.acknowledged	821438a0c4a69701
-# alarms.action.stop_transmit_rx	c5db62a9f3e96e81
-# alarms.action.stop_transmit_tx	5b18fd2fa653e7a0
-# alarms.baseline_captured	5c76cc941310c79f
-# alarms.baseline_refused	4cc01044d781d58f
-# alarms.baseline_refused.in_transmit	304e3079e1e8c505
-# alarms.baseline_refused.no_fresh_sample	34862438926b1f3a
-# alarms.baseline_refused.not_applicable	c6c9b5fc06975a1d
-# alarms.boundary.at_or_above	14d6e4b4b006050b
-# alarms.boundary.at_or_below	3a512411151d92c0
-# alarms.boundary.fall	b31711d97ead8778
-# alarms.boundary.rise	aaeaa51040ee4d0b
-# alarms.boundary.trend	7869386afd89eddf
-# alarms.cleared	0158f278add98492
-# alarms.condition.active	ee2a2ea3658dd90b
-# alarms.condition.last_known_active	9a43667feb58d3ba
-# alarms.condition.normal	0b0f97ac486df423
-# alarms.condition.pending	c1851634990d7c49
-# alarms.condition.waiting_for_scope	ab9118ed31302403
-# alarms.data.ambiguous	5660022c26d17c74
-# alarms.data.fresh	ee5455252a736cd5
-# alarms.data.missing	cfb2b791a0767a8f
-# alarms.data.recovering	f18a9558b14f5c55
-# alarms.data.stale	a5507bfd1188a5c3
-# alarms.data.waiting	bb6aa84ce76ebc24
-# alarms.data_ambiguous	35ec6c32291c01bb
-# alarms.data_lost_rx	5c5f08a01cfd52f7
-# alarms.data_lost_tx	5b2cf6c7d7cb673e
-# alarms.delivery_unavailable	4a2856b27339b715
-# alarms.dialog.acknowledge	8e21551980625789
-# alarms.dialog.add	c807a71e1c06f578
-# alarms.dialog.capture_baseline	dcb2dde83d8c2576
-# alarms.dialog.close	3742924668fb109c
-# alarms.dialog.config_unavailable	5cfd7e336500775e
-# alarms.dialog.delete_confirm	ba3bd51ae71a7e01
-# alarms.dialog.delete_failed	71fe2780e251b7c3
-# alarms.dialog.deleted	3ecce7d2833f0086
-# alarms.dialog.details	bfeb3f15ebb34bc8
-# alarms.dialog.disable	3b5f3563e117de36
-# alarms.dialog.disabled	b2d35498b1b26b1b
-# alarms.dialog.edit	5b9378df7220c174
-# alarms.dialog.empty	ae612454de78e53c
-# alarms.dialog.enable	c8a9744d2523fe40
-# alarms.dialog.enabled	e1bfff5ca8f73206
-# alarms.dialog.history	3fe33cd11f8a29e1
-# alarms.dialog.history_empty	93e3d2efc285e211
-# alarms.dialog.history_row	de76d9212471ae46
-# alarms.dialog.history_title	05adc9e1839683e1
-# alarms.dialog.list	9ea0463f4506b0c1
-# alarms.dialog.no_radio	44e3b50610c437d7
-# alarms.dialog.read_active	3fe454b11694e2bc
-# alarms.dialog.read_status	54a6263a63efce7b
-# alarms.dialog.record_meters	4fdbc243a6d58fcf
-# alarms.dialog.recorded_by_alarm	4dfff0f0269174e2
-# alarms.dialog.recorded_intro	f7acd53b805cebc5
-# alarms.dialog.recorded_title	4da5fcdefdac6717
-# alarms.dialog.resume	04eb5343e268a0a0
-# alarms.dialog.row	763166c8285dbe2f
-# alarms.dialog.row_state_active	ee2a2ea3658dd90b
-# alarms.dialog.row_state_active_acknowledged	671af727091df86a
-# alarms.dialog.row_state_active_snoozed	d5f3f821c8e76e0e
-# alarms.dialog.row_state_disabled	37e0bacf852b3cc6
-# alarms.dialog.row_state_last_known_active	c3d322c445a245cf
-# alarms.dialog.row_state_unavailable	cfc32a40574570b4
-# alarms.dialog.row_state_waiting	bb6aa84ce76ebc24
-# alarms.dialog.row_state_waiting_for_scope	ab9118ed31302403
-# alarms.dialog.row_state_watching	ee5455252a736cd5
-# alarms.dialog.save_failed	0c3516f50dc8aec4
-# alarms.dialog.saved	87c05f2de77c67ff
-# alarms.dialog.select_one	d2febea0802b7de2
-# alarms.dialog.snooze	9821a4eca77cc50b
-# alarms.dialog.snooze_120	02e58b81118af203
-# alarms.dialog.snooze_30	cd3cc07e33c2525a
-# alarms.dialog.snooze_60	3872f84ff87f33b0
-# alarms.dialog.title	f3f46ecd5faff4b2
-# alarms.editor.action	84bdea14a37f8c6a
-# alarms.editor.action_notify	4c131facd4548f1d
-# alarms.editor.action_stop	8c2576dd8f6f7d9e
-# alarms.editor.advanced	d2b9e528c379c338
-# alarms.editor.cancel	cbef679b21abb499
-# alarms.editor.condition	9e058dfaea97d136
-# alarms.editor.condition_fall	47277672889ab094
-# alarms.editor.condition_level	d490d249a114ee59
-# alarms.editor.condition_rise	9cdb5c9ee7b02063
-# alarms.editor.condition_trend	7e62b8971fd95b5c
-# alarms.editor.delete	4fc60207629a445a
-# alarms.editor.direction	0343f1463b244183
-# alarms.editor.direction_above	6028f376fd05cd2e
-# alarms.editor.direction_below	36be2ea99157692a
-# alarms.editor.enabled	c2148f600b3d3b1b
-# alarms.editor.freshness	81a7e2ed2a3f3f89
-# alarms.editor.hysteresis	1455c43d55c658f8
-# alarms.editor.is_test	5f3dc6ffff0e0458
-# alarms.editor.meter	a12f560889ce224e
-# alarms.editor.meter_available	b596ffd2b06b4a42
-# alarms.editor.meter_duplicate	715bd2d1c00e68c5
-# alarms.editor.meter_row	d3b9e492c190dbb9
-# alarms.editor.meter_search	fcda967c8a4a2d58
-# alarms.editor.meter_silent	5046389e26898ecf
-# alarms.editor.name	8cf345002184e5f1
-# alarms.editor.no_inventory	10a73a7d701408e5
-# alarms.editor.persistence	e62e6365ebad8a82
-# alarms.editor.persistence_first	6374fef4db5cdb85
-# alarms.editor.persistence_sustained	c44a1c16cbabf26f
-# alarms.editor.preset	b29f0158c50a8582
-# alarms.editor.preset_name_prompt	1ecc01621e403fdc
-# alarms.editor.preset_none	f5624e3423fc5312
-# alarms.editor.preset_save_failed	17b1d45134b9f40f
-# alarms.editor.preset_saved	49205f52eb3a5ee8
-# alarms.editor.preview	54f035c2c05e510d
-# alarms.editor.radio	d0c8e85743e4c1cd
-# alarms.editor.reminder	a19f27661493d268
-# alarms.editor.save	5bab3e72de1ebf90
-# alarms.editor.save_as_preset	0f97aa70ed3704ca
-# alarms.editor.scope	17ea4eb58781c135
-# alarms.editor.scope_always	c7eb31624c48bd95
-# alarms.editor.scope_transmit	4975f803c245dfae
-# alarms.editor.summary	9b03ccb29ba168e6
-# alarms.editor.summary_text	96a9a754cc9e1e37
-# alarms.editor.sustained_count	7d2765fcb1715cac
-# alarms.editor.sustained_seconds	67105e30b47dfa53
-# alarms.editor.threshold	a3c7724269d968a2
-# alarms.editor.title_add	2871f9c39cfad98e
-# alarms.editor.title_edit	6c6206518cacee3d
-# alarms.editor.worsening	dc887f836d73fc05
-# alarms.event.baseline_invalidated	aefc972925421ca4
-# alarms.event.configuration_changed	a9aa9945adf350fa
-# alarms.event.data_missing	ed8d70fb4b1c28b7
-# alarms.event.data_resumed	07d6a44735e1570d
-# alarms.event.disabled	e47adffa1e12ee26
-# alarms.event.enabled	87cc353f1df82b0f
-# alarms.event.first_sample	cfbb6b2881a63328
-# alarms.event.invalid_sample	e0d88f9e184d87e5
-# alarms.event.old_generation	705ae265b88cf912
-# alarms.event.out_of_range	889e722824b5c70b
-# alarms.event.pending	5d52c4cb631325e5
-# alarms.event.preview	2a1e8e77d2795d33
-# alarms.event.scope_entered	7ec243c20ff49906
-# alarms.event.scope_left	37ba7c3420700c1c
-# alarms.event.snooze_expired	4f88b8441ac6ee90
-# alarms.event.trend_covered	93de496012980ed1
-# alarms.event.trend_insufficient	07bd8a94a6749648
-# alarms.event.trend_warming_up	add2a48f55bde3c5
-# alarms.meter.above	047d3e3c1617574f
-# alarms.meter.below	3315d889599dc91f
-# alarms.meter.fall	2d9e8e16a5dc78b6
-# alarms.meter.reminder	79761ad72092b539
-# alarms.meter.rise	ee0dcca49bcd15b4
-# alarms.meter.trend	c16c6b68f4c67b3f
-# alarms.meter.worsened	b1abd42f3c9be8b6
-# alarms.nothing_active	ad6695face644403
-# alarms.notification.acknowledged	3430e11491c520c6
-# alarms.notification.snoozed	a05a3de2e20ffa86
-# alarms.notification.unacknowledged	8f345e81da1f70aa
-# alarms.pa.high_rx	fb3fdd5f2fd8ebb8
-# alarms.pa.high_tx	2184101a7c7cfb4e
-# alarms.pa.rise_from_baseline_rx	9c4411d81f7d54ad
-# alarms.pa.rise_from_baseline_tx	d5e2dc1e0f44cda2
-# alarms.pa.rising_fast_rx	acff3e5c419be873
-# alarms.pa.rising_fast_tx	3c217b56880a8598
-# alarms.point.after_fuse	f4cf322e2aa8a359
-# alarms.point.at_cpu	7cbd4b394160c6a0
-# alarms.point.at_pa	03251ba69dde7e11
-# alarms.point.before_fuse	3a3ace8093e2885e
-# alarms.preset.pa_rise_from_baseline.name	98b1ceab743d1d90
-# alarms.preset.pa_rising_fast.name	6f64ccf69a298af5
-# alarms.preset.pa_temperature.name	dbb6faa1d1ef8ea7
-# alarms.preset.problem.ambiguous	653998bff7c0cedb
-# alarms.preset.shipped	af056e2fd1d7d1bc
-# alarms.preset.voltage_drop.name	a63b3ad16ae2a013
-# alarms.preset.voltage_high.name	35677fc62d33ce81
-# alarms.preset.voltage_low.name	5832e438317ad4cc
-# alarms.preset.yours	2fc22a981087fcd4
-# alarms.preview.no_reader	fc652a144589b2b0
-# alarms.preview.sentence	9933faf143b0bbaf
-# alarms.preview.sound_off	5d4b43e91d984ce0
-# alarms.preview.speech_suppressed	b5a9a53ff0325b5f
-# alarms.resolution.ambiguous	db8e64d6cd8e202e
-# alarms.resolution.missing	8e9e7a9fa08c0f64
-# alarms.resolution.resolved	28546b65e9e0d652
-# alarms.resolution.source_changed	f4b6c8a07dbd3419
-# alarms.resolution.unit_changed	154cd82a78741700
-# alarms.resumed	2a271d315610ce06
-# alarms.snoozed	1d5db5af20606e23
-# alarms.state.disabled	37e0bacf852b3cc6
-# alarms.state.enabled	3cbfc4a70a0d70f1
-# alarms.status.baseline	1bec2c3ebc6883e9
-# alarms.status.baseline_missing	ea922fc64167c809
-# alarms.status.last_event	1b7e7d66bd643096
-# alarms.status.latest	4acae54ec1e136e2
-# alarms.status.line	77f182681cf725a6
-# alarms.status.line_level	7ca0ca4da67d4f85
-# alarms.status.meter	84b57d9b62d0e693
-# alarms.status.no_reading	982a7d8bbbb23976
-# alarms.status.notification	e5b6a6d2d7f4153f
-# alarms.status.snooze_remaining	19b77b9ce39744b6
-# alarms.summary.active	ed4834eb6a7fb9ba
-# alarms.summary.config_unavailable	94905f66b50f4baa
-# alarms.summary.disconnected	5196747f489d2a59
-# alarms.summary.item	a89a2e3a6dec8b17
-# alarms.summary.none	685b8d134414c91a
-# alarms.summary.quiet	d0b63bbd08692749
-# alarms.summary.unavailable	5a72d27a11c6f68e
-# alarms.validation.clear_equals_trigger	bf8bccc3322680a1
-# alarms.validation.clear_invalid	d968a4a8457703e1
-# alarms.validation.freshness_not_positive	78464c63af78530c
-# alarms.validation.hysteresis_negative	aef32cb4c5882d23
-# alarms.validation.meter_missing	4749c3dfc0595e80
-# alarms.validation.name_missing	6c89cd3456d3a5e6
-# alarms.validation.name_too_long	05e6847c69d2a23f
-# alarms.validation.out_of_range_review	c7eaaa2a8d55dbb8
-# alarms.validation.reminder_negative	0eabc6e64b2ff8fa
-# alarms.validation.sustained_invalid	467edfbdf010aa64
-# alarms.validation.threshold_not_finite	a5564af133216e07
-# alarms.validation.trend_interval_invalid	459d83cebb21a29f
-# alarms.validation.worsening_negative	653a16ff35442297
-# alarms.voltage.drop_rx	2296a96e81aa00f6
-# alarms.voltage.drop_tx	11627231b35054e8
-# alarms.voltage.high_rx	b05e73afd9a1f708
-# alarms.voltage.high_tx	37649eb5cfeaff06
-# alarms.voltage.low_rx	b05e73afd9a1f708
-# alarms.voltage.low_tx	37649eb5cfeaff06
+# The 222 alarms.* entries were QUARANTINED (commented out) from 2026-09-25 to
+# 2026-10-01 under #627, while Track I was unmerged and their keys did not
+# exist here. Track IJK restored them when it brought Track I in. A commented
+# entry is now a defect, and LegacyUnclassifiedQuarantineTests says so.
+alarms.acknowledged	821438a0c4a69701
+alarms.action.stop_transmit_rx	c5db62a9f3e96e81
+alarms.action.stop_transmit_tx	5b18fd2fa653e7a0
+alarms.baseline_captured	5c76cc941310c79f
+alarms.baseline_refused	4cc01044d781d58f
+alarms.baseline_refused.in_transmit	304e3079e1e8c505
+alarms.baseline_refused.no_fresh_sample	34862438926b1f3a
+alarms.baseline_refused.not_applicable	c6c9b5fc06975a1d
+alarms.boundary.at_or_above	14d6e4b4b006050b
+alarms.boundary.at_or_below	3a512411151d92c0
+alarms.boundary.fall	b31711d97ead8778
+alarms.boundary.rise	aaeaa51040ee4d0b
+alarms.boundary.trend	7869386afd89eddf
+alarms.cleared	0158f278add98492
+alarms.condition.active	ee2a2ea3658dd90b
+alarms.condition.last_known_active	9a43667feb58d3ba
+alarms.condition.normal	0b0f97ac486df423
+alarms.condition.pending	c1851634990d7c49
+alarms.condition.waiting_for_scope	ab9118ed31302403
+alarms.data.ambiguous	5660022c26d17c74
+alarms.data.fresh	ee5455252a736cd5
+alarms.data.missing	cfb2b791a0767a8f
+alarms.data.recovering	f18a9558b14f5c55
+alarms.data.stale	a5507bfd1188a5c3
+alarms.data.waiting	bb6aa84ce76ebc24
+alarms.data_ambiguous	35ec6c32291c01bb
+alarms.data_lost_rx	5c5f08a01cfd52f7
+alarms.data_lost_tx	5b2cf6c7d7cb673e
+alarms.delivery_unavailable	4a2856b27339b715
+alarms.dialog.acknowledge	8e21551980625789
+alarms.dialog.add	c807a71e1c06f578
+alarms.dialog.capture_baseline	dcb2dde83d8c2576
+alarms.dialog.close	3742924668fb109c
+alarms.dialog.config_unavailable	5cfd7e336500775e
+alarms.dialog.delete_confirm	ba3bd51ae71a7e01
+alarms.dialog.delete_failed	71fe2780e251b7c3
+alarms.dialog.deleted	3ecce7d2833f0086
+alarms.dialog.details	bfeb3f15ebb34bc8
+alarms.dialog.disable	3b5f3563e117de36
+alarms.dialog.disabled	b2d35498b1b26b1b
+alarms.dialog.edit	5b9378df7220c174
+alarms.dialog.empty	ae612454de78e53c
+alarms.dialog.enable	c8a9744d2523fe40
+alarms.dialog.enabled	e1bfff5ca8f73206
+alarms.dialog.history	3fe33cd11f8a29e1
+alarms.dialog.history_empty	93e3d2efc285e211
+alarms.dialog.history_row	de76d9212471ae46
+alarms.dialog.history_title	05adc9e1839683e1
+alarms.dialog.list	9ea0463f4506b0c1
+alarms.dialog.no_radio	44e3b50610c437d7
+alarms.dialog.read_active	3fe454b11694e2bc
+alarms.dialog.read_status	54a6263a63efce7b
+alarms.dialog.record_meters	4fdbc243a6d58fcf
+alarms.dialog.recorded_by_alarm	4dfff0f0269174e2
+alarms.dialog.recorded_intro	eb90e2c03cd9a87b
+alarms.dialog.recorded_title	4da5fcdefdac6717
+alarms.dialog.resume	04eb5343e268a0a0
+alarms.dialog.row	763166c8285dbe2f
+alarms.dialog.row_state_active	ee2a2ea3658dd90b
+alarms.dialog.row_state_active_acknowledged	671af727091df86a
+alarms.dialog.row_state_active_snoozed	d5f3f821c8e76e0e
+alarms.dialog.row_state_disabled	37e0bacf852b3cc6
+alarms.dialog.row_state_last_known_active	c3d322c445a245cf
+alarms.dialog.row_state_unavailable	cfc32a40574570b4
+alarms.dialog.row_state_waiting	bb6aa84ce76ebc24
+alarms.dialog.row_state_waiting_for_scope	ab9118ed31302403
+alarms.dialog.row_state_watching	ee5455252a736cd5
+alarms.dialog.save_failed	0c3516f50dc8aec4
+alarms.dialog.saved	87c05f2de77c67ff
+alarms.dialog.select_one	d2febea0802b7de2
+alarms.dialog.snooze	9821a4eca77cc50b
+alarms.dialog.snooze_120	02e58b81118af203
+alarms.dialog.snooze_30	cd3cc07e33c2525a
+alarms.dialog.snooze_60	3872f84ff87f33b0
+alarms.dialog.title	f3f46ecd5faff4b2
+alarms.editor.action	84bdea14a37f8c6a
+alarms.editor.action_notify	4c131facd4548f1d
+alarms.editor.action_stop	8c2576dd8f6f7d9e
+alarms.editor.advanced	d2b9e528c379c338
+alarms.editor.cancel	cbef679b21abb499
+alarms.editor.condition	9e058dfaea97d136
+alarms.editor.condition_fall	47277672889ab094
+alarms.editor.condition_level	d490d249a114ee59
+alarms.editor.condition_rise	9cdb5c9ee7b02063
+alarms.editor.condition_trend	7e62b8971fd95b5c
+alarms.editor.delete	4fc60207629a445a
+alarms.editor.direction	0343f1463b244183
+alarms.editor.direction_above	6028f376fd05cd2e
+alarms.editor.direction_below	36be2ea99157692a
+alarms.editor.enabled	c2148f600b3d3b1b
+alarms.editor.freshness	81a7e2ed2a3f3f89
+alarms.editor.hysteresis	1455c43d55c658f8
+alarms.editor.is_test	5f3dc6ffff0e0458
+alarms.editor.meter	a12f560889ce224e
+alarms.editor.meter_available	b596ffd2b06b4a42
+alarms.editor.meter_duplicate	715bd2d1c00e68c5
+alarms.editor.meter_row	d3b9e492c190dbb9
+alarms.editor.meter_search	fcda967c8a4a2d58
+alarms.editor.meter_silent	5046389e26898ecf
+alarms.editor.name	8cf345002184e5f1
+alarms.editor.no_inventory	10a73a7d701408e5
+alarms.editor.persistence	e62e6365ebad8a82
+alarms.editor.persistence_first	6374fef4db5cdb85
+alarms.editor.persistence_sustained	c44a1c16cbabf26f
+alarms.editor.preset	b29f0158c50a8582
+alarms.editor.preset_name_prompt	1ecc01621e403fdc
+alarms.editor.preset_none	f5624e3423fc5312
+alarms.editor.preset_save_failed	17b1d45134b9f40f
+alarms.editor.preset_saved	49205f52eb3a5ee8
+alarms.editor.preview	54f035c2c05e510d
+alarms.editor.radio	d0c8e85743e4c1cd
+alarms.editor.reminder	a19f27661493d268
+alarms.editor.save	5bab3e72de1ebf90
+alarms.editor.save_as_preset	0f97aa70ed3704ca
+alarms.editor.scope	17ea4eb58781c135
+alarms.editor.scope_always	c7eb31624c48bd95
+alarms.editor.scope_transmit	4975f803c245dfae
+alarms.editor.summary	9b03ccb29ba168e6
+alarms.editor.summary_text	96a9a754cc9e1e37
+alarms.editor.sustained_count	7d2765fcb1715cac
+alarms.editor.sustained_seconds	67105e30b47dfa53
+alarms.editor.threshold	a3c7724269d968a2
+alarms.editor.title_add	2871f9c39cfad98e
+alarms.editor.title_edit	6c6206518cacee3d
+alarms.editor.worsening	dc887f836d73fc05
+alarms.event.baseline_invalidated	aefc972925421ca4
+alarms.event.configuration_changed	a9aa9945adf350fa
+alarms.event.data_missing	ed8d70fb4b1c28b7
+alarms.event.data_resumed	07d6a44735e1570d
+alarms.event.disabled	e47adffa1e12ee26
+alarms.event.enabled	87cc353f1df82b0f
+alarms.event.first_sample	cfbb6b2881a63328
+alarms.event.invalid_sample	e0d88f9e184d87e5
+alarms.event.old_generation	705ae265b88cf912
+alarms.event.out_of_range	889e722824b5c70b
+alarms.event.pending	5d52c4cb631325e5
+alarms.event.preview	2a1e8e77d2795d33
+alarms.event.scope_entered	7ec243c20ff49906
+alarms.event.scope_left	37ba7c3420700c1c
+alarms.event.silenced	c0cfd6bfa68fdf25
+alarms.event.snooze_expired	4f88b8441ac6ee90
+alarms.event.trend_covered	93de496012980ed1
+alarms.event.trend_insufficient	07bd8a94a6749648
+alarms.event.trend_warming_up	add2a48f55bde3c5
+alarms.meter.above	a547dc58d52c504b
+alarms.meter.below	809f07906dae56fb
+alarms.meter.fall	dfb6b6a0ce71f1a8
+alarms.meter.reminder	79761ad72092b539
+alarms.meter.rise	b4cc39c6ba6e6f44
+alarms.meter.still_active_above	929d44ad276997ce
+alarms.meter.still_active_above_no_band	e6641cde84a4fe3f
+alarms.meter.still_active_below	1f6434baebfcdc85
+alarms.meter.still_active_below_no_band	3f99870dd11dfc80
+alarms.meter.trend	fe043c2b764feed5
+alarms.meter.worsened	b1abd42f3c9be8b6
+alarms.nothing_active	ad6695face644403
+alarms.notification.acknowledged	3430e11491c520c6
+alarms.notification.snoozed	a05a3de2e20ffa86
+alarms.notification.unacknowledged	8f345e81da1f70aa
+alarms.pa.high_rx	f091b30adb665b00
+alarms.pa.high_tx	5efd6a51f1f67f88
+alarms.pa.rise_from_baseline_rx	02e1deec3848e99f
+alarms.pa.rise_from_baseline_tx	c7a887633b50e88b
+alarms.pa.rising_fast_rx	edf948a79d4d77fd
+alarms.pa.rising_fast_tx	b818c195eff7b608
+alarms.point.after_fuse	f4cf322e2aa8a359
+alarms.point.at_cpu	7cbd4b394160c6a0
+alarms.point.at_pa	03251ba69dde7e11
+alarms.point.before_fuse	3a3ace8093e2885e
+alarms.point.meter	d265d64e3224f966
+alarms.preset.pa_rise_from_baseline.name	98b1ceab743d1d90
+alarms.preset.pa_rising_fast.name	6f64ccf69a298af5
+alarms.preset.pa_temperature.name	dbb6faa1d1ef8ea7
+alarms.preset.problem.ambiguous	653998bff7c0cedb
+alarms.preset.shipped	af056e2fd1d7d1bc
+alarms.preset.voltage_drop.name	a08be9c44790de8d
+alarms.preset.voltage_high.name	1a0c76aafb3eceb0
+alarms.preset.voltage_low.name	f0ef5e17f0f8e4d4
+alarms.preset.yours	2fc22a981087fcd4
+alarms.preview.no_reader	fc652a144589b2b0
+alarms.preview.sentence	9933faf143b0bbaf
+alarms.preview.sound_off	5d4b43e91d984ce0
+alarms.preview.speech_suppressed	b5a9a53ff0325b5f
+alarms.resolution.ambiguous	db8e64d6cd8e202e
+alarms.resolution.missing	8e9e7a9fa08c0f64
+alarms.resolution.resolved	28546b65e9e0d652
+alarms.resolution.source_changed	f4b6c8a07dbd3419
+alarms.resolution.unit_changed	154cd82a78741700
+alarms.resumed	2a271d315610ce06
+alarms.snoozed	1d5db5af20606e23
+alarms.state.disabled	37e0bacf852b3cc6
+alarms.state.enabled	3cbfc4a70a0d70f1
+alarms.status.baseline	1bec2c3ebc6883e9
+alarms.status.baseline_missing	ea922fc64167c809
+alarms.status.last_event	1b7e7d66bd643096
+alarms.status.latest	4acae54ec1e136e2
+alarms.status.line	77f182681cf725a6
+alarms.status.line_level	7ca0ca4da67d4f85
+alarms.status.meter	84b57d9b62d0e693
+alarms.status.no_reading	982a7d8bbbb23976
+alarms.status.notification	e5b6a6d2d7f4153f
+alarms.status.snooze_remaining	19b77b9ce39744b6
+alarms.summary.active	ed4834eb6a7fb9ba
+alarms.summary.config_unavailable	94905f66b50f4baa
+alarms.summary.disconnected	5196747f489d2a59
+alarms.summary.item	a89a2e3a6dec8b17
+alarms.summary.last_known	b1dc1befd57a7e8c
+alarms.summary.last_known_no_value	32840ec202741fb2
+alarms.summary.none	685b8d134414c91a
+alarms.summary.not_ready	50f862d769ff9bf1
+alarms.summary.not_ready_one	ece9a14a02164dbe
+alarms.summary.quiet	d0b63bbd08692749
+alarms.summary.unavailable	9c6f814500d1c898
+alarms.validation.clear_equals_trigger	bf8bccc3322680a1
+alarms.validation.clear_invalid	d968a4a8457703e1
+alarms.validation.freshness_not_number	cf3cb3be5fbaa1cd
+alarms.validation.freshness_not_positive	0677511755e47198
+alarms.validation.hysteresis_negative	aef32cb4c5882d23
+alarms.validation.hysteresis_not_number	b9efcf1aad94ab3c
+alarms.validation.meter_missing	4749c3dfc0595e80
+alarms.validation.name_missing	6c89cd3456d3a5e6
+alarms.validation.name_too_long	05e6847c69d2a23f
+alarms.validation.out_of_range_review	c7eaaa2a8d55dbb8
+alarms.validation.reminder_negative	0eabc6e64b2ff8fa
+alarms.validation.reminder_not_number	f0312ff2f69848fc
+alarms.validation.sustained_count_not_whole	119610d070070f0d
+alarms.validation.sustained_invalid	467edfbdf010aa64
+alarms.validation.sustained_seconds_not_number	79a38e077e3aa933
+alarms.validation.threshold_not_finite	a5564af133216e07
+alarms.validation.trend_interval_invalid	459d83cebb21a29f
+alarms.validation.worsening_negative	43397990fffb9233
+alarms.validation.worsening_not_number	11a38f64715620f9
+alarms.voltage.drop_rx	d6ee7c1843164a38
+alarms.voltage.drop_rx.terse	fca19e883f0c6746
+alarms.voltage.drop_tx	f2cc4ed913d382df
+alarms.voltage.drop_tx.terse	b28660c2ce0292f1
+alarms.voltage.high_rx	ee5d31271782e4c6
+alarms.voltage.high_rx.terse	373530548bf151de
+alarms.voltage.high_tx	9a813e856c32be4c
+alarms.voltage.high_tx.terse	5b15ddd6a7ff1097
+alarms.voltage.low_rx	fdf56eefd706df51
+alarms.voltage.low_rx.terse	566f9d2f9578fee6
+alarms.voltage.low_tx	9f4798d2db9dffb9
+alarms.voltage.low_tx.terse	44a8cc8bfcf16b48
 audio.agc.mode	27310bb30192bb34
 audio.already_transmitting	0b9fc105e9897041
 audio.amplifier.command_not_sent	3a838672e3871548
