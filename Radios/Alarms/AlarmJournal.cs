@@ -26,7 +26,8 @@ namespace Radios.Alarms
         bool Healthy,
         string HealthDetail,
         long RecordsLostToWriteFailure,
-        long RecordsUnserializable);
+        long RecordsUnserializable,
+        long RecordsRetainedUnwritten);
 
     /// <summary>
     /// The disclosed, local, per-observation journal an armed alarm starts
@@ -372,8 +373,13 @@ namespace Radios.Alarms
             }
             lock (_writeGate)
             {
+                // Retained is reported beside written and lost on purpose: a
+                // record the file would not take is neither durable nor gone,
+                // and a readout that showed only the other two would call it
+                // one or the other (Astra's Track IJK review, blocker 5).
                 return new AlarmJournalStats(_observations, _events, _written, _bytesWritten, Interlocked.Read(ref _dropped),
-                    _highWater, retained, ringCount, _segmentPath, _healthy, _healthDetail, _lostToWriteFailure, _unserializable);
+                    _highWater, retained, ringCount, _segmentPath, _healthy, _healthDetail, _lostToWriteFailure, _unserializable,
+                    _unwritten.Count);
             }
         }
 
@@ -468,10 +474,29 @@ namespace Radios.Alarms
                 // the next successful enqueue. A flush materialises it
                 // (finding 10), so disposal and a capture start see it too.
                 if (_droppedRun > 0) EnqueueGapLocked();
-                if (_queue.Count == 0) return;
-                batch = new List<Item>(_queue);
-                _queue.Clear();
-                _queueBytes = 0;
+                if (_queue.Count == 0)
+                {
+                    // Nothing new — but a batch an earlier flush could not
+                    // write may still be waiting, and it waits for THIS: the
+                    // failed append had already emptied the queue, so until
+                    // Astra's Track IJK review (blocker 5) the retained batch
+                    // was written only if something new arrived to carry it,
+                    // and the last batch after a disconnect or at shutdown had
+                    // nothing new coming. Recovery runs on an empty queue too.
+                    batch = null;
+                }
+                else
+                {
+                    batch = new List<Item>(_queue);
+                    _queue.Clear();
+                    _queueBytes = 0;
+                }
+            }
+
+            if (batch == null)
+            {
+                RecoverRetainedIfAny();
+                return;
             }
 
             var lines = new List<string>(batch.Count);
@@ -508,6 +533,34 @@ namespace Radios.Alarms
                 {
                     KeepUnwrittenLocked(lines);
                     DegradeLocked("could not write " + lines.Count + " record(s): " + ex.Message);
+                }
+            }
+        }
+
+        /// <summary>
+        /// With nothing new to write, try again to write what an earlier flush
+        /// could not. Silent when nothing is retained: an empty write is not
+        /// a write_gap, and a healthy journal with an empty queue does not
+        /// open its file for nothing.
+        /// </summary>
+        private void RecoverRetainedIfAny()
+        {
+            lock (_writeGate)
+            {
+                if (_unwritten.Count == 0 && _failedFlushes == 0) return;
+                try
+                {
+                    if (_rotatePending) RotateLocked();
+                    EnsureSegmentLocked();
+                    WriteWithRecoveryLocked(new List<string>(0));
+                }
+                catch (Exception ex)
+                {
+                    // Still not writable. The retained lines are still
+                    // retained — nothing was removed from _unwritten — and the
+                    // failure is counted so the write_gap says how many times.
+                    _failedFlushes++;
+                    DegradeLocked("could not write the " + _unwritten.Count + " retained record(s): " + ex.Message);
                 }
             }
         }
@@ -863,7 +916,30 @@ namespace Radios.Alarms
             _signal.Set();
             if (_worker.IsAlive) { try { _worker.Join(2000); } catch { } }
             else { try { Flush(force: true); } catch { } }
+            AbandonRetainedLocked();
             _signal.Dispose();
+        }
+
+        /// <summary>
+        /// The final flush has run. Anything still retained is now LOST, and
+        /// is counted as lost: disposal used to drop it on the floor with the
+        /// loss counter untouched, so the accounting said nothing was lost
+        /// while the records were (Astra's Track IJK review, blocker 5). The
+        /// count survives in <see cref="Stats"/> for a readout taken after
+        /// disposal, and the trace names the number.
+        /// </summary>
+        private void AbandonRetainedLocked()
+        {
+            lock (_writeGate)
+            {
+                if (_unwritten.Count == 0) return;
+                int lost = _unwritten.Count;
+                _lostToWriteFailure += lost;
+                _unwritten.Clear();
+                _unwrittenBytes = 0;
+                Tracing.TraceLine("AlarmJournal: " + lost + " retained record(s) could not be written before the journal closed"
+                    + " and are LOST; the segment was not writable (" + _healthDetail + ")", TraceLevel.Error);
+            }
         }
     }
 }

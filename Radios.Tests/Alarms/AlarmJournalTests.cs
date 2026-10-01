@@ -249,6 +249,78 @@ namespace Radios.Tests.Alarms
         }
 
         [Fact]
+        public void A_retained_batch_is_written_when_the_file_takes_writes_again_even_though_nothing_new_was_enqueued()
+        {
+            // Astra's Track IJK review, blocker 5. The retention above was real,
+            // but Flush returned on an empty queue BEFORE it could reach the
+            // recovery write — and a failed append had already emptied the
+            // queue. So the retained batch was written only if something NEW
+            // arrived to carry it, and the one case that matters, the last
+            // batch after a disconnect or at shutdown, had nothing new coming.
+            // The test above enqueues a fourth observation after mending the
+            // path; this one does not, which is exactly the difference.
+            var j = Up();
+            string segment = j.Stats().CurrentSegmentPath;
+            j.Record(Obs(1, 30f));
+            j.Flush(force: true);
+
+            File.Delete(segment);
+            Directory.CreateDirectory(segment);
+            j.Record(Obs(2, 31f));
+            j.Record(Obs(3, 32f));
+            j.Flush(force: true);
+            Assert.False(j.Stats().Healthy);
+            Assert.Equal(2, j.Stats().RecordsRetainedUnwritten);   // held, and visibly not yet durable
+
+            // Writable again, and then NOTHING: no observation, no event — only
+            // the periodic flush the worker (or disposal) performs.
+            Directory.Delete(segment);
+            j.Flush(force: true);
+
+            Assert.True(j.Stats().Healthy);
+            Assert.Equal(0, j.Stats().RecordsRetainedUnwritten);
+            var lines = File.ReadAllLines(segment).Where(l => l.Length > 0).Select(l => JsonDocument.Parse(l).RootElement).ToList();
+            var gap = OfType(lines, "write_gap").Single();
+            Assert.Equal(1, gap.GetProperty("failedFlushes").GetInt32());
+            Assert.Equal(2, gap.GetProperty("recordsRecovered").GetInt32());
+            Assert.Equal(new long[] { 2, 3 }, OfType(lines, "obs").Select(o => o.GetProperty("seq").GetInt64()).ToArray());
+
+            // Positive control: a flush with nothing retained and nothing queued
+            // writes nothing at all — no empty write_gap, no second segment.
+            int before = File.ReadAllLines(segment).Length;
+            j.Flush(force: true);
+            Assert.Equal(before, File.ReadAllLines(segment).Length);
+        }
+
+        [Fact]
+        public void Disposal_with_the_file_still_unwritable_counts_the_retained_records_as_lost_rather_than_abandoning_them_silently()
+        {
+            // The other half of blocker 5: disposal abandoned whatever was still
+            // retained, and the loss counter did not count it — so the
+            // accounting said nothing was lost while two records were.
+            var j = Up();
+            string segment = j.Stats().CurrentSegmentPath;
+            j.Record(Obs(1, 30f));
+            j.Flush(force: true);
+
+            File.Delete(segment);
+            Directory.CreateDirectory(segment);
+            j.Record(Obs(2, 31f));
+            j.Record(Obs(3, 32f));
+            j.Flush(force: true);
+            Assert.Equal(0, j.Stats().RecordsLostToWriteFailure);
+            Assert.Equal(2, j.Stats().RecordsRetainedUnwritten);
+
+            j.Dispose();   // the path is still a directory: the final attempt fails too
+
+            var stats = j.Stats();
+            Assert.Equal(2, stats.RecordsLostToWriteFailure);
+            Assert.Equal(0, stats.RecordsRetainedUnwritten);
+            Assert.False(stats.Healthy);
+            Directory.Delete(segment);
+        }
+
+        [Fact]
         public void An_overflow_followed_by_nothing_but_a_flush_still_writes_its_gap()
         {
             // Finding 10: the gap was written only at the NEXT successful
