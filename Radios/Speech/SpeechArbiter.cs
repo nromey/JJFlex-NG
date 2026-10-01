@@ -1282,19 +1282,57 @@ namespace Radios.Speech
         private ISpeechTimer? _alarmTimer;
         private int _alarmGeneration;
 
-        // The last alarm handed over, for the one bounded retry. Keyed by the
-        // TURN it was handed over on, not by a bare ticket: a remembered
-        // ticket outlives the turn it belonged to, and that is exactly how a
-        // dead alarm released a live cut.
-        private long _lastAlarmTurnId;
-        private string _lastAlarmSubject = string.Empty;
-        private Func<string?>? _lastAlarmRefresh;
-        private Action? _lastAlarmNotDelivered;
-        private VerbosityLevel _lastAlarmLevel;
-        private string? _lastAlarmOrigin;
-        private DateTime _lastAlarmEmittedUtc;
-        private bool _lastAlarmRetried;
-        private ISpeechTimer? _retryTimer;
+        /// <summary>
+        /// One TRACKED hand-over of an alarm warning, from the moment the pump
+        /// accepted it until the reader's answer about that exact ticket
+        /// arrives. Untracked hand-overs are never listed: nobody will report
+        /// on them, and the estimate path governs the turn.
+        ///
+        /// <para><b>Why a list by ticket and not "the last alarm" (Astra's
+        /// Track IJK review, blocker 2).</b> The retry logic remembered one
+        /// alarm — the last handed over — and consulted it only when the
+        /// reader's answer ENDED the current turn. Production accepts a
+        /// tracked ticket before the backend has answered, so a later
+        /// Unknown or Refused outcome for that ticket arrived, released the
+        /// turn, and was dropped on the floor: the alarm was never told, and
+        /// with interval reminders off a flat bad reading kept its silence
+        /// after the backend recovered. An attempt pre-empted by a cut was
+        /// not the current turn when its cancellation arrived and was never
+        /// told either. Every tracked attempt is now accounted for by its own
+        /// ticket, whatever the turn is doing when the answer lands.</para>
+        /// </summary>
+        private sealed class AlarmAttempt
+        {
+            public long Ticket;
+            public string Subject = string.Empty;
+            public string Message = string.Empty;
+            public VerbosityLevel Level;
+            public string? Origin;
+            public Func<string?> Refresh = () => null;
+            public Action? NotDelivered;
+            public DateTime EmittedUtc;
+            public long Cohort;
+
+            /// <summary>True when this hand-over IS the one bounded retry: a second failure is reported, not retried again.</summary>
+            public bool IsRetry;
+
+            /// <summary>The settle timer for this attempt's retry, while one is pending.</summary>
+            public ISpeechTimer? RetryTimer;
+        }
+
+        /// <summary>Tracked alarm hand-overs awaiting the reader's answer, oldest first.</summary>
+        private readonly List<AlarmAttempt> _alarmAttempts = new List<AlarmAttempt>();
+
+        /// <summary>Alarm attempts whose one retry is settling, oldest first.</summary>
+        private readonly List<AlarmAttempt> _alarmRetriesPending = new List<AlarmAttempt>();
+
+        /// <summary>
+        /// How many tracked alarm attempts may await an answer at once. The
+        /// pump answers for every ticket, so the realistic depth is one or
+        /// two; past this the oldest is treated as delivery UNKNOWN and its
+        /// alarm is told, rather than the list growing without bound.
+        /// </summary>
+        internal const int AlarmAttemptsCap = 16;
 
         /// <summary>Alarm sentences waiting behind a sounding safety attempt. Tests.</summary>
         internal int AlarmPendingCount { get { lock (_lock) return _alarmPending.Count; } }
@@ -1415,14 +1453,28 @@ namespace Radios.Speech
             _safety.Bind(turn, handoff, estimate, now);
             if (!handoff.Tracked) _readerBusyUntilUtc = now.AddMilliseconds(estimate);
 
-            _lastAlarmTurnId = turn.Id;
-            _lastAlarmSubject = subject;
-            _lastAlarmRefresh = refresh;
-            _lastAlarmNotDelivered = notDelivered;
-            _lastAlarmLevel = level;
-            _lastAlarmOrigin = origin;
-            _lastAlarmEmittedUtc = now;
-            _lastAlarmRetried = why != null && why.StartsWith("retry", StringComparison.Ordinal);
+            if (handoff.Tracked)
+            {
+                // A newer hand-over on the same subject carries the
+                // obligation from here: an older attempt's late answer must
+                // not tell the alarm about a warning that has since been said
+                // again. Its retry, if one was settling, goes too.
+                RetireAlarmAttemptsLocked(subject, "a newer hand-over on the same subject");
+
+                if (_alarmAttempts.Count >= AlarmAttemptsCap)
+                {
+                    AlarmAttempt oldest = _alarmAttempts[0];
+                    _alarmAttempts.RemoveAt(0);
+                    TellNotDelivered(oldest.NotDelivered, oldest.Subject,
+                        $"no answer ever came for delivery #{oldest.Ticket} and {AlarmAttemptsCap} newer attempts are waiting for theirs, so its delivery is unknown");
+                }
+                _alarmAttempts.Add(new AlarmAttempt
+                {
+                    Ticket = handoff.Ticket, Subject = subject, Message = message, Level = level, Origin = origin,
+                    Refresh = refresh, NotDelivered = notDelivered, EmittedUtc = now, Cohort = turn.QuietGeneration,
+                    IsRetry = why != null && why.StartsWith("retry", StringComparison.Ordinal),
+                });
+            }
 
             if (deferredMs > 0)
             {
@@ -1556,10 +1608,72 @@ namespace Radios.Speech
             SafetyTurn? ended = _safety.TakeOutcome(ticket, completed, now);
             if (ended == null) return;
 
-            if (ended.Class == SafetyClass.OperatorAlarm && ended.Id == _lastAlarmTurnId)
-                ConsiderAlarmRetryLocked(ended, outcome, now);
-
             if (_alarmPending.Count > 0) ArmAlarmTimerLocked(now);
+        }
+
+        /// <summary>
+        /// The reader's answer about one tracked ALARM hand-over, by ticket,
+        /// whatever the turn is doing — this is the accounting that used to
+        /// hang off "did this answer end the current turn", and did not run
+        /// when it did not (Astra's Track IJK review, blocker 2).
+        ///
+        /// <para>Every answer but Completed is an unsuccessful attempt on a
+        /// warning whose condition may still be current, and the alarm is TOLD
+        /// so its own next fresh sample says what is true now — with two
+        /// exceptions. A cancellation NOT by us, on a first attempt, inside the
+        /// window, earns the one bounded retry first (below). And an attempt
+        /// the operator silenced tells nobody: the quiet cohort advanced, and
+        /// the operator keeps that silence until the condition worsens
+        /// (#617) — the alarm's own event, never this callback's guess.</para>
+        ///
+        /// <para>A cancellation BY US is a cut's Urgent pre-empting the alarm,
+        /// an ordinary interrupt taking the reader, or a withdrawal. In each
+        /// the operator did not hear the end of it and nothing here knows
+        /// whether they heard the beginning; the alarm is told, and its next
+        /// fresh sample re-raises the warning, which then waits its turn
+        /// behind whatever took it.</para>
+        /// </summary>
+        private void OnAlarmOutcomeLocked(long ticket, SpeechOutcome outcome, DateTime now)
+        {
+            if (ticket == 0) return;
+            AlarmAttempt? attempt = _alarmAttempts.Find(a => a.Ticket == ticket);
+            if (attempt == null) return;
+            _alarmAttempts.Remove(attempt);
+
+            switch (outcome.Kind)
+            {
+                case SpeechOutcomeKind.Completed:
+                    return;
+
+                case SpeechOutcomeKind.Cancelled:
+                    if (!_safety.InCurrentCohort(attempt.Cohort))
+                    {
+                        Tracing.TraceLine(
+                            $"SpeechArbiter: no alarm retry and nobody told — the operator silenced this cohort [subject '{attempt.Subject}']. "
+                            + "The condition is unchanged and is still in the alarms list.", TraceLevel.Info);
+                        return;
+                    }
+                    if (!outcome.CancelledByUs && !attempt.IsRetry
+                        && (now - attempt.EmittedUtc).TotalMilliseconds <= AlarmRetryWindowMs)
+                    {
+                        ArmAlarmRetryLocked(attempt, outcome);
+                        return;
+                    }
+                    TellNotDelivered(attempt.NotDelivered, attempt.Subject,
+                        outcome.CancelledByUs
+                            ? $"delivery #{ticket} was cut at word {outcome.MarksReached} of {outcome.MarkCount} by this application (a transmit-safety announcement, an interrupt or a withdrawal took the reader)"
+                            : attempt.IsRetry
+                                ? $"its one retry (delivery #{ticket}) was cut at word {outcome.MarksReached} of {outcome.MarkCount} by a cause this callback cannot identify"
+                                : $"delivery #{ticket} was cut at word {outcome.MarksReached} of {outcome.MarkCount} and the retry window had passed");
+                    return;
+
+                default:
+                    TellNotDelivered(attempt.NotDelivered, attempt.Subject,
+                        outcome.UnknownReason == SpeechUnknownReason.Refused
+                            ? $"the reader refused delivery #{ticket} after accepting it"
+                            : $"delivery #{ticket} ended with its outcome unknown ({outcome.UnknownReason}); unknown is not heard");
+                    return;
+            }
         }
 
         /// <summary>
@@ -1570,7 +1684,7 @@ namespace Radios.Speech
         /// callback cannot know that</b> — Ctrl, a focus change and another
         /// program taking the foreground are indistinguishable there, which is
         /// the same claim Track J had to take out of the withdrawal trace one
-        /// file over. The retry now goes through the QUIET CONTRACT instead of
+        /// file over. The retry goes through the QUIET CONTRACT instead of
         /// through a guess: if the operator really did silence speech, the
         /// cohort advanced and this warning is not retried at all. If the
         /// cohort is unchanged, nothing here claims to know what happened, and
@@ -1585,60 +1699,70 @@ namespace Radios.Speech
         /// scopes the pause to deliberate silence, which is what is built.
         /// The difference is reported rather than decided here.</para>
         /// </summary>
-        private void ConsiderAlarmRetryLocked(SafetyTurn ended, SpeechOutcome outcome, DateTime now)
+        private void ArmAlarmRetryLocked(AlarmAttempt attempt, SpeechOutcome outcome)
         {
-            if (outcome.Kind != SpeechOutcomeKind.Cancelled) return;
-            if (outcome.CancelledByUs || _lastAlarmRetried || _lastAlarmRefresh == null) return;
-            if (!_safety.InCurrentCohort(ended.QuietGeneration))
-            {
-                Tracing.TraceLine(
-                    $"SpeechArbiter: no alarm retry — the operator silenced this cohort [subject '{_lastAlarmSubject}']. "
-                    + "The condition is unchanged and is still in the alarms list.", TraceLevel.Info);
-                return;
-            }
-            if ((now - _lastAlarmEmittedUtc).TotalMilliseconds > AlarmRetryWindowMs) return;
-
-            _lastAlarmRetried = true;
             Tracing.TraceLine(
                 $"SpeechArbiter: an alarm was cancelled at word {outcome.MarksReached} of {outcome.MarkCount} by a "
                 + "cause this callback cannot identify — the operator's key, a focus change and another program "
                 + "taking the foreground all arrive here alike, and the operator has not silenced speech. One retry "
-                + $"in {AlarmRetrySettleMs} ms if it is still true [subject '{_lastAlarmSubject}']", TraceLevel.Info);
-            _retryTimer?.Dispose();
-            string subject = _lastAlarmSubject;
-            Func<string?> refresh = _lastAlarmRefresh;
-            Action? notDelivered = _lastAlarmNotDelivered;
-            VerbosityLevel level = _lastAlarmLevel;
-            string? origin = _lastAlarmOrigin;
-            DateTime emitted = _lastAlarmEmittedUtc;
-            long cohort = ended.QuietGeneration;
-            _retryTimer = _clock.StartTimer(AlarmRetrySettleMs,
-                () => RetryAlarm(subject, refresh, notDelivered, level, origin, emitted, cohort));
+                + $"in {AlarmRetrySettleMs} ms if it is still true [subject '{attempt.Subject}']", TraceLevel.Info);
+            _alarmRetriesPending.Add(attempt);
+            attempt.RetryTimer = _clock.StartTimer(AlarmRetrySettleMs, () => RetryAlarm(attempt));
         }
 
-        private void RetryAlarm(string subject, Func<string?> refresh, Action? notDelivered, VerbosityLevel level,
-            string? origin, DateTime emitted, long cohort)
+        /// <summary>
+        /// The retry settle elapsed. The attempt is retried if it still may be,
+        /// WAITS ITS TURN if a safety announcement holds the reader, and tells
+        /// its alarm if it cannot be made at all — it used to return silently
+        /// in both of the latter cases, which lost the warning (blocker 2).
+        /// </summary>
+        private void RetryAlarm(AlarmAttempt attempt)
         {
             lock (_lock)
             {
-                _retryTimer = null;
+                if (!_alarmRetriesPending.Remove(attempt)) return;   // silenced or discarded while it settled
+                attempt.RetryTimer = null;
                 var now = _clock.UtcNow;
-                if (!string.Equals(subject, _lastAlarmSubject, StringComparison.Ordinal)) return;   // something newer took over
-                if (!_safety.InCurrentCohort(cohort)) return;                                       // silenced while it settled
-                if ((now - emitted).TotalMilliseconds > AlarmRetryWindowMs) return;
+                string subject = attempt.Subject;
+
+                if (!_safety.InCurrentCohort(attempt.Cohort)) return;   // silenced while it settled: quiet, by the contract
+                if (_alarmAttempts.Exists(a => string.Equals(a.Subject, subject, StringComparison.Ordinal))
+                    || _alarmPending.Exists(p => string.Equals(p.Subject, subject, StringComparison.Ordinal)))
+                {
+                    // Something newer on the same subject is already sounding
+                    // or waiting; it carries the obligation.
+                    return;
+                }
+                if ((now - attempt.EmittedUtc).TotalMilliseconds > AlarmRetryWindowMs)
+                {
+                    TellNotDelivered(attempt.NotDelivered, subject, "the retry window passed before the retry could be made");
+                    return;
+                }
+
                 SafetyTurn? turn = _safety.TryReserveForAlarm(subject, now);
-                if (turn == null) return;   // a safety announcement got in first; it wins
+                if (turn == null)
+                {
+                    // A safety announcement got in first; it wins — and the
+                    // warning WAITS behind it rather than vanishing. The
+                    // waiting set re-reads it when its turn comes.
+                    Tracing.TraceLine(
+                        $"SpeechArbiter: the alarm retry found the safety turn held, so the warning waits its turn instead [subject '{subject}']",
+                        TraceLevel.Info);
+                    DeferAlarmLocked(attempt.Message, attempt.Level, attempt.Origin, subject, attempt.Refresh,
+                        attempt.NotDelivered, now);
+                    return;
+                }
 
                 // The same rule as the waiting set: a refresh that throws is
                 // unknown, and an unknown is not retried with a possibly stale
                 // sentence — the alarm is told, and its next fresh sample says
                 // what is true.
                 string? current = null;
-                try { current = refresh(); }
+                try { current = attempt.Refresh(); }
                 catch (Exception ex)
                 {
                     _safety.ReleaseUnused(turn, "the alarm's condition could not be re-read, so the retry was not made");
-                    TellNotDelivered(notDelivered, subject,
+                    TellNotDelivered(attempt.NotDelivered, subject,
                         $"its condition could not be re-read before the one retry ({ex.Message})");
                     return;
                 }
@@ -1648,8 +1772,32 @@ namespace Radios.Speech
                     Tracing.TraceLine($"SpeechArbiter: alarm retry not made, its own refresh says it is no longer current [subject '{subject}']", TraceLevel.Info);
                     return;
                 }
-                EmitAlarmLocked(turn, current, level, origin, subject, refresh, notDelivered, now, deferredMs: 0,
-                    why: "retry once, because the first hand-over said nothing at all");
+                EmitAlarmLocked(turn, current, attempt.Level, attempt.Origin, subject, attempt.Refresh, attempt.NotDelivered,
+                    now, deferredMs: 0, why: "retry once, because the first hand-over said nothing at all");
+            }
+        }
+
+        /// <summary>
+        /// Forget every tracked attempt and settling retry on
+        /// <paramref name="subject"/> — or on every subject when null — without
+        /// telling their alarms. Used where a newer statement carries the
+        /// obligation, and where the operator silenced speech.
+        /// </summary>
+        private void RetireAlarmAttemptsLocked(string? subject, string why)
+        {
+            for (int i = _alarmAttempts.Count - 1; i >= 0; i--)
+            {
+                if (subject != null && !string.Equals(_alarmAttempts[i].Subject, subject, StringComparison.Ordinal)) continue;
+                Tracing.TraceLine($"SpeechArbiter: alarm delivery #{_alarmAttempts[i].Ticket} no longer awaited, {why} [subject '{_alarmAttempts[i].Subject}']",
+                    TraceLevel.Verbose);
+                _alarmAttempts.RemoveAt(i);
+            }
+            for (int i = _alarmRetriesPending.Count - 1; i >= 0; i--)
+            {
+                if (subject != null && !string.Equals(_alarmRetriesPending[i].Subject, subject, StringComparison.Ordinal)) continue;
+                _alarmRetriesPending[i].RetryTimer?.Dispose();
+                _alarmRetriesPending[i].RetryTimer = null;
+                _alarmRetriesPending.RemoveAt(i);
             }
         }
 
@@ -1707,9 +1855,11 @@ namespace Radios.Speech
                         TraceLevel.Info);
                 _alarmPending.Clear();
                 _alarmTimer?.Dispose(); _alarmTimer = null; _alarmGeneration++;
-                _retryTimer?.Dispose(); _retryTimer = null;
-                _lastAlarmRefresh = null;
-                _lastAlarmNotDelivered = null;
+                // Attempts still awaiting an answer, and retries settling, are
+                // forgotten WITHOUT telling their alarms: a silence is the
+                // operator's, and telling the alarm would make its next
+                // reading overrule the shut-up key (#617).
+                RetireAlarmAttemptsLocked(null, "the operator silenced speech");
             }
         }
 
@@ -1732,9 +1882,7 @@ namespace Radios.Speech
                 _safety.Reset();
                 _alarmPending.Clear();
                 _alarmTimer?.Dispose(); _alarmTimer = null; _alarmGeneration++;
-                _retryTimer?.Dispose(); _retryTimer = null;
-                _lastAlarmRefresh = null;
-                _lastAlarmNotDelivered = null;
+                RetireAlarmAttemptsLocked(null, "all speech state discarded");
             }
         }
 
@@ -2817,6 +2965,10 @@ namespace Radios.Speech
                 // The one occupancy token, before anything else (#611): only
                 // the CURRENT turn's own ticket may end the current turn.
                 OnSafetyOutcomeLocked(ticket, outcome, now);
+
+                // And the alarm's own accounting, by ticket, whether or not
+                // that ticket owned the turn (blocker 2).
+                OnAlarmOutcomeLocked(ticket, outcome, now);
 
                 if (outcome.Kind == SpeechOutcomeKind.Unknown
                     && outcome.UnknownReason == SpeechUnknownReason.Refused)
