@@ -276,7 +276,12 @@ namespace Radios
         /// local" has nothing to connect with.
         /// <para>Static because the selector builds a fresh FlexBase per open and
         /// the WAN session outlives it. Cleared whenever the session is cycled or
-        /// discovery is force-restarted, so a stale handle can never be dialled.</para>
+        /// discovery is force-restarted. It is NOT cleared when a transport dies
+        /// or the session redials: a session keeps its list across a drop for
+        /// display, by design, and so does this bank. That is why every entry
+        /// records the list that wrote it (<see cref="WanRadioEntry.From"/>),
+        /// and why every reader that would treat an entry as news about now
+        /// asks that list whether it is still current (#619).</para>
         /// </summary>
         private struct WanRadioEntry
         {
@@ -289,20 +294,59 @@ namespace Radios
             /// about A and says NOTHING about B — sweeps must scope to this.
             /// </summary>
             public string AccountId;
+
+            /// <summary>
+            /// The SmartLink list that wrote this entry — the session and the
+            /// connection generation it was born on — or null when the writer
+            /// could not name one. The same record the intake carries with
+            /// every list and every sighting carries out
+            /// (<see cref="RigData.FromWanList"/>); there is no second kind.
+            /// </summary>
+            /// <remarks>
+            /// <para><b>Why the bank carries it (#619, Sol's review of
+            /// L11).</b> The bank outlives the rig that filled it, and a push
+            /// nobody consumed still refreshes it. A picker opened later on a
+            /// new rig asked the bank "is this radio on SmartLink?" and was
+            /// told yes with nothing to question, so after a drop that row read
+            /// online, kept its occupancy clause, and the auto-connect timer
+            /// could choose it. Every other path to a live-looking SmartLink
+            /// row had been given a list to ask; this one had not.</para>
+            /// </remarks>
+            public WanListProvenance? From;
+
+            /// <summary>
+            /// The entry as a sighting a consumer can question: a
+            /// <see cref="RigData"/> whose <see cref="RigData.FromWanList"/> is
+            /// <see cref="From"/>, so <see cref="RigData.StillCurrent"/> asks
+            /// the bank's list exactly as it asks an intake sighting's. Built
+            /// once, when the entry is written, so every reader of one entry
+            /// questions the same object.
+            /// </summary>
+            public RigData Sighting;
         }
 
         private static readonly Dictionary<string, WanRadioEntry> _wanRadiosBySerial =
             new Dictionary<string, WanRadioEntry>(StringComparer.OrdinalIgnoreCase);
         private static readonly object _wanRadiosLock = new object();
 
-        /// <summary>True when the SmartLink list has this radio right now.</summary>
+        /// <summary>True when the bank holds a SmartLink handle for this
+        /// radio — a leg a connect may try. Whether the list behind it is
+        /// still current is the bank sighting's question
+        /// (<see cref="RadioAvailability(string, out RigData)"/>).</summary>
         private static bool WanKnows(string serial)
         {
             if (string.IsNullOrWhiteSpace(serial)) return false;
             lock (_wanRadiosLock) { return _wanRadiosBySerial.ContainsKey(serial); }
         }
 
-        private static void RememberWanRadio(Radio r, string accountId = null)
+        /// <param name="from">The list this radio arrived on. Every writer
+        /// that has a list names it. Null records an entry no list vouches
+        /// for, which every reader then treats as last seen — the same
+        /// defensive answer as a held SmartLink row with no list recorded
+        /// (<see cref="RigData.HeldWithoutAList"/>). Unlike the account, a
+        /// missing provenance is never filled from the entry it replaces:
+        /// the older list did not describe this handle.</param>
+        private static void RememberWanRadio(Radio r, string accountId, WanListProvenance? from)
         {
             if (r == null || string.IsNullOrWhiteSpace(r.Serial)) return;
             lock (_wanRadiosLock)
@@ -315,8 +359,68 @@ namespace Radios
                 {
                     accountId = existing.AccountId;
                 }
-                _wanRadiosBySerial[r.Serial] = new WanRadioEntry { Radio = r, AccountId = accountId ?? "" };
+                _wanRadiosBySerial[r.Serial] = new WanRadioEntry
+                {
+                    Radio = r,
+                    AccountId = accountId ?? "",
+                    From = from,
+                    Sighting = BankSighting(r, from),
+                };
             }
+        }
+
+        /// <summary>
+        /// A banked handle as a sighting: the SmartLink half of the radio, as
+        /// of the list that wrote the entry. Never raised as an event — it is
+        /// handed to a consumer that asks the bank, so the consumer can ask
+        /// the list behind the answer whether it is still current. Built
+        /// lean, without <see cref="BuildRigData"/>'s per-sighting occupancy
+        /// trace: the bank's occupancy has its own reader
+        /// (<see cref="TryGetWanGuiClientStations"/>), which asks the same
+        /// question first.
+        /// </summary>
+        private static RigData BankSighting(Radio r, WanListProvenance? from) => new RigData
+        {
+            Name = string.IsNullOrWhiteSpace(r.Nickname) ? "Unknown" : r.Nickname,
+            ModelName = string.IsNullOrWhiteSpace(r.Model) ? "Unknown" : r.Model,
+            Serial = r.Serial,
+            Remote = true,
+            LanAvailable = false,
+            WanAvailable = true,
+            FromWanList = from,
+            HeldWithoutAList = from == null,
+        };
+
+        /// <summary>
+        /// The banked SmartLink handle for this serial and the sighting that
+        /// says which list it came from, read together under the bank's lock
+        /// so the two always describe the same entry. Null handle and null
+        /// sighting when the bank holds no WAN handle for it.
+        /// </summary>
+        private static Radio findWanEntry(string serial, out RigData sighting)
+        {
+            sighting = null;
+            if (string.IsNullOrWhiteSpace(serial)) return null;
+            lock (_wanRadiosLock)
+            {
+                if (!_wanRadiosBySerial.TryGetValue(serial, out var entry)
+                    || entry.Radio == null || !entry.Radio.IsWan)
+                    return null;
+                sighting = entry.Sighting;
+                return entry.Radio;
+            }
+        }
+
+        /// <summary>
+        /// The banked SmartLink handle for this serial, only when the list
+        /// that wrote it is still the session's current knowledge — asked now,
+        /// outside the bank's lock. Null otherwise. For a decision that treats
+        /// the handle as the radio being on the account's current list.
+        /// </summary>
+        internal static Radio findCurrentWanRadio(string serial)
+        {
+            var radio = findWanEntry(serial, out var sighting);
+            return radio != null && sighting != null && sighting.StillCurrent() ? radio : null;
         }
 
         private static void ForgetWanRadios(string reason)
@@ -408,17 +512,36 @@ namespace Radios
         /// <para>A snapshot as of the last push: exactly as stale or as fresh
         /// as the WAN availability verdict built from the same entries, which
         /// is the honest best a pre-connect surface can do.</para>
+        /// <para><b>Delivered only while that push's list is current (#619,
+        /// Sol's review of L11).</b> A client list is a statement about who is
+        /// on the radio NOW; the bank keeps its entries across a SmartLink
+        /// drop, and an occupancy count read from a list nobody holds any
+        /// more would be offered as current at the exact moment an operator
+        /// is deciding whether to key a transmitter. So this asks the entry's
+        /// list, at the moment it is called, and answers false — not
+        /// delivered — when it is no longer current. The row then says
+        /// nothing about occupancy, which is what a last-seen row says.</para>
         /// </remarks>
         public static bool TryGetWanGuiClientStations(string serial, out IReadOnlyList<string> stations)
         {
             stations = Array.Empty<string>();
             if (string.IsNullOrWhiteSpace(serial)) return false;
             Radio banked;
+            RigData sighting;
             lock (_wanRadiosLock)
             {
                 if (!_wanRadiosBySerial.TryGetValue(serial, out var entry) || entry.Radio == null)
                     return false;
                 banked = entry.Radio;
+                sighting = entry.Sighting;
+            }
+            // Asked outside the bank's lock: the question takes the session's.
+            if (sighting == null || !sighting.StillCurrent())
+            {
+                Tracing.TraceLine(
+                    $"occupancy[bank]: {serial} banked from {sighting?.Origin ?? "no list"}, which is no longer that session's current knowledge — not delivered (#619)",
+                    TraceLevel.Info);
+                return false;
             }
             lock (banked.GuiClientsLockObj)
             {
@@ -441,37 +564,28 @@ namespace Radios
         }
 
         /// <summary>
-        /// The WAN-path <see cref="Radio"/> for this serial, or null when the
-        /// SmartLink list does not currently carry it.
+        /// The WAN-path <see cref="Radio"/> the bank holds for this serial, or
+        /// null when it holds none. A handle to DIAL, not evidence that the
+        /// radio is on the account's list now: the bank keeps its entries
+        /// across a drop. A decision that needs the latter asks
+        /// <see cref="findCurrentWanRadio"/>.
         /// </summary>
-        private static Radio findWanRadio(string serial)
-        {
-            if (string.IsNullOrWhiteSpace(serial)) return null;
-            lock (_wanRadiosLock)
-            {
-                return _wanRadiosBySerial.TryGetValue(serial, out var entry)
-                    && entry.Radio != null && entry.Radio.IsWan ? entry.Radio : null;
-            }
-        }
+        private static Radio findWanRadio(string serial) => findWanEntry(serial, out _);
 
         /// <summary>
         /// True when this radio is reachable both on the local network and
         /// through the current SmartLink account — the case where the operator
-        /// gets to choose the path.
+        /// gets to choose the path. "Reachable through SmartLink" is a claim
+        /// about now, so the bank's list is asked whether it is still current
+        /// (#619): a handle left from a dropped session is a leg to try, not
+        /// a second home.
         /// </summary>
         public bool IsDualHomed(string serial)
         {
-            var (lan, wan) = RadioAvailability(serial);
-            return lan && wan;
+            var (lan, wan) = RadioAvailability(serial, out var wanSighting);
+            return lan && wan && wanSighting != null && wanSighting.StillCurrent();
         }
 
-        /// <summary>
-        /// Which paths reach this radio right now. The RadioRemoved event says a
-        /// radio left without saying which home it left, so the selector asks
-        /// this before deciding whether "went offline" is even true — a
-        /// dual-homed radio dropping off the LAN is still perfectly reachable
-        /// through SmartLink.
-        /// </summary>
         /// <summary>
         /// Serial → <see cref="Environment.TickCount64"/> of the last LAN
         /// discovery evidence for that radio: seeded when the LAN sighting is
@@ -501,10 +615,53 @@ namespace Radios
         internal static bool LanSeenRecently(long lastSeenTick, long nowTick, int windowMs = LanRecencyWindowMs)
             => lastSeenTick > 0 && nowTick >= lastSeenTick && (nowTick - lastSeenTick) <= windowMs;
 
-        public (bool lan, bool wan) RadioAvailability(string serial)
+        /// <summary>
+        /// Which paths reach this radio right now. The RadioRemoved event says a
+        /// radio left without saying which home it left, so the selector asks
+        /// this before deciding whether "went offline" is even true — a
+        /// dual-homed radio dropping off the LAN is still perfectly reachable
+        /// through SmartLink.
+        /// </summary>
+        /// <remarks>
+        /// <c>wan</c> means the bank holds a SmartLink handle — a leg a connect
+        /// may try. It does NOT say the list behind that handle is current; a
+        /// caller that would treat the SmartLink half as online asks
+        /// <see cref="RadioAvailability(string, out RigData)"/> for the list
+        /// too. Every caller of this form reads <c>lan</c>, or only needs a leg.
+        /// </remarks>
+        public (bool lan, bool wan) RadioAvailability(string serial) => RadioAvailability(serial, out _);
+
+        /// <summary>
+        /// Which paths reach this radio, and — for the SmartLink path — which
+        /// list says so.
+        /// </summary>
+        /// <param name="serial">The radio.</param>
+        /// <param name="wanSighting">When <c>wan</c> is true, the bank's
+        /// sighting for this radio: <see cref="RigData.FromWanList"/> is the
+        /// list that wrote the entry, so <see cref="RigData.StillCurrent"/>
+        /// answers whether that list is still the session's current knowledge,
+        /// asked at the moment the caller decides. Null when <c>wan</c> is
+        /// false.</param>
+        /// <remarks>
+        /// <para><b>Why the SmartLink answer carries its list (#619, Sol's
+        /// review of L11).</b> The bank outlives the rig that filled it and
+        /// keeps its entries across a drop, and a push no rig consumed still
+        /// refreshes it. So a picker opened on a NEW rig, whose own replay
+        /// raises nothing for a radio, got <c>wan=true</c> here for its roster
+        /// row with nothing to question. After the drop that row read online,
+        /// kept its occupancy clause, and the auto-connect timer could choose
+        /// it — the one path to a live-looking SmartLink row that had not been
+        /// given a list to ask. Noel's ruling of 2026-09-30 applies to it as
+        /// to every other: a radio from a list that is no longer current reads
+        /// as LAST SEEN, never online, and stays selectable. <c>wan</c> stays
+        /// true, because the leg is still one a connect may try; the sighting
+        /// is what lets the caller tell last seen from online.</para>
+        /// </remarks>
+        public (bool lan, bool wan) RadioAvailability(string serial, out RigData wanSighting)
         {
+            wanSighting = null;
             if (string.IsNullOrWhiteSpace(serial)) return (false, false);
-            bool wan = findWanRadio(serial) != null;
+            bool wan = findWanEntry(serial, out wanSighting) != null;
             bool recent = _lanLastSeenTicks.TryGetValue(serial, out var seen)
                 && LanSeenRecently(seen, Environment.TickCount64);
             try
@@ -554,7 +711,10 @@ namespace Radios
                 return;
             }
             myRadioList.Add(r);
-            if (r.IsWan) RememberWanRadio(r);
+            // The list it arrived on, so the bank can be asked about it later
+            // exactly as this sighting can (#619). Only the WAN intake adds a
+            // WAN radio here, and it always names its list.
+            if (r.IsWan) RememberWanRadio(r, null, fromWanList);
             else
             {
                 _lanLastSeenTicks[r.Serial] = Environment.TickCount64;
@@ -3330,15 +3490,35 @@ namespace Radios
                 Radio foundRadio = null;
                 var startTime = DateTime.Now;
 
+                bool skippedStaleHandle = false;
                 while ((DateTime.Now - startTime).TotalMilliseconds < timeoutMs)
                 {
                     // With forceWanPath this holds out for the WAN identity: the
                     // LAN object for a dual-homed radio is present from the first
                     // millisecond and would end the wait before the fresh
                     // SmartLink list has even arrived.
-                    foundRadio = findRadioForConnect(serial, forceWanPath);
+                    //
+                    // And for a WAN identity from a CURRENT list (#619, Sol's
+                    // review of L11). This wait is for the radio to appear on
+                    // the account's list; the bank keeps the handle a dropped
+                    // session's list left, which used to end the wait at once
+                    // and send the connect after a radio the account had not
+                    // listed since. The operator choosing a last-seen row asked
+                    // for a fresh attempt, and this is where it becomes one: the
+                    // wait ends when a current list carries the radio, and says
+                    // "never appeared" when none does.
+                    foundRadio = forceWanPath
+                        ? findCurrentWanRadio(serial)
+                        : findRadioForConnect(serial, false);
                     if (foundRadio != null)
                         break;
+                    if (forceWanPath && !skippedStaleHandle && findWanRadio(serial) != null)
+                    {
+                        skippedStaleHandle = true;
+                        Tracing.TraceLine(
+                            $"ReconnectRemote: the SmartLink handle held for {serial} came from a list that is no longer current — waiting for a current list to carry it (#619) ({sw.ElapsedMilliseconds}ms)",
+                            TraceLevel.Info);
+                    }
                     Thread.Sleep(100);
                 }
 
@@ -6702,9 +6882,25 @@ namespace Radios
                     TraceLevel.Info);
                 if (e?.Radios != null)
                 {
+                    // The list this push came from, banked with every entry so
+                    // a picker opened later can ask whether it is still
+                    // current (#619, Sol's review of L11) — this is the path
+                    // that fills the bank for a rig that never saw the push.
+                    // And the intake's one question, asked here too: a push
+                    // that is no longer the session's current knowledge when
+                    // it reaches this line would overwrite the entries a
+                    // current list wrote with older ones.
+                    var provenance = new WanListProvenance(e.Session, e.SessionId, e.ConnectionGeneration);
+                    if (!ListStillCurrent(provenance))
+                    {
+                        Tracing.TraceLine(
+                            $"presenceIntakeDispatch: list from {e.AccountId ?? "?"} ({provenance}) is no longer that session's current knowledge — the WAN bank is not refreshed from it (#619)",
+                            TraceLevel.Info);
+                        return;
+                    }
                     foreach (var r in e.Radios)
                     {
-                        RememberWanRadio(r, e.AccountId);
+                        RememberWanRadio(r, e.AccountId, provenance);
                         // Counted, because the roster row now reads occupancy
                         // from this bank when no intake delivered it (#394) —
                         // this line is the proof the fact survived the drop.
@@ -7057,7 +7253,7 @@ namespace Radios
                         .Select(kv => kv.Key).ToList())
                         _wanRadiosBySerial.Remove(stale);
                 }
-                foreach (Radio w in lst) RememberWanRadio(w, accountId);
+                foreach (Radio w in lst) RememberWanRadio(w, accountId, provenance);
 
                 // Fast paint for next time: this account's radio list, on disk,
                 // so the selector can speak the account's radios the instant it

@@ -185,6 +185,69 @@ namespace Radios
         }
 
         /// <summary>
+        /// Apply the connection layer's answer to a row: which paths reach
+        /// the radio, and, for SmartLink, which list says so
+        /// (<see cref="FlexBase.RadioAvailability(string, out FlexBase.RigData)"/>).
+        /// Called by the picker's availability reconcile, the first step of
+        /// every repaint, and by its radio-removed handler — every place the
+        /// picker writes a row's paths from that answer rather than from a
+        /// sighting.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Why (#619, Sol's review of L11).</b> That answer's
+        /// SmartLink half comes from FlexBase's WAN bank, which outlives the
+        /// rig that filled it and keeps its entries across a drop. The
+        /// reconcile used to write it as a bare flag, so a roster row fed
+        /// only by the bank — a push no rig consumed, then a picker on a new
+        /// rig whose replay raises nothing for the radio — became live with
+        /// no sighting for <see cref="Reassess"/> to question. After a drop it
+        /// read online, kept its occupancy clause, and the auto-connect timer
+        /// could choose it.</para>
+        /// <para><b>The rule, the same question every other path asks.</b>
+        /// The SmartLink half is vouched for by a list this picker took if
+        /// that list is still current, and otherwise by the bank's list. The
+        /// half is LAST SEEN exactly when that list is not current
+        /// (<see cref="FlexBase.RigData.StillCurrent"/>), and the vouching
+        /// sighting becomes the row's <see cref="WanHalfSighting"/>, so the
+        /// next <see cref="Reassess"/> questions the same list. A bank whose
+        /// list is current makes the half online, as a current list does
+        /// anywhere else (Noel's ruling of 2026-09-30: last-list radios show
+        /// as last seen, never online, still selectable). A SmartLink answer
+        /// with nothing to vouch for it is last seen: nothing this picker
+        /// holds says it is current, the same defensive answer as a held row
+        /// with no list recorded.</para>
+        /// <para>The local half is written as answered. With no SmartLink
+        /// answer the half's confirmation is left as it was; it means nothing
+        /// while there is no SmartLink leg, and the next sighting or reconcile
+        /// that brings one decides it afresh.</para>
+        /// </remarks>
+        /// <param name="row">The row's facts now.</param>
+        /// <param name="rowWanSighting">The row's <see cref="WanHalfSighting"/>.</param>
+        /// <param name="lan">The answer's local-network flag.</param>
+        /// <param name="wan">The answer's SmartLink flag: a handle a connect
+        /// may try.</param>
+        /// <param name="bankSighting">The answer's SmartLink sighting — the
+        /// list behind the bank's handle — or null.</param>
+        /// <returns>The row's new paths, and the sighting its SmartLink half
+        /// now speaks for.</returns>
+        public static (PickerRowPaths Paths, object WanSighting) Reconcile(
+            PickerRowPaths row, object rowWanSighting, bool lan, bool wan, object bankSighting)
+        {
+            if (!wan)
+                return (new PickerRowPaths(lan, false, row.WanUnconfirmed), rowWanSighting);
+
+            object vouching =
+                rowWanSighting is FlexBase.RigData held
+                && held.FromWanList != null
+                && held.StillCurrent()
+                    ? rowWanSighting
+                    : bankSighting ?? rowWanSighting;
+
+            bool lastSeen = vouching is not FlexBase.RigData rd || !rd.StillCurrent();
+            return (new PickerRowPaths(lan, true, lastSeen), vouching);
+        }
+
+        /// <summary>
         /// Which sighting a row's SmartLink half speaks for after the row
         /// takes <paramref name="sighting"/>: the new sighting when it came
         /// from a SmartLink list (or is a held SmartLink row no list is

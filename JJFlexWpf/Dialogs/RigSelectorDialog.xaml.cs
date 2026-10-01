@@ -53,9 +53,14 @@ namespace JJFlexWpf.Dialogs
         /// (#619, Noel's ruling of 2026-09-30). Set and cleared only by the
         /// picker's sighting decision, <see cref="Radios.PickerSighting.Decide"/>:
         /// a sighting from a list that is no longer current sets it, and one
-        /// from a current list clears it. Deliberately NOT touched by the
-        /// availability reconcile, whose SmartLink answer comes from the WAN
-        /// bank, which keeps its list across a drop.
+        /// from a current list clears it. The availability reconcile writes it
+        /// too, through <see cref="Radios.PickerSighting.Reconcile"/>, from the
+        /// list behind the WAN bank's answer: the bank keeps its entries across
+        /// a drop, so its SmartLink answer is last seen whenever that list is
+        /// no longer current (#619, Sol's review of L11). Until Track L12 the
+        /// reconcile left this alone and wrote the bank's answer as a bare
+        /// flag, which made a row fed only by the bank read online after a
+        /// drop.
         /// </summary>
         public bool WanUnconfirmed { get; set; }
 
@@ -679,8 +684,13 @@ namespace JJFlexWpf.Dialogs
         /// event, because the event says a radio left without saying WHICH home
         /// it left — a dual-homed radio dropping off the LAN is still perfectly
         /// reachable over SmartLink and must not be announced as gone.
+        /// <para><c>wanSighting</c> is the list behind the SmartLink answer
+        /// (<see cref="FlexBase.RadioAvailability(string, out FlexBase.RigData)"/>),
+        /// so the picker can tell a radio online over SmartLink from one only
+        /// last seen there. Every row write from this answer goes through
+        /// <see cref="Radios.PickerSighting.Reconcile"/>, which asks it (#619).</para>
         /// </summary>
-        public Func<string, (bool lan, bool wan)>? GetRadioAvailability { get; init; }
+        public Func<string, (bool lan, bool wan, FlexBase.RigData? wanSighting)>? GetRadioAvailability { get; init; }
 
         /// <summary>
         /// Live SmartLink account state (saved count plus the account that would
@@ -1857,9 +1867,25 @@ namespace JJFlexWpf.Dialogs
                 bool wasDual = row.DualHomed;
                 bool hadLan = row.LanAvailable;
                 bool hadWan = row.WanAvailable;
-                var avail = _callbacks.GetRadioAvailability?.Invoke(serial) ?? (lan: false, wan: false);
-                row.LanAvailable = avail.lan;
-                row.WanAvailable = avail.wan;
+                var avail = _callbacks.GetRadioAvailability?.Invoke(serial)
+                    ?? (lan: false, wan: false, wanSighting: null);
+                // The same seam the reconcile writes through, so "still
+                // reachable the other way" below is asked of a SmartLink half
+                // whose list is current. Before Track L12 a dual-homed radio
+                // that left the LAN after its SmartLink session had dropped was
+                // kept live off the WAN bank and announced as "still available
+                // over SmartLink" (#619, Sol's review of L11). Now it is last
+                // seen there, so it takes the "no longer answering" path below
+                // and its row reads last seen, still selectable.
+                lock (_radiosLock)
+                {
+                    var (paths, wanSighting) = Radios.PickerSighting.Reconcile(
+                        row.Paths, row.WanSighting, avail.lan, avail.wan, avail.wanSighting);
+                    row.WanSighting = wanSighting;
+                    row.LanAvailable = paths.Lan;
+                    row.WanAvailable = paths.Wan;
+                    row.WanUnconfirmed = paths.WanUnconfirmed;
+                }
 
                 var who = string.IsNullOrWhiteSpace(name)
                     ? (string.IsNullOrWhiteSpace(row.Name) ? Lexicon.Get("connect.selector.a_radio") : row.Name)
@@ -2046,6 +2072,26 @@ namespace JJFlexWpf.Dialogs
         /// list and the WAN handle map, so a row only reads reachable while
         /// something is actually vouching for it.
         /// </para>
+        /// <para>
+        /// <b>And the WAN handle map is asked WHICH LIST vouches (#619, Sol's
+        /// review of L11).</b> The map outlives the rig that filled it and
+        /// keeps its entries across a SmartLink drop, so "the map has it" is a
+        /// leg to try, not news about now. This used to write that answer as a
+        /// bare flag: a roster row fed only by the map — a push no rig consumed,
+        /// then this picker on a new rig whose replay raises nothing for the
+        /// radio — became live with nothing for the drop's re-ask to question,
+        /// and after the drop it read online, kept its occupancy clause, and the
+        /// auto-connect timer could choose it. Every row now goes through
+        /// <see cref="Radios.PickerSighting.Reconcile"/>, which reads the
+        /// SmartLink half as last seen whenever its list is no longer current,
+        /// and records that list as the row's <see cref="RadioListItem.WanSighting"/>
+        /// so the next re-ask questions it too. A row this withdraws is handled
+        /// as <see cref="ReassessWanRows"/> handles one: the live flag is
+        /// recomputed. A row whose SmartLink half changes between online and
+        /// last seen, with no local half, forgets its client list, so the
+        /// occupancy read below fetches it again from a list that is current or
+        /// leaves the row saying nothing.
+        /// </para>
         /// </remarks>
         private void ReconcileAvailability()
         {
@@ -2062,7 +2108,7 @@ namespace JJFlexWpf.Dialogs
             }
             if (serials.Count == 0) return;
 
-            var now = new Dictionary<string, (bool lan, bool wan)>(
+            var now = new Dictionary<string, (bool lan, bool wan, FlexBase.RigData? wanSighting)>(
                 StringComparer.OrdinalIgnoreCase);
             foreach (var serial in serials)
             {
@@ -2075,22 +2121,43 @@ namespace JJFlexWpf.Dialogs
                 }
             }
 
+            // Traced after the lock is released: no file IO under _radiosLock,
+            // which the UI thread also takes.
+            var changes = new List<string>();
+            bool withdrew = false;
             lock (_radiosLock)
             {
                 foreach (var r in _radiosList)
                 {
                     if (string.IsNullOrWhiteSpace(r.Serial)) continue;
                     if (!now.TryGetValue(r.Serial, out var avail)) continue;
-                    if (r.LanAvailable == avail.lan && r.WanAvailable == avail.wan) continue;
 
-                    Tracing.TraceLine(
-                        $"RigSelector: {r.Serial} availability now lan={avail.lan} wan={avail.wan} "
-                        + $"(was lan={r.LanAvailable} wan={r.WanAvailable}) — #254",
-                        System.Diagnostics.TraceLevel.Info);
-                    r.LanAvailable = avail.lan;
-                    r.WanAvailable = avail.wan;
+                    // Asked under the lock, at the moment the row is written,
+                    // as the sighting decision asks.
+                    var before = r.Paths;
+                    var (paths, wanSighting) = Radios.PickerSighting.Reconcile(
+                        before, r.WanSighting, avail.lan, avail.wan, avail.wanSighting);
+                    r.WanSighting = wanSighting;
+                    if (paths == before) continue;
+
+                    changes.Add(
+                        $"RigSelector: {r.Serial} availability now lan={paths.Lan} wan={paths.Wan} "
+                        + $"last-seen={paths.WanUnconfirmed} (was lan={before.Lan} wan={before.Wan} "
+                        + $"last-seen={before.WanUnconfirmed}), SmartLink half from "
+                        + $"{(wanSighting as FlexBase.RigData)?.Origin ?? "no list"} — #254, #619");
+                    r.LanAvailable = paths.Lan;
+                    r.WanAvailable = paths.Wan;
+                    r.WanUnconfirmed = paths.WanUnconfirmed;
+                    if (paths.Wan && paths.WanUnconfirmed != before.WanUnconfirmed && !paths.Lan)
+                        r.OccupancyKnown = false;
+                    if (before.IsLive && !paths.IsLive) withdrew = true;
                 }
+                if (withdrew)
+                    _anyLiveRadioSeen = _radiosList.Any(r => r.IsLive);
             }
+
+            foreach (var line in changes)
+                Tracing.TraceLine(line, System.Diagnostics.TraceLevel.Info);
         }
 
         /// <summary>
@@ -2345,8 +2412,12 @@ namespace JJFlexWpf.Dialogs
                     .Select(r => r.Serial)
                     .Distinct()
                     .ToList();
+                // Only a row whose SmartLink half is online asks: a last-seen
+                // row speaks no occupancy, and the bank refuses a list that is
+                // no longer current anyway (#619). Asking for a last-seen row
+                // would only be refused, and traced, on every repaint.
                 occupancyWanted = _radiosList
-                    .Where(r => r.WanAvailable && !r.OccupancyKnown
+                    .Where(r => r.WanAvailable && !r.WanUnconfirmed && !r.OccupancyKnown
                         && !string.IsNullOrWhiteSpace(r.Serial))
                     .Select(r => r.Serial)
                     .Distinct()
@@ -2372,6 +2443,10 @@ namespace JJFlexWpf.Dialogs
             // Don's occupied radio rendered with no occupancy clause. Live-ness
             // and occupancy now come from the same entries, or the row says
             // "client count unknown" — never a zero its source did not state.
+            // And the same list: FlexBase.TryGetWanGuiClientStations delivers
+            // a banked client list only while the list that wrote it is still
+            // current, the question the reconcile asked before marking the row
+            // online (#619, Sol's review of L11).
             var bankStationsBySerial =
                 new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
             foreach (var serial in occupancyWanted)
@@ -2423,7 +2498,7 @@ namespace JJFlexWpf.Dialogs
                     // yet — resolved above from the bank that made it live.
                     // Delivery, not a default: the flag flips so the row may
                     // speak a real count instead of "client count unknown".
-                    if (!r.OccupancyKnown && r.WanAvailable
+                    if (!r.OccupancyKnown && r.WanAvailable && !r.WanUnconfirmed
                         && r.Serial != null
                         && bankStationsBySerial.TryGetValue(r.Serial, out var bankedStations))
                     {

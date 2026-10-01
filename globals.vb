@@ -4719,7 +4719,13 @@ Module globals
                               End Function,
             .ShowSmartLinkAccountManager = Sub() WpfMainWindow.ShowSmartLinkAccountManager(),
             .AutoStartRemote = autoStartRemote,
-            .GetRadioAvailability = Function(serial) RigControl.RadioAvailability(serial),
+            .GetRadioAvailability = Function(serial)
+                                        ' The SmartLink answer carries the list behind it, so the
+                                        ' picker can tell online from last seen (#619).
+                                        Dim wanSighting As FlexBase.RigData = Nothing
+                                        Dim avail = RigControl.RadioAvailability(serial, wanSighting)
+                                        Return (avail.lan, avail.wan, wanSighting)
+                                    End Function,
             .GetSmartLinkAccountState = Function() ResolveSmartLinkAccountState(),
             .GetCurrentRig = Function() RigControl,
             .SetSessionAccount = Sub(email)

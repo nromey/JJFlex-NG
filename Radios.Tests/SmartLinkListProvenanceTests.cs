@@ -1631,6 +1631,445 @@ namespace Radios.Tests
             }
         }
 
+        // ------------------------------------------------------------------
+        // 8. The WAN bank carries its list (Sol's review of L11)
+        // ------------------------------------------------------------------
+
+        /// <summary>A rig engages presence and is torn down: the coordinator's
+        /// list event is wired to the dispatcher, and no rig consumes - the gap
+        /// between a teardown and the next picker, where a push only refreshes
+        /// FlexBase's static WAN bank.</summary>
+        private void LeaveNoIntake()
+        {
+            var earlier = NewRig();
+            earlier.EngageSmartLinkPresence();
+            earlier.Dispose();
+            Assert.True(FlexBase.PresenceIntake == null,
+                "A rig is still the presence intake, so a push would be consumed and raised as a sighting, and this test would not walk the path where only the bank hears it.");
+        }
+
+        /// <summary>A row the ruling calls last seen: not online, not the
+        /// timer's to choose, still the operator's.</summary>
+        private static void AssertLastSeen(PickerRowPaths paths, string because)
+        {
+            Assert.False(paths.IsLive, because);
+            Assert.False(PickerSighting.AutoConnectMayChoose(paths),
+                "The auto-connect timer could choose a row whose only evidence is a list that is no longer current (#619).");
+            Assert.True(paths.HasPathToTry, "a last-seen row was not selectable (Noel's ruling of 2026-09-30)");
+            Assert.True(paths.Wan);
+            Assert.True(paths.WanUnconfirmed);
+        }
+
+        /// <summary>
+        /// Sol's path, exactly. A push arrives while no rig is the intake, so
+        /// it refreshes only the static WAN bank and raises nothing. A picker
+        /// opens later on a NEW rig, whose replay raises nothing for the radio,
+        /// and paints the radio's saved roster row; its availability reconcile
+        /// asks the rig, which answers from the bank. Then SmartLink drops. The
+        /// row must read last seen - not online, no occupancy offered, refused
+        /// by auto-connect, still selectable - and a later current list brings
+        /// it back online.
+        /// </summary>
+        /// <remarks>
+        /// <para>Before Track L12 the reconcile wrote the bank's answer as a
+        /// bare flag: the row went live with no sighting, the drop's re-ask
+        /// (<see cref="PickerSighting.Reassess"/>) had nothing to question, and
+        /// the row read online for the rest of the visit. The assertion that
+        /// <c>Reassess(row, null)</c> is ignored states that shape for the
+        /// record; the bank's answer now carries a sighting, so the picker
+        /// never holds that shape.</para>
+        /// <para>The positive controls are that the bank really holds the
+        /// pushed radio and that, before the drop, it reads ONLINE - a current
+        /// bank entry still does. Banking with no list, answering with no
+        /// sighting, a reconcile that ignores the sighting, an occupancy read
+        /// that does not ask, or a current-handle lookup that takes any banked
+        /// handle each turn this red.</para>
+        /// </remarks>
+        [Fact]
+        public void A_saved_row_fed_only_by_the_WAN_bank_is_last_seen_after_a_drop_and_auto_connect_refuses_it()
+        {
+            var (owner, wan) = NewSession();
+            var coordinator = SmartLinkServices.Coordinator;
+            var releaseDial = new ManualResetEventSlim();
+            using var sightings = new AllSightings();
+
+            // The open picker's row and the sighting its SmartLink half speaks
+            // for, as the dialog holds them; re-asked when the drop is signalled.
+            PickerRowPaths row = default;
+            object? wanHalf = null;
+            var atSignal = new List<PickerSightingOutcome>();
+            EventHandler<IWanSessionOwner> onSignal = (_, _) =>
+            {
+                var reassessed = PickerSighting.Reassess(row, wanHalf!);
+                lock (atSignal) atSignal.Add(reassessed);
+            };
+            coordinator.SessionListCurrencyMayHaveChanged += onSignal;
+            try
+            {
+                LeaveNoIntake();
+
+                // The push no rig consumes.
+                ConnectAndList(owner, wan, Listed);
+                Assert.Equal(0, sightings.Count(Listed));
+
+                // The later picker's rig, and its opening replay: nothing.
+                var picker = NewRig();
+                picker.ReplayDiscoveredRadios();
+                Assert.Equal(0, sightings.Count(Listed));
+
+                // The saved roster row, painted from history, then reconciled.
+                var (lan, wanLeg) = picker.RadioAvailability(Listed, out var bank);
+                Assert.False(lan);
+                Assert.True(wanLeg,
+                    "Control: the bank does not hold the push no rig consumed, so this test is not walking Sol's path.");
+                Assert.NotNull(bank);
+                Assert.Contains("connection 1", bank!.Origin, StringComparison.Ordinal);
+
+                var painted = new PickerRowPaths(false, false, false);
+                var (online, half) = PickerSighting.Reconcile(painted, null!, lan, wanLeg, bank);
+                Assert.True(online.IsLive,
+                    "A bank entry whose list is current read as last seen; it is online (#619, Noel 2026-09-30).");
+                Assert.False(online.WanUnconfirmed);
+                Assert.True(PickerSighting.AutoConnectMayChoose(online));
+                Assert.Same(bank, half);
+                Assert.True(FlexBase.TryGetWanGuiClientStations(Listed, out _),
+                    "Control: a current bank entry's client list was not delivered.");
+                Assert.NotNull(FlexBase.findCurrentWanRadio(Listed));
+                row = online;
+                wanHalf = half;
+
+                // The shape before L12: live, and nothing the re-ask can question.
+                Assert.Equal(PickerSightingTreatment.Ignored, PickerSighting.Reassess(online, null!).Treatment);
+
+                int before;
+                lock (atSignal) before = atSignal.Count;
+
+                // The drop, with the redial held, so only the transport has spoken.
+                var heldBeforeDial = new ManualResetEventSlim();
+                wan.BeforeDialHook = () =>
+                {
+                    wan.BeforeDialHook = null;
+                    heldBeforeDial.Set();
+                    releaseDial.Wait(30000);
+                };
+                wan.ForceIsConnected(false);
+                Assert.True(heldBeforeDial.Wait(5000), "the monitor never got as far as deciding to dial");
+
+                List<PickerSightingOutcome> fromTheDrop;
+                lock (atSignal) fromTheDrop = atSignal.Skip(before).ToList();
+                Assert.True(fromTheDrop.Count > 0, "the drop was never signalled to the open picker");
+                Assert.Equal(PickerSightingTreatment.LastSeen, fromTheDrop[0].Treatment);
+                AssertLastSeen(fromTheDrop[0].Paths,
+                    "After a SmartLink drop a saved row fed only by the WAN bank still read online (#619, Sol's review of L11).");
+
+                // The next repaint's reconcile agrees. The bank still holds the
+                // handle - a leg to try - and says its list is history.
+                var (lan2, wan2) = picker.RadioAvailability(Listed, out var bankAfter);
+                Assert.True(wan2, "the bank dropped the handle, so the last-seen row would not be selectable");
+                Assert.NotNull(bankAfter);
+                Assert.False(bankAfter!.StillCurrent());
+                var (repainted, half2) = PickerSighting.Reconcile(fromTheDrop[0].Paths, wanHalf!, lan2, wan2, bankAfter);
+                AssertLastSeen(repainted, "the repaint after the drop read the bank's handle as online");
+
+                // And a picker that repaints the row as it stood, with no signal
+                // heard at all, reaches the same answer from the reconcile alone.
+                var (alone, _) = PickerSighting.Reconcile(online, null!, lan2, wan2, bankAfter);
+                AssertLastSeen(alone, "the reconcile alone read a dropped session's bank entry as online");
+
+                // Nothing else treats the old list as news about now.
+                Assert.False(FlexBase.TryGetWanGuiClientStations(Listed, out _),
+                    "A dropped session's client list was delivered as the radio's occupancy now (#619).");
+                Assert.Null(FlexBase.findCurrentWanRadio(Listed));
+
+                // The new connection's list, again consumed by no rig: current,
+                // so the row is online again.
+                releaseDial.Set();
+                WaitUntil(() => wan.ConnectionGeneration == 2 && owner.IsConnected, "the session never reconnected");
+                wan.RaiseWanRadioRadioListReceived(new[] { WanRadio(Listed) });
+                var (lan3, wan3) = picker.RadioAvailability(Listed, out var bankBack);
+                Assert.Contains("connection 2", bankBack!.Origin, StringComparison.Ordinal);
+                var (back, halfBack) = PickerSighting.Reconcile(repainted, half2, lan3, wan3, bankBack);
+                Assert.True(back.IsLive, "a current list did not bring the bank-fed row back online");
+                Assert.True(PickerSighting.AutoConnectMayChoose(back));
+                Assert.Same(bankBack, halfBack);
+                Assert.True(FlexBase.TryGetWanGuiClientStations(Listed, out _));
+                Assert.NotNull(FlexBase.findCurrentWanRadio(Listed));
+            }
+            finally
+            {
+                coordinator.SessionListCurrencyMayHaveChanged -= onSignal;
+                releaseDial.Set();
+                owner.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// A dual-homed radio: local discovery sees it and the bank holds its
+        /// SmartLink handle. Before the drop it is reachable both ways; after
+        /// it, its local half stays live and its SmartLink half is last seen,
+        /// and the rig no longer calls it dual-homed.
+        /// </summary>
+        /// <remarks>
+        /// The pre-drop answers are the control. An <c>IsDualHomed</c> that
+        /// does not ask the bank's list, or a reconcile that takes the local
+        /// half's liveness as the SmartLink half's, turns this red.
+        /// </remarks>
+        [Fact]
+        public void A_dual_homed_radio_whose_SmartLink_session_dropped_is_local_and_last_seen_on_SmartLink()
+        {
+            var (owner, wan) = NewSession();
+            try
+            {
+                LeaveNoIntake();
+                ConnectAndList(owner, wan, Listed);
+
+                var picker = NewRig();
+                Assert.True(MyRadioListField != null, "FlexBase.myRadioList is not where this test writes it.");
+                var local = WanRadio(Listed);
+                typeof(Radio).GetProperty(nameof(Radio.IsWan))!.GetSetMethod(nonPublic: true)!
+                    .Invoke(local, new object[] { false });
+                ((List<Radio>)MyRadioListField!.GetValue(picker)!).Add(local);
+
+                Assert.True(picker.IsDualHomed(Listed), "Control: the radio is not dual-homed before the drop.");
+                var (lan, wanLeg) = picker.RadioAvailability(Listed, out var bank);
+                var (dual, half) = PickerSighting.Reconcile(new PickerRowPaths(true, false, false), null!, lan, wanLeg, bank);
+                Assert.Equal(new PickerRowPaths(true, true, false), dual);
+
+                DropAndRedial(owner, wan);
+
+                Assert.False(picker.IsDualHomed(Listed),
+                    "A SmartLink handle left by a dropped session was reported as the radio's second home (#619).");
+                var (lan2, wan2) = picker.RadioAvailability(Listed, out var bankAfter);
+                Assert.True(lan2);
+                var (after, _) = PickerSighting.Reconcile(dual, half, lan2, wan2, bankAfter);
+                Assert.Equal(new PickerRowPaths(true, true, true), after);
+                Assert.True(after.IsLive, "the local half was withdrawn by a SmartLink drop");
+            }
+            finally
+            {
+                owner.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// The no-intake path asks the intake's question before it banks. A
+        /// list from connection 1 is accepted and parked before it is
+        /// forwarded; the transport dies, connection 2 is dialed and its list
+        /// is banked; then connection 1's list arrives at the dispatcher with
+        /// no rig to consume it. It must not overwrite the bank's current
+        /// entry, or the radio connection 2 lists would read last seen.
+        /// </summary>
+        /// <remarks>
+        /// Connection 2's banked entry reading current is the control.
+        /// Banking without asking turns the final assertion red.
+        /// </remarks>
+        [Fact]
+        public void A_push_no_rig_consumes_that_is_no_longer_current_does_not_overwrite_the_banks_current_list()
+        {
+            var (owner, wan) = NewSession();
+            var release = new ManualResetEventSlim();
+            try
+            {
+                LeaveNoIntake();
+                ConnectAndList(owner, wan, Listed);
+                var rig = NewRig();
+
+                var accepted = new ManualResetEventSlim();
+                owner.BeforeListForwarded = () =>
+                {
+                    owner.BeforeListForwarded = null;
+                    accepted.Set();
+                    Assert.True(release.Wait(5000), "the parked list was never released");
+                };
+                var oldList = Task.Run(() =>
+                    wan.RaiseWanRadioRadioListReceivedFrom(1, new[] { WanRadio(Listed) }));
+                Assert.True(accepted.Wait(5000), "connection 1's list was never accepted");
+
+                DropAndRedial(owner, wan);
+                wan.RaiseWanRadioRadioListReceived(new[] { WanRadio(Listed) });
+                rig.RadioAvailability(Listed, out var current);
+                Assert.True(current != null && current.StillCurrent(),
+                    "Control: connection 2's list was not banked as current.");
+                Assert.Contains("connection 2", current!.Origin, StringComparison.Ordinal);
+
+                release.Set();
+                Assert.True(oldList.Wait(5000), "the parked list never finished forwarding");
+
+                rig.RadioAvailability(Listed, out var after);
+                Assert.True(after != null && after.StillCurrent(),
+                    "A list no rig consumed, no longer current when it reached the bank, overwrote the current list's entry, so a radio the live connection lists would read last seen (#619).");
+                Assert.Contains("connection 2", after!.Origin, StringComparison.Ordinal);
+            }
+            finally
+            {
+                release.Set();
+                owner.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// The intake banks every radio with the list it consumed: a radio it
+        /// adds, and one it already held and merges. A picker asking the bank
+        /// about either is told which list vouches, and that list is current.
+        /// </summary>
+        /// <remarks>
+        /// Banking either write with no list makes the entry read last seen
+        /// while its list is current, and turns this red; the drop at the end
+        /// is the control that the same entry can answer no.
+        /// </remarks>
+        [Fact]
+        public void The_intake_banks_every_radio_with_the_list_it_consumed()
+        {
+            var (owner, wan) = NewSession();
+            try
+            {
+                var rig = NewRig();
+                rig.EngageSmartLinkPresence();
+
+                // Added: the first list to carry the radio.
+                ConnectAndList(owner, wan, Listed);
+                Assert.Equal(new[] { Listed }, WanSerialsInMyRadioList(rig));
+                rig.RadioAvailability(Listed, out var added);
+                Assert.True(added != null && added.StillCurrent(),
+                    "The intake banked a radio it added with no current list behind it, so a picker would show it as last seen (#619).");
+
+                // Merged: the same radio on the next list, already held.
+                wan.RaiseWanRadioRadioListReceived(new[] { WanRadio(Listed) });
+                rig.RadioAvailability(Listed, out var merged);
+                Assert.True(merged != null && merged.StillCurrent(),
+                    "The intake banked a radio it merged with no current list behind it, so a picker would show it as last seen (#619).");
+                Assert.NotSame(added, merged);
+                Assert.Contains("connection 1", merged!.Origin, StringComparison.Ordinal);
+
+                // Control: the same entry answers no once its list is history.
+                DropAndRedial(owner, wan);
+                rig.RadioAvailability(Listed, out var dropped);
+                Assert.Same(merged, dropped);
+                Assert.False(dropped!.StillCurrent());
+            }
+            finally
+            {
+                owner.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// The reconcile's rule, case by case: a current list this picker took
+        /// keeps vouching over a stale bank; a stale one gives way to a current
+        /// bank; a SmartLink answer with nothing to vouch for it is last seen;
+        /// an entry banked with no list is last seen; no SmartLink answer
+        /// leaves the half's confirmation as it was.
+        /// </summary>
+        [Fact]
+        public void The_reconcile_asks_the_list_that_vouches_for_the_SmartLink_half()
+        {
+            var (owner, wan) = NewSession();
+            try
+            {
+                ConnectAndList(owner, wan, Listed);
+                Assert.True(owner.ListIsCurrent(1) && !owner.ListIsCurrent(0));
+                var currentList = new FlexBase.RigData
+                {
+                    Serial = Listed,
+                    FromWanList = new FlexBase.WanListProvenance(owner, owner.SessionId, 1),
+                };
+                var staleList = new FlexBase.RigData
+                {
+                    Serial = Listed,
+                    FromWanList = new FlexBase.WanListProvenance(owner, owner.SessionId, 0),
+                };
+                var noList = new FlexBase.RigData { Serial = Listed, HeldWithoutAList = true };
+                var row = new PickerRowPaths(false, true, false);
+
+                var keep = PickerSighting.Reconcile(row, currentList, false, true, staleList);
+                Assert.Same(currentList, keep.WanSighting);
+                Assert.True(keep.Paths.IsLive);
+
+                var revive = PickerSighting.Reconcile(row with { WanUnconfirmed = true }, staleList, false, true, currentList);
+                Assert.Same(currentList, revive.WanSighting);
+                Assert.True(revive.Paths.IsLive);
+
+                AssertLastSeen(PickerSighting.Reconcile(row, null!, false, true, null!).Paths,
+                    "a SmartLink answer with nothing behind it read as online");
+                AssertLastSeen(PickerSighting.Reconcile(row, null!, false, true, noList).Paths,
+                    "a bank entry no list vouches for read as online");
+                AssertLastSeen(PickerSighting.Reconcile(row, staleList, false, true, staleList).Paths,
+                    "a stale list read as online");
+
+                var gone = PickerSighting.Reconcile(new PickerRowPaths(false, true, true), staleList, true, false, null!);
+                Assert.Equal(new PickerRowPaths(true, false, true), gone.Paths);
+                Assert.Same(staleList, gone.WanSighting);
+            }
+            finally
+            {
+                owner.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// The consumers that write from the bank's answer are a WPF window, a
+        /// VB callback and a connect wait no unit test runs, so their source is
+        /// read. The picker's availability reconcile and its radio-removed
+        /// handler both write the row through
+        /// <see cref="PickerSighting.Reconcile"/> with the answer's sighting;
+        /// the bank's occupancy is asked for only while the SmartLink half is
+        /// online; the app wires the callback to the overload that returns the
+        /// sighting; and the remote connect's wait for the radio takes only a
+        /// handle whose list is current.
+        /// </summary>
+        /// <remarks>
+        /// Writing the bank's flag bare in either handler, asking the bank for
+        /// a last-seen row's occupancy, wiring the callback to the overload
+        /// with no sighting, or a connect wait that takes any banked handle
+        /// each turns this red.
+        /// </remarks>
+        [Fact]
+        public void Every_writer_from_the_banks_answer_asks_the_list_behind_it()
+        {
+            string dialog = ReadRepoFile("JJFlexWpf/Dialogs/RigSelectorDialog.xaml.cs");
+
+            string reconcile = Body(dialog, "private void ReconcileAvailability()");
+            Assert.Contains("Radios.PickerSighting.Reconcile(", reconcile, StringComparison.Ordinal);
+            Assert.Contains("avail.wanSighting", reconcile, StringComparison.Ordinal);
+            Assert.Contains("r.WanSighting = wanSighting;", reconcile, StringComparison.Ordinal);
+            Assert.Contains("r.WanUnconfirmed = paths.WanUnconfirmed;", reconcile, StringComparison.Ordinal);
+            Assert.DoesNotContain("r.WanAvailable = avail.wan;", reconcile, StringComparison.Ordinal);
+
+            string removed = Body(dialog, "private void OnRadioRemoved(");
+            Assert.Contains("Radios.PickerSighting.Reconcile(", removed, StringComparison.Ordinal);
+            Assert.Contains("avail.wanSighting", removed, StringComparison.Ordinal);
+            Assert.Contains("row.WanUnconfirmed = paths.WanUnconfirmed;", removed, StringComparison.Ordinal);
+            Assert.DoesNotContain("row.WanAvailable = avail.wan;", removed, StringComparison.Ordinal);
+
+            string refresh = Body(dialog, "private void RefreshRadiosList(");
+            Assert.Contains(".Where(r => r.WanAvailable && !r.WanUnconfirmed && !r.OccupancyKnown", refresh, StringComparison.Ordinal);
+            Assert.Contains("if (!r.OccupancyKnown && r.WanAvailable && !r.WanUnconfirmed", refresh, StringComparison.Ordinal);
+
+            string globals = ReadRepoFile("globals.vb");
+            Assert.Contains("RigControl.RadioAvailability(serial, wanSighting)", globals, StringComparison.Ordinal);
+            Assert.Contains("Return (avail.lan, avail.wan, wanSighting)", globals, StringComparison.Ordinal);
+
+            string flexBase = ReadRepoFile("Radios/FlexBase.cs");
+            string reconnect = Body(flexBase, "public bool ReconnectRemote(");
+            Assert.Contains("? findCurrentWanRadio(serial)", reconnect, StringComparison.Ordinal);
+            Assert.DoesNotContain("findRadioForConnect(serial, forceWanPath)", reconnect, StringComparison.Ordinal);
+
+            static string Body(string text, string signature)
+            {
+                int start = text.IndexOf(signature, StringComparison.Ordinal);
+                Assert.True(start >= 0, signature + " is not where this test reads it.");
+                int open = text.IndexOf('{', start);
+                int depth = 0;
+                for (int i = open; i < text.Length; i++)
+                {
+                    if (text[i] == '{') depth++;
+                    else if (text[i] == '}' && --depth == 0) return text.Substring(start, i - start + 1);
+                }
+                Assert.Fail("The body of " + signature + " never closes.");
+                return "";
+            }
+        }
+
         private static string ReadRepoFile(string relative)
         {
             var dir = new System.IO.DirectoryInfo(AppContext.BaseDirectory);
