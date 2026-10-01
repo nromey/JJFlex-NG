@@ -197,6 +197,7 @@ namespace Radios.Alarms
             }
 
             string key;
+            double clearLine = def.ClearBoundary;
             if (e.Kind == AlarmEventKind.Reminder) key = "alarms.meter.reminder";
             else if (e.Kind == AlarmEventKind.Worsened) key = "alarms.meter.worsened";
             else if (def.Condition == AlarmCondition.Level && !float.IsNaN(e.Value) && !def.IsOnAlarmSide(e.Value))
@@ -216,7 +217,26 @@ namespace Radios.Alarms
                 // sentence and the episode cannot disagree. A Fired event the
                 // monitor itself emits is always on the alarm side and never
                 // comes here; only a re-read does.
-                key = def.Direction == AlarmDirection.AtOrAbove ? "alarms.meter.still_active_above" : "alarms.meter.still_active_below";
+                //
+                // **And what clears it is the monitor's rule, read from the
+                // monitor's flag (Astra's Track IJK4 review, blocker 1).** With
+                // a representable margin the clear is inclusive, so "at or
+                // below 58" is true. With none — a zero margin, or one that
+                // vanishes at the meter's precision — the clear is STRICTLY
+                // past the line (Noel, 2026-10-01: "less than 60"), so "at or
+                // below 60" promised a clearance the monitor never grants. The
+                // pair is chosen on HasRepresentableBand, the same flag
+                // IsBeyondClear branches on, so the sentence and the rule
+                // cannot diverge again; and the number stated is the line the
+                // rule compares against in that branch, the threshold, not a
+                // clear boundary that only displays as the threshold.
+                if (def.HasRepresentableBand)
+                    key = def.Direction == AlarmDirection.AtOrAbove ? "alarms.meter.still_active_above" : "alarms.meter.still_active_below";
+                else
+                {
+                    key = def.Direction == AlarmDirection.AtOrAbove ? "alarms.meter.still_active_above_no_band" : "alarms.meter.still_active_below_no_band";
+                    clearLine = def.Threshold;
+                }
             }
             else key = def.Condition switch
             {
@@ -229,7 +249,7 @@ namespace Radios.Alarms
             // "{value}" is inserted after every other placeholder is gone.
             string sentence = Lexicon.Get(key,
                 ("meter", meter.Label), ("value", value), ("units", Units(units)),
-                ("threshold", Value(def.Threshold, units)), ("clear", Value(def.ClearBoundary, units)),
+                ("threshold", Value(def.Threshold, units)), ("clear", Value(clearLine, units)),
                 ("change", change), ("interval", interval),
                 ("alarm", def.Name));
 

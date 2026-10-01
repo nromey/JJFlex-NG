@@ -187,9 +187,13 @@ namespace Radios.Tests.Alarms
         //  episode active inside its margin by design. So a Heat alarm at 60
         //  with a 2-degree margin, fired at 61 and re-read at 59, said "is 59
         //  degrees C, at or above 60 degrees C" — a comparison false of the
-        //  number it states. These are created-state tests: every value the
-        //  still-active band allows, both directions, through the same event
-        //  shape Refresh builds. The service-level cases are in
+        //  number it states. These are created-state tests through the same
+        //  event shape Refresh builds, both directions. The first group covers
+        //  values inside a REPRESENTABLE band (60/2 C, 12/0.2 V), where the
+        //  clear is inclusive; it does not cover a definition with no
+        //  representable band, which the branch also reaches and whose clear
+        //  is strict — that is the no-band group below (Astra's Track IJK4
+        //  review, blocker 1). The service-level cases are in
         //  AlarmDeliveryTests.
         // ────────────────────────────────────────────────────────────────
 
@@ -243,6 +247,72 @@ namespace Radios.Tests.Alarms
         {
             Assert.Equal("Your alarm named Low volts fired: +13.8A (+13.8V at PA) is " + spoken + " volts, at or below 12.00 volts.",
                 AlarmPhrasing.Warning(Ev(LowVolts(), SupplyA8600, value, tx: false)));
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        //  The still-active frame on an alarm with NO representable clear
+        //  margin (Astra's Track IJK4 review, blocker 1). Created-state tests.
+        //
+        //  With a zero margin, or one that collapses at the meter's float
+        //  precision (0.0000001 at 60 and at 12 both round the clear boundary
+        //  onto the line), the monitor clears only STRICTLY past the line —
+        //  Noel's ruling, 2026-10-01, "less than 60". The frame said "clears at
+        //  or below 60", a clearance the monitor never grants however many
+        //  samples of exactly 60 arrive. The frame must state the strict
+        //  boundary and the threshold. (The phrasing feeds def.Threshold, not
+        //  ClearBoundary, in this branch by construction; no sentence test can
+        //  see the difference, because 59.9999999 displays as 60 — feeding
+        //  ClearBoundary there leaves every test here green.)
+        // ────────────────────────────────────────────────────────────────
+
+        [Theory]
+        [InlineData(0.0, 59f, "59")]
+        [InlineData(0.0, 59.9f, "59.9")]
+        [InlineData(0.0000001, 59f, "59")]
+        [InlineData(0.0000001, 59.9f, "59.9")]
+        public void A_still_active_warning_above_with_no_representable_margin_says_it_clears_strictly_below_the_line(double margin, float value, string spoken)
+        {
+            var def = AlarmDefinition.NewLevel("heat", "Heat", Serial, MeterSelector.From(Pa), AlarmDirection.AtOrAbove, 60, margin)
+                with { Action = AlarmActionClass.NotifyOnly };
+            Assert.False(def.HasRepresentableBand);
+
+            string s = AlarmPhrasing.Warning(Ev(def, Pa, value, tx: false));
+            Assert.Equal("Your alarm named Heat is still active: PATEMP (PA Temperature) is " + spoken + " degrees C. The alarm clears below 60 degrees C.", s);
+            Assert.DoesNotContain("at or below", s);
+            Assert.DoesNotContain("at or above", s);
+            // The sentence's promise matches the monitor's rule at the stated line.
+            Assert.False(def.IsBeyondClear(60));
+        }
+
+        [Theory]
+        [InlineData(0.0, 12.1f, "12.10")]
+        [InlineData(0.0, 12.01f, "12.01")]
+        [InlineData(0.0000001, 12.1f, "12.10")]
+        [InlineData(0.0000001, 12.01f, "12.01")]
+        public void A_still_active_warning_below_with_no_representable_margin_says_it_clears_strictly_above_the_line(double margin, float value, string spoken)
+        {
+            var def = AlarmDefinition.NewLevel("lv", "Low volts", Serial, MeterSelector.From(SupplyA8600), AlarmDirection.AtOrBelow, 12, margin)
+                with { Action = AlarmActionClass.NotifyOnly };
+            Assert.False(def.HasRepresentableBand);
+
+            string s = AlarmPhrasing.Warning(Ev(def, SupplyA8600, value, tx: false));
+            Assert.Equal("Your alarm named Low volts is still active: +13.8A (+13.8V at PA) is " + spoken + " volts. The alarm clears above 12.00 volts.", s);
+            Assert.DoesNotContain("at or above", s);
+            Assert.DoesNotContain("at or below", s);
+            Assert.False(def.IsBeyondClear(12));
+        }
+
+        [Fact]
+        public void A_representable_band_still_says_at_or_below_and_at_or_above_its_clear_line()
+        {
+            // Controls for the pair choice: the inclusive frame stays where its
+            // claim is true, including a band as small as the meter can hold.
+            Assert.EndsWith("The alarm clears at or below 58 degrees C.", AlarmPhrasing.Warning(Ev(Heat(), Pa, 59f, tx: false)));
+            Assert.EndsWith("The alarm clears at or above 12.20 volts.", AlarmPhrasing.Warning(Ev(LowVolts(), SupplyA8600, 12.1f, tx: false)));
+            var tinyBand = AlarmDefinition.NewLevel("lv", "Low volts", Serial, MeterSelector.From(SupplyA8600), AlarmDirection.AtOrBelow, 12, 0.01)
+                with { Action = AlarmActionClass.NotifyOnly };
+            Assert.True(tinyBand.HasRepresentableBand);
+            Assert.EndsWith("The alarm clears at or above 12.01 volts.", AlarmPhrasing.Warning(Ev(tinyBand, SupplyA8600, 12.005f, tx: false)));
         }
 
         [Fact]

@@ -224,6 +224,71 @@ namespace Radios.Tests.Alarms
         }
 
         /// <summary>
+        /// Astra's Track IJK4 review, blocker 1 — introduced by the
+        /// still-active frame above. With a zero clear margin the monitor
+        /// clears only STRICTLY past the line (Noel, 2026-10-01: "less than
+        /// 60"), but the frame always said "clears at or below {clear}", so
+        /// the late warning promised a clearance at 60 that the monitor never
+        /// grants. Driven exactly as the finding describes: an enabled custom
+        /// Heat alarm, threshold 60, margin 0, the default two clearing samples
+        /// over one second; it fires at 61; the dispatch is held; one fresh 59
+        /// arrives; release with the warning sound off. And the mirror, a low
+        /// alarm at 12 with no margin.
+        /// </summary>
+        [Theory]
+        [InlineData("above")]
+        [InlineData("below")]
+        public void With_the_sound_off_a_late_warning_on_a_zero_margin_alarm_does_not_promise_clearance_at_the_line(string side)
+        {
+            var supplyA = new MeterDescriptor(2, "+13.8A", "+13.8V at PA", "RAD", 2, MeterUnits.Volts, 10.5, 15);
+            _warningsSoundOn = false;
+            _service = new AlarmService(_feed, new AlarmDefinitionStore(_root), _clock, null, startWatchdog: false);
+            var gate = new ManualResetEventSlim(false);
+            _service.EventDispatched += e => { if (e.Kind == AlarmEventKind.Fired) gate.Wait(5000); };
+            _delivery = new AlarmDelivery(_service, _speaker, () => _sounds.Add("tone"), _speechClock,
+                () => _warningsSoundOn, () => false, () => true, () => _cohort);
+            _delivery.Reported += r => { lock (_reports) _reports.Add(r); };
+            _feed.Connect(Serial, Pa, supplyA);
+
+            MeterDescriptor meter;
+            float fired, offSide;
+            string expected, falsePromise;
+            AlarmDefinition def;
+            if (side == "above")
+            {
+                def = AlarmDefinition.NewLevel("heat", "Heat", Serial, MeterSelector.From(Pa), AlarmDirection.AtOrAbove, 60, 0)
+                    with { Enabled = true, Action = AlarmActionClass.NotifyOnly };
+                meter = Pa; fired = 61f; offSide = 59f;
+                expected = "Your alarm named Heat is still active: PATEMP (PA Temperature) is 59 degrees C. The alarm clears below 60 degrees C.";
+                falsePromise = "at or below 60";
+            }
+            else
+            {
+                def = AlarmDefinition.NewLevel("lv", "Low volts", Serial, MeterSelector.From(supplyA), AlarmDirection.AtOrBelow, 12, 0)
+                    with { Enabled = true, Action = AlarmActionClass.NotifyOnly };
+                meter = supplyA; fired = 11.9f; offSide = 12.1f;
+                expected = "Your alarm named Low volts is still active: +13.8A (+13.8V at PA) is 12.10 volts. The alarm clears above 12.00 volts.";
+                falsePromise = "at or above 12";
+            }
+            Assert.Equal(2, def.ClearSamples);
+            Assert.False(def.HasRepresentableBand);
+            Assert.True(_service.Add(def));
+
+            _clock.Advance(2000); _feed.Deliver(meter, fired);    // Fired: the worker takes it and is held
+            Thread.Sleep(100);
+            _clock.Advance(2000); _feed.Deliver(meter, offSide);  // one clearing sample of two: still active
+            Assert.Equal(AlarmConditionState.Active, _service.SnapshotOf(def.Id)!.Condition);
+
+            gate.Set();
+            Assert.True(_service.DrainDispatch(5000));
+
+            var w = Assert.Single(_speaker.Warnings);
+            Assert.Equal(expected, w.Text);
+            Assert.DoesNotContain(falsePromise, w.Text);
+            Assert.Single(_reports, r => r.Event.Kind == AlarmEventKind.Fired && r.SpeechRequested);
+        }
+
+        /// <summary>
         /// The same question on the tone route's refresh, which had the
         /// pre-existing form of the defect: the closure handed to speech is
         /// asked again later, with the reading wherever it has gone. Inside

@@ -707,6 +707,14 @@ namespace Radios.Tests
             // margin, where "at or above the line" would be false of the
             // number stated. Frozen with the gate's printed lines, not
             // classified (#629 stands).
+            //
+            // 3,072 with alarms.meter.still_active_above_no_band and
+            // _below_no_band (Track IJK5, 2026-10-01, Astra's Track IJK4
+            // review, blocker 1): the same frame for an alarm with no clear
+            // margin the meter can represent, which clears only strictly past
+            // the line, so "at or below" would promise a clearance the monitor
+            // never grants. Frozen with the gate's printed lines, not
+            // classified (#629 stands).
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -719,7 +727,7 @@ namespace Radios.Tests
                 }
             }
 
-            Assert.Equal(3070, unclassified);
+            Assert.Equal(3072, unclassified);
             Assert.All(classified, key =>
                 Assert.StartsWith("facts.", key, StringComparison.Ordinal));
             Assert.True(classified.Count > 30,
