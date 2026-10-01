@@ -41,19 +41,18 @@ namespace JJFlexWpf
         public static Func<nint>? OwnerHandleProvider { get; set; }
 
         /// <summary>
-        /// The dialog whose title is the one currently pending under
+        /// Who owns the title currently pending under
         /// <see cref="Radios.Speech.SpeechSubject.DialogArrival"/> — the
-        /// identity the close hook checks before withdrawing anything.
+        /// identity the close hook checks before withdrawing anything. The
+        /// rule itself lives in <see cref="Radios.Speech.ArrivalTitleClaim"/>
+        /// so the search-to-picker handoff order is tested without a window.
         ///
         /// <para>Static because the subject is global: only one window's title
         /// can be the pending one, and which window that is has to be a fact
         /// the OTHER window can read. UI thread only (Loaded and Closed both
-        /// run there), so it needs no synchronisation. Never dereferenced —
-        /// only compared by reference and cleared — so it keeps no dialog
-        /// alive in any way that matters, and the next dialog to speak
-        /// replaces it.</para>
+        /// run there), so it needs no synchronisation.</para>
         /// </summary>
-        private static JJFlexDialog? _arrivalTitleOwner;
+        private static readonly Radios.Speech.ArrivalTitleClaim ArrivalTitle = new();
 
         private static nint ResolveOwnerHandle()
         {
@@ -143,8 +142,7 @@ namespace JJFlexWpf
             // no longer withdraw somebody else's.
             Closed += (_, _) =>
             {
-                if (!ReferenceEquals(_arrivalTitleOwner, this)) return;
-                _arrivalTitleOwner = null;
+                if (!ArrivalTitle.Release(this)) return;
                 Radios.ScreenReaderOutput.Supersede(
                     Radios.Speech.SpeechSubject.DialogArrival, "the dialog closed");
             };
@@ -265,7 +263,7 @@ namespace JJFlexWpf
                 // here — after the announcement, on the UI thread — is what
                 // stops an outgoing dialog's Closed hook withdrawing it during
                 // a deliberate handoff; see the constructor.
-                _arrivalTitleOwner = this;
+                ArrivalTitle.Claim(this);
             }
 
             // Focus first interactive control

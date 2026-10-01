@@ -70,6 +70,34 @@ namespace Radios.Alarms
     /// permission to transmit. Data lost while transmitting is a warning in
     /// its own right; in receive it is a queued Critical line.
     /// </para>
+    /// <para>
+    /// <b>THE SEAM WITH THE FACT STORE, mapped here on purpose (ruled by Noel
+    /// 2026-09-30, #566 and #611).</b> This class is the alarm's OWN delivery
+    /// route: the alarm service concludes a warning, this hands it to the
+    /// tone and to <see cref="ScreenReaderOutput.SpeakAlarm"/>, and the
+    /// arbiter takes the safety speaking turn for it. Integration also carries
+    /// the fact store, which already models the same obligation —
+    /// <c>Radios.Facts.DeliveryPriority.OperatorAlarm</c> is a slot class, and
+    /// <c>Radios.Facts.FactStoreCapacity</c> reserves one slot per enabled
+    /// alarm — and NOTHING here goes through it. That is the ruling, not an
+    /// oversight: <i>"we're not using the fact store yet, that'll come soon,
+    /// but by all means, we need the temp etc. to be useful."</i> So two owners
+    /// of "what alarm information is owed to the operator" ship side by side,
+    /// knowingly, and the later move has one place to start from:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><description><see cref="Warn"/> is where a concluded warning becomes a
+    /// delivery attempt. Under the fact store it becomes a producer publishing
+    /// onto the alarm's reserved slot, and the slot's lifecycle, not this
+    /// class's timer, decides what is still owed.</description></item>
+    /// <item><description><see cref="Refresh"/> is the condition check before each
+    /// attempt — the "is the current rendering still justified" question the
+    /// fact-store design asks per attempt. It moves with the producer.</description></item>
+    /// <item><description>The record of an undelivered warning is the alarm
+    /// service's snapshot and the alarms list, read through
+    /// <see cref="AlarmPhrasing.ActiveSummary"/>; under the store it is the
+    /// disconnected-reachable list the #617 design specifies.</description></item>
+    /// </list>
     /// </remarks>
     public sealed class AlarmDelivery : IDisposable
     {
