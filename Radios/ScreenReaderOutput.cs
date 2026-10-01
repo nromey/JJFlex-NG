@@ -523,15 +523,21 @@ namespace Radios
         /// the reader ever taking it, so the alarm can say it again on its own
         /// next fresh sample. Null when the caller does not care.
         /// </param>
+        /// <param name="silenced">
+        /// Told, at most once, when the operator silenced speech while this
+        /// warning was sounding, waiting its turn or settling for its retry,
+        /// so the alarm can withhold its interval reminder until the reading
+        /// worsens (#617). Null when the caller does not care.
+        /// </param>
         public static void SpeakAlarm(string message, string subject, Func<string?> refresh,
-            Action? notDelivered = null,
+            Action? notDelivered = null, Action? silenced = null,
             [CallerFilePath] string callerFile = "",
             [CallerLineNumber] int callerLine = 0,
             [CallerMemberName] string callerMember = "")
         {
             if (string.IsNullOrEmpty(message)) return;
             _arbiter.UrgentAlarm(message, VerbosityLevel.Critical,
-                FormatOrigin(callerFile, callerLine, callerMember), subject, refresh, notDelivered);
+                FormatOrigin(callerFile, callerLine, callerMember), subject, refresh, notDelivered, silenced);
         }
 
         /// <summary>

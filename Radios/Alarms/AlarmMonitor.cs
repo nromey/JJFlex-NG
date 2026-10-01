@@ -113,6 +113,7 @@ namespace Radios.Alarms
         private AlarmReminderReason _announceOnNextFresh = AlarmReminderReason.None;
         private long _snoozeUntilMs;
         private int _notificationRevision;
+        private bool _silencedUntilWorse;
 
         private float _baselineValue = float.NaN;
         private long _baselineSequence;
@@ -161,6 +162,15 @@ namespace Radios.Alarms
         /// it, which withdraws it" (Astra's Track I review, finding 1).
         /// </summary>
         public int NotificationRevision => _notificationRevision;
+
+        /// <summary>
+        /// True while the operator's silence stands: the current episode's
+        /// speech was silenced and the routine interval reminder is withheld
+        /// until the reading worsens (#617, ruled 2026-09-24). Separate from
+        /// <see cref="Notification"/> on purpose — silence is not an
+        /// acknowledgement, and the list must not say it was.
+        /// </summary>
+        public bool SilencedUntilWorse => _silencedUntilWorse;
 
         /// <summary>Seconds of snooze left at <paramref name="nowMs"/>, or zero.</summary>
         public double SnoozeRemainingSeconds(long nowMs) =>
@@ -378,14 +388,15 @@ namespace Radios.Alarms
             return Snapshot();
         }
 
-        /// <summary>End acknowledgement or snooze now, and repeat the current warning when the data is fresh.</summary>
+        /// <summary>End acknowledgement, snooze or silence now, and repeat the current warning when the data is fresh.</summary>
         public IReadOnlyList<AlarmEvent> Resume(long nowMs)
         {
             _out.Clear();
-            if (!HasEpisode || Notification == AlarmNotificationState.Unacknowledged) return Snapshot();
+            if (!HasEpisode || (Notification == AlarmNotificationState.Unacknowledged && !_silencedUntilWorse)) return Snapshot();
             Notification = AlarmNotificationState.Unacknowledged;
             _notificationRevision++;
             _snoozeUntilMs = 0;
+            _silencedUntilWorse = false;
             Emit(AlarmEventKind.Resumed, nowMs, null, float.NaN);
 
             if (Condition == AlarmConditionState.Active
@@ -419,6 +430,36 @@ namespace Radios.Alarms
         {
             _out.Clear();
             if (HasEpisode && _enabled) _announceOnNextFresh = AlarmReminderReason.DeliveryRetried;
+            return Snapshot();
+        }
+
+        /// <summary>
+        /// The operator silenced the current warning's speech — Ctrl during the
+        /// tone, or while the sentence was sounding or waiting its turn. The
+        /// routine interval reminder of the SAME reading is withheld from now
+        /// until the reading worsens; a worsening is a new fact and speaks
+        /// (#617, ruled 2026-09-24: <i>"if pressing control silences and the
+        /// alarm condition gets worse, then we definitely would want to speak
+        /// that warning again"</i> — so silence lasts until then).
+        /// </summary>
+        /// <remarks>
+        /// <para>Not an acknowledgement, and deliberately not a notification
+        /// state: <see cref="Notification"/> stays Unacknowledged, the episode
+        /// stays active and listed, nothing is disabled, and Resume lifts it.
+        /// Only the Interval reminder is withheld. The other reasons a warning
+        /// is said again — transmit resumed, data back after a loss, the
+        /// operator's own Resume, a delivery that failed — are events in their
+        /// own right, not restatements of the silenced reading, and still
+        /// speak. A new episode starts clean.</para>
+        /// <para>Ends the way Acknowledge ends: on a worsening, on Resume, on
+        /// clear, on data loss, on an edit or disable.</para>
+        /// </remarks>
+        public IReadOnlyList<AlarmEvent> WarningSilenced(long nowMs)
+        {
+            _out.Clear();
+            if (!HasEpisode || !_enabled || _silencedUntilWorse) return Snapshot();
+            _silencedUntilWorse = true;
+            Emit(AlarmEventKind.Silenced, nowMs, null, float.NaN);
             return Snapshot();
         }
 
@@ -565,6 +606,7 @@ namespace Radios.Alarms
                             Notification = AlarmNotificationState.None;
                             _snoozeUntilMs = 0;
                             _announceOnNextFresh = AlarmReminderReason.None;
+                            _silencedUntilWorse = false;
                             _clearing.Clear();
                             BreakPending();
                             _lastAnnouncedValue = float.NaN;
@@ -592,6 +634,10 @@ namespace Radios.Alarms
                     if (Definition.WorseningStep > 0 && !float.IsNaN(_lastAnnouncedValue)
                         && Definition.WorseningBetween(_lastAnnouncedValue, obs.Value) >= Definition.WorseningStep)
                     {
+                        // A worse reading is a new fact, not a replay: it ends
+                        // the operator's silence as well as bypassing
+                        // acknowledgement and snooze (#617, ruled 2026-09-24).
+                        _silencedUntilWorse = false;
                         Warn(AlarmEventKind.Worsened, obs, nowMs, AlarmReminderReason.None, change, interval);
                         return;
                     }
@@ -603,7 +649,11 @@ namespace Radios.Alarms
                         return;
                     }
 
+                    // The routine reminder of the SAME reading: owed to an
+                    // acknowledgement, a snooze, or the operator's silence,
+                    // and withheld by each (#617).
                     if (Notification == AlarmNotificationState.Unacknowledged
+                        && !_silencedUntilWorse
                         && Definition.ReminderIntervalSeconds > 0
                         && nowMs - _lastWarningMs >= Definition.ReminderIntervalSeconds * 1000)
                     {
@@ -645,6 +695,7 @@ namespace Radios.Alarms
             _notificationRevision++;
             _snoozeUntilMs = 0;
             _announceOnNextFresh = AlarmReminderReason.None;
+            _silencedUntilWorse = false;
             BreakPending();
             _clearing.Clear();
             _lastAnnouncedValue = obs.Value;
@@ -819,6 +870,7 @@ namespace Radios.Alarms
             Notification = AlarmNotificationState.None;
             _snoozeUntilMs = 0;
             _announceOnNextFresh = AlarmReminderReason.None;
+            _silencedUntilWorse = false;
             if (Condition == AlarmConditionState.Active) Condition = AlarmConditionState.LastKnownActive;
             else if (Condition is AlarmConditionState.Pending or AlarmConditionState.WaitingForScope)
                 Condition = AlarmConditionState.Normal;
@@ -841,6 +893,7 @@ namespace Radios.Alarms
             Notification = AlarmNotificationState.None;
             _snoozeUntilMs = 0;
             _announceOnNextFresh = AlarmReminderReason.None;
+            _silencedUntilWorse = false;
             _lastAnnouncedValue = float.NaN;
             _clearing.Clear();
             Emit(kind, nowMs, null, float.NaN, detail: detail, episode: episode);

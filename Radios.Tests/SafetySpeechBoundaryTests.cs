@@ -443,8 +443,8 @@ namespace Radios.Tests
             // the cue stage hands over goes INTO this test's arbiter and real
             // pump, so the positive control is a backend start, not a list.
             using var cue = new RealCueStage(() => _arbiter.SafetyQuietGeneration,
-                (text, subject, refresh, notDelivered) =>
-                    _arbiter.UrgentAlarm(text, VerbosityLevel.Critical, "AlarmDelivery.cs Warn", subject, refresh, notDelivered));
+                (text, subject, refresh, notDelivered, silenced) =>
+                    _arbiter.UrgentAlarm(text, VerbosityLevel.Critical, "AlarmDelivery.cs Warn", subject, refresh, notDelivered, silenced));
             cue.DeliverReading(63.5f);
 
             Assert.Equal(new[] { "tone" }, cue.Sounds);
@@ -477,6 +477,66 @@ namespace Radios.Tests
                 var call = _ch.WaitForCall();
                 Assert.Equal(cue.Spoken[0], call.Text);
                 Assert.Equal(new[] { cue.Spoken[0] }, BackendStarts());
+            }
+        }
+
+        [Theory]
+        [InlineData(true)]    // the operator presses Ctrl while the warning is sounding
+        [InlineData(false)]   // the positive control: nobody does, and the interval reminder speaks
+        public void ASilenceWhileTheWarningSounds_WithholdsTheIntervalReminder_UntilTheReadingWorsens(bool silence)
+        {
+            // #617, ruled 2026-09-24: silence lasts until the condition gets
+            // worse. The predecessor's report named the gap — a Ctrl stood the
+            // current presentation down, and the next thirty-second interval
+            // reminder of the SAME reading spoke anyway. Here the sentence is
+            // already with the arbiter and the real pump when the silence
+            // comes, so the signal has to travel arbiter → speaker → service →
+            // monitor; the cue stage's own tone-time detection is the other
+            // route, tested in AlarmDeliveryTests.
+            using var cue = new RealCueStage(() => _arbiter.SafetyQuietGeneration,
+                (text, subject, refresh, notDelivered, silenced) =>
+                    _arbiter.UrgentAlarm(text, VerbosityLevel.Critical, "AlarmDelivery.cs Warn", subject, refresh, notDelivered, silenced));
+            cue.DeliverReading(61f);
+            cue.Clock.Advance(AlarmDelivery.ToneLeadMs + 1);
+            var first = _ch.WaitForCall();
+            Assert.Contains("61", first.Text);
+
+            if (silence)
+            {
+                _ch.Mark(first);
+                _arbiter.OnSilenced();                       // Ctrl, mid-sentence
+                _ch.CancelFromOutside(first, marksReached: 1, elapsedMs: 300);
+                SettleForBackendWork();
+                Assert.True(cue.Snapshot()!.SilencedUntilWorse);
+                Assert.Equal(AlarmNotificationState.Unacknowledged, cue.Snapshot()!.Notification);
+            }
+            else
+            {
+                _ch.Complete(first, 2000);
+                Assert.False(cue.Snapshot()!.SilencedUntilWorse);
+            }
+
+            // Thirty-odd seconds of the same reading.
+            for (int i = 0; i < 18; i++) { cue.DeliverReading(61f); cue.Clock.Advance(AlarmDelivery.ToneLeadMs + 1); }
+            SettleForBackendWork();
+
+            if (silence)
+            {
+                Assert.Single(cue.Spoken);                   // nothing more was handed over
+                Assert.Equal(new[] { first.Text }, BackendStarts());
+
+                // A worse reading is a new fact: tone, then the sentence.
+                cue.DeliverReading(63.5f);
+                cue.Clock.Advance(AlarmDelivery.ToneLeadMs + 1);
+                var worse = _ch.WaitForCall();
+                Assert.Contains("63.5", worse.Text);
+                Assert.False(cue.Snapshot()!.SilencedUntilWorse);
+            }
+            else
+            {
+                Assert.Equal(2, cue.Spoken.Count);           // the interval reminder of the same reading
+                var reminder = _ch.WaitForCall();
+                Assert.Contains("61", reminder.Text);
             }
         }
 
@@ -610,7 +670,7 @@ namespace Radios.Tests
             public List<string> Sounds { get; } = new();
             public IReadOnlyList<string> Spoken => _speaker.Spoken;
 
-            public RealCueStage(Func<long> quietGeneration, Action<string, string, Func<string?>, Action?>? forward = null)
+            public RealCueStage(Func<long> quietGeneration, Action<string, string, Func<string?>, Action?, Action?>? forward = null)
             {
                 _speaker.Forward = forward;
                 _service = new AlarmService(_feed, new AlarmDefinitionStore(_root), _alarmClock, null, startWatchdog: false);
@@ -648,11 +708,11 @@ namespace Radios.Tests
             private sealed class Speaker : IAlarmSpeaker
             {
                 public readonly List<string> Spoken = new();
-                public Action<string, string, Func<string?>, Action?>? Forward;
-                public void SpeakWarning(string text, string subject, Func<string?> refresh, Action? notDelivered = null)
+                public Action<string, string, Func<string?>, Action?, Action?>? Forward;
+                public void SpeakWarning(string text, string subject, Func<string?> refresh, Action? notDelivered = null, Action? silenced = null)
                 {
                     lock (Spoken) Spoken.Add(text);
-                    Forward?.Invoke(text, subject, refresh, notDelivered);
+                    Forward?.Invoke(text, subject, refresh, notDelivered, silenced);
                 }
                 public void SpeakStatus(string text, VerbosityLevel level, string subject) { }
             }
@@ -696,7 +756,7 @@ namespace Radios.Tests
             string src = ScreenReaderOutputSource();
             Assert.Contains("public static void SpeakAlarm(", src);
             Assert.Contains("_arbiter.UrgentAlarm(message, VerbosityLevel.Critical,", src);
-            Assert.Contains("subject, refresh, notDelivered);", src);
+            Assert.Contains("subject, refresh, notDelivered, silenced);", src);
         }
 
         [Fact]

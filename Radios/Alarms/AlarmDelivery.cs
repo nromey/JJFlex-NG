@@ -19,7 +19,14 @@ namespace Radios.Alarms
         /// for a warning the operator silenced — that is theirs to keep quiet
         /// until the condition worsens (#617).
         /// </param>
-        void SpeakWarning(string text, string subject, Func<string?> refresh, Action? notDelivered = null);
+        /// <param name="silenced">
+        /// Called, at most once, when the operator silenced speech while this
+        /// warning was sounding, waiting its turn, or settling for its retry.
+        /// The alarm then withholds its routine interval reminder until the
+        /// reading worsens (#617, ruled 2026-09-24). Never called together
+        /// with <paramref name="notDelivered"/> for the same hand-over.
+        /// </param>
+        void SpeakWarning(string text, string subject, Func<string?> refresh, Action? notDelivered = null, Action? silenced = null);
 
         /// <summary>A state update: queued, never interrupting, at the given level.</summary>
         void SpeakStatus(string text, VerbosityLevel level, string subject);
@@ -28,8 +35,8 @@ namespace Radios.Alarms
     /// <summary>Production speech: <see cref="ScreenReaderOutput.SpeakAlarm"/> and a queued <see cref="ScreenReaderOutput.Speak"/>.</summary>
     public sealed class ScreenReaderAlarmSpeaker : IAlarmSpeaker
     {
-        public void SpeakWarning(string text, string subject, Func<string?> refresh, Action? notDelivered = null) =>
-            ScreenReaderOutput.SpeakAlarm(text, subject, refresh, notDelivered);
+        public void SpeakWarning(string text, string subject, Func<string?> refresh, Action? notDelivered = null, Action? silenced = null) =>
+            ScreenReaderOutput.SpeakAlarm(text, subject, refresh, notDelivered, silenced);
 
         public void SpeakStatus(string text, VerbosityLevel level, string subject) =>
             ScreenReaderOutput.Speak(text, SpeechIntent.Queue, level, subject: subject);
@@ -163,6 +170,7 @@ namespace Radios.Alarms
             public string Subject = "";
             public Func<string?> Refresh = () => null;
             public Action? NotDelivered;
+            public Action? Silenced;
         }
 
         private readonly Dictionary<string, PendingWarning> _continuations =
@@ -261,6 +269,11 @@ namespace Radios.Alarms
             // without the reader taking it, and the alarm's next fresh sample
             // says it again. A preview is a test and is not re-raised.
             Action? notDelivered = preview ? null : () => _service.WarningNotDelivered(alarmId);
+            // And when the operator silences it — during the tone (judged
+            // here, below) or once it is with the speech layer (judged there)
+            // — the alarm withholds its interval reminder until the reading
+            // worsens (#617). A preview is a test and silences nothing.
+            Action? silenced = preview ? null : () => _service.WarningSilenced(alarmId);
 
             bool speechRequested = true;
             lock (_gate)
@@ -290,7 +303,7 @@ namespace Radios.Alarms
                     }
                     else
                     {
-                        _speaker.SpeakWarning(current, subject, refresh, notDelivered);
+                        _speaker.SpeakWarning(current, subject, refresh, notDelivered, silenced);
                     }
                 }
                 else if (_continuations.TryGetValue(alarmId, out PendingWarning? waiting))
@@ -305,6 +318,7 @@ namespace Radios.Alarms
                     waiting.Subject = subject;
                     waiting.Refresh = refresh;
                     waiting.NotDelivered = notDelivered;
+                    waiting.Silenced = silenced;
                     waiting.Cohort = SafeQuietGeneration();
                 }
                 else
@@ -323,6 +337,7 @@ namespace Radios.Alarms
                         Subject = subject,
                         Refresh = refresh,
                         NotDelivered = notDelivered,
+                        Silenced = silenced,
                     };
                     pending.Timer = _clock.StartTimer(lead, () => Continue(alarmId, generation));
                     _continuations[alarmId] = pending;
@@ -353,7 +368,13 @@ namespace Radios.Alarms
             {
                 Tracing.TraceLine("AlarmDelivery: the operator silenced speech during the warning tone, so the "
                     + "sentence behind it is not spoken automatically; the alarm is unchanged and still in the "
-                    + "alarms list [" + alarmId + "]", TraceLevel.Info);
+                    + "alarms list, and withholds its interval reminder until the reading worsens [" + alarmId + "]",
+                    TraceLevel.Info);
+                // The alarm is told, so the silence lasts past this one
+                // presentation (#617): the next 30-second reminder of the same
+                // reading would otherwise speak as though nothing had happened.
+                try { pending.Silenced?.Invoke(); }
+                catch (Exception ex) { Tracing.TraceLine("AlarmDelivery: the silenced callback threw — " + ex.Message, TraceLevel.Warning); }
                 return;
             }
 
@@ -366,7 +387,7 @@ namespace Radios.Alarms
                     TraceLevel.Info);
                 return;
             }
-            _speaker.SpeakWarning(current, pending.Subject, pending.Refresh, pending.NotDelivered);
+            _speaker.SpeakWarning(current, pending.Subject, pending.Refresh, pending.NotDelivered, pending.Silenced);
         }
 
         /// <summary>

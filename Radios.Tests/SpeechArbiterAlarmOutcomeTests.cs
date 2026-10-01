@@ -211,6 +211,54 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void ASilence_TellsEachAlarmItStoodDown_OncePerAlarm_AndNeverThatItWasNotDelivered()
+        {
+            // #617: the sounding alarm, the one waiting its turn, and the one
+            // settling for its retry are each told SILENCED, once, so they
+            // withhold their interval reminders until their readings worsen —
+            // and none is told "not delivered", which would overrule the key.
+            var silencedA = 0; var toldA = 0;
+            var silencedB = 0; var toldB = 0;
+            var silencedC = 0; var toldC = 0;
+
+            // C: cancelled at word zero, settling for its one retry.
+            _arbiter.UrgentAlarm("Warning C", VerbosityLevel.Critical, "AlarmDelivery", Subject("c"), () => "Warning C",
+                () => toldC++, () => silencedC++);
+            _arbiter.OnOutcome(TicketOf("Warning C"), "Warning C", SpeechOutcome.Cancelled(0, 2, byUs: false, elapsedMs: 10));
+            // A: sounding (tracked, no answer yet).
+            _arbiter.UrgentAlarm(Alarm, VerbosityLevel.Critical, "AlarmDelivery", Subject("a"), () => Alarm, () => toldA++, () => silencedA++);
+            // B: waiting its turn behind A.
+            _arbiter.UrgentAlarm("Warning B", VerbosityLevel.Critical, "AlarmDelivery", Subject("b"), () => "Warning B",
+                () => toldB++, () => silencedB++);
+            Assert.Equal(1, _arbiter.AlarmPendingCount);
+
+            _arbiter.OnSilenced();
+
+            Assert.Equal((1, 1, 1), (silencedA, silencedB, silencedC));
+            Assert.Equal((0, 0, 0), (toldA, toldB, toldC));
+            Assert.Equal(0, _arbiter.AlarmPendingCount);
+
+            // And the late answer for A, and C's settle, tell nobody anything more.
+            _arbiter.OnOutcome(TicketOf(Alarm), Alarm, SpeechOutcome.Cancelled(1, Words(Alarm), byUs: false, elapsedMs: 50));
+            _clock.Advance(SpeechArbiter.AlarmRetrySettleMs + 10);
+            Assert.Equal((1, 1, 1), (silencedA, silencedB, silencedC));
+            Assert.Equal((0, 0, 0), (toldA, toldB, toldC));
+        }
+
+        [Fact]
+        public void ASilence_WithNoAlarmInvolved_TellsNoAlarmAnything()
+        {
+            // An alarm that already completed is not "silenced" by a later
+            // Ctrl on something else.
+            int silenced = 0;
+            _arbiter.UrgentAlarm(Alarm, VerbosityLevel.Critical, "AlarmDelivery", Subject(), () => Alarm, null, () => silenced++);
+            int words = Words(Alarm);
+            _arbiter.OnOutcome(TicketOf(Alarm), Alarm, SpeechOutcome.Completed(words, words, 2000));
+            _arbiter.OnSilenced();
+            Assert.Equal(0, silenced);
+        }
+
+        [Fact]
         public void AnOlderAttemptsLateAnswer_IsNotReported_WhenANewerHandOverOnTheSameAlarmCarriesIt()
         {
             // The alarm said it again on its own (a worsening) before the first

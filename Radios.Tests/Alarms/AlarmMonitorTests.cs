@@ -620,6 +620,68 @@ namespace Radios.Tests.Alarms
         }
 
         [Fact]
+        public void A_silenced_warning_withholds_the_interval_reminder_until_the_reading_worsens_and_is_not_an_acknowledgement()
+        {
+            // #617, ruled 2026-09-24: "if pressing control silences and the
+            // alarm condition gets worse, then we definitely would want to
+            // speak that warning again" — so silence lasts until then, and
+            // the same reading is not restated at the next interval.
+            var m = new AlarmMonitor(Level(60, reminder: 30, worsening: 2));
+            var feed = new Feed();
+            m.Observe(feed.At(1000, 61f), 1000);
+            var told = m.WarningSilenced(1500).ToList();
+            Assert.Equal(1, Count(told, AlarmEventKind.Silenced));
+            Assert.True(m.SilencedUntilWorse);
+            Assert.Equal(AlarmNotificationState.Unacknowledged, m.Notification);   // NOT acknowledged
+            Assert.Equal(AlarmConditionState.Active, m.Condition);
+
+            var quiet = Steady(m, feed, 3000, 35_000, 61f);
+            Assert.Equal(0, Count(quiet, AlarmEventKind.Reminder));
+
+            var worse = m.Observe(feed.At(37_000, 63.5f), 37_000).ToList();
+            Assert.Equal(1, Count(worse, AlarmEventKind.Worsened));
+            Assert.False(m.SilencedUntilWorse);
+
+            // The silence is over: the routine reminder returns on its interval.
+            var after = Steady(m, feed, 39_000, 69_000, 63.5f);
+            Assert.Equal(1, Count(after, AlarmEventKind.Reminder));
+        }
+
+        [Fact]
+        public void PositiveControl_an_unsilenced_warning_reminds_on_its_interval()
+        {
+            var m = new AlarmMonitor(Level(60, reminder: 30, worsening: 2));
+            var feed = new Feed();
+            m.Observe(feed.At(1000, 61f), 1000);
+            Assert.Equal(1, Count(Steady(m, feed, 3000, 35_000, 61f), AlarmEventKind.Reminder));
+        }
+
+        [Fact]
+        public void Resume_lifts_a_silence_and_a_new_episode_starts_without_one()
+        {
+            var m = new AlarmMonitor(Level(60, reminder: 30, worsening: 2, clearSamples: 2, clearSeconds: 1));
+            var feed = new Feed();
+            m.Observe(feed.At(1000, 61f), 1000);
+            m.WarningSilenced(1500);
+            var resumed = m.Resume(2000).ToList();
+            Assert.Equal(1, Count(resumed, AlarmEventKind.Resumed));
+            Assert.Equal(1, Count(resumed, AlarmEventKind.Reminder));   // the operator asked to hear it
+            Assert.False(m.SilencedUntilWorse);
+
+            m.WarningSilenced(2500);
+            Assert.True(m.SilencedUntilWorse);
+            m.Observe(feed.At(4000, 57f), 4000);
+            m.Observe(feed.At(6000, 57f), 6000);   // cleared
+            Assert.False(m.SilencedUntilWorse);
+            m.Observe(feed.At(8000, 61f), 8000);   // a new episode fires, and reminds on its interval
+            Assert.Equal(1, Count(Steady(m, feed, 10_000, 40_000, 61f), AlarmEventKind.Reminder));
+
+            // Silencing with no episode does nothing, and says nothing.
+            var idle = new AlarmMonitor(Level());
+            Assert.Empty(idle.WarningSilenced(100));
+        }
+
+        [Fact]
         public void Acknowledgement_rearms_automatically_after_a_clear_and_a_new_crossing_is_a_new_episode()
         {
             var m = new AlarmMonitor(Level(60, 2));

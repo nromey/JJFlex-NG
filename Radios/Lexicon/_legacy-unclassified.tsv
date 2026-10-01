@@ -158,6 +158,7 @@ alarms.event.pending	5d52c4cb631325e5
 alarms.event.preview	2a1e8e77d2795d33
 alarms.event.scope_entered	7ec243c20ff49906
 alarms.event.scope_left	37ba7c3420700c1c
+alarms.event.silenced	c0cfd6bfa68fdf25
 alarms.event.snooze_expired	4f88b8441ac6ee90
 alarms.event.trend_covered	93de496012980ed1
 alarms.event.trend_insufficient	07bd8a94a6749648

@@ -19,9 +19,10 @@ namespace Radios.Tests.Alarms
             public readonly List<(string Text, string Subject, Func<string?> Refresh)> Warnings = new();
             public readonly List<(string Text, VerbosityLevel Level, string Subject)> Status = new();
             public readonly List<Action?> NotDelivered = new();
-            public void SpeakWarning(string text, string subject, Func<string?> refresh, Action? notDelivered = null)
+            public readonly List<Action?> Silenced = new();
+            public void SpeakWarning(string text, string subject, Func<string?> refresh, Action? notDelivered = null, Action? silenced = null)
             {
-                lock (Warnings) { Warnings.Add((text, subject, refresh)); NotDelivered.Add(notDelivered); }
+                lock (Warnings) { Warnings.Add((text, subject, refresh)); NotDelivered.Add(notDelivered); Silenced.Add(silenced); }
             }
             public void SpeakStatus(string text, VerbosityLevel level, string subject) { lock (Status) Status.Add((text, level, subject)); }
         }
@@ -232,7 +233,7 @@ namespace Radios.Tests.Alarms
         }
 
         [Fact]
-        public void A_silence_after_the_replacement_still_stands_the_sentence_down()
+        public void A_silence_after_the_replacement_still_stands_the_sentence_down_and_the_alarm_is_told()
         {
             Up();
             Deliver(61f);
@@ -241,7 +242,55 @@ namespace Radios.Tests.Alarms
             _cohort = 1;           // Ctrl, after the worsening
             _speechClock.Advance(AlarmDelivery.ToneLeadMs);
             Assert.Empty(_speaker.Warnings);
-            Assert.Equal(AlarmConditionState.Active, _service!.SnapshotOf("pa")!.Condition);
+            var snap = _service!.SnapshotOf("pa")!;
+            Assert.Equal(AlarmConditionState.Active, snap.Condition);
+            // #617: the alarm knows it was silenced — not acknowledged — so its
+            // interval reminder of the same reading is withheld until worse.
+            Assert.True(snap.SilencedUntilWorse);
+            Assert.Equal(AlarmNotificationState.Unacknowledged, snap.Notification);
+        }
+
+        [Fact]
+        public void A_silence_during_the_tone_withholds_the_interval_reminder_until_the_reading_worsens()
+        {
+            // The #617 gap the predecessor named: Ctrl stood the current
+            // presentation down, and the next 30-second interval reminder of
+            // the SAME reading spoke anyway. Through the real delivery, service
+            // and monitor on manual clocks; the speech layer is the fake
+            // speaker, so the silence here is the one the delivery itself
+            // detects during the tone.
+            Up();
+            Deliver(61f);
+            _cohort = 1;                                   // Ctrl, during the tone
+            _speechClock.Advance(AlarmDelivery.ToneLeadMs);
+            Assert.Empty(_speaker.Warnings);
+
+            // Thirty-odd seconds of the same reading: no reminder.
+            for (int i = 0; i < 18; i++) { Deliver(61f); _speechClock.Advance(AlarmDelivery.ToneLeadMs); }
+            Assert.Empty(_speaker.Warnings);
+            Assert.True(_service!.SnapshotOf("pa")!.SilencedUntilWorse);
+
+            // A worse reading is a new fact and speaks; the silence is over.
+            Deliver(63.5f);
+            _speechClock.Advance(AlarmDelivery.ToneLeadMs);
+            var w = Assert.Single(_speaker.Warnings);
+            Assert.Contains("63.5", w.Text);
+            Assert.False(_service.SnapshotOf("pa")!.SilencedUntilWorse);
+
+            // And the routine reminders are back: thirty seconds on, it says so.
+            for (int i = 0; i < 18; i++) { Deliver(63.5f); _speechClock.Advance(AlarmDelivery.ToneLeadMs); }
+            Assert.Equal(2, _speaker.Warnings.Count);
+        }
+
+        [Fact]
+        public void PositiveControl_WithoutASilence_TheIntervalReminderOfTheSameReadingSpeaks()
+        {
+            Up();
+            Deliver(61f);
+            _speechClock.Advance(AlarmDelivery.ToneLeadMs);
+            Assert.Single(_speaker.Warnings);
+            for (int i = 0; i < 18; i++) { Deliver(61f); _speechClock.Advance(AlarmDelivery.ToneLeadMs); }
+            Assert.Equal(2, _speaker.Warnings.Count);
         }
 
         [Fact]

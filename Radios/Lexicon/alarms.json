@@ -88,6 +88,7 @@
   "alarms.event.out_of_range": "{alarm}: {value} {units} is outside the meter's published range.",
   "alarms.event.old_generation": "{alarm}: a reading from an earlier connection was ignored.",
   "alarms.event.snooze_expired": "{alarm}: snooze over.",
+  "alarms.event.silenced": "{alarm}: speech silenced. It will speak again if the reading gets worse.",
   "alarms.event.baseline_invalidated": "{alarm}: the baseline no longer applies. Capture a new one in receive.",
   "alarms.event.trend_warming_up": "{alarm}: gathering the first hundred seconds before the trend can be judged.",
   "alarms.event.trend_insufficient": "{alarm}: the trend cannot be judged, {why}.",

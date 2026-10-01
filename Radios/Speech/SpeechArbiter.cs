@@ -1271,6 +1271,7 @@ namespace Radios.Speech
             public string? Origin;
             public Func<string?> Refresh = () => null;
             public Action? NotDelivered;
+            public Action? Silenced;
             public DateTime QueuedUtc;
             public int RefreshFailures;
         }
@@ -1321,6 +1322,7 @@ namespace Radios.Speech
             public string? Origin;
             public Func<string?> Refresh = () => null;
             public Action? NotDelivered;
+            public Action? Silenced;
             public DateTime EmittedUtc;
             public long Cohort;
 
@@ -1333,6 +1335,15 @@ namespace Radios.Speech
 
         /// <summary>Tracked alarm hand-overs awaiting the reader's answer, oldest first.</summary>
         private readonly List<AlarmAttempt> _alarmAttempts = new List<AlarmAttempt>();
+
+        /// <summary>
+        /// The last UNTRACKED alarm hand-over — one nobody will report on, so it
+        /// is never in <see cref="_alarmAttempts"/> — kept only so a Silence
+        /// while it is believed sounding can tell its alarm (#617). Cleared by
+        /// the next alarm hand-over of any kind.
+        /// </summary>
+        private string? _lastUntrackedAlarmSubject;
+        private Action? _lastUntrackedAlarmSilenced;
 
         /// <summary>Alarm attempts whose one retry is settling, oldest first.</summary>
         private readonly List<AlarmAttempt> _alarmRetriesPending = new List<AlarmAttempt>();
@@ -1365,8 +1376,15 @@ namespace Radios.Speech
         /// set, or its condition unreadable — so the alarm can say it again on
         /// its own next fresh sample. Never told for a silence.
         /// </param>
+        /// <param name="silenced">
+        /// Told, at most once, when the operator silences speech while this
+        /// warning is sounding, waiting its turn or settling for its retry
+        /// (#617): the alarm then withholds its interval reminder until the
+        /// reading worsens. Never told together with
+        /// <paramref name="notDelivered"/> for the same hand-over.
+        /// </param>
         public void UrgentAlarm(string message, VerbosityLevel level, string? origin,
-            string subject, Func<string?> refresh, Action? notDelivered = null)
+            string subject, Func<string?> refresh, Action? notDelivered = null, Action? silenced = null)
         {
             if (string.IsNullOrEmpty(message)) return;
             lock (_lock)
@@ -1375,16 +1393,16 @@ namespace Radios.Speech
                 SafetyTurn? turn = _safety.TryReserveForAlarm(subject, now);
                 if (turn == null)
                 {
-                    DeferAlarmLocked(message, level, origin, subject, refresh, notDelivered, now);
+                    DeferAlarmLocked(message, level, origin, subject, refresh, notDelivered, silenced, now);
                     return;
                 }
-                EmitAlarmLocked(turn, message, level, origin, subject, refresh, notDelivered, now, deferredMs: 0, why: null);
+                EmitAlarmLocked(turn, message, level, origin, subject, refresh, notDelivered, silenced, now, deferredMs: 0, why: null);
             }
         }
 
         /// <summary>Something holds the turn: wait, keeping one pending sentence per alarm.</summary>
         private void DeferAlarmLocked(string message, VerbosityLevel level, string? origin,
-            string subject, Func<string?> refresh, Action? notDelivered, DateTime now)
+            string subject, Func<string?> refresh, Action? notDelivered, Action? silenced, DateTime now)
         {
             DateTime? ends = _safety.EndsAtUtc;
             int waitMs = ends == null ? 0 : Math.Max(0, (int)(ends.Value - now).TotalMilliseconds);
@@ -1400,6 +1418,7 @@ namespace Radios.Speech
                 existing.Origin = origin;
                 existing.Refresh = refresh;
                 existing.NotDelivered = notDelivered;
+                existing.Silenced = silenced;
             }
             else
             {
@@ -1423,7 +1442,7 @@ namespace Radios.Speech
                 _alarmPending.Add(new PendingAlarm
                 {
                     Subject = subject, Message = message, Level = level, Origin = origin,
-                    Refresh = refresh, NotDelivered = notDelivered, QueuedUtc = now,
+                    Refresh = refresh, NotDelivered = notDelivered, Silenced = silenced, QueuedUtc = now,
                 });
             }
 
@@ -1448,7 +1467,7 @@ namespace Radios.Speech
         /// it has never needed to delete a safety obligation.</para>
         /// </summary>
         private void EmitAlarmLocked(SafetyTurn turn, string message, VerbosityLevel level, string? origin,
-            string subject, Func<string?> refresh, Action? notDelivered, DateTime now, int deferredMs, string? why)
+            string subject, Func<string?> refresh, Action? notDelivered, Action? silenced, DateTime now, int deferredMs, string? why)
         {
             DiscardOrdinaryLocked("an alarm warning discards everything queued");
             try { _silenceBackend(); } catch { }
@@ -1463,6 +1482,9 @@ namespace Radios.Speech
             int estimate = EstimateLocked(message);
             _safety.Bind(turn, handoff, estimate, now);
             if (!handoff.Tracked) _readerBusyUntilUtc = now.AddMilliseconds(estimate);
+
+            _lastUntrackedAlarmSubject = handoff.Tracked ? null : subject;
+            _lastUntrackedAlarmSilenced = handoff.Tracked ? null : silenced;
 
             if (handoff.Tracked)
             {
@@ -1482,7 +1504,7 @@ namespace Radios.Speech
                 _alarmAttempts.Add(new AlarmAttempt
                 {
                     Ticket = handoff.Ticket, Subject = subject, Message = message, Level = level, Origin = origin,
-                    Refresh = refresh, NotDelivered = notDelivered, EmittedUtc = now, Cohort = turn.QuietGeneration,
+                    Refresh = refresh, NotDelivered = notDelivered, Silenced = silenced, EmittedUtc = now, Cohort = turn.QuietGeneration,
                     IsRetry = why != null && why.StartsWith("retry", StringComparison.Ordinal),
                 });
             }
@@ -1640,7 +1662,7 @@ namespace Radios.Speech
 
                     int deferredMs = (int)(now - next.QueuedUtc).TotalMilliseconds;
                     EmitAlarmLocked(turn, current, next.Level, next.Origin, next.Subject, next.Refresh, next.NotDelivered,
-                        now, deferredMs, why: null);
+                        next.Silenced, now, deferredMs, why: null);
                     break;
                 }
 
@@ -1806,7 +1828,7 @@ namespace Radios.Speech
                         $"SpeechArbiter: the alarm retry found the safety turn held, so the warning waits its turn instead [subject '{subject}']",
                         TraceLevel.Info);
                     DeferAlarmLocked(attempt.Message, attempt.Level, attempt.Origin, subject, attempt.Refresh,
-                        attempt.NotDelivered, now);
+                        attempt.NotDelivered, attempt.Silenced, now);
                     return;
                 }
 
@@ -1830,7 +1852,7 @@ namespace Radios.Speech
                     return;
                 }
                 EmitAlarmLocked(turn, current, attempt.Level, attempt.Origin, subject, attempt.Refresh, attempt.NotDelivered,
-                    now, deferredMs: 0, why: "retry once, because the first hand-over said nothing at all");
+                    attempt.Silenced, now, deferredMs: 0, why: "retry once, because the first hand-over said nothing at all");
             }
         }
 
@@ -1891,6 +1913,11 @@ namespace Radios.Speech
             {
                 var now = _clock.UtcNow;
 
+                // Asked before the turn is ended below, while it can still be.
+                SafetyTurn? holding = _safety.Current;
+                _untrackedAlarmWasSoundingAtSilence = holding != null && holding.Class == SafetyClass.OperatorAlarm
+                    && holding.Bound && !holding.Tracked;
+
                 // First, so that everything below is judged against the NEW
                 // cohort. A callback still in flight for an attempt admitted
                 // before this line inherits the pause when it lands, because
@@ -1910,15 +1937,60 @@ namespace Radios.Speech
                     Tracing.TraceLine($"SpeechArbiter: {_alarmPending.Count} waiting alarm(s) let go, the operator silenced speech; "
                         + "every one of their conditions is unchanged and still in the alarms list",
                         TraceLevel.Info);
+
+                // **Every alarm whose warning this silence stood down is TOLD
+                // it was silenced (#617, ruled 2026-09-24), once per alarm:**
+                // the one sounding, the ones waiting their turn, and the one
+                // settling for its retry. Not "not delivered" — that would make
+                // the alarm's next reading overrule the shut-up key — but
+                // "silenced", so the alarm withholds its interval reminder of
+                // the same reading until the reading worsens. Collected before
+                // anything is cleared, and invoked after the lock's own
+                // bookkeeping, so a callback that re-enters the alarm service
+                // finds this arbiter consistent.
+                var silencedSubjects = new HashSet<string>(StringComparer.Ordinal);
+                var tell = new List<(string Subject, Action Silenced)>();
+                foreach (var p in _alarmPending)
+                    if (p.Silenced != null && silencedSubjects.Add(p.Subject)) tell.Add((p.Subject, p.Silenced));
+                foreach (var a in _alarmAttempts)
+                    if (a.Silenced != null && silencedSubjects.Add(a.Subject)) tell.Add((a.Subject, a.Silenced));
+                foreach (var a in _alarmRetriesPending)
+                    if (a.Silenced != null && silencedSubjects.Add(a.Subject)) tell.Add((a.Subject, a.Silenced));
+                // An untracked alarm nobody reports on is believed sounding
+                // while its estimate runs; the turn it holds says so.
+                if (_untrackedAlarmWasSoundingAtSilence
+                    && _lastUntrackedAlarmSilenced != null && _lastUntrackedAlarmSubject != null
+                    && silencedSubjects.Add(_lastUntrackedAlarmSubject))
+                    tell.Add((_lastUntrackedAlarmSubject, _lastUntrackedAlarmSilenced));
+                _untrackedAlarmWasSoundingAtSilence = false;
+
                 _alarmPending.Clear();
                 _alarmTimer?.Dispose(); _alarmTimer = null; _alarmGeneration++;
                 // Attempts still awaiting an answer, and retries settling, are
-                // forgotten WITHOUT telling their alarms: a silence is the
-                // operator's, and telling the alarm would make its next
-                // reading overrule the shut-up key (#617).
+                // forgotten WITHOUT telling their alarms "not delivered": a
+                // silence is the operator's.
                 RetireAlarmAttemptsLocked(null, "the operator silenced speech");
+                _lastUntrackedAlarmSubject = null;
+                _lastUntrackedAlarmSilenced = null;
+
+                foreach (var (subject, silenced) in tell)
+                {
+                    Tracing.TraceLine($"SpeechArbiter: the operator silenced an alarm's warning [subject '{subject}']; the alarm is told, "
+                        + "so its interval reminder of the same reading is withheld until the reading worsens (#617). "
+                        + "Nothing is acknowledged and the condition is unchanged.", TraceLevel.Info);
+                    try { silenced(); }
+                    catch (Exception ex) { Tracing.TraceLine($"SpeechArbiter: the silenced callback threw — {ex.Message}", TraceLevel.Warning); }
+                }
             }
         }
+
+        /// <summary>
+        /// Set at the top of <see cref="OnSilenced"/>, before the coordinator's
+        /// turn is ended, when the turn being ended is an UNTRACKED alarm's:
+        /// the only moment the question "was the untracked alarm sounding"
+        /// can still be answered.
+        /// </summary>
+        private bool _untrackedAlarmWasSoundingAtSilence;
 
         /// <summary>
         /// Drop all pending state, protected obligations included. Shutdown
@@ -1940,6 +2012,8 @@ namespace Radios.Speech
                 _alarmPending.Clear();
                 _alarmTimer?.Dispose(); _alarmTimer = null; _alarmGeneration++;
                 RetireAlarmAttemptsLocked(null, "all speech state discarded");
+                _lastUntrackedAlarmSubject = null;
+                _lastUntrackedAlarmSilenced = null;
             }
         }
 

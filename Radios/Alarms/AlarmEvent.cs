@@ -50,6 +50,15 @@ namespace Radios.Alarms
         SnoozeExpired,
         Resumed,
 
+        /// <summary>
+        /// The operator silenced the current warning's speech. Interval
+        /// reminders of the SAME reading are withheld until the condition
+        /// worsens, which is a new fact and speaks (#617, ruled 2026-09-24).
+        /// Not an acknowledgement: the notification state is untouched, the
+        /// episode is active and in the list, and nothing is disabled.
+        /// </summary>
+        Silenced,
+
         BaselineCaptured,
         BaselineRefused,
         BaselineInvalidated,

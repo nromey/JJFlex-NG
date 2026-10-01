@@ -24,7 +24,8 @@ namespace Radios.Alarms
         AlarmEvent? LastEvent,
         bool Transmitting,
         float LastAnnouncedValue,
-        int NotificationRevision);
+        int NotificationRevision,
+        bool SilencedUntilWorse = false);
 
     /// <summary>
     /// The live attachment: one per rig, alive whether or not any window is
@@ -170,7 +171,7 @@ namespace Radios.Alarms
                 e.Resolution.Status, e.Resolution.Match, m.LastFresh,
                 m.LastFresh.HasValue ? m.LastFresh.Value.AgeSeconds(now) : double.NaN,
                 m.EpisodeId, m.SnoozeRemainingSeconds(now), e.LastEvent, m.IsTransmitting, m.LastAnnouncedValue,
-                m.NotificationRevision);
+                m.NotificationRevision, m.SilencedUntilWorse);
         }
 
         /// <summary>The last <see cref="RecentEventsKept"/> events, oldest first.</summary>
@@ -877,6 +878,25 @@ namespace Radios.Alarms
                 if (_disposed || !_entries.TryGetValue(alarmId, out Entry? entry)) return;
                 entry.Monitor.WarningNotDelivered(_clock.NowMs);
             }
+        }
+
+        /// <summary>
+        /// The operator silenced this alarm's warning — the speech layer stood
+        /// its sounding or waiting attempt down, or the delivery stood the
+        /// sentence down during the tone. The monitor withholds the routine
+        /// interval reminder until the reading worsens (#617); the Silenced
+        /// event goes to the journal and the list like any other. Called from
+        /// the speech layer's or the delivery's thread; takes the service lock
+        /// briefly and speaks nothing.
+        /// </summary>
+        public void WarningSilenced(string alarmId)
+        {
+            lock (_gate)
+            {
+                if (_disposed || !_entries.TryGetValue(alarmId, out Entry? entry)) return;
+                Post(entry, entry.Monitor.WarningSilenced(_clock.NowMs));
+            }
+            RaiseChanged();
         }
 
         private void Remember(AlarmEvent e)

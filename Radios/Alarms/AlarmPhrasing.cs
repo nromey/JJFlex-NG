@@ -453,6 +453,7 @@ namespace Radios.Alarms
                 case AlarmEventKind.Acknowledged: return Lexicon.Get("alarms.acknowledged", ("alarm", alarm));
                 case AlarmEventKind.Snoozed: return Lexicon.Get("alarms.snoozed", ("seconds", Age(e.SnoozeSeconds)), ("alarm", alarm));
                 case AlarmEventKind.Resumed: return Lexicon.Get("alarms.resumed", ("alarm", alarm));
+                case AlarmEventKind.Silenced: return Lexicon.Get("alarms.event.silenced", ("alarm", alarm));
                 case AlarmEventKind.BaselineCaptured:
                     return Tidy(Lexicon.Get("alarms.baseline_captured", ("value", Value(e.Baseline, units)), ("units", u)));
                 case AlarmEventKind.BaselineRefused:

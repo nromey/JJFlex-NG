@@ -681,6 +681,12 @@ namespace Radios.Tests
             // own branch). Each side's paragraphs above are kept so the figure can
             // be re-derived; the number is the sum, confirmed by running this test
             // on the merged tree rather than by arithmetic alone.
+            //
+            // 3,063 with alarms.event.silenced (Track IJK2, 2026-10-01): the
+            // history row for the operator's Ctrl standing an alarm's warning
+            // down, which #617's 2026-09-24 ruling makes a state of its own —
+            // not an acknowledgement — lasting until the reading worsens. Frozen
+            // with the gate's printed line, not classified (#629 stands).
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -693,7 +699,7 @@ namespace Radios.Tests
                 }
             }
 
-            Assert.Equal(3062, unclassified);
+            Assert.Equal(3063, unclassified);
             Assert.All(classified, key =>
                 Assert.StartsWith("facts.", key, StringComparison.Ordinal));
             Assert.True(classified.Count > 30,
