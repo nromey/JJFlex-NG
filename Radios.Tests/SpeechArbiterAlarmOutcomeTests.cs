@@ -142,6 +142,46 @@ namespace Radios.Tests
             Assert.Equal(0, told);   // delivered in the end: nobody is told
         }
 
+        /// <summary>
+        /// Astra's Track IJK2 review, the delivery-bound qualification. The
+        /// retry that waited behind the cut lost its identity on the way
+        /// through the waiting set: ReleaseAlarms recorded it as a FIRST
+        /// attempt, so a second foreign cancellation earned another retry
+        /// instead of telling the alarm, and "one bounded retry" was false on
+        /// this route. The test above ends as the waited retry starts; this
+        /// one cancels it.
+        /// </summary>
+        [Fact]
+        public void ARetryThatWaitedBehindTheCut_IsStillTheOneRetry_SoASecondForeignCancellationTellsTheAlarm()
+        {
+            int told = 0;
+            _arbiter.UrgentAlarm(Alarm, VerbosityLevel.Critical, "AlarmDelivery", Subject(), () => Alarm, () => told++);
+            long first = TicketOf(Alarm);
+            _clock.Advance(300);
+            _arbiter.OnOutcome(first, Alarm, SpeechOutcome.Cancelled(0, Words(Alarm), byUs: false, elapsedMs: 300));
+            _clock.Advance(200);
+            _arbiter.Urgent(Cut, VerbosityLevel.Critical, "Ptt", SpeechSubject.ReflectedPowerCut);
+            _clock.Advance(SpeechArbiter.AlarmRetrySettleMs);          // the retry finds the turn held and waits
+            Assert.Equal(1, _arbiter.AlarmPendingCount);
+
+            int words = Words(Cut);
+            _clock.Advance(1500);
+            _arbiter.OnOutcome(TicketOf(Cut), Cut, SpeechOutcome.Completed(words, words, 1500));
+            _clock.Advance(60);
+            Assert.Equal(2, Messages.Count(m => m == Alarm));          // the waited retry is speaking
+            long retry = TicketOf(Alarm);
+            Assert.NotEqual(first, retry);
+
+            // Cut again at word zero by a cause nobody can name.
+            _clock.Advance(250);
+            _arbiter.OnOutcome(retry, Alarm, SpeechOutcome.Cancelled(0, Words(Alarm), byUs: false, elapsedMs: 250));
+
+            Assert.Equal(1, told);                                       // the alarm is told now ...
+            _clock.Advance(SpeechArbiter.AlarmRetrySettleMs + 10);
+            Assert.Equal(2, Messages.Count(m => m == Alarm));          // ... and no third attempt is made
+            Assert.Equal(0, _arbiter.AlarmPendingCount);
+        }
+
         [Fact]
         public void ASecondForeignCancellation_AfterTheOneRetry_TellsTheAlarm_RatherThanDroppingIt()
         {

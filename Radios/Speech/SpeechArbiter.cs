@@ -1300,6 +1300,16 @@ namespace Radios.Speech
             public Action? Silenced;
             public DateTime QueuedUtc;
             public int RefreshFailures;
+
+            /// <summary>
+            /// True when the waiting warning IS the one bounded retry, parked
+            /// here because the safety turn was held when its settle elapsed.
+            /// Carried so the eventual hand-over is still a retry: without
+            /// this it was recorded as a first attempt and a second foreign
+            /// cancellation earned another retry instead of telling the alarm
+            /// (Astra's Track IJK2 review, delivery-bound qualification).
+            /// </summary>
+            public bool IsRetry;
         }
 
         /// <summary>
@@ -1428,7 +1438,8 @@ namespace Radios.Speech
 
         /// <summary>Something holds the turn: wait, keeping one pending sentence per alarm.</summary>
         private void DeferAlarmLocked(string message, VerbosityLevel level, string? origin,
-            string subject, Func<string?> refresh, Action? notDelivered, Action? silenced, DateTime now)
+            string subject, Func<string?> refresh, Action? notDelivered, Action? silenced, DateTime now,
+            bool isRetry = false)
         {
             DateTime? ends = _safety.EndsAtUtc;
             int waitMs = ends == null ? 0 : Math.Max(0, (int)(ends.Value - now).TotalMilliseconds);
@@ -1438,13 +1449,15 @@ namespace Radios.Speech
             {
                 // A newer statement on the same subject replaces the waiting
                 // one; the queue position is kept, so one noisy producer
-                // cannot reset every other producer's wait.
+                // cannot reset every other producer's wait. The newest
+                // instruction also decides whether this is still a retry.
                 existing.Message = message;
                 existing.Level = level;
                 existing.Origin = origin;
                 existing.Refresh = refresh;
                 existing.NotDelivered = notDelivered;
                 existing.Silenced = silenced;
+                existing.IsRetry = isRetry;
             }
             else
             {
@@ -1469,6 +1482,7 @@ namespace Radios.Speech
                 {
                     Subject = subject, Message = message, Level = level, Origin = origin,
                     Refresh = refresh, NotDelivered = notDelivered, Silenced = silenced, QueuedUtc = now,
+                    IsRetry = isRetry,
                 });
             }
 
@@ -1687,8 +1701,11 @@ namespace Radios.Speech
                     }
 
                     int deferredMs = (int)(now - next.QueuedUtc).TotalMilliseconds;
+                    // A parked retry is still the one retry when it finally
+                    // speaks: "one bounded retry" must hold on this route too.
                     EmitAlarmLocked(turn, current, next.Level, next.Origin, next.Subject, next.Refresh, next.NotDelivered,
-                        next.Silenced, now, deferredMs, why: null);
+                        next.Silenced, now, deferredMs,
+                        why: next.IsRetry ? "retry once, made after waiting behind the safety turn" : null);
                     break;
                 }
 
@@ -1854,7 +1871,7 @@ namespace Radios.Speech
                         $"SpeechArbiter: the alarm retry found the safety turn held, so the warning waits its turn instead [subject '{subject}']",
                         TraceLevel.Info);
                     DeferAlarmLocked(attempt.Message, attempt.Level, attempt.Origin, subject, attempt.Refresh,
-                        attempt.NotDelivered, attempt.Silenced, now);
+                        attempt.NotDelivered, attempt.Silenced, now, isRetry: true);
                     return;
                 }
 
