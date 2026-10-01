@@ -167,10 +167,23 @@ namespace Radios.Alarms
             ? Threshold - Hysteresis
             : Threshold + Hysteresis;
 
-        /// <summary>True when <paramref name="value"/> is on the alarm side of the inclusive boundary.</summary>
+        /// <summary>
+        /// True when <paramref name="value"/> is on the alarm side of the
+        /// inclusive boundary.
+        /// </summary>
+        /// <remarks>
+        /// <b>Compared at the meter's own precision.</b> Meter values arrive as
+        /// single-precision floats and the line is a double, and 12.0 plus a
+        /// 0.2 margin is 12.199999999999999 in double while a reading of
+        /// exactly 12.2 is 12.19999980926514 as a float — so "equality at the
+        /// reset line still clears", which the design promises and the tests
+        /// pin, was false by one ulp for a supply alarm until Track IJK's
+        /// falling-voltage tests met it. Both sides are taken to float before
+        /// the compare, which is the precision the question is asked in.
+        /// </remarks>
         public bool IsOnAlarmSide(double value) => Direction == AlarmDirection.AtOrAbove
-            ? value >= Threshold
-            : value <= Threshold;
+            ? (float)value >= (float)Threshold
+            : (float)value <= (float)Threshold;
 
         /// <summary>
         /// True when <paramref name="value"/> is at or beyond the clear
@@ -191,17 +204,17 @@ namespace Radios.Alarms
         /// positive margin; this is the one that changes no ruled number.
         /// </remarks>
         public bool IsBeyondClear(double value) => Direction == AlarmDirection.AtOrAbove
-            ? (Hysteresis > 0 ? value <= ClearBoundary : value < Threshold)
-            : (Hysteresis > 0 ? value >= ClearBoundary : value > Threshold);
+            ? (Hysteresis > 0 ? (float)value <= (float)ClearBoundary : (float)value < (float)Threshold)
+            : (Hysteresis > 0 ? (float)value >= (float)ClearBoundary : (float)value > (float)Threshold);
 
         /// <summary>
         /// The same question for a delta alarm, asked of the measured rise or
         /// fall rather than the level: with a margin, a change at or below
         /// threshold minus margin clears; with none, only a change strictly
-        /// below the threshold does.
+        /// below the threshold does. At the meter's precision, as above.
         /// </summary>
         public bool IsChangeBeyondClear(double change) =>
-            Hysteresis > 0 ? change <= Threshold - Hysteresis : change < Threshold;
+            Hysteresis > 0 ? (float)change <= (float)(Threshold - Hysteresis) : (float)change < (float)Threshold;
 
         /// <summary>
         /// Positive when <paramref name="later"/> is worse than <paramref name="earlier"/>
