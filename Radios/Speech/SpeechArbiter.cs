@@ -3215,10 +3215,13 @@ namespace Radios.Speech
         ///   foreign cancel of its own accord: on a live desk the operator's
         ///   keys cancel NVDA constantly, and a rescue per keystroke is #554's
         ///   runaway with a better excuse.
-        /// - **Unknown, refused** — it leaves the ledger. The reader took
-        ///   nothing, so nothing is occupied and nothing is owed; the trace
-        ///   says so loudly because a refusal is a fault in the app or the
-        ///   reader's mode, not a normal outcome.
+        /// - **Unknown, refused** — it STAYS, as never started (inverted
+        ///   2026-09-23, #606). The reader took nothing, so none of it has
+        ///   been heard and all of it is still owed; the trace says so loudly
+        ///   because a refusal is a fault in the app or the reader's mode, not
+        ///   a normal outcome. This line said "it leaves the ledger ... nothing
+        ///   is owed" for a week after the code stopped doing that (Astra's
+        ///   Track IJK review, J8 follow-up).
         /// - **Unknown, anything else** — it becomes an UNTRACKED entry on
         ///   the estimate path from now, exactly as if #521 had never landed
         ///   for this one utterance, and the trace says the ledger is
