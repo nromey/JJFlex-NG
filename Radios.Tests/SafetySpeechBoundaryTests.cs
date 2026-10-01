@@ -747,7 +747,7 @@ namespace Radios.Tests
         [Fact]
         public void ThePublicUrgentRoute_StillCarriesTheSubjectIntoTheArbitersSafetyPath()
         {
-            Assert.Contains("_arbiter.Urgent(message, level, origin, subject);", ScreenReaderOutputSource());
+            Assert.Contains("_arbiter.Urgent(message, level, origin, subject, stillValid);", ScreenReaderOutputSource());
         }
 
         [Fact]

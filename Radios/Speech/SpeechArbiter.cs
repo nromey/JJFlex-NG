@@ -711,6 +711,20 @@ namespace Radios.Speech
             public long QuietGeneration;
 
             /// <summary>
+            /// The producer's own answer to "is the state this sentence claims
+            /// still the state", or null where the producer declared none. A
+            /// PROTECTED sentence that claims a PRESENT state — "you are no
+            /// longer on the air" — is asked this before every replay, and is
+            /// withdrawn, with a trace saying what it was and why, when the
+            /// answer is no (Astra's Track IJK review, blocker 6; #617's rule
+            /// that each fact carries the condition that makes it true).
+            /// Only the producer can answer it, because only the producer
+            /// knows what "the same transmission" means; the arbiter asks and
+            /// does not guess.
+            /// </summary>
+            public Func<bool>? StillValid;
+
+            /// <summary>
             /// A PROTECTED obligation whose retry is ready but found a
             /// transmit-safety attempt holding the speaking turn — the live
             /// cut, or the protected entry a release handed over just before
@@ -1192,7 +1206,19 @@ namespace Radios.Speech
         /// behind this one; the pre-empted alarm's own record stays with the
         /// alarm subsystem, which owns it.</para>
         /// </summary>
-        public void Urgent(string message, VerbosityLevel level, string? origin, string? subject = null)
+        /// <param name="stillValid">
+        /// The producer's answer to whether the PRESENT state this sentence
+        /// claims still holds — asked before every automatic replay, never
+        /// before the first hand-over, which is true by construction. A
+        /// transmit-cut sentence says the operator is no longer on the air;
+        /// once they have keyed again that is false, and an unheard copy must
+        /// be withdrawn rather than rescued into the new transmission (Astra's
+        /// Track IJK review, blocker 6). Null where the sentence makes no
+        /// present-state claim, or the producer declines to answer; such a
+        /// sentence is replayed under the existing rules.
+        /// </param>
+        public void Urgent(string message, VerbosityLevel level, string? origin, string? subject = null,
+            Func<bool>? stillValid = null)
         {
             lock (_lock)
             {
@@ -1201,7 +1227,7 @@ namespace Radios.Speech
 
                 DiscardOrdinaryLocked("an urgent warning discards everything queued");
                 try { _silenceBackend(); } catch { }
-                EmitUrgentLocked(message, level, origin, subject, additive: false, now, turn);
+                EmitUrgentLocked(message, level, origin, subject, additive: false, now, turn, stillValid);
 
                 // Alarms that were waiting behind whatever held the turn now
                 // wait behind this one, and so does a protected retry waiting
@@ -2183,7 +2209,7 @@ namespace Radios.Speech
         /// downgrades the DELIVERY and never the fact.</para>
         /// </summary>
         private void EmitUrgentLocked(string message, VerbosityLevel? level, string? origin,
-            string? subject, bool additive, DateTime now, SafetyTurn turn)
+            string? subject, bool additive, DateTime now, SafetyTurn turn, Func<bool>? stillValid = null)
         {
             // The ordinary backlog is already gone — Urgent() discarded it
             // before silencing the backend — and this repeats the removal so
@@ -2201,7 +2227,7 @@ namespace Radios.Speech
             // temperature warning retire a reflected-power cut.
             if (!additive) MarkSupersededLocked(subject, $"'{message}'", origin, now);
 
-            BelievedQueued? owed = AdmitProtectedLocked(message, level, origin, subject, now);
+            BelievedQueued? owed = AdmitProtectedLocked(message, level, origin, subject, now, stillValid);
 
             var sounding = _sink(message, true, SpeechIntent.Urgent, level, origin, salvaged: false);
             if (!sounding.Reached)
@@ -2247,7 +2273,7 @@ namespace Radios.Speech
         /// or null when nothing could be retained.
         /// </summary>
         private BelievedQueued? AdmitProtectedLocked(string message, VerbosityLevel? level,
-            string? origin, string? subject, DateTime now)
+            string? origin, string? subject, DateTime now, Func<bool>? stillValid = null)
         {
             int protectedNow = 0;
             foreach (var e in _believedQueued) if (e.Protected) protectedNow++;
@@ -2276,6 +2302,7 @@ namespace Radios.Speech
                 Ticket = 0,
                 Protected = true,
                 QuietGeneration = _safety.QuietGeneration,
+                StillValid = stillValid,
                 // Not on the estimate path: admitted before any handoff, it
                 // occupies nothing yet, and stacking an estimate onto the
                 // reader's busy-until here would charge for speech that has
@@ -2284,6 +2311,52 @@ namespace Radios.Speech
             };
             LedgerInsertLocked(entry);
             return entry;
+        }
+
+        /// <summary>
+        /// Ask a protected obligation's producer whether the state it claims
+        /// still holds. True where no producer answers. A predicate that THROWS
+        /// is "cannot say", and cannot-say is not permission to assert a
+        /// present state to the operator: the sentence is not replayed, and
+        /// the trace says the question could not be asked.
+        /// </summary>
+        private static bool StillTrue(BelievedQueued e)
+        {
+            if (e.StillValid == null) return true;
+            try { return e.StillValid(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine(
+                    $"SpeechArbiter: a SAFETY obligation's producer could not say whether it is still true ({ex.Message}); "
+                    + $"it is not replayed: '{Clip(e.Message)}'", TraceLevel.Error);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Withdraw every protected obligation whose producer now says its
+        /// present-state claim no longer holds — on the way through the
+        /// ledger, so the owed list and the next release agree, and with a
+        /// trace that is the only record this route has of information the
+        /// operator was owed and did not get (blocker 6). The reachable
+        /// history surface for it is the fact store's, by Noel's 2026-09-30
+        /// ruling; this is the honest half that fits on the alarms' own route.
+        /// </summary>
+        private void WithdrawNoLongerTrueLocked(DateTime now)
+        {
+            for (int i = _believedQueued.Count - 1; i >= 0; i--)
+            {
+                var e = _believedQueued[i];
+                if (!e.Protected || e.StillValid == null || StillTrue(e)) continue;
+                _believedQueued.RemoveAt(i);
+                Tracing.TraceLine(
+                    "SpeechArbiter: a SAFETY obligation was WITHDRAWN, not delivered — its producer says the state it "
+                    + $"claimed no longer holds, so replaying it would tell the operator something false. It was {DescribeState(e)} "
+                    + $"after {e.AutomaticAttempts} hand-over(s), {(int)(now - e.FirstEmittedUtc).TotalMilliseconds} ms after first "
+                    + $"emission: '{e.Message}'" + (e.Subject != null ? $" [subject '{e.Subject}']" : string.Empty)
+                    + ". The information is history now, and this line is its record on this route.",
+                    TraceLevel.Warning);
+            }
         }
 
         /// <summary>
@@ -2835,12 +2908,22 @@ namespace Radios.Speech
                         : $" from {entry.SupersededByOrigin}");
             }
 
+            // A protected sentence that claims a PRESENT state is asked its
+            // producer whether that state still holds before every replay
+            // (blocker 6). "You are no longer on the air" after the operator
+            // has keyed again is false, and a false safety sentence is worse
+            // than silence (#617).
+            if (entry.Protected && entry.StillValid != null && !StillTrue(entry))
+                return "no longer true: its producer says the state it claimed has changed since, and a replay would "
+                    + "tell the operator something false";
+
             // A safety obligation is exempt from every bound below. Ordinary
             // verbosity, navigation, a timer expiring, queue overflow and a
             // rescue count running out may not retire it; only its owner's own
-            // newer statement, checked immediately above, may (#606). What
-            // still governs it is evidence — it is not recovered at all
-            // without something saying the unit was lost.
+            // newer statement, checked immediately above, may (#606) — and its
+            // own producer's answer that it is no longer true. What still
+            // governs it is evidence — it is not recovered at all without
+            // something saying the unit was lost.
             if (entry.Protected) return null;
 
             if (entry.SalvageCount >= MaxSalvages)
@@ -3020,6 +3103,8 @@ namespace Radios.Speech
 
         private void PruneLedgerLocked(DateTime now)
         {
+            WithdrawNoLongerTrueLocked(now);
+
             // The is-speaking correction (#557): if the backend can say it is
             // NOT speaking while the estimate says it should be, the estimate
             // is wrong in the direction that keeps stale entries alive, and

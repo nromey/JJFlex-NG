@@ -26,6 +26,17 @@ namespace JJFlexWpf
 
         public PttState State { get; private set; } = PttState.Idle;
 
+        /// <summary>
+        /// Counts this controller's transmissions: advanced every time a
+        /// transmission STARTS here (a PTT hold, a lock). It is the owner-side
+        /// identity a safety sentence about a transmission's END is valid
+        /// under: "you are no longer on the air" is true until the operator
+        /// keys again, and an unheard copy of it must not be replayed into the
+        /// next transmission (Astra's Track IJK review, blocker 6; #617). Read
+        /// from the speech layer's thread through a closure, so it is volatile.
+        /// </summary>
+        private volatile int _transmitEpisode;
+
         private readonly Func<FlexBase?> _getRigControl;
         private readonly Func<bool> _getRadioPowerOn;
         private readonly Action<string>? _updateStatusDisplay;
@@ -484,6 +495,7 @@ namespace JJFlexWpf
             {
                 _pttDownTicks = Stopwatch.GetTimestamp();   // #216, see NotePttRelease
                 State = PttState.PttHold;
+                _transmitEpisode++;   // a new transmission: every sentence about the last one's end is now history
                 SetTx(true);
                 StartFreshAudioSample();
                 if (_config.ChirpEnabled) EarconPlayer.TxStartTone();
@@ -584,6 +596,7 @@ namespace JJFlexWpf
             }
 
             State = PttState.Locked;
+            _transmitEpisode++;   // a new transmission: every sentence about the last one's end is now history
             SetTx(true);
             if (_config.ChirpEnabled) EarconPlayer.TxStartTone();
             _lockStartTime = DateTime.UtcNow;
@@ -655,6 +668,16 @@ namespace JJFlexWpf
                     ? levelAdvice
                     : speechMessage + ". " + levelAdvice);
 
+            // The safety outcome says the transmission has ENDED and the
+            // operator is no longer on the air. That is true until they key
+            // again: an unheard copy retained by the speech layer must not be
+            // rescued into the next transmission, saying they are off the air
+            // while they are on it (Astra's Track IJK review, blocker 6). The
+            // episode this sentence is about is captured here, and the speech
+            // layer asks before every replay whether it is still the current
+            // one. Nothing here guesses what the speech layer will do with the
+            // answer.
+            int endedEpisode = _transmitEpisode;
             if ((forceSpeech || _config.SpeechEnabled) && !string.IsNullOrEmpty(unkeyMessage))
                 ScreenReaderOutput.Speak(
                     unkeyMessage,
@@ -662,7 +685,8 @@ namespace JJFlexWpf
                         ? Radios.Speech.SpeechIntent.Urgent
                         : Radios.Speech.SpeechIntent.Interrupt,
                     VerbosityLevel.Critical,
-                    subject: subject);
+                    subject: subject,
+                    stillValid: forceSpeech ? () => _transmitEpisode == endedEpisode : null);
 
             Tracing.TraceLine($"PTT: Idle (was {wasState})", TraceLevel.Info);
         }
@@ -754,9 +778,14 @@ namespace JJFlexWpf
             // a sentence with no subject can be retired by nothing — so this
             // one would have queued behind its own outcome instead of being
             // covered by it.
+            // "About to end" is about THIS transmission while it is running;
+            // its outcome supersedes it by subject, and a new transmission
+            // withdraws an unheard copy the same way the cut's is (blocker 6).
+            int endingEpisode = _transmitEpisode;
             ScreenReaderOutput.Speak(
                 Lexicon.Get("audio.ptt.timeout_ending_now"), Radios.Speech.SpeechIntent.Urgent, VerbosityLevel.Critical,
-                subject: Radios.Speech.SpeechSubject.TransmitTimeLimit);
+                subject: Radios.Speech.SpeechSubject.TransmitTimeLimit,
+                stillValid: () => State != PttState.Idle && _transmitEpisode == endingEpisode);
             Tracing.TraceLine("PTT: OhCrap (1s beeps)", TraceLevel.Info);
 
             _beepTimer!.Stop();
@@ -1247,12 +1276,17 @@ namespace JJFlexWpf
             // saying the transmission was ended. Successive warnings on the
             // same run do cover one another, which is what this subject is
             // for — only the newest reading is true.
+            // "Power is coming back" is a claim about THIS transmission: once it
+            // has ended, or a new one begun, an unheard copy is withdrawn
+            // rather than replayed (blocker 6).
+            int warnedEpisode = _transmitEpisode;
             ScreenReaderOutput.Speak(
                 TransmitSafety.ReflectedWarningText(back, antenna, rig.DummyLoadMode,
                     cutDisarmed: !_config.CutTransmitOnReflectedAlarm),
                 Radios.Speech.SpeechIntent.Urgent,
                 VerbosityLevel.Critical,
-                subject: Radios.Speech.SpeechSubject.ReflectedPowerWarning);
+                subject: Radios.Speech.SpeechSubject.ReflectedPowerWarning,
+                stillValid: () => State != PttState.Idle && _transmitEpisode == warnedEpisode);
             Tracing.TraceLine(
                 $"PTT: Health warning — reflected power {back * 100f:F0}% "
                 + $"({reading}, {_reflectedRun}, "

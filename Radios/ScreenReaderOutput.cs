@@ -439,6 +439,15 @@ namespace Radios
         /// retires nothing itself, so an interrupt mid-entry re-speaks every
         /// digit typed so far, in order, rather than only the last one.
         /// </param>
+        /// <param name="stillValid">
+        /// Urgent only. The producer's answer to whether the PRESENT state this
+        /// sentence claims still holds, asked before every automatic replay of
+        /// an unheard copy. A transmit-cut sentence says the operator is no
+        /// longer on the air; keyed again, that is false, and the copy is
+        /// withdrawn rather than rescued into the new transmission (Astra's
+        /// Track IJK review, blocker 6). Null where the sentence makes no such
+        /// claim.
+        /// </param>
         public static void Speak(
             string message,
             Speech.SpeechIntent intent,
@@ -447,6 +456,7 @@ namespace Radios
             Speech.SpeechCoalesceKind kind = Speech.SpeechCoalesceKind.Value,
             string? subject = null,
             bool additive = false,
+            Func<bool>? stillValid = null,
             [CallerFilePath] string callerFile = "",
             [CallerLineNumber] int callerLine = 0,
             [CallerMemberName] string callerMember = "")
@@ -475,8 +485,8 @@ namespace Radios
                     // the one class that had neither, and a transmit-cut
                     // sentence cut off part-way was gone rather than delayed.
                     // Both safety callers have been passing ReflectedPowerCut
-                    // all along.
-                    _arbiter.Urgent(message, level, origin, subject);
+                    // all along. The validity answer travels too (blocker 6).
+                    _arbiter.Urgent(message, level, origin, subject, stillValid);
                     return;
 
                 case Speech.SpeechIntent.Latest:
