@@ -814,7 +814,7 @@ namespace Radios.Speech
         /// against the outcome callback — that is what makes
         /// reserve-hand-over-bind atomic.
         /// </summary>
-        private readonly SafetyDeliveryCoordinator _safety = new SafetyDeliveryCoordinator();
+        private readonly SafetyDeliveryCoordinator _safety;
 
         /// <summary>The quiet cohort the arbiter is currently serving. Read by the alarm cue stage, which arms timers before the arbiter ever sees the warning.</summary>
         internal long SafetyQuietGeneration { get { lock (_lock) return _safety.QuietGeneration; } }
@@ -931,6 +931,12 @@ namespace Radios.Speech
             _rate = rate ?? new SpeechRateModel();
             _isSpeaking = isSpeaking;
             _withdrawUnsent = withdrawUnsent;
+
+            // The maximum turn's cancellation request is the same cut an
+            // urgent warning makes: silence the backend. The coordinator asks
+            // for it under this lock and the pump answers by ticket, which is
+            // what turns the limit into a handshake (#611).
+            _safety = new SafetyDeliveryCoordinator(() => { try { _silenceBackend(); } catch { } });
         }
 
         /// <summary>

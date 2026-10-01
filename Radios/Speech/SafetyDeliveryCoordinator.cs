@@ -98,6 +98,17 @@ namespace Radios.Speech
         /// </summary>
         public DateTime OccupiedUntilUtc { get; private set; }
 
+        /// <summary>
+        /// When the maximum turn was reached and a bounded cancellation of this
+        /// attempt was requested; null until then. While set, the turn is still
+        /// OCCUPIED: the attempt is being stopped, not yet stopped, and nothing
+        /// may start on top of it (#611, Sol's Track K review section 1).
+        /// </summary>
+        public DateTime? CancelRequestedUtc { get; private set; }
+
+        /// <summary>True from the moment the maximum turn asked this attempt to stop until its answer, or the grace, ends the turn.</summary>
+        public bool CancelRequested => CancelRequestedUtc.HasValue;
+
         internal void BindTo(long ticket, bool tracked, DateTime occupiedUntilUtc)
         {
             Ticket = ticket;
@@ -106,8 +117,11 @@ namespace Radios.Speech
             OccupiedUntilUtc = occupiedUntilUtc;
         }
 
+        internal void NoteCancelRequested(DateTime now) => CancelRequestedUtc = now;
+
         public override string ToString() =>
-            $"turn #{Id} ({Class}, owner '{Owner ?? "(none declared)"}', ticket {Ticket}, quiet gen {QuietGeneration})";
+            $"turn #{Id} ({Class}, owner '{Owner ?? "(none declared)"}', ticket {Ticket}, quiet gen {QuietGeneration}"
+            + (CancelRequested ? ", cancellation requested" : string.Empty) + ")";
     }
 
     /// <summary>
@@ -154,8 +168,69 @@ namespace Radios.Speech
         /// </summary>
         internal const int MaxAutomaticTurnMs = 20000;
 
+        /// <summary>
+        /// How long after the maximum turn asks a TRACKED attempt to stop the
+        /// coordinator waits for that attempt's own answer before it declares
+        /// the attempt isolated and transfers the turn anyway.
+        ///
+        /// <para><b>Why the maximum turn is a handshake and not a release (Sol,
+        /// Track K review, 2026-09-23).</b> Reaching T used to clear the turn
+        /// and nothing else, so the next waiting alarm saw a free turn and
+        /// interrupted the sink on top of a tracked cut that was, by the
+        /// pump's own evidence, still sounding — no cancellation first, no
+        /// isolation, and a turn "bounded" by a clock that transferred a
+        /// running transport to a new speaker. Now reaching T REQUESTS a
+        /// bounded cancellation of the attempt that overran, keeps the turn
+        /// occupied while that request is outstanding, and transfers only when
+        /// the attempt's own answer arrives or this grace runs out — at which
+        /// point the attempt has had the pump's full cancel-then-escape path
+        /// and is treated as isolated.</para>
+        ///
+        /// <para>Sized against the transport it is waiting on rather than
+        /// chosen: the pump gives a cancelled call <see cref="PacedSpeechDelivery.CancelGraceMs"/>
+        /// to come back and then <see cref="PacedSpeechDelivery.EscapeGraceMs"/>
+        /// for the escape, after which it abandons the thread and reports.
+        /// Half a second over their sum leaves room for the report to travel.
+        /// Both halves record delivery UNKNOWN; neither is a success path.</para>
+        /// </summary>
+        internal const int MaxTurnCancelGraceMs =
+            PacedSpeechDelivery.CancelGraceMs + PacedSpeechDelivery.EscapeGraceMs + 500;
+
+        private readonly Action? _requestCancellation;
+
         private long _nextTurnId;
         private SafetyTurn? _turn;
+
+        /// <param name="requestCancellation">
+        /// Cut the attempt that currently holds the reader — the arbiter's
+        /// silence-backend action. Called with the arbiter's lock held, from
+        /// <see cref="ExpireIfOverdue"/>, exactly once per turn that reaches
+        /// the maximum. Null where there is no backend to cut (tests of the
+        /// token alone).
+        /// </param>
+        public SafetyDeliveryCoordinator(Action? requestCancellation = null)
+        {
+            _requestCancellation = requestCancellation;
+        }
+
+        /// <summary>How many times the maximum turn has asked an attempt to stop. Tests.</summary>
+        public int CancellationsRequested { get; private set; }
+
+        private void RequestCancellation(SafetyTurn turn, DateTime now)
+        {
+            turn.NoteCancelRequested(now);
+            CancellationsRequested++;
+            Tracing.TraceLine(
+                $"SafetyDelivery: {turn} reached the {MaxAutomaticTurnMs} ms maximum turn while still sounding; "
+                + $"a bounded cancellation is requested and the turn stays OCCUPIED until its own answer arrives or "
+                + $"{MaxTurnCancelGraceMs} ms pass. Delivery is UNKNOWN and the fact stays owed.",
+                TraceLevel.Warning);
+            try { _requestCancellation?.Invoke(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"SafetyDelivery: the cancellation request threw — {ex.Message}", TraceLevel.Warning);
+            }
+        }
 
         /// <summary>A ticket whose outcome arrived before its turn was bound — see <see cref="Bind"/>.</summary>
         private long _outcomeBeforeBindTicket;
@@ -210,8 +285,34 @@ namespace Radios.Speech
 
             if (now >= turn.HardDeadlineUtc)
             {
+                if (turn.Bound && turn.Tracked)
+                {
+                    // The escape handshake. A tracked attempt has a reporter,
+                    // so it can be ASKED to stop and will say when it has:
+                    // request once, stay occupied, and let TakeOutcome end the
+                    // turn on the attempt's own answer. Only when the pump's
+                    // whole cancel-then-escape path has had its time is the
+                    // attempt treated as isolated and the turn transferred.
+                    if (!turn.CancelRequested)
+                    {
+                        RequestCancellation(turn, now);
+                        return;
+                    }
+                    if (now < turn.CancelRequestedUtc!.Value.AddMilliseconds(MaxTurnCancelGraceMs)) return;
+
+                    EndLocked(turn, SafetyTurnEnd.MaxTurnReached,
+                        $"the maximum turn was reached, cancellation was requested {(int)(now - turn.CancelRequestedUtc.Value).TotalMilliseconds} ms ago "
+                        + "and no answer came, so the attempt is treated as isolated; delivery is UNKNOWN and the fact stays owed");
+                    return;
+                }
+
+                // Nobody can report on this attempt, so there is no answer to
+                // wait for. Cut the backend so nothing is still sounding when
+                // the next speaker starts, then transfer.
+                RequestCancellation(turn, now);
                 EndLocked(turn, SafetyTurnEnd.MaxTurnReached,
-                    $"the {MaxAutomaticTurnMs} ms maximum turn was reached; delivery is UNKNOWN and the fact stays owed");
+                    $"the {MaxAutomaticTurnMs} ms maximum turn was reached with no reporter to answer for the attempt; "
+                    + "the backend was cut; delivery is UNKNOWN and the fact stays owed");
                 return;
             }
 
@@ -246,6 +347,7 @@ namespace Radios.Speech
             {
                 var turn = _turn;
                 if (turn == null) return null;
+                if (turn.CancelRequested) return turn.CancelRequestedUtc!.Value.AddMilliseconds(MaxTurnCancelGraceMs);
                 if (!turn.Bound || turn.Tracked) return turn.HardDeadlineUtc;
                 return turn.OccupiedUntilUtc < turn.HardDeadlineUtc ? turn.OccupiedUntilUtc : turn.HardDeadlineUtc;
             }
@@ -383,6 +485,17 @@ namespace Radios.Speech
                     + $"({turn} holds it); it updates its own attempt's evidence and releases nothing",
                     TraceLevel.Info);
                 return null;
+            }
+
+            if (turn.CancelRequested && !completed)
+            {
+                // The answer to the maximum-turn cancellation: the attempt
+                // stopped, as asked. This is the handshake completing, and it
+                // is accounted as the limit being reached, never as the reader
+                // having said the words.
+                EndLocked(turn, SafetyTurnEnd.MaxTurnReached,
+                    "the attempt stopped on the maximum-turn cancellation request; delivery is UNKNOWN and the fact stays owed");
+                return turn;
             }
 
             EndLocked(turn, completed ? SafetyTurnEnd.Completed : SafetyTurnEnd.NotCompleted,
