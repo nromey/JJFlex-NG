@@ -385,6 +385,28 @@ namespace Radios.Alarms
             return Snapshot();
         }
 
+        /// <summary>
+        /// The last warning for the current episode did not reach the operator
+        /// — the dispatch queue refused it, the speech layer let it go, or the
+        /// reader took nothing — so the next fresh sample on the alarm side
+        /// warns again, inside the reminder interval and whatever the
+        /// acknowledgement state, because a warning nobody heard is not a
+        /// repeat (Astra's Track I review, findings 4 and 5).
+        /// </summary>
+        /// <remarks>
+        /// A flag rather than an event on purpose: the case that needs it most
+        /// is the dispatch queue being full, which is exactly when an event
+        /// could not be posted. The trace at the caller says what happened; the
+        /// re-warning carries <see cref="AlarmReminderReason.DeliveryRetried"/>
+        /// so the record says why it was said again.
+        /// </remarks>
+        public IReadOnlyList<AlarmEvent> WarningNotDelivered(long nowMs)
+        {
+            _out.Clear();
+            if (HasEpisode && _enabled) _announceOnNextFresh = AlarmReminderReason.DeliveryRetried;
+            return Snapshot();
+        }
+
         /// <summary>Capture the delta baseline from the last FRESH sample, in receive only. Never at key-down,
         /// never repeated by unkeying, refused with a reason otherwise.</summary>
         public IReadOnlyList<AlarmEvent> CaptureBaseline(long nowMs)

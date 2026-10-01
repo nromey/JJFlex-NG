@@ -375,8 +375,12 @@ namespace Radios.Tests
             //
             // The real AlarmDelivery, from a real meter reading through the
             // real service — the seam under test is its own, so stubbing it
-            // would be the mock-call-list failure one layer along.
-            using var cue = new RealCueStage(() => _arbiter.SafetyQuietGeneration);
+            // would be the mock-call-list failure one layer along. And what
+            // the cue stage hands over goes INTO this test's arbiter and real
+            // pump, so the positive control is a backend start, not a list.
+            using var cue = new RealCueStage(() => _arbiter.SafetyQuietGeneration,
+                (text, subject, refresh, notDelivered) =>
+                    _arbiter.UrgentAlarm(text, VerbosityLevel.Critical, "AlarmDelivery.cs Warn", subject, refresh, notDelivered));
             cue.DeliverReading(63.5f);
 
             Assert.Equal(new[] { "tone" }, cue.Sounds);
@@ -391,6 +395,8 @@ namespace Radios.Tests
             if (silence)
             {
                 Assert.Empty(cue.Spoken);
+                SettleForBackendWork();
+                Assert.Empty(BackendStarts());
                 // Nothing about the alarm itself moved: it is still active,
                 // still in the list, and nothing was acknowledged.
                 Assert.NotNull(cue.Snapshot());
@@ -401,9 +407,12 @@ namespace Radios.Tests
             {
                 // THE POSITIVE CONTROL, without which the emptiness above
                 // proves nothing at all: the identical sequence with no Ctrl
-                // does reach the speaker.
+                // reaches the speaker, the arbiter, and the BACKEND.
                 Assert.Single(cue.Spoken);
                 Assert.Contains("63", cue.Spoken[0]);
+                var call = _ch.WaitForCall();
+                Assert.Equal(cue.Spoken[0], call.Text);
+                Assert.Equal(new[] { cue.Spoken[0] }, BackendStarts());
             }
         }
 
@@ -537,8 +546,9 @@ namespace Radios.Tests
             public List<string> Sounds { get; } = new();
             public IReadOnlyList<string> Spoken => _speaker.Spoken;
 
-            public RealCueStage(Func<long> quietGeneration)
+            public RealCueStage(Func<long> quietGeneration, Action<string, string, Func<string?>, Action?>? forward = null)
             {
+                _speaker.Forward = forward;
                 _service = new AlarmService(_feed, new AlarmDefinitionStore(_root), _alarmClock, null, startWatchdog: false);
                 _delivery = new AlarmDelivery(_service, _speaker, () => Sounds.Add("tone"), Clock,
                     warningsSoundEnabled: () => true, speechSuppressed: () => false, speechAvailable: () => true,
@@ -564,10 +574,22 @@ namespace Radios.Tests
                 try { Directory.Delete(_root, recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
             }
 
+            /// <summary>
+            /// Records what the cue stage handed over AND forwards it into the
+            /// arbiter under test, the way ScreenReaderAlarmSpeaker forwards
+            /// into the static one — so the cue test drives the real pump
+            /// rather than stopping at the seam (Sol's Track K review,
+            /// section 3).
+            /// </summary>
             private sealed class Speaker : IAlarmSpeaker
             {
                 public readonly List<string> Spoken = new();
-                public void SpeakWarning(string text, string subject, Func<string?> refresh) { lock (Spoken) Spoken.Add(text); }
+                public Action<string, string, Func<string?>, Action?>? Forward;
+                public void SpeakWarning(string text, string subject, Func<string?> refresh, Action? notDelivered = null)
+                {
+                    lock (Spoken) Spoken.Add(text);
+                    Forward?.Invoke(text, subject, refresh, notDelivered);
+                }
                 public void SpeakStatus(string text, VerbosityLevel level, string subject) { }
             }
         }
@@ -610,7 +632,7 @@ namespace Radios.Tests
             string src = ScreenReaderOutputSource();
             Assert.Contains("public static void SpeakAlarm(", src);
             Assert.Contains("_arbiter.UrgentAlarm(message, VerbosityLevel.Critical,", src);
-            Assert.Contains("subject, refresh);", src);
+            Assert.Contains("subject, refresh, notDelivered);", src);
         }
 
         [Fact]

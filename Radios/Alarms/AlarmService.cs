@@ -92,14 +92,20 @@ namespace Radios.Alarms
         private string _storeProblem = "";
         private bool _disposed;
 
+        /// <param name="dispatchCapacity">
+        /// The dispatch queue's cap. Production takes the default; a test
+        /// passes a small number so the overflow path can be driven without
+        /// five hundred events.
+        /// </param>
         public AlarmService(IAlarmMeterFeed feed, AlarmDefinitionStore? store, IAlarmClock clock,
-            IAlarmObservationRecorder? recorder = null, bool startWatchdog = true)
+            IAlarmObservationRecorder? recorder = null, bool startWatchdog = true,
+            int dispatchCapacity = AlarmDispatchQueue<AlarmEvent>.DefaultCapacity)
         {
             _feed = feed ?? throw new ArgumentNullException(nameof(feed));
             _store = store;
             _clock = clock ?? throw new ArgumentNullException(nameof(clock));
             _recorder = recorder ?? NullAlarmObservationRecorder.Instance;
-            _queue = new AlarmDispatchQueue<AlarmEvent>(Deliver, "AlarmDispatch");
+            _queue = new AlarmDispatchQueue<AlarmEvent>(Deliver, "AlarmDispatch", dispatchCapacity);
             _queue.Overflowed += OnDispatchOverflow;
 
             _feed.Reading += OnReading;
@@ -618,7 +624,36 @@ namespace Radios.Alarms
             {
                 if (e.Kind != AlarmEventKind.OldGenerationDiscarded) entry.LastEvent = e;
                 Remember(e);
-                _queue.Post(e);
+                if (_queue.Post(e)) continue;
+
+                // Refused for lack of room. A state event can wait for the
+                // list to catch up, but a WARNING refused here was never
+                // heard, and with reminders off nothing would ever say it: the
+                // monitor is told, and the next fresh sample on the alarm side
+                // says it again (Astra's Track I review, finding 4). Under the
+                // lock already, and the monitor only sets a flag.
+                if (e.IsWarning)
+                {
+                    entry.Monitor.WarningNotDelivered(_clock.NowMs);
+                    Tracing.TraceLine("AlarmService: a WARNING was refused by the full dispatch queue and will be said "
+                        + "again on the next fresh reading: " + e, TraceLevel.Error);
+                }
+            }
+        }
+
+        /// <summary>
+        /// The speech layer could not deliver this alarm's warning — it let a
+        /// waiting warning go, or the reader took nothing. The monitor says it
+        /// again on the next fresh sample on the alarm side. Called from the
+        /// speech layer's own thread; takes the service lock briefly and
+        /// speaks nothing.
+        /// </summary>
+        public void WarningNotDelivered(string alarmId)
+        {
+            lock (_gate)
+            {
+                if (_disposed || !_entries.TryGetValue(alarmId, out Entry? entry)) return;
+                entry.Monitor.WarningNotDelivered(_clock.NowMs);
             }
         }
 

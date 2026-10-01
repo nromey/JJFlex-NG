@@ -1237,6 +1237,21 @@ namespace Radios.Speech
         /// <summary>The retry happens inside this window from the original hand-over, or not at all.</summary>
         internal const int AlarmRetryWindowMs = 5000;
 
+        /// <summary>
+        /// How many times in a row a waiting alarm's refresh may THROW before
+        /// the arbiter stops asking and lets the warning go — telling the alarm
+        /// it was not delivered, and claiming nothing about the condition.
+        ///
+        /// <para>Sol's Track K review, section 2: a throwing refresh was caught
+        /// into null, and null means "no longer current", so a failed re-read
+        /// read as the condition having cleared and the pending warning was
+        /// removed. A failed observation is not proof of anything. The refresh
+        /// is re-asked on the retry settle, and after this many failures the
+        /// sentence the alarm was queued with is NOT spoken — it may be stale —
+        /// and the alarm's own next fresh sample says what is true now.</para>
+        /// </summary>
+        internal const int AlarmRefreshFailureCap = 3;
+
         private sealed class PendingAlarm
         {
             public string Subject = string.Empty;
@@ -1244,7 +1259,22 @@ namespace Radios.Speech
             public VerbosityLevel Level;
             public string? Origin;
             public Func<string?> Refresh = () => null;
+            public Action? NotDelivered;
             public DateTime QueuedUtc;
+            public int RefreshFailures;
+        }
+
+        /// <summary>
+        /// Tell an alarm its warning was given up without the reader taking
+        /// it. Never for a silence: the operator keeps that quiet (#617).
+        /// </summary>
+        private static void TellNotDelivered(Action? notDelivered, string subject, string why)
+        {
+            Tracing.TraceLine($"SpeechArbiter: an alarm warning was NOT DELIVERED, {why} [subject '{subject}']; "
+                + "the alarm is told, so its next fresh reading says it again. Its condition is unchanged and still in the alarms list.",
+                TraceLevel.Error);
+            try { notDelivered?.Invoke(); }
+            catch (Exception ex) { Tracing.TraceLine($"SpeechArbiter: the not-delivered callback threw — {ex.Message}", TraceLevel.Warning); }
         }
 
         private readonly List<PendingAlarm> _alarmPending = new List<PendingAlarm>();
@@ -1259,6 +1289,7 @@ namespace Radios.Speech
         private long _lastAlarmTurnId;
         private string _lastAlarmSubject = string.Empty;
         private Func<string?>? _lastAlarmRefresh;
+        private Action? _lastAlarmNotDelivered;
         private VerbosityLevel _lastAlarmLevel;
         private string? _lastAlarmOrigin;
         private DateTime _lastAlarmEmittedUtc;
@@ -1279,8 +1310,14 @@ namespace Radios.Speech
         /// gone. Called under the arbiter's lock; must be cheap and must not
         /// speak.
         /// </param>
+        /// <param name="notDelivered">
+        /// Told, at most once, when this warning is given up without the reader
+        /// ever taking it — refused by the backend, let go from the waiting
+        /// set, or its condition unreadable — so the alarm can say it again on
+        /// its own next fresh sample. Never told for a silence.
+        /// </param>
         public void UrgentAlarm(string message, VerbosityLevel level, string? origin,
-            string subject, Func<string?> refresh)
+            string subject, Func<string?> refresh, Action? notDelivered = null)
         {
             if (string.IsNullOrEmpty(message)) return;
             lock (_lock)
@@ -1289,16 +1326,16 @@ namespace Radios.Speech
                 SafetyTurn? turn = _safety.TryReserveForAlarm(subject, now);
                 if (turn == null)
                 {
-                    DeferAlarmLocked(message, level, origin, subject, refresh, now);
+                    DeferAlarmLocked(message, level, origin, subject, refresh, notDelivered, now);
                     return;
                 }
-                EmitAlarmLocked(turn, message, level, origin, subject, refresh, now, deferredMs: 0, why: null);
+                EmitAlarmLocked(turn, message, level, origin, subject, refresh, notDelivered, now, deferredMs: 0, why: null);
             }
         }
 
         /// <summary>Something holds the turn: wait, keeping one pending sentence per alarm.</summary>
         private void DeferAlarmLocked(string message, VerbosityLevel level, string? origin,
-            string subject, Func<string?> refresh, DateTime now)
+            string subject, Func<string?> refresh, Action? notDelivered, DateTime now)
         {
             DateTime? ends = _safety.EndsAtUtc;
             int waitMs = ends == null ? 0 : Math.Max(0, (int)(ends.Value - now).TotalMilliseconds);
@@ -1313,22 +1350,31 @@ namespace Radios.Speech
                 existing.Level = level;
                 existing.Origin = origin;
                 existing.Refresh = refresh;
+                existing.NotDelivered = notDelivered;
             }
             else
             {
                 if (_alarmPending.Count >= AlarmPendingCap)
                 {
-                    PendingAlarm oldest = _alarmPending[0];
-                    _alarmPending.RemoveAt(0);
+                    // One entry per alarm, so the real bound is the number of
+                    // enabled alarms and this cap is defensive. It used to
+                    // evict the OLDEST, which had waited longest and said
+                    // nothing to anyone (Astra's Track I review, finding 5).
+                    // The newest is refused instead, and its alarm is TOLD, so
+                    // the warning comes back on the alarm's own next fresh
+                    // sample rather than depending on a reminder that may be
+                    // switched off.
                     Tracing.TraceLine(
-                        $"SpeechArbiter: alarm pending set full at {AlarmPendingCap}; dropped the oldest, "
-                        + $"'{oldest.Message}' [subject '{oldest.Subject}']. Its condition is unchanged and is "
-                        + "still in the alarms list.", TraceLevel.Warning);
+                        $"SpeechArbiter: alarm pending set full at {AlarmPendingCap}; refusing the newest, "
+                        + $"'{message}' [subject '{subject}'], rather than evicting one that has waited longer.",
+                        TraceLevel.Warning);
+                    TellNotDelivered(notDelivered, subject, "the waiting set was full");
+                    return;
                 }
                 _alarmPending.Add(new PendingAlarm
                 {
                     Subject = subject, Message = message, Level = level, Origin = origin,
-                    Refresh = refresh, QueuedUtc = now,
+                    Refresh = refresh, NotDelivered = notDelivered, QueuedUtc = now,
                 });
             }
 
@@ -1353,7 +1399,7 @@ namespace Radios.Speech
         /// it has never needed to delete a safety obligation.</para>
         /// </summary>
         private void EmitAlarmLocked(SafetyTurn turn, string message, VerbosityLevel level, string? origin,
-            string subject, Func<string?> refresh, DateTime now, int deferredMs, string? why)
+            string subject, Func<string?> refresh, Action? notDelivered, DateTime now, int deferredMs, string? why)
         {
             DiscardOrdinaryLocked("an alarm warning discards everything queued");
             try { _silenceBackend(); } catch { }
@@ -1361,10 +1407,7 @@ namespace Radios.Speech
             if (!handoff.Reached)
             {
                 _safety.Abandon(turn, "the reader did not take an alarm warning (suppressed or no backend)");
-                Tracing.TraceLine(
-                    $"SpeechArbiter: the reader did not take an alarm warning (suppressed or no backend): '{message}'. "
-                    + "The condition is unchanged and remains in the alarms list.",
-                    TraceLevel.Warning);
+                TellNotDelivered(notDelivered, subject, "the reader did not take it (suppressed or no backend)");
                 return;
             }
 
@@ -1375,6 +1418,7 @@ namespace Radios.Speech
             _lastAlarmTurnId = turn.Id;
             _lastAlarmSubject = subject;
             _lastAlarmRefresh = refresh;
+            _lastAlarmNotDelivered = notDelivered;
             _lastAlarmLevel = level;
             _lastAlarmOrigin = origin;
             _lastAlarmEmittedUtc = now;
@@ -1431,14 +1475,48 @@ namespace Radios.Speech
 
                     PendingAlarm next = _alarmPending[0];
                     _alarmPending.RemoveAt(0);
+
+                    // **A refresh that THROWS is unknown, not cleared (Sol's
+                    // Track K review, section 2).** It used to be caught into
+                    // null, and null is the alarm saying "nothing left to
+                    // say" — so a failed re-read removed the warning as though
+                    // the condition had cleared. The warning stays waiting and
+                    // is asked again after the retry settle; past the cap it
+                    // is let go WITHOUT speaking the sentence it was queued
+                    // with, which may be stale, and the alarm is told so its
+                    // own next fresh sample says what is true now.
                     string? current = null;
-                    try { current = next.Refresh(); } catch (Exception ex)
-                    { Tracing.TraceLine($"SpeechArbiter: an alarm's refresh threw — {ex.Message}", TraceLevel.Warning); }
+                    bool refreshFailed = false;
+                    try { current = next.Refresh(); }
+                    catch (Exception ex)
+                    {
+                        refreshFailed = true;
+                        next.RefreshFailures++;
+                        Tracing.TraceLine(
+                            $"SpeechArbiter: a waiting alarm's refresh threw ({next.RefreshFailures} of {AlarmRefreshFailureCap}) — "
+                            + $"{ex.Message}. A failed re-read is UNKNOWN, not cleared; the warning stays waiting "
+                            + $"[subject '{next.Subject}']", TraceLevel.Error);
+                    }
+                    if (refreshFailed)
+                    {
+                        if (next.RefreshFailures >= AlarmRefreshFailureCap)
+                        {
+                            TellNotDelivered(next.NotDelivered, next.Subject,
+                                $"its condition could not be re-read {next.RefreshFailures} times running, and the "
+                                + "sentence it was queued with is not spoken because it may be stale");
+                            continue;
+                        }
+                        _alarmPending.Insert(0, next);
+                        _alarmTimer?.Dispose();
+                        int retryGeneration = ++_alarmGeneration;
+                        _alarmTimer = _clock.StartTimer(AlarmRetrySettleMs, () => ReleaseAlarms(retryGeneration));
+                        return;
+                    }
 
                     if (current == null)
                     {
                         Tracing.TraceLine(
-                            $"SpeechArbiter: a waiting alarm was dropped because it is no longer current: "
+                            $"SpeechArbiter: a waiting alarm was dropped because its own refresh says it is no longer current: "
                             + $"'{next.Message}' [subject '{next.Subject}']", TraceLevel.Info);
                         continue;
                     }
@@ -1452,7 +1530,7 @@ namespace Radios.Speech
                     }
 
                     int deferredMs = (int)(now - next.QueuedUtc).TotalMilliseconds;
-                    EmitAlarmLocked(turn, current, next.Level, next.Origin, next.Subject, next.Refresh,
+                    EmitAlarmLocked(turn, current, next.Level, next.Origin, next.Subject, next.Refresh, next.NotDelivered,
                         now, deferredMs, why: null);
                     break;
                 }
@@ -1529,16 +1607,17 @@ namespace Radios.Speech
             _retryTimer?.Dispose();
             string subject = _lastAlarmSubject;
             Func<string?> refresh = _lastAlarmRefresh;
+            Action? notDelivered = _lastAlarmNotDelivered;
             VerbosityLevel level = _lastAlarmLevel;
             string? origin = _lastAlarmOrigin;
             DateTime emitted = _lastAlarmEmittedUtc;
             long cohort = ended.QuietGeneration;
             _retryTimer = _clock.StartTimer(AlarmRetrySettleMs,
-                () => RetryAlarm(subject, refresh, level, origin, emitted, cohort));
+                () => RetryAlarm(subject, refresh, notDelivered, level, origin, emitted, cohort));
         }
 
-        private void RetryAlarm(string subject, Func<string?> refresh, VerbosityLevel level, string? origin,
-            DateTime emitted, long cohort)
+        private void RetryAlarm(string subject, Func<string?> refresh, Action? notDelivered, VerbosityLevel level,
+            string? origin, DateTime emitted, long cohort)
         {
             lock (_lock)
             {
@@ -1549,15 +1628,27 @@ namespace Radios.Speech
                 if ((now - emitted).TotalMilliseconds > AlarmRetryWindowMs) return;
                 SafetyTurn? turn = _safety.TryReserveForAlarm(subject, now);
                 if (turn == null) return;   // a safety announcement got in first; it wins
+
+                // The same rule as the waiting set: a refresh that throws is
+                // unknown, and an unknown is not retried with a possibly stale
+                // sentence — the alarm is told, and its next fresh sample says
+                // what is true.
                 string? current = null;
-                try { current = refresh(); } catch { }
+                try { current = refresh(); }
+                catch (Exception ex)
+                {
+                    _safety.ReleaseUnused(turn, "the alarm's condition could not be re-read, so the retry was not made");
+                    TellNotDelivered(notDelivered, subject,
+                        $"its condition could not be re-read before the one retry ({ex.Message})");
+                    return;
+                }
                 if (current == null)
                 {
                     _safety.ReleaseUnused(turn, "the alarm is no longer current, so the retry was not made");
-                    Tracing.TraceLine($"SpeechArbiter: alarm retry not made, no longer current [subject '{subject}']", TraceLevel.Info);
+                    Tracing.TraceLine($"SpeechArbiter: alarm retry not made, its own refresh says it is no longer current [subject '{subject}']", TraceLevel.Info);
                     return;
                 }
-                EmitAlarmLocked(turn, current, level, origin, subject, refresh, now, deferredMs: 0,
+                EmitAlarmLocked(turn, current, level, origin, subject, refresh, notDelivered, now, deferredMs: 0,
                     why: "retry once, because the first hand-over said nothing at all");
             }
         }
@@ -1618,6 +1709,7 @@ namespace Radios.Speech
                 _alarmTimer?.Dispose(); _alarmTimer = null; _alarmGeneration++;
                 _retryTimer?.Dispose(); _retryTimer = null;
                 _lastAlarmRefresh = null;
+                _lastAlarmNotDelivered = null;
             }
         }
 
@@ -1642,6 +1734,7 @@ namespace Radios.Speech
                 _alarmTimer?.Dispose(); _alarmTimer = null; _alarmGeneration++;
                 _retryTimer?.Dispose(); _retryTimer = null;
                 _lastAlarmRefresh = null;
+                _lastAlarmNotDelivered = null;
             }
         }
 

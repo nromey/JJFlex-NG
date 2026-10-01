@@ -90,6 +90,14 @@ namespace Radios.Alarms
 
         /// <summary>The operator pressed Resume notifications.</summary>
         OperatorResumed,
+
+        /// <summary>
+        /// The previous warning could not be delivered — the dispatch queue
+        /// refused it, the speech layer let it go, or the reader took nothing
+        /// — so the next fresh sample on the alarm side says it again, inside
+        /// the interval. A warning that was never heard is not a repeat.
+        /// </summary>
+        DeliveryRetried,
     }
 
     /// <summary>

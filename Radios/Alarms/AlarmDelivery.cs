@@ -11,7 +11,15 @@ namespace Radios.Alarms
     public interface IAlarmSpeaker
     {
         /// <summary>The warning: Critical level, Urgent intent, under the alarm-aware priority contract.</summary>
-        void SpeakWarning(string text, string subject, Func<string?> refresh);
+        /// <param name="notDelivered">
+        /// Called, at most once, if the speech layer gives this warning up
+        /// without the reader ever taking it: refused by the backend, let go
+        /// from the waiting set, or its condition could not be re-read. The
+        /// alarm then says it again on its own next fresh sample. Never called
+        /// for a warning the operator silenced — that is theirs to keep quiet
+        /// until the condition worsens (#617).
+        /// </param>
+        void SpeakWarning(string text, string subject, Func<string?> refresh, Action? notDelivered = null);
 
         /// <summary>A state update: queued, never interrupting, at the given level.</summary>
         void SpeakStatus(string text, VerbosityLevel level, string subject);
@@ -20,8 +28,8 @@ namespace Radios.Alarms
     /// <summary>Production speech: <see cref="ScreenReaderOutput.SpeakAlarm"/> and a queued <see cref="ScreenReaderOutput.Speak"/>.</summary>
     public sealed class ScreenReaderAlarmSpeaker : IAlarmSpeaker
     {
-        public void SpeakWarning(string text, string subject, Func<string?> refresh) =>
-            ScreenReaderOutput.SpeakAlarm(text, subject, refresh);
+        public void SpeakWarning(string text, string subject, Func<string?> refresh, Action? notDelivered = null) =>
+            ScreenReaderOutput.SpeakAlarm(text, subject, refresh, notDelivered);
 
         public void SpeakStatus(string text, VerbosityLevel level, string subject) =>
             ScreenReaderOutput.Speak(text, SpeechIntent.Queue, level, subject: subject);
@@ -226,6 +234,10 @@ namespace Radios.Alarms
             Func<string?> refresh = preview
                 ? () => sentence
                 : () => Refresh(alarmId, sentenceOverride != null);
+            // The speech layer tells the alarm when it gave the warning up
+            // without the reader taking it, and the alarm's next fresh sample
+            // says it again. A preview is a test and is not re-raised.
+            Action? notDelivered = preview ? null : () => _service.WarningNotDelivered(alarmId);
 
             lock (_gate)
             {
@@ -234,7 +246,7 @@ namespace Radios.Alarms
                 int generation = ++_generation;
                 if (lead == 0)
                 {
-                    _speaker.SpeakWarning(sentence, subject, refresh);
+                    _speaker.SpeakWarning(sentence, subject, refresh, notDelivered);
                 }
                 else
                 {
@@ -245,7 +257,7 @@ namespace Radios.Alarms
                     // weaker question.
                     long cohort = SafeQuietGeneration();
                     ISpeechTimer timer = _clock.StartTimer(lead,
-                        () => Continue(alarmId, generation, cohort, sentence, subject, refresh));
+                        () => Continue(alarmId, generation, cohort, sentence, subject, refresh, notDelivered));
                     _continuations[alarmId] = (timer, generation);
                 }
             }
@@ -253,7 +265,8 @@ namespace Radios.Alarms
             Report(new AlarmDeliveryReport(e, sentence, soundOn, true, lead, preview));
         }
 
-        private void Continue(string alarmId, int generation, long cohort, string sentence, string subject, Func<string?> refresh)
+        private void Continue(string alarmId, int generation, long cohort, string sentence, string subject,
+            Func<string?> refresh, Action? notDelivered)
         {
             lock (_gate)
             {
@@ -285,7 +298,7 @@ namespace Radios.Alarms
                     TraceLevel.Info);
                 return;
             }
-            _speaker.SpeakWarning(current, subject, refresh);
+            _speaker.SpeakWarning(current, subject, refresh, notDelivered);
         }
 
         /// <summary>

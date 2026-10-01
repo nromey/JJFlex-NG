@@ -518,14 +518,20 @@ namespace Radios
         /// when it is no longer worth saying. Consulted when a deferred alarm's
         /// turn comes and before the one bounded retry.
         /// </param>
+        /// <param name="notDelivered">
+        /// Told, at most once, when the arbiter gives the warning up without
+        /// the reader ever taking it, so the alarm can say it again on its own
+        /// next fresh sample. Null when the caller does not care.
+        /// </param>
         public static void SpeakAlarm(string message, string subject, Func<string?> refresh,
+            Action? notDelivered = null,
             [CallerFilePath] string callerFile = "",
             [CallerLineNumber] int callerLine = 0,
             [CallerMemberName] string callerMember = "")
         {
             if (string.IsNullOrEmpty(message)) return;
             _arbiter.UrgentAlarm(message, VerbosityLevel.Critical,
-                FormatOrigin(callerFile, callerLine, callerMember), subject, refresh);
+                FormatOrigin(callerFile, callerLine, callerMember), subject, refresh, notDelivered);
         }
 
         /// <summary>

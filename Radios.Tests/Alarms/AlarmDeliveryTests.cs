@@ -17,7 +17,11 @@ namespace Radios.Tests.Alarms
         {
             public readonly List<(string Text, string Subject, Func<string?> Refresh)> Warnings = new();
             public readonly List<(string Text, VerbosityLevel Level, string Subject)> Status = new();
-            public void SpeakWarning(string text, string subject, Func<string?> refresh) { lock (Warnings) Warnings.Add((text, subject, refresh)); }
+            public readonly List<Action?> NotDelivered = new();
+            public void SpeakWarning(string text, string subject, Func<string?> refresh, Action? notDelivered = null)
+            {
+                lock (Warnings) { Warnings.Add((text, subject, refresh)); NotDelivered.Add(notDelivered); }
+            }
             public void SpeakStatus(string text, VerbosityLevel level, string subject) { lock (Status) Status.Add((text, level, subject)); }
         }
 
