@@ -2707,6 +2707,12 @@ namespace JJFlexWpf.Dialogs
         private readonly HashSet<string> _accountSwitchTried =
             new(StringComparer.OrdinalIgnoreCase);
 
+        // Per selector session, like the account-switch guard. Mark before
+        // opening a modal window: its dispatcher can run connect callbacks.
+        private readonly HashSet<string> _ownershipAsked =
+            new(StringComparer.OrdinalIgnoreCase);
+        private bool _ownershipQuestionOpen;
+
         private void DoConnect(RadioListItem radio) => DoConnect(radio, null);
 
         /// <summary>
@@ -2722,7 +2728,40 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         private void DoConnect(RadioListItem radio, ConnectPathKind? forcedPath)
         {
+            // A nested timer/discovery callback must not connect before the
+            // operator has finished answering the currently open question.
+            if (_ownershipQuestionOpen) return;
             var radioName = RowName(radio);
+
+            var ownershipConfig = RadioConfig.LoadForRadio(radio.Serial);
+            if (!string.IsNullOrEmpty(radio.Serial)
+                && Radios.StationConnect.StationCoordinator.OwnershipQuestionWouldHelp(
+                    ownershipConfig.Ownership, ownershipConfig.ProfileIntent,
+                    ownershipConfig.ChangeNothingOnThisRadio)
+                && _ownershipAsked.Add(radio.Serial))
+            {
+                _autoConnectTimer.Stop();
+                _ownershipQuestionOpen = true;
+                try
+                {
+                    // FIRST DRAFT: connect reason and dismissal consequence
+                    // await Noel's wording review (#638). Ownership is a
+                    // per-radio declaration, so the existing Workshop question
+                    // also applies before station restoration.
+                    if (!RadioOwnershipDialog.AskForConnect(radio.Serial, radioName,
+                        Lexicon.Get("connect.ownership.reason"), ownershipConfig))
+                    {
+                        // The store reports the failure centrally. Do not start
+                        // a connection against an answer that never reached it;
+                        // a deliberate retry must be able to ask again.
+                        _ownershipAsked.Remove(radio.Serial);
+                        return;
+                    }
+                    // SomeoneElse's declaration changes ownership only. Escape
+                    // or suppression answers nothing; never store LeaveAlone.
+                }
+                finally { _ownershipQuestionOpen = false; }
+            }
 
             // A row bound to another account never hunts on the current one —
             // that pass is a thirty-second authentication grind toward a

@@ -274,6 +274,8 @@
     "chatty": "JJ Flexible Home, no radio connected",
     "diagnostic": "No radio connected"
   },
+  "connect.ownership.reason": "Before connecting, JJ Flexible Access needs to know whether this radio is yours. Answering yes declares that you own this radio and gives permission to load your profiles and restore your station. Dismissing this question gives no new permission; you may connect with no slices or receive audio.",
+  "connect.ownership.silencing": "If you choose Don't show this again, Escape will also silence this question until you restore it in Settings, Notifications, Messages You Have Silenced. Silencing the question does not answer it.",
   "connect.presence.denied": "Cannot {reason}. You must be the primary operator at the radio.",
   "connect.presence.port_denied": "Cannot {reason}. You must be the primary operator at the radio — or, if this is your own radio, turn on allowing port changes from remote connections, on the Radios tab in Settings.",
   "connect.radio.no_rig": "No rig is connected.",

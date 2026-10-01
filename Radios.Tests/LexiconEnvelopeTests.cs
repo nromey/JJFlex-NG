@@ -588,14 +588,15 @@ namespace Radios.Tests
             // set is 2,979 — 2,970 strings and nine ladders — and 222 of them
             // are Track I's alarm keys, which are QUARANTINED in the manifest
             // (#627) because Track I is not merged and those keys do not exist
-            // in this tree. 2,979 minus 222 is 2,757.
+            // in this tree. 2,979 minus 222, plus the three ownership-question strings
+            // added under #638, is 2,760.
             //
-            // SO THIS TEST FAILING WITH "Expected 2757, Actual 2979" IS THE
+            // SO THIS TEST FAILING WITH "Expected 2760, Actual 2982" IS THE
             // EXPECTED RESULT WHEN TRACK I MERGES, and it is a third deliberate
             // tripwire for that event alongside
             // LegacyUnclassifiedQuarantineTests. Read it as "the quarantine has
             // ended, put the number back", NOT as the migration going
-            // backwards. Restore 2,979 then.
+            // backwards. Restore 2,982 then.
             //
             // The number is pinned so the migration can only shrink. That is
             // still true; the baseline it shrinks from is simply this tree's.
@@ -715,6 +716,23 @@ namespace Radios.Tests
             // the line, so "at or below" would promise a clearance the monitor
             // never grants. Frozen with the gate's printed lines, not
             // classified (#629 stands).
+            //
+            // Then 2,831 when integration merged into Track N (#638): the
+            // three keys the connect-time ownership question brought with it
+            // -- connect.ownership.reason, connect.ownership.silencing, and
+            // settings.silenced.ownership, the label the suppression store
+            // reads back. Frozen as DRAFTS for the same reason. The
+            // arithmetic, because the merge got it wrong once: merge base
+            // 2,757 + Track N's 3 + integration's 71. Only one of the three
+            // conflicted, so resolving the conflict alone undercounts by two.
+            // Whoever merges Track I on top of this adds the same 3.
+            // 3,075 when Track N merged into integration (2026-10-01): the three
+            // ownership keys named in the paragraph above, on top of Track IJK's
+            // 3,072. Base 2,828 + IJK's 244 + Track N's 3. **Confirmed by running
+            // this test on the merged tree, not by the arithmetic alone** — the
+            // arithmetic was wrong once today, when resolving the single
+            // CONFLICTING key was mistaken for counting the merge, and two keys
+            // that merged cleanly went uncounted.
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -727,7 +745,7 @@ namespace Radios.Tests
                 }
             }
 
-            Assert.Equal(3072, unclassified);
+            Assert.Equal(3075, unclassified);
             Assert.All(classified, key =>
                 Assert.StartsWith("facts.", key, StringComparison.Ordinal));
             Assert.True(classified.Count > 30,
