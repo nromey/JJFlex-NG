@@ -190,6 +190,181 @@ namespace Radios.Tests.Alarms
             Assert.Single(OfType(Lines(), "capture").Where(e => e.GetProperty("state").GetString() == "stopped"));
         }
 
+        // ── Astra's Track I review, findings 8, 9 and 10 ──
+
+        [Fact]
+        public void A_non_finite_value_is_written_as_a_named_literal_and_takes_nothing_else_with_it()
+        {
+            // Finding 8: NaN and infinity broke the serializer, and the drained
+            // batch around them was lost. Invalid observations are admitted on
+            // purpose; the journal must take them.
+            var j = Up();
+            j.Record(Obs(1, 30f));
+            j.Record(Obs(2, float.NaN));
+            j.Record(Obs(3, float.PositiveInfinity));
+            j.Record(Obs(4, 31f));
+            j.Flush(force: true);
+
+            var obs = OfType(Lines(), "obs").ToList();
+            Assert.Equal(4, obs.Count);
+            Assert.Equal("NaN", obs[1].GetProperty("value").GetString());
+            Assert.Equal("NonFinite", obs[1].GetProperty("valid").GetString());
+            Assert.Equal("Infinity", obs[2].GetProperty("value").GetString());
+            Assert.Equal(31f, obs[3].GetProperty("value").GetSingle());
+            Assert.True(j.Stats().Healthy);
+        }
+
+        [Fact]
+        public void A_batch_the_file_would_not_take_is_kept_and_written_behind_a_write_gap_when_writing_resumes()
+        {
+            // Finding 8: an append failure discarded the batch, and the next
+            // success reset the health flag with no durable record of the loss.
+            var j = Up();
+            string segment = j.Stats().CurrentSegmentPath;
+            j.Record(Obs(1, 30f));
+            j.Flush(force: true);
+
+            // Put a directory where the segment file is: the next append fails.
+            File.Delete(segment);
+            Directory.CreateDirectory(segment);
+            j.Record(Obs(2, 31f));
+            j.Record(Obs(3, 32f));
+            j.Flush(force: true);
+            Assert.False(j.Stats().Healthy);
+            Assert.Equal(0, j.Stats().RecordsLostToWriteFailure);
+
+            // Writing resumes: the kept records come first, behind a record
+            // that says how many flushes failed and how many came through.
+            Directory.Delete(segment);
+            j.Record(Obs(4, 33f));
+            j.Flush(force: true);
+            Assert.True(j.Stats().Healthy);
+
+            var lines = File.ReadAllLines(segment).Where(l => l.Length > 0).Select(l => JsonDocument.Parse(l).RootElement).ToList();
+            var gap = OfType(lines, "write_gap").Single();
+            Assert.Equal(1, gap.GetProperty("failedFlushes").GetInt32());
+            Assert.Equal(2, gap.GetProperty("recordsRecovered").GetInt32());
+            Assert.Equal(0, gap.GetProperty("recordsLost").GetInt64());
+            Assert.Equal(new long[] { 2, 3, 4 }, OfType(lines, "obs").Select(o => o.GetProperty("seq").GetInt64()).ToArray());
+        }
+
+        [Fact]
+        public void An_overflow_followed_by_nothing_but_a_flush_still_writes_its_gap()
+        {
+            // Finding 10: the gap was written only at the NEXT successful
+            // enqueue, so an overflow followed by shutdown left no gap at all.
+            var j = Up();
+            for (long s = 1; s <= AlarmJournal.MaxQueueRecords + 3; s++) j.Record(Obs(s, 30f));
+            j.Flush(force: true);   // nothing enqueued after the drops
+
+            var gap = OfType(Lines(), "gap").Single();
+            Assert.Equal(3, gap.GetProperty("dropped").GetInt64());
+            Assert.Equal(AlarmJournal.MaxQueueRecords + 1, gap.GetProperty("firstSeq").GetInt64());
+            Assert.Equal(AlarmJournal.MaxQueueRecords + 3, gap.GetProperty("lastSeq").GetInt64());
+        }
+
+        [Fact]
+        public void A_capture_start_flushes_first_so_the_freshest_queued_readings_are_in_the_preroll_and_reports_their_age()
+        {
+            // Finding 10: the ring was copied and THEN flushed, so the newest
+            // queued readings were in the segment but not in the pre-roll that
+            // claimed to be its last ninety seconds.
+            var j = Up();
+            j.Record(Obs(1, 30f, _clock.NowMs));
+            j.Flush(force: true);
+            _clock.Advance(2000);
+            j.Record(Obs(2, 31f, _clock.NowMs));   // queued, not yet flushed
+            _clock.Advance(3000);                    // and three seconds pass before the capture
+
+            string preRoll = j.CaptureStarted(@"C:\somewhere\JJFlexRadioTrace.txt");
+            var preLines = File.ReadAllLines(preRoll).Select(l => JsonDocument.Parse(l).RootElement).ToList();
+            Assert.Equal(2, preLines[0].GetProperty("records").GetInt32());
+            Assert.Equal(3, preLines[0].GetProperty("newestRecordAgeSeconds").GetDouble(), 3);
+            Assert.Equal(2, preLines[2].GetProperty("seq").GetInt64());
+        }
+
+        [Fact]
+        public void A_new_connection_rotates_to_a_segment_under_the_new_radio_and_clears_the_other_radios_preroll()
+        {
+            // Finding 9: ConnectionStarted changed the serial and generation
+            // without rotating, so a later radio's observations sat under the
+            // earlier radio's header, and the ring carried one radio's evidence
+            // into another's pre-roll.
+            var j = Up();
+            j.Record(Obs(1, 30f));
+            j.Flush(force: true);
+            string first = j.Stats().CurrentSegmentPath;
+            Assert.Single(j.PreRoll(out _));
+
+            j.ConnectionStarted(2, "9999-0000-0000-0000");
+            Assert.Empty(j.PreRoll(out _));
+            j.Record(MeterObservation.Measured(PaTemperatureReplayFixture.Meter, 40f, 1, _clock.NowMs, _clock.UtcNow, 2, null));
+            j.Flush(force: true);
+
+            string second = j.Stats().CurrentSegmentPath;
+            Assert.NotEqual(first, second);
+            Assert.Contains("9999-0000-0000-0000", second);
+            var firstLines = File.ReadAllLines(first).Where(l => l.Length > 0).Select(l => JsonDocument.Parse(l).RootElement).ToList();
+            Assert.Single(OfType(firstLines, "segment_end"));
+            Assert.DoesNotContain(OfType(firstLines, "obs"), o => o.GetProperty("gen").GetInt32() == 2);
+            var secondLines = Lines();
+            Assert.Equal(2, OfType(secondLines, "segment").Single().GetProperty("gen").GetInt32());
+            Assert.Equal("9999-0000-0000-0000", OfType(secondLines, "segment").Single().GetProperty("radio").GetString());
+            Assert.Single(OfType(secondLines, "obs"));
+        }
+
+        [Fact]
+        public void A_reconnect_to_the_same_radio_rotates_but_keeps_the_preroll()
+        {
+            var j = Up();
+            j.Record(Obs(1, 30f));
+            j.Flush(force: true);
+            string first = j.Stats().CurrentSegmentPath;
+            j.ConnectionStarted(2, "1234-5678-9012-3456");
+            Assert.Single(j.PreRoll(out _));   // same radio: its last ninety seconds are still its own
+            j.Record(Obs(2, 30f));
+            j.Flush(force: true);
+            Assert.NotEqual(first, j.Stats().CurrentSegmentPath);
+        }
+
+        [Fact]
+        public void The_capture_link_survives_a_restart_and_covers_a_segment_opened_while_the_capture_runs()
+        {
+            // Additional observation: protection was an in-memory set, so a
+            // restart forgot it and pruning could delete a segment a capture had
+            // named; and a segment opened during a running capture was not
+            // linked at all.
+            var j = Up();
+            j.Record(Obs(1, 30f));
+            j.CaptureStarted(@"C:\somewhere\trace.txt");
+            string linkedFirst = Path.GetFileNameWithoutExtension(j.Stats().CurrentSegmentPath).Substring("journal-".Length);
+
+            // A rotation while the capture is open: the new segment is linked too.
+            j.ConnectionStarted(2, "1234-5678-9012-3456");
+            j.Record(Obs(2, 30f));
+            j.Flush(force: true);
+            string linkedSecond = Path.GetFileNameWithoutExtension(j.Stats().CurrentSegmentPath).Substring("journal-".Length);
+            Assert.NotEqual(linkedFirst, linkedSecond);
+
+            string dir = Path.GetDirectoryName(j.Stats().CurrentSegmentPath)!;
+            string[] links = File.ReadAllLines(Path.Combine(dir, AlarmJournal.LinkedSegmentsFileName));
+            Assert.Contains(linkedFirst, links);
+            Assert.Contains(linkedSecond, links);
+            j.Dispose();
+
+            // A NEW journal, after a restart, with enough old segments to prune:
+            // the linked ones survive.
+            for (int i = 0; i < AlarmJournal.SegmentsKeptPerRadio + 3; i++)
+                File.WriteAllText(Path.Combine(dir, "journal-20200101-0000" + i.ToString("00") + "-abcdef.jsonl"), "{}\n");
+            var again = new AlarmJournal(_root, _clock, startWorker: false);
+            again.ConnectionStarted(3, "1234-5678-9012-3456");
+            again.Record(Obs(1, 30f));
+            again.Flush(force: true);
+            Assert.True(File.Exists(Path.Combine(dir, "journal-" + linkedFirst + ".jsonl")));
+            Assert.True(File.Exists(Path.Combine(dir, "journal-" + linkedSecond + ".jsonl")));
+            again.Dispose();
+        }
+
         [Fact]
         public void A_heartbeat_carries_the_meter_receipt_age_separately_from_its_own_clock()
         {
