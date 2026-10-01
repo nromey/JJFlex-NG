@@ -82,6 +82,54 @@ namespace Radios.Tests.Alarms
         }
 
         [Fact]
+        public void A_file_that_parses_but_is_not_usable_is_unavailable_with_the_reason_and_left_in_place()
+        {
+            // Astra's Track I review, finding 13: "loaded" meant "parsed".
+            // A null element threw after the file was reported loaded; blank
+            // and duplicate ids were skipped in silence; a definition that
+            // would never pass its own validation ran anyway.
+            var store = new AlarmDefinitionStore(_root);
+            string path = store.PathFor("1234-5678-9012-3456");
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+
+            string nullElement = "{ \"SchemaVersion\": 1, \"Definitions\": [ null ] }";
+            File.WriteAllText(path, nullElement);
+            var load = store.Load("1234-5678-9012-3456");
+            Assert.Equal(AlarmStoreState.Unavailable, load.State);
+            Assert.Contains("definition 1 of 1 is empty", load.Problem);
+            Assert.Equal(nullElement, File.ReadAllText(path));   // preserved for the operator to look at
+
+            store.Save(Sample("1234-5678-9012-3456"));
+            string json = File.ReadAllText(path);
+
+            // Two definitions with one id. Save does not validate — only Load
+            // does, because the file is what a hand can edit.
+            var twice = Sample("1234-5678-9012-3456");
+            twice.Definitions.Add(twice.Definitions[0] with { Name = "The same again" });
+            store.Save(twice);
+            load = store.Load("1234-5678-9012-3456");
+            Assert.Equal(AlarmStoreState.Unavailable, load.State);
+            Assert.Contains("repeats the id a1", load.Problem);
+
+            // A definition its own validation refuses: a negative clear margin.
+            File.WriteAllText(path, json.Replace("\"Hysteresis\": 2", "\"Hysteresis\": -2"));
+            load = store.Load("1234-5678-9012-3456");
+            Assert.Equal(AlarmStoreState.Unavailable, load.State);
+            Assert.Contains("hysteresis", load.Problem);
+            Assert.Contains("PA temperature", load.Problem);
+
+            // A blank id.
+            File.WriteAllText(path, json.Replace("\"Id\": \"a1\"", "\"Id\": \"\""));
+            load = store.Load("1234-5678-9012-3456");
+            Assert.Equal(AlarmStoreState.Unavailable, load.State);
+            Assert.Contains("has no id", load.Problem);
+
+            // Positive control: the file as saved is loaded and usable.
+            File.WriteAllText(path, json);
+            Assert.Equal(AlarmStoreState.Loaded, store.Load("1234-5678-9012-3456").State);
+        }
+
+        [Fact]
         public void A_newer_schema_is_refused_rather_than_guessed_at()
         {
             var store = new AlarmDefinitionStore(_root);

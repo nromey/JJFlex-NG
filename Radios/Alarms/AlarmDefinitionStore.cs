@@ -134,6 +134,18 @@ namespace Radios.Alarms
                 file.Definitions ??= new List<AlarmDefinition>();
                 file.RecordOnlyMeters ??= new List<MeterSelector>();
                 file.RadioSerial = radioSerial;   // the directory is authoritative
+
+                // **"Loaded" means USABLE, not merely parsed (Astra's Track I
+                // review, finding 13).** Valid JSON used to be enough, and the
+                // service then dereferenced each entry: a null element threw
+                // after the file had already been reported loaded, a blank or
+                // duplicate id was skipped in silence, and a definition that
+                // would never pass Validate() ran anyway. The whole file is
+                // judged here, before anything replaces the active
+                // configuration, and a bad one is unavailable WITH the reason
+                // and left in place for the operator to look at.
+                string? problem = SemanticProblem(file);
+                if (problem != null) return Unavailable(radioSerial, path, problem);
                 return new AlarmStoreLoad(AlarmStoreState.Loaded, file, "");
             }
             catch (JsonException ex)
@@ -148,6 +160,38 @@ namespace Radios.Alarms
             {
                 return Unavailable(radioSerial, path, "could not be read: " + ex.Message);
             }
+        }
+
+        /// <summary>
+        /// Everything that makes a syntactically valid file unusable, or null:
+        /// an empty element, a definition with no id, two with one id, a
+        /// definition its own validation refuses, a missing selector, an empty
+        /// record-only entry. The first problem is named, with the definition
+        /// it belongs to, so the Unavailable sentence says what to fix.
+        /// </summary>
+        internal static string? SemanticProblem(AlarmDefinitionFile file)
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < file.Definitions.Count; i++)
+            {
+                AlarmDefinition? d = file.Definitions[i];
+                string at = "definition " + (i + 1) + " of " + file.Definitions.Count;
+                if (d == null) return at + " is empty";
+                if (string.IsNullOrWhiteSpace(d.Id)) return at + " (" + d.Name + ") has no id";
+                if (!ids.Add(d.Id)) return at + " (" + d.Name + ") repeats the id " + d.Id;
+                if (d.Selector == null) return at + " (" + d.Name + ") names no meter";
+                IReadOnlyList<AlarmValidationProblem> problems = d.Validate();
+                if (problems.Count != 0)
+                    return at + " (" + d.Name + ") is not a valid alarm: its " + problems[0].Field + " field ("
+                        + problems[0].LexiconKey + ")";
+            }
+            for (int i = 0; i < file.RecordOnlyMeters.Count; i++)
+            {
+                MeterSelector? s = file.RecordOnlyMeters[i];
+                if (s == null) return "record-only meter " + (i + 1) + " is empty";
+                if (string.IsNullOrWhiteSpace(s.Name)) return "record-only meter " + (i + 1) + " has no name";
+            }
+            return null;
         }
 
         private static AlarmStoreLoad Unavailable(string serial, string path, string problem)

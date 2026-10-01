@@ -308,17 +308,78 @@ namespace Radios.Tests.Alarms
         }
 
         [Fact]
-        public void The_recorded_meter_choices_show_alarm_watched_meters_and_the_operator_extras()
+        public void The_recorded_meter_choices_show_ENABLED_alarm_watched_meters_and_the_operator_extras()
         {
+            // Astra's Track I review, finding 11: a preset arrives disabled,
+            // and a disabled alarm records nothing — the dialog says "while
+            // the alarm is enabled", and this used to mark PATEMP as recorded
+            // by an alarm that was off.
             var model = Up();
             AlarmEditorModel editor = model.NewEditor();
             editor.ApplyPreset(model.PresetChoices().Single(c => c.Definition?.PresetKey == AlarmPresets.PaTemperature));
             model.Save(editor, out _);
             Assert.True(model.SetRecorded(Fwd, true));
-            var choices = model.RecordedChoices();
-            Assert.True(choices.Single(c => c.Meter.Name == "PATEMP").ByAlarm);
-            Assert.True(choices.Single(c => c.Meter.Name == "FWDPWR").ByOperator);
-            Assert.False(choices.Single(c => c.Meter.Name == "+13.8A").ByAlarm || choices.Single(c => c.Meter.Name == "+13.8A").ByOperator);
+
+            var disabled = model.RecordedChoices();
+            Assert.False(disabled.Single(c => c.Meter.Name == "PATEMP").ByAlarm);
+            Assert.DoesNotContain("PATEMP", _service!.RecordedMeters.Select(m => m.Name));
+
+            model.SetEnabled(editor.Id, true);
+            var enabled = model.RecordedChoices();
+            Assert.True(enabled.Single(c => c.Meter.Name == "PATEMP").ByAlarm);
+            Assert.True(enabled.Single(c => c.Meter.Name == "FWDPWR").ByOperator);
+            Assert.False(enabled.Single(c => c.Meter.Name == "+13.8A").ByAlarm || enabled.Single(c => c.Meter.Name == "+13.8A").ByOperator);
+            Assert.Contains("PATEMP", _service.RecordedMeters.Select(m => m.Name));
+
+            // And disabling again takes it back out, leaving the operator's own choice alone.
+            model.SetEnabled(editor.Id, false);
+            Assert.Equal(new[] { "FWDPWR" }, _service.RecordedMeters.Select(m => m.Name));
+            Assert.Equal(new[] { "FWDPWR" }, _service.RecordedMetersResolved.Select(m => m.Name));
+        }
+
+        [Fact]
+        public void A_number_that_cannot_be_read_is_a_named_problem_on_its_field_and_the_other_fields_still_apply()
+        {
+            // Astra's Track I review, finding 6: the dialog applied a field
+            // only when it parsed and then validated the model, which still
+            // held the previous value — so "oops" in the line saved 60.
+            var model = Up();
+            AlarmEditorModel editor = model.NewEditor();
+            editor.ApplyPreset(model.PresetChoices().Single(c => c.Definition?.PresetKey == AlarmPresets.PaTemperature));
+            Assert.Equal(60, editor.Threshold);
+
+            var problems = editor.ApplyTypedNumbers(new AlarmEditorModel.TypedNumbers(
+                Threshold: "oops", Hysteresis: "3", SustainedCount: "2", SustainedSeconds: "1",
+                Freshness: "5", Reminder: "30", Worsening: "2"));
+            var first = Assert.Single(problems);
+            Assert.Equal("threshold", first.Field);
+            Assert.Equal("The line must be a number.", Lexicon.Get(first.LexiconKey));
+            Assert.Equal(60, editor.Threshold);   // untouched, and the operator is TOLD, rather than silently kept
+            Assert.Equal(3, editor.Hysteresis);   // the field that did parse was applied
+
+            var empty = editor.ApplyTypedNumbers(new AlarmEditorModel.TypedNumbers("", "3", "2", "1", "5", "30", "2"));
+            Assert.Equal("threshold", Assert.Single(empty).Field);
+
+            var fraction = editor.ApplyTypedNumbers(new AlarmEditorModel.TypedNumbers("60", "3", "2.5", "1", "5", "30", "2"));
+            var count = Assert.Single(fraction);
+            Assert.Equal("persistence", count.Field);
+            Assert.Equal("Readings in a row must be a whole number.", Lexicon.Get(count.LexiconKey));
+            Assert.Equal(2, editor.SustainedCount);   // not silently cast to 2 from 2.5 — kept, and refused
+
+            Assert.Empty(editor.ApplyTypedNumbers(new AlarmEditorModel.TypedNumbers("61.5", "3", "3", "1", "5", "30", "2")));
+            Assert.Equal(61.5, editor.Threshold);
+            Assert.Equal(3, editor.SustainedCount);
+        }
+
+        [Fact]
+        public void Every_unreadable_number_names_its_own_field_in_the_forms_order()
+        {
+            var model = Up();
+            AlarmEditorModel editor = model.NewEditor();
+            var problems = editor.ApplyTypedNumbers(new AlarmEditorModel.TypedNumbers("x", "x", "x", "x", "x", "x", "x"));
+            Assert.Equal(new[] { "threshold", "hysteresis", "persistence", "persistence", "freshness", "reminder", "worsening" },
+                problems.Select(p => p.Field));
+            foreach (var p in problems) Assert.DoesNotContain("alarms.", Lexicon.Get(p.LexiconKey));   // every key resolves to a sentence
         }
 
         [Fact]

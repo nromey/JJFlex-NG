@@ -213,12 +213,12 @@ namespace Radios.Alarms
 
         // ── the recorded set ──
 
-        /// <summary>Every published meter, with whether an alarm already records it and whether the operator added it.</summary>
+        /// <summary>Every published meter, with whether an ENABLED alarm already records it and whether the operator added it.</summary>
         public IReadOnlyList<(MeterDescriptor Meter, bool ByAlarm, bool ByOperator)> RecordedChoices()
         {
             var byAlarm = new HashSet<int>();
             foreach (AlarmSnapshot s in _service.Snapshot())
-                if (s.ResolvedMeter != null) byAlarm.Add(s.ResolvedMeter.Index);
+                if (s.Definition.Enabled && s.ResolvedMeter != null) byAlarm.Add(s.ResolvedMeter.Index);
             var byOperator = new HashSet<int>();
             IReadOnlyList<MeterDescriptor> inventory = _service.Inventory;
             foreach (MeterSelector sel in _service.RecordOnlyMeters)
@@ -501,5 +501,52 @@ namespace Radios.Alarms
         public static bool TryParse(string? text, out double value) =>
             double.TryParse((text ?? "").Trim(), NumberStyles.Float, CultureInfo.CurrentCulture, out value)
             || double.TryParse((text ?? "").Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+
+        /// <summary>The numeric fields as the form holds them, as typed.</summary>
+        public sealed record TypedNumbers(string? Threshold, string? Hysteresis, string? SustainedCount,
+            string? SustainedSeconds, string? Freshness, string? Reminder, string? Worsening);
+
+        /// <summary>
+        /// Apply every numeric field from what the operator TYPED, and name
+        /// each one that could not be read, in the form's order.
+        /// </summary>
+        /// <remarks>
+        /// <b>Astra's Track I review, finding 6.</b> The dialog applied a field
+        /// only when it parsed, then validated the model — which still held
+        /// the previous value. Clearing a 60 C line, or typing "oops", saved
+        /// 60 C while the operator believed the line had changed; a count of
+        /// "2.5" was silently cast to 2. A field that cannot be read is now a
+        /// problem on THAT field, before Preview, Save or Save as preset, and
+        /// a count must be a whole number. Fields that do parse are applied,
+        /// so a form with one bad field keeps every other edit.
+        /// </remarks>
+        public IReadOnlyList<AlarmValidationProblem> ApplyTypedNumbers(TypedNumbers typed)
+        {
+            var problems = new List<AlarmValidationProblem>();
+
+            if (TryParse(typed.Threshold, out double t)) Threshold = t;
+            else problems.Add(new AlarmValidationProblem("threshold", "alarms.validation.threshold_not_finite"));
+
+            if (TryParse(typed.Hysteresis, out double h)) Hysteresis = h;
+            else problems.Add(new AlarmValidationProblem("hysteresis", "alarms.validation.hysteresis_not_number"));
+
+            if (TryParse(typed.SustainedCount, out double c) && c == Math.Floor(c) && c >= 0 && c <= int.MaxValue)
+                SustainedCount = (int)c;
+            else problems.Add(new AlarmValidationProblem("persistence", "alarms.validation.sustained_count_not_whole"));
+
+            if (TryParse(typed.SustainedSeconds, out double ss)) SustainedSeconds = ss;
+            else problems.Add(new AlarmValidationProblem("persistence", "alarms.validation.sustained_seconds_not_number"));
+
+            if (TryParse(typed.Freshness, out double f)) FreshnessAllowanceSeconds = f;
+            else problems.Add(new AlarmValidationProblem("freshness", "alarms.validation.freshness_not_number"));
+
+            if (TryParse(typed.Reminder, out double r)) ReminderIntervalSeconds = r;
+            else problems.Add(new AlarmValidationProblem("reminder", "alarms.validation.reminder_not_number"));
+
+            if (TryParse(typed.Worsening, out double w)) WorseningStep = w;
+            else problems.Add(new AlarmValidationProblem("worsening", "alarms.validation.worsening_not_number"));
+
+            return problems;
+        }
     }
 }

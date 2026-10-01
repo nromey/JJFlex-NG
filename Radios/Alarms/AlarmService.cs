@@ -185,7 +185,16 @@ namespace Radios.Alarms
             get { lock (_gate) return _recordOnly.ToArray(); }
         }
 
-        /// <summary>The one recorded set: every alarm's meter plus the record-only ones, as selectors.</summary>
+        /// <summary>
+        /// The one recorded set: every ENABLED alarm's meter plus the
+        /// record-only ones, as selectors. A disabled alarm records nothing —
+        /// the dialog says "while the alarm is enabled", and until Astra's
+        /// Track I review (finding 11) that sentence was false: every
+        /// definition was in the set whatever its state, so disabling an alarm
+        /// left its meter being written per reading with no alarm to justify
+        /// it. The operator's own recording choices are theirs and are not
+        /// touched by an alarm's state.
+        /// </summary>
         public IReadOnlyList<MeterSelector> RecordedMeters
         {
             get
@@ -194,7 +203,7 @@ namespace Radios.Alarms
                 {
                     var set = new List<MeterSelector>();
                     foreach (Entry e in _entries.Values)
-                        if (!set.Contains(e.Monitor.Definition.Selector)) set.Add(e.Monitor.Definition.Selector);
+                        if (e.Monitor.Enabled && !set.Contains(e.Monitor.Definition.Selector)) set.Add(e.Monitor.Definition.Selector);
                     foreach (MeterSelector s in _recordOnly)
                         if (!set.Contains(s)) set.Add(s);
                     return set;
@@ -284,6 +293,8 @@ namespace Radios.Alarms
                 bool was = entry.Monitor.Enabled;
                 Post(entry, entry.Monitor.SetEnabled(enabled, _clock.NowMs));
                 if (!Persist()) { entry.Monitor.SetEnabled(was, _clock.NowMs); return false; }
+                // The recorded set follows the enabled state (finding 11).
+                Rebind();
             }
             RaiseChanged();
             return true;
@@ -464,7 +475,21 @@ namespace Radios.Alarms
                 _recordedIndices.Clear();
                 _reported.Clear();
 
-                LoadDefinitions(previousSerial);
+                try { LoadDefinitions(previousSerial); }
+                catch (Exception ex)
+                {
+                    // The feed swallows a listener's exception so FlexLib's
+                    // thread survives, which means a failure HERE would
+                    // otherwise leave the previous radio's monitors running
+                    // under a store that reports whatever it last reported
+                    // (finding 13). The configuration is unavailable, and says
+                    // so, rather than partly loaded and apparently healthy.
+                    _entries.Clear();
+                    _recordOnly.Clear();
+                    _storeState = AlarmStoreState.Unavailable;
+                    _storeProblem = "loading the alarm definitions failed: " + ex.Message;
+                    Tracing.TraceLine("AlarmService: " + _storeProblem, TraceLevel.Error);
+                }
                 long now = _clock.NowMs;
                 foreach (Entry e in _entries.Values)
                 {
@@ -594,7 +619,9 @@ namespace Radios.Alarms
                     e.BoundIndex = index;
                     if (!_byIndex.TryGetValue(index, out List<Entry>? list)) _byIndex[index] = list = new List<Entry>();
                     list.Add(e);
-                    _recordedIndices.Add(index);
+                    // Bound whether or not it is enabled, so enabling later
+                    // needs no rebind; RECORDED only while enabled (finding 11).
+                    if (e.Monitor.Enabled) _recordedIndices.Add(index);
                 }
                 else
                 {

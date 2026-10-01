@@ -606,6 +606,10 @@ namespace Radios.Tests
             // exactly as the paragraph above predicted. Still unclassified,
             // still frozen by fingerprint, because classifying them is a #617
             // speech decision that this merge does not take.
+            //
+            // 3,037 after Track IJK's fixes to Track I's review findings: six
+            // new alarms.validation.* sentences for a number the editor could
+            // not read (finding 6), frozen by the gate's own printed lines.
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -618,7 +622,7 @@ namespace Radios.Tests
                 }
             }
 
-            Assert.Equal(3031, unclassified);
+            Assert.Equal(3037, unclassified);
             Assert.All(classified, key =>
                 Assert.StartsWith("facts.", key, StringComparison.Ordinal));
             Assert.True(classified.Count > 30,

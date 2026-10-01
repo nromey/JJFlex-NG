@@ -243,6 +243,10 @@ public sealed class AlarmEditorDialog : JJFlexDialog
         box.LostFocus += (_, _) =>
         {
             if (_loading) return;
+            // A field that parses is applied as it is left, so the summary
+            // follows the operator round the form. One that does not is left
+            // as typed and becomes a named problem at Preview, Save or Save
+            // as preset — never silently the previous value (finding 6).
             if (AlarmEditorModel.TryParse(box.Text, out double v)) { apply(v); RefreshSummary(); }
         };
         return box;
@@ -363,10 +367,18 @@ public sealed class AlarmEditorDialog : JJFlexDialog
 
     // ── the actions ──
 
+    /// <summary>
+    /// Every number as TYPED, then the model's own rules. A field that cannot
+    /// be read is the first problem, named and focused, before anything is
+    /// previewed or saved — it used to be skipped, leaving the previous value
+    /// in force while the operator believed they had changed it (Astra's
+    /// Track I review, finding 6).
+    /// </summary>
     private bool Validated()
     {
-        CommitNumbers();
-        IReadOnlyList<AlarmValidationProblem> problems = _editor.Validate();
+        _editor.Name = _name.Text;
+        var problems = new List<AlarmValidationProblem>(_editor.ApplyTypedNumbers(TypedNumbers()));
+        if (problems.Count == 0) problems.AddRange(_editor.Validate());
         if (problems.Count == 0) return true;
         AlarmValidationProblem first = problems[0];
         Say(Lexicon.Get(first.LexiconKey));
@@ -374,18 +386,10 @@ public sealed class AlarmEditorDialog : JJFlexDialog
         return false;
     }
 
-    /// <summary>Numbers are applied on LostFocus; a button press from inside a field must not lose the last edit.</summary>
-    private void CommitNumbers()
-    {
-        if (AlarmEditorModel.TryParse(_threshold.Text, out double t)) _editor.Threshold = t;
-        if (AlarmEditorModel.TryParse(_hysteresis.Text, out double h)) _editor.Hysteresis = h;
-        if (AlarmEditorModel.TryParse(_sustainedCount.Text, out double c)) _editor.SustainedCount = (int)c;
-        if (AlarmEditorModel.TryParse(_sustainedSeconds.Text, out double ss)) _editor.SustainedSeconds = ss;
-        if (AlarmEditorModel.TryParse(_freshness.Text, out double f)) _editor.FreshnessAllowanceSeconds = f;
-        if (AlarmEditorModel.TryParse(_reminder.Text, out double r)) _editor.ReminderIntervalSeconds = r;
-        if (AlarmEditorModel.TryParse(_worsening.Text, out double w)) _editor.WorseningStep = w;
-        _editor.Name = _name.Text;
-    }
+    /// <summary>The numeric fields as the form holds them; a button press from inside a field must not lose the last edit.</summary>
+    private AlarmEditorModel.TypedNumbers TypedNumbers() => new(
+        _threshold.Text, _hysteresis.Text, _sustainedCount.Text, _sustainedSeconds.Text,
+        _freshness.Text, _reminder.Text, _worsening.Text);
 
     private void Preview()
     {
