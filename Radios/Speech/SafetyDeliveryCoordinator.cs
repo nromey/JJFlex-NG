@@ -525,6 +525,23 @@ namespace Radios.Speech
         }
 
         /// <summary>
+        /// An ORDINARY interrupt reached the reader and cut what it was
+        /// saying. A tracked attempt answers for itself through the pump and
+        /// is left to; an untracked one has no reporter and would otherwise be
+        /// believed to occupy the turn until its estimate ran out, after the
+        /// reader had in fact stopped. Its turn ends here as NotCompleted; the
+        /// attempt's own record in the arbiter's ledger is untouched and still
+        /// owed (Astra's Track IJK review, blocker 1).
+        /// </summary>
+        public void NoteOrdinaryInterruptCutTheReader(DateTime now)
+        {
+            var turn = _turn;
+            if (turn == null || !turn.Bound || turn.Tracked) return;
+            EndLocked(turn, SafetyTurnEnd.NotCompleted,
+                "an ordinary interrupt cut the reader; nobody can report on this attempt, and its information is still owed");
+        }
+
+        /// <summary>
         /// Give the turn back without anything having gone wrong with the
         /// channel: the attempt turned out to have nothing to say. Distinct
         /// from <see cref="Abandon"/>, which also records the backend as

@@ -431,10 +431,22 @@ namespace Radios.Tests
             a.Emit("Slice A", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "keys", SpeechSubject.WhereYouAre);
             _clock.Advance(Settle);
             Assert.Contains(first, Salvaged());
-            Assert.Contains(second, Salvaged());
             Assert.DoesNotContain("PC audio on.", Salvaged());
 
-            CutPartWayByNobodyWeCanName(a, first, at: 3, of: 11, ms: 900);
+            // **Changed 2026-10-01, Track IJK2 (Astra's blocker 1).** This
+            // used to assert that the SECOND warning was handed over in the
+            // same release, queued behind the first with no speaking turn of
+            // its own — which is the defect: when the first finished, a
+            // waiting alarm saw a free turn and cut the second. Now the first
+            // retry owns the turn and the second WAITS, owed, until the
+            // first's own answer frees it; then it is handed over with a turn
+            // of its own.
+            Assert.DoesNotContain(second, Salvaged());
+            Assert.Contains(a.OwedSafetyObligations, o => o.Message == second);
+            CutPartWayByNobodyWeCanName(a, first, at: 3, of: 11, ms: 900);   // the first's answer frees the turn
+            _clock.Advance(60);                                               // the turn waiter hands the second over
+            Assert.Contains(second, Salvaged());
+
             CutPartWayByNobodyWeCanName(a, second, at: 1, of: 7, ms: 200);
             int before = _calls.Count(c => c.Salvaged);
 

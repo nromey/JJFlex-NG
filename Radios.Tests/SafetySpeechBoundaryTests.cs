@@ -357,6 +357,70 @@ namespace Radios.Tests
             Assert.DoesNotContain(Owed(), o => o.Message == Cut);
         }
 
+        [Fact]
+        public void TwoProtectedRetries_EachOwnTheTurnInTurn_SoAWaitingAlarmWaitsForTheSecondsAnswer()
+        {
+            // Astra's Track IJK review, blocker 1. The repair above gave the
+            // FIRST protected entry in a release the turn and queued the rest
+            // behind it unowned: when the first completed and freed its token,
+            // a waiting alarm saw a free turn and interrupted the second. Two
+            // distinct safety subjects, both owed, both held by one ordinary
+            // interrupt; no new producer needed.
+            const string CutB = "Transmit stopped. The time limit was reached. You are no longer on the air.";
+
+            SpeakSafety(Cut, SpeechSubject.ReflectedPowerCut);
+            var callA = _ch.WaitForCall();
+            _ch.Mark(callA); _ch.Mark(callA); _ch.Mark(callA);
+            _ch.CancelFromOutside(callA, marksReached: 3, elapsedMs: 900);
+            SettleForBackendWork();
+
+            SpeakSafety(CutB, SpeechSubject.TransmitTimeLimit);
+            var callB = _ch.WaitForCall();
+            Assert.Equal(CutB, callB.Text);
+            _ch.Mark(callB); _ch.Mark(callB);
+            _ch.CancelFromOutside(callB, marksReached: 2, elapsedMs: 600);
+            SettleForBackendWork();
+            Assert.Contains(Owed(), o => o.Message == Cut);
+            Assert.Contains(Owed(), o => o.Message == CutB);
+
+            // One ordinary interrupt rescues both into the held train.
+            _arbiter.Emit("Slice A", interrupt: true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "keys",
+                SpeechSubject.WhereYouAre);
+            var callSlice = _ch.WaitForCall();
+            _ch.Complete(callSlice, 300);
+
+            // The release: the first retry takes the turn; the second WAITS
+            // for it rather than queueing behind it unowned.
+            Thread.Sleep(SpeechArbiter.SalvageSettleMs + 500);
+            var retryA = _ch.WaitForCall();
+            Assert.Equal(Cut, retryA.Text);
+            SettleForBackendWork();
+            Assert.Equal(1, BackendStarts().Count(t => t == CutB));   // B has not started again
+            Assert.Contains(Owed(), o => o.Message == CutB);           // and is still owed
+
+            // The first's own completion hands the second over, with a turn
+            // of its own.
+            _ch.Complete(retryA, 2400);
+            var retryB = _ch.WaitForCall();
+            Assert.Equal(CutB, retryB.Text);
+            Assert.Equal(CutB, BackendStarts().Last());
+
+            // An alarm arrives while the SECOND retry sounds. Under the
+            // first-only repair the turn was free here and the alarm cut it.
+            SpeakAlarm(AlarmA, SubjectA, () => AlarmA);
+            SettleForBackendWork();
+            Assert.DoesNotContain(AlarmA, BackendStarts());
+            Assert.Equal(1, _arbiter.AlarmPendingCount);
+
+            // The second retry's OWN answer is what lets the alarm through —
+            // the positive control that the silence above was ownership.
+            _ch.Complete(retryB, 2400);
+            var callAlarm = _ch.WaitForCall();
+            Assert.Equal(AlarmA, callAlarm.Text);
+            Assert.DoesNotContain(Owed(), o => o.Message == Cut);
+            Assert.DoesNotContain(Owed(), o => o.Message == CutB);
+        }
+
         // ────────────────────────────────────────────────────────────────
         //  Silence, including across the cue seam.
         // ────────────────────────────────────────────────────────────────

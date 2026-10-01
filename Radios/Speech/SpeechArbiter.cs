@@ -711,6 +711,16 @@ namespace Radios.Speech
             public long QuietGeneration;
 
             /// <summary>
+            /// A PROTECTED obligation whose retry is ready but found a
+            /// transmit-safety attempt holding the speaking turn — the live
+            /// cut, or the protected entry a release handed over just before
+            /// it. It stays in the ledger, owed, and is handed over by the
+            /// turn waiter when the turn is free, with a reservation of its own
+            /// (Astra's Track IJK review, blocker 1).
+            /// </summary>
+            public bool AwaitingTurn;
+
+            /// <summary>
             /// When this utterance FIRST reached the reader. Never moves, however
             /// many times the entry is salvaged — that is the whole point: the
             /// age bound has to be measured against something a re-queue cannot
@@ -1194,9 +1204,10 @@ namespace Radios.Speech
                 EmitUrgentLocked(message, level, origin, subject, additive: false, now, turn);
 
                 // Alarms that were waiting behind whatever held the turn now
-                // wait behind this one. Re-armed rather than left pointing at
-                // a deadline that no longer exists.
-                if (_alarmPending.Count > 0) ArmAlarmTimerLocked(now);
+                // wait behind this one, and so does a protected retry waiting
+                // its turn. Re-armed rather than left pointing at a deadline
+                // that no longer exists.
+                if (_alarmPending.Count > 0 || AnyProtectedAwaitingTurnLocked()) ArmAlarmTimerLocked(now);
             }
         }
 
@@ -1513,6 +1524,52 @@ namespace Radios.Speech
                 _alarmTimer = null;
                 var now = _clock.UtcNow;
 
+                // **Protected retries waiting their turn go FIRST (blocker
+                // 1).** A safety obligation outranks an alarm, and one that
+                // waited for a transmit-safety attempt to answer is handed
+                // over with a turn of its own the moment the turn is free —
+                // one at a time, its own answer re-arming for the next.
+                while (true)
+                {
+                    BelievedQueued? next = _believedQueued.Find(e => e.Protected && e.AwaitingTurn);
+                    if (next == null) break;
+                    if (_safety.IsBusy(now))
+                    {
+                        ArmAlarmTimerLocked(now);
+                        return;
+                    }
+                    next.AwaitingTurn = false;
+                    if (!_safety.InCurrentCohort(next.QuietGeneration))
+                    {
+                        // Silenced while it waited: owed, reachable, and not
+                        // re-offered by automatic speech (#182).
+                        Tracing.TraceLine(
+                            "SpeechArbiter: a SAFETY obligation waiting its turn was silenced by the operator meanwhile "
+                            + $"and stays paused: '{Clip(next.Message)}'", TraceLevel.Info);
+                        continue;
+                    }
+                    if (next.AutoRecoveryPaused || !next.AutomaticBudgetLeft)
+                    {
+                        next.AutoRecoveryPaused = true;
+                        Tracing.TraceLine(
+                            "SpeechArbiter: a SAFETY obligation waiting its turn has no automatic attempts left "
+                            + $"({next.AutomaticAttempts} hand-over(s)); it remains owed and waits for an explicit replay "
+                            + $"or a backend-recovery edge: '{Clip(next.Message)}'", TraceLevel.Error);
+                        continue;
+                    }
+                    string? refusal = SalvageRefusalLocked(next, now, atRescue: false);
+                    if (refusal != null)
+                    {
+                        _believedQueued.Remove(next);
+                        TraceDropLocked(next, refusal, now);
+                        continue;
+                    }
+                    _believedQueued.Remove(next);   // the hand-over re-inserts it
+                    HandOverProtectedLocked(next, now);
+                    if (AnyProtectedAwaitingTurnLocked() || _alarmPending.Count > 0) ArmAlarmTimerLocked(now);
+                    return;
+                }
+
                 while (_alarmPending.Count > 0)
                 {
                     if (_safety.IsBusy(now))
@@ -1608,7 +1665,7 @@ namespace Radios.Speech
             SafetyTurn? ended = _safety.TakeOutcome(ticket, completed, now);
             if (ended == null) return;
 
-            if (_alarmPending.Count > 0) ArmAlarmTimerLocked(now);
+            if (_alarmPending.Count > 0 || AnyProtectedAwaitingTurnLocked()) ArmAlarmTimerLocked(now);
         }
 
         /// <summary>
@@ -1943,6 +2000,15 @@ namespace Radios.Speech
                 _safety.NoteBackendFailed();
                 return;
             }
+
+            // This interrupt cut whatever the reader was saying — a safety
+            // attempt included. A TRACKED attempt reports that itself through
+            // the pump; an UNTRACKED one has no reporter, and would otherwise
+            // be believed to hold the turn until its estimate elapsed, while
+            // the reader had in fact already been cut by us (blocker 1: a
+            // protected retry that waits for the turn must not wait on an
+            // attempt that is no longer sounding).
+            _safety.NoteOrdinaryInterruptCutTheReader(now);
 
             // The interrupt flushed the reader. Everything believed unspoken
             // is gone from its queue and must be re-queued, in order, behind
@@ -2345,7 +2411,6 @@ namespace Radios.Speech
                 foreach (var s in _held) if (!s.Protected) train.Add(s);
                 _held.Clear();
                 int handed = 0;
-                bool protectedHandedOver = false;
                 foreach (var s in train)
                 {
                     string? refusal = SalvageRefusalLocked(s, now, atRescue: false);
@@ -2378,60 +2443,50 @@ namespace Radios.Speech
 
                     // **A protected retry takes the safety speaking turn, like
                     // its first attempt did (#611, Sol's Track K review
-                    // section 1).** It used to be requeued here with
-                    // interrupt:false and no reservation at all, so it entered
-                    // the pump as ordinary work: alarms waiting their turn saw
-                    // a free token and went ahead of it, and anything already
-                    // in the FIFO was spoken first. Sorting the held set put
-                    // protected entries first in the TRAIN and governed nothing
-                    // outside it. Now the first protected entry in a release
-                    // reserves the turn and interrupts, exactly as Urgent
-                    // does; a second protected entry in the same release is
-                    // queued behind the first rather than cutting it, because
-                    // two safety sentences interrupting each other is the very
-                    // thing the coordinator exists to stop.
-                    SafetyTurn? turn = null;
-                    bool interruptForSafety = false;
+                    // section 1) — EVERY protected retry, each with a turn of
+                    // its own (Astra's Track IJK review, blocker 1).** It used
+                    // to be requeued here with interrupt:false and no
+                    // reservation at all, so it entered the pump as ordinary
+                    // work: alarms waiting their turn saw a free token and went
+                    // ahead of it. The first repair gave the FIRST protected
+                    // entry in a release the turn and queued the rest behind it
+                    // unowned — so when the first completed and freed its
+                    // token, a waiting alarm saw a free turn and interrupted
+                    // the second. Now a protected entry that finds a
+                    // transmit-safety attempt holding the turn WAITS in the
+                    // ledger, owed, and the turn waiter hands it over with its
+                    // own reservation when that attempt's own answer frees the
+                    // turn; one that finds the turn free, or held only by an
+                    // alarm, takes it now, exactly as Urgent does.
                     if (s.Protected)
                     {
-                        interruptForSafety = !protectedHandedOver;
-                        if (interruptForSafety) turn = _safety.ReserveForSafety(s.Subject, now);
+                        s.AwaitingTurn = false;
+                        if (_safety.SafetyHoldsTheTurn(now))
+                        {
+                            s.AwaitingTurn = true;
+                            LedgerInsertLocked(s);
+                            Tracing.TraceLine(
+                                "SpeechArbiter: a SAFETY obligation's retry waits its turn — a transmit-safety attempt "
+                                + $"holds the speaking turn ({_safety.Current}); it is handed over, with a turn of its own, "
+                                + $"when that attempt's answer frees it: '{Clip(s.Message)}'"
+                                + (s.Subject != null ? $" [subject '{s.Subject}']" : string.Empty),
+                                TraceLevel.Info);
+                            continue;
+                        }
+                        if (HandOverProtectedLocked(s, now)) handed++;
+                        continue;
                     }
 
-                    var requeued = _sink(s.Message, interruptForSafety,
-                        interruptForSafety ? SpeechIntent.Urgent : s.Intent, s.Level, s.Origin, salvaged: true);
+                    var requeued = _sink(s.Message, false, s.Intent, s.Level, s.Origin, salvaged: true);
                     if (!requeued.Reached)
                     {
                         _safety.NoteBackendFailed();
-                        if (turn != null) _safety.Abandon(turn, "the reader did not take a safety obligation's retry");
-
-                        // **A protected obligation is RE-ENTERED here (#606).**
-                        // It used to be dropped on the floor with one Warning
-                        // line, which is the same hole the initial handoff had:
-                        // a retry that cannot reach speech was erasing the fact
-                        // it was retrying. An ordinary entry still leaves,
-                        // because it occupies nothing and nothing is owed for
-                        // it beyond this attempt.
-                        if (s.Protected)
-                        {
-                            s.State = Owed.NeverStarted;
-                            s.AttemptsWithoutProgress++;
-                            s.AutomaticAttempts++;
-                            s.Ticket = 0;
-                            s.EstFinishUtc = DateTime.MaxValue;
-                            LedgerInsertLocked(s);
-                            Tracing.TraceLine(
-                                "SpeechArbiter: the reader did not take a SAFETY obligation's retry (suppressed, "
-                                + $"refused or no backend) after {s.SalvageCount} rescue(s): '{s.Message}'. "
-                                + "It stays owed in full — the reader took nothing, so none of it has been heard.",
-                                TraceLevel.Error);
-                            continue;
-                        }
 
                         // Suppressed, or the backend went away while the
                         // train waited. Not re-entered, because it occupies
                         // nothing — but said, because silence here is the
-                        // original sin.
+                        // original sin. (A protected obligation is re-entered
+                        // instead, in HandOverProtectedLocked.)
                         Tracing.TraceLine(
                             $"SpeechArbiter: the reader did not take a salvage (suppressed or no backend) "
                             + $"after {s.SalvageCount} rescue(s): '{s.Message}'",
@@ -2465,27 +2520,11 @@ namespace Radios.Speech
                     // and what bounds an untracked rescue.
                     bool neverBegun = s.State == Owed.NeverStarted && s.MarksReachedEver == 0;
                     if (!neverBegun) s.SalvageCount++;
-                    if (s.Protected) s.AutomaticAttempts++;
                     s.Ticket = requeued.Ticket;
                     s.MarksReached = 0;
                     s.LastOutcome = null;
                     s.State = Owed.Pending;
-                    if (s.Protected)
-                    {
-                        // The clock does not discharge a safety obligation,
-                        // tracked or not: an elapsed estimate is delivery
-                        // unknown, which is recorded rather than converted
-                        // into evidence of hearing.
-                        LedgerInsertLocked(s);
-                        s.EstFinishUtc = DateTime.MaxValue;
-                        if (turn != null)
-                        {
-                            _safety.Bind(turn, requeued, EstimateLocked(s.Message), now);
-                            protectedHandedOver = true;
-                        }
-                        if (!requeued.Tracked) _readerBusyUntilUtc = now.AddMilliseconds(EstimateLocked(s.Message));
-                    }
-                    else LedgerEnterLocked(s, now);
+                    LedgerEnterLocked(s, now);
                     handed++;
                     if (neverBegun)
                     {
@@ -2496,6 +2535,10 @@ namespace Radios.Speech
                             TraceLevel.Info);
                     }
                 }
+
+                // Anything left waiting for the turn is served by the turn
+                // waiter when the attempt holding it answers.
+                if (AnyProtectedAwaitingTurnLocked()) ArmAlarmTimerLocked(now);
 
                 Tracing.TraceLine(
                     $"SpeechArbiter: released {handed} of {train.Count} held salvage(s) {heldMs} ms after "
@@ -2510,6 +2553,74 @@ namespace Radios.Speech
                 _holdBehind = string.Empty;
             }
         }
+
+        /// <summary>
+        /// Hand a PROTECTED obligation to the reader again, with a safety turn
+        /// of its own: reserve, interrupt as Urgent, re-enter the ledger, bind
+        /// the ticket. Returns true when the reader took it. The entry must
+        /// not be in the ledger when called; both paths re-insert it.
+        ///
+        /// <para>Called from <see cref="ReleaseHeld"/> for an entry that finds
+        /// the turn free (or held only by an alarm, which a safety attempt
+        /// outranks), and from the turn waiter in <see cref="ReleaseAlarms"/>
+        /// for an entry that waited for a transmit-safety attempt to answer.
+        /// One method, so the two cannot drift apart (blocker 1).</para>
+        /// </summary>
+        private bool HandOverProtectedLocked(BelievedQueued s, DateTime now)
+        {
+            SafetyTurn turn = _safety.ReserveForSafety(s.Subject, now);
+            var requeued = _sink(s.Message, true, SpeechIntent.Urgent, s.Level, s.Origin, salvaged: true);
+            if (!requeued.Reached)
+            {
+                _safety.NoteBackendFailed();
+                _safety.Abandon(turn, "the reader did not take a safety obligation's retry");
+
+                // **A protected obligation is RE-ENTERED here (#606).** It used
+                // to be dropped on the floor with one Warning line, which is
+                // the same hole the initial handoff had: a retry that cannot
+                // reach speech was erasing the fact it was retrying.
+                s.State = Owed.NeverStarted;
+                s.AttemptsWithoutProgress++;
+                s.AutomaticAttempts++;
+                s.Ticket = 0;
+                s.EstFinishUtc = DateTime.MaxValue;
+                LedgerInsertLocked(s);
+                Tracing.TraceLine(
+                    "SpeechArbiter: the reader did not take a SAFETY obligation's retry (suppressed, "
+                    + $"refused or no backend) after {s.SalvageCount} rescue(s): '{s.Message}'. "
+                    + "It stays owed in full — the reader took nothing, so none of it has been heard.",
+                    TraceLevel.Error);
+                return false;
+            }
+
+            // A rescue is spent only on an attempt that said something (#606);
+            // the marks are kept — see the ordinary path in ReleaseHeld.
+            bool neverBegun = s.State == Owed.NeverStarted && s.MarksReachedEver == 0;
+            if (!neverBegun) s.SalvageCount++;
+            s.AutomaticAttempts++;
+            s.Ticket = requeued.Ticket;
+            s.MarksReached = 0;
+            s.LastOutcome = null;
+            s.State = Owed.Pending;
+            // The clock does not discharge a safety obligation, tracked or
+            // not: an elapsed estimate is delivery unknown, which is recorded
+            // rather than converted into evidence of hearing.
+            LedgerInsertLocked(s);
+            s.EstFinishUtc = DateTime.MaxValue;
+            _safety.Bind(turn, requeued, EstimateLocked(s.Message), now);
+            if (!requeued.Tracked) _readerBusyUntilUtc = now.AddMilliseconds(EstimateLocked(s.Message));
+            if (neverBegun)
+            {
+                Tracing.TraceLine(
+                    "SpeechArbiter: handed over again without spending a rescue — no attempt on this "
+                    + $"one has ever said a word, so this is a first hearing: '{Clip(s.Message)}'"
+                    + (s.Subject != null ? $" [subject '{s.Subject}']" : string.Empty),
+                    TraceLevel.Info);
+            }
+            return true;
+        }
+
+        private bool AnyProtectedAwaitingTurnLocked() => _believedQueued.Exists(e => e.Protected && e.AwaitingTurn);
 
         /// <summary>
         /// Close the hold without handing anything over. With a reason, the
