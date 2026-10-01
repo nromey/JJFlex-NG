@@ -142,8 +142,28 @@ namespace Radios.Alarms
         private readonly Func<long> _quietGeneration;
 
         private readonly object _gate = new object();
-        private readonly Dictionary<string, (ISpeechTimer Timer, int Generation)> _continuations =
-            new Dictionary<string, (ISpeechTimer, int)>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// A warning waiting out the tone. The timer is armed ONCE, by the
+        /// first warning; a fresher warning for the same alarm inside the lead
+        /// replaces the words and keeps the deadline, because restarting the
+        /// timer on every worsening postponed speech by 750 ms each time and
+        /// a steadily worsening meter could postpone it indefinitely (Astra's
+        /// Track I review, additional observations).
+        /// </summary>
+        private sealed class PendingWarning
+        {
+            public ISpeechTimer Timer = null!;
+            public int Generation;
+            public long Cohort;
+            public string Sentence = "";
+            public string Subject = "";
+            public Func<string?> Refresh = () => null;
+            public Action? NotDelivered;
+        }
+
+        private readonly Dictionary<string, PendingWarning> _continuations =
+            new Dictionary<string, PendingWarning>(StringComparer.Ordinal);
         private int _generation;
         private bool _disposed;
 
@@ -233,7 +253,7 @@ namespace Radios.Alarms
 
             Func<string?> refresh = preview
                 ? () => sentence
-                : () => Refresh(alarmId, sentenceOverride != null);
+                : () => Refresh(e, sentenceOverride != null);
             // The speech layer tells the alarm when it gave the warning up
             // without the reader taking it, and the alarm's next fresh sample
             // says it again. A preview is a test and is not re-raised.
@@ -242,11 +262,24 @@ namespace Radios.Alarms
             lock (_gate)
             {
                 if (_disposed) return;
-                CancelLocked(alarmId);
-                int generation = ++_generation;
                 if (lead == 0)
                 {
+                    CancelLocked(alarmId);
                     _speaker.SpeakWarning(sentence, subject, refresh, notDelivered);
+                }
+                else if (_continuations.TryGetValue(alarmId, out PendingWarning? waiting))
+                {
+                    // A fresher warning for the same alarm, inside the lead:
+                    // the WORDS are replaced and the DEADLINE is kept. The
+                    // cohort is re-read, because this is a new instruction —
+                    // a worsening after the operator's Ctrl is a new fact and
+                    // speaks (#617, ruled 2026-09-24), while a Ctrl after this
+                    // instruction still stands it down.
+                    waiting.Sentence = sentence;
+                    waiting.Subject = subject;
+                    waiting.Refresh = refresh;
+                    waiting.NotDelivered = notDelivered;
+                    waiting.Cohort = SafeQuietGeneration();
                 }
                 else
                 {
@@ -255,23 +288,32 @@ namespace Radios.Alarms
                     // _quietGeneration. Reading it at the far end would ask
                     // "is the operator quiet now", which is a different and
                     // weaker question.
-                    long cohort = SafeQuietGeneration();
-                    ISpeechTimer timer = _clock.StartTimer(lead,
-                        () => Continue(alarmId, generation, cohort, sentence, subject, refresh, notDelivered));
-                    _continuations[alarmId] = (timer, generation);
+                    int generation = ++_generation;
+                    var pending = new PendingWarning
+                    {
+                        Generation = generation,
+                        Cohort = SafeQuietGeneration(),
+                        Sentence = sentence,
+                        Subject = subject,
+                        Refresh = refresh,
+                        NotDelivered = notDelivered,
+                    };
+                    pending.Timer = _clock.StartTimer(lead, () => Continue(alarmId, generation));
+                    _continuations[alarmId] = pending;
                 }
             }
 
             Report(new AlarmDeliveryReport(e, sentence, soundOn, true, lead, preview));
         }
 
-        private void Continue(string alarmId, int generation, long cohort, string sentence, string subject,
-            Func<string?> refresh, Action? notDelivered)
+        private void Continue(string alarmId, int generation)
         {
+            PendingWarning pending;
             lock (_gate)
             {
                 if (_disposed) return;
-                if (!_continuations.TryGetValue(alarmId, out var pending) || pending.Generation != generation) return;
+                if (!_continuations.TryGetValue(alarmId, out PendingWarning? found) || found.Generation != generation) return;
+                pending = found;
                 _continuations.Remove(alarmId);
                 try { pending.Timer.Dispose(); } catch { }
             }
@@ -281,7 +323,7 @@ namespace Radios.Alarms
             // snapshot and its place in the alarms list are untouched, nothing
             // is acknowledged, and an explicit read still says it (#182).
             long now = SafeQuietGeneration();
-            if (now != cohort)
+            if (now != pending.Cohort)
             {
                 Tracing.TraceLine("AlarmDelivery: the operator silenced speech during the warning tone, so the "
                     + "sentence behind it is not spoken automatically; the alarm is unchanged and still in the "
@@ -290,15 +332,15 @@ namespace Radios.Alarms
             }
 
             // Re-read once more at the moment of speaking: the episode may
-            // have cleared during the tone.
-            string? current = refresh();
+            // have cleared, or been acknowledged, during the tone.
+            string? current = pending.Refresh();
             if (current == null)
             {
                 Tracing.TraceLine("AlarmDelivery: warning withdrawn during the tone, no longer current [" + alarmId + "]",
                     TraceLevel.Info);
                 return;
             }
-            _speaker.SpeakWarning(current, subject, refresh, notDelivered);
+            _speaker.SpeakWarning(current, pending.Subject, pending.Refresh, pending.NotDelivered);
         }
 
         /// <summary>
@@ -328,10 +370,28 @@ namespace Radios.Alarms
 
         private long _lastKnownCohort;
 
-        /// <summary>The current sentence for an alarm, or null when there is nothing left to say.</summary>
-        private string? Refresh(string alarmId, bool dataLost)
+        /// <summary>
+        /// The current sentence for the warning <paramref name="e"/> raised, or
+        /// null when there is nothing left to say.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Acknowledgement is judged against the EVENT, not in the
+        /// abstract (Astra's Track I review, finding 1).</b> This used to
+        /// return null for any acknowledged or snoozed alarm, so a worsening
+        /// — the one warning the monitor emits precisely to bypass
+        /// acknowledgement — played its tone and then dropped its sentence
+        /// here. Now a warning that overrides acknowledgement is spoken when
+        /// the acknowledgement PREDATES it (same notification revision), and
+        /// withdrawn when the operator answered AFTER it was raised (the
+        /// revision moved): those are different acts, and only the second is
+        /// an answer to this warning.</para>
+        /// <para>And the episode must be the one the event belongs to. A newer
+        /// episode's own Fired event speaks for it; an older event's refresh
+        /// returning the new value would say it twice.</para>
+        /// </remarks>
+        private string? Refresh(AlarmEvent e, bool dataLost)
         {
-            AlarmSnapshot? s = _service.SnapshotOf(alarmId);
+            AlarmSnapshot? s = _service.SnapshotOf(e.Definition.Id);
             if (s == null || !s.Definition.Enabled) return null;
             if (dataLost)
             {
@@ -349,8 +409,13 @@ namespace Radios.Alarms
             }
             if (s.Condition != AlarmConditionState.Active) return null;
             if (s.Data is not (AlarmDataState.Fresh or AlarmDataState.Recovering)) return null;
-            if (s.Notification is AlarmNotificationState.Acknowledged or AlarmNotificationState.Snoozed) return null;
-            return AlarmPhrasing.Warning(AlarmPhrasing.WarningFromSnapshot(s));
+            if (!string.Equals(s.EpisodeId, e.EpisodeId, StringComparison.Ordinal)) return null;
+            if (s.Notification is AlarmNotificationState.Acknowledged or AlarmNotificationState.Snoozed)
+            {
+                if (!e.OverridesAcknowledgement) return null;
+                if (s.NotificationRevision != e.NotificationRevision) return null;   // answered AFTER this warning
+            }
+            return AlarmPhrasing.Warning(AlarmPhrasing.WarningFromSnapshot(s) with { Kind = e.Kind, ReminderReason = e.ReminderReason });
         }
 
         private string PreviewSentence(AlarmEvent e, string real)

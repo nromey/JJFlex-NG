@@ -156,6 +156,26 @@ namespace Radios.Alarms
         /// <summary>Free text for the trace only. Never spoken.</summary>
         public string Detail { get; init; } = "";
 
+        /// <summary>
+        /// The monitor's <see cref="AlarmMonitor.NotificationRevision"/> when
+        /// this was judged. Delivery compares it with the live snapshot's to
+        /// tell an acknowledgement that predates a warning (which a worsening
+        /// may override) from one made after it (which withdraws it).
+        /// </summary>
+        public int NotificationRevision { get; init; }
+
+        /// <summary>
+        /// A warning that is ALLOWED past an acknowledgement or a snooze:
+        /// a worsening, transmit resuming while the condition holds, the
+        /// operator pressing Resume, or a redelivery of a warning nobody
+        /// heard. A plain interval reminder is not.
+        /// </summary>
+        public bool OverridesAcknowledgement =>
+            Kind == AlarmEventKind.Worsened
+            || ReminderReason is AlarmReminderReason.TransmitResumed
+                or AlarmReminderReason.OperatorResumed
+                or AlarmReminderReason.DeliveryRetried;
+
         /// <summary>The kinds that carry a warning to the operator's ears.</summary>
         public bool IsWarning => Kind is AlarmEventKind.Fired or AlarmEventKind.Reminder or AlarmEventKind.Worsened;
 

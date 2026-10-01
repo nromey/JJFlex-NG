@@ -220,7 +220,7 @@ namespace Radios.Tests.Alarms
             AlarmBaselineState baseline = AlarmBaselineState.NotApplicable, float baselineValue = float.NaN, double snooze = 0,
             MeterDescriptor? resolved = null)
             => new AlarmSnapshot(def, data, cond, note, baseline, baselineValue, res,
-                res == MeterSelectorStatus.Resolved ? resolved ?? Pa : null, last, age, "ep", snooze, null, false, float.NaN);
+                res == MeterSelectorStatus.Resolved ? resolved ?? Pa : null, last, age, "ep", snooze, null, false, float.NaN, 0);
 
         [Fact]
         public void A_list_row_says_the_state_in_words()

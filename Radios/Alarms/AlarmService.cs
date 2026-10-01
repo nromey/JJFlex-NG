@@ -23,7 +23,8 @@ namespace Radios.Alarms
         double SnoozeRemainingSeconds,
         AlarmEvent? LastEvent,
         bool Transmitting,
-        float LastAnnouncedValue);
+        float LastAnnouncedValue,
+        int NotificationRevision);
 
     /// <summary>
     /// The live attachment: one per rig, alive whether or not any window is
@@ -168,7 +169,8 @@ namespace Radios.Alarms
             return new AlarmSnapshot(m.Definition, m.Data, m.Condition, m.Notification, m.Baseline, m.BaselineValue,
                 e.Resolution.Status, e.Resolution.Match, m.LastFresh,
                 m.LastFresh.HasValue ? m.LastFresh.Value.AgeSeconds(now) : double.NaN,
-                m.EpisodeId, m.SnoozeRemainingSeconds(now), e.LastEvent, m.IsTransmitting, m.LastAnnouncedValue);
+                m.EpisodeId, m.SnoozeRemainingSeconds(now), e.LastEvent, m.IsTransmitting, m.LastAnnouncedValue,
+                m.NotificationRevision);
         }
 
         /// <summary>The last <see cref="RecentEventsKept"/> events, oldest first.</summary>

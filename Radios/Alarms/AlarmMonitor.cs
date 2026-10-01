@@ -112,6 +112,7 @@ namespace Radios.Alarms
         private long _lastWarningMs;
         private AlarmReminderReason _announceOnNextFresh = AlarmReminderReason.None;
         private long _snoozeUntilMs;
+        private int _notificationRevision;
 
         private float _baselineValue = float.NaN;
         private long _baselineSequence;
@@ -150,6 +151,16 @@ namespace Radios.Alarms
 
         /// <summary>The value the operator was last warned with, or NaN.</summary>
         public float LastAnnouncedValue => _lastAnnouncedValue;
+
+        /// <summary>
+        /// Bumped every time the operator's answer to the episode changes —
+        /// acknowledge, snooze, resume, snooze expiry — and when an episode
+        /// opens or closes. Every event carries the revision it was judged
+        /// under, so delivery can tell "acknowledged BEFORE this warning,
+        /// which the warning is allowed to override" from "acknowledged AFTER
+        /// it, which withdraws it" (Astra's Track I review, finding 1).
+        /// </summary>
+        public int NotificationRevision => _notificationRevision;
 
         /// <summary>Seconds of snooze left at <paramref name="nowMs"/>, or zero.</summary>
         public double SnoozeRemainingSeconds(long nowMs) =>
@@ -274,6 +285,7 @@ namespace Radios.Alarms
             if (Notification == AlarmNotificationState.Snoozed && nowMs >= _snoozeUntilMs)
             {
                 Notification = AlarmNotificationState.Unacknowledged;
+                _notificationRevision++;
                 Emit(AlarmEventKind.SnoozeExpired, nowMs, null, float.NaN);
             }
 
@@ -349,6 +361,7 @@ namespace Radios.Alarms
             _out.Clear();
             if (!HasEpisode) return Snapshot();
             Notification = AlarmNotificationState.Acknowledged;
+            _notificationRevision++;
             _snoozeUntilMs = 0;
             Emit(AlarmEventKind.Acknowledged, nowMs, null, float.NaN);
             return Snapshot();
@@ -359,6 +372,7 @@ namespace Radios.Alarms
             _out.Clear();
             if (!HasEpisode) return Snapshot();
             Notification = AlarmNotificationState.Snoozed;
+            _notificationRevision++;
             _snoozeUntilMs = nowMs + (long)(seconds * 1000);
             Emit(AlarmEventKind.Snoozed, nowMs, null, float.NaN, snoozeSeconds: seconds);
             return Snapshot();
@@ -370,6 +384,7 @@ namespace Radios.Alarms
             _out.Clear();
             if (!HasEpisode || Notification == AlarmNotificationState.Unacknowledged) return Snapshot();
             Notification = AlarmNotificationState.Unacknowledged;
+            _notificationRevision++;
             _snoozeUntilMs = 0;
             Emit(AlarmEventKind.Resumed, nowMs, null, float.NaN);
 
@@ -603,6 +618,7 @@ namespace Radios.Alarms
             _episodeId = Guid.NewGuid().ToString("N").Substring(0, 12);
             Condition = AlarmConditionState.Active;
             Notification = AlarmNotificationState.Unacknowledged;
+            _notificationRevision++;
             _snoozeUntilMs = 0;
             _announceOnNextFresh = AlarmReminderReason.None;
             BreakPending();
@@ -838,6 +854,7 @@ namespace Radios.Alarms
                 SnoozeSeconds = snoozeSeconds,
                 PersistenceSamples = persistenceSamples,
                 Detail = detail,
+                NotificationRevision = _notificationRevision,
             });
         }
 

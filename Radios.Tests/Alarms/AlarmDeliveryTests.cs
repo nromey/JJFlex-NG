@@ -38,6 +38,7 @@ namespace Radios.Tests.Alarms
         private AlarmService? _service;
         private AlarmDelivery? _delivery;
         private bool _warningsSoundOn = true;
+        private long _cohort;
 
         public void Dispose()
         {
@@ -50,7 +51,7 @@ namespace Radios.Tests.Alarms
         {
             _service = new AlarmService(_feed, new AlarmDefinitionStore(_root), _clock, null, startWatchdog: false);
             _delivery = new AlarmDelivery(_service, _speaker, withSound ? () => _sounds.Add("tone") : null, _speechClock,
-                () => _warningsSoundOn, () => false, () => true);
+                () => _warningsSoundOn, () => false, () => true, () => _cohort);
             _delivery.Reported += r => { lock (_reports) _reports.Add(r); };
             _feed.Connect(Serial, Pa);
             Assert.True(_service.Add(AlarmPresets.Build(AlarmPresets.PaTemperature, Pa, Serial, "pa") with { Enabled = true }));
@@ -129,16 +130,52 @@ namespace Radios.Tests.Alarms
         }
 
         [Fact]
-        public void A_newer_warning_for_the_same_alarm_inside_the_lead_replaces_the_waiting_one()
+        public void A_newer_warning_for_the_same_alarm_inside_the_lead_replaces_the_words_and_keeps_the_first_deadline()
         {
+            // Astra's additional observation: a repeated worsening restarted
+            // the 750 ms timer, so a steadily worsening meter could postpone
+            // its own sentence indefinitely. The words move; the deadline is
+            // the FIRST warning's.
             Up();
             Deliver(61f);
             _speechClock.Advance(300);
             Deliver(63.2f);   // a worsening: 2.2 over the announced 61
-            _speechClock.Advance(AlarmDelivery.ToneLeadMs);
+            _speechClock.Advance(AlarmDelivery.ToneLeadMs - 300 - 1);
+            Assert.Empty(_speaker.Warnings);
+            _speechClock.Advance(1);   // 750 ms after the FIRST warning, not the second
             var w = Assert.Single(_speaker.Warnings);
             Assert.Contains("63.2", w.Text);
             Assert.Equal(2, _sounds.Count);
+        }
+
+        [Fact]
+        public void A_worsening_after_the_operator_silenced_speech_is_a_new_fact_and_is_spoken()
+        {
+            // #617, ruled 2026-09-24: silence lasts until the condition gets
+            // worse; a worse reading is a new fact, not a replay. The
+            // replacement inside the lead re-reads the quiet cohort for
+            // exactly that reason.
+            Up();
+            Deliver(61f);
+            _cohort = 1;           // Ctrl, during the tone
+            _speechClock.Advance(300);
+            Deliver(63.2f);        // worsening, after the Ctrl
+            _speechClock.Advance(AlarmDelivery.ToneLeadMs);
+            var w = Assert.Single(_speaker.Warnings);
+            Assert.Contains("63.2", w.Text);
+        }
+
+        [Fact]
+        public void A_silence_after_the_replacement_still_stands_the_sentence_down()
+        {
+            Up();
+            Deliver(61f);
+            _speechClock.Advance(300);
+            Deliver(63.2f);
+            _cohort = 1;           // Ctrl, after the worsening
+            _speechClock.Advance(AlarmDelivery.ToneLeadMs);
+            Assert.Empty(_speaker.Warnings);
+            Assert.Equal(AlarmConditionState.Active, _service!.SnapshotOf("pa")!.Condition);
         }
 
         [Fact]
@@ -190,14 +227,75 @@ namespace Radios.Tests.Alarms
         }
 
         [Fact]
-        public void A_worsening_after_acknowledgement_is_delivered_as_a_new_warning()
+        public void A_worsening_after_acknowledgement_is_delivered_as_a_new_warning_through_the_tone_path()
+        {
+            // Astra's Track I review, finding 1: the old version of this test
+            // used withSound:false, which skips the continuation whose refresh
+            // dropped the sentence. On the DEFAULT tone path the acknowledged
+            // alarm played the tone and said nothing. Through the tone, and
+            // through the refresh, now.
+            var s = Up();
+            Deliver(61f);
+            _speechClock.Advance(AlarmDelivery.ToneLeadMs);
+            Assert.Single(_speaker.Warnings);
+
+            s.Acknowledge("pa");
+            Deliver(63.5f);   // worsened by 2.5 over the announced 61
+            _speechClock.Advance(AlarmDelivery.ToneLeadMs);
+
+            Assert.Equal(2, _speaker.Warnings.Count);
+            Assert.Contains("63.5", _speaker.Warnings[1].Text);
+            // And the refresh the arbiter would call on a deferral agrees.
+            Assert.Contains("63.5", _speaker.Warnings[1].Refresh());
+        }
+
+        [Fact]
+        public void An_acknowledgement_made_AFTER_the_worsening_was_raised_withdraws_it_during_the_tone()
+        {
+            // The other half of finding 1: an earlier acknowledgement is
+            // overridden by a worsening, a LATER one answers it. The operator
+            // hears the tone, presses Acknowledge, and the sentence does not
+            // then arrive anyway.
+            var s = Up();
+            Deliver(61f);
+            _speechClock.Advance(AlarmDelivery.ToneLeadMs);
+            Deliver(63.5f);
+            _speechClock.Advance(300);
+            s.Acknowledge("pa");
+            _speechClock.Advance(AlarmDelivery.ToneLeadMs);
+            Assert.Single(_speaker.Warnings);   // only the first
+        }
+
+        [Fact]
+        public void A_snoozed_alarm_that_worsens_is_spoken_and_a_plain_reminder_is_not()
+        {
+            var s = Up();
+            Deliver(61f);
+            _speechClock.Advance(AlarmDelivery.ToneLeadMs);
+            s.Snooze("pa", 120);
+
+            // Thirty-odd seconds of the same reading: the interval reminder
+            // is owed to the snooze and stays quiet.
+            for (int i = 0; i < 16; i++) Deliver(61f);
+            _speechClock.Advance(AlarmDelivery.ToneLeadMs);
+            Assert.Single(_speaker.Warnings);
+
+            Deliver(63.5f);
+            _speechClock.Advance(AlarmDelivery.ToneLeadMs);
+            Assert.Equal(2, _speaker.Warnings.Count);
+            Assert.Contains("63.5", _speaker.Warnings[1].Text);
+        }
+
+        [Fact]
+        public void A_refresh_from_an_older_episode_says_nothing_once_a_new_episode_has_fired()
         {
             var s = Up(withSound: false);
             Deliver(61f);
-            s.Acknowledge("pa");
-            Deliver(63.5f);
+            var first = _speaker.Warnings[0].Refresh;
+            Deliver(57f); Deliver(57f); Deliver(57f);   // cleared
+            Deliver(62f);                                // a NEW episode fires and speaks for itself
             Assert.Equal(2, _speaker.Warnings.Count);
-            Assert.Contains("63.5", _speaker.Warnings[1].Text);
+            Assert.Null(first());
         }
     }
 }
