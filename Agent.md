@@ -9,6 +9,285 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-10-01 — SPRINT 45 FULLY MERGED, AND A FOUR-WEEK VOX MYSTERY TURNED OUT TO BE A GATE IN JIM'S ORIGINAL CODE
+
+**Sealed 2026-10-01 on `sprint45/integration` at `8eff46a2`.** Two sessions in one
+day: a merge-and-bench morning that closed Sprint 45, and an evening at the radio
+that found the VOX root cause and then exposed that our whole profile model was
+built on a wrong guess.
+
+**45 commits on integration, 39 on `sprint45/track-k`, 8 on `sprint45/track-n`,
+3 on `sprint45/track-l`. Nothing on `main`.** jjf-private: 36 commits.
+Rigmeter `today`: **32,840 insertions, 2,682 deletions, net +30,158** across 118
+files touched, 72 unique — **+32,263 / -2,512 of it C# across 110 files**.
+Repository size change over the same span: **net +31,494**. Register **392 open**;
+**five tasks opened tonight** (#677–#681) on top of this morning's #671–#676.
+Dependency advisories: **zero**. **No build published and no tester pinged** —
+the Dropbox nightly was skipped deliberately, see below.
+
+### The morning: Sprint 45 merged, and the IJK arc closed on a filing rather than a seventh round
+
+**`Radios.Tests` 4,357 passed / 0 failed** on merged integration. The
+`JJFlexWpf.Tests` desk-safe filter — `KeyTreeTests`, `LayerHelpRowsTests`,
+`KeyLayerHelpTests`, `LeaderNearMissTests`, `HomeFieldChordTests`,
+`DelegateSurfaceTests` — **52 passed / 1 failed**, that failure being
+`DelegateSurfaceTests` at **exactly 100 hooks**: the known-red #591, unchanged by
+either merge and deliberately still in the filter. Build exit 0, exe stamped
+13:39:20. **Containment 19 of 20**, with track-m proven superseded by **file
+existence** rather than by commit titles — several track-m2 commits are also
+titled "Sprint 45 Track M", so titles could not have settled it.
+
+**IJK merged at `adbf9fe3`** with zero conflicts, track-i and track-j verified as
+ancestors of track-k first. **Track N merged at `8eff46a2`** with one conflict in
+`LexiconEnvelopeTests`, resolved to **3,075** (base 2,828 + IJK's 244 + Track N's
+3) and **verified by running the test before committing** — the arithmetic alone
+had already been wrong once that morning, when resolving one conflicting key made
+a three-key addition look like one.
+
+**The IJK arc took six Astra gates and every one came back NOT CLEAN**, each
+finding defects introduced by the previous round's repairs: seven blockers, then
+three, then two, then one, then one. **The bound fired on the last round, so the
+G15 midpoint-ulp edge was FILED as #672 — with its known fix — instead of opening
+round seven.** The six runs are now in `codex-evaluation.md`; see the seal
+mechanics below for why they were not there already.
+
+**Harness repaired on track-n.** `ConnectOwnershipTests` was failing at `Emit()`
+before any assertion, because the test harness aliases `Radios` to `Headless` and
+the picker had grown `Radios.`-qualified types with no `Headless` twin. Fixed by
+mirroring the production row (`PickerRowPaths`, with `IsLive` computed rather than
+settable so a stub cannot disagree with the shipped rule) and **forwarding**
+`PickerSighting.AutoConnectMayChoose` rather than stubbing it — a stub would have
+made the test read the test file's opinion instead of Track L12's rule. Proved by
+a positive control: the same three tests go red with the predicate reverted.
+
+### The morning at the radio
+
+**#638's ownership dialog read correctly under BOTH readers** — NVDA first, then
+JAWS, both clean. **#667 was witnessed exactly as predicted:** Noel answered
+"someone else's" and the application offered no way back, which is also why a
+hand edit of `config.xml` is not a recovery for a blind operator.
+
+**The no-radios chain resolved completely, and it was two faults stacked.** A
+fresh config tree had no SmartLink account bound, so nothing listed. Separately,
+**two inbound Block rules on the 45n binary** meant `Discovery.SyncDrain` saw
+zero non-local packets. His own GUI attempt could not fix it because **deny beats
+allow and 36 rules share the display name "JJ Flexible Radio Access"**, so the
+interface cannot tell them apart. Reading rules needs no elevation; only repair
+does. **The elevated repair script was written for Noel to run — firewall rules
+are not Claude's to change.** Both paths appeared afterwards.
+
+**Also learned the hard way: the self-test's five probes are the host's own
+loopback traffic**, which Windows does not filter, so they pass under a Block rule.
+A control that can only exercise the working half is not a control.
+
+**Rulings taken:** use local when it is available; **warn before the connect
+rather than alarming after it** (#671); per-radio Settings is where an
+operator-owned fact is DEFINED and the picker is a one-off override (#673, filed
+as a CLASS with #667 as first instance); the firewall gap belongs in the installer
+**and** in a Settings troubleshooter he named **the Connection Doctor**, which
+should elevate in-app while saying what it will do (#674).
+
+**Don's New York QSO Party conversation processed** — three asks, contest around
+2026-10-17: VOX working, voice recording for contest CQ, and N3FJP co-existence
+(#675, the long-lead one). The F1–F12 collision is why the leader-key shape
+matters: claiming those globally would steal N3FJP's own macros.
+
+### The evening: VOX, and why it could never have worked
+
+**ROOT CAUSE, #565.** The PC transmit-audio stream only runs **while the operator
+is already transmitting**. `remoteAudioProc` calls `startOpusInputChannel()`
+inside `if (Transmit)` and stops it in the `else`, so while receiving the radio's
+VOX detector is thresholding silence — and **gain is irrelevant to zero signal**,
+which is exactly what Noel measured sweeping it to 100.
+
+**Proved twice.** In his Verbose capture the channel started **exactly twice in 75
+seconds**, 51911 ms and 72297 ms, each bracketed by `Mox:True`/`Mox:False` —
+**1.6 seconds of open microphone, both of them manual keys.** And `Mox:True`
+always *precedes* the channel start: transmit causes audio, audio can never cause
+transmit.
+
+**I claimed this collided with Noel's 2026-08-24 ruling and retracted it within
+the hour, on his challenge** — *"I don't get the safety thing ... I think I ruled
+such on the 24th because we were tracking something else."* He was right. `git
+log -L` over the gate returns two commits: the 08-24 one (#208, the tone's clock)
+and **`e68dabc5`, the original import**, and `18769f3c^` carries the identical
+gate. **The gate is Jim's.** The ruling governs which SOURCE stops at unkey, in
+its own words *"whichever source was feeding it"* — nothing about capturing the
+microphone while receiving. **A code comment's framing was read as the ruling's
+scope**, which is the expensive direction of error: a false "needs Noel's ruling"
+note spends his attention on a question that was never open.
+
+**Positive control, run by Noel on the bench into the dummy load:** mic input MIC,
+hand mic, VOX armed — **the radio keyed immediately and repeatedly.** The
+detector is alive; *"the radio refuses VOX"* is off the table. A hot electret
+under bias voltage also demonstrated a hazard this entry had only listed as
+speculation: **a mic hot enough to key on room noise is hot enough to key on the
+screen reader.**
+
+**RULED, and it supersedes the narrower shape I proposed:** stream whenever PC
+audio is on, **regardless of VOX state**, because the recorder and the 30-second
+pre-record buffer need the microphone captured while receiving too. His reason is
+the durable part — *"That way if we add features, the stream's always
+available"* — and the rejected alternative, a predicate ORing the feature flags,
+fails silent for whichever feature forgets to join it. **Which is the defect this
+entry already cost four weeks on.**
+
+### Then the profile model came apart, and the vendor had published the answer all along
+
+**Noel asked for the Flex manual.** It overturned my conclusion inside ten
+minutes. **VOX is in the MICROPHONE profile** — so are the TX filter, PROC, DEXP
+and the monitor, all the things that sound like transmit settings. The full field
+lists for all three profile types are now in
+`reference_flex_profile_scope_table` and
+`planning/active/2026-10-01-profile-scope-ground-truth.md`.
+
+**My "radio NVRAM, outside every profile" claim is withdrawn, and the reasoning
+error is worth keeping.** It rested on VOX surviving four loads — a global
+profile, a power cycle, a reconnect and two TRANSMIT profiles. **None of them
+touched the mic profile.** Each load had a positive control proving it *took
+effect*; not one proved the load could *reach* VOX. The controls were spent on the
+wrong axis, and that lesson is now appended to
+`feedback_show_the_mutation_is_reachable` as its bench-experiment instance.
+
+**Noel's competing hypothesis was the better one to test**, and our own code had
+already named the mechanism: `ProfileSkipReason.RadioDidNotReportAutosave` says *"a
+live change made while autosave is **secretly on** lands in the owner's profile
+permanently."* That is his *"you just don't see it"*, written down in this
+repository. It should have been grepped before asserting.
+
+**Four entries filed, all with one shared cause:** we had to invent a vocabulary
+and a scope model before knowing what a Flex profile contained. **#678** profile
+scope and the enumeration method — load a profile and read the propertyChanged
+burst, because the radio announces every property a load changes. **#679** the two
+menu names are INVERTED: `Radio > Profiles` holds the radio's profiles while
+`Radio > Profiles on This Radio` holds the computer's presets and cannot select
+the radio's at all. **#680** the three profile intents go in through `AddChecked`,
+which appends `": On"`/`": Off"` to the label, so a mutually exclusive group
+announces itself as three switches — `AddRadioChecked` exists in the same file for
+exactly this — plus no route back to `NotAnswered` and an intent that can be armed
+with no profile chosen. **#681** `AudioChainPreset` is a lossy copy of a mic
+profile, missing VOX, ACC, DAX enable, Show Meter in RX and AM Carrier Level, so
+"use my transmit audio" would not carry VOX to Don's 6300 and cannot put it back
+either.
+
+**The design question left for tomorrow, deliberately:** on a borrowed radio the
+live-state path is forced, but on the operator's OWN radio a real mic profile is
+strictly better — the radio persists it, it survives power cycles, SmartSDR sees
+it, and our field list stops mattering because a real profile is complete by
+construction. **Noel's call, and the session stopped there on purpose:** *"I don't
+want to solve it tonight."*
+
+### Two more findings from the same traces
+
+**#643 narrowed, and the narrowing is the useful part.** Two launches a minute
+apart cut `'Searching for radios'` at word 2 of 3 after **91 ms both times** — an
+operator cannot press a key at the same millisecond twice, so **the cut is ours**,
+our own window lifecycle, not the operator. That halves the entry's open question,
+which the trace could not previously distinguish because it records no focus
+changes. Also recorded: `'Detailed capture started. Reproduce the problem, then
+stop the capture…'` cut at word 4 of 17, so **the tool used to report defects is
+inside the blast radius.**
+
+**#677 answered rather than left open.** The provisional-change receipt says a
+change will not survive disconnect; VOX survived a disconnect, two reconnects and
+a full power cycle with no profile save. The trace proves nothing of ours wrote it
+(`owner initialisation ... NOT run`, station Unconfirmed). **The sentence is false,
+not mis-worded**, and the fix is a split by category — which is #678. SmartSDR's
+own answer is better than ours: it marks a modified profile `*Default`, **a
+persistent state rather than a transient utterance**, and the non-visual
+equivalent sidesteps #643 entirely.
+
+**#551 is working as designed** and the remaining half is a scheduling decision:
+`RetitleForHandoff` pins the spoken name on purpose so the caption change cannot
+become a cut-off or doubled announcement. Two windows exist, so two get announced.
+The single-window redesign is the fix and it has no register number yet.
+
+### Cross-surface sweep
+
+- **Worktrees:** integration 45 commits today, track-k 39, track-n 8, track-l 3.
+  track-f, -g, -h, -i, -j, -m, -m2 idle, all clean. `jjflex-codex` on
+  `codex/coverage-563` idle and clean — **it is not a Sprint 45 worktree and is
+  not part of the cleanup.**
+- **Sibling repos:** `jjf-data`, `jjflexible-connect`, `rigmeter`, `AetherSDR`,
+  `Hamlib` all idle and clean. **`rigmeter` still has no git remote** — this
+  machine and the NAS dev mirror are its only copies.
+- **Freight Fate:** `feat/career-1.9`, idle today, 1 dirty, **16 unpushed
+  commits.** **Civ VI Access:** `main`, idle today, 2 dirty, 0 unpushed. Pushing
+  those is Noel's call, not a sealing session's; the dev mirror covers durability.
+- **Codex:** eight runs today, **zero Codex commits** — every run was a review and
+  left source and HEAD unchanged, which is the sandbox design working. **Six of the
+  eight were unlogged** in `codex-evaluation.md` until this seal.
+- **Mailboxes:** 14 `for-claude` reports from the IJK arc are still outside
+  `done/`; their work landed and merged, so they are processed-but-unfiled rather
+  than carried over. `for-codex` holds 2 real briefs and 4 `ANSWER-` files outside
+  `done/`.
+- **Memory:** 11 files touched today. One **orphan** found by the reachability
+  check — `feedback_rulings_must_reach_the_register_writer`, authored 07:35 and
+  never indexed — now indexed beside its near-twin
+  `feedback_relay_rulings_immediately`, and **the two are cross-linked**: they were
+  written the same minute by two different sessions, so neither author could see
+  the other's. Zero dangling links across 306 files and 10 indexes.
+
+### Seal mechanics
+
+- **Dependency advisories: zero** across all 20 projects.
+- **Memory drift:** 44 non-history path candidates, 56 symbol candidates — both
+  consistent with the standing "do not chase to zero" guidance. **One NEW flag
+  appeared and it was mine:** tonight's reference entry wrote a JJFlex-private path
+  with the tree name prefixed, which the checker cannot resolve. Fixed, because a
+  false positive in that tool is how people learn to ignore it.
+- **Codex gates:** `CodexInstructionFileTests` + `IntegrationPassInstructionTests`
+  **5 passed**; `codex debug prompt-input` positive control **PASSED** (Codex does
+  load the rules); no `setup_error.json`, sandbox healthy. Codex resolves at
+  `%LOCALAPPDATA%\Programs\OpenAI\Codex\bin\codex.exe`.
+- **Backups:** memory **10 of 10 projects**; `.claude` state tree; AppData config
+  43 files; `C:\dev` mirror; JJFlex-private after the AAR.
+- **NVDA logs archived** to `JJFlex-private\nvda-logs\nvda-logs-20261001-214225.zip`
+  — both the live log and `nvda-old.log`, which are recycled on every NVDA restart
+  and are taken at the seal or lost. Never in the repo: this one is public.
+- **Rigmeter snapshot** written to
+  `historical\stats\2026-10-01-8eff46a2.json`.
+- **MEMORY.md is 13,922 bytes, still above the ~12KB seal threshold.** The archive
+  sweep found **six stamped entries and none of them is linked from the core**, so
+  archiving them yields no headroom. **The core is over threshold because of
+  always-fires RULES, not because closed work is lingering in it** — which means
+  the next reduction has to be a judgement about which rules still need to fire
+  without a cue, and that is Noel's call rather than a sweep's.
+- **DELIBERATELY SKIPPED: the Dropbox nightly publish.** Noel deferred it this
+  morning pending VOX testing; VOX testing then found a root cause rather than a
+  pass, so there is nothing a tester should be handed tonight. **Also held:** the
+  merge to `main`, and the `jjflex-45h` worktree.
+
+### Setup for 2026-10-02
+
+**The profile design session, interactive and deliberate.** Noel: *"let's go
+through this design tomorrow deliberately and interactively ... a good model will
+not only make sense but manage radio ownership, profiles and settings, and making
+sure that we don't mess up Don's profile later."*
+
+**Start from `planning/active/2026-10-01-profile-scope-ground-truth.md`**, whose
+first section is the plain-language statement of what each Flex profile actually
+holds, and whose acceptance test is the one to hold the design to: **it is done
+when Noel can state it in a few sentences he finds obvious, without naming Flex's
+profile types at all.** Reconcile it against
+`2026-09-29-design-profile-system-as-intended.md` — that doc asked tonight's
+question first (*"does our local record hold everything a Flex mic profile
+holds?"*, flagged as the thing that decides whether the feature is lossy and
+*"should not be guessed"*), and **its prescribed mic/transmit split does not match
+Flex's**, which is a consequence it could not have known.
+
+**The five decisions, in dependency order:** does 4.x autosave mic and TX profiles
+(a two-step bench test, and everything else depends on it); owner versus guest
+mechanism; our three axes versus Flex's three types; naming and the written
+explanation, both his; then the mechanical fixes, which are small and independent.
+
+**Ready to build independently of all that:** #565's streaming change is specified
+with its bench verification listed, including the step that could surprise us —
+PC audio on, VOX off, not transmitting, and the radio must stay unkeyed.
+
+**Still owed from the morning:** the operator-facing walk of the alarm prose, and
+Don's nightly release notes once there is something worth handing him.
+
 ## END-OF-DAY SEAL — 2026-09-30 — FIVE DAYS SEALED AT ONCE, TWO RULINGS RECOVERED FROM SIX WEEKS AGO, AND THE FIFTH ROUND OF ONE BUG POINTS AT AN UNBUILT FIX
 
 **Sealed 2026-09-30 on `sprint45/integration` at `23523697`, covering FIVE days —
