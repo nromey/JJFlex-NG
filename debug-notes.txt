@@ -19,12 +19,11 @@ stays unkeyed, VOX on and talking keys it, the test tone still stops dead
 the instant you unkey, and with PC audio off nothing opens the microphone
 at all.
 
-ONE THING TO WATCH, and it is new. Because the radio can now hear your room
-the whole time you are receiving, a hot microphone with nobody in front of
-it can key the radio by itself. Mine did not, with the boom swung away and
-the room as noisy as it normally is. Your shack is not my shack, so if you
-set VOX and walk off, come back and check it is not transmitting. Tell me if
-it is and I will look at it, that is not something you should have to manage.
+One thing worth knowing about how we do it, since it is our choice and not
+the radio's: we start the microphone stream whenever PC audio is on, rather
+than only while you are transmitting. That is what gives VOX something to
+hear. It costs about 9 KB a second and it means the stream is already there
+when we add recording and playback later.
 
 YOU SHOULD GET SLICES ON CONNECT AGAIN
 
@@ -68,6 +67,5 @@ WHAT I WOULD MOST LIKE TO KNOW
   1. Does VOX key for you now, on the 6300, over SmartLink.
   2. Do you get your own slices and frequencies after setting
      Load All My Profiles Here.
-  3. Does the radio ever key on its own with VOX on and nobody talking.
-
-Number three is the one I want to hear about fastest.
+  3. Does it ever key with VOX switched OFF. It should not, ever, and that
+     would be ours rather than a gain setting.
