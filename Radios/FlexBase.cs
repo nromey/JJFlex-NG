@@ -22354,17 +22354,61 @@ namespace Radios
                     }
                     else
                     {
-                        // ── OUTER GATE: unkey stops everything ──
+                        // ── OUTER GATE: unkey stops the GENERATED source ──
                         //
                         // Ratified by Noel 2026-08-24: transmit stop stops
                         // everything, tone or microphone, no drain and no
-                        // tail. Deliberately NOT conditional on which source
-                        // was live — audio continuing past an unkey is a
-                        // safety fault, not a cosmetic one, and a gate that
-                        // has to know what it is gating is a gate that can be
-                        // wrong about it.
+                        // tail. **That ruling governs which SOURCE stops, and
+                        // it still holds here: a generated source stops hard.**
+                        // Its own wording is "whichever source was feeding it"
+                        // (see JJAudioStream.StopSelfClockedTx).
+                        //
+                        // WHAT CHANGED 2026-10-02 (#565): the microphone
+                        // capture no longer stops with it, because VOX cannot
+                        // work if the radio hears nothing until we have
+                        // already keyed. The gate below used to stop capture
+                        // too, which meant the radio's VOX detector
+                        // thresholded silence and gain was irrelevant — Noel
+                        // swept it to 100 with no effect, and Don reported the
+                        // same on his 6300.
+                        //
+                        // THE GATE WAS JIM'S, NOT A CONSEQUENCE OF THE 08-24
+                        // RULING. `git log -L` over these lines returns the
+                        // 08-24 commit (18769f3c, #208, the tone's clock) and
+                        // e68dabc5, the original import — and e68dabc5 already
+                        // has the identical `if (Transmit) start; else stop;`
+                        // shape. The 08-24 commit added the INNER gate above
+                        // and wrote its comment beside a gate already present.
+                        //
+                        // RULED by Noel 2026-10-02: stream whenever PC audio is
+                        // on, REGARDLESS of VOX state. His reason is the
+                        // durable half — "that way if we add features, the
+                        // stream's always available." The rejected alternative
+                        // was a predicate ORing the feature flags (VOX armed,
+                        // recording armed, transmitting, …), which fails SILENT
+                        // for whichever feature forgets to join it. That is the
+                        // defect this change exists to repair, so do not
+                        // reintroduce it as an optimisation.
+                        //
+                        // Cost of streaming while the radio is not listening:
+                        // about 8.75 KB/s, the 70 kbps Opus TX profile, plus
+                        // one complexity-1 encode. Nothing against the receive
+                        // stream.
                         stopSelfClockedTxInput();
-                        stopOpusInputChannel(); // only stops it once.
+
+                        // The microphone keeps running. Idempotent — the loop
+                        // calls this on every poll.
+                        //
+                        // GATED ON Idle FOR THE SAME REASON THE INNER GATE IS:
+                        // both producers share ONE Opus encoder and Opus is
+                        // stateful, so they must never overlap. A generated
+                        // source is not Idle for the ten milliseconds after a
+                        // release is requested — it is still ramping down —
+                        // and starting capture into that window is exactly the
+                        // corruption the inner gate's stop-then-start ordering
+                        // exists to prevent. One poll later it is Idle and the
+                        // microphone starts.
+                        if (TxInputSources.Idle) startOpusInputChannel();
                     }
                 }
 
