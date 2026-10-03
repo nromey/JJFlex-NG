@@ -527,6 +527,20 @@ When Noel says "done developing" or equivalent, that's the seal-the-day trigger.
 The seal entry's "Cross-surface activity" bullet list MUST cover everything found in the sweep, not just what this session directly did. The AAR's per-surface section MUST do the same. **A 5-minute thorough sweep prevents a permanent gap in the durable record.**
 
 1. **Promote latest debug zip to Dropbox top level as nightly:** Run `publish-nightly-to-dropbox.ps1`. Copies the newest debug zip from NAS `<version>\x64-debug\` to Dropbox top level, replacing any existing `JJFlex_*_x64_nightly.zip` and `NOTES-nightly.txt` there. This is the easy-to-find "what's today's build?" artifact, distinct from the `debug\` subfolder tester distribution. **Skip this step on docs/memory/planning-only days** where no new debug build was produced — the prior day's nightly still represents current code state.
+
+   **ALSO SKIP IT WHEN THE DAY'S ONLY TESTABLE CHANGE IS UNVERIFIED AND COULD BE UNSAFE,
+   and say in the seal entry that you did.** Added 2026-10-02, its first instance: the day
+   produced one commit, a **transmit-path** change (#565, the microphone now streams
+   continuously while receiving) that had never been exercised on a radio, and the first
+   check on the next morning's bench sheet existed precisely because it could prove the fix
+   unsafe — a continuously open microphone can let a shack fan key the radio unattended.
+   Promoting that to the Dropbox top level puts it where a tester looks for "today's build".
+
+   **The reasoning, so it generalises past transmit:** a nightly promote is a soft
+   publish — nobody is told, but the artifact is where Don goes when he wants the current
+   bit. The NAS archive is the durability layer and it is already complete, so skipping
+   costs nothing and leaves the tester on a build that works. **A build is promotable when
+   its changes have been exercised, not when it compiles.**
 1a. **Memory index check (before the memory backup):** check the size of
 `C:\Users\nrome\.claude\projects\C--dev-JJFlex-NG\memory\MEMORY.md`. Hard read
 limit ~24.4KB, harness warns near 19.5KB; treat **~12KB as the seal threshold**
@@ -998,6 +1012,17 @@ FlexRadio's own folder, not ours).
 
 ### Trace File Location
 - Boot trace: `%AppData%\JJFlexRadio\JJFlexRadioTrace.txt` (enabled when `BootTrace = True` in `globals.vb`)
+- **THE LIVE RUN'S TRACE HAS NO TIMESTAMP IN ITS NAME. Every finished run's does.**
+  `JJFlexRadioTrace.txt` is the file a running instance is writing right now; it is renamed
+  to `JJFlexRadioTrace-YYYYMMDD-HHMMSS.txt` only when the session is archived
+  (`RenameTraceToStamped`, `globals.vb:413` — *"so the next session opens a fresh
+  JJFlexRadioTrace.txt"*). **So a glob for `JJFlexRadioTrace-2026*.txt` matches every PAST
+  run and never the current one**, and an empty result reads as "the app isn't running"
+  when in fact it is. Noel was told "nothing's running" twice on 2026-10-02 for exactly
+  this reason, while `jjflexible.exe` was live in front of him. **Check the process, not
+  the glob** — and when reading a live session, read the un-timestamped file.
+  Same shape as [[feedback_absence_is_not_evidence]]: name every cause of the empty result
+  before concluding from it.
 - Multi-instance: `%AppData%\JJFlexRadio\JJFlexRadio2Trace.txt` (instance 2+)
 - User-initiated capture: **Settings → Diagnostics** (Tools → Diagnostics deep-links there). Saved sessions live in the **Saved Diagnostic Logs** window, opened from that tab. `Ctrl+J, Ctrl+D` starts and stops a detailed capture from anywhere, including inside a dialog. **This line has been wrong twice.** It said "Operations → Tracing" until 2026-08-11; it then said "Help → Tracing (`TraceAdmin.vb`)" until Sprint 30 Track D landed 2026-08-19, and that was wrong in both halves — the menu item is now deleted, and it never opened `TraceAdmin.vb` anyway, it opened the WPF `TraceAdminDialog`
 - The always-on log is still governed by `BootTrace` in `globals.vb`, but it is **no longer a code-level Boolean with no UI behind it** — as of Sprint 30 it ANDs in the operator's `KeepDiagnosticLog` setting from `diagnosticsConfigV1.xml`, which the Diagnostics tab edits. Find it by symbol, not by line number; the file has grown by hundreds of lines and every line reference in this document's orbit has moved
