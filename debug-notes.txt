@@ -1,16 +1,73 @@
 WHAT IS NEW AND WHERE TO FIND IT
 
-JJ Flexible Fix. Open the Tools menu, then Fix, then Transmit problems.
+Two things you reported are fixed in this build. Both were real, both were
+ours, and neither was anything you did wrong.
 
-It walks your transmit chain one stage at a time and tells you where it dies,
-rather than leaving you to guess. Five stages, numbered 0 to 4, with a report
-at the bottom you can copy straight into an email.
+VOX NOW WORKS
 
-BEFORE YOU RUN IT
+You were right and I was wrong about where to look. The radio's VOX detector
+needs to hear audio BEFORE it can decide to key, and we were only sending
+audio once transmit had already started. So while you were receiving, the
+radio heard digital silence and nothing to trigger on. Turning the gain up
+does not help, because no amount of gain turns silence into speech. That is
+why your gain sweeps did nothing.
 
-It asks what your antenna socket is connected to. Nothing transmits until you
-answer that question, so if you are not sure, leave it unanswered — the checks
-that transmit will wait, and everything else still runs.
+The microphone now streams the whole time PC audio is on, so the radio has
+something to listen to. I tested five ways on my 8600 into a dummy load:
+VOX off and idle stays unkeyed, VOX on with the mic live and nobody talking
+stays unkeyed, VOX on and talking keys it, the test tone still stops dead
+the instant you unkey, and with PC audio off nothing opens the microphone
+at all.
 
-Stages 0 and 1 do not key the radio at all. Stage 2 onward does, and each one
-says so before you run it.
+ONE THING TO WATCH, and it is new. Because the radio can now hear your room
+the whole time you are receiving, a hot microphone with nobody in front of
+it can key the radio by itself. Mine did not, with the boom swung away and
+the room as noisy as it normally is. Your shack is not my shack, so if you
+set VOX and walk off, come back and check it is not transmitting. Tell me if
+it is and I will look at it, that is not something you should have to manage.
+
+YOU SHOULD GET SLICES ON CONNECT AGAIN
+
+This one is my regression and I am sorry about it. On 21 September I replaced
+the code that sets up your station on connect, and the new version had a
+safety gate in it waiting on a measurement nobody had taken. Until that
+measurement existed the gate refused to create any slices, which is exactly
+what you hit on 29 September. It had nothing to do with your ownership
+setting or your profiles. The measurement is done and the gate is open.
+
+ONE STEP YOU HAVE TO DO BY HAND. This bit matters, because it is what
+unblocked me this morning and you will almost certainly need it too.
+
+Connect, then open the Radio menu, then Profiles on This Radio. There are
+three choices and only one of them loads your profiles:
+
+  Use My Transmit Audio Here
+  Load All My Profiles Here      <-- pick this one on your own radio
+  Leave This Radio's Profiles Alone
+
+If you are on Use My Transmit Audio Here, the app deliberately will not
+touch your profiles, so you get slices at whatever frequency the radio
+feels like, which is usually 14.100. Pick Load All My Profiles Here,
+disconnect, reconnect, and your own frequencies should come back.
+
+That menu is confusing and it is going away. It asks a standing question in
+a place meant for actions, and it hides under a name that does not tell you
+it controls what happens on connect. That is being redesigned, so do not
+spend effort learning it.
+
+ONE ODD MESSAGE YOU CAN IGNORE
+
+When the profile load works, the diagnostic log still records the station as
+not established. That is a third safety gate, waiting on its own measurement,
+and all it means is that we cannot PROVE the radio finished loading, not that
+anything failed. If your frequencies are right, it worked. You will not see
+this unless you go looking in the log.
+
+WHAT I WOULD MOST LIKE TO KNOW
+
+  1. Does VOX key for you now, on the 6300, over SmartLink.
+  2. Do you get your own slices and frequencies after setting
+     Load All My Profiles Here.
+  3. Does the radio ever key on its own with VOX on and nobody talking.
+
+Number three is the one I want to hear about fastest.
