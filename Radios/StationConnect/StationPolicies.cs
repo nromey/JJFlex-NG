@@ -218,11 +218,50 @@ namespace Radios.StationConnect
     {
         /// <summary>Roster authority is RULED (Noel, 2026-09-22): live
         /// membership from the radio's own status, with discovery-only
-        /// removals treated as present. The other two stay fail-closed
-        /// until the bench answers them.</summary>
+        /// removals treated as present. Of the other THREE, LoadCompletion and
+        /// GuestSharedWriteAuthority are still fail-closed;
+        /// InitialMaterialization is NOT, as of 2026-10-03 — bench D answered
+        /// it. This sentence said "the other two" when there were three of
+        /// them, so count the fields rather than trusting the number.</summary>
         public IRosterAuthorityPolicy RosterAuthority = RosterAuthorityByLiveMembershipPolicy.Instance;
         public ILoadCompletionPolicy LoadCompletion = LoadCompletionUnconfirmedPolicy.Instance;
-        public IInitialMaterializationPolicy InitialMaterialization = MaterializationUnknownPolicy.Instance;
+
+        /// <summary>
+        /// BENCH D IS ANSWERED, 2026-10-02, so this is no longer the fail-closed
+        /// placeholder. Nine consecutive connects produced NINE distinct client
+        /// GUIDs and nine distinct handles: the radio never saw our client id
+        /// twice. So a GUI client the radio has just minted genuinely has no
+        /// persisted station to deliver, which is exactly the reasoning
+        /// <see cref="MaterializationEndsAtOwnHandlePolicy"/> was written on,
+        /// and its premise holds unconditionally rather than situationally.
+        ///
+        /// CONDITIONAL ON NOBODY MAKING THE CLIENT ID STABLE. That is the one
+        /// thing that would invalidate this: a persisted or derived client id
+        /// would let the radio recognise us and deliver a station we would then
+        /// allocate over. If a future change makes the id stable, this default
+        /// has to come back to Unknown and bench D has to be re-run.
+        ///
+        /// WHAT IT UNBLOCKS, measured on the bench 8600 2026-10-03: with the
+        /// Unknown placeholder, an owner connecting with the
+        /// UseMyTransmitAudio intent got ZERO slices. Stewardship is correctly
+        /// refused for that intent, which routes to FreshStationRoute - the
+        /// client-local allocation - and that path asks this policy first and
+        /// stopped at AllocationStop.MaterializationUnknown. The trace said so
+        /// in terms: "no fresh allocation because the end of initial
+        /// materialization is not established". Noel has been reporting zero
+        /// slices for weeks; this is the whole of it.
+        ///
+        /// NOTE WHAT IS *NOT* CHANGED HERE. <see cref="GuestSharedWriteAuthority"/>
+        /// below stays Unknown. It is NOT merely waiting on a bench: its own
+        /// note requires the legacy put-back executor to retain unresolved
+        /// snapshots and autosave obligations first, and that work is not done.
+        /// It also governs writing on a radio that is not ours. Bench A
+        /// measured the roster on Noel's OWN radio, which is the owner case and
+        /// not "what a complete roster looks like for a non-owner". Two
+        /// placeholders were answered on 2026-10-02; only ONE of them was a
+        /// one-line swap.
+        /// </summary>
+        public IInitialMaterializationPolicy InitialMaterialization = MaterializationEndsAtOwnHandlePolicy.Instance;
 
         /// <summary>
         /// The authority a GUEST'S shared write (the UseMyTransmitAudio
@@ -239,9 +278,12 @@ namespace Radios.StationConnect
         /// </summary>
         public IRosterAuthorityPolicy GuestSharedWriteAuthority = RosterAuthorityUnknownPolicy.Instance;
 
-        /// <summary>The production defaults: the ruled owner roster authority,
-        /// the guest authority unknown, and completion and materialization
-        /// fail-closed.</summary>
+        /// <summary>The production defaults, as of 2026-10-03: the ruled owner
+        /// roster authority; materialization ending at our own handle (bench D,
+        /// answered 2026-10-02); load completion and the GUEST shared-write
+        /// authority still fail-closed. Materialization was fail-closed until
+        /// 2026-10-03, and that default was the whole of the zero-slices
+        /// report — see the note on the field.</summary>
         public static StationPolicies Defaults() => new StationPolicies();
 
         private static StationPolicies _current = Defaults();

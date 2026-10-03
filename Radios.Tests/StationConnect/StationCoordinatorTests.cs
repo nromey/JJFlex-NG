@@ -82,6 +82,18 @@ namespace Radios.Tests.StationConnect
             policies.RosterAuthority = RosterAuthorityUnknownPolicy.Instance;
             var h = new StationHarness(policies);
             h.ArrangeOwnerReconnect();
+
+            // Honour the panafalls. The roster refusal now falls through to
+            // the client-local allocation, because bench D (2026-10-02)
+            // retired the materialization placeholder that used to stop it --
+            // so without this the allocation times out with nothing and the
+            // coordinator correctly reports Failed ("a timeout that left
+            // nothing at all is a Failed connect, because there is no station
+            // to operate"). That would be the harness withholding slices, not
+            // this policy refusing anything, and it would make the test read
+            // as a regression in the thing it is not testing.
+            h.Port.OnPanafallRequested = () => h.OwnSliceArrives();
+
             long before = h.Clock.NowMs;
 
             var r = h.Run();
@@ -90,9 +102,35 @@ namespace Radios.Tests.StationConnect
             Assert.Equal(GlobalRoute.Refused, r.Route);
             Assert.Equal(RosterVerdict.Unknown, r.RosterAtDecision.Verdict);
             Assert.Contains("authority is not established", r.RosterAtDecision.Reason);
-            h.AssertNothingWasSent();
+
+            // No global load, which is the refusal. But two panafalls: with
+            // bench D answered the refusal falls through to a client-local
+            // allocation, bounded to two (ruled 2026-10-03) rather than the
+            // radio's whole free capacity. This was AssertNothingWasSent().
+            Assert.Empty(h.Port.GlobalLoadsSent);
+            Assert.Equal(StationLayout.SlicesWithNoRememberedLayout, h.Port.PanafallRequests);
             Assert.True(h.Clock.NowMs - before < h.Deadlines.RosterSettleMs, "the coordinator waited for an answer that could not change");
-            Assert.Equal(AllocationStop.MaterializationUnknown, r.Allocation.Stop);
+
+            // THE ALLOCATION STOP IS NO LONGER ASSERTED HERE, and the removal
+            // is the point. This line read
+            // Assert.Equal(AllocationStop.MaterializationUnknown, ...), which
+            // described the MATERIALIZATION placeholder while the test's
+            // subject is the ROSTER policy -- so a test named for one policy
+            // was pinning the default of another, and swapping materialization
+            // on 2026-10-03 failed it for a reason unrelated to its name.
+            //
+            // What that exposed is worth recording: the fail-closed
+            // materialization default was ALSO, silently, the thing that
+            // stopped a client-local allocation when the roster verdict was
+            // Unknown. With bench D answered the refusal no longer doubles as
+            // an allocation gate -- and it does not need to, because the
+            // target is clipped to the radio's own PanadaptersRemaining, so a
+            // slice another operator holds is never free to take.
+            //
+            // The assertions above are this test's actual subject: an unknown
+            // roster refuses the owner's automatic load, sends nothing, and
+            // does not burn the settle bound waiting for an answer that cannot
+            // change.
         }
 
         [Fact]

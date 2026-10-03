@@ -279,19 +279,34 @@ namespace Radios.Tests.StationConnect
         }
 
         [Fact]
-        public void OwnerWithCompany_UnderTheProductionDefaults_PlacesNothing_BecauseNoSliceIsAllocated()
+        public void OwnerWithCompany_UnderTheProductionDefaults_GetsClientLocalSlices_AndStillSendsNoLoadOverTheOtherOperator()
         {
-            // D is closed: no fresh allocation, so nothing to place on. The
-            // load is still not sent over the other operator.
+            // BENCH D IS ANSWERED (2026-10-02), so this test now asserts the
+            // ruled behaviour instead of the placeholder's. It used to be
+            // named "...PlacesNothing_BecauseNoSliceIsAllocated" and expected
+            // zero panafall requests, with the comment "D is closed: no fresh
+            // allocation, so nothing to place on" -- which was a true
+            // description of the fail-closed default and NOT of case 2 of
+            // Noel's 2026-09-22 ruling, which the coordinator's own comment
+            // marks "(under D)": free slices ARE allocated client-locally and
+            // the owner's saved frequencies placed on them.
+            //
+            // Safe under an unspecified roster because the target is clipped
+            // to the RADIO'S OWN capacity (PanadaptersRemaining) -- a slice
+            // another operator holds is not free, so it cannot be taken.
+            // Noel, 2026-10-03: "couldn't the radio check to see how many
+            // slices are available prior to allocating slices" -- it already
+            // does, in Allocate().
+            //
+            // What has NOT changed, and is the point of the test: the global
+            // load is still never sent over the other operator.
             var h = OwnerWithCompany(StationPolicies.Defaults());
 
             var r = h.Run();
 
             Assert.True(r.OwnerRefusedForCompany);
             Assert.Empty(h.Port.GlobalLoadsSent);
-            Assert.Equal(0, h.Port.PanafallRequests);
-            Assert.Empty(h.Port.TunesSent);
-            Assert.Equal(PlacementStop.NoSlices, r.Placement.Stop);
+            Assert.Equal(2, h.Port.PanafallRequests);
         }
 
         [Fact]
@@ -466,12 +481,23 @@ namespace Radios.Tests.StationConnect
             h.ClientRemoved(StationHarness.OtherHandle);
             h.Port.OnGlobalLoadSent = _ => h.DeliverGenuineCompletion();
 
+            // Read AFTER the connect, so the requested load's own appetite is
+            // measured rather than the connect's. Bench D being answered means
+            // the connect now allocates client-locally, so a bare
+            // Assert.Equal(0, PanafallRequests) no longer says what it used to
+            // -- it asserted zero only because the materialization placeholder
+            // stopped the connect from allocating at all.
+            int panafallsAfterConnect = h.Port.PanafallRequests;
+
             var r = h.Coordinator(previous: connect).RunOperatorRequestedLoad();
 
             Assert.Equal(StationOutcome.Unconfirmed, r.Outcome);
             Assert.True(r.LoadSent);
             Assert.Single(h.Port.GlobalLoadsSent);
-            Assert.Equal(0, h.Port.PanafallRequests);
+
+            // The claim this test exists for: a requested load asks for no
+            // slices of its own.
+            Assert.Equal(panafallsAfterConnect, h.Port.PanafallRequests);
         }
 
         // ── the tune evidence ──

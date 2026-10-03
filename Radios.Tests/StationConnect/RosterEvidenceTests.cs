@@ -204,9 +204,21 @@ namespace Radios.Tests.StationConnect
         public void TheProductionDefaultRosterAuthority_IsTheRuledLiveMembershipPolicy()
         {
             Assert.IsType<RosterAuthorityByLiveMembershipPolicy>(StationPolicies.Defaults().RosterAuthority);
-            // The other two stay closed.
+
+            // MATERIALIZATION IS NO LONGER CLOSED, as of 2026-10-03: bench D
+            // answered it (nine connects, nine distinct client handles), so
+            // the production default is the own-handle policy. This line
+            // asserted MaterializationUnknownPolicy and was the only test
+            // pinning that default.
+            Assert.IsType<MaterializationEndsAtOwnHandlePolicy>(StationPolicies.Defaults().InitialMaterialization);
+
+            // Still closed, and for two different reasons. Load completion
+            // waits on bench B. The GUEST shared-write authority waits on a
+            // non-owner roster bench AND on the legacy put-back executor
+            // retaining unresolved snapshots -- code that is not written, so
+            // it is not a one-line swap when its bench lands.
             Assert.IsType<LoadCompletionUnconfirmedPolicy>(StationPolicies.Defaults().LoadCompletion);
-            Assert.IsType<MaterializationUnknownPolicy>(StationPolicies.Defaults().InitialMaterialization);
+            Assert.IsType<RosterAuthorityUnknownPolicy>(StationPolicies.Defaults().GuestSharedWriteAuthority);
         }
 
         [Fact]

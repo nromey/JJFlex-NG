@@ -567,6 +567,23 @@ namespace Radios.StationConnect
                 else layoutBound = companyLayout.Slices.Count;
             }
 
+            // An UNKNOWN roster gets the same two-slice bound. RULED by Noel
+            // 2026-10-03. Before bench D closed, the materialization
+            // placeholder stopped this route before it ever allocated, so the
+            // unknown-roster case fell into the unbounded branch below and
+            // nobody noticed: it asked for the radio's whole free capacity,
+            // four slices on an 8600, against two for a guest and two for an
+            // owner with no remembered layout. Safe either way, because the
+            // target is clipped to PanadaptersRemaining and a slice someone
+            // else holds is not free - but "everything free" was an omission
+            // rather than a decision, and the count should not depend on which
+            // radio you connected to.
+            if (!layoutBound.HasValue && result.RosterAtDecision != null
+                && result.RosterAtDecision.Verdict == RosterVerdict.Unknown)
+            {
+                layoutBound = StationLayout.SlicesWithNoRememberedLayout;
+            }
+
             // The operator's current receive and transmit slices are captured
             // around THIS allocation only, because it can insert slices ahead
             // of them; the port restores by identity when it ends. A restored
