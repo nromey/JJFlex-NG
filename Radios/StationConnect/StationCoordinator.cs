@@ -567,21 +567,46 @@ namespace Radios.StationConnect
                 else layoutBound = companyLayout.Slices.Count;
             }
 
-            // An UNKNOWN roster gets the same two-slice bound. RULED by Noel
-            // 2026-10-03. Before bench D closed, the materialization
-            // placeholder stopped this route before it ever allocated, so the
-            // unknown-roster case fell into the unbounded branch below and
-            // nobody noticed: it asked for the radio's whole free capacity,
-            // four slices on an 8600, against two for a guest and two for an
-            // owner with no remembered layout. Safe either way, because the
-            // target is clipped to PanadaptersRemaining and a slice someone
-            // else holds is not free - but "everything free" was an omission
-            // rather than a decision, and the count should not depend on which
-            // radio you connected to.
-            if (!layoutBound.HasValue && result.RosterAtDecision != null
-                && result.RosterAtDecision.Verdict == RosterVerdict.Unknown)
+            // EVERY REFUSED ROUTE IS BOUNDED, not just the company one. RULED
+            // by Noel 2026-10-03, measured on his 8600 the same morning.
+            //
+            // Before bench D closed, the materialization placeholder returned
+            // from this method before it ever allocated, so no refused route
+            // reached the branch below and nobody saw what it would do: with
+            // no bound the target becomes own + CapacityRemaining, which on
+            // the 8600 asked for FOUR slices — against two for a guest, two
+            // for an owner with no remembered layout, and three for the layout
+            // Noel actually had saved. The trace: "target=4 requests=4
+            // obtained=4 own=4".
+            //
+            // A first attempt bounded only the UNKNOWN-roster case. That
+            // missed his: the intent refusal returns at step 2, BEFORE the
+            // roster is read at step 3, so RosterAtDecision is null and the
+            // check never fired. Bounding the route is what covers both.
+            //
+            // The remembered layout's own count is the bound, because asking
+            // for four when the operator's station is three slices is as wrong
+            // as asking for four when it is two. Safety was never the issue —
+            // Allocate clips to the radio's own PanadaptersRemaining, so a
+            // slice another operator holds is not free to take (Noel: "couldn't
+            // the radio check to see how many slices are available prior to
+            // allocating slices" — it already does). The issue is that the
+            // count should come from the operator's station rather than from
+            // which radio they happened to connect to.
+            //
+            // DELIBERATELY SCOPED TO Refused. MissingOwnedGlobal establishes a
+            // NEW station to save under the wanted name, so by definition
+            // there is no remembered layout to bound it to; that route keeps
+            // the legacy-latch reconciliation below and is a separate
+            // question. Only the bound is generalised here — PLACEMENT still
+            // happens on the company route alone, because placing frequencies
+            // touches the radio and that is a bigger change than counting.
+            if (!layoutBound.HasValue && result.Route == GlobalRoute.Refused)
             {
-                layoutBound = StationLayout.SlicesWithNoRememberedLayout;
+                var remembered = _port.ReadOwnerSavedLayout();
+                layoutBound = remembered != null && !remembered.IsEmpty
+                    ? remembered.Slices.Count
+                    : StationLayout.SlicesWithNoRememberedLayout;
             }
 
             // The operator's current receive and transmit slices are captured
