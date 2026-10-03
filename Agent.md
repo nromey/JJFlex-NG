@@ -9,6 +9,224 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-10-02 — THE VOX GATE IS FIXED AND COMMITTED, THE FLEX PROFILE MODEL IS REBUILT ON THE VENDOR'S OWN TABLE, AND TWO SETTLED QUESTIONS GOT ASKED A SECOND TIME
+
+**One commit in this repo, `07624aec`, and it is the fix four weeks of VOX reports were
+about.** Everything else today landed in JJFlex-private: 1,589 insertions across 11
+tracked files plus five new documents, and **fifteen new register entries, #677 to #691**,
+taking the register to 402 open and 30,999 lines.
+
+### #565 — the microphone now streams while the radio is receiving
+
+`remoteAudioProc` started the Opus input channel only inside `if (Transmit)` and stopped
+it in the `else`, so **while receiving the radio's VOX detector was thresholding digital
+silence.** Gain is irrelevant to zero signal, which is why Noel swept it past 100 with no
+effect and why Don's 6300 behaved identically.
+
+**Proved from a Verbose capture rather than reasoned:** the channel started **exactly
+twice in 75 seconds** (51911 ms, 72297 ms), each bracketed by `Mox:True`/`Mox:False` —
+1.6 seconds of open microphone, both of them manual keys — and `Mox:True` always
+*precedes* the channel start.
+
+**The gate was Jim's, not a consequence of Noel's 2026-08-24 ruling**, and I claimed
+otherwise before checking. He pushed back — *"I don't get the safety thing ... I think I
+ruled such on the 24th because we were tracking something else"* — and he was right:
+`git log -L` over those lines returns only `18769f3c` (08-24, #208, the tone's clock) and
+`e68dabc5`, the original import, and `git show 18769f3c^` carries the identical
+`if (Transmit) start; else stop;` shape. **A code comment's framing was read as the
+ruling's scope.** The 08-24 ruling governs which SOURCE stops at unkey, and it is intact.
+
+**Ruled by Noel the same session:** stream whenever PC audio is on, regardless of VOX
+state — *"that way if we add features, the stream's always available."* The rejected
+alternative was a predicate ORing the feature flags, which fails silent for whichever
+feature forgets to join it. Cost: about 8.75 KB/s and one complexity-1 encode.
+
+`Radios.Tests`: **4357 passed, 0 failed** — the same count as before, so nothing had
+pinned the old behaviour. Debug x64 **4.1.16.2201** built at 21:21 and archived to the NAS.
+**Not published to Dropbox** — see the deliberate omission below.
+
+### The Flex profile model was rebuilt on FlexRadio's published table, and four entries share one cause
+
+**I concluded from four profile loads, each with a positive control, that VOX lived in the
+radio's NVRAM outside every profile.** Noel asked for the manual — *"I know others have
+been confused by profiles"* — and FlexRadio's own guide (Ed Gonzalez KG5FBT, January
+2016) says **VOX Enabled, Level and Delay are in the MICROPHONE profile**, along with the
+TX filter, PROC, DEXP and the monitor.
+
+**None of the four loads had touched the mic profile.** The controls proved each load
+*took effect*; they never proved a load could *reach* VOX. Filed against
+`feedback_show_the_mutation_is_reachable` as its bench-experiment instance.
+
+Then it was proved both directions inside one session — `ProfileMICSelection:EMPTY` then
+`SimpleVOXEnable:False`, and later `Default` then `True`, **21 ms apart** — and mic
+profiles turned out to **autosave**: VOX came back on with the profile across a full power
+cycle with no explicit save. Noel: *"Which also tells me that mic gets auto saves."*
+
+**Four register entries (#679, #681, #678, #690) share one cause: a profile vocabulary
+invented before anyone knew what a Flex profile contained.** Name after the model; rule on
+copy after the surface.
+
+### Sprint sequence settled, and a numbering collision resolved by annotation
+
+**46** = the five speech tracks plus #571's power floors. **47** = the portable station and
+the transmit stream. **48** = DVK, the JJ key collapse, global hotkeys.
+
+**A Sprint 46 plan had existed since 2026-09-07 and nobody looked**, so this window
+independently rebuilt its premise from scratch. Two `sprint47-briefs/` files were
+**annotated in place rather than renamed**, because a rename strands every register
+citation.
+
+### TWO SETTLED QUESTIONS GOT ASKED A SECOND TIME, and that is this day's real lesson
+
+**Noel corrected the same false claim twice.** Document 6 in `for-noel/upcoming/` offered
+him *"You have a line to Jamie Teh"* about asking Prism for a quiescence signal. He had
+already said, on 2026-09-24, *"Jamie Teh does not make prism"* — it is recorded in
+`feedback_grep_memory_before_asserting` as that entry's worst instance. Tonight:
+*"impossible since Jamie has nothing to do with Prism."*
+
+**Two mechanisms, both now fixed:**
+
+- **#621 contradicted itself.** Its banner said the Prism route was declined and must not
+  be re-proposed; its options list 200 lines below still offered it. **The correction had
+  been applied to the top of the entry and never to the bottom** — the
+  instance-not-the-class failure, inside the register that exists to prevent it. Option 3
+  is now struck in place, annotated rather than deleted.
+- **A `for-noel/` document is a snapshot and nothing updates it.** Written 2026-09-24,
+  corrected the same day in conversation, moved from `priority/` into `upcoming/` today
+  **without being re-read against the correction.** New memory entry:
+  `feedback_for_noel_docs_go_stale_on_the_shelf`.
+
+He caught two more stale items in that same file in one pass — a chord superseded by
+#628's ruled `Ctrl+J, Ctrl+N`, and a question #628's data model dissolves — and said so
+himself: *"I think number 6 was stale ... pretty sure we decided this before."* **Right
+all three times.**
+
+### His rulings tonight, recorded in #621
+
+**Options 1 and 2 together:** keep the Prism stop-call error instead of discarding it, and
+narrow the guarantee per backend — NVDA strong, JAWS stated weaker. **Option 4 rejected,
+"nope"** — and the difference is the whole ruling: option 2 states the weaker guarantee
+and keeps working on it, option 4 stops there. *"It's worth a try."*
+
+**Half of it is already built** — `NvdaControllerClient.cs`, `NvdaCompletionChannel.cs`
+and `ISpeechCompletionChannel.cs` are in the tree. What remains is the JAWS side saying so,
+and `PrismScreenReader.Silence()` at `Radios/Speech/PrismScreenReader.cs:746`, which drops
+its `PrismError` in a `catch` inside a `void` while the method one above it runs the same
+call shape through `Report(...)`.
+
+### Tomorrow's bench sheet, and the check that is mine rather than the plan's
+
+`for-noel/upcoming/01-BENCH-2026-10-03-three-tests-before-the-net.md`. Three tests,
+cheapest first, destructive last: **#565** (five checks), **#678** (two mic-profile loads),
+**#691** (unregister then register, needs the MIC button, can leave the radio needing
+re-registration).
+
+**The fifth #565 check is new and is not in any earlier plan.** Before today the radio
+heard digital silence while receiving, so a PC noise floor could never reach the VOX
+threshold. **Now it hears the real input continuously** — so a shack fan or a biased mic
+with nobody in front of it can key the radio unattended. VOX on, mic input PC, say nothing
+for thirty seconds. **The fix introduces that risk, so the fix owes the check.**
+
+**And #678 part B decides whether we can tell Don anything at all.**
+`r.SimpleVOXEnable = false` runs in owner initialisation **whenever the station is
+established**, and Noel's station read Unconfirmed on every connect yesterday — which is
+the only reason his deliberate VOX survived. **If Don's connects establish his station, he
+will set VOX, reconnect, find it off, and report that VOX still does not work, and today's
+fix will look wrong when it was not.** Readable from the same capture; no extra bench time.
+
+### Sprint 46's five speech briefs, revised rather than rebased
+
+`for-noel/upcoming/02-REVISION-sprint46-speech-briefs.md`. I ran
+`check-brief-citations.ps1` over all five instead of reading them by eye: **six of
+twenty-one task references have closed** (#541, #539, #548, #544, #552, #543).
+
+**Track B is hollowed out** — #539, #548 and #544 all closed, and **#551's five named VB
+sites no longer exist**: every surviving grep hit is a comment *describing* the repair, or
+a test. An agent handed that brief would fix comments.
+
+**And #643, opened 2026-09-29, did not exist when any of them was written.** It inverts the
+set's premise: composed speech is cancelled before word one all session long and the
+rescue machinery loses every race, so *"load-bearing information must not live only in a
+speech queue."* **Today's #688 proved it by accident** — *"NERSTATION connected"* and
+*"NERSTATION disconnected"* are two-word sentences, at the lowest verbosity tier, cut at
+word 1 and word 0. The earcon survived because an earcon cannot be cancelled, and Noel
+read a bare tone as a toggle, **which was the only reading the evidence allowed.**
+
+**Track A cannot be briefed until he rules** on whether it builds the honest ledger or the
+event surface #643 and #628 both point at. All five briefs annotated in place; nothing
+deleted.
+
+### DELIBERATE OMISSION: no Dropbox nightly promote tonight
+
+A fresh Debug build exists, so step 1 of the seal would normally promote it to the Dropbox
+top level. **It was not promoted, and this is a judgement rather than an oversight.** The
+only testable change in 4.1.16.2201 is a **transmit-path** change that has never been
+exercised on a radio, and check one of tomorrow's sheet exists precisely because it could
+prove the fix unsafe. **Don keeps yesterday's build until the bench says otherwise.** The
+NAS archive is complete, so nothing is lost.
+
+### Cross-surface activity
+
+- **JJFlex-NG:** one commit, `07624aec`. 51 insertions, 7 deletions, one C# file.
+- **Worktrees:** `jjflex-45h` (`sprint45/track-h`) and `jjflex-codex`
+  (`codex/coverage-563`) — both clean, no commits today.
+- **JJFlex-private:** 1,589 insertions / 357 deletions across 11 tracked files, plus five
+  new documents and the whole `for-noel/upcoming/` folder. The register went from 29,015
+  to **30,999 CRLF lines**; **402 open**, highest **#691**.
+- **Memory:** two new entries (`feedback_for_noel_docs_go_stale_on_the_shelf`,
+  `reference_smartlink_registration_is_a_transfer`), both pointered from their topic
+  index; `reference_flex_profile_scope_table` corrected on two points — its opening
+  contradicted its own enumeration method, and the mic-profile autosave question is now
+  answered rather than open.
+- **jjf-data, jjflexible-connect, rigmeter, prism:** all clean, no activity.
+- **Freight Fate:** `feat/career-1.9`, 1 dirty, **16 unpushed**, idle today. **Civ VI
+  Access:** `main`, 2 dirty, **0 unpushed** (was 45 — it has since been pushed), idle
+  today. Pushing Freight Fate remains Noel's call; both are covered by the dev mirror.
+- **Codex:** no runs, no commits, no reports. Six loose briefs still in `for-codex/`,
+  unchanged. No `codex-evaluation.md` entry owed.
+- **External:** nothing on rarbox, Cloudflare, R2. NAS received the memory snapshot, the
+  AppData config snapshot, the Claude-state snapshot, the dev mirror, the rigmeter
+  snapshot and the 4.1.16.2201 debug archive.
+- **NVDA:** the live and previous NVDA logs archived to `JJFlex-private/nvda-logs/` as
+  `seal-20261002-2131-*`. Today's two captures — the 379 KB IO transcript and **the
+  project's first JAWS Speech History** — are already there.
+
+### Seal gates
+
+- **Vulnerable packages:** none, across every project.
+- **Memory drift:** 86 missing paths (43 in non-history entries), 56 symbols. **Neither of
+  today's new entries appears in either candidate list**, so nothing today added drift.
+- **Memory reachability:** 308 files, **0 orphans, 0 dangling links.** The archive sweep
+  found nothing new to move — the stamped entries whose work is closed are already in
+  `project_closed_history_index.md`. MEMORY.md is **13,922 bytes**, above the 12 KB seal
+  threshold but with the headroom source already exhausted.
+- **Instruction tests:** `CodexInstructionFileTests` + `IntegrationPassInstructionTests`
+  — 5 passed, 0 failed. `codex debug prompt-input` confirms `AGENTS.md` is loaded; no
+  sandbox `setup_error.json`.
+- **`open-tasks-summary.md`:** regenerated at 21:28 against a 21:18 register. 402 open.
+
+### Rigmeter snapshot — end of 2026-10-02
+
+- **Work done, summed across every commit:** 51 insertions, 7 deletions, net +44, one file.
+- **Repository size change:** net +44, one file differing.
+- **By file type:** C# +51 / -7.
+- **Scale:** 403 words, 3,438 characters, about three minutes read aloud, one printed page.
+- **Branch-scope caveat, and it is the whole story today:** rigmeter measures JJFlex-NG.
+  **Today's volume was in JJFlex-private** — roughly 1,589 tracked insertions plus about
+  2,000 lines of new documents — so the +44 here understates the day by two orders of
+  magnitude and says nothing about it.
+- Snapshot written to `historical/stats/2026-10-02-07624aec.json`.
+
+### Setup for tomorrow
+
+1. **The bench sheet, at the radio, before the net.** Three tests, in order.
+2. **Then `02-REVISION`**, which has the one decision blocking Sprint 46 Track A.
+3. **Then documents 1 and 2** in `upcoming/` — Sprint 47's seven decisions and #456
+   section 15.
+4. **Do not tell Don his VOX is fixed until #678 part B is read.**
+
+---
+
 ## END-OF-DAY SEAL — 2026-10-01 — SPRINT 45 FULLY MERGED, AND A FOUR-WEEK VOX MYSTERY TURNED OUT TO BE A GATE IN JIM'S ORIGINAL CODE
 
 **Sealed 2026-10-01 on `sprint45/integration` at `8eff46a2`.** Two sessions in one
