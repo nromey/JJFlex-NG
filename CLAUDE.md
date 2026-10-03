@@ -1021,7 +1021,7 @@ FlexRadio's own folder, not ours).
   when in fact it is. Noel was told "nothing's running" twice on 2026-10-02 for exactly
   this reason, while `jjflexible.exe` was live in front of him. **Check the process, not
   the glob** — and when reading a live session, read the un-timestamped file.
-  Same shape as [[feedback_absence_is_not_evidence]]: name every cause of the empty result
+  Same shape as `memory/feedback_absence_is_not_evidence.md`: name every cause of the empty result
   before concluding from it.
 - Multi-instance: `%AppData%\JJFlexRadio\JJFlexRadio2Trace.txt` (instance 2+)
 - User-initiated capture: **Settings → Diagnostics** (Tools → Diagnostics deep-links there). Saved sessions live in the **Saved Diagnostic Logs** window, opened from that tab. `Ctrl+J, Ctrl+D` starts and stops a detailed capture from anywhere, including inside a dialog. **This line has been wrong twice.** It said "Operations → Tracing" until 2026-08-11; it then said "Help → Tracing (`TraceAdmin.vb`)" until Sprint 30 Track D landed 2026-08-19, and that was wrong in both halves — the menu item is now deleted, and it never opened `TraceAdmin.vb` anyway, it opened the WPF `TraceAdminDialog`
