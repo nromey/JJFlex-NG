@@ -96,6 +96,9 @@ namespace JJFlexWpf
             // tab each get a real F1 destination.
             { "RescueHome", "pages/home-no-radio.htm" },
             { "DiagnosticLog", "pages/diagnostic-log.htm" },
+            // Sprint 48 Track B (#307): the system-wide keys are documented
+            // on the keyboard reference, in their own section.
+            { "SystemWideKeys", "pages/keyboard-reference.htm" },
         };
 
         /// <summary>True once the install has been handed to the hook thread.</summary>

@@ -112,6 +112,11 @@ namespace JJFlexWpf.Dialogs
         private static string ScopeBucket(string scope) => scope switch
         {
             "Global" => CatGlobal,
+            // The system-wide keys (#307) work in every mode of this window
+            // AND outside it; for the purpose of this view's three buckets
+            // that is the first one. The row's own Scope word stays
+            // "System-wide" so nothing reads it as KeyScope.Global.
+            "System-wide" => CatGlobal,
             "Logging" => CatLogging,
             _ => CatRadio, // Radio, Classic, Modern
         };

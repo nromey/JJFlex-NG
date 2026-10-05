@@ -12,6 +12,8 @@ The second key follows a grammar, and the grammar is the point: you work out a c
 
 If you change your mind, press `Escape`. You will hear a soft falling tone letting you know that the JJ Command layer has closed. The layer waits patiently until you press a key or cancel — there is no timer sneaking you out of it.
 
+The JJ key also works from another program. Press `Ctrl+Shift+J` while a contest logger or anything else has the keyboard, then the second key, and both are kept from that program — the same layer with a second door, so every command below works from outside except the ones that open a layer of their own, which need this window and say so. The key is a default you can change under Tools, System-wide keys; the keyboard reference has the details.
+
 <!-- LEADER-KEY-TABLE: every key line from here to the END marker is checked against KeyInventory.LeaderCommands by Radios.Tests/LeaderDocCoverageTests. Add a chord to the layer and this list fails until it has a line; delete a chord and a leftover line fails too. The wording is yours — only the set of keys is checked.
 
      ONE LINE PER CHORD, and the shape is load-bearing, not a style: a hyphen, a

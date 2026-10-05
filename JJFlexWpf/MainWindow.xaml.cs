@@ -294,6 +294,35 @@ public partial class MainWindow : UserControl
         // pump, not this thread — this call only hands the install over, so
         // a blocked UI thread can no longer stall typing machine-wide.
         CwCtrlInterrupt.Install(() => _cwOutput.IsBusy, () => _morseNotifier.Cancel());
+        // #307 (Sprint 48 Track B): the JJ key, push to talk and the transmit
+        // lock from ANOTHER program — Don logs in N3FJP, and during a contest
+        // his hands are there. Same hook thread as the two installs above
+        // (#402), same hand-over-and-return. The PTT edges come back through
+        // HandleSystemWidePttEdge into the one pipeline Ctrl+Space uses; the
+        // leader's second key goes through KeyCommands' own switch. The
+        // chords are app-level configuration, loaded here because the hook
+        // exists before any operator or radio does.
+        try
+        {
+            var systemWide = Radios.SystemWideKeysConfig.Load(Radios.RadioConfig.AppDataRoot);
+            foreach (var repair in systemWide.Repairs)
+                Tracing.TraceLine("SystemWideKeys: config repaired on load: " + repair, TraceLevel.Warning);
+            SystemWideKeys.PttControllerSource = () => _pttController;
+            SystemWideKeys.PttEdge = HandleSystemWidePttEdge;
+            SystemWideKeys.ToggleLock = HandleSystemWideLockToggle;
+            SystemWideKeys.LeaderArmed = KeyCommands.SystemWideLeaderArmed;
+            SystemWideKeys.LeaderCancelled = KeyCommands.SystemWideLeaderCancelled;
+            SystemWideKeys.LeaderKey = KeyCommands.SystemWideLeaderKey;
+            SystemWideKeys.LeaderHelpLetGo = KeyCommands.SystemWideLeaderHelpLetGo;
+            Dialogs.SystemWideKeysDialog.InAppConflictsSource =
+                key => KeyCommandsRef?.DescribeBindingsOf(key) ?? Array.Empty<string>();
+            SystemWideKeys.Install(systemWide.ToKeySet(), Dispatcher);
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("SystemWideKeys: install failed, the three keys work only inside the window: " + ex.Message,
+                TraceLevel.Error);
+        }
         // (#146) The radio announces its CW sidetone pitch on connect, on every
         // change, and as null on disconnect. Whether the notifier USES it is the
         // operator's setting; the notifier holds both numbers and picks.
@@ -2660,23 +2689,7 @@ public partial class MainWindow : UserControl
 
             if (rawKey == Key.Space && Keyboard.Modifiers == ModifierKeys.Control)
             {
-                if (!e.IsRepeat && !_pttKeyDown) // ignore key-repeat and redundant down events
-                {
-                    _pttKeyDown = true;
-                    if (_pttHoldFilter.NoteDown(Environment.TickCount64) ==
-                        Radios.PttHoldFilter.DownAction.ContinueHold)
-                    {
-                        // The synthetic re-down of a hold being absorbed
-                        // (#216): the transmitter never dropped, so there is
-                        // nothing to key — just stand down the pending
-                        // deferred release.
-                        _pttDeferTimer?.Stop();
-                    }
-                    else
-                    {
-                        _pttController.PttDown();
-                    }
-                }
+                if (!e.IsRepeat) PttKeyDownEdge();
                 e.Handled = true;
                 return;
             }
@@ -2715,7 +2728,58 @@ public partial class MainWindow : UserControl
     {
         var rawKey = e.Key == Key.System ? e.SystemKey : e.Key;
 
-        if (rawKey == Key.Space && _pttController != null && _pttController.State == PttSafetyController.PttState.PttHold)
+        if (rawKey == Key.Space)
+        {
+            // Read the state BEFORE the edge runs: a consumed release takes the
+            // controller out of PttHold, and asking afterwards would let the
+            // very key-up that unkeyed fall through to the focused control.
+            bool wasHold = _pttController != null
+                           && _pttController.State == PttSafetyController.PttState.PttHold;
+            PttKeyUpEdge();
+            if (wasHold) e.Handled = true;
+        }
+    }
+
+    // ── One push-to-talk edge pipeline, two doors (#307, Sprint 48 Track B) ──
+    //
+    // Ctrl+Space inside the window and the system-wide chord from another
+    // program both arrive HERE, so the repeat guard, the JAWS absorber (#216)
+    // and the safety controller are one path with two entrances rather than
+    // two paths that drift. SystemWideKeys posts its edges to this dispatcher
+    // and never touches the controller itself.
+
+    /// <summary>
+    /// A push-to-talk DOWN edge, repeats already removed by the caller:
+    /// key the transmitter unless a hold is already in flight.
+    /// </summary>
+    private void PttKeyDownEdge()
+    {
+        if (_pttController == null || _pttKeyDown) return; // redundant down events
+        _pttKeyDown = true;
+        if (_pttHoldFilter.NoteDown(Environment.TickCount64) ==
+            Radios.PttHoldFilter.DownAction.ContinueHold)
+        {
+            // The synthetic re-down of a hold being absorbed
+            // (#216): the transmitter never dropped, so there is
+            // nothing to key — just stand down the pending
+            // deferred release.
+            _pttDeferTimer?.Stop();
+        }
+        else
+        {
+            _pttController.PttDown();
+        }
+    }
+
+    /// <summary>
+    /// A push-to-talk UP edge, whatever the modifiers are doing by now (the
+    /// operator may release Ctrl first). Unkeys through the absorber when a
+    /// hold is in flight; otherwise only clears the repeat guard, so a lock
+    /// the operator latched mid-hold is left alone.
+    /// </summary>
+    private void PttKeyUpEdge()
+    {
+        if (_pttController != null && _pttController.State == PttSafetyController.PttState.PttHold)
         {
             _pttKeyDown = false;
             if (_pttHoldFilter.NoteUp(Environment.TickCount64) ==
@@ -2748,12 +2812,38 @@ public partial class MainWindow : UserControl
             {
                 _pttController.PttUp();
             }
-            e.Handled = true;
         }
-        else if (rawKey == Key.Space)
+        else
         {
             _pttKeyDown = false; // Clear flag even if PTT state changed (e.g., locked)
         }
+    }
+
+    /// <summary>
+    /// The system-wide push to talk's door into the pipeline above, on the
+    /// dispatcher. With no powered radio the DOWN says so — a key pressed
+    /// from another program into a radio that is not there must not fail
+    /// silently (#307) — and the UP is simply nothing to release.
+    /// </summary>
+    internal void HandleSystemWidePttEdge(bool down)
+    {
+        if (_pttController == null || !_radioPowerOn)
+        {
+            if (down) Radios.ScreenReaderOutput.SpeakNoRadioConnected();
+            return;
+        }
+        if (down) PttKeyDownEdge(); else PttKeyUpEdge();
+    }
+
+    /// <summary>The system-wide transmit lock: what Shift+Space does inside the window.</summary>
+    internal void HandleSystemWideLockToggle()
+    {
+        if (_pttController == null || !_radioPowerOn)
+        {
+            Radios.ScreenReaderOutput.SpeakNoRadioConnected();
+            return;
+        }
+        _pttController.ToggleLock();
     }
 
     /// <summary>

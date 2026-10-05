@@ -45,13 +45,15 @@ namespace Radios.Tests
         private const string Host = "JJFlexWpf/KeyboardHookThread.cs";
 
         /// <summary>
-        /// The two hooks that were on the UI thread the night this broke.
-        /// A third consumer (#307 wants one) simply joins this list.
+        /// The two hooks that were on the UI thread the night this broke,
+        /// and the third that #307 brought (Sprint 48 Track B): the
+        /// system-wide keys, which joined this list the day it was written.
         /// </summary>
         private static readonly string[] Consumers =
         {
             "JJFlexWpf/CwCtrlInterrupt.cs",
             "JJFlexWpf/HelpLauncher.cs",
+            "JJFlexWpf/SystemWideKeys.cs",
         };
 
         /// <summary>
