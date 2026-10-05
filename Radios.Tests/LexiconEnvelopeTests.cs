@@ -733,6 +733,20 @@ namespace Radios.Tests
             // arithmetic was wrong once today, when resolving the single
             // CONFLICTING key was mistaken for counting the merge, and two keys
             // that merged cleanly went uncounted.
+            //
+            // 3,114 on Sprint 48 Track B (#307, 2026-10-05): the thirty-nine
+            // strings of the system-wide keys — thirty-seven
+            // settings.systemwide_keys.* for the dialog and its four-layer
+            // conflict report, leader.systemwide.layer_needs_window for a layer
+            // asked for from another program, and
+            // audio.ptt.systemwide_watchdog_unkeyed for the fail-safe ending a
+            // held transmit on its own. Frozen with the gate's printed lines,
+            // not classified, for the reason every track above gives: the
+            // classification is a #617 speech decision and this track's brief
+            // did not carry it. The watchdog sentence is the one that most
+            // wants classifying — a safety outcome the operator has no other
+            // way of learning — and it is named in the track report for exactly
+            // that reason.
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -745,7 +759,7 @@ namespace Radios.Tests
                 }
             }
 
-            Assert.Equal(3075, unclassified);
+            Assert.Equal(3114, unclassified);
             Assert.All(classified, key =>
                 Assert.StartsWith("facts.", key, StringComparison.Ordinal));
             Assert.True(classified.Count > 30,

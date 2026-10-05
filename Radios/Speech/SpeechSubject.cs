@@ -420,5 +420,35 @@ namespace Radios.Speech
         /// cannot retire a value announcement that is still true.
         /// </summary>
         public static string ValueLayerStatus(string layerId) => "value-layer-status:" + layerId;
+
+        // ── The system-wide keys (#307, Sprint 48 Track B) ───────────────
+
+        /// <summary>
+        /// What the system-wide keys dialog last said about a chord — the
+        /// assignment, the four-layer conflict report, a refusal. Each report
+        /// is about the key the operator just pressed and is covered by the
+        /// next one; an unheard report about a chord they have since changed
+        /// is worthless.
+        /// </summary>
+        public const string SystemWideKeyPicker = "system-wide-key-picker";
+
+        /// <summary>
+        /// The system-wide JJ key was asked to open a layer from another
+        /// program, and the layer needs this window. One sentence, true until
+        /// the operator presses the JJ key again; the next JJ key press
+        /// covers it.
+        /// </summary>
+        public const string SystemWideLeaderRefusal = "system-wide-leader-refusal";
+
+        /// <summary>
+        /// The fail-safe behind the system-wide push to talk ended a transmit
+        /// on its own — the release was missed, or posted and never honoured,
+        /// or the hold ran past the ceiling. A safety outcome the operator has
+        /// no other way of learning, and the only thing that covers it is the
+        /// next such outcome. Kept apart from the in-window transmit subjects
+        /// for the reason those are kept apart from each other: a replacement
+        /// must come from the same owner about the same condition.
+        /// </summary>
+        public const string SystemWidePttWatchdog = "system-wide-ptt-watchdog";
     }
 }
