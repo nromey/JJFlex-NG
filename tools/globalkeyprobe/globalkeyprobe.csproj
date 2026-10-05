@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Platforms>x64</Platforms>
+    <Nullable>enable</Nullable>
+    <AssemblyName>globalkeyprobe</AssemblyName>
+    <RootNamespace>GlobalKeyProbe</RootNamespace>
+    <NoWarn>CA1416</NoWarn>
+  </PropertyGroup>
+</Project>
