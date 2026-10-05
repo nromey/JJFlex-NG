@@ -22396,19 +22396,47 @@ namespace Radios
                         // stream.
                         stopSelfClockedTxInput();
 
-                        // The microphone keeps running. Idempotent — the loop
-                        // calls this on every poll.
+                        // AN ARMED GENERATED SOURCE PARKS THE MICROPHONE
+                        // (Sprint 48 Track A, #151). Found while measuring
+                        // whether TxFileStart's "otherwise at the next
+                        // key-down" survived #565, and it had not: the capture
+                        // callback hands every buffer to TxFramePipeline.Emit,
+                        // which hands it to the source mux, which lets an
+                        // engaged source REPLACE the microphone — that is the
+                        // pre-#208 borrowed-clock path, and it was harmless
+                        // while receiving only because receiving used to stop
+                        // the capture. Once #565 kept the capture running, a
+                        // file or tone armed from idle started going out
+                        // immediately on the capture's clock, into a radio
+                        // that was not transmitting, consuming the recording
+                        // before any key-down — and with VOX armed, a radio
+                        // that would key on it. So while a source is engaged
+                        // and the radio is receiving, the capture is parked,
+                        // exactly as it was for every receive before #565, and
+                        // the source waits for the self-clock at key-down.
+                        // Nothing streams while a source is armed: the source
+                        // replaces the microphone, so VOX has nothing to hear
+                        // by design.
                         //
-                        // GATED ON Idle FOR THE SAME REASON THE INNER GATE IS:
-                        // both producers share ONE Opus encoder and Opus is
-                        // stateful, so they must never overlap. A generated
-                        // source is not Idle for the ten milliseconds after a
-                        // release is requested — it is still ramping down —
-                        // and starting capture into that window is exactly the
-                        // corruption the inner gate's stop-then-start ordering
-                        // exists to prevent. One poll later it is Idle and the
-                        // microphone starts.
-                        if (TxInputSources.Idle) startOpusInputChannel();
+                        // Otherwise the microphone keeps running. Idempotent —
+                        // the loop calls this on every poll.
+                        //
+                        // ENGAGED, NOT IDLE, AND THE DIFFERENCE IS A STUCK
+                        // RAMP. A source released while receiving sits in its
+                        // release ramp — not engaged, not idle — and the ramp
+                        // only advances when something processes a buffer.
+                        // With the capture parked and the self-clock stopped,
+                        // nothing does, so a gate that waited for Idle before
+                        // starting capture would wait forever and the
+                        // microphone would stay parked until the next
+                        // key-down. Starting the capture resolves it: the
+                        // first callback sees a stream gap and the source
+                        // resolves to idle in that frame (TxFilePlayer and
+                        // TxToneGenerator both do this). The one-producer rule
+                        // still holds because stopSelfClockedTxInput() above
+                        // joins the pump thread before returning.
+                        if (TxInputSources.Engaged) stopOpusInputChannel();
+                        else startOpusInputChannel();
                     }
                 }
 
@@ -22711,18 +22739,21 @@ namespace Radios
         }
 
         /// <summary>
-        /// Plain-language reason the test tone cannot reach the transmitter
-        /// right now, or the empty string when the path is good. The tone
-        /// rides the PC-audio TX path, so it needs PC audio on, the radio's
-        /// transmit input set to PC, and a voice mode (the PC TX stream does
-        /// not run in CW).
+        /// Plain-language reason nothing this computer generates — the test
+        /// tone, a reference recording, a voice message — can reach the
+        /// transmitter right now, or the empty string when the path is good.
+        /// All of them ride the PC-audio TX path, so it needs PC audio on, the
+        /// radio's transmit input set to PC, and a voice mode (the PC TX
+        /// stream does not run in CW). Named for the tone because the tone
+        /// came first; it is the rig-level answer for every injected source
+        /// and must stay the only one.
         /// </summary>
         public string TxTonePathTrouble
         {
             get
             {
                 if (!PCAudio)
-                    return "PC audio is off. The test tone rides the PC audio path; turn on PC audio first.";
+                    return "PC audio is off. Audio sent from this computer rides the PC audio path; turn on PC audio first.";
                 if (!string.Equals(MicSource, "PC", StringComparison.OrdinalIgnoreCase))
                     return "Transmit audio is from the " + MicSource +
                         " input, not this computer. Set transmit audio from to PC first.";
@@ -22761,6 +22792,15 @@ namespace Radios
         /// microphone. Takes effect immediately if transmitting, otherwise at
         /// the next key-down.
         /// </summary>
+        /// <remarks>
+        /// "Otherwise at the next key-down" is true only because the transmit
+        /// gate parks the microphone capture while a source is engaged and
+        /// the radio is receiving. Between #565 (2026-10-02) and Sprint 48
+        /// Track A it was false: the always-on capture consumed the recording
+        /// on its own clock before any key-down. See the outer gate in
+        /// <c>remoteAudioProc</c>, and <see cref="VoiceMessageSend"/> for the
+        /// caller that keys the radio itself rather than waiting.
+        /// </remarks>
         public void TxFileStart()
         {
             Tracing.TraceLine("TxFileStart: \"" + txFilePlayer.ContentName + "\", "
