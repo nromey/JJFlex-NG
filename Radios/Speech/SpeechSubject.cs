@@ -315,6 +315,24 @@ namespace Radios.Speech
         public const string JjKeyHelp = "jj-key-help";
 
         /// <summary>
+        /// What the message key just did (Sprint 48 Track A, #151) — "Sending
+        /// CQ", "CQ sent", "CQ stopped", "CQ not sent" and why, or "CQ has no
+        /// recording, and the radio is in USB". One subject because every one
+        /// of them answers the same question, "did my message go out?", and
+        /// only the newest answer is true: an unheard "Sending CQ" is
+        /// worthless once "CQ sent" exists, and a refusal must replace a
+        /// stale success rather than queue behind it. Nothing outside the
+        /// message keys covers it — a tune, a slice jump or a mode change
+        /// leaves the last send exactly as sent as it was.
+        ///
+        /// <para>The message keys are a contest surface: pressed every few
+        /// seconds, from a logger, by an operator who cannot see the radio.
+        /// A send that went out and was never confirmed is the retry a lost
+        /// answer provokes, which here costs RF.</para>
+        /// </summary>
+        public const string MessageKey = "message-key";
+
+        /// <summary>
         /// What just happened to the tracking notch list — a notch placed, a
         /// notch removed, or the radio declining to do either (#482). One
         /// subject because they are successive answers to one question, "is

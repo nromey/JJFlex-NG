@@ -35,7 +35,7 @@ public static class KeyManifest
 {
     public sealed class Row
     {
-        /// <summary>"Command", "Log", "CW Message", or a KeyInventory context label.</summary>
+        /// <summary>"Command", "Log", "Message", or a KeyInventory context label.</summary>
         public string Source { get; init; } = "";
         public string Description { get; init; } = "";
         public string KeyDisplay { get; init; } = "";
@@ -110,7 +110,7 @@ public static class KeyManifest
         {
             string source = kt.KeyType switch
             {
-                KeyTypes.CWText => "CW Message",
+                KeyTypes.CWText => "Message",
                 KeyTypes.Log => "Log",
                 _ => "Command",
             };
@@ -119,15 +119,15 @@ public static class KeyManifest
             {
                 Source = source,
                 Description = kt.KeyType == KeyTypes.CWText
-                    ? "CW Message: " + kt.HelpText
+                    ? "Message: " + kt.HelpText
                     : kt.HelpText,
                 KeyDisplay = FormatKey(kt.KeyDef.Key),
                 Scope = kt.Scope.ToString(),
                 Group = kt.Group.ToString(),
                 DefaultKeyDisplay = FormatKey(defKey?.Key ?? WinFormsKeys.None),
                 CommandId = kt.KeyDef.Id,
-                // CW message keys are managed by the CW Messages editor, not
-                // the Keys surface (inventory-only pending the CW rewrite).
+                // Message keys are managed by the Messages editor (voice and
+                // CW, one slot each — #151), not the Keys surface.
                 Rebindable = kt.KeyType != KeyTypes.CWText,
             });
         }
@@ -164,7 +164,7 @@ public static class KeyManifest
         sb.AppendLine("Rebindable commands can be changed in Tools, Hotkey Editor.");
         sb.AppendLine();
 
-        var commandRows = rows.Where(r => r.CommandId != null && r.Source != "CW Message").ToList();
+        var commandRows = rows.Where(r => r.CommandId != null && r.Source != "Message").ToList();
         foreach (var scope in new[] { "Global", "Radio", "Classic", "Modern", "Logging" })
         {
             var bound = commandRows
@@ -209,10 +209,10 @@ public static class KeyManifest
             sb.AppendLine();
         }
 
-        var cwRows = rows.Where(r => r.Source == "CW Message").ToList();
+        var cwRows = rows.Where(r => r.Source == "Message").ToList();
         if (cwRows.Count > 0)
         {
-            sb.AppendLine("## CW message keys (managed under CW Messages)");
+            sb.AppendLine("## Message keys (managed under Messages)");
             sb.AppendLine();
             foreach (var r in cwRows)
                 sb.AppendLine($"- {r.KeyDisplay} — {r.Description}");

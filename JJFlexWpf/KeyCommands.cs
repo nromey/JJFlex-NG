@@ -2877,7 +2877,7 @@ public class KeyCommands
             {
                 Id = e.KeyDef.Id,
                 Description = e.KeyType == KeyTypes.CWText
-                    ? "CW Message: " + e.HelpText
+                    ? "Message: " + e.HelpText
                     : e.HelpText,
                 Scope = e.Scope,
                 CanSteal = e.KeyType != KeyTypes.CWText,
@@ -3136,14 +3136,22 @@ public class KeyCommands
         }
         else
         {
-            // If the key looks like a CW message hotkey (Ctrl+1-7) but no
-            // CW messages are configured, give spoken feedback.
+            // If the key looks like a message hotkey — Ctrl plus a digit,
+            // which is where the message slots live by convention and by the
+            // F5-F11 migration — say why nothing happened. Ctrl+0 through
+            // Ctrl+9 (Sprint 48 Track A, #151): the library has no slot cap,
+            // and ten digits is the whole chord space, so the hint covers all
+            // of it rather than the seven the migration happened to fill.
             var keyCode = k & Keys.KeyCode;
             var mods = k & Keys.Modifiers;
-            var cwText = _context.GetCWText();
-            if (mods == Keys.Control && keyCode >= Keys.D1 && keyCode <= Keys.D7 && cwText.Length == 0)
+            if (mods == Keys.Control && keyCode >= Keys.D0 && keyCode <= Keys.D9)
             {
-                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.cw.no_messages_configured"), Radios.VerbosityLevel.Critical, true);
+                var cwText = _context.GetCWText();
+                string line = cwText.Length == 0
+                    ? Radios.Lexicon.Get("settings.cw.no_messages_configured")
+                    : Radios.Lexicon.Get("settings.cw.no_message_on_key", ("key", KeyManifest.FormatKey(k)));
+                Radios.ScreenReaderOutput.Speak(line, Radios.Speech.SpeechIntent.Interrupt,
+                    Radios.VerbosityLevel.Critical, subject: Radios.Speech.SpeechSubject.MessageKey);
                 rv = true;
             }
             else
@@ -3339,9 +3347,29 @@ public class KeyCommands
     /// <summary>
     /// The dialog-side dispatch core. Consumes: leader and value-layer keys
     /// while armed, the Ctrl+J trigger, and chords bound to a Global-scope
-    /// registry command (CW message keys excluded — see region comment).
+    /// registry command (message keys excluded — see region comment).
     /// Returns false for everything else so the key stays with the dialog.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The message-key exclusion was re-examined per surface in Sprint 48
+    /// Track A (#151) and KEPT, for both payload kinds.</b> It bites only
+    /// WPF dialog windows — Settings, the Audio Workshop, the editors — which
+    /// are places an operator went to change something, and a message key
+    /// that transmits from inside one of them is the hazard the exclusion
+    /// names; a voice message now KEYS the radio, which makes it more so.
+    /// </para>
+    /// <para>
+    /// Every surface a contest operator's hands are on gets the keys by a
+    /// different road, verified by reading: Home and the logging pane are
+    /// the main window and go through <see cref="DoCommand(Keys)"/>; the
+    /// WinForms full log form (<c>LogEntry</c>) copies the message entries
+    /// into its own key table because the macro constructor sets
+    /// <c>UseWhenLogging</c>, and dispatches them from its own KeyDown; and
+    /// a logger such as N3FJP is reached only by a global hook, which is
+    /// Sprint 48 Track B's and never passes through here at all.
+    /// </para>
+    /// </remarks>
     internal bool DispatchFromDialogWindow(Keys k)
     {
         // Ignore bare modifier presses (same filter as DoCommand).
@@ -3473,7 +3501,7 @@ public class KeyCommands
                         var m = cwText[j];
                         textCol.Add(new KeyDefType(m.Key, _cwMessageDefs[j].Id));
                         keyNames[i] = _context.FormatKey(m.Key);
-                        actions[i] = "CW Message: " + m.Label;
+                        actions[i] = "Message: " + m.Label;
                         i++;
                     }
                 }
@@ -3539,24 +3567,90 @@ public class KeyCommands
         UpdateCWText();
     }
 
+    /// <summary>
+    /// A message key. The slot holds the message; the radio's mode decides
+    /// whether that is keyed text or a played recording (Sprint 48 Track A,
+    /// #151 — Noel: "we could make it work for voice and CW, same keys").
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The branch is <see cref="MessageKeyDispatch.Plan"/>, which is pure and
+    /// tested; this method only carries out its answer. CW text goes down the
+    /// path it always has — <c>_context.SendCW</c> to the radio's keyer, the
+    /// text echoed to the send window. A recording goes to
+    /// <see cref="VoiceMessageSender"/>, which keys the radio if nobody has,
+    /// plays the file in place of the microphone and unkeys when it ends.
+    /// </para>
+    /// <para>
+    /// A slot with nothing for the current mode says so. Before this, a
+    /// message key in a voice mode queued CW text to a keyer that was not
+    /// keying, and nothing was said — which to an operator who cannot see
+    /// the radio is a key that is broken.
+    /// </para>
+    /// <para>
+    /// Also the handler the WinForms log form installs for these keys
+    /// (<c>LogEntry.myKeyCommands</c>), so a message key pressed there takes
+    /// the same branch.
+    /// </para>
+    /// </remarks>
     protected void SendCWMessage()
     {
         int id = (int)CommandId - KeyCommandConstants.FirstMessageCommandValue;
         var cwText = _context.GetCWText();
         if (id < 0 || id >= cwText.Length)
         {
-            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.cw.no_message_at_position"), Radios.VerbosityLevel.Critical, true);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.cw.no_message_at_position"),
+                Radios.Speech.SpeechIntent.Interrupt, Radios.VerbosityLevel.Critical,
+                subject: Radios.Speech.SpeechSubject.MessageKey);
+            return;
         }
-        else
+
+        var item = cwText[id];
+        string label = item.Label ?? "";
+        var rig = _context.GetRigControl();
+        if (rig == null)
         {
-            string label = cwText[id].Label;
-            string msg = cwText[id].Message;
-            if (msg.Length > 0 && msg[^1] != ' ')
-                msg += " ";
-            _context.SendCW(msg);
-            _context.WriteTextX(1, msg, 0, false); // WindowIDs.SendDataOut = 1
-            if (!string.IsNullOrEmpty(label))
-                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.cw.sending", ("label", label)), Radios.VerbosityLevel.Terse, false);
+            LeaderNoRadio();
+            return;
+        }
+
+        string mode = rig.Mode ?? "";
+        switch (MessageKeyDispatch.Plan(item, mode))
+        {
+            case MessageKeyAction.SendCw:
+            {
+                string msg = item.Message;
+                if (msg.Length > 0 && msg[^1] != ' ')
+                    msg += " ";
+                _context.SendCW(msg);
+                _context.WriteTextX(1, msg, 0, false); // WindowIDs.SendDataOut = 1
+                if (!string.IsNullOrEmpty(label))
+                    Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.cw.sending", ("label", label)),
+                        Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Terse,
+                        subject: Radios.Speech.SpeechSubject.MessageKey);
+                break;
+            }
+
+            case MessageKeyAction.SendVoice:
+                VoiceMessageSender.Send(rig, item);
+                break;
+
+            case MessageKeyAction.NothingForCw:
+                EarconPlayer.Warning2Beep();
+                Radios.ScreenReaderOutput.Speak(
+                    Radios.Lexicon.Get("settings.cw.no_text_for_cw", ("label", label)),
+                    Radios.Speech.SpeechIntent.Interrupt, Radios.VerbosityLevel.Critical,
+                    subject: Radios.Speech.SpeechSubject.MessageKey);
+                break;
+
+            case MessageKeyAction.NothingForVoice:
+                EarconPlayer.Warning2Beep();
+                Radios.ScreenReaderOutput.Speak(
+                    Radios.Lexicon.Get("settings.cw.no_recording_for_voice",
+                        ("label", label), ("mode", string.IsNullOrEmpty(mode) ? "an unknown mode" : mode)),
+                    Radios.Speech.SpeechIntent.Interrupt, Radios.VerbosityLevel.Critical,
+                    subject: Radios.Speech.SpeechSubject.MessageKey);
+                break;
         }
     }
 

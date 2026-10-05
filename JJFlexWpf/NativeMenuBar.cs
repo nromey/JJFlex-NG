@@ -2533,7 +2533,9 @@ public class NativeMenuBar : IDisposable
         // while both WPF dialogs for it sat finished in the tree since Sprint 9
         // and the Hotkey Editor was already telling operators that CW message
         // keys are "managed under CW Messages".
-        AddWired(tools, "Manage CW Messages", () => _window.ManageCWMessagesCallback?.Invoke());
+        // Sprint 48 Track A (#151): "Messages", not "CW Messages" — a slot
+        // now carries a recording for voice modes as well as CW text.
+        AddWired(tools, "Manage Messages", () => _window.ManageCWMessagesCallback?.Invoke());
         AddSep(tools);
         AddWired(tools, "Audio Workshop\tCtrl+Shift+W", () =>
             Dialogs.AudioWorkshopDialog.ShowOrFocus(Rig, 0));

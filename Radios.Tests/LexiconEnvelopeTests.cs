@@ -733,6 +733,17 @@ namespace Radios.Tests
             // arithmetic was wrong once today, when resolving the single
             // CONFLICTING key was mistaken for counting the merge, and two keys
             // that merged cleanly went uncounted.
+            //
+            // 3,091 on Sprint 48 Track A (#151, 2026-10-05): seventeen new
+            // message-key sentences — what the key said when it sent, stopped,
+            // was cut short, ran long, found nothing for the mode, or could not
+            // key the radio, plus the editor's payload-kind words — and one key
+            // deleted (needs_key_label_and_text, replaced by _payload). Frozen
+            // as DRAFTS by the gate's own printed lines, not classified, for
+            // the same reason as L6 through L11: the wording is Noel's to rule
+            // and the classification is a #617 speech decision this track does
+            // not take. Six reworded CW-to-Messages entries re-frozen under the
+            // #629 exemption. 3,075 + 17 - 1. Confirmed by running this test.
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -745,7 +756,7 @@ namespace Radios.Tests
                 }
             }
 
-            Assert.Equal(3075, unclassified);
+            Assert.Equal(3091, unclassified);
             Assert.All(classified, key =>
                 Assert.StartsWith("facts.", key, StringComparison.Ordinal));
             Assert.True(classified.Count > 30,

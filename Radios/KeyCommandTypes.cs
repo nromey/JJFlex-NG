@@ -205,14 +205,33 @@ public static class KeyCommandConstants
 }
 
 /// <summary>
-/// Shared CW message item type. Used by KeyCommands (C#) and wired from
+/// Shared message item type. Used by KeyCommands (C#) and wired from
 /// CWMessages.MessageItem (VB) via the KeyCommandContext delegate.
 /// </summary>
+/// <remarks>
+/// <para>
+/// Sprint 48 Track A (#151): one slot, two payloads. <see cref="Message"/> is
+/// the CW text and <see cref="Audio"/> names a recording in the operator's
+/// recordings folder; either may be empty. The key means "send my message"
+/// and the radio's mode decides which payload that is — see
+/// <see cref="MessageKeyDispatch"/>. The type keeps its historical name
+/// because the VB side, the key tables and the operator files all use it.
+/// </para>
+/// </remarks>
 public class CWMessageItem
 {
     public Keys Key;
     public string Message = string.Empty;
     public string Label = string.Empty;
+
+    /// <summary>
+    /// The recording sent in a voice mode: the file name, without its
+    /// extension, inside the operator's recordings folder. Empty when the
+    /// slot has no recording. A name rather than a path, so the operator
+    /// record stays true when the settings tree moves and so a WAV dropped
+    /// into the folder by hand is as good as one the app recorded.
+    /// </summary>
+    public string Audio = string.Empty;
 
     public CWMessageItem() { }
     public CWMessageItem(Keys k, string message, string label)
@@ -221,6 +240,17 @@ public class CWMessageItem
         Message = message;
         Label = label;
     }
+    public CWMessageItem(Keys k, string message, string label, string audio)
+        : this(k, message, label)
+    {
+        Audio = audio ?? string.Empty;
+    }
+
+    /// <summary>True when the slot carries CW text.</summary>
+    public bool HasText => !string.IsNullOrWhiteSpace(Message);
+
+    /// <summary>True when the slot names a recording.</summary>
+    public bool HasAudio => !string.IsNullOrWhiteSpace(Audio);
 }
 
 // ────────────────────────────────────────────────────────────────

@@ -2605,7 +2605,7 @@ Module globals
                 If CWText Is Nothing OrElse CWText.Length = 0 Then Return Array.Empty(Of CWMessageItem)()
                 Dim items(CWText.Length - 1) As CWMessageItem
                 For i = 0 To CWText.Length - 1
-                    items(i) = New CWMessageItem(CWText(i).key, CWText(i).message, CWText(i).Label)
+                    items(i) = New CWMessageItem(CWText(i).key, CWText(i).message, CWText(i).Label, CWText(i).Audio)
                 Next
                 Return items
             End Function,

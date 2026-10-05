@@ -2607,6 +2607,20 @@ public partial class MainWindow : UserControl
             return;
         }
 
+        // 1b. A voice message going out stops on Escape from anywhere in the
+        //     main window (Sprint 48 Track A, #151). The message key keyed the
+        //     radio itself, so the PTT controller is Idle and its own Escape
+        //     rule below never fires for this carrier; this is the same
+        //     convention — Escape stops a transmission you are not holding a
+        //     key for — stated for the one transmitter the controller does not
+        //     own. Ahead of the mode cancels on purpose: RF first.
+        if (rawKey == Key.Escape && VoiceMessageSender.InFlight)
+        {
+            VoiceMessageSender.Stop();
+            e.Handled = true;
+            return;
+        }
+
         // 2. Filter hotkeys (bracket keys) — Modern and Classic modes (not Logging)
         if (ActiveUIMode != UIMode.Logging && _freqOutHandlers != null && _radioPowerOn)
         {

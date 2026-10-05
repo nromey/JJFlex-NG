@@ -27,7 +27,7 @@ Press `Alt+Shift+S` to hear the current TX status spoken. This tells you whether
 
 For CW operation:
 
-- Use `Ctrl+1` through `Ctrl+7` to send pre-configured CW messages.
+- Use your message keys — `Ctrl+1` through `Ctrl+9` and `Ctrl+0` by convention — to send a stored message: its CW text in CW, its recording in a voice mode. See Messages in the keyboard reference.
 - Press `F12` to immediately stop CW transmission — the "panic button" for CW.
 - Press `Alt+Z` to zero-beat the signal you are currently listening to.
 

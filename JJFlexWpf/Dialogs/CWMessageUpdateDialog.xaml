@@ -2,13 +2,14 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:JJFlexWpf"
-        Title="CW Messages"
-        Width="360" Height="340"
+        Title="Messages"
+        Width="420" Height="340"
         SizeToContent="Height">
     <StackPanel Margin="12">
-        <Label Content="Keys" Padding="0,0,0,4" />
+        <Label Content="Messages" Padding="0,0,0,4" />
         <ListBox x:Name="KeysList" Height="160"
-                 AutomationProperties.Name="CW message keys"
+                 AutomationProperties.Name="Messages"
+                 AutomationProperties.HelpText="Each message with the key that sends it and what it carries: CW text, a recording, or both."
                  SelectionChanged="KeysList_SelectionChanged" />
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
             <Button x:Name="AddButton" Content="_Add" MinWidth="70" Height="28"

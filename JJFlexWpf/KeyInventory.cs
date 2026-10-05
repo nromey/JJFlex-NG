@@ -1073,8 +1073,12 @@ public static class KeyInventory
             new[] { "ptt", "transmit", "lock", "toggle" }, "Radio", "Transmit"),
         new("PTT", "JJ Flexible Home and its field groups", "Escape", "Stop transmitting (while a transmit lock is on)",
             new[] { "ptt", "transmit", "stop", "escape" }, "Radio", "Transmit"),
-        new("CWMessages", "CW messages", "Ctrl+1 through Ctrl+7", "Send the CW message in that slot",
-            new[] { "cw", "message", "send", "macro" }, "Radio", "CwMessage"),
+        // Sprint 48 Track A (#151): one message library, voice and CW on the
+        // same keys. The key sends CW text in CW and the slot's recording in a
+        // voice mode. The keys are the operator's to choose in the editor;
+        // Ctrl plus a digit is the convention the editor offers first.
+        new("CWMessages", "Messages", "Ctrl+1 through Ctrl+9, and Ctrl+0", "Send the message on that key: its CW text in CW, its recording in a voice mode",
+            new[] { "cw", "message", "send", "macro", "voice", "recording", "cq", "keyer", "contest" }, "Radio", "CwMessage"),
         new("LoggingPane", "Logging radio pane", "Up / Down", "Tune by one step",
             new[] { "tune", "logging", "step" }, "Logging", "Logging"),
         new("LoggingPane", "Logging radio pane", "Shift+Up / Shift+Down", "Tune by ten steps",

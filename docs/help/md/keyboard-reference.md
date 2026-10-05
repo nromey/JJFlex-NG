@@ -606,9 +606,13 @@ Start scan, saved scan, and memory scan have no default keys — find them in th
 - **Alt+Shift+X** — Open DX Cluster
 - **Ctrl+Alt+R** — Open Reverse Beacon Network
 
-## CW Messages
+## Messages
 
-If you have CW messages configured, you can send them with `Ctrl+1` through `Ctrl+7`. Each number corresponds to a message slot. To add, change or remove them, open Tools, then Manage CW Messages. Each message has a label, the key that sends it, and the text itself; a key already used by something else is refused, so pick a free one.
+Your messages — a CQ, your exchange, a sign-off — live in one list, and one key sends each of them whatever mode the radio is in. By convention they sit on `Ctrl+1` through `Ctrl+9` and `Ctrl+0`; the editor offers the next free one of those when you add a message, and you can press any other free key instead.
+
+A message can carry CW text, a recording, or both. In CW the key hands the text to the radio's keyer. In a voice mode it sends the recording in place of your microphone: the radio keys, the recording goes out, and the radio unkeys when it ends. If you are already transmitting — holding PTT, or on VOX — the recording simply replaces your microphone for its length and your microphone comes back afterwards. Press the same key again, or Escape, to stop a recording early. A message that has nothing for the mode you are in says so rather than doing nothing.
+
+Recordings come from your recordings folder, the same one the Audio Workshop records into, so a take you made there is ready to choose with no extra step. To add, change or remove messages, open Tools, then Manage Messages. Each message has a label, the key that sends it, its CW text and its recording; a key already used by something else is refused, so pick a free one.
 
 ## Logging Mode
 
