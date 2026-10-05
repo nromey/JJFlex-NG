@@ -78,6 +78,29 @@ namespace Radios.Tests
                 if (Path.GetFileName(file) == "KeyboardHookThread.cs")
                     continue; // the host itself is allowed to know about hooks
 
+                // THE ONE SANCTIONED EXCEPTION, and it is a standalone DIAGNOSTIC
+                // rather than product code: tools/globalkeyprobe measured whether a
+                // global chord can be seen and swallowed while another application
+                // has focus (2026-10-05, the question behind #307 and Sprint 48
+                // Track B). It installs from its own UI thread and CANNOT comply —
+                // it is a separate executable that references neither JJFlexWpf nor
+                // this host, so KeyboardHookThread.InstallHook is not reachable
+                // from it.
+                //
+                // EXCLUDED BY NAME, NOT BY FOLDER, on purpose. A `tools\` exclusion
+                // would let real code land there unguarded; this one names a single
+                // file, so anything else under tools that installs a hook still
+                // fails here. The probe itself exits on a timer and releases the
+                // hook without needing a keystroke, because it once trapped the
+                // operator's keyboard and had to be killed from a shell.
+                //
+                // Added after committing the probe tripped this guard — which is
+                // the guard working exactly as intended: the commit message said
+                // the UI-thread install was acceptable in a throwaway tool, and a
+                // test does not read commit messages.
+                if (Rel(file).Equals("tools/globalkeyprobe/Program.cs", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
                 Assert.True(
                     text.Contains("KeyboardHookThread.InstallHook(", StringComparison.Ordinal),
                     Rel(file) + " installs a global low-level hook without routing it through "
