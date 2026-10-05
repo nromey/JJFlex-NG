@@ -419,7 +419,7 @@ public class FreqOutHandlers
     /// screen reader, and the keystroke-naming convention (#303) says name
     /// what the hands do in words that survive a low punctuation setting.
     /// "Control", not "Ctrl", because that is the word the lexicon already
-    /// speaks for the JJ key ("Control J then Q").
+    /// speaks for the JJ key ("Control J then Alt Q").
     /// </summary>
     private static string SpokenChord(ModifierKeys mods, char letter)
     {
@@ -577,7 +577,7 @@ public class FreqOutHandlers
                 {
                     // Cycle to next slice (VFO) — matches AdjustFreqModern and
                     // the universal-Home-key promise. Memory-mode access remains
-                    // available via the leader key: Ctrl+J then M.
+                    // available via the JJ key: Ctrl+J then Alt+M.
                     // 2026-04-24: was delegating to AdjustVFO, which opened memory
                     // mode — inconsistent with Modern tuning mode and the docs.
                     CycleVFO(1, wrap: true);
@@ -1064,7 +1064,7 @@ public class FreqOutHandlers
     // UniversalHome table, and TryHandleUniversalHomeKey below). V was
     // deliberately taken away from AdjustVFO on 2026-04-24 for exactly that
     // reason - see the comment in AdjustFreq - and memory-mode access moved to
-    // the leader chord Ctrl+J, M. So the last copy of a semantic the project
+    // the JJ key chord Ctrl+J, Alt+M. So the last copy of a semantic the project
     // had already ruled against was sitting one `case` away from being live.
     // Restoring a VFO or memory field by pattern-matching this file must NOT
     // bring M and V back with it.
@@ -2714,7 +2714,7 @@ public class FreqOutHandlers
     // strip field that was planned and never built, and was unreachable for
     // every one of its six and a half months.
     //
-    // Memory is not lost with it. Ctrl+J then M opens the memories dialog
+    // Memory is not lost with it. Ctrl+J then Alt+M opens the memories dialog
     // (KeyCommands' unbound roster records the chord against
     // CommandValues.ShowMemory), and the Radio menu reaches the same dialog.
     //

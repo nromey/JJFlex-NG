@@ -128,7 +128,7 @@ namespace Radios
         /// and in the past tense — "Your radio profile could not be saved".
         ///
         /// This is SPOKEN, once, the moment the failure happens, followed by
-        /// "Press Control J then Control R for details" — so keep it short
+        /// "Press Control J then Alt R for details" — so keep it short
         /// enough to be heard in one breath and specific enough to stand alone.
         /// It is also the first half of the entry in the Problems list.
         /// </summary>
@@ -137,7 +137,7 @@ namespace Radios
         /// <summary>
         /// A sentence or two of consequence and next step. Not spoken at the
         /// moment of failure — it is the second half of the Problems list entry,
-        /// read when the operator asks with Ctrl+J, Ctrl+R. That split is the
+        /// read when the operator asks with Ctrl+J, Alt+R. That split is the
         /// point: the announcement stays short enough not to be a burden, and
         /// the explanation stays available for as long as the app is running.
         /// </summary>

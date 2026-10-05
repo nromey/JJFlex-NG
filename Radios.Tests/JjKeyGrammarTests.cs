@@ -73,47 +73,60 @@ namespace Radios.Tests
         /// </summary>
         private static readonly Dictionary<Keys, string> PlainTierDebt = new()
         {
-            [Keys.B] = "Noise Blanker toggle — the noise layer's, whose letter is not yet ruled",
-            [Keys.C] = "Compander toggle — a transmit toggle; Ctrl+C is the copy chord",
-            [Keys.D] = "tuning speech debounce toggle",
-            [Keys.E] = "echo recent CW — an action, so the Alt tier's under the grammar",
-            [Keys.G] = "TX test tone arm/disarm — a toggle",
-            [Keys.K] = "mic check — an action, so the Alt tier's under the grammar",
-            [Keys.L] = "log statistics — an action, so the Alt tier's under the grammar",
-            [Keys.M] = "memories dialog — M is ruled for the mode layer (#515), which is not yet built",
-            [Keys.N] = "legacy Noise Reduction toggle — the noise layer's, whose letter is not yet ruled",
-            [Keys.O] = "what is on — an action, so the Alt tier's under the grammar",
-            [Keys.P] = "Audio Peak Filter toggle — the noise layer's; Ctrl+P is PC audio (#513)",
-            [Keys.Q] = "capture a noise profile — an action, so the Alt tier's under the grammar",
-            [Keys.R] = "On-Radio Neural NR toggle — the noise layer's; Ctrl+R is recorded problems",
-            [Keys.S] = "On-Radio Spectral NR toggle — the noise layer's; Ctrl+S is the S-meter unit",
-            [Keys.T] = "meter tones toggle",
-            [Keys.W] = "Wideband Noise Blanker toggle — the noise layer's, whose letter is not yet ruled",
+            // Sprint 48 Track C paid eleven lines of this list: B, G, N, R, T
+            // and W went to the Ctrl tier on their own initials, and E, K, L,
+            // M, O and Q to the Alt tier. What is left is every plain-letter
+            // toggle whose Ctrl initial is spoken for by another toggle or by
+            // a ruling — a collision of initials the grammar cannot resolve
+            // and a layer can. The noise layer's letter is Noel's (#518).
+            [Keys.C] = "Compander toggle — Ctrl+C is copy, kept by the Windows convention; home is the audio layer",
+            [Keys.D] = "tuning speech debounce toggle — Ctrl+D is the detailed capture, also a D toggle; home is the tuning layer",
+            [Keys.P] = "Audio Peak Filter toggle — Ctrl+P is PC audio (#513); home is the noise or filter layer, Noel's call (#516)",
+            [Keys.S] = "On-Radio Spectral NR toggle — Ctrl+S is the S-meter unit, also an S toggle; home is the noise layer",
         };
 
         /// <summary>
         /// Shift+letter chords that are not slice jumps. Under the grammar
         /// Shift means jump to that slice and nothing else; these are the
         /// "other one of the pair" toggles from before it. Same two-way
-        /// discipline as <see cref="PlainTierDebt"/>.
+        /// discipline as <see cref="PlainTierDebt"/>. None of these letters
+        /// is A to H, so no slice is blocked — the debt is grammatical, not
+        /// functional, which is why it could wait for the noise layer.
         /// </summary>
         private static readonly Dictionary<Keys, string> ShiftTierDebt = new()
         {
-            [Keys.N | Keys.Shift] = "NR Filter toggle — the noise layer's",
-            [Keys.P | Keys.Shift] = "Speech Processor toggle — a transmit toggle",
-            [Keys.R | Keys.Shift] = "PC Neural NR toggle — the noise layer's",
-            [Keys.S | Keys.Shift] = "PC Spectral NR toggle — the noise layer's",
-            [Keys.T | Keys.Shift] = "alert sounds (earcons) toggle",
+            [Keys.N | Keys.Shift] = "NR Filter toggle — Ctrl+N went to Noise Reduction itself; the noise layer tells the two N toggles apart",
+            [Keys.P | Keys.Shift] = "Speech Processor toggle — P and S are both taken on the Ctrl tier; home is the audio layer, where its mode sits on S",
+            [Keys.R | Keys.Shift] = "PC Neural NR toggle — Ctrl+R is its on-radio twin; a pair differing only by side of the wire needs a layer",
+            [Keys.S | Keys.Shift] = "PC Spectral NR toggle — Ctrl+S is the S-meter unit, and its on-radio twin is waiting too",
         };
 
         /// <summary>
         /// Alt+letter chords that open a layer. Alt is the leftovers tier —
         /// actions that are neither a layer nor a toggle — so a layer here is
-        /// debt. Pan mode is merging into the audio layer (#514).
+        /// debt. Pan landed inside the audio layer (#514, Sprint 44 Track I);
+        /// this door is a courtesy to the fingers that learned pan mode, and
+        /// whether it is retired is Noel's call (#513: a courtesy, not a
+        /// commitment).
         /// </summary>
         private static readonly Dictionary<Keys, string> AltTierLayerDebt = new()
         {
-            [Keys.P | Keys.Alt] = "pan mode — merges into the audio layer, JJ key A (#514)",
+            [Keys.P | Keys.Alt] = "a second door to the audio layer, landing on pan — a courtesy alias, retirement is Noel's",
+        };
+
+        /// <summary>
+        /// Ctrl+letter chords that are NOT toggles, kept on purpose. Ctrl is
+        /// the toggle tier, and these are actions; each has a reason the
+        /// grammar yields. Checked in ONE direction only — an entry whose
+        /// chord has gone fails — because whether an arm toggles cannot be
+        /// read out of source: Ctrl+S and Ctrl+P are toggles whose handlers
+        /// carry no "Toggle" in their names. The other direction is a
+        /// reader's job at the switch, where every Ctrl arm says what it is.
+        /// </summary>
+        private static readonly Dictionary<Keys, string> CtrlTierActionDebt = new()
+        {
+            [Keys.C | Keys.Control] = "copy what was said — Ctrl+C is copy everywhere in Windows (#433), and that rule outranks ours",
+            [Keys.F | Keys.Control] = "enter a frequency — Alt+F is the example chord of #515's UNRULED 'Alt means speak it' proposal, so it is not spent ahead of the ruling",
         };
 
         /// <summary>
@@ -129,6 +142,15 @@ namespace Radios.Tests
 
         private static readonly Regex LayerEntry = new(@"\bEnter\w*(?:Mode|Layer)\s*\(", RegexOptions.Compiled);
         private static readonly Regex SliceJump = new(@"\bJumpToSlice\s*\(\s*(\d+)\s*\)", RegexOptions.Compiled);
+
+        /// <summary>
+        /// What a digit arm must do: call something about a message. The fifth
+        /// tier (Sprint 48) has one meaning — JJ key 1 sends message 1 — and
+        /// this is the loosest pattern that still says so, because the method
+        /// that sends is Track A's to name. A digit arm that calls nothing
+        /// with "Message" in its name is a digit meaning something else.
+        /// </summary>
+        private static readonly Regex MessageCall = new(@"\b\w*Message\w*\s*\(", RegexOptions.Compiled);
 
         // ────────────────────────────────────────────────────────────────
         //  Prove the instruments before trusting their silence
@@ -380,6 +402,102 @@ namespace Radios.Tests
                 + string.Join(", ", stale.Select(Name)));
         }
 
+        [Fact]
+        public void The_ctrl_tier_exceptions_are_still_owed()
+        {
+            // One direction only, by design (see CtrlTierActionDebt): an
+            // entry whose chord has left the switch, or has become a layer,
+            // is paid debt still on the books.
+            var stale = StaleDebt(LeaderSourceScan.RealSwitchArms(), Keys.Control, CtrlTierActionDebt);
+
+            Assert.True(stale.Count == 0,
+                "CtrlTierActionDebt lists chords that are no longer bound on the Ctrl tier — delete "
+                + "their lines, the debt is paid: " + string.Join(", ", stale.Select(Name)));
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        //  The digit tier — JJ key 1 sends message 1, bare, and nothing else
+        // ────────────────────────────────────────────────────────────────
+
+        private const string DigitSample = @"
+            private bool DoLeaderCommand(Keys k)
+            {
+                switch (k)
+                {
+                    case Keys.D1: SendMessageSlot(1); break;
+                    case Keys.D2: SendMessageSlot(2); break;
+                    case Keys.D3 | Keys.Control: EditMessageSlot(3); break;
+                    case Keys.D4: ToggleSomething(); break;
+                    case Keys.D5:
+                    case Keys.D6: SendMessageSlot(5); break;
+                    case Keys.H: LeaderKeyHelp(); break;
+                    default: break;
+                }
+                return true;
+            }";
+
+        [Fact]
+        public void Planted_digit_arms_that_break_the_tier_are_each_reported()
+        {
+            // The positive control for the digit rules, before trusting their
+            // silence on a switch that has no digit arms yet. Three planted
+            // breaks: a MODIFIED digit (a second meaning on the tier), a digit
+            // that does not send a message, and two digits sharing one arm
+            // (two slots, one message — the slice row's own fault, #504, on a
+            // different tier). D1 and D2 are the well-formed controls.
+            var faults = DigitTierFaults(LeaderSourceScan.SwitchArms(DigitSample, "DoLeaderCommand"));
+
+            Assert.Equal(3, faults.Count);
+            Assert.Contains(faults, f => f.StartsWith("Ctrl+D3", StringComparison.Ordinal));
+            Assert.Contains(faults, f => f.StartsWith("D4", StringComparison.Ordinal));
+            Assert.Contains(faults, f => f.Contains("shares its arm", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void A_digit_after_the_JJ_key_is_bare_and_sends_that_message()
+        {
+            // The fifth tier, decided in Sprint 48 Track C and recorded in
+            // #515's terms: a bare digit after the JJ key sends the message
+            // in that slot (Noel, 2026-10-05: "JJ 1 through 7 would do the
+            // transmit key"). One meaning, like every other tier — so a
+            // modified digit means nothing, and a digit arm does one thing.
+            // Vacuously green until Track A lands the arms; the planted test
+            // above is what makes that silence trustworthy.
+            var faults = DigitTierFaults(LeaderSourceScan.RealSwitchArms());
+
+            Assert.True(faults.Count == 0,
+                "The digit tier (JJ key 1 through 9) is not what it claims: " + string.Join("; ", faults)
+                + ". A digit after the JJ key is bare and sends that message slot, and means nothing "
+                + "else. Ctrl, Alt or Shift on a digit is a second meaning on a one-meaning tier; "
+                + "an edit or a preview belongs in the message library's own dialog.");
+        }
+
+        /// <summary>
+        /// Every way a digit arm can fail the tier: a modifier on the digit,
+        /// a body that sends no message, or an arm shared between digits.
+        /// </summary>
+        private static List<string> DigitTierFaults(List<LeaderSourceScan.SwitchArm> arms)
+        {
+            var faults = new List<string>();
+            foreach (var arm in arms)
+            {
+                var digits = arm.Labels.Where(l => IsDigit(l & Keys.KeyCode)).ToList();
+                if (digits.Count == 0) continue;
+
+                foreach (var d in digits.Where(d => (d & Keys.Modifiers) != Keys.None))
+                    faults.Add($"{Name(d)} carries a modifier — the digit tier is bare digits only");
+
+                if (digits.Count > 1)
+                    faults.Add($"{string.Join(" and ", digits.Select(Name))} shares its arm — one digit, one message");
+
+                if (!MessageCall.IsMatch(arm.Body))
+                    faults.Add($"{Name(digits[0])} does not send a message");
+            }
+            return faults;
+        }
+
+        private static bool IsDigit(Keys code) => code >= Keys.D0 && code <= Keys.D9;
+
         // ────────────────────────────────────────────────────────────────
         //  The two help doors every layer has
         // ────────────────────────────────────────────────────────────────
@@ -499,6 +617,22 @@ namespace Radios.Tests
             if ((chord & Keys.Alt) != 0) mods += "Alt+";
             if ((chord & Keys.Shift) != 0) mods += "Shift+";
             return mods + (chord & Keys.KeyCode);
+        }
+
+        [Fact]
+        public void The_debt_lists_have_shrunk_to_what_the_grammar_cannot_place()
+        {
+            // The count is the finding. Sprint 44 Track J recorded sixteen
+            // plain-letter one-shots and five Shift toggles; Sprint 48 Track C
+            // paid every line the grammar could derive a chord for, and what
+            // is left is one collision of initials per line. If this number
+            // goes UP, a one-shot was added on a plain or Shift letter instead
+            // of on its tier — read the failure in the test above, not this
+            // one. If it goes down, a layer landed: lower the number here too.
+            Assert.Equal(4, PlainTierDebt.Count);
+            Assert.Equal(4, ShiftTierDebt.Count);
+            Assert.Equal(1, AltTierLayerDebt.Count);
+            Assert.Equal(2, CtrlTierActionDebt.Count);
         }
     }
 }

@@ -39,7 +39,7 @@ The Noise Profiles dialog (Slice menu, DSP, PC Noise Reduction, Noise Profiles â
 
 Everything comes in threes, as usual:
 
-- **Hotkeys:** `Ctrl+J, Shift+R` (PC Neural NR), `Ctrl+J, Shift+S` (PC Spectral NR), `Ctrl+J, Q` (capture).
+- **Hotkeys:** `Ctrl+J, Shift+R` (PC Neural NR), `Ctrl+J, Shift+S` (PC Spectral NR), `Ctrl+J, Alt+Q` (capture).
 - **The DSP field group** (`Ctrl+Shift+N`): checkboxes for both engines, and when one is on, its strength (and floor, and voice-only) fields appear right under it. The capture button and a noise-profile readout live there too â€” arrow to the readout to hear which profile is loaded.
 - **The menu:** Slice menu, DSP, PC Noise Reduction has the toggles, the capture, the Noise Profiles dialog, and Open Noise Profiles Folder.
 

@@ -154,6 +154,15 @@ public static class LeaderChordParser
             chord = (Keys)keyName[0] | mods;
             return true;
         }
+        // A bare digit is the fifth tier (Sprint 48: JJ key 1 sends message
+        // 1) and must be caught HERE, before Enum.TryParse — which would read
+        // "1" as the enum's numeric value 1, Keys.LButton, and a row written
+        // "Ctrl+J, 1" would advertise a mouse button nobody can press.
+        if (keyName.Length == 1 && keyName[0] >= '0' && keyName[0] <= '9')
+        {
+            chord = (Keys)('0' + (keyName[0] - '0')) | mods;   // Keys.D0 is '0' (0x30)
+            return true;
+        }
         if (Enum.TryParse(keyName, out Keys named) && named != Keys.None &&
             (named & Keys.Modifiers) == 0)
         {
@@ -165,15 +174,30 @@ public static class LeaderChordParser
 
     /// <summary>
     /// The same letter at other modifier levels, most-likely-intent first:
-    /// bare, then Shift, then Ctrl, the pressed chord itself excluded.
+    /// bare, then Ctrl, then Alt, then Shift, the pressed chord itself
+    /// excluded.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// #206's ordering rule, verbatim from the task: "Name at most one
     /// alternative — the bare form first, since that is the most likely
     /// intent." The caller takes the first candidate that is actually bound.
+    /// </para>
+    /// <para>
+    /// The order after the bare form changed in Sprint 48 Track C, when the
+    /// JJ key's chords moved onto the tiers #515 derives for them. It was
+    /// bare, Shift, Ctrl — written when Shift+letter meant "the other one of
+    /// the pair" and was the likeliest slip. Shift now means ONLY jump to that
+    /// slice, and the slice row is bound for every letter A to H, so a Shift
+    /// candidate placed early would win every bare press in that range and
+    /// name a slice jump to an operator who pressed E meaning the CW echo.
+    /// Ctrl (the toggles) and Alt (the actions) are where the chords live
+    /// now, so they come first; Shift stays last rather than being dropped,
+    /// because a letter bound at no other tier still has a slice worth naming.
+    /// </para>
     /// </remarks>
     public static IReadOnlyList<Keys> NearMissCandidates(Keys pressed)
-        => Candidates(pressed, Keys.None, Keys.Shift, Keys.Control);
+        => Candidates(pressed, Keys.None, Keys.Control, Keys.Alt, Keys.Shift);
 
     /// <summary>
     /// The same key at other modifier levels for a VALUE SUB-LAYER, most
@@ -181,12 +205,14 @@ public static class LeaderChordParser
     /// </summary>
     /// <remarks>
     /// <para>
-    /// #547. The order differs from <see cref="NearMissCandidates"/> by one
-    /// swap, and the swap is the whole point: a value layer's grammar is not
-    /// the leader's. Inside a layer a plain letter PICKS a level, Ctrl+letter
-    /// FLIPS a switch on the same subject, and Shift+letter changes SLICE
-    /// (#515) — a different subject entirely, advertised as one range row
-    /// covering all eight letters.
+    /// #547. Inside a layer a plain letter PICKS a level, Ctrl+letter FLIPS a
+    /// switch on the same subject, and Shift+letter changes SLICE (#515) — a
+    /// different subject entirely, advertised as one range row covering all
+    /// eight letters. There is no Alt tier here: a value layer passes Alt
+    /// chords through untouched, so an Alt candidate could never be bound.
+    /// (Until Sprint 48 Track C this order differed from
+    /// <see cref="NearMissCandidates"/> by one swap; the leader's order has
+    /// since come round to the same reasoning, with Alt added.)
     /// </para>
     /// <para>
     /// So the operator who reached for binaural and pressed a bare B was one

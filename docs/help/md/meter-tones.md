@@ -4,7 +4,7 @@ Meter tones give you audio feedback for signal strength, power output, SWR, ALC,
 
 ## Opening the Meters Panel
 
-Press `Ctrl+M` to open (or close) the Meters Panel. This opens and closes the panel and nothing else — it does not start or stop your meter tones. The tone switch is `Ctrl+J` then `T`, or `Ctrl+Alt+M`.
+Press `Ctrl+M` to open (or close) the Meters Panel. This opens and closes the panel and nothing else — it does not start or stop your meter tones. The tone switch is `Ctrl+J` then `Ctrl+T`, or `Ctrl+Alt+M`.
 
 The panel starts with a **Meter** list: pick which of your meters you want to work on, and every control below it belongs to that meter. You are not tabbing through one set of controls per meter — there is one set, and it points at whichever meter you chose. Press `Delete` on the Meter list to remove the one you are on; it asks first, because there is no undo.
 
@@ -18,7 +18,7 @@ A few shortcuts work on meters from anywhere in the application:
 | Ctrl+Alt+M | Toggle meter tones on or off (quick mute without opening the panel) |
 | Ctrl+Alt+P | Cycle to the next meter preset |
 | Ctrl+Alt+V | Speak the current meter readings |
-| Ctrl+J, T | Toggle meter tones on or off (JJ key form of Ctrl+Alt+M) |
+| Ctrl+J, Ctrl+T | Toggle meter tones on or off (JJ key form of Ctrl+Alt+M) |
 
 ## How Meter Tones Work
 

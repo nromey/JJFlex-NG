@@ -343,7 +343,7 @@ namespace Radios.Tests
                 Assert.Equal(!recordingNow, text.Contains("what happens next is not being kept", StringComparison.Ordinal));
                 Assert.Equal(!recordingNow && !successor, text.Contains("has not started recording again", StringComparison.Ordinal));
                 Assert.Equal(!recordingNow && successor, text.Contains("did start recording again after the connection went, but it is not recording now", StringComparison.Ordinal));
-                Assert.Equal(!recordingNow, text.Contains("Control J then Control R", StringComparison.Ordinal));
+                Assert.Equal(!recordingNow, text.Contains("Control J then Alt R", StringComparison.Ordinal));
                 // The caveat names the right cause, and only with an uncertain
                 // tail — and it claims neither that everything before the
                 // fault is in the file nor anything about readings, for any
@@ -427,7 +427,7 @@ namespace Radios.Tests
             Assert.Equal(Lexicon.Get("logging.capture.dropped.what_to_do_stopped_since"), n.WhatToDo);
             Assert.DoesNotContain("is being kept too", after, StringComparison.Ordinal);
             Assert.Contains("did start recording again after the connection went, but it is not recording now", after, StringComparison.Ordinal);
-            Assert.Contains("Control J then Control R", after, StringComparison.Ordinal);
+            Assert.Contains("Control J then Alt R", after, StringComparison.Ordinal);
             // Every other paragraph is the same text: only the promise moved.
             Assert.Equal(n.WhatHappened + Environment.NewLine + Environment.NewLine + n.WhatWasSaved,
                          after.Substring(0, after.IndexOf(n.WhatToDo, StringComparison.Ordinal)).TrimEnd());

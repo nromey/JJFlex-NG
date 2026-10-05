@@ -18,7 +18,7 @@ Speech is busy. Between status announcements, mode changes, screen-reader chatte
 
 ## Missed One? Echo It
 
-Press `Ctrl+J` then `E` and the app re-sends the most recent CW message. Press it again and you step back another one, and another, through the last ten. It's the CW twin of `Ctrl+F4`, which does the same for speech, and the two lists are kept separate so that running with speech off doesn't leave you pressing a key that has nothing to say.
+Press `Ctrl+J` then `Alt+E` and the app re-sends the most recent CW message. Press it again and you step back another one, and another, through the last ten. It's the CW twin of `Ctrl+F4`, which does the same for speech, and the two lists are kept separate so that running with speech off doesn't leave you pressing a key that has nothing to say.
 
 The prosigns stay out of the echo list on purpose. AS, BT and SK are punctuation, and there's nothing you can do with "closing" arriving out of the blue.
 

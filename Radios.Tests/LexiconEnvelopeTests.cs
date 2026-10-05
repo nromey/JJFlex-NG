@@ -733,6 +733,12 @@ namespace Radios.Tests
             // arithmetic was wrong once today, when resolving the single
             // CONFLICTING key was mistaken for counting the merge, and two keys
             // that merged cleanly went uncounted.
+            // 3,076 in Sprint 48 Track C: one key, leader.explorer.tier.digit,
+            // the explorer's label for the JJ key's fifth tier. Frozen in the
+            // manifest beside its six sibling tier labels rather than
+            // classified alone, because the only classified surface so far is
+            // facts.* and this test says so below; the seven tier labels want
+            // classifying together, under #629, as the window text they are.
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -745,7 +751,7 @@ namespace Radios.Tests
                 }
             }
 
-            Assert.Equal(3075, unclassified);
+            Assert.Equal(3076, unclassified);
             Assert.All(classified, key =>
                 Assert.StartsWith("facts.", key, StringComparison.Ordinal));
             Assert.True(classified.Count > 30,

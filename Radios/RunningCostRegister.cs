@@ -254,7 +254,7 @@ namespace Radios
     /// writes, and has no perceptible presence is invisible in exactly the way
     /// this project exists to fix.</para>
     ///
-    /// <para><b>Read three ways, and only three.</b> On demand (Ctrl+J, O); at
+    /// <para><b>Read three ways, and only three.</b> On demand (Ctrl+J, Alt+O); at
     /// a boundary — exit is the ruled priority boundary; and on a threshold.
     /// <b>Never on a timer.</b> <see cref="Poll"/> exists so something can
     /// SAMPLE the measures, and sampling is not the same as announcing: a poll

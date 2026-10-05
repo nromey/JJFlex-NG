@@ -19,6 +19,12 @@ public enum KeyTier
     Shift,
     Ctrl,
     Alt,
+    /// <summary>
+    /// A bare digit after the JJ key — the fifth tier (Sprint 48 Track C),
+    /// reserved for the message library: JJ key 1 sends message 1. Empty
+    /// until a row claims it; an empty tier is not drawn.
+    /// </summary>
+    Digit,
     /// <summary>Help and the way out: the rows the inventory groups as "help".</summary>
     Help,
     Other,
@@ -245,10 +251,16 @@ public static class KeyTree
 
         var first = chords[0];
         var code = first & WinFormsKeys.KeyCode;
+        var mods = first & WinFormsKeys.Modifiers;
+        bool digit = code >= WinFormsKeys.D0 && code <= WinFormsKeys.D9;
+        // A bare digit is its own tier. A MODIFIED digit is nothing: the
+        // digit tier has one meaning, and a Ctrl+1 or Alt+1 after the JJ key
+        // would be a second one. It falls to Other, where it is visible.
+        if (digit) return mods == WinFormsKeys.None ? KeyTier.Digit : KeyTier.Other;
         bool letter = code >= WinFormsKeys.A && code <= WinFormsKeys.Z;
         if (!letter) return KeyTier.Other;
 
-        return (first & WinFormsKeys.Modifiers) switch
+        return mods switch
         {
             WinFormsKeys.None => KeyTier.Plain,
             WinFormsKeys.Shift => KeyTier.Shift,
@@ -264,6 +276,7 @@ public static class KeyTree
         KeyTier.Shift => Radios.Lexicon.Get("leader.explorer.tier.shift"),
         KeyTier.Ctrl => Radios.Lexicon.Get("leader.explorer.tier.ctrl"),
         KeyTier.Alt => Radios.Lexicon.Get("leader.explorer.tier.alt"),
+        KeyTier.Digit => Radios.Lexicon.Get("leader.explorer.tier.digit"),
         KeyTier.Help => Radios.Lexicon.Get("leader.explorer.tier.help"),
         _ => Radios.Lexicon.Get("leader.explorer.tier.other"),
     };
@@ -316,7 +329,7 @@ public static class KeyTree
 
     private static readonly KeyTier[] TierOrder =
     {
-        KeyTier.Plain, KeyTier.Shift, KeyTier.Ctrl, KeyTier.Alt, KeyTier.Help, KeyTier.Other,
+        KeyTier.Plain, KeyTier.Shift, KeyTier.Ctrl, KeyTier.Alt, KeyTier.Digit, KeyTier.Help, KeyTier.Other,
     };
 
     private static KeyTreeNode ChordNode(

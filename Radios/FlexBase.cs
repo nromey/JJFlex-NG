@@ -20805,7 +20805,7 @@ namespace Radios
             //
             // Sent as ONE string, not two calls: SendCwText records a repeat
             // history entry per call (#153), so two calls would mean pressing
-            // Ctrl+J, E twice to hear back a single connect. One string, one
+            // Ctrl+J, Alt+E twice to hear back a single connect. One string, one
             // entry, whole summary.
             string cw = $"SL {used}/{total}";
             if (haveActive) cw += $" SL {letter} {mode}";

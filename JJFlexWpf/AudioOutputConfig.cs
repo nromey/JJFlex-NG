@@ -287,7 +287,7 @@ namespace JJFlexWpf
 
         /// <summary>
         /// How mic-audio verdicts read (Alt+Shift+S while transmitting, the
-        /// Ctrl+J, K mic check, and the two reading fields — those are
+        /// Ctrl+J, Alt+K mic check, and the two reading fields — those are
         /// read-only edits precisely so a screen reader speaks them, which
         /// makes them a spoken surface too): 0 = plain English plus the
         /// figures (both — the conservative default, exactly what shipped

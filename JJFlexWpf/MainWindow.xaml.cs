@@ -5647,7 +5647,7 @@ public partial class MainWindow : UserControl
     /// action (#126), which meant an operator who wanted to look at the
     /// settings started a noise, and an operator who wanted the noise off had
     /// to open a panel. They are separate now: this key is the panel, and the
-    /// tone switch is Ctrl+J then T. Nothing in here changes audio state.
+    /// tone switch is Ctrl+J then Ctrl+T. Nothing in here changes audio state.
     /// </remarks>
     public void ToggleMetersPanel()
     {

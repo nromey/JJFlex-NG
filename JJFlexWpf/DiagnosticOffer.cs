@@ -98,7 +98,7 @@ namespace JJFlexWpf
     ///   - The FIRST failure of each kind is announced; later ones of that kind
     ///     are not. Four announcements in a session, maximum, each one genuinely
     ///     new information. Anyone who missed one loses nothing: the list holds
-    ///     everything and Ctrl+J, Ctrl+R reads it.
+    ///     everything and Ctrl+J, Alt+R reads it.
     ///   - Never announced while transmitting — never take the operator off the
     ///     air. It is still recorded, which is the repair: the old policy
     ///     dropped mid-transmit failures on the floor entirely.

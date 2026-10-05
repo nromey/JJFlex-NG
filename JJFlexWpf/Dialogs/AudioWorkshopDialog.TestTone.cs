@@ -348,7 +348,7 @@ public partial class AudioWorkshopDialog
         string pb = PassbandCheck(freq, out bool outside);
         if (!string.IsNullOrEmpty(pb)) line.Append(' ').Append(pb);
         _toneOutsideWarned = outside;
-        // #128 sweep audit (2026-08-21): the Ctrl+J, G chord answers an arm
+        // #128 sweep audit (2026-08-21): the Ctrl+J, Ctrl+G chord answers an arm
         // with the feature-on tone (or the warning pair when the tone sits
         // outside the transmit filter) and this checkbox — the other road
         // into the same armed state — answered with nothing. Mirror the
@@ -401,7 +401,7 @@ public partial class AudioWorkshopDialog
 
     /// <summary>
     /// Keep the arm checkbox honest against the ENGINE's tone state. The
-    /// Ctrl+J, G leader binding (Keys Track, 2026-08-11) arms and disarms
+    /// Ctrl+J, Ctrl+G leader binding (Keys Track, 2026-08-11; Ctrl since Sprint 48) arms and disarms
     /// the tone by driving FlexBase directly, so the workshop no longer
     /// owns every state change. Rides the existing meter poll — no second
     /// timer — and syncs silently: the leader already announced the
@@ -430,7 +430,7 @@ public partial class AudioWorkshopDialog
         else
         {
             PttSafetyController.KeyDownAnnouncementExtra = null;
-            // Released from outside this dialog (the Ctrl+J, G chord). If an
+            // Released from outside this dialog (the Ctrl+J, Ctrl+G chord). If an
             // arm here had moved the transmit input, put it back — #458's
             // restore has to cover every road out of the armed state, not only
             // the checkbox. Silently: the chord spoke for itself.

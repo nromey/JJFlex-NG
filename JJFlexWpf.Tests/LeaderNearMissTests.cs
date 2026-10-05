@@ -26,13 +26,18 @@ namespace JJFlexWpf.Tests
     public class LeaderNearMissTests
     {
         [Fact]
-        public void Ctrl_G_names_bare_G_and_what_it_does()
+        public void Bare_G_names_Ctrl_G_and_what_it_does()
         {
+            // Noel's press of 2026-08-23 was Ctrl+G, meaning the tone, when
+            // the tone was bare G. Sprint 48 Track C put the tone ON Ctrl+G —
+            // the grammar's chord for a toggle whose initial is G — so the
+            // slip runs the other way now: a bare G is the near-miss, and the
+            // answer names the chord his fingers already reached for.
             bool found = KeyInventory.TryFindLeaderNearMiss(
-                Keys.G | Keys.Control, out string key, out string what);
+                Keys.G, out string key, out string what);
 
-            Assert.True(found, "Ctrl+G is unbound and bare G arms the test tone — the near-miss must be found");
-            Assert.Equal("G", key);
+            Assert.True(found, "bare G is unbound and Ctrl+G arms the test tone — the near-miss must be found");
+            Assert.Equal("Ctrl+G", key);
             Assert.Contains("test tone", what, System.StringComparison.OrdinalIgnoreCase);
 
             // Sprint 36 Track F: pinned exactly, because this is the sentence
@@ -40,9 +45,38 @@ namespace JJFlexWpf.Tests
             // it be SHORT. The inventory description ends "(replaces your
             // microphone while transmitting)" — true, and not what someone
             // standing in the layer having just mistyped needs to hear. The
-            // whole spoken line is "Ctrl+G is not a command. G: Arm or disarm
-            // the TX test tone".
+            // whole spoken line is "Ctrl+G: Arm or disarm the TX test tone".
             Assert.Equal("Arm or disarm the TX test tone", what);
+        }
+
+        [Fact]
+        public void A_bare_letter_inside_the_slice_range_recovers_to_its_action_not_the_slice()
+        {
+            // Sprint 48 Track C. E is bound three ways — Shift+E slice E,
+            // Ctrl+E the earcons, Alt+E the CW echo — and bare E is nothing.
+            // Under the old candidate order (Shift first) a bare E would have
+            // been told "Shift+E: jump to slice E", which nobody pressing E in
+            // the JJ key layer meant. Ctrl comes first now, so the earcons
+            // toggle is named; the point under test is that the slice is NOT.
+            bool found = KeyInventory.TryFindLeaderNearMiss(Keys.E, out string key, out _);
+
+            Assert.True(found);
+            Assert.NotEqual("Shift+E", key);
+            Assert.Equal("Ctrl+E", key);
+        }
+
+        [Fact]
+        public void A_bare_letter_whose_only_chord_is_Alt_recovers_to_it()
+        {
+            // K carries nothing at bare, Ctrl or Shift; Alt+K is the mic
+            // check. Before Sprint 48 Track C the candidate list had no Alt
+            // tier at all, so an operator who pressed K — which WAS the mic
+            // check until that track — would have heard only "Unknown key".
+            bool found = KeyInventory.TryFindLeaderNearMiss(Keys.K, out string key, out string what);
+
+            Assert.True(found);
+            Assert.Equal("Alt+K", key);
+            Assert.Contains("mic check", what, System.StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]
@@ -69,26 +103,40 @@ namespace JJFlexWpf.Tests
         }
 
         [Fact]
-        public void The_bare_form_wins_even_when_shift_is_also_bound()
+        public void The_bare_form_wins_when_it_is_bound()
         {
-            // Ctrl+T is unbound; both T (meter tones) and Shift+T (alert
-            // sounds) are bound. The bare form is the most likely intent and
-            // must be the one named.
+            // Alt+V is the version and bare V opens the audio layer; Ctrl+V is
+            // nothing. A slipped Ctrl+V names the bare form first, because a
+            // bare letter that IS bound is the likeliest intent of all.
             bool found = KeyInventory.TryFindLeaderNearMiss(
-                Keys.T | Keys.Control, out string key, out string what);
+                Keys.V | Keys.Control, out string key, out string what);
 
             Assert.True(found);
-            Assert.Equal("T", key);
+            Assert.Equal("V", key);
+            Assert.Contains("audio layer", what, System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void A_slipped_modifier_on_a_moved_toggle_recovers_to_the_ctrl_form()
+        {
+            // T moved from bare to Ctrl+T in Sprint 48 Track C, and Shift+T
+            // (the old earcons chord) is unbound. An Alt+T press — the wrong
+            // modifier on the right letter — must be told the Ctrl form.
+            bool found = KeyInventory.TryFindLeaderNearMiss(
+                Keys.T | Keys.Alt, out string key, out string what);
+
+            Assert.True(found);
+            Assert.Equal("Ctrl+T", key);
             Assert.Contains("meter tones", what, System.StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]
         public void A_chord_that_is_actually_bound_is_not_a_near_miss()
         {
-            // G is bound (the test tone). The unknown-command arm never runs
-            // for it — but if it were asked anyway, the answer must be no,
-            // or a bug elsewhere would overwrite a real command's speech.
-            Assert.False(KeyInventory.TryFindLeaderNearMiss(Keys.G, out _, out _));
+            // Ctrl+G is bound (the test tone). The unknown-command arm never
+            // runs for it — but if it were asked anyway, the answer must be
+            // no, or a bug elsewhere would overwrite a real command's speech.
+            Assert.False(KeyInventory.TryFindLeaderNearMiss(Keys.G | Keys.Control, out _, out _));
             Assert.False(KeyInventory.TryFindLeaderNearMiss(Keys.A | Keys.Control, out _, out _));
         }
 
@@ -102,16 +150,18 @@ namespace JJFlexWpf.Tests
         }
 
         [Fact]
-        public void A_shifted_press_can_recover_to_the_bare_form()
+        public void A_shifted_press_outside_the_slice_row_recovers_to_a_bound_tier()
         {
-            // Shift+Q is unbound (Q sits outside the slice-jump row); Q is
-            // the noise-profile capture.
+            // Shift+Q is unbound (Q sits outside the slice-jump row). Bare Q
+            // is nothing since Sprint 48 Track C; Ctrl+Q is the QSO analyzer
+            // and Alt+Q the noise capture, and Ctrl comes first. The answer
+            // is one of the two Q chords — not silence.
             bool found = KeyInventory.TryFindLeaderNearMiss(
                 Keys.Q | Keys.Shift, out string key, out string what);
 
             Assert.True(found);
-            Assert.Equal("Q", key);
-            Assert.Contains("noise profile", what, System.StringComparison.OrdinalIgnoreCase);
+            Assert.Equal("Ctrl+Q", key);
+            Assert.Contains("signal analyzer", what, System.StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]

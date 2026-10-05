@@ -34,6 +34,6 @@ You can also configure tuning debounce under **Settings > Tuning**, where you wi
 
 ## Memory Channels
 
-Press `Ctrl+J` then `M` to open the memory channel list, where you can save and recall favorite frequencies. (`Ctrl+M` on its own opens the meters panel.)
+Press `Ctrl+J` then `Alt+M` to open the memory channel list, where you can save and recall favorite frequencies. (`Ctrl+M` on its own opens the meters panel.)
 
 Memory scan has no key of its own. `Ctrl+Shift+M` switches tuning mode and always has, so memory scan ships unbound — reach it from Command Finder (`Ctrl+/`), or give it any free key you like in the Hotkey Editor.

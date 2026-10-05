@@ -109,7 +109,7 @@ the safety question entirely, Track B will drop the gate on request.
 
 Track B has no radio connection by design and cannot issue its own clearance, so
 without a file those eleven chords are simply never pressed. They are:
-`Ctrl+Space`, `Shift+Space`, `Ctrl+J, G`, `Ctrl+Enter` (Audio Workshop), and
+`Ctrl+Space`, `Shift+Space`, `Ctrl+J, Ctrl+G`, `Ctrl+Enter` (Audio Workshop), and
 `Ctrl+1` through `Ctrl+7`.
 
 Related fact from another track, recorded here because it lands squarely on any

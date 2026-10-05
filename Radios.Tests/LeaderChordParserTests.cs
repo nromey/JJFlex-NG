@@ -113,10 +113,12 @@ namespace Radios.Tests
         public void Candidates_lead_with_the_bare_form()
         {
             // The task's rule verbatim: bare first, it is the most likely
-            // intent. Ctrl+G was the press that motivated all of this.
-            var c = LeaderChordParser.NearMissCandidates(Keys.G | Keys.Control);
+            // intent. Ctrl+G was the press that motivated all of this — and
+            // since Sprint 48 Track C it is simply the tone chord, so a slipped
+            // Alt+G is the press that would ask this question now.
+            var c = LeaderChordParser.NearMissCandidates(Keys.G | Keys.Alt);
 
-            Assert.Equal(new[] { Keys.G, Keys.G | Keys.Shift }, c);
+            Assert.Equal(new[] { Keys.G, Keys.G | Keys.Control, Keys.G | Keys.Shift }, c);
         }
 
         [Fact]
@@ -125,7 +127,41 @@ namespace Radios.Tests
             var c = LeaderChordParser.NearMissCandidates(Keys.G);
 
             Assert.DoesNotContain(Keys.G, c);
-            Assert.Equal(new[] { Keys.G | Keys.Shift, Keys.G | Keys.Control }, c);
+            Assert.Equal(new[] { Keys.G | Keys.Control, Keys.G | Keys.Alt, Keys.G | Keys.Shift }, c);
+        }
+
+        [Theory]
+        [InlineData("1", Keys.D1)]
+        [InlineData("7", Keys.D7)]
+        [InlineData("0", Keys.D0)]
+        [InlineData("Ctrl+J, 3", Keys.D3)]
+        public void A_bare_digit_parses_to_its_D_key_not_to_the_enum_value(string text, Keys expected)
+        {
+            // Sprint 48 Track C, for the digit tier. Without the explicit
+            // case, Enum.TryParse("1") succeeds and yields Keys.LButton — the
+            // enum's value 1 — so a "Ctrl+J, 1" inventory row would advertise a
+            // mouse button and the consistency test would report the digit arm
+            // as unadvertised. The negative control is what the fallthrough
+            // would have produced.
+            Assert.True(LeaderChordParser.TryParseChord(text, out Keys chord));
+            Assert.Equal(expected, chord);
+            Assert.NotEqual(Keys.LButton, chord);
+        }
+
+        [Fact]
+        public void The_slice_jump_is_the_last_candidate_for_a_bare_letter()
+        {
+            // Sprint 48 Track C. Shift+letter is bound for every letter A to H
+            // (the slice row), so if Shift came before Ctrl or Alt a bare E
+            // would always recover to "jump to slice E" and never to the CW
+            // echo on Alt+E. The bare press is the one that matters: the
+            // grammar moved the one-shots OFF the plain letters, so a bare
+            // letter is now the commonest slip of all.
+            var c = LeaderChordParser.NearMissCandidates(Keys.E).ToList();
+
+            Assert.Equal(Keys.E | Keys.Shift, c[^1]);
+            Assert.True(c.IndexOf(Keys.E | Keys.Alt) < c.IndexOf(Keys.E | Keys.Shift));
+            Assert.True(c.IndexOf(Keys.E | Keys.Control) < c.IndexOf(Keys.E | Keys.Shift));
         }
 
         [Fact]
