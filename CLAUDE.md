@@ -464,6 +464,23 @@ Content flows forward: nightly → stable → public. Nothing skips tiers. See `
      do not "restore" the old order.
    - All private testers (Don, Justin, etc.) read from the shared Dropbox `debug\` folder.
 
+2b. **READ `debug-notes.txt` BEFORE EVERY `--publish`, and check it describes THIS build.**
+   It is an input to the generated NOTES and **nothing fails when it goes stale**, because a
+   stale template produces a perfectly well-formed file. Added 2026-10-05: on 2026-10-03 it
+   had not been touched since **2026-08-25**, so the build carrying the two defects Don
+   personally reported handed him notes about the JJ Flexible Fix tool and mentioned neither.
+   The same text had already ridden the earlier publish of the build he reported one of them
+   on. **Every automated check passed** — uncommitted-tree refusal, 426 verified zip entries,
+   both files verified at the destination before the old pair was purged, correct
+   Version/Built/Commit read from the exe itself. **The one part a tester actually reads is
+   the one part nothing validates.** `git log --since=<its mtime>` answers it in a second.
+   See `memory/feedback_the_publish_validates_everything_but_the_prose.md`.
+
+   **And write it for the tester who reported the defect, naming their report** — but never
+   explain the operator's own domain back to them. The 2026-10-03 rewrite had to be rewritten
+   because it told a ham what VOX does; see
+   `memory/feedback_explain_our_decisions_not_the_operators_domain.md`.
+
 3. Write a brief `NOTES-YYYYMMDD.txt` next to the zip — plain text, screen-reader friendly:
    - Date and current version from vbproj
    - What changed today (1-3 bullets)
@@ -502,6 +519,14 @@ Content flows forward: nightly → stable → public. Nothing skips tiers. See `
 - `...\justin\` — Justin-specific artifacts (as he comes online as a tester)
 - `...\old\` — archived previous stables (for rollback)
 - `...\crash\` — user-submitted crash dumps
+
+**WHEN A TESTER RESULT IS EXPECTED, CHECK THE DROPBOX TOP LEVEL AND `crash\` AS WELL AS
+their own folder.** A tester drops a file where it is convenient, not where the convention
+says. Added 2026-10-05: Don verified both of his own reported defects on his 6300 over
+SmartLink on 2026-10-03 — the one path nobody else could test — and left the trace at the
+**top level** rather than in `don\`. It sat there for two days while three separate
+documents were written saying "untested on his 6300". **Looking in the agreed place found
+nothing and read as no result.** See `memory/feedback_absence_is_not_evidence.md`.
 
 **End-of-day "done developing" workflow (distinct from per-tester `--publish`):**
 
