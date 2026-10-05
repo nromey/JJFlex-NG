@@ -9,6 +9,212 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-10-03 — VOX VERIFIED AT THE RADIO, AND AN OWNER GOT SLICES FOR THE FIRST TIME IN ELEVEN DAYS
+
+> **SEALED RETROACTIVELY ON 2026-10-05.** Saturday's session ran roughly 08:00 to 11:50 and
+> was never sealed; Noel was unwell from Saturday afternoon through Sunday. **Nothing had
+> snapshotted the register, the memory tree or AppData since Friday night**, which is the
+> part that actually mattered. Four commits, `e3bba41e` through `d5ac8b95`, measured from
+> Friday's seal commit `bef5c9dc`.
+
+### #565 is VERIFIED AT THE RADIO. Five checks of five, plus the one that was missing.
+
+Noel ran the bench sheet on the 8600 into the dummy load with build 4.1.16.2201. **VOX off
+and idle stays unkeyed. VOX on with the microphone live and nobody talking stays unkeyed.
+VOX on and speaking KEYS IT.** The tone still stops dead on unkey, so the 2026-08-24 ruling
+survives the change. PC audio off opens nothing.
+
+**He ran check two twice, and the second run is the one that counted.** The first was with
+the microphone muted, which proves only that a muted microphone cannot key a radio. He
+re-ran it with the boom swung away and the room as it normally is — *"unmuted mic vox on
+not speaking for 30 seconds ... it works"* — and that is Don's scenario: set VOX, walk off.
+
+**The trace proves it harder than the ear can.** PC audio on once at 19.5 s and off once at
+503.8 s — one continuous 484-second window — with **eighteen** `Mox:True`/`Mox:False` pairs
+inside it and the microphone channel opening and closing **three** times, not eighteen. The
+three were the test tone taking the shared Opus encoder in check four. **Zero stops
+attributable to unkeying**; before the fix there would have been eighteen.
+
+### AND THE ZERO-SLICES REPORT TURNED OUT TO BE #639, WITH A ONE-LINE CAUSE
+
+Noel has had zero slices on his own radio for weeks. The trace named the cause on every
+connect: *"no fresh allocation because the end of initial materialization is not
+established"*, with `materialization: unknown until bench D` in the policy line.
+
+**His ownership was correct the whole time**, which is why answering the intent gate never
+helped Don either. He asked the right question — *"if my owner is right, why were we getting
+the no slices thing, how did this regress?"* — and the answer is that the gate was never
+about ownership. It asked whether the radio had finished delivering its initial station.
+
+**It regressed on 2026-09-21**, when Sprint 45 Track G replaced station establishment
+(`868c49b3`, *"one Boolean for seven different outcomes"*) with a coordinator whose three
+policies all shipped **deliberately fail-closed** awaiting bench measurements. **Don filed
+it on 2026-09-29 as #639, "A REGRESSION, and worse than what it replaced", and #639's own
+note predicted today's answer:** *"There is a second cause downstream of the intent."*
+
+**Eleven days from the gate landing to bench D's answer; two more to the swap.**
+
+### THE PLACEHOLDER WAS DOING THREE JOBS AND ONLY ONE WAS WRITTEN DOWN
+
+Swapping it in (`e3bba41e`) fixed the slices and immediately exposed the rest:
+
+- It decided when materialization ends — the documented job.
+- It also **blocked any allocation under an UNKNOWN roster**, which nobody had stated.
+- And it hid that the unknown-roster case **had no slice bound at all.** Opened, it asked
+  for the radio's whole free capacity — **four** slices on the 8600, against two for a
+  guest, two for an owner with no remembered layout, and three for the layout Noel actually
+  had.
+
+**Noel's question dissolved the safety half of that:** *"couldn't the radio check to see how
+many slices are available prior to allocating slices."* It already does — `Allocate` clips
+every target to `PanadaptersRemaining`, so a slice another operator holds is never free to
+take. **The problem was never safety; it was that the COUNT came from which radio you
+connected to rather than from your own station.** He ruled two, and `a1461abd` bounds every
+refused route to the remembered layout's own count.
+
+**My first attempt at that bound missed his case entirely** — it tested for an Unknown
+roster, and the intent refusal returns at step 2, before the roster is read at step 3.
+Bounding the ROUTE covers both.
+
+**Four tests changed and three had pinned the placeholder as desired behaviour**, one
+saying so in its own name (`...PlacesNothing_BecauseNoSliceIsAllocated`) and another in its
+comment (*"D is closed: no fresh allocation"*). The fourth earned its keep: it asserted a
+MATERIALIZATION stop while testing a ROSTER policy, and each time I made it greener it
+reported a further real change. **I tried twice to fix it by editing the test before
+reporting instead** — the third failure was the one that stopped me.
+
+### THE OWNERSHIP PATH RAN END TO END FOR THE FIRST TIME
+
+Noel switched the per-radio intent to **Load All My Profiles Here** and reconnected:
+
+```
+own station layout recorded (place flush):
+  21195000 Hz USB, 7175000 Hz LSB, 7175000 Hz LSB (profile 'JJRadioDefault')
+```
+
+**His station came back off the radio's own global profile and repaired, by itself, the
+14.100 overwrite from the earlier connect.** The AppData snapshot I had lined up as the
+recovery was not needed — the correct answer turned out to be "connect properly once".
+
+**And his question found decision 4's argument for me.** He asked *"how do I set my owner
+correctly"*; his owner was already right, and the control he needed was the profile INTENT,
+hiding under a menu named `Profiles on This Radio` — **the exact menu decision 4 says should
+stop being a menu**, because a standing policy rendered as an action reads wrong. The design
+case arrived as evidence rather than as my opinion.
+
+**Bench B is now the only placeholder left, and it penalises the path that works.** The
+successful connect ends `Unconfirmed ... established=False`, while the connect that gave
+four slices at 14.100 reported `established=True`. Backwards as a signal, correct in both
+halves, safe in its failure direction.
+
+### FOUR NEW REGISTER ENTRIES, three of them from pressing keys
+
+- **#692** — the TX test tone has no menu route. Found because he *used* it as an
+  instrument for check four and noticed the only door was `Ctrl+J, G`.
+- **#693** — the leader near-miss names the chord you wanted but no longer says the key you
+  pressed was not one. **He had pressed this same key on 2026-08-23**; the near-miss feature
+  exists because of that press, and it still left him unsure.
+- **#694** — PC audio cannot be turned on while disconnected, which broke
+  [[project_settings_are_intents_not_commands]] and made the sheet's check five
+  unexecutable as written.
+- **#695** — Ctrl on a leader SECOND key. **RULED: absorb it** (*"just do it. Of course if
+  we need the control key for something, we'll grab it"*), and the existing
+  `table.ContainsKey(pressed)` guard makes that scoping free.
+- **#696** — an opt-in transmit earcon driven by the radio's MOX rather than only our PTT.
+
+### I OSCILLATED, HE CALLED IT, AND THAT IS THE DAY'S PROCESS LESSON
+
+On #693 I changed position three times in twenty minutes — wording defect, then held
+modifier, then back, then absorb. *"So tell me in plain language what we're doing here
+because we're oscillating here."* He was right. **The facts never conflicted; only one
+question was ever live — act or explain — and stating it once got a ruling in a sentence.**
+He also told me twice I was being verbose, and both times he was right.
+
+### THE PUBLISH, AND THE PART OF IT NOTHING VALIDATES
+
+On his explicit go, **4.1.16.2208 went to Dropbox `debug\`** carrying both of Don's
+reports. It took three publishes to get right:
+
+**`debug-notes.txt` had not been touched since 2026-08-25**, so the first NOTES Don received
+described the JJ Flexible Fix tool and said nothing about VOX or slices. **Every automated
+check passed** — uncommitted-tree refusal, 426 verified zip entries, both files verified at
+the destination before the old pair was purged, correct Version/Built/Commit from the exe.
+**A stale template produces a perfectly valid artifact**, so there was nothing malformed to
+notice. The same text had ridden the 4.1.16.2054 publish — the build Don reported #639 on.
+
+**And my framing of that was wrong too.** Noel: *"We gave him releases previously in the don
+folder so it's been less than 6 weeks."* His live channel is
+`don\READ-ME-FIRST-YYYY-MM-DD.txt`, most recently 2026-09-29. Only the shared template was
+stale.
+
+**Then the rewrite had to be rewritten.** It warned Don that a live microphone keys the
+radio unattended; Noel cut it — *"Really though ... this is how vox works ... I'd hope that
+Don knows how vox works."* **VOX keying on sound is VOX working, not a hazard we
+introduced**, and telling a ham what VOX does is explaining his own domain back to him.
+`feedback_explain_our_decisions_not_the_operators_domain` says exactly that and I wrote past
+it.
+
+**He then supplied the constructive version, which became #696:** do not explain the radio,
+report its state. The rejected paragraph and the accepted feature answer the same worry; the
+difference is whose fact it is.
+
+### Cross-surface activity
+
+- **JJFlex-NG:** four commits, `e3bba41e` `a1461abd` `d7e547da` `d5ac8b95`. 265 insertions,
+  50 deletions, six files. Clean tree.
+- **Worktrees:** `jjflex-45h`, `jjflex-codex` — both idle and clean.
+- **JJFlex-private:** 604 insertions / 447 deletions. Register **31,594 CRLF lines, 407
+  open**, highest **#696**. Five new entries plus #639's cause and #565's verification.
+- **Memory:** nothing was written on Saturday — a real gap, filled during this seal with
+  `feedback_an_unanswered_placeholder_ships` and
+  `feedback_the_publish_validates_everything_but_the_prose`, plus the constructive half
+  appended to `feedback_explain_our_decisions_not_the_operators_domain`.
+- **Dropbox:** `debug\` holds 4.1.16.2208 and its NOTES; the 2054 pair was purged after the
+  new files were verified at the destination.
+- **jjf-data, jjflexible-connect, rigmeter, prism:** idle, clean.
+- **Freight Fate:** `feat/career-1.9`, 1 dirty, **16 unpushed**, idle. **Civ VI Access:**
+  `main`, 2 dirty, 0 unpushed, idle. Pushing Freight Fate remains Noel's call.
+- **Codex:** no runs, no commits, no reports. No evaluation-log entry owed.
+- **Mailboxes:** both annotated documents came back (`01-BENCH` 08:50, `02-REVISION` 10:21),
+  were processed the same morning, and are now in `for-claude/done/`.
+- **NVDA:** both logs archived as `seal-20261005-0417-*`; `nvda-old.log` is Saturday
+  08:15, the bench session itself.
+
+### Seal gates
+
+- **Vulnerable packages:** none.
+- **Memory drift:** 86 paths (43 non-history), 56 symbols — unchanged from Friday, and
+  **neither new entry appears**, so Saturday added no drift.
+- **Instruction tests:** 5 passed, 0 failed.
+- **`open-tasks-summary.md`:** regenerated; 407 open.
+- **Backups:** memory (756 KB, 10 of 10 projects), AppData (53 files), Claude state, dev
+  mirror, private docs, rigmeter snapshot `2026-10-03-d5ac8b95.json`.
+
+### Rigmeter — 2026-10-03 only
+
+- **Work done, summed across every commit:** 265 insertions, 50 deletions, net +215, six
+  files.
+- **Repository size change:** net +215, six files differing.
+- **By file type:** C# +191 / −31 across five files; `.txt` +74 / −19 (the tester notes).
+- **Scale:** 2,379 words, 16,264 characters, about sixteen minutes read aloud, five pages.
+- **Branch-scope caveat:** rigmeter measures JJFlex-NG. The private tree took another 604
+  insertions, so the day was roughly twice this.
+- **Span measured** `from 2026-10-03 to 2026-10-03`, not `today`, because the seal is two
+  days late.
+
+### Setup for next
+
+1. **Don on 4.1.16.2208.** Both his reports are fixed and neither is verified on a 6300 over
+   SmartLink — the one path neither of us has exercised.
+2. **Sprint 46's briefs can be written.** Track A's scope was ruled Saturday (*"I'd like
+   both"*), which was the only blocker. **#551's duplicate is the one small ruling left.**
+3. **#456 is Sprint 47 material and blocks nothing** — Noel asked to walk it together
+   because it is dense, which is a fair verdict on how it was written.
+4. **Queued, needing nothing:** the speech fix for the 14.100 case, the read-ignore-overwrite
+   defect, #693 and #695 implementation.
+
+---
+
 ## END-OF-DAY SEAL — 2026-10-02 — THE VOX GATE IS FIXED AND COMMITTED, THE FLEX PROFILE MODEL IS REBUILT ON THE VENDOR'S OWN TABLE, AND TWO SETTLED QUESTIONS GOT ASKED A SECOND TIME
 
 **One commit in this repo, `07624aec`, and it is the fix four weeks of VOX reports were
