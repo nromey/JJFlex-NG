@@ -326,6 +326,11 @@ namespace JJFlexWpf.Tests
         {
             Assert.Equal(KeyTier.Plain, KeyTree.TierOf(Row("Leader", "Ctrl+J, N", "x")));
             Assert.Equal(KeyTier.Shift, KeyTree.TierOf(Row("Leader", "Ctrl+J, Shift+N", "x")));
+            // The fifth tier (Sprint 48 Track C): a bare digit is its own
+            // branch, and a modified digit is a second meaning on a
+            // one-meaning tier, so it falls to Other where it can be seen.
+            Assert.Equal(KeyTier.Digit, KeyTree.TierOf(Row("Leader", "Ctrl+J, 1", "x")));
+            Assert.Equal(KeyTier.Other, KeyTree.TierOf(Row("Leader", "Ctrl+J, Ctrl+1", "x")));
             Assert.Equal(KeyTier.Ctrl, KeyTree.TierOf(Row("Leader", "Ctrl+J, Ctrl+N", "x")));
             Assert.Equal(KeyTier.Alt, KeyTree.TierOf(Row("Leader", "Ctrl+J, Alt+N", "x")));
             Assert.Equal(KeyTier.Shift, KeyTree.TierOf(Row("Leader", "Ctrl+J, Shift+A through Shift+H", "x")));

@@ -37,10 +37,10 @@ internal static class Risk
             // directly from Home.
             ["Ctrl+Space"] = RiskLevel.Transmits,
             ["Shift+Space"] = RiskLevel.Transmits,
-            // Ctrl+J, G arms the TX test tone. Arming does not transmit, but it
+            // Ctrl+J, Ctrl+G arms the TX test tone. Arming does not transmit, but it
             // silently replaces the microphone on the NEXT transmission, and an
             // operator who does not know it is armed will be heard as a tone.
-            ["Ctrl+J, G"] = RiskLevel.Transmits,
+            ["Ctrl+J, Ctrl+G"] = RiskLevel.Transmits,
             // Creating and releasing slices is exactly the state an operator
             // would have to put back by hand.
             ["Period"] = RiskLevel.Mutates,

@@ -16,7 +16,7 @@ These keys work no matter where you are in the application — and "no matter wh
 - **Ctrl+J** — The JJ key (press, release, then press a second key)
 - **Ctrl+Shift+M** — Switch between Classic and Modern tuning mode
 - **Ctrl+Shift+L** — Enter or exit Logging mode
-- **Ctrl+M** — Show or hide the meters panel. This opens and closes the panel and nothing else — it no longer starts or stops your meter tones. The tone switch is Ctrl+J then T
+- **Ctrl+M** — Show or hide the meters panel. This opens and closes the panel and nothing else — it no longer starts or stops your meter tones. The tone switch is Ctrl+J then Ctrl+T
 - **Ctrl+Shift+W** — Open the Audio Workshop
 - **Ctrl+Shift+S** — Speak full status (multi-slice aware)
 - **Ctrl+Alt+S** — Open the status dialog
@@ -48,9 +48,9 @@ The JJ Key, `Ctrl+J` in JJ Flexible Radio Access, can be used to activate variou
 
 Press `Ctrl+J` and then release it to enter the JJ key layer. You'll hear a rising tone to let you know that you've opened the layer and it's ready for you to press one of these keys to perform an action in the app.
 
-The second key follows a grammar, and the grammar is the point: you work out a chord instead of memorising it. A plain letter opens a layer — a set of keys about one thing, like the filter or your audio, with arrows to adjust and Escape to put things back. Shift plus a letter jumps to that slice, from anywhere, even from inside a layer: `Shift+C` is slice C and never anything else. Ctrl plus a letter toggles the thing whose initial it is — `Ctrl+P` is PC audio, `Ctrl+A` is Auto Notch. Alt plus a letter is everything that is neither, like `Alt+V` for the version. Inside any layer, `H` reads that layer's keys and the slash key opens the JJ key explorer. Some plain letters below still carry a single toggle from before the grammar; they keep working until each one finds its layer, and the list shrinks as they do.
+The second key follows a grammar, and the grammar is the point: you work out a chord instead of memorising it. Four rules cover nearly everything. A plain letter opens a layer — a set of keys about one thing, like the filter or your audio, with arrows to adjust and Escape to put things back. Shift plus a letter jumps to that slice, from anywhere, even from inside a layer: `Shift+C` is slice C and never anything else. Ctrl plus a letter switches on or off the thing whose initial it is — `Ctrl+N` is noise reduction, `Ctrl+B` the noise blanker, `Ctrl+P` PC audio, `Ctrl+T` meter tones. Alt plus a letter does something that is neither a layer nor a switch — `Alt+V` speaks the version, `Alt+K` is the mic check, `Alt+M` opens the memories. Inside any layer, `H` reads that layer's keys and the slash key opens the JJ key explorer. If you knew the old map: most of the plain-letter toggles moved one modifier over in this release, so `B` is `Ctrl+B`, `K` is `Alt+K`, and so on; press the old key and the layer tells you the new one. The handful of switches that have not found their place yet are listed last, each with the reason.
 
-<!-- LEADER-KEY-TABLE: every key line from here to the END marker is checked against KeyInventory.LeaderCommands by Radios.Tests/LeaderDocCoverageTests. Add a chord to the layer and this list fails until it has a line; delete a chord and a leftover line fails too. The wording is yours — only the set of keys is checked. The six groups below, and their order, match leader-key.md on purpose: it is the same list twice, so it should be the same walk twice.
+<!-- LEADER-KEY-TABLE: every key line from here to the END marker is checked against KeyInventory.LeaderCommands by Radios.Tests/LeaderDocCoverageTests. Add a chord to the layer and this list fails until it has a line; delete a chord and a leftover line fails too. The wording is yours — only the set of keys is checked. The groups below are the tiers of the grammar (#515) — layers, slices, toggles, actions, the ones still finding a layer, then help — in the same order as KeyInventory.LeaderCommands and leader-key.md: it is one map read three ways, so it should be the same walk three times.
 
      ONE LINE PER CHORD, and the shape is load-bearing, not a style: a hyphen, a
      space, the chord in bold, a space, an em dash, a space, then the meaning.
@@ -64,59 +64,61 @@ The second key follows a grammar, and the grammar is the point: you work out a c
      that quietly accepts several shapes is one that eventually accepts none and
      reports perfect agreement about an empty set. -->
 
-### DSP toggles
-
-- **N** — Toggle legacy Noise Reduction
-- **Shift+N** — Toggle NR Filter
-- **B** — Toggle Noise Blanker
-- **W** — Toggle Wideband Noise Blanker
-- **R** — Toggle On-Radio Neural Noise Reduction (the radio's own DSP)
-- **S** — Toggle On-Radio Spectral Noise Reduction (the radio's own DSP)
-- **Shift+R** — Toggle PC Neural Noise Reduction (runs on your computer, works on every radio)
-- **Shift+S** — Toggle PC Spectral Noise Reduction (runs on your computer, works on every radio)
-- **Q** — Capture a noise profile for PC Spectral NR — press Q again while it runs to cancel (see "Noise capture" below)
-- **Ctrl+A** — Toggle Auto Notch. It was plain `A` until the grammar arrived; plain `A` is the audio layer's door now
-- **P** — Toggle Audio Peak Filter (APF, CW only)
-- **Alt+N** — Open the tracking notch filters, where you place a notch yourself instead of letting Auto Notch hunt for one (see "Tracking notch filters" below)
-
-### Audio and transmit
+### Layers — a plain letter
 
 - **A** — Enter the audio layer — a letter picks what to adjust, the arrows adjust it, Home, End and `0` place it at once, Escape reverts changes, Enter accepts (see "The audio layer" below)
-- **V** — Enter the audio layer — a letter picks what to adjust, the arrows adjust it, Home, End and `0` place it at once, Escape reverts changes, Enter accepts (see "The audio layer" below)
-- **Alt+P** — Enter the audio layer with pan already picked — Left and Right, or Up and Down, place the slice you're on in the stereo field, Shift moves by one, 0 centers, Home and End are hard left and hard right, Escape reverts changes, Enter accepts. Speaks the number every time, on a 0-to-100 scale
-- **K** — Mic check — speak your mic-audio verdict and level, nothing else (see below)
-- **G** — Arm or disarm the TX test tone (it replaces your microphone while transmitting)
-- **C** — Toggle Compander
-- **Ctrl+P** — Turn PC audio on or off — whether radio audio plays through this computer at all. P for PC; it was `Ctrl+A` until now. (`Ctrl+J`, `V`, `O` rides how *loud* it plays; this is the switch, and it tells you which way it went)
-- **Shift+P** — Toggle Speech Processor
-- **E** — Echo the CW notifications you just heard — press again to step further back (see "CW echo" below)
-
-### Filter information
-
+- **V** — The same audio layer, by the letter your fingers may know from volume mode — a second door to one room, kept as a courtesy
+- **Alt+P** — Enter the audio layer with pan already picked — Left and Right, or Up and Down, place the slice you're on in the stereo field, Shift moves by one, 0 centers, Home and End are hard left and hard right, Escape reverts changes, Enter accepts. Speaks the number every time, on a 0-to-100 scale. The one Alt chord that opens a layer rather than doing something; pan's home is `A` then `P`
 - **F** — Enter the filter layer — hold Left Shift for the low edge or Right Shift for the high edge, the arrows move it, Home and End send it straight to its limit, `T` and `R` switch between the transmit and receive filters, and `S` speaks it (see "The filter layer" below)
-- **Ctrl+F** — Enter a frequency
 
-The two filter-width readouts used to live here, on `F` and `Shift+F`. Plain `F` is the filter layer's door now and `Shift+F` is slice F, so both readouts have moved inside the filter layer. The receive width still answers to the flat `Ctrl+Alt+F` from anywhere in radio mode.
+Plain `M` is spoken for: it is the mode layer, ruled and not yet built. Until it lands, pressing `M` tells you the memories moved to `Alt+M`.
 
-### Meter and tuning
+### Slices — Shift plus the letter
 
-- **T** — Toggle meter tones on/off
-- **Shift+T** — Toggle alert sounds (earcons) on/off
-- **D** — Toggle tuning speech debounce
+- **Shift+A through Shift+H** — Jump to that slice from anywhere, even from inside a layer — the letter is the slice, all eight of them
+
+### Toggles — Ctrl plus the initial
+
+- **Ctrl+N** — Toggle legacy Noise Reduction
+- **Ctrl+B** — Toggle Noise Blanker
+- **Ctrl+W** — Toggle Wideband Noise Blanker
+- **Ctrl+R** — Toggle On-Radio Neural Noise Reduction (the radio's own DSP). Reading the recorded problems, which used to be here, is `Alt+R`
+- **Ctrl+A** — Toggle Auto Notch. It was plain `A` until the grammar arrived; plain `A` is the audio layer's door now
+- **Ctrl+P** — Turn PC audio on or off — whether radio audio plays through this computer at all. P for PC; it was `Ctrl+A` once. (`Ctrl+J`, `A`, `O` rides how *loud* it plays; this is the switch, and it tells you which way it went)
+- **Ctrl+G** — Arm or disarm the TX test tone (it replaces your microphone while transmitting)
+- **Ctrl+T** — Toggle meter tones on/off
+- **Ctrl+E** — Toggle alert sounds (earcons) on/off — E for earcons; it was `Shift+T`
 - **Ctrl+Q** — Start or stop the QSO signal analyzer — watch the S-meter, then hear what the signal did, QSB and all (see "QSO signal analyzer" below)
-- **Ctrl+C** — Copy what was just spoken to the clipboard — walk back with `Ctrl+F4` to the message you want first, then copy it (see "Copying what the app said" below)
 - **Ctrl+S** — Switch the S-meter between S-units and dBm. It tells you which one you landed on, and it stays that way for this radio until you change it back — so `Ctrl+S` on its own reads the meter in whichever unit you chose. One S-unit is 6 dB, so "S7" covers a lot of ground; dBm is what you want when you're asking whether that antenna change actually helped. It's also on the Radios tab in Settings, if you'd rather see where it stands than press a key to find out
-
-### Status, information, and slices
-
-- **O** — Say what is still running and what it is costing — recording, captures, meter tones (see "What is still running" below)
 - **Ctrl+D** — Start or stop a detailed capture of what the app is doing — works with no radio connected, and from inside any dialog. Stopping saves the capture as its own session in Saved Diagnostic Logs
-- **Ctrl+R** — Read the problems recorded this session — everything that has gone wrong since you started, in case you missed an announcement
+
+### Actions — Alt plus the initial
+
+- **Alt+K** — Mic check — speak your mic-audio verdict and level, nothing else (see "Mic check" below)
+- **Alt+Q** — Capture a noise profile for PC Spectral NR — press `Alt+Q` again while it runs to cancel (see "Noise capture" below)
+- **Alt+E** — Echo the CW notifications you just heard — press again to step further back (see "CW echo" below)
+- **Alt+L** — Speak log statistics
+- **Alt+M** — Open the memories dialog — M for memories
+- **Alt+O** — Say what is still running and what it is costing — recording, captures, meter tones (see "What is still running" below)
+- **Alt+R** — Read the problems recorded this session — everything that has gone wrong since you started, in case you missed an announcement
 - **Alt+V** — Speak the version, the build type and the date this copy was built (see "Which build am I on" below)
 - **Alt+W** — Open a list of every window on your screen — the one with the keyboard first, then this program's own windows, then the rest — with the program that owns each and whether it is still running (see "What is on my screen" below)
-- **L** — Speak log statistics
-- **M** — Open the memories dialog
-- **Shift+A through Shift+H** — Jump to that slice from anywhere, even from inside a layer — the letter is the slice, all eight of them
+- **Alt+N** — Open the tracking notch filters, where you place a notch yourself instead of letting Auto Notch hunt for one (see "Tracking notch filters" below)
+
+### Still finding their layer
+
+Each of these is a switch whose initial is already taken on the Ctrl tier by another switch — spectral NR wants `Ctrl+S` and that is the S-meter unit, the peak filter wants `Ctrl+P` and that is PC audio — so it stays on its old key until the noise layer and the rest of the audio layer give it a home. Two Ctrl chords sit here too, because they are not switches: `Ctrl+C` copies because `Ctrl+C` copies everywhere in Windows, and `Ctrl+F` is waiting on a decision about the Alt tier.
+
+- **S** — Toggle On-Radio Spectral Noise Reduction (the radio's own DSP)
+- **Shift+N** — Toggle NR Filter
+- **Shift+R** — Toggle PC Neural Noise Reduction (runs on your computer, works on every radio)
+- **Shift+S** — Toggle PC Spectral Noise Reduction (runs on your computer, works on every radio)
+- **P** — Toggle Audio Peak Filter (APF, CW only)
+- **C** — Toggle Compander
+- **Shift+P** — Toggle Speech Processor
+- **D** — Toggle tuning speech debounce
+- **Ctrl+C** — Copy what was just spoken to the clipboard — walk back with `Ctrl+F4` to the message you want first, then copy it (see "Copying what the app said" below)
+- **Ctrl+F** — Enter a frequency
 
 ### Help
 
@@ -224,17 +226,17 @@ The last setting is Keep, and it's the one worth understanding. Set it to No and
 
 Escape closes the list. Anything you changed is already on the radio — there's no OK to press and nothing to lose by leaving.
 
-### Mic check — Ctrl+J, then K
+### Mic check — Ctrl+J, then Alt+K
 
 The binding you ride while setting mic gain. One chord, one answer: your mic-audio verdict and level — "Good. That's the sweet spot, right there. Peak minus 9 dBFS" — and nothing else in front of it. While you're transmitting it follows the last second and a half of audio, so each gain change is audible in the next check; while you're receiving it reports your last transmission's peak. You can change how the answer reads (plain English, decibels, or both) under Settings, Notifications, "Mic audio readout."
 
-### Test tone — Ctrl+J, then G
+### Test tone — Ctrl+J, then Ctrl+G
 
 Arms or disarms the Audio Workshop's TX test tone from anywhere, using your saved frequency and level — no need to open the workshop first. Same honesty rules as the workshop: if the tone can't reach the transmitter (PC audio off, transmit input not set to PC, CW mode), it refuses to arm and tells you why; if your tone frequency sits outside the transmit filter, it arms but warns you loudly that nothing will go out. While armed, every key-down announces that the tone is riding your transmission instead of your voice.
 
-### Noise capture — Ctrl+J, then Q
+### Noise capture — Ctrl+J, then Alt+Q
 
-Captures a noise profile for PC Spectral NR: three seconds (adjustable, 1 to 5) of what your band sounds like with nobody talking, so the spectral engine knows exactly what to subtract. Find a quiet spot on the band, press `Ctrl+J` then `Q`, and listen — it announces the start, counts the seconds out loud as they pass, and tells you when the profile is captured and whether Spectral NR is using it. Press `Q` again mid-capture to cancel. The capture listens to the radio audio playing through this computer, so PC audio has to be on — if it isn't, the capture says so instead of pretending. A finished capture saves itself and comes back on your next connect; naming and managing profiles lives in the Noise Profiles dialog (Slice menu, DSP, PC Noise Reduction). The full story is on the PC-Side Noise Reduction help page.
+Captures a noise profile for PC Spectral NR: three seconds (adjustable, 1 to 5) of what your band sounds like with nobody talking, so the spectral engine knows exactly what to subtract. Find a quiet spot on the band, press `Ctrl+J` then `Alt+Q`, and listen — it announces the start, counts the seconds out loud as they pass, and tells you when the profile is captured and whether Spectral NR is using it. Press `Alt+Q` again mid-capture to cancel. The capture listens to the radio audio playing through this computer, so PC audio has to be on — if it isn't, the capture says so instead of pretending. A finished capture saves itself and comes back on your next connect; naming and managing profiles lives in the Noise Profiles dialog (Slice menu, DSP, PC Noise Reduction). The full story is on the PC-Side Noise Reduction help page.
 
 ### Copying what the app said — Ctrl+J, then Ctrl+C
 
@@ -276,7 +278,7 @@ right back on the air.
 
 It runs until you stop it — there's no timer, because a capture that quit
 early mid-fade would hand you a confident answer built on half the story. The
-safety net is the running-cost machinery: `Ctrl+J` then `O` will tell you a
+safety net is the running-cost machinery: `Ctrl+J` then `Alt+O` will tell you a
 capture is going, it speaks up on its own if you leave it running past
 fifteen minutes, and closing the app asks about it on the way out.
 
@@ -294,9 +296,9 @@ you're keyed up, the S-meter isn't describing the other station. And if no
 readings arrive at all, the report says exactly that, because "no data" and
 "a quiet band" should never sound the same.
 
-### CW echo — Ctrl+J, then E
+### CW echo — Ctrl+J, then Alt+E
 
-Ctrl+F4 walks back through the last ten things the app *said*. This is the same idea for the last ten things it *sent in CW* — the slice census, "SL A USB", anything the app keyed at you. Press `Ctrl+J` then `E` and it re-sends the most recent one. Press it again and you step back another message, and another, wrapping round to the newest when you run off the end.
+Ctrl+F4 walks back through the last ten things the app *said*. This is the same idea for the last ten things it *sent in CW* — the slice census, "SL A USB", anything the app keyed at you. Press `Ctrl+J` then `Alt+E` and it re-sends the most recent one. Press it again and you step back another message, and another, wrapping round to the newest when you run off the end.
 
 The two histories are kept apart on purpose. If you're running with speech off and CW notifications on, everything you've heard is in the CW list and nothing is in the speech list, so one key for both would spend most of its presses telling you about messages you never heard.
 
@@ -308,9 +310,9 @@ Ctrl has silenced your screen reader since forever — you press it without thin
 
 While we were at it, CW notifications stopped piling up. Arrow across four slices quickly and you hear the slice you *landed on*, not a recital of everywhere you passed through — a newer message replaces the one still waiting, finishing the character in flight first so you never hear a mangled half-letter. The connect and disconnect prosigns are the exception: BT and the 73 sign-off always play out in full. Some things you don't cut off.
 
-### What is still running — Ctrl+J, then O
+### What is still running — Ctrl+J, then Alt+O
 
-O for "what's on". Press `Ctrl+J` then `O` and JJ Flexible Radio tells you every expensive thing it currently has switched on, and what each one has cost so far: "Meter stream recording, 218,000 meter lines into the log, and it will still be on the next time you start. The diagnostic log, 1.2 megabytes." If nothing is running, it says that too.
+O for "what's on". Press `Ctrl+J` then `Alt+O` and JJ Flexible Radio tells you every expensive thing it currently has switched on, and what each one has cost so far: "Meter stream recording, 218,000 meter lines into the log, and it will still be on the next time you start. The diagnostic log, 1.2 megabytes." If nothing is running, it says that too.
 
 This one exists because sighted operators get it for free. They have a recording light in the corner of the screen, a meter they can watch moving, a panel that's obviously open. We don't, and a switch that stays on across restarts, quietly changes what the app writes to disk, and never says a word about itself is exactly the kind of thing this program is supposed to fix.
 
@@ -374,7 +376,7 @@ These keys work when you're in either Classic or Modern tuning mode:
 - **Ctrl+P** — Adjust audio panning
 - **Ctrl+Shift+T** — Toggle the tune carrier on/off
 - **Ctrl+T** — Start an automatic tuning unit (ATU) tune cycle
-- **Ctrl+Alt+M** — Toggle meter tones on or off. The same switch as Ctrl+J then T, and it now says the same thing either way
+- **Ctrl+Alt+M** — Toggle meter tones on or off. The same switch as Ctrl+J then Ctrl+T, and it now says the same thing either way
 - **Ctrl+Alt+P** — Cycle the meter tone preset (RX, TX, Full Monitor)
 - **Ctrl+Alt+V** — Speak the current meter values
 - **Shift+M** — Mute or unmute every slice at once
@@ -646,7 +648,7 @@ When you're in the logging pane, these keys help you fill in QSO details quickly
 - **Ctrl+Shift+N** — Log characteristics dialog
 - **Ctrl+Alt+L** — Open full log entry form
 
-Log statistics has no default key — press `Ctrl+J` then `L` to hear your stats, or bind a key in the Hotkey Editor.
+Log statistics has no default key — press `Ctrl+J` then `Alt+L` to hear your stats, or bind a key in the Hotkey Editor.
 
 The radio pane inside the logging view has its own tuning keys: Up and Down tune by one step, Shift+Up and Shift+Down tune by ten steps, Left and Right change the step size, and Ctrl+F enters a frequency directly.
 
@@ -716,9 +718,9 @@ If you knew the old tab strip: it is gone, and the list replaces it. Nothing you
 Some commands ship without a key, and it is worth knowing that this is not one list but several. Every one of them runs from the Command Finder (`Ctrl+/`), and you can give any of them a key of your own in Tools → Hotkey Editor.
 
 **Already have a key, just not their own one.** These answer to the JJ key, so
-you may not need to bind anything: show memories (`Ctrl+J`, `M`), log
-statistics (`Ctrl+J`, `L`), toggle meter tones (`Ctrl+J`, `T`), PC audio on/off
-(`Ctrl+J`, `Ctrl+P`), echo recent CW (`Ctrl+J`, `E`), and speak the version and
+you may not need to bind anything: show memories (`Ctrl+J`, `Alt+M`), log
+statistics (`Ctrl+J`, `Alt+L`), toggle meter tones (`Ctrl+J`, `Ctrl+T`), PC audio on/off
+(`Ctrl+J`, `Ctrl+P`), echo recent CW (`Ctrl+J`, `Alt+E`), and speak the version and
 build (`Ctrl+J`, `Alt+V`). Speak TX filter width used to be `Ctrl+J`, `F`; that
 letter is the filter layer's door now and the readout lives inside the layer —
 until it lands, the Radio menu's TX Filter submenu has a Read TX Filter item.

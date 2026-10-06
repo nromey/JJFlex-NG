@@ -519,7 +519,7 @@ audio.fields.noise_blanker	5b583c3841c83872
 audio.fields.noise_profile_capturing	a3a0890348b92f58
 audio.fields.noise_profile_no_radio	1cb1c9fee5332c18
 audio.fields.noise_profile_none	0f27fa2bec39001b
-audio.fields.noise_profile_none_hint	ac36468cbf5201b1
+audio.fields.noise_profile_none_hint	4198fcadca64ad19
 audio.fields.noise_profile_this_session	6d21caa59eee49c4
 audio.fields.noise_profiles_button	e8f2fb7c469d3d0a
 audio.fields.noise_profiles_name	4b6b91d069838b82
@@ -540,7 +540,7 @@ audio.fields.pc_spectral_nr	d1854a8162e0f209
 audio.fields.pc_spectral_nr_floor	b5269d74daa3d945
 audio.fields.pc_spectral_nr_off	a267d343b30fb003
 audio.fields.pc_spectral_nr_on	b3db7a52922ac03a
-audio.fields.pc_spectral_nr_on_no_profile	14702f6878b0adca
+audio.fields.pc_spectral_nr_on_no_profile	c2754f2e9bebb15a
 audio.fields.pc_spectral_nr_strength	26ebf70d0dc0dc74
 audio.fields.peak_watcher	2de3570cd26e49b3
 audio.fields.peak_watcher_off	3ddca754acb2d69b
@@ -814,7 +814,7 @@ audio.pc_nr.neural_off	b6ca02efd5dce741
 audio.pc_nr.neural_on	4047ff3ea606c3bb
 audio.pc_nr.spectral_off	a267d343b30fb003
 audio.pc_nr.spectral_on	b3db7a52922ac03a
-audio.pc_nr.spectral_on_no_profile	14702f6878b0adca
+audio.pc_nr.spectral_on_no_profile	c2754f2e9bebb15a
 audio.pc_pipeline.not_ready	e5f00c8079607558
 audio.pc_pipeline.unavailable	b77f009b51a1657a
 audio.please_enter_a_name	12ce8ea988e344f7
@@ -1014,7 +1014,7 @@ audio.tx.monitor_pan	26ee1c789e1b83b1
 audio.tx_filter.high_moved	09d4531925b62faa
 audio.tx_filter.low_moved	6c5c2e4d8eff2608
 audio.tx_filter.range	247a780885f6e77b
-audio.tx_tone.armed	37b641774591464f
+audio.tx_tone.armed	73a74f954722a2e9
 audio.tx_tone.armed_not_going_out	f06b752c47ce9e16
 audio.tx_tone.disarmed	df4457fc35edc3ff
 audio.tx_tone.not_armed	3f64860dcb1b7602
@@ -1781,6 +1781,7 @@ leader.explorer.root	395df8289949f998
 leader.explorer.tier	7a8e32791c638c16
 leader.explorer.tier.alt	63c654ea937cf0cb
 leader.explorer.tier.ctrl	c565a467f9a5a71c
+leader.explorer.tier.digit	5eba4b50e8c3414b
 leader.explorer.tier.help	e833242f5ecc8cc1
 leader.explorer.tier.other	e36ef5eb8690820c
 leader.explorer.tier.plain	e2b915ccb909a7f7
@@ -1893,8 +1894,8 @@ logging.capture.dropped.title	9fe618254eb50dd7
 logging.capture.dropped.what_named	13f18f7ed5b0405a
 logging.capture.dropped.what_plain	54ff42bc96b8ad15
 logging.capture.dropped.what_to_do	9a1e9c39fa023383
-logging.capture.dropped.what_to_do_not_recording	953a978a8aef59ae
-logging.capture.dropped.what_to_do_stopped_since	00f6ae0b44ea7f2b
+logging.capture.dropped.what_to_do_not_recording	5264b0fca824357d
+logging.capture.dropped.what_to_do_stopped_since	6e0cff1505de2f0d
 logging.capture.not_running	6018a3e835ff024e
 logging.capture.save_problem	d5a29f5ed885ff2f
 logging.capture.saved	246f6dbd8ed79e57
@@ -2008,7 +2009,7 @@ logging.lotw.merging	1543f62428b6dbb5
 logging.lotw.select_file_title	6b35f81e03ad4ac6
 logging.pane.log_entry	b0f880c1d0a9291d
 logging.pane.only_in_logging_mode	d9b011288a3c2587
-logging.problem.announcement	73da17d5cd9c4d9c
+logging.problem.announcement	2e5edfed9a6092cd
 logging.problem.unnamed	fd33aecf20095b74
 logging.problems.copied	fe0e084471aacd35
 logging.problems.copy_failed	ef846aa51c3955f9
@@ -2053,7 +2054,7 @@ logging.recording.health.snapshot_sink_failed	84aae75cc4bae35a
 logging.recording.health.snapshot_sink_off	3be80baeda100ee6
 logging.recording.health.snapshot_sink_recording	155fc7a844965ee7
 logging.recording.health.status_sink_failed	fc88ac81530645c3
-logging.recording.health.status_unresolved_many	0a1b9aeff96616cf
+logging.recording.health.status_unresolved_many	2c5f2bcbbf6e2ce1
 logging.recording.health.status_unresolved_one	f3ac341a228438f5
 logging.recording.health.tail_uncertain_detail	fff3e049488977c3
 logging.recording.health.tail_uncertain_what	d202de47a245e4a1

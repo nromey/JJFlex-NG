@@ -29,7 +29,7 @@ Every switch on this tab has the same awkward property: it stays where you put i
 
 That's fixed, in three places:
 
-- **Press `Ctrl+J` then `O` any time** and JJ Flexible Radio tells you what it currently has running and what each one has cost: "Meter stream recording, 218,000 meter lines into the log, and it will still be on the next time you start. The diagnostic log, 1.2 megabytes." Nothing running gets an answer too.
+- **Press `Ctrl+J` then `Alt+O` any time** and JJ Flexible Radio tells you what it currently has running and what each one has cost: "Meter stream recording, 218,000 meter lines into the log, and it will still be on the next time you start. The diagnostic log, 1.2 megabytes." Nothing running gets an answer too.
 - **If something grows past a sensible size, it says so** — once, at the moment it crosses the line. Not on a timer. A reminder that arrives every few minutes is a reminder you stop hearing, and then it's worse than nothing.
 - **If you close JJ Flexible Radio with recording still going, it tells you first** and offers to turn it off on the way out. The everyday log and your meter tones don't raise this — the log is on for everybody and the tones are, well, audible. It's the silent, persistent ones that get a word.
 

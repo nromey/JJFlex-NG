@@ -164,7 +164,7 @@ public partial class MetersPanel : UserControl
     /// operator who only wanted to look at the settings started a noise, and an
     /// operator who wanted the noise off had to be looking at the panel (#126).
     /// They are separate now: this is the panel, and the tone switch lives on
-    /// Ctrl+J then T (and in the Meter Tones menu). Nothing here changes what
+    /// Ctrl+J then Ctrl+T (and in the Meter Tones menu). Nothing here changes what
     /// you can hear.
     /// </remarks>
     public void ShowPanel()

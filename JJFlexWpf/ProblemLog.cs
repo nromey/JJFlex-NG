@@ -63,7 +63,7 @@ namespace JJFlexWpf
 
     /// <summary>
     /// Every failure worth telling the operator about, kept for as long as the
-    /// app is running and readable on demand with Ctrl+J, Ctrl+R.
+    /// app is running and readable on demand with Ctrl+J, Alt+R.
     ///
     /// WHY THIS EXISTS AT ALL. The first design put a window on screen at the
     /// moment of failure, offering the diagnostic log. Noel rejected it: a

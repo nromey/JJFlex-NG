@@ -577,7 +577,7 @@ namespace Radios.Tests
             Assert.DoesNotContain("has not started recording again", text, StringComparison.Ordinal);
             Assert.Contains("did start recording again after the connection went, but it is not recording now", text, StringComparison.Ordinal);
             Assert.Contains("what happens next is not being kept", text, StringComparison.Ordinal);
-            Assert.Contains("Control J then Control R", text, StringComparison.Ordinal);
+            Assert.Contains("Control J then Alt R", text, StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -623,7 +623,7 @@ namespace Radios.Tests
             Assert.Contains("has already started recording again, so the next thing that happens is being kept too",
                             notice.Explanation, StringComparison.Ordinal);
             Assert.DoesNotContain("not recording now", notice.Explanation, StringComparison.Ordinal);
-            Assert.DoesNotContain("Control J then Control R", notice.Explanation, StringComparison.Ordinal);
+            Assert.DoesNotContain("Control J then Alt R", notice.Explanation, StringComparison.Ordinal);
         }
 
         // ── Sol's review of H10, blocker 2: the second queue boundary ──────
@@ -682,7 +682,7 @@ namespace Radios.Tests
             Assert.DoesNotContain("has not started recording again", atTheWindow, StringComparison.Ordinal);
             Assert.Contains("did start recording again after the connection went, but it is not recording now", atTheWindow, StringComparison.Ordinal);
             Assert.Contains("what happens next is not being kept", atTheWindow, StringComparison.Ordinal);
-            Assert.Contains("Control J then Control R", atTheWindow, StringComparison.Ordinal);
+            Assert.Contains("Control J then Alt R", atTheWindow, StringComparison.Ordinal);
         }
 
         /// <summary>

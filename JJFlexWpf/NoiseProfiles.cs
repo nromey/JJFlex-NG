@@ -164,7 +164,7 @@ public static class NoiseProfileStore
 /// passing, and the result. This narrator wraps
 /// RxAudioPipeline.StartNoiseSampling with a 100 ms poll of
 /// IsNoiseSampling/NoiseSamplingProgress and speaks all three acts. Every
-/// surface that captures (leader key Ctrl+J Q, DSP panel button, menu item,
+/// surface that captures (JJ key Ctrl+J, Alt+Q, DSP panel button, menu item,
 /// Noise Profiles dialog) goes through here so the behavior can never fork.
 ///
 /// Shared-capture note: the transverter-presence detector and the RNN

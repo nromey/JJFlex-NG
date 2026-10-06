@@ -4,11 +4,11 @@
 
 ## Quick Mute via the JJ Key
 
-The fast way to mute every earcon at once is through the JJ key. Press `Ctrl+J` to enter the JJ Command layer, then press `Shift+T`. Every earcon mutes (or unmutes again if you press the same sequence a second time), and the app tells you which way it went.
+The fast way to mute every earcon at once is through the JJ key. Press `Ctrl+J` to enter the JJ Command layer, then press `Ctrl+E` — E for earcons. Every earcon mutes (or unmutes again if you press the same sequence a second time), and the app tells you which way it went.
 
 - The quick mute only affects the earcon layer. It does not touch your meter tones, the radio audio, or the speech output — just the alert-sound layer.
 - It does silence CW notifications along with everything else — they ride the same alert channel. Their own separate on/off switch lives on the Audio tab in Settings.
-- **Your choice is remembered.** The quick mute and the master switch in Settings are the same switch, and it is saved the moment you press it — quick-mute tonight and earcons are still off tomorrow. If things have gone mysteriously quiet, check `Ctrl+J` `Shift+T` first; a mute from last week may still be doing its job.
+- **Your choice is remembered.** The quick mute and the master switch in Settings are the same switch, and it is saved the moment you press it — quick-mute tonight and earcons are still off tomorrow. If things have gone mysteriously quiet, check `Ctrl+J` `Ctrl+E` first; a mute from last week may still be doing its job.
 
 ## When to Use the Quick Mute
 

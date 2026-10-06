@@ -432,57 +432,122 @@ public static class KeyInventory
     //    plain letter  — opens a LAYER (JJ key A audio, JJ key F filter)
     //    Shift+letter  — JUMPS TO THAT SLICE, from anywhere, in any layer
     //    Ctrl+letter   — TOGGLES the thing whose initial it is
-    //    Alt+letter    — everything else (speak the version)
+    //    Alt+letter    — an ACTION that is neither: speak, open, send, capture
+    //    digit         — the fifth tier (Sprint 48): sends that message slot.
+    //                    Bare digits only, top level only; no rows yet
     //  Every layer answers H with its own list and the slash key with the
-    //  explorer. The plain-letter one-shots below predate the grammar and
-    //  keep working until Noel walks each letter; the grammar test carries
-    //  that list as recorded debt, so it can only shrink.
+    //  explorer.
+    //
+    //  THE ROWS ARE GROUPED BY TIER, and that order is load-bearing: it is
+    //  the order H lists them in and the order both help pages walk, so an
+    //  operator reading top to bottom meets the rule before the exceptions.
+    //  The last group before Help is the debt — chords the grammar cannot
+    //  yet place, each with its reason — and JjKeyGrammarTests holds that
+    //  list in both directions, so it can only shrink.
     //
     //  Context stays "Leader" — a machine key other code matches on — and
     //  the label is "JJ key", which is what the thing is called (#512).
     // ────────────────────────────────────────────────────────────────
     private static readonly FixedKeyEntry[] LeaderCommands =
     {
-        new("Leader", "JJ key", "Ctrl+J, Ctrl+C", "Copy the message the history walk is sitting on",
-            new[] { "copy", "clipboard", "paste", "spoken", "speech", "message", "report",
-                    "text", "share", "leader" }, "Global", "General"),
-        // Sprint 44 Track Q (#154): the window census, in the operator's
-        // hands. W for Windows, on the Alt tier because it is an action
-        // (#515); plain W is the Wideband NB toggle. Global: it answers "what
-        // is on my screen" whether or not a radio is talking to us, and the
-        // time you ask is usually when nothing is.
-        new("Leader", "JJ key", "Ctrl+J, Alt+W",
-            "List every window on your screen — which one has the keyboard, which program owns each, and whether that program is still running",
-            new[] { "windows", "window", "screen", "foreground", "focus", "keyboard", "stuck", "frozen",
-                    "hung", "dialog", "which", "what", "where", "program", "process", "alive", "dead",
-                    "responding", "lost", "invisible", "orphan", "census", "on", "my", "leader" },
-            "Global", "General"),
-        new("Leader", "JJ key", "Ctrl+J, N", "Toggle legacy Noise Reduction",
+        // ── Plain letters open a LAYER ─────────────────────────────────
+        // JJ key A — the audio layer's door under the four-tier grammar (#515):
+        // a plain letter opens a layer, and A is ruled for audio. Wired by the
+        // Sprint 44 integration pass; Track I built the layer and Track J freed
+        // the letter (Auto Notch moved to Ctrl+A), and neither could reach the
+        // other's worktree to join them.
+        new("Leader", "JJ key", "Ctrl+J, A", "Enter the audio layer: a letter picks what to adjust, arrows adjust, Enter keeps it, Escape puts it back",
+            new[] { "audio", "layer", "volume", "level", "pc", "output", "headphone", "mic", "pan", "compander", "processor", "adjust", "leader" }, "Radio", "Audio")
+            { OpensLayer = AudioLayerContext },
+        // Audio Arc Track A (2026-08-11) — "adjust how I sound and what I hear".
+        // Sprint 44 Track I (#514): volume mode and pan mode became ONE audio
+        // layer on the value sub-layer engine. V still opens it — a second
+        // door to the same room, conformant (a plain letter opening a layer)
+        // and redundant, kept as a courtesy under #513 until V is wanted.
+        new("Leader", "JJ key", "Ctrl+J, V", "Enter the audio layer: a letter picks what to adjust, arrows adjust, Enter keeps it, Escape puts it back",
+            new[] { "volume", "audio", "level", "pc", "output", "headphone", "mic", "pan", "adjust", "mode", "layer", "leader" }, "Radio", "Audio")
+            { OpensLayer = AudioLayerContext },
+        // Sprint 37 Track C (#304) — the fine stereo-pan control, as a value
+        // sub-layer (#305). Alt+P because the other tiers were taken: plain P is
+        // APF, Shift+P the Speech Processor, and Ctrl+P became PC audio in
+        // Sprint 44 Track J (#513). Since Track I this door opens the audio
+        // layer with pan already picked. OUTSIDE THE GRAMMAR: a layer door on
+        // the Alt tier, which only a plain letter should be. Pan's home is JJ
+        // key A then P; this is a courtesy to the fingers that learned pan
+        // mode, and retiring it is Noel's call (JjKeyGrammarTests.AltTierLayerDebt).
+        new("Leader", "JJ key", "Ctrl+J, Alt+P",
+            "Enter the audio layer on pan: arrows place the slice in the stereo field, Enter keeps it, Escape puts it back",
+            new[] { "pan", "stereo", "balance", "left", "right", "center", "centre", "place",
+                    "placement", "position", "field", "audio", "slice", "separate", "separation",
+                    "apart", "ear", "mode", "layer", "leader" }, "Radio", "Audio")
+            { OpensLayer = AudioLayerContext },
+        // Plain F and Shift+F spoke the TX and RX filter widths until Sprint
+        // 44. Plain F is the filter layer's door now (#512) and both readouts
+        // live inside it; Shift+F is slice F, per the Shift tier (#504). The
+        // RX readout keeps its flat Ctrl+Alt+F as well, and the TX one is also
+        // on the Radio menu. Wired by the Sprint 44 integration pass.
+        new("Leader", "JJ key", "Ctrl+J, F", "Enter the filter layer: hold Left Shift for the low edge or Right Shift for the high edge, arrows move it, S speaks it",
+            new[] { "filter", "layer", "width", "bandwidth", "edge", "low", "high", "narrow", "wide", "passband", "transmit", "receive", "leader" }, "Radio", "DSP")
+            { OpensLayer = FilterLayerContext },
+        // Plain M is RULED for the mode layer (#515: "JJ key M A for AM, JJ key
+        // M S for SAM") and is free for it since Sprint 48 Track C moved the
+        // memories dialog to Alt+M. No row here until the layer exists: a row
+        // for a chord the switch does not handle fails the consistency test,
+        // and rightly — the inventory advertises what works.
+
+        // ── Shift+letter JUMPS TO THAT SLICE ───────────────────────────
+        // The Shift tier (#515): Shift+letter is that slice, from anywhere,
+        // inside any layer, and nothing else — all eight, F included (#504).
+        new("Leader", "JJ key", "Ctrl+J, Shift+A through Shift+H", "Jump to that slice from anywhere — the letter is the slice",
+            new[] { "slice", "jump", "leader", "letter", "go", "switch", "select" }, "Radio", "General"),
+
+        // ── Ctrl+letter TOGGLES the thing whose initial it is ──────────
+        // Sprint 48 Track C: the DSP toggles whose initial was free on the
+        // Ctrl tier moved there from their plain letters — N, B, W, R, G, T —
+        // and the earcons from Shift+T. Each is derived: the modifier says
+        // "toggle", the letter says what.
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+N", "Toggle legacy Noise Reduction",
             new[] { "nr", "noise", "reduction", "leader", "toggle" }, "Radio", "DSP"),
-        new("Leader", "JJ key", "Ctrl+J, B", "Toggle Noise Blanker",
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+B", "Toggle Noise Blanker",
             new[] { "nb", "noise", "blanker", "leader", "toggle" }, "Radio", "DSP"),
-        new("Leader", "JJ key", "Ctrl+J, W", "Toggle Wideband Noise Blanker",
-            new[] { "wnb", "wideband", "noise", "blanker", "leader" }, "Radio", "DSP"),
-        new("Leader", "JJ key", "Ctrl+J, R", "Toggle On-Radio Neural Noise Reduction (the radio's own DSP)",
-            new[] { "rnn", "neural", "noise", "reduction", "on-radio", "leader" }, "Radio", "DSP"),
-        new("Leader", "JJ key", "Ctrl+J, S", "Toggle On-Radio Spectral Noise Reduction (the radio's own DSP)",
-            new[] { "nrs", "spectral", "noise", "reduction", "on-radio", "leader" }, "Radio", "DSP"),
-        new("Leader", "JJ key", "Ctrl+J, Shift+N", "Toggle NR Filter",
-            new[] { "nr", "filter", "noise", "leader" }, "Radio", "DSP"),
-        new("Leader", "JJ key", "Ctrl+J, Shift+R", "Toggle PC Neural Noise Reduction (runs on your computer)",
-            new[] { "pc", "neural", "noise", "reduction", "leader" }, "Radio", "DSP"),
-        new("Leader", "JJ key", "Ctrl+J, Shift+S", "Toggle PC Spectral Noise Reduction (runs on your computer)",
-            new[] { "pc", "spectral", "noise", "reduction", "leader" }, "Radio", "DSP"),
-        // DSP controls track (2026-08-11) — Q for "quiet": capture what the
-        // band sounds like with nobody talking, so Spectral NR can subtract it.
-        new("Leader", "JJ key", "Ctrl+J, Q", "Capture a noise profile for PC Spectral NR (press Q again to cancel)",
-            new[] { "noise", "profile", "capture", "quiet", "qrn", "sample", "spectral", "sub",
-                    "subtraction", "baseline", "leader" }, "Radio", "DSP"),
-        // Sprint 36 Track C (#271) — the QSO signal analyzer. Ctrl+Q because
-        // plain Q is the noise capture and Q is the letter "QSO" reaches for;
-        // Ctrl+F, Ctrl+D and Ctrl+R are the precedent for the Ctrl-modified
-        // form when the letter you want is taken. The two capture chords sit
-        // side by side on purpose.
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+W", "Toggle Wideband Noise Blanker",
+            new[] { "wnb", "wideband", "noise", "blanker", "leader", "toggle" }, "Radio", "DSP"),
+        // Ctrl+R was "read the recorded problems" until Sprint 48 Track C;
+        // that is an action and lives on Alt+R now, which freed the chord the
+        // grammar derives for the radio's Neural NR.
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+R", "Toggle On-Radio Neural Noise Reduction (the radio's own DSP)",
+            new[] { "rnn", "neural", "noise", "reduction", "on-radio", "leader", "toggle" }, "Radio", "DSP"),
+        // Sprint 44 Track J: Ctrl+A, not plain A. Plain letters open layers
+        // under the four-tier grammar and A is the audio layer (#514, #515);
+        // Ctrl is the toggle tier and A is Auto Notch's own initial.
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+A", "Toggle Auto Notch",
+            new[] { "anf", "auto", "notch", "carrier", "heterodyne", "tone", "leader", "toggle" }, "Radio", "DSP"),
+        // Ctrl+P — P for PC, ruled #513 (Noel, 2026-09-01: "p for pc makes
+        // more sense"). Ctrl is the toggle tier of the four-tier grammar and
+        // P is the toggle's own initial. It was Ctrl+A from Sprint 32 Track G
+        // (#130), when Noel named it on the unbound-command survey: "No hotkey
+        // for PC audio on and off available that I know of, you have to do it
+        // in the menu." Ctrl+A belongs to Auto Notch now, the toggle whose
+        // initial it is. Sits one keystroke from Ctrl+J, A, O, which rides the
+        // PC output LEVEL; this is the on/off switch, and the pairing is
+        // deliberate.
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+P", "Turn PC audio on or off — whether radio audio plays through this computer",
+            new[] { "pc", "audio", "on", "off", "toggle", "remote", "sound", "mute", "unmute",
+                    "computer", "playback", "hear", "silence", "quiet", "leader" }, "Radio", "Audio"),
+        // Audio Arc Keys Track (2026-08-11) — the tone generator; a toggle on
+        // its own initial since Sprint 48 Track C (it was plain G).
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+G", "Arm or disarm the TX test tone (replaces your microphone while transmitting)",
+            new[] { "tone", "test", "generator", "arm", "disarm", "440", "transmit", "tx",
+                    "audio", "check", "calibrate", "leader", "toggle" }, "Radio", "Audio"),
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+T", "Toggle meter tones",
+            new[] { "meter", "tones", "leader", "toggle" }, "Global", "Audio"),
+        // E for Earcons, the feature's own name; A for alert is Auto Notch.
+        // It was Shift+T, the pre-grammar "other one of the pair".
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+E", "Toggle alert sounds (earcons)",
+            new[] { "earcon", "earcons", "alert", "sounds", "leader", "toggle", "mute", "quiet" }, "Global", "Audio"),
+        // Sprint 36 Track C (#271) — the QSO signal analyzer. A start-or-stop
+        // toggle on the letter "QSO" reaches for; the noise capture is Alt+Q,
+        // one modifier away, and the modifier says which is the switch.
         new("Leader", "JJ key", "Ctrl+J, Ctrl+Q",
             "Start or stop the QSO signal analyzer — watch the S-meter, then hear what the signal did, QSB and all (press it again to stop and hear the report)",
             new[] { "qso", "signal", "analyzer", "analyse", "analyze", "capture", "watch",
@@ -491,9 +556,8 @@ public static class KeyInventory
                     "rising", "falling", "coming", "up", "down", "leader" }, "Radio", "General"),
         // Sprint 38 Track C (#337) — switch the S-meter's unit and keep it.
         // Ctrl+S because the chord echoes the flat key it CHANGES: Ctrl+S
-        // reads the meter, this decides what it reads in. Sits beside the
-        // S-family DSP toggles on purpose; the description names both units so
-        // a search for either idea finds it.
+        // reads the meter, this decides what it reads in. The description
+        // names both units so a search for either idea finds it.
         //
         // For one day (#306, Sprint 37 Track G) this chord took a one-shot dBm
         // reading instead. Noel ruled the second reading out of scope on
@@ -505,13 +569,76 @@ public static class KeyInventory
                     "precise", "precision", "fine", "exact",
                     "antenna", "compare", "comparison", "weak", "strong", "leader" },
             "Radio", "General"),
-        // Sprint 44 Track J: Ctrl+A, not plain A. Plain letters open layers
-        // under the four-tier grammar and A is the audio layer (#514, #515);
-        // Ctrl is the toggle tier and A is Auto Notch's own initial.
-        new("Leader", "JJ key", "Ctrl+J, Ctrl+A", "Toggle Auto Notch",
-            new[] { "anf", "auto", "notch", "carrier", "heterodyne", "tone", "leader", "toggle" }, "Radio", "DSP"),
-        new("Leader", "JJ key", "Ctrl+J, P", "Toggle Audio Peak Filter (CW only)",
-            new[] { "apf", "audio", "peak", "filter", "cw", "leader" }, "Radio", "DSP"),
+        // Sprint 30 Track D. A start-or-stop toggle on D for Diagnostics —
+        // and the one of the two D toggles (tuning debounce is the other)
+        // that has to work from inside a misbehaving dialog.
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+D",
+            "Start or stop a detailed capture — everything the app is doing",
+            new[] { "capture", "detailed", "diagnostic", "diagnostics", "trace", "tracing", "log",
+                    "record", "bug", "problem", "report", "verbose", "leader" }, "Global", "General"),
+
+        // ── Alt+letter is an ACTION: speak, open, send, capture ────────
+        // Sprint 48 Track C moved K, Q, E, L, M and O here from their plain
+        // letters, and "read the recorded problems" from Ctrl+R. Alt+V, Alt+W
+        // and Alt+N were already here.
+        new("Leader", "JJ key", "Ctrl+J, Alt+K", "Mic check: speak your mic-audio verdict and level, nothing else",
+            new[] { "mic", "check", "microphone", "audio", "level", "verdict", "gain", "query",
+                    "how", "sound", "hot", "peak", "dbfs", "leader" }, "Radio", "Audio"),
+        // DSP controls track (2026-08-11) — Q for "quiet": capture what the
+        // band sounds like with nobody talking, so Spectral NR can subtract it.
+        // #515 names this chord as the Alt tier's own example.
+        new("Leader", "JJ key", "Ctrl+J, Alt+Q", "Capture a noise profile for PC Spectral NR (press Alt+Q again to cancel)",
+            new[] { "noise", "profile", "capture", "quiet", "qrn", "sample", "spectral", "sub",
+                    "subtraction", "baseline", "leader" }, "Radio", "DSP"),
+        // Sprint 33 Track F (#153). E for echo, and E is a single dit — the
+        // smallest character in Morse, for the one chord that only ever answers
+        // in Morse. Shift+E is slice E and Ctrl+E the earcons: three verbs on
+        // one letter.
+        new("Leader", "JJ key", "Ctrl+J, Alt+E", "Re-send recent CW notifications — press again for earlier ones",
+            new[] { "repeat", "cw", "morse", "echo", "again", "history", "recent", "earlier",
+                    "back", "previous", "missed", "resend", "code", "leader" }, "Global", "Audio"),
+        new("Leader", "JJ key", "Ctrl+J, Alt+L", "Speak log statistics",
+            new[] { "log", "statistics", "stats", "leader" }, "Global", "Logging"),
+        // Alt+M since Sprint 48 Track C: plain M is ruled for the mode layer.
+        new("Leader", "JJ key", "Ctrl+J, Alt+M", "Open the memories dialog",
+            new[] { "memory", "memories", "leader" }, "Radio", "Dialog"),
+        // Sprint 35 Track D (#253). O for "what is On". The diagnostics family
+        // is Ctrl+D (record), Alt+R (read what went wrong) and this one (read
+        // what is running and costing something right now).
+        new("Leader", "JJ key", "Ctrl+J, Alt+O",
+            "Say what is still running and what it is costing — recording, captures, meter tones",
+            new[] { "running", "on", "still", "what", "recording", "record", "instrumentation",
+                    "capture", "meter", "stream", "transcript", "tones", "cost", "costing",
+                    "size", "megabytes", "disk", "left", "forgot", "diagnostic", "diagnostics",
+                    "leader" }, "Global", "General"),
+        // Sprint 31 Track Q (#100). R for "Recorded problems". It was Ctrl+R,
+        // chosen when that was the only free R; reading a list is an action,
+        // so Sprint 48 Track C moved it here and gave Ctrl+R to Neural NR.
+        new("Leader", "JJ key", "Ctrl+J, Alt+R",
+            "Read the problems recorded this session",
+            new[] { "problem", "problems", "recorded", "failure", "failed", "error", "errors",
+                    "wrong", "issue", "issues", "went", "missed", "notification", "diagnostic",
+                    "diagnostics", "history", "leader" }, "Global", "General"),
+        // Sprint 36 Track F (#269). V for Version; Alt because bare V opens the
+        // audio layer. The first Alt chord in the layer — WpfKeyConverter
+        // resolves Key.System before the switch sees it, so the trap that
+        // killed the 2026-08-13 Alt+L binding does not reach here.
+        new("Leader", "JJ key", "Ctrl+J, Alt+V",
+            "Speak the version and build date of this copy",
+            new[] { "version", "build", "which", "number", "release", "debug", "nightly",
+                    "date", "built", "tester", "report", "identify", "about", "copy",
+                    "running", "installed", "update", "updated", "leader" }, "Global", "General"),
+        // Sprint 44 Track Q (#154): the window census, in the operator's
+        // hands. W for Windows, on the Alt tier because it is an action
+        // (#515); Ctrl+W is the Wideband NB toggle. Global: it answers "what
+        // is on my screen" whether or not a radio is talking to us, and the
+        // time you ask is usually when nothing is.
+        new("Leader", "JJ key", "Ctrl+J, Alt+W",
+            "List every window on your screen — which one has the keyboard, which program owns each, and whether that program is still running",
+            new[] { "windows", "window", "screen", "foreground", "focus", "keyboard", "stuck", "frozen",
+                    "hung", "dialog", "which", "what", "where", "program", "process", "alive", "dead",
+                    "responding", "lost", "invisible", "orphan", "census", "on", "my", "leader" },
+            "Global", "General"),
         // Sprint 46 Track D (#482): N for Notch on the Alt tier, because
         // opening a manager is an action rather than a layer or a toggle
         // (#515). Keywords carry "birdie" and "carrier" on purpose — an
@@ -521,129 +648,41 @@ public static class KeyInventory
             new[] { "tnf", "tracking", "notch", "filter", "birdie", "carrier", "heterodyne", "tone",
                     "whistle", "interference", "qrm", "permanent", "deep", "narrow", "leader" },
             "Radio", "DSP"),
-        // JJ key A — the audio layer's door under the four-tier grammar (#515):
-        // a plain letter opens a layer, and A is ruled for audio. Wired by the
-        // Sprint 44 integration pass; Track I built the layer and Track J freed
-        // the letter (Auto Notch moved to Ctrl+A), and neither could reach the
-        // other's worktree to join them.
-        new("Leader", "JJ key", "Ctrl+J, A", "Enter the audio layer: a letter picks what to adjust, arrows adjust, Enter keeps it, Escape puts it back",
-            new[] { "audio", "layer", "volume", "level", "pc", "output", "headphone", "mic", "pan", "compander", "processor", "adjust", "leader" }, "Radio", "Audio")
-            { OpensLayer = AudioLayerContext },
-        // Audio Arc Track A (2026-08-11) — "adjust how I sound and what I hear".
-        // Sprint 44 Track I (#514): volume mode and pan mode became ONE audio
-        // layer on the value sub-layer engine. V still opens it; the letter
-        // itself is Track J's under the four-tier allocation (#515).
-        new("Leader", "JJ key", "Ctrl+J, V", "Enter the audio layer: a letter picks what to adjust, arrows adjust, Enter keeps it, Escape puts it back",
-            new[] { "volume", "audio", "level", "pc", "output", "headphone", "mic", "pan", "adjust", "mode", "layer", "leader" }, "Radio", "Audio")
-            { OpensLayer = AudioLayerContext },
-        // Sprint 37 Track C (#304) — the fine stereo-pan control, as a value
-        // sub-layer (#305). Alt+P because the other tiers are taken: plain P is
-        // APF, Shift+P the Speech Processor, and Ctrl+P became PC audio in
-        // Sprint 44 Track J (#513). Flat Ctrl+P, outside the layer, is a third
-        // thing again — the FREQUENCY panning field, which shares a word with
-        // stereo pan and nothing else. Since Track I this door opens the audio
-        // layer with pan already picked.
-        new("Leader", "JJ key", "Ctrl+J, Alt+P",
-            "Enter the audio layer on pan: arrows place the slice in the stereo field, Enter keeps it, Escape puts it back",
-            new[] { "pan", "stereo", "balance", "left", "right", "center", "centre", "place",
-                    "placement", "position", "field", "audio", "slice", "separate", "separation",
-                    "apart", "ear", "mode", "layer", "leader" }, "Radio", "Audio")
-            { OpensLayer = AudioLayerContext },
-        // Audio Arc Keys Track (2026-08-11) — the mic check and the tone generator.
-        new("Leader", "JJ key", "Ctrl+J, K", "Mic check: speak your mic-audio verdict and level, nothing else",
-            new[] { "mic", "check", "microphone", "audio", "level", "verdict", "gain", "query",
-                    "how", "sound", "hot", "peak", "dbfs", "leader" }, "Radio", "Audio"),
-        new("Leader", "JJ key", "Ctrl+J, G", "Arm or disarm the TX test tone (replaces your microphone while transmitting)",
-            new[] { "tone", "test", "generator", "arm", "disarm", "440", "transmit", "tx",
-                    "audio", "check", "calibrate", "leader" }, "Radio", "Audio"),
-        // Ctrl+P — P for PC, ruled #513 (Noel, 2026-09-01: "p for pc makes
-        // more sense"). Ctrl is the toggle tier of the four-tier grammar and
-        // P is the toggle's own initial. It was Ctrl+A from Sprint 32 Track G
-        // (#130), when Noel named it on the unbound-command survey: "No hotkey
-        // for PC audio on and off available that I know of, you have to do it
-        // in the menu." Ctrl+A belongs to Auto Notch now, the toggle whose
-        // initial it is. Sits one keystroke from Ctrl+J, V, P, which rides the
-        // PC output LEVEL; this is the on/off switch, and the pairing is
-        // deliberate.
-        new("Leader", "JJ key", "Ctrl+J, Ctrl+P", "Turn PC audio on or off — whether radio audio plays through this computer",
-            new[] { "pc", "audio", "on", "off", "toggle", "remote", "sound", "mute", "unmute",
-                    "computer", "playback", "hear", "silence", "quiet", "leader" }, "Radio", "Audio"),
+
+        // ── Not yet in the grammar — each with the reason, and a home ──
+        // A toggle whose Ctrl initial is spoken for cannot derive a chord,
+        // and a plain letter cannot be a one-shot under #515. These stay
+        // where they are until the layer that owns each exists; the noise
+        // layer's letter is Noel's to rule (#518). JjKeyGrammarTests lists
+        // every one of these as debt and fails if one is missing or paid.
+        new("Leader", "JJ key", "Ctrl+J, S", "Toggle On-Radio Spectral Noise Reduction (the radio's own DSP)",
+            new[] { "nrs", "spectral", "noise", "reduction", "on-radio", "leader" }, "Radio", "DSP"),
+        new("Leader", "JJ key", "Ctrl+J, Shift+N", "Toggle NR Filter",
+            new[] { "nr", "filter", "noise", "leader" }, "Radio", "DSP"),
+        new("Leader", "JJ key", "Ctrl+J, Shift+R", "Toggle PC Neural Noise Reduction (runs on your computer)",
+            new[] { "pc", "neural", "noise", "reduction", "leader" }, "Radio", "DSP"),
+        new("Leader", "JJ key", "Ctrl+J, Shift+S", "Toggle PC Spectral Noise Reduction (runs on your computer)",
+            new[] { "pc", "spectral", "noise", "reduction", "leader" }, "Radio", "DSP"),
+        new("Leader", "JJ key", "Ctrl+J, P", "Toggle Audio Peak Filter (CW only)",
+            new[] { "apf", "audio", "peak", "filter", "cw", "leader" }, "Radio", "DSP"),
         new("Leader", "JJ key", "Ctrl+J, C", "Toggle Compander",
             new[] { "compander", "compression", "tx", "transmit", "voice", "leader", "toggle" }, "Radio", "Transmit"),
         new("Leader", "JJ key", "Ctrl+J, Shift+P", "Toggle Speech Processor",
             new[] { "speech", "processor", "proc", "tx", "transmit", "voice", "leader", "toggle" }, "Radio", "Transmit"),
-        // Plain F and Shift+F spoke the TX and RX filter widths until Sprint
-        // 44. Plain F is the filter layer's door now (#512) and both readouts
-        // live inside it; Shift+F is slice F, per the Shift tier (#504). The
-        // RX readout keeps its flat Ctrl+Alt+F as well, and the TX one is also
-        // on the Radio menu. Wired by the Sprint 44 integration pass.
-        new("Leader", "JJ key", "Ctrl+J, F", "Enter the filter layer: hold Left Shift for the low edge or Right Shift for the high edge, arrows move it, S speaks it",
-            new[] { "filter", "layer", "width", "bandwidth", "edge", "low", "high", "narrow", "wide", "passband", "transmit", "receive", "leader" }, "Radio", "DSP")
-            { OpensLayer = FilterLayerContext },
-        new("Leader", "JJ key", "Ctrl+J, Ctrl+F", "Enter a frequency",
-            new[] { "frequency", "enter", "leader" }, "Radio", "General"),
         new("Leader", "JJ key", "Ctrl+J, D", "Toggle tuning speech debounce",
             new[] { "debounce", "tuning", "speech", "leader" }, "Global", "General"),
-        // Sprint 30 Track D. Ctrl+D, not plain D — plain D has been debounce
-        // since before the diagnostic-log design was written — and not Shift+D,
-        // which sits inside the Shift+A-Shift+H slice-jump range. Ctrl+J, Ctrl+F
-        // is the in-layer precedent for a Ctrl-modified follow-on key.
-        new("Leader", "JJ key", "Ctrl+J, Ctrl+D",
-            "Start or stop a detailed capture — everything the app is doing",
-            new[] { "capture", "detailed", "diagnostic", "diagnostics", "trace", "tracing", "log",
-                    "record", "bug", "problem", "report", "verbose", "leader" }, "Global", "General"),
-        // Sprint 31 Track Q (#100). Ctrl+R for "Recorded problems", parked
-        // beside Ctrl+D so the two diagnostics chords live together: Ctrl+D
-        // starts recording evidence, Ctrl+R reads what has already gone wrong.
-        // Plain R is On-Radio Neural NR and Shift+R is its PC namesake, so
-        // Ctrl+R is the only free R in the layer — and Ctrl+D and Ctrl+F are
-        // the precedent for a Ctrl-modified follow-on key.
-        new("Leader", "JJ key", "Ctrl+J, Ctrl+R",
-            "Read the problems recorded this session",
-            new[] { "problem", "problems", "recorded", "failure", "failed", "error", "errors",
-                    "wrong", "issue", "issues", "went", "missed", "notification", "diagnostic",
-                    "diagnostics", "history", "leader" }, "Global", "General"),
-        // Sprint 35 Track D (#253). O for "what is On". Parked beside Ctrl+D and
-        // Ctrl+R so the three diagnostics chords live together: Ctrl+D starts
-        // recording evidence, Ctrl+R reads what has already gone wrong, and this
-        // one answers what is running and costing something right now. Plain O
-        // rather than a Ctrl form because O was free in every variant, so there
-        // was no taken letter to reach around.
-        new("Leader", "JJ key", "Ctrl+J, O",
-            "Say what is still running and what it is costing — recording, captures, meter tones",
-            new[] { "running", "on", "still", "what", "recording", "record", "instrumentation",
-                    "capture", "meter", "stream", "transcript", "tones", "cost", "costing",
-                    "size", "megabytes", "disk", "left", "forgot", "diagnostic", "diagnostics",
-                    "leader" }, "Global", "General"),
-        // Sprint 36 Track F (#269). V for Version; Alt because bare V is volume
-        // mode and has been since the Audio Arc. The first Alt chord in the
-        // layer — WpfKeyConverter resolves Key.System before the switch sees
-        // it, so the trap that killed the 2026-08-13 Alt+L binding does not
-        // reach here.
-        new("Leader", "JJ key", "Ctrl+J, Alt+V",
-            "Speak the version and build date of this copy",
-            new[] { "version", "build", "which", "number", "release", "debug", "nightly",
-                    "date", "built", "tester", "report", "identify", "about", "copy",
-                    "running", "installed", "update", "updated", "leader" }, "Global", "General"),
-        new("Leader", "JJ key", "Ctrl+J, L", "Speak log statistics",
-            new[] { "log", "statistics", "stats", "leader" }, "Global", "Logging"),
-        new("Leader", "JJ key", "Ctrl+J, M", "Open the memories dialog",
-            new[] { "memory", "memories", "leader" }, "Radio", "Dialog"),
-        new("Leader", "JJ key", "Ctrl+J, T", "Toggle meter tones",
-            new[] { "meter", "tones", "leader", "toggle" }, "Global", "Audio"),
-        // Sprint 33 Track F (#153). E for echo, and E is a single dit — the
-        // smallest character in Morse, for the one chord that only ever answers
-        // in Morse. Plain E was the last obvious free letter; Shift+E belongs to
-        // the slice-jump row.
-        new("Leader", "JJ key", "Ctrl+J, E", "Re-send recent CW notifications — press again for earlier ones",
-            new[] { "repeat", "cw", "morse", "echo", "again", "history", "recent", "earlier",
-                    "back", "previous", "missed", "resend", "code", "leader" }, "Global", "Audio"),
-        new("Leader", "JJ key", "Ctrl+J, Shift+T", "Toggle alert sounds (earcons)",
-            new[] { "earcon", "alert", "sounds", "leader", "toggle" }, "Global", "Audio"),
-        // The Shift tier (#515): Shift+letter is that slice, from anywhere,
-        // inside any layer, and nothing else — all eight, F included (#504).
-        new("Leader", "JJ key", "Ctrl+J, Shift+A through Shift+H", "Jump to that slice from anywhere — the letter is the slice",
-            new[] { "slice", "jump", "leader", "letter", "go", "switch", "select" }, "Radio", "General"),
+        // Two Ctrl chords that are not toggles, kept on purpose. Ctrl+C is
+        // copy because it is copy everywhere in Windows (#433), and that rule
+        // outranks ours. Ctrl+F waits on the UNRULED question in #515 of
+        // whether the Alt tier means "speak it" — Alt+F is that proposal's
+        // own example — so it is not moved there ahead of the ruling.
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+C", "Copy the message the history walk is sitting on",
+            new[] { "copy", "clipboard", "paste", "spoken", "speech", "message", "report",
+                    "text", "share", "leader" }, "Global", "General"),
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+F", "Enter a frequency",
+            new[] { "frequency", "enter", "leader" }, "Radio", "General"),
+
+        // ── Help, and the way out ───────────────────────────────────────
         // The two help doors every layer has (#514, #519). H lists this
         // layer's commands; the slash key opens the JJ key explorer, a map of
         // every layer you move through at your own pace. Two rows because they

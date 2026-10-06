@@ -2380,8 +2380,12 @@ namespace Radios.Tests
             Assert.Equal(2, Regex.Matches(source,
                 @"if \(code < WinFormsKeys\.A \|\| code > WinFormsKeys\.Z\)").Count);
 
+            // The two orders, pinned. The leader's gained an Alt tier and moved
+            // Shift last in Sprint 48 Track C (the chords moved onto Ctrl and
+            // Alt, so those are the likely slips now); the layer's is unchanged
+            // and has no Alt, because a value layer passes Alt chords through.
             string parser = ReadSource("Radios/LeaderChordParser.cs");
-            Assert.Contains("Candidates(pressed, Keys.None, Keys.Shift, Keys.Control)", parser);
+            Assert.Contains("Candidates(pressed, Keys.None, Keys.Control, Keys.Alt, Keys.Shift)", parser);
             Assert.Contains("Candidates(pressed, Keys.None, Keys.Control, Keys.Shift)", parser);
         }
 

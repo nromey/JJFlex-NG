@@ -84,7 +84,7 @@ public partial class AudioWorkshopDialog
         if (_rig == null) return;
 
         // Test tone housekeeping runs on EVERY tick regardless of tab: the
-        // arm checkbox must follow the engine (Ctrl+J, G can change it from
+        // arm checkbox must follow the engine (Ctrl+J, Ctrl+G can change it from
         // outside this dialog), the local monitor must track actual
         // transmit state, and the passband warning must fire if the TX
         // filter moves out from under an armed tone — the operator may be

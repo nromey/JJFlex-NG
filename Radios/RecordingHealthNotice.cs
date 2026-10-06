@@ -271,7 +271,7 @@ namespace Radios
     /// <summary>
     /// Carries a recording-health change onto the operator's existing failure
     /// surface: <see cref="OperationFailure"/>, which the application records in
-    /// its Problems list (Ctrl+J, Ctrl+R), counts on the Diagnostics tab, and
+    /// its Problems list (Ctrl+J, Alt+R), counts on the Diagnostics tab, and
     /// announces once per kind with an earcon — queued behind whatever is
     /// speaking, never interrupting, never opening a window, never taking
     /// focus, and never while transmitting (all of that is the offer's own

@@ -734,11 +734,18 @@ namespace Radios.Tests
             // CONFLICTING key was mistaken for counting the merge, and two keys
             // that merged cleanly went uncounted.
             //
-            // 3,130 at the Sprint 48 merge (2026-10-05): Track A's seventeen
-            // and Track B's thirty-nine both landed, each having recorded the
-            // count it would have produced alone. 3,075 + 17 - 1 + 39. The two
-            // tracks' own notes are kept below rather than collapsed, because
-            // each says WHICH strings it added and why they were frozen.
+            // 3,131 at the Sprint 48 merge (2026-10-05): all three tracks
+            // landed, each having recorded the count it would have produced
+            // alone. 3,075 + 17 - 1 + 39 + 1. Each track's own note is kept
+            // below rather than collapsed, because each says WHICH strings it
+            // added and why they were frozen.
+            //
+            // NOEL RULED 2026-10-05 THAT THESE GET CLASSIFIED RATHER THAN
+            // FROZEN — "I'd classify teh keys" — so this number is now a debt
+            // with a decision behind it, not a standing state. The ruling and
+            // the measured size of the backlog (3,091 before this sprint,
+            // across eight lexicon files, with facts.json the only one ever
+            // classified) are in #151.
             //
             // Track A (#151, 2026-10-05): seventeen new
             // message-key sentences — what the key said when it sent, stopped,
@@ -764,6 +771,13 @@ namespace Radios.Tests
             // wants classifying — a safety outcome the operator has no other
             // way of learning — and it is named in the track report for exactly
             // that reason.
+            //
+            // Track C: one key, leader.explorer.tier.digit,
+            // the explorer's label for the JJ key's fifth tier. Frozen in the
+            // manifest beside its six sibling tier labels rather than
+            // classified alone, because the only classified surface so far is
+            // facts.* and this test says so below; the seven tier labels want
+            // classifying together, under #629, as the window text they are.
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -776,7 +790,11 @@ namespace Radios.Tests
                 }
             }
 
-            Assert.Equal(3130, unclassified);
+<<<<<<< HEAD
+            Assert.Equal(3131, unclassified);
+=======
+            Assert.Equal(3076, unclassified);
+>>>>>>> sprint48/track-c
             Assert.All(classified, key =>
                 Assert.StartsWith("facts.", key, StringComparison.Ordinal));
             Assert.True(classified.Count > 30,

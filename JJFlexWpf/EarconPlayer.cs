@@ -2062,7 +2062,7 @@ namespace JJFlexWpf
 
         /// <summary>
         /// Two notes falling a minor third — a problem was recorded and can be
-        /// read with Ctrl+J, Ctrl+R (Sprint 31, #100).
+        /// read with Ctrl+J, Alt+R (Sprint 31, #100; Alt since Sprint 48).
         ///
         /// Family: Warnings, alongside WarningAlarmTone. It lived in
         /// CommandsAndConfirmations until Sprint 31 #111, for the honest reason

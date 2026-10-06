@@ -5,7 +5,7 @@ namespace JJFlexWpf;
 
 /// <summary>
 /// The one place that decides how a mic-audio reading reads. Four surfaces ask
-/// this question — the JJ key's mic check (Ctrl+J, K), the transmit status key
+/// this question — the JJ key's mic check (Ctrl+J, Alt+K), the transmit status key
 /// (Alt+Shift+S), the Audio Workshop's reading field, and the Home audio
 /// expander's — and every one of them used to compose its own sentence from
 /// the same two ingredients. They agreed by inspection rather than by
@@ -121,7 +121,7 @@ internal static class MicAudioReport
     // visible) re-compose constantly and must NOT churn, because both fields
     // deliberately assign text only on change so a steady reading never
     // resets a screen reader's review cursor; while the deliberate checks
-    // (Ctrl+J K, Alt+Shift+S, the workshop's unkey report) arrive seconds
+    // (Ctrl+J Alt+K, Alt+Shift+S, the workshop's unkey report) arrive seconds
     // apart and SHOULD rotate, so a tuning session gets a fresh line each
     // pass. Polls land inside the hold window and see a stable sentence;
     // human-paced checks land outside it and advance the rotation.

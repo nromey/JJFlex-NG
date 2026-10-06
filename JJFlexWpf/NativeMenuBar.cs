@@ -655,14 +655,14 @@ public class NativeMenuBar : IDisposable
 
         // === Noise Blankers submenu ===
         var nbSub = AddSubmenu(parent, "Noise Blankers");
-        AddChecked(nbSub, "Noise Blanker (NB)\tCtrl+J, B", () =>
+        AddChecked(nbSub, "Noise Blanker (NB)\tCtrl+J, Ctrl+B", () =>
             ToggleDSP("Noise Blanker", () => Rig.NoiseBlanker, v => Rig.NoiseBlanker = v),
             () => Rig?.NoiseBlanker == FlexBase.OffOnValues.on);
         AddWired(nbSub, "NB Level Up", () =>
             AdjustValue("NB Level", () => Rig.NoiseBlankerLevel, v => Rig.NoiseBlankerLevel = v, 5, 1, 100));
         AddWired(nbSub, "NB Level Down", () =>
             AdjustValue("NB Level", () => Rig.NoiseBlankerLevel, v => Rig.NoiseBlankerLevel = v, -5, 1, 100));
-        AddChecked(nbSub, "Wideband NB (WNB)\tCtrl+J, W", () =>
+        AddChecked(nbSub, "Wideband NB (WNB)\tCtrl+J, Ctrl+W", () =>
             ToggleDSP("Wideband NB", () => Rig.WidebandNoiseBlanker, v => Rig.WidebandNoiseBlanker = v),
             () => Rig?.WidebandNoiseBlanker == FlexBase.OffOnValues.on);
         AddWired(nbSub, "WNB Level Up", () =>
@@ -708,7 +708,7 @@ public class NativeMenuBar : IDisposable
         // room. The capture start is deferred past the menu close so its
         // spoken countdown isn't trampled by NVDA's menu-dismiss chatter
         // (same reasoning as SpeakAfterMenuClose's 500 ms).
-        AddWired(pcSub, "Capture Noise Profile\tCtrl+J, Q", () =>
+        AddWired(pcSub, "Capture Noise Profile\tCtrl+J, Alt+Q", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
             var p = _window.FieldsPanel?.AudioPipeline;
@@ -765,7 +765,7 @@ public class NativeMenuBar : IDisposable
         // app has, and it showed a checkmark for the tone state while actually
         // opening the panel. Two items now, each doing and naming one thing.
         var meterSub = AddSubmenu(parent, "Meter Tones");
-        AddChecked(meterSub, "Meter Tones On/Off\tCtrl+J, T", () =>
+        AddChecked(meterSub, "Meter Tones On/Off\tCtrl+J, Ctrl+T", () =>
         {
             MeterToneEngine.ToggleEnabled();
         }, () => MeterToneEngine.Enabled);
@@ -2628,7 +2628,7 @@ public class NativeMenuBar : IDisposable
         AddNotImplemented(log, "Export Log");
         AddNotImplemented(log, "LOTW Merge");
         AddSep(log);
-        AddCommand(log, "Log Statistics\tCtrl+J, L", Radios.CommandValues.LogStats);
+        AddCommand(log, "Log Statistics\tCtrl+J, Alt+L", Radios.CommandValues.LogStats);
         AddSep(log);
         AddNotImplemented(log, "Reset Confirmations");
 

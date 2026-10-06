@@ -1014,7 +1014,7 @@ public class KeyCommands
     }
 
     /// <summary>
-    /// Ctrl+Alt+M. The same switch as Ctrl+J then T, so it goes through the
+    /// Ctrl+Alt+M. The same switch as Ctrl+J then Ctrl+T, so it goes through the
     /// same method.
     /// </summary>
     /// <remarks>
@@ -1594,7 +1594,7 @@ public class KeyCommands
         SaveVerbositySetting();
     }
 
-    // Ctrl+J then T. The wording and the earcons live on the engine so this and
+    // Ctrl+J then Ctrl+T. The wording and the earcons live on the engine so this and
     // the Meter Tones menu item say the same thing (Sprint 32 Track B).
     private void ToggleMeterTonesGlobalHandler() => MeterToneEngine.ToggleEnabled();
 
@@ -1768,9 +1768,9 @@ public class KeyCommands
         // ── Reachable on the leader layer. Bound in every sense that matters
         //    to an operator; the registry row is just not where it lives. ──
         [CommandValues.ShowMemory] = new(UnboundReason.LeaderLayer,
-            "Ctrl+J, M opens the memories dialog."),
+            "Ctrl+J, Alt+M opens the memories dialog."),
         [CommandValues.LogStats] = new(UnboundReason.LeaderLayer,
-            "Ctrl+J, L speaks log statistics. NOTE for whoever owns the logging menu: "
+            "Ctrl+J, Alt+L speaks log statistics. NOTE for whoever owns the logging menu: "
             + "the Logging menu's own 'Log Statistics' item is still an AddNotImplemented "
             + "stub that answers 'not yet implemented in this version' while this chord "
             + "has worked for sprints. Reported by Sprint 32 Track G, not fixed here — "
@@ -1785,9 +1785,9 @@ public class KeyCommands
             + "JJ key chord this once had, plain F, is the filter layer's door now, and the "
             + "readout lives inside that layer."),
         [CommandValues.ToggleMeterTonesGlobal] = new(UnboundReason.LeaderLayer,
-            "Ctrl+J, T toggles meter tones."),
+            "Ctrl+J, Ctrl+T toggles meter tones."),
         [CommandValues.RepeatLastCw] = new(UnboundReason.LeaderLayer,
-            "Ctrl+J, E re-sends recent CW notifications — E for echo. The flat chord "
+            "Ctrl+J, Alt+E re-sends recent CW notifications — E for echo. The flat chord "
             + "that would have mirrored the speech repeat on Ctrl+F4 is Ctrl+Shift+F4, "
             + "and that already focuses the CW send text box."),
         // #433. Leader-layer for the same reason: a global Ctrl+letter for
@@ -1958,7 +1958,7 @@ public class KeyCommands
         // --- Radio scope ---
         new(Keys.F2, CommandValues.ShowFreq, KeyScope.Radio),
         new(Keys.F | Keys.Control, CommandValues.SetFreq, KeyScope.Radio),
-        new(Keys.None, CommandValues.ShowMemory, KeyScope.Radio), // unbound: LeaderLayer — Ctrl+J, M
+        new(Keys.None, CommandValues.ShowMemory, KeyScope.Radio), // unbound: LeaderLayer — Ctrl+J, Alt+M
         new(Keys.None, CommandValues.MemoryScan, KeyScope.Radio), // unbound: Shadowed
         new(Keys.None, CommandValues.SmeterDBM, KeyScope.Radio), // unbound: LeaderLayer — Ctrl+J, Ctrl+S
         new(Keys.S | Keys.Control, CommandValues.ReadSMeter, KeyScope.Radio),
@@ -2040,7 +2040,7 @@ public class KeyCommands
         new(Keys.None, CommandValues.LogRig, KeyScope.Logging), // unbound: MenuOrDialog
         new(Keys.None, CommandValues.LogAnt, KeyScope.Logging), // unbound: MenuOrDialog
         new(Keys.F | Keys.Control | Keys.Shift, CommandValues.SearchLog, KeyScope.Logging),
-        new(Keys.None, CommandValues.LogStats, KeyScope.Logging), // unbound: LeaderLayer — Ctrl+J, L
+        new(Keys.None, CommandValues.LogStats, KeyScope.Logging), // unbound: LeaderLayer — Ctrl+J, Alt+L
         new(Keys.F6, CommandValues.LogPaneSwitchF6, KeyScope.Logging),
         new(Keys.N | Keys.Control | Keys.Shift, CommandValues.LogCharacteristicsDialog, KeyScope.Logging),
         new(Keys.L | Keys.Control | Keys.Alt, CommandValues.LogOpenFullForm, KeyScope.Logging),
@@ -2090,7 +2090,7 @@ public class KeyCommands
         // ergonomics while reversing a documented, shipped binding.
         new(Keys.F5 | Keys.Control, CommandValues.RepeatNextMessage, KeyScope.Global),
         new(Keys.None, CommandValues.CopyRecentMessage, KeyScope.Global), // unbound: LeaderLayer — Ctrl+J, Ctrl+C
-        new(Keys.None, CommandValues.RepeatLastCw, KeyScope.Global), // unbound: LeaderLayer — Ctrl+J, E
+        new(Keys.None, CommandValues.RepeatLastCw, KeyScope.Global), // unbound: LeaderLayer — Ctrl+J, Alt+E
         new(Keys.None, CommandValues.SpeakVersion, KeyScope.Global), // unbound: LeaderLayer — Ctrl+J, Alt+V
 
         // Former hard-wired meta-commands (QB Track H, 2026-08-07) — same
@@ -2102,7 +2102,7 @@ public class KeyCommands
 
         // Verbosity (Sprint 24 Phase 6)
         new(Keys.V | Keys.Control | Keys.Shift, CommandValues.CycleVerbosity, KeyScope.Global),
-        new(Keys.None, CommandValues.ToggleMeterTonesGlobal, KeyScope.Global), // unbound: LeaderLayer — Ctrl+J, T
+        new(Keys.None, CommandValues.ToggleMeterTonesGlobal, KeyScope.Global), // unbound: LeaderLayer — Ctrl+J, Ctrl+T
 
         // Slice (Sprint 24 Phase 8)
         // Shift+M mute-all / Shift+Comma release-all — multi-slice universal
@@ -3674,28 +3674,71 @@ public class KeyCommands
         // default case below says it arrived and meant nothing.
         _context.Trace("Leader:" + k);
 
+        // THE FOUR TIERS (#515, Noel's ruling of 2026-09-02) — every arm
+        // below sits on the tier the grammar derives for it, or carries a
+        // comment saying why it cannot yet. The arms are NOT grouped by
+        // tier here, on purpose: this switch is the one region every track
+        // that adds a chord has to touch, and a wholesale reorder turns
+        // every one of those merges into a conflict. The derivable views
+        // are KeyInventory.LeaderCommands (grouped by tier, which is what H
+        // lists and both help pages walk) and the explorer tree, which sorts
+        // by tier for you.
+        //
+        //   plain letter  — OPENS A LAYER: A audio, F filter. M is ruled for
+        //                   the mode layer and is free, waiting for it.
+        //   Shift+letter  — JUMPS TO THAT SLICE, A to H, from anywhere.
+        //   Ctrl+letter   — TOGGLES the thing whose initial it is.
+        //   Alt+letter    — an ACTION that is neither: speak, open, send,
+        //                   capture.
+        //   digit         — a fifth tier, reserved for the message library
+        //                   (Sprint 48): JJ key 1 sends message 1, bare
+        //                   digits only, top level only. See
+        //                   JjKeyGrammarTests for the rules it must keep.
+        //
+        // Still outside the grammar, each with the reason at its arm: the
+        // plain-letter and Shift toggles whose Ctrl initial is spoken for
+        // (C, D, P, S, Shift+N, Shift+P, Shift+R, Shift+S), the Ctrl chords
+        // that are not toggles (Ctrl+C copy, Ctrl+F frequency), and the
+        // Alt+P door into the audio layer. JjKeyGrammarTests holds that list
+        // in both directions, so it can only shrink.
         switch (k)
         {
-            // DSP Toggles
-            case Keys.N:
+            // Ctrl+N = legacy Noise Reduction. Sprint 48 Track C: Ctrl is the
+            // toggle tier and N is Noise Reduction's own initial, so the chord
+            // derives itself. It was plain N from the day the layer was built;
+            // a plain letter opens a layer now. The NR Filter, on Shift+N
+            // below, shares the initial and could not follow — it waits for
+            // the noise layer.
+            case Keys.N | Keys.Control:
                 if (rig == null) LeaderNoRadio();
                 else ToggleLeaderDSP("Legacy Noise Reduction",
                     () => rig.NoiseReduction, v => rig.NoiseReduction = v);
                 break;
-            case Keys.B:
+            // Ctrl+B = Noise Blanker, Ctrl+W = Wideband Noise Blanker. Both
+            // toggles, both on their own initial (Sprint 48 Track C; they were
+            // plain B and W). Inside the AUDIO layer Ctrl+B is binaural — a
+            // layer's letters are its own targets (#514), not this tier's.
+            case Keys.B | Keys.Control:
                 if (rig == null) LeaderNoRadio();
                 else ToggleLeaderDSP("Noise Blanker",
                     () => rig.NoiseBlanker, v => rig.NoiseBlanker = v);
                 break;
-            case Keys.W:
+            case Keys.W | Keys.Control:
                 if (rig == null) LeaderNoRadio();
                 else ToggleLeaderDSP("Wideband NB",
                     () => rig.WidebandNoiseBlanker, v => rig.WidebandNoiseBlanker = v);
                 break;
             // "On-Radio" prefix (DSP controls track, 2026-08-11): these two
             // have PC-side namesakes on Shift+R/Shift+S — the spoken names
-            // now say which side of the wire each one lives on.
-            case Keys.R:
+            // say which side of the wire each one lives on.
+            //
+            // Ctrl+R = On-Radio Neural NR (Sprint 48 Track C). A toggle whose
+            // initial is R, so the Ctrl tier is where the grammar puts it.
+            // Ctrl+R was "read the recorded problems" until this track; that
+            // is an action, so it moved to Alt+R below and freed the chord.
+            // The PC twin on Shift+R shares the initial and stays where it
+            // is until the noise layer gives the pair separate letters.
+            case Keys.R | Keys.Control:
                 if (rig == null)
                     LeaderNoRadio();
                 else if (!rig.NeuralNRHardwareSupported)
@@ -3707,6 +3750,12 @@ public class KeyCommands
                     ToggleLeaderDSP("On-Radio Neural NR",
                         () => rig.NeuralNoiseReduction, v => rig.NeuralNoiseReduction = v);
                 break;
+            // Plain S — On-Radio Spectral NR. NOT YET IN THE GRAMMAR: a
+            // toggle belongs on Ctrl+S, and Ctrl+S is the S-meter unit
+            // switch, itself a toggle on its own initial and kept by ruling
+            // (2026-08-28). Two toggles, one initial, so one of them waits
+            // for the noise layer; this one does. Its PC twin on Shift+S is
+            // in the same position. Recorded in JjKeyGrammarTests.PlainTierDebt.
             case Keys.S:
                 if (rig == null)
                     LeaderNoRadio();
@@ -3719,6 +3768,11 @@ public class KeyCommands
                     ToggleLeaderDSP("On-Radio Spectral NR",
                         () => rig.SpectralNoiseReduction, v => rig.SpectralNoiseReduction = v);
                 break;
+            // Shift+N — NR Filter. NOT YET IN THE GRAMMAR: Shift means jump to
+            // that slice and nothing else, but N is beyond H so no slice is
+            // blocked, and the chord's derived home, Ctrl+N, went to Noise
+            // Reduction itself. The noise layer is where the two N toggles
+            // get told apart. Recorded in JjKeyGrammarTests.ShiftTierDebt.
             case Keys.N | Keys.Shift:
                 if (rig == null)
                     LeaderNoRadio();
@@ -3732,7 +3786,13 @@ public class KeyCommands
                         () => rig.NoiseReductionFilter, v => rig.NoiseReductionFilter = v);
                 break;
 
-            // PC-side NR (works on ALL radios — processing runs on the PC)
+            // PC-side NR (works on ALL radios — processing runs on the PC).
+            // Shift+R and Shift+S are NOT YET IN THE GRAMMAR: each is a
+            // toggle whose initial is already a Ctrl chord (Neural NR on
+            // Ctrl+R, the S-meter unit on Ctrl+S), and a pair that differs
+            // only by which side of the wire it runs on cannot be told apart
+            // by an initial at all. That is what the noise layer is for.
+            // Recorded in JjKeyGrammarTests.ShiftTierDebt.
             case Keys.R | Keys.Shift:
                 {
                     var pipeline = _context.GetMainWindow()?.FieldsPanel.AudioPipeline;
@@ -3786,12 +3846,16 @@ public class KeyCommands
 
             // DSP controls track (2026-08-11): Q = capture a noise profile
             // for PC Spectral NR — Q for "quiet", the thing you're capturing
-            // (hams may prefer to read it as QRN). Press Q again while the
-            // capture runs to cancel it. The narrator speaks start, each
-            // second, and the result; a completed capture auto-saves and is
-            // reloaded on the next connect. Works on every radio — the
+            // (hams may prefer to read it as QRN). Press the chord again
+            // while the capture runs to cancel it. The narrator speaks start,
+            // each second, and the result; a completed capture auto-saves and
+            // is reloaded on the next connect. Works on every radio — the
             // pipeline runs on this computer.
-            case Keys.Q:
+            //
+            // Alt+Q since Sprint 48 Track C: a capture is an ACTION, and
+            // #515 names this very chord as the Alt tier's example. It was
+            // plain Q; a plain letter opens a layer now.
+            case Keys.Q | Keys.Alt:
                 {
                     var win = _context.GetMainWindow();
                     var pipeline = win?.FieldsPanel.AudioPipeline;
@@ -3810,16 +3874,17 @@ public class KeyCommands
 
             // Sprint 36 Track C (#271): the QSO signal analyzer — watch a
             // contact's S-meter, then hear what the signal did, QSB and all.
-            // Ctrl+Q because plain Q is the noise capture and Q is the letter
-            // "QSO" reaches for; Ctrl+F, Ctrl+D and Ctrl+R are the precedent
-            // for the Ctrl-modified form when the letter you want is taken.
-            // The two capture chords live side by side on purpose.
+            // Ctrl+Q: a start-or-stop TOGGLE on the letter "QSO" reaches
+            // for, which is exactly where the four-tier grammar puts it. The
+            // noise capture is Alt+Q, so the two capture chords still sit
+            // side by side, one modifier apart, and the modifier says which
+            // is the switch and which is the one-shot.
             //
             // A toggle: the same chord stops the capture and speaks the
             // headline; the full report lands under Tools, Signal captures.
             // Runs until told — no auto-stop, ruled 2026-08-26 — and the
-            // running-cost registration is what makes that safe (Ctrl+J, O
-            // reports it, thresholds speak up, exit asks about it).
+            // running-cost registration is what makes that safe (Ctrl+J,
+            // Alt+O reports it, thresholds speak up, exit asks about it).
             //
             // No rig gate at the case: STOPPING must work even after the
             // radio has gone away, or a capture could only be ended by
@@ -3833,6 +3898,15 @@ public class KeyCommands
             // copy chord everywhere, so it is the copy chord here too - and it
             // is safe on the leader layer, where plain Ctrl+C still belongs to
             // whatever control has focus.
+            //
+            // OUTSIDE THE GRAMMAR BY DESIGN, and this is the one exception
+            // worth keeping: Ctrl is the toggle tier (#515) and copying is
+            // an action, but "Ctrl+C copies" is a rule an operator derived
+            // from Windows long before this layer existed, and a derivable
+            // map is the whole point. Our grammar yields to the wider one.
+            // The cost is that the Compander toggle, whose initial is C,
+            // stays on plain C until the audio layer gives it a switch.
+            // Recorded in JjKeyGrammarTests.CtrlTierActionDebt.
             //
             // No rig gate: what was said is ours, not the radio's, and copying
             // it must work after the radio has gone away - which is exactly
@@ -3876,6 +3950,10 @@ public class KeyCommands
                 EnterAudioLayer(onPan: false);
                 break;
 
+            // Plain P — Audio Peak Filter. NOT YET IN THE GRAMMAR: a toggle,
+            // so Ctrl+P, and Ctrl+P is PC audio by ruling (#513). Its home
+            // is the noise layer, or the filter layer — #516 leaves which one
+            // to Noel. Recorded in JjKeyGrammarTests.PlainTierDebt.
             case Keys.P:
                 if (rig == null)
                     LeaderNoRadio();
@@ -3897,6 +3975,13 @@ public class KeyCommands
             // I hear" joins the leader. V enters the persistent volume mode;
             // C and Shift+P are the TX-processing toggles (their LEVELS live
             // inside volume mode as targets C and S).
+            //
+            // V is a second door to the audio layer, the same one A opens. A
+            // plain letter opening a layer is what the grammar says, so this
+            // is conformant and merely redundant (#515, addition of
+            // 2026-10-01). Kept as a courtesy to the fingers that learned it,
+            // under #513's rule: a courtesy, not a commitment, and it goes
+            // the day V is wanted for a layer of its own.
             case Keys.V:
                 if (rig == null) LeaderNoRadio();
                 else EnterVolumeMode();
@@ -3907,11 +3992,16 @@ public class KeyCommands
             // Peak Filter and Shift+P the Speech Processor. Ctrl+P was skipped
             // here in Sprint 37 because flat Ctrl+P is the FREQUENCY panning
             // field and the two share only a word; #513 has since put PC
-            // audio on Ctrl+P by ruling, which settles it. Under #514 pan
-            // belongs inside the audio layer (JJ key A) — Track I's move; this
-            // door stays open until it lands. Alt+V is the in-layer precedent
-            // for an Alt-modified follow-on, and WpfKeyConverter resolves
-            // Key.System before this switch sees the press.
+            // audio on Ctrl+P by ruling, which settles it.
+            //
+            // OUTSIDE THE GRAMMAR, and it cannot be brought in: it opens a
+            // layer, and only a plain letter does that (#515). Pan landed
+            // inside the audio layer (#514, Sprint 44 Track I) — JJ key A,
+            // then P — so this door is a courtesy to the fingers that knew
+            // pan mode, under #513's rule that a courtesy is not a
+            // commitment. Retiring it is Noel's call, not a track's; it is
+            // recorded in JjKeyGrammarTests.AltTierLayerDebt so the day it
+            // goes, the test says the debt is paid.
             case Keys.P | Keys.Alt:
                 EnterPanMode();
                 break;
@@ -3919,17 +4009,30 @@ public class KeyCommands
             // Audio Arc Keys Track (2026-08-11): K = mic check ("mic check,
             // one two"), the binding an operator rides while adjusting gain.
             // Speaks ONLY the verdict and level — no transmit-status preamble.
-            case Keys.K:
+            //
+            // Alt+K since Sprint 48 Track C: it speaks and changes nothing,
+            // so it is an action on the Alt tier (#515). It was plain K.
+            case Keys.K | Keys.Alt:
                 SpeakMicCheck();
                 break;
 
-            // G = the TX test-tone Generator, arm/disarm. Track C built the
-            // engine on FlexBase and deliberately added no hotkey because
-            // this track owns the key surface.
-            case Keys.G:
+            // Ctrl+G = the TX test-tone Generator, arm or disarm. Track C of
+            // the Audio Arc built the engine on FlexBase and deliberately
+            // added no hotkey because the keys track owned the key surface.
+            // Arm-or-disarm is a toggle, G is its initial, so the Ctrl tier
+            // (Sprint 48 Track C; it was plain G). Noel's own press of
+            // 2026-08-23 — Ctrl+G, meaning the tone — is now simply the chord.
+            case Keys.G | Keys.Control:
                 ToggleTxTone();
                 break;
 
+            // Plain C — Compander. NOT YET IN THE GRAMMAR: a toggle, so
+            // Ctrl+C, and Ctrl+C is copy, which the layer keeps on purpose
+            // (see that arm). Its home is the audio layer, where its LEVEL
+            // already sits on C and an on-or-off switch beside it is one
+            // target away — but the audio layer's letters are provisional
+            // until Noel rules them (#524), so nothing is added there here.
+            // Recorded in JjKeyGrammarTests.PlainTierDebt.
             case Keys.C:
                 if (rig == null) LeaderNoRadio();
                 else ToggleLeaderDSP("Compander",
@@ -3960,7 +4063,7 @@ public class KeyCommands
             // Flat Ctrl+P is the FREQUENCY panning field. Different layer,
             // shares a word and nothing else; the pan-mode comment below
             // records the earlier worry, now overridden by the ruling. Note
-            // Ctrl+J, V, P rides the PC output LEVEL — this is the on/off
+            // Ctrl+J, A, O rides the PC output LEVEL — this is the on/off
             // switch, and they sit one keystroke apart on purpose.
             //
             // Nothing is duplicated here: the handler is the registry command's
@@ -3983,16 +4086,25 @@ public class KeyCommands
                     () => rig.AutoNotchFFT, v => rig.AutoNotchFFT = v);
                 break;
 
+            // Shift+P — Speech Processor. NOT YET IN THE GRAMMAR: a toggle
+            // whose initials are both spoken for on the Ctrl tier — P is PC
+            // audio (#513), S is the S-meter unit. P is beyond H, so no slice
+            // is blocked. Its home is the audio layer, where its mode already
+            // sits on S. Recorded in JjKeyGrammarTests.ShiftTierDebt.
             case Keys.P | Keys.Shift:
                 if (rig == null) LeaderNoRadio();
                 else ToggleLeaderDSP("Speech Processor",
                     () => rig.ProcessorOn, v => rig.ProcessorOn = v);
                 break;
 
-            // Ctrl+F = enter a frequency. Predates the four-tier grammar and
-            // is not a toggle — on the grammar it belongs to the Alt tier.
-            // Left where every operator's fingers know it; Noel walks the
-            // letters one at a time and this one has not come up.
+            // Ctrl+F = enter a frequency. OUTSIDE THE GRAMMAR, deliberately
+            // left: it is an action, so the Alt tier's — and Alt+F is the
+            // example chord of the UNRULED proposal recorded in #515 that
+            // the Alt tier could mean "speak it" (Alt+F speaks the filter).
+            // Moving frequency entry onto Alt+F would spend that chord
+            // before Noel has ruled either way, so this one waits on him.
+            // It blocks no toggle: nothing toggleable has the initial F.
+            // Recorded in JjKeyGrammarTests.CtrlTierActionDebt.
             case Keys.F | Keys.Control:
                 if (rig == null) LeaderNoRadio();
                 else _context.WriteFreq();
@@ -4009,7 +4121,12 @@ public class KeyCommands
                 EnterFilterLayer();
                 break;
 
-            // Tuning debounce toggle
+            // Plain D — tuning speech debounce. NOT YET IN THE GRAMMAR: a
+            // toggle, so Ctrl+D, and Ctrl+D is the detailed capture, also a
+            // toggle, also on its own initial, and the one of the two that
+            // has to work from inside a misbehaving dialog. Two toggles, one
+            // initial. Its natural home is the tuning layer, whose letter is
+            // not yet ruled (#518). Recorded in JjKeyGrammarTests.PlainTierDebt.
             case Keys.D:
                 ToggleTuneDebounce();
                 break;
@@ -4029,63 +4146,85 @@ public class KeyCommands
                 ToggleDetailedCaptureFromChord();
                 break;
 
-            // Ctrl+R = Recorded problems: read everything that has gone wrong
+            // Alt+R = Recorded problems: read everything that has gone wrong
             // this session. The other half of Ctrl+D — that one starts
             // recording evidence, this one reads what already went wrong.
             //
-            // Ctrl+R rather than plain R (On-Radio Neural NR since the DSP
-            // controls track) or Shift+R (its PC namesake), which makes Ctrl+R
-            // the only free R in the layer anyway.
+            // Alt+R since Sprint 48 Track C. It was Ctrl+R from Sprint 31,
+            // chosen then because Ctrl+R was "the only free R in the layer";
+            // under the grammar reading a list is an ACTION, so it belongs on
+            // the Alt tier, and giving up Ctrl+R let On-Radio Neural NR — a
+            // toggle whose initial is R — take the chord the grammar derives
+            // for it. The diagnostics family is now Ctrl+D (record), Alt+R
+            // (read what went wrong), Alt+O (read what is running): one
+            // switch and two readouts, and the modifier says which is which.
             //
             // Works with no radio connected on purpose: a connect that failed
             // is the commonest reason to press this, and by definition there is
             // no radio when it happens.
-            case Keys.R | Keys.Control:
+            case Keys.R | Keys.Alt:
                 ShowRecordedProblemsFromChord();
                 break;
 
-            // O = what is On — the on-demand read of the running-cost register
-            // (#253). Third member of the diagnostics family that already holds
-            // Ctrl+D and Ctrl+R: that one starts recording evidence, that one
-            // reads what went wrong, and this one answers "what is running and
-            // costing me something right now".
-            //
-            // Plain O, not Ctrl+O: O is one of the very few letters still free
-            // in the layer in every form, so there is no taken letter to reach
-            // around — and the sighted equivalent of this question is a glance,
-            // which should not cost two modifiers.
+            // Alt+O = what is On — the on-demand read of the running-cost
+            // register (#253). Third member of the diagnostics family: Ctrl+D
+            // starts recording evidence, Alt+R reads what went wrong, and this
+            // one answers "what is running and costing me something right
+            // now". It speaks and changes nothing, so the Alt tier (Sprint 48
+            // Track C; it was plain O, chosen when O was free in every form).
             //
             // Works with no radio connected on purpose. Every registrant is a
             // property of THIS APPLICATION, not of the radio, and instrumentation
             // left running through a failed connect is exactly the case worth
             // asking about.
-            case Keys.O:
+            case Keys.O | Keys.Alt:
                 SpeakRunningCostsFromChord();
                 break;
 
-            // Log Stats (moved from Ctrl+Shift+T)
-            case Keys.L:
+            // Alt+L = log statistics, spoken. An action on the Alt tier
+            // (Sprint 48 Track C; it was plain L, and Ctrl+Shift+T before
+            // that). Alt+L is the chord that shipped dead at the FLAT level
+            // on 2026-08-13; here WpfKeyConverter has already resolved
+            // Key.System, so what arrives is a proper Keys.L | Keys.Alt —
+            // the same path Alt+V has ridden since #269. Press it anyway.
+            case Keys.L | Keys.Alt:
                 _context.LogStats();
                 EarconPlayer.ConfirmTone();
                 break;
 
-            // Flex memories
-            case Keys.M:
+            // Alt+M = the Flex memories dialog. Opening a dialog is an action
+            // (Sprint 48 Track C; it was plain M). That frees plain M, which
+            // #515 rules for the MODE layer — "JJ key M A for AM, JJ key M S
+            // for SAM", Noel's own example. The layer is not built: its
+            // in-layer letters are his to walk (#518), and until he does,
+            // plain M answers with the near-miss that names this chord.
+            case Keys.M | Keys.Alt:
                 if (rig == null) LeaderNoRadio();
                 else _context.DisplayMemory();
                 break;
 
-            // Tones toggle (Sprint 24 Phase 6)
-            case Keys.T:
+            // Ctrl+T = meter tones on or off (Sprint 24 Phase 6). A toggle on
+            // its own initial (Sprint 48 Track C; it was plain T). The flat
+            // Ctrl+Alt+M is the same switch and says the same words.
+            case Keys.T | Keys.Control:
                 ToggleMeterTonesGlobalHandler();
                 break;
 
-            // Earcon mute toggle (Sprint 25 Phase 4)
-            case Keys.T | Keys.Shift:
+            // Ctrl+E = alert sounds, the earcons, on or off (Sprint 25 Phase
+            // 4). A toggle, so the Ctrl tier; E for Earcons, the feature's
+            // own name everywhere in the app (the Earcon Explorer, the earcon
+            // settings), with "alert sounds" as the plain-English gloss. Its
+            // other initial, A for alert, is Auto Notch. It was Shift+T —
+            // "the other one of the T pair", the pre-grammar Shift meaning
+            // that #512 dissolved — and T is meter tones' initial, not this
+            // one's. The one move in Sprint 48 Track C that involved a choice
+            // of initial rather than a derivation; Noel vetoes by ear.
+            case Keys.E | Keys.Control:
                 ToggleEarconMute();
                 break;
 
-            // E = Echo the recent CW notifications (#153, Sprint 33 Track F).
+            // Alt+E = Echo the recent CW notifications (#153, Sprint 33
+            // Track F).
             //
             // In the leader layer rather than as a flat chord, and not only
             // because that is the house rule: the flat chord anyone would reach
@@ -4095,13 +4234,15 @@ public class KeyCommands
             //
             // E because echo, and because E is a single dit — the smallest
             // character in Morse, for the one command in the layer that only
-            // ever answers in Morse. Plain E is free; only Shift+E is spoken
-            // for, by the slice-jump row.
+            // ever answers in Morse. Alt because re-sending is an action
+            // (Sprint 48 Track C; it was plain E). Shift+E is slice E and
+            // Ctrl+E is the earcons toggle, so the three E chords are three
+            // verbs on one letter, which is what the tiers are for.
             //
             // Works with no radio on purpose. The history outlives the
             // connection, and "what did that say?" is asked most often just
             // after something went away.
-            case Keys.E:
+            case Keys.E | Keys.Alt:
                 RepeatLastCwHandler();
                 break;
 
@@ -4124,7 +4265,7 @@ public class KeyCommands
 
             // Sprint 44 Track Q (#154): W for Windows — every window on the
             // screen, the one with the keyboard first. Alt because it is an
-            // action under the four-tier grammar (#515); plain W is the
+            // action under the four-tier grammar (#515); Ctrl+W is the
             // Wideband NB toggle. Works with no radio on purpose: the moment
             // you need it is precisely when nothing is answering you.
             case Keys.W | Keys.Alt:
@@ -4138,7 +4279,7 @@ public class KeyCommands
             // Alt because opening a manager is an ACTION under the four-tier
             // grammar (#515): it is not a layer, and it is not a toggle. The
             // three letters that read as "notch" are all spoken for on their
-            // own tiers — plain N is legacy Noise Reduction, Shift+N is the NR
+            // own tiers — Ctrl+N is legacy Noise Reduction, Shift+N is the NR
             // Filter, Ctrl+A is Auto Notch — and the grammar is what keeps that
             // from being a collision: a modifier changes the VERB, so Alt+N
             // cannot be confused with any of them by an operator who knows the
@@ -5281,7 +5422,7 @@ public class KeyCommands
     }
 
     /// <summary>
-    /// Ctrl+J, K — the dedicated mic-audio query (Audio Arc Keys Track,
+    /// Ctrl+J, Alt+K — the dedicated mic-audio query (Audio Arc Keys Track,
     /// 2026-08-11). Speaks ONLY verdict and level, context-aware: live
     /// recent peak while transmitting, the last transmit's peak while
     /// receiving. This is the binding an operator rides while adjusting mic
@@ -5308,7 +5449,7 @@ public class KeyCommands
     }
 
     /// <summary>
-    /// Ctrl+J, G — arm or disarm the TX test tone from anywhere (Audio Arc
+    /// Ctrl+J, Ctrl+G — arm or disarm the TX test tone from anywhere (Audio Arc
     /// Keys Track, 2026-08-11). Drives the FlexBase engine Track C built
     /// (TxToneStart/Stop); the Audio Workshop is NOT touched. Behaviour
     /// deliberately mirrors the Workshop's checkbox: path trouble REFUSES
@@ -5498,7 +5639,7 @@ public class KeyCommands
     }
 
     /// <summary>
-    /// Ctrl+J, Ctrl+R — read the problems recorded this session.
+    /// Ctrl+J, Alt+R — read the problems recorded this session.
     ///
     /// This chord is the whole reason the failure-moment window could be
     /// deleted (#100). A failure now announces itself once, quietly, over the
@@ -5531,7 +5672,7 @@ public class KeyCommands
     }
 
     /// <summary>
-    /// Ctrl+J, O — read out everything expensive that is currently running.
+    /// Ctrl+J, Alt+O — read out everything expensive that is currently running.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -5579,7 +5720,7 @@ public class KeyCommands
     /// </para>
     /// <para>
     /// The stop headline interrupts at Critical, because it is the answer to
-    /// a keypress — the same contract as Ctrl+J, O. The detail report is
+    /// a keypress — the same contract as Ctrl+J, Alt+O. The detail report is
     /// baked into the saved capture; nothing here renders it.
     /// </para>
     /// </remarks>

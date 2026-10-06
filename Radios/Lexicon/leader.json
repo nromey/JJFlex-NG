@@ -24,6 +24,7 @@
   "leader.explorer.tier.shift": "Shift plus a letter",
   "leader.explorer.tier.ctrl": "Control plus a letter",
   "leader.explorer.tier.alt": "Alt plus a letter",
+  "leader.explorer.tier.digit": "A digit",
   "leader.explorer.tier.help": "Help, and leaving the layer",
   "leader.explorer.tier.other": "Other keys",
   "leader.explorer.chord": "{key}, {description}",

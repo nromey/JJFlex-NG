@@ -38,7 +38,7 @@ namespace Radios.SignalCapture
     /// </para>
     /// <para>
     /// The running-cost registration is Notable with no auto-stop: the
-    /// register's exit prompt and Ctrl+J, O are what make a measurement with
+    /// register's exit prompt and Ctrl+J, Alt+O are what make a measurement with
     /// no clock on it something the operator cannot silently leave going.
     /// Thresholds at fifteen minutes and one hour — bounds on something that
     /// actually grew, never a timer.

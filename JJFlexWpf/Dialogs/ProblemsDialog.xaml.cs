@@ -6,7 +6,7 @@ namespace JJFlexWpf.Dialogs
 {
     /// <summary>
     /// The Problems window — everything that has gone wrong this session, on
-    /// demand, from Ctrl+J, Ctrl+R or the Diagnostics tab.
+    /// demand, from Ctrl+J, Alt+R or the Diagnostics tab.
     ///
     /// This is the half of the old failure-moment offer that was worth keeping.
     /// The offer's real content — "here is what went wrong, and here is the

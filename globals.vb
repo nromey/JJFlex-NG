@@ -755,7 +755,7 @@ Module globals
             meterTones.Stop = Sub()
                                   JJFlexWpf.MeterToneEngine.Enabled = False
                               End Sub
-            meterTones.StopHow = "press Control J, then T"
+            meterTones.StopHow = "press Control J, then Control T"
             meterTones.SurvivesRestart = True
             meterTones.Weight = Radios.RunningCostWeight.Routine
             Radios.RunningCostRegister.Register(meterTones)
