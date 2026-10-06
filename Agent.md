@@ -3,11 +3,180 @@
 This document captures the current state of JJ-Flex repository and active work.
 
 **Repository root:** `C:\dev\JJFlex-NG`
-**Branch:** *(as of 2026-09-30 all current work is on `sprint45/*` branches; integration is `sprint45/integration`. This header named `honest-tx-audio` as "where all current work lives" long after that stopped being true -- the same drift the note below warns about. Run `git rev-parse --abbrev-ref HEAD`.)* `honest-tx-audio` — historically this era's trunk, 867 commits ahead of `main` and 0 behind (corrected 2026-08-25; it said 19, and had said so for a long time). **The FlexLib fast-forward is DONE:** `main` vendors **FlexLib 4.2.20.41343** as of 2026-08-11, so main and the old track branch no longer diverge and the "305 commits behind" warning that stood here is retired. Verified 2026-08-12: `main` and `honest-tx-audio` share the same last FlexLib commit (`625bdbae`).
+**Branch:** *(as of 2026-10-05 current work is on `sprint48/*` branches; the merge target is `sprint48/track-a`, which carries Tracks A, B and C. This line said `sprint45/*` until then — and said `honest-tx-audio` long after that stopped being true, which is the same drift the note below warns about. Run `git rev-parse --abbrev-ref HEAD`.)* *(historical: as of 2026-09-30 work was on `sprint45/*`; integration was `sprint45/integration`. This header named `honest-tx-audio` as "where all current work lives" long after that stopped being true -- the same drift the note below warns about. Run `git rev-parse --abbrev-ref HEAD`.)* `honest-tx-audio` — historically this era's trunk, 867 commits ahead of `main` and 0 behind (corrected 2026-08-25; it said 19, and had said so for a long time). **The FlexLib fast-forward is DONE:** `main` vendors **FlexLib 4.2.20.41343** as of 2026-08-11, so main and the old track branch no longer diverge and the "305 commits behind" warning that stood here is retired. Verified 2026-08-12: `main` and `honest-tx-audio` share the same last FlexLib commit (`625bdbae`).
 
 *This header claimed work lived on `track/flexlib-4220` with main 305 commits behind until 2026-08-12 — a day after the merge made that false. It is the same drift documented in `memory/project_description_drift_pattern.md`; check `git rev-parse --abbrev-ref HEAD` rather than trusting this line.*
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
+
+## END-OF-DAY SEAL — 2026-10-05 — SPRINT 48 MERGED, AND THE REVIEWS OF THE NEXT THREE BRIEFS FOUND MORE THAN THE TRACKS DID
+
+**Written 2026-10-06. The day was not sealed at the time** — the session ran to about 20:30 and
+stopped without the procedure, so this entry is retrospective. Nothing was lost: all trees were
+clean and all branches pushed, it simply was not recorded.
+
+**Theme:** Sprint 48's three tracks merged into one tree, and then **three clean-window reviews
+of the NEXT three briefs found a live operator-facing bug, a broken ruling of Noel's, and two
+test-suite defects — none of which any track could have seen.** The day's most valuable output
+was not code.
+
+### The merge
+
+Tracks B and C merged into A. **Four conflicts, all resolved by keeping both sides**: the
+lexicon frozen-string count twice (3,075 + 17 - 1 + 39 + 1 = **3,131**, confirmed by running the
+test rather than by arithmetic), two changelog bullets landing at the same position, and
+`leader-key.md`'s table comment. Containment proved for both branches. Build clean, 0 errors.
+`Radios.Tests` **4,448 passed**. The filtered `JJFlexWpf.Tests` set 55 of 56, the one red being
+`DelegateSurfaceTests` (#591), which Noel ruled was not a merge blocker.
+
+**An error worth keeping: the merge commit shipped three conflict markers.** The resolution
+script printed *"markers left: 3"* and it was read past. **The reason the BUILD did not catch it
+is the durable part:** `dotnet build JJFlexRadio.sln` reports 0 errors with markers in
+`Radios.Tests`, because **that project is not in the solution.** A merge verified only by a
+solution build is not verified against the test projects at all — the same shape as the
+`DeskGuard` blindness, one layer further out.
+
+### What the integration pass found, and what the reviews found
+
+- **#699 — the hard-kill path drops the carrier and leaves an armed source armed.**
+  `KillTransmitNow` drops MOX and Tune independently and never calls `TxFileStop`; its three
+  callers are all on normal paths. **It needs Track A's gate change, Track B's watchdog and
+  Noel's VOX ruling of the same afternoon to exist at all**, so no single track could see it and
+  no merge or build would flag it. Filed with its mechanism marked as needing a bench check
+  rather than asserted — **and that caution was right**, because the review later showed the
+  "still draining" half was Track A's FINDING restated as current behaviour after Track A's FIX
+  removed it.
+- **#700 — the Memories dialog lists memories correctly and cannot change one.**
+  `MainWindow.xaml.cs:5448` wires **ten hooks, every one a getter**; every mutator is left null
+  and invoked with `?.Invoke()`. The dialog is reachable from the menu. **Found because a
+  reviewer checked whether #591's EXAMPLE OF A FALSE POSITIVE was real.** It was not: #591
+  dismissed `AddMemory` as *"called from flexlib4218"*, which is **an untracked, gitignored tree
+  present only in the main checkout** — so the scan's findings depend on what is lying on the
+  disk rather than on the commit. **A real bug hid behind a plausible dismissal for two weeks.**
+- **#628's ruled chord was taken.** Noel ruled `Ctrl+J, Ctrl+N` for the notifications buffer on
+  2026-09-26 **explicitly because it was free in the leader layer**; Track C bound `Ctrl+N` to
+  legacy Noise Reduction. Neither Track C's brief nor the orchestrator's review of it cited
+  #628.
+- **#697 diagnosed, and it was never a race.** The captured trace line carries an
+  elapsed-milliseconds prefix, and two tests assert `DoesNotContain("61")` / `("63")` against
+  the whole line — so they also match the TIMESTAMP at 610-619, 461, 561, 1061. **The product
+  was correct on every failing run.** Two theories were reasoned about at length and both were
+  wrong (cross-talk through global trace state; a window-boundary budget); **printing one real
+  captured line settled it in seconds.** Fixed in the helper so all 39 tests read the sentence,
+  not the prefix. **Verified over 16 full-suite runs.**
+- **#701 — a second flake**, `PacedSpeechDeliveryTests.SecondEscape_TurnsTheChannelOff`, one in
+  ten. **It is why #697's fix read as incomplete:** a red run landed immediately after it and
+  the obvious reading was "the fix did not work." It was a different test.
+
+### Noel's rulings
+
+- **Nesting answers the crowded top level, not `Ctrl+Shift`** (#515). The grammar presumes
+  unique initials **per LAYER, not per product** — and the filter layer already proves it, with
+  plain `S`, `R` and `T` all taken at the top level and all free inside. `Ctrl+Shift` is
+  admitted but reserved for true siblings.
+- **Top-level residency is decided by FREQUENCY, not availability or importance.** *"things like
+  noise reduction can hang out in that layer"*.
+- **The noise layer is `N`; the compander stays in the audio layer** (#518). One of the four
+  unsited layers is now sited.
+- **Track C's first two asks approved** — `Ctrl+E` for the earcons, and the bare/Ctrl/Alt/Shift
+  near-miss order, with its consequence stated.
+- **Absorption is dropped** (#695), reversing his own ruling of hours earlier — **not a
+  correction: Track C removed the ruling's premise by binding `Ctrl+G`.**
+- **The VOX half of the voice send ships**; **#697 gets fixed**; **#591 comes into the sprint as
+  its own track.**
+
+### Three briefs written, reviewed, and rebuilt
+
+Tracks D (#591), E (the fault paths) and F (the grammar) got worktrees off the merged tree and
+briefs. **All three clean-window reviews returned "not safe as written" and all three were
+substantially right.** Rebuilt the same evening.
+
+**Four orchestrator errors the reviews caught**, all corrected in the register and the briefs:
+the Track B rulings were cited to #151 three times when they are **inside #689's body** — the
+exact filing error documented in #307's banner that morning and repeated that evening; #699's
+mechanism was stale against Track A's own fix, which would have made its headline bench check
+**pass vacuously**; Track E's Item 3 was scoped as *"a branch on the same send"* when **#151's
+own body says the ruling and the gate fix "pull opposite ways on one code path"**; and the VOX
+ruling was labelled **#696**, which is a different idea — *an opt-in MOX-driven transmit
+earcon*, and **a mitigation for #699**.
+
+**And a hole the reviews closed that mattered more than any of them:** two briefs permitted
+launching the application under `JJFLEX_CONFIG_DIR`. **That isolates settings. It does not
+isolate the machine-wide keyboard hook, which ships `Enabled = true`, and it does not isolate
+the radio.** An agent's build would have eaten `Ctrl+Shift+J` and `Ctrl+Alt+Space` out of
+whatever Noel was doing, one connect from RF. **Launching is now forbidden outright in all
+three.**
+
+**One place a review was wrong, and checking it mattered:** it filed `SaveStepSizes` as
+deliberately unassigned *"awaiting a ruling under #302"*. **#302 is closed**; the live entry is
+**#346**, which says step sizes do not persist at all — a live defect, not a design choice.
+
+### Cross-surface activity
+
+- **JJFlex-NG:** 14 commits. **`jjflex-48b`:** 5. **`jjflex-48c`:** 3. The 48d/e/f worktrees
+  were created from the merged head and carry its history, not new work.
+- **JJFlex-private:** 31 commits — the three track reports, three readings, three briefs.
+- **Memory:** five files touched — `MEMORY.md`, `index_build_release.md`,
+  `index_dev_practices.md`, `feedback_an_unanswered_placeholder_ships.md`,
+  `feedback_the_publish_validates_everything_but_the_prose.md`, plus an append to
+  `feedback_explain_our_decisions_not_the_operators_domain.md`.
+- **Codex:** no activity, no commits carrying its trailer. **Six briefs sit in `for-codex/`
+  rather than `for-codex/done/`** and want triaging.
+- **`jjf-data`, `jjflexible-connect`, `rigmeter`, `prism`:** no commits.
+- **Freight Fate:** `feat/career-1.9`, 1 dirty, **16 unpushed**, no activity on 10-05.
+  **Civ VI Access:** `main`, 2 dirty, 0 unpushed, no activity. **Pushing those is Noel's call.**
+- **A 456 handoff landed in `for-claude/` and said *"nothing now; when Sprint 48 has merged"*.
+  Sprint 48 has now merged, so its checklist is live.** Its two open items were chased down at
+  this seal: the section-16 wording drifts are still Noel's and still unapplied, and the
+  *"show it more than once"* ownership fix **had not slipped** — it is recorded in #638, parked
+  to Sprint 46 by his own ruling, and Sprint 46 has not been worked.
+
+### Checks
+
+- **Dependency advisories: none**, across every project.
+- **Open tasks: 413**, summary regenerated. New yesterday and this morning: **#697–#703**.
+- **Memory drift:** 43 path candidates in non-history entries and 56 symbol candidates — the
+  standing set, dominated by estates this machine does not hold. **Five live worktrees, which
+  the checker does not sweep**, so expect inflation until the sprint merges.
+- **`MEMORY.md` is 14,430 bytes**, above the 12 KB seal threshold. **The archive sweep yields
+  nothing**: all seven stamped entries are already out of the core. **The size is live
+  reflex-rules**, so the next lever is triaging topic-triggered items out of Current State — a
+  restructure deliberately not attempted at the end of a long session.
+
+### NIGHTLY PROMOTE: SKIPPED, DELIBERATELY
+
+**The day's testable change is a merged transmit path that no finger has touched** — Track A's
+gate fix, Track B's system-wide PTT, and #699 found open in the kill path. By the rule added
+2026-10-02, **a build is promotable when its changes have been exercised, not when it
+compiles.** The NAS archive is the durability layer and is complete; promoting this to the
+Dropbox top level would put it where a tester looks for "today's build".
+
+### Rigmeter — 2026-10-05 only
+
+- **Commits:** 14. **Unique files:** 85.
+- **Work done, summed across every commit:** +6,551 / -598, **net +5,953**.
+- **Repository size change:** net **+5,970**, 85 files differing.
+- **By type:** C# **+5,860 / -420** across 58 files; Markdown +375 / -115 across 14;
+  VB +126 / -17; plus the lexicon `.tsv` and `.json` manifests and four XAML files.
+- Authored scale: 6,480 added lines, 42,027 words — about 4.7 hours read aloud at 150 wpm.
+- Snapshot: `historical\stats6-10-05-fbc85c82.json`.
+
+### Setup for 2026-10-06
+
+**Three tracks are briefed and waiting, with worktrees cut from the merged head.** D and E are
+ready to launch. **F is blocked on two of Noel's decisions**: whether the five `Ctrl`-tier noise
+toggles move into the noise layer (which frees `Ctrl+N` and saves #628's ruling, or does not),
+and the three-way `N` collision inside the layer between legacy NR, the radio's neural NR and
+the NR filter.
+
+**Owed to Noel, both prose:** the near-miss sentence in `leader-key.md`, which is committed and
+still describes speech the app does not produce — `leader.near_miss` is `"{alt}: {what}"` and
+has no *"is not a command"* half — and the past-tense `HistoryKey` for Track B's watchdog
+sentence once it is classified.
+
+**And a filing gap to close:** the code comment at `KeyCommands.cs:4363` attributes that
+near-miss behaviour to *"#558, ruled by Noel 2026-09-06"*. **#558 names nothing**, and is one of
+four such citations already recorded in **#616**. The behaviour is real; the citation is not.
 
 ## END-OF-DAY SEAL — 2026-10-03 — VOX VERIFIED AT THE RADIO, AND AN OWNER GOT SLICES FOR THE FIRST TIME IN ELEVEN DAYS
 
