@@ -694,10 +694,36 @@ namespace Radios.Tests
         }
 
         private List<string> _tracedForRig;
+
+        /// <summary>
+        /// The captureMeters sentences, with the trace PREFIX removed — #697.
+        /// </summary>
+        /// <remarks>
+        /// <b>The prefix is a millisecond counter, and it broke two tests at
+        /// random for weeks.</b> A captured line arrives as
+        /// <c> 501 [T4:.NET Long Running Task] captureMeters: state=tx ...</c>,
+        /// so an assertion like <c>Assert.DoesNotContain("61", line)</c> — meaning
+        /// "no temperature of 61 landed in this window" — also matched the
+        /// TIMESTAMP whenever the elapsed milliseconds happened to contain those
+        /// two digits: 610-619, 461, 561, 1061 and so on. Nothing was wrong with
+        /// the product on any of those runs.
+        /// <para>
+        /// Three separate agents hit it on 2026-10-05 and each spent effort
+        /// proving they had not caused it; the register entry named one of the
+        /// two tests, because that one checks every line rather than the first
+        /// and so collided more often. <b>Trimming here fixes the class rather
+        /// than the two instances</b> — every assertion in this file now reads
+        /// the sentence the product wrote, and a digit in a timestamp cannot be
+        /// mistaken for a digit in a measurement.
+        /// </para>
+        /// </remarks>
         private List<string> TracedCaptureLines()
         {
             lock (_tracedForRig)
-                return _tracedForRig.Where(l => l.Contains(CaptureMeterSet.CaptureMetersLine, StringComparison.Ordinal)).ToList();
+                return _tracedForRig
+                    .Where(l => l.Contains(CaptureMeterSet.CaptureMetersLine, StringComparison.Ordinal))
+                    .Select(l => l.Substring(l.IndexOf(CaptureMeterSet.CaptureMetersLine, StringComparison.Ordinal)))
+                    .ToList();
         }
 
         /// <summary>A keyed radioless rig with tracing captured, torn down afterwards; returns the captureMeters lines in order.</summary>
