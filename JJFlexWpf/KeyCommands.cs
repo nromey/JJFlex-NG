@@ -5707,6 +5707,119 @@ public class KeyCommands
     }
 
     // ────────────────────────────────────────────────────────────────
+    //  The JJ key from another program (#307, Sprint 48 Track B)
+    // ────────────────────────────────────────────────────────────────
+    //
+    //  SystemWideKeys' hook sees Ctrl+Shift+J and the key after it while
+    //  some other program has the keyboard, swallows both, and posts them
+    //  here on the UI dispatcher. These are the SAME layer with a second
+    //  door: the second key goes through DoLeaderCommand exactly as an
+    //  in-window Ctrl+J, letter does, so whatever the layer learns to do —
+    //  Track A's message slots included — works from outside without a
+    //  line changing here. Two things differ, and only because the window
+    //  is not in front of the operator: a chord that opens a LAYER is
+    //  refused out loud (its arrows would go to the logger), and the
+    //  help-armed state is relayed back to the hook so "H for the list,
+    //  Escape to cancel" stays true from outside too.
+
+    /// <summary>The system-wide JJ key went down: the same tone and word as Ctrl+J.</summary>
+    internal static void SystemWideLeaderArmed()
+    {
+        var kc = _globalRoutingOwner;
+        if (kc == null) return;
+        kc._context.Trace("SystemWideLeader:armed");
+        EarconPlayer.LeaderEnterTone();
+        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("leader.armed"), Radios.VerbosityLevel.Terse, true);
+    }
+
+    /// <summary>Escape while the system-wide layer waited: the same close as in-window Escape.</summary>
+    internal static void SystemWideLeaderCancelled()
+    {
+        var kc = _globalRoutingOwner;
+        if (kc == null) return;
+        kc._context.Trace("SystemWideLeader:cancelled");
+        kc._leaderHelpArmed = false;
+        kc.LeaderCancel();
+    }
+
+    /// <summary>
+    /// The help-armed layer let go of a key that was not H, slash or Escape,
+    /// out there in another program. Mirror it here so the in-window flag
+    /// cannot linger and claim a key the operator types later.
+    /// </summary>
+    internal static void SystemWideLeaderHelpLetGo()
+    {
+        var kc = _globalRoutingOwner;
+        if (kc != null) kc._leaderHelpArmed = false;
+    }
+
+    /// <summary>
+    /// The key after the system-wide JJ key, with its modifiers.
+    /// </summary>
+    /// <param name="k">The chord, as DoLeaderCommand switches on it.</param>
+    /// <param name="fromOutside">
+    /// True when another program had the keyboard at the press. A chord that
+    /// opens a value layer is then refused out loud, because the arrows that
+    /// would drive it go to that program; with our own window focused the
+    /// layer opens exactly as it would from Ctrl+J.
+    /// </param>
+    internal static void SystemWideLeaderKey(Keys k, bool fromOutside)
+    {
+        var kc = _globalRoutingOwner;
+        if (kc == null) return;
+        kc._context.Trace("SystemWideLeader:" + k + (fromOutside ? " (another program focused)" : ""));
+
+        kc._leaderKeyActive = false;
+        kc._leaderHelpArmed = false;
+        bool layerBefore = kc._valueLayer != null;
+        try
+        {
+            kc.DoLeaderCommand(k);
+        }
+        finally
+        {
+            // Whatever the chord did, the hook must know whether the layer is
+            // now waiting for H, slash or Escape (#303) — it is the hook that
+            // sees those keys next, not this window.
+            SystemWideKeys.NoteHelpArmed(kc._leaderHelpArmed);
+        }
+
+        if (fromOutside && !layerBefore && kc._valueLayer != null)
+        {
+            // A forced drop KEEPS the value and never restores — the layer
+            // has only just opened, so there is nothing to put back.
+            kc._valueLayer.Drop();
+            kc._valueLayer = null;
+            EarconPlayer.LeaderInvalidTone();
+            Radios.ScreenReaderOutput.Speak(
+                Radios.Lexicon.Get("leader.systemwide.layer_needs_window"),
+                Radios.Speech.SpeechIntent.Interrupt,
+                Radios.VerbosityLevel.Critical,
+                subject: Radios.Speech.SpeechSubject.SystemWideLeaderRefusal);
+        }
+    }
+
+    /// <summary>
+    /// Every binding of a chord in this registry, across EVERY scope, as
+    /// "command in scope" phrases — the system-wide keys dialog's first
+    /// conflict layer (#307). Across every scope on purpose: a system-wide
+    /// chord fires whatever mode the window is in, so no scope is exempt.
+    /// </summary>
+    public IReadOnlyList<string> DescribeBindingsOf(Keys key)
+    {
+        var result = new List<string>();
+        if (key == Keys.None) return result;
+        if (!KeyDictionary.TryGetValue(key, out var entries)) return result;
+        foreach (var e in entries)
+        {
+            string description = e.KeyType == KeyTypes.CWText ? "CW Message: " + e.HelpText : e.HelpText;
+            result.Add(Radios.Lexicon.Get("settings.keys.editor.conflict_scope_item",
+                ("command", description), ("scope", e.Scope)));
+        }
+        return result;
+    }
+
+    // ────────────────────────────────────────────────────────────────
     //  Public API — Sprint 24 Phase 4 (for VB callers)
     // ────────────────────────────────────────────────────────────────
 

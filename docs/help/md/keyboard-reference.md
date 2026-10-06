@@ -28,6 +28,18 @@ These keys work no matter where you are in the application — and "no matter wh
 - **F12** — Stop CW transmission immediately
 - **Ctrl+L** — Open the Callbook / station lookup utility
 
+## Keys that work from any program
+
+Three keys work while another program has the keyboard — a contest logger, a browser, anything — and that program never sees them. They exist because during a contest your hands are in the logger, and a key you can only press inside JJ Flexible Radio is a key you cannot reach. Each one is the system-wide twin of a key you already know, with Alt added to mark the difference, and the in-app key is unchanged.
+
+- **Ctrl+Shift+J** — The JJ key from any program. Press it, release it, then press the second key exactly as you would after `Ctrl+J`; both keys are kept from the program you are in. A second key that opens a layer, like `V` for audio, is refused out loud, because the arrows that drive a layer would go to the other program — switch to JJ Flexible Radio for those
+- **Ctrl+Alt+Space** — Push to talk from any program: transmit while held, let go to receive
+- **Alt+Shift+Space** — Transmit lock from any program: on or off
+
+Those are the defaults, and they are provisional on purpose. A system-wide key is taken from every program on this computer, so if one collides with your logger, your screen reader, or anything else, change it: Tools menu, **System-wide keys**. Pick a role, press Change, press the new key. Every key needs two of Ctrl, Alt and Shift plus a key, and the dialog refuses anything less — an accidental press of the push-to-talk key puts you on the air. When you assign a key it reads back four checks: whether any JJ Flexible command already uses it, whether another program has registered it with Windows, a reminder that Windows cannot see programs that watch the keyboard directly (screen readers included), and the one test that can see them, which is switching to another program and pressing it. There is a checkbox at the top to turn the whole thing off, and while it is off nothing is taken from anybody.
+
+With no radio connected, the push-to-talk and lock keys say so instead of doing nothing. A held push to talk from another program is watched the whole time: if the release is ever missed, the transmit is ended on its own and you are told.
+
 ## The JJ Key Commands
 
 This application's got a problem. We own it, it's true. There's a ton of keyboard shortcuts that you can use in this application. Problem is, we have too many keyboard shortcuts for the number of keys on your keyboard. Enter the JJ key.

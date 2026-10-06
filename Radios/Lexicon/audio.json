@@ -651,6 +651,7 @@
   "audio.ptt.remaining_seconds": "{seconds} seconds",
   "audio.ptt.status_hold": "transmitting, hold",
   "audio.ptt.status_locked": "transmitting, locked, {timeLeft} remaining",
+  "audio.ptt.systemwide_watchdog_unkeyed": "Transmit stopped. The release of the system-wide push to talk key was not seen, so transmit was ended for safety. You are no longer on the air.",
   "audio.ptt.timed_out": "Transmit timed out, receiving",
   "audio.ptt.timeout_approaching": "Transmit timeout approaching",
   "audio.ptt.timeout_ending_now": "Transmit ending now!",

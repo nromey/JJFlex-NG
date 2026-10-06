@@ -2359,6 +2359,14 @@ public class NativeMenuBar : IDisposable
         // QB Track H (2026-08-07): the Hotkey Editor is the editable door into
         // the one Keys surface; Help → Key Assignments is the viewing door.
         AddWired(tools, "Hotkey Editor", () => ShowKeysSurface(editable: true));
+        // Sprint 48 Track B (#307): the three chords that work while another
+        // program has the keyboard, and the four-layer conflict report that
+        // goes with choosing one. Beside the Hotkey Editor because it is the
+        // other place an operator changes a key, and deliberately not inside
+        // it: those are in-window bindings in five in-window scopes, and
+        // these are taken from every program on the machine.
+        AddWired(tools, "System-wide keys", () =>
+            Dialogs.SystemWideKeysDialog.Show(System.Windows.Window.GetWindow(_window)));
         // QB Track A stub audit: band-plan data (HamBands.Bands) and the WPF
         // ShowBandsDialog both existed, unconnected. Works without a radio —
         // the band table is static data.

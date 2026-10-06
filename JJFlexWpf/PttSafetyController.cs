@@ -337,8 +337,24 @@ namespace JJFlexWpf
         /// </para>
         /// </remarks>
         /// <param name="source">Who asked, for the trace.</param>
-        public void KillTransmitNow(string source)
+        public void KillTransmitNow(string source) => KillTransmitNow(source, null, null);
+
+        /// <summary>
+        /// The same kill, with the sentence the operator hears chosen by the
+        /// caller. The default sentence says a CHECK was ended, which is the
+        /// truth for the transmit checks and a lie for the system-wide push
+        /// to talk's watchdog (#307), whose operator pressed nothing of the
+        /// kind — so that caller names its own outcome and its own
+        /// <c>SpeechSubject</c>, and the default stays what it was for
+        /// everybody else.
+        /// </summary>
+        /// <param name="source">Who asked, for the trace.</param>
+        /// <param name="spokenOutcome">What to say once the carrier is off, or null for the default.</param>
+        /// <param name="subject">The sentence's <c>SpeechSubject</c>, or null to declare none.</param>
+        public void KillTransmitNow(string source, string? spokenOutcome, string? subject)
         {
+            _pendingKillOutcome = spokenOutcome;
+            _pendingKillSubject = subject;
             bool owned = State != PttState.Idle;
             FlexBase? rig = null;
             try { rig = _getRigControl(); } catch { }
@@ -363,11 +379,25 @@ namespace JJFlexWpf
             else _dispatcher.BeginInvoke(new Action(FinishOwnedKill));
         }
 
+        /// <summary>
+        /// The sentence and subject the next <see cref="FinishOwnedKill"/>
+        /// speaks, set by the three-argument kill and consumed once. Written
+        /// on the killing thread and read on the dispatcher after a post;
+        /// a second kill before the first finishes simply wins, which is the
+        /// right answer for two sentences about one carrier.
+        /// </summary>
+        private string? _pendingKillOutcome;
+        private string? _pendingKillSubject;
+
         private void FinishOwnedKill()
         {
             if (State == PttState.Idle) return;
             EarconPlayer.HardKillTone();
-            GoIdle(Lexicon.Get("audio.ptt.kill_stopped"), forceSpeech: true);
+            string outcome = _pendingKillOutcome ?? Lexicon.Get("audio.ptt.kill_stopped");
+            string? subject = _pendingKillSubject;
+            _pendingKillOutcome = null;
+            _pendingKillSubject = null;
+            GoIdle(outcome, forceSpeech: true, subject: subject);
         }
 
         /// <summary>

@@ -734,7 +734,13 @@ namespace Radios.Tests
             // CONFLICTING key was mistaken for counting the merge, and two keys
             // that merged cleanly went uncounted.
             //
-            // 3,091 on Sprint 48 Track A (#151, 2026-10-05): seventeen new
+            // 3,130 at the Sprint 48 merge (2026-10-05): Track A's seventeen
+            // and Track B's thirty-nine both landed, each having recorded the
+            // count it would have produced alone. 3,075 + 17 - 1 + 39. The two
+            // tracks' own notes are kept below rather than collapsed, because
+            // each says WHICH strings it added and why they were frozen.
+            //
+            // Track A (#151, 2026-10-05): seventeen new
             // message-key sentences — what the key said when it sent, stopped,
             // was cut short, ran long, found nothing for the mode, or could not
             // key the radio, plus the editor's payload-kind words — and one key
@@ -744,6 +750,20 @@ namespace Radios.Tests
             // and the classification is a #617 speech decision this track does
             // not take. Six reworded CW-to-Messages entries re-frozen under the
             // #629 exemption. 3,075 + 17 - 1. Confirmed by running this test.
+            //
+            // Track B (#307, 2026-10-05): the thirty-nine
+            // strings of the system-wide keys — thirty-seven
+            // settings.systemwide_keys.* for the dialog and its four-layer
+            // conflict report, leader.systemwide.layer_needs_window for a layer
+            // asked for from another program, and
+            // audio.ptt.systemwide_watchdog_unkeyed for the fail-safe ending a
+            // held transmit on its own. Frozen with the gate's printed lines,
+            // not classified, for the reason every track above gives: the
+            // classification is a #617 speech decision and this track's brief
+            // did not carry it. The watchdog sentence is the one that most
+            // wants classifying — a safety outcome the operator has no other
+            // way of learning — and it is named in the track report for exactly
+            // that reason.
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -756,7 +776,7 @@ namespace Radios.Tests
                 }
             }
 
-            Assert.Equal(3091, unclassified);
+            Assert.Equal(3130, unclassified);
             Assert.All(classified, key =>
                 Assert.StartsWith("facts.", key, StringComparison.Ordinal));
             Assert.True(classified.Count > 30,

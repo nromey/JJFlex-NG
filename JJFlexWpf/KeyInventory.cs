@@ -1090,6 +1090,31 @@ public static class KeyInventory
     };
 
     // ────────────────────────────────────────────────────────────────
+    //  System-wide keys (#307, Sprint 48 Track B): the JJ key, push to
+    //  talk and the transmit lock reached from ANOTHER program and kept
+    //  from it. These rows describe the DEFAULTS; the chords in force come
+    //  from SystemWideKeysConfig and are changed under Tools, System-wide
+    //  keys, which is why every description says so. Scope is the word
+    //  "System-wide", never "Global": KeyScope.Global means every mode
+    //  inside this window, and the two must not be confused.
+    // ────────────────────────────────────────────────────────────────
+    private static readonly FixedKeyEntry[] SystemWideKeyRows =
+    {
+        new("SystemWide", "From any program, even while another program has the keyboard", "Ctrl+Shift+J",
+            "The JJ key from any program: opens the JJ key layer and reads the next key, and the program you are in sees neither. This is the default; change it under Tools, System-wide keys",
+            new[] { "jj", "key", "leader", "layer", "global", "system", "wide", "anywhere", "other", "program",
+                    "logger", "contest", "n3fjp", "background", "hotkey" }, "System-wide", "General"),
+        new("SystemWide", "From any program, even while another program has the keyboard", "Ctrl+Alt+Space",
+            "Push to talk from any program: transmit while held, and the program you are in never sees the key. This is the default; change it under Tools, System-wide keys",
+            new[] { "ptt", "push", "talk", "transmit", "global", "system", "wide", "anywhere", "other", "program",
+                    "logger", "contest", "n3fjp", "hotkey" }, "System-wide", "Transmit"),
+        new("SystemWide", "From any program, even while another program has the keyboard", "Alt+Shift+Space",
+            "Transmit lock from any program: on or off, and the program you are in never sees the key. This is the default; change it under Tools, System-wide keys",
+            new[] { "ptt", "transmit", "lock", "toggle", "global", "system", "wide", "anywhere", "other", "program",
+                    "logger", "contest", "n3fjp", "hotkey" }, "System-wide", "Transmit"),
+    };
+
+    // ────────────────────────────────────────────────────────────────
     //  Command Finder door rows — dialogs and menu paths users must be
     //  able to FIND even though no single fixed key opens them. Emitted
     //  VERBATIM by CommandFinderItems() (no "(on ...)" suffix — their
@@ -1101,6 +1126,18 @@ public static class KeyInventory
     // ────────────────────────────────────────────────────────────────
     private static readonly FixedKeyEntry[] FinderDoors =
     {
+        // Sprint 48 Track B (#307): the door to the system-wide keys dialog.
+        // The three key rows above find the KEYS; this finds the place they
+        // are changed, by the words an operator hunting it would try.
+        new FixedKeyEntry
+        {
+            Description = "System-wide keys - the JJ key, push to talk and the transmit lock from any program, and where to change them",
+            Scope = "System-wide", Group = "General",
+            MenuText = "Tools menu, System-wide keys",
+            Keywords = new[] { "system", "wide", "global", "hotkey", "hotkeys", "anywhere", "other", "program",
+                               "background", "logger", "contest", "n3fjp", "ptt", "push", "talk", "lock",
+                               "jj", "key", "leader", "change", "assign", "conflict" },
+        },
         // Sprint 45 Track I (#566) put an Operator alarms DOOR here. Track IJK
         // (2026-10-01) replaced it with a registry command,
         // CommandValues.OpenOperatorAlarms, because Noel's 2026-09-22 20:25
@@ -1242,6 +1279,7 @@ public static class KeyInventory
         foreach (var e in AudioWorkshopKeys) yield return e;
         foreach (var e in CategoryNavigationKeys) yield return e;
         foreach (var e in OtherKeys) yield return e;
+        foreach (var e in SystemWideKeyRows) yield return e;
     }
 
     /// <summary>
@@ -1412,6 +1450,13 @@ public static class KeyInventory
     // ────────────────────────────────────────────────────────────────
 
     /// <summary>
+    /// The system-wide keys' answer to "is this chord one of yours", as a
+    /// spoken reason, or null. Set by SystemWideKeys.Apply; consulted first
+    /// by <see cref="IsReservedForCapture"/>.
+    /// </summary>
+    public static Func<WinFormsKeys, string?>? SystemWideReservation { get; set; }
+
+    /// <summary>
     /// True if the key can never be assigned to a command, with a spoken
     /// reason. Covers system keys, the leader trigger, PTT chords, and all
     /// unmodified non-function keys (those belong to the Home fields and
@@ -1421,6 +1466,22 @@ public static class KeyInventory
     {
         var code = k & WinFormsKeys.KeyCode;
         var mods = k & WinFormsKeys.Modifiers;
+
+        // Sprint 48 Track B (#307): a chord the system-wide hook eats never
+        // reaches this window, so binding an in-app command to it would be
+        // binding it to nothing. The hook publishes its chords here on every
+        // Apply; null when the feature is off or not yet installed.
+        var systemWide = SystemWideReservation;
+        if (systemWide != null)
+        {
+            string? taken = null;
+            try { taken = systemWide(k); } catch { }
+            if (taken != null)
+            {
+                reason = taken;
+                return true;
+            }
+        }
 
         if (k == (WinFormsKeys.J | WinFormsKeys.Control))
         {
