@@ -1049,7 +1049,13 @@ FlexRadio's own folder, not ours).
   Same shape as `memory/feedback_absence_is_not_evidence.md`: name every cause of the empty result
   before concluding from it.
 - Multi-instance: `%AppData%\JJFlexRadio\JJFlexRadio2Trace.txt` (instance 2+)
-- User-initiated capture: **Settings → Diagnostics** (Tools → Diagnostics deep-links there). Saved sessions live in the **Saved Diagnostic Logs** window, opened from that tab. `Ctrl+J, Ctrl+D` starts and stops a detailed capture from anywhere, including inside a dialog. **This line has been wrong twice.** It said "Operations → Tracing" until 2026-08-11; it then said "Help → Tracing (`TraceAdmin.vb`)" until Sprint 30 Track D landed 2026-08-19, and that was wrong in both halves — the menu item is now deleted, and it never opened `TraceAdmin.vb` anyway, it opened the WPF `TraceAdminDialog`
+- User-initiated capture: **Settings → Diagnostics**, reached from the Tools menu's
+  **"Diagnostic Log"** item, which deep-links there rather than opening its own modal
+  (`NativeMenuBar.cs`, `AddWired(tools, "Diagnostic Log", () => ShowSettingsDialog("Diagnostics"))`).
+  **This line said "Tools → Diagnostics" until 2026-10-06 and that item was RENAMED on
+  2026-08-25** — its own code comment says *"the rename is the point"*, because a thing called
+  "Diagnostics" beside a thing called "Fix" invited the wrong one. **A reader hunting the old
+  label finds nothing and concludes the route is gone.** Saved sessions live in the **Saved Diagnostic Logs** window, opened from that tab. `Ctrl+J, Ctrl+D` starts and stops a detailed capture from anywhere, including inside a dialog. **This line has been wrong twice.** It said "Operations → Tracing" until 2026-08-11; it then said "Help → Tracing (`TraceAdmin.vb`)" until Sprint 30 Track D landed 2026-08-19, and that was wrong in both halves — the menu item is now deleted, and it never opened `TraceAdmin.vb` anyway, it opened the WPF `TraceAdminDialog`
 - The always-on log is still governed by `BootTrace` in `globals.vb`, but it is **no longer a code-level Boolean with no UI behind it** — as of Sprint 30 it ANDs in the operator's `KeepDiagnosticLog` setting from `diagnosticsConfigV1.xml`, which the Diagnostics tab edits. Find it by symbol, not by line number; the file has grown by hundreds of lines and every line reference in this document's orbit has moved
 - Tracing code: `JJTrace\Tracing.cs`
 
@@ -1292,7 +1298,15 @@ As tracks complete, Claude Desktop handles merges and keeps the user informed:
    `DelegateSurfaceScan`), and starting from a grep is starting from zero next
    to a tool that was built for it.
 
-   **`DelegateSurfaceTests` is RED as of 2026-09-20, with 100 findings, and
+   **`DelegateSurfaceTests` is RED, and the count depends on your WORKING COPY rather than on
+   the commit — measured 2026-10-06: 394 hooks scanned, 101 findings in a clean worktree, 100 in
+   the main checkout.** The difference is `flexlib4218/`, an untracked gitignored vendor tree
+   that only the main checkout holds: `DelegateSurfaceScan.CallsiteRoots` is `"."` and `IsVendor`
+   excludes only three named directories, **so the scan reads whatever is lying on the disk.**
+   That is its own defect and #591 now records it. **Do not quote 100 as a fixed number.** The
+   original note, kept because the instruction still stands:
+
+   **It was RED as of 2026-09-20, with 100 findings, and
    that is why it is named here** — it had never been run, because a project a
    guard refuses is a project nobody watches. Triage is #591; some of the 100
    are genuine dead hooks of the #109 and #483 class and some are name
@@ -1326,7 +1340,9 @@ As tracks complete, Claude Desktop handles merges and keeps the user informed:
    git history if needed" until 2026-09-02, and that was false from Sprint 34
    onward.
 
-   **Where the exclusion lives:** `.gitignore`, line 484, verified 2026-09-06. It was `.git/info/exclude` in the COMMON gitdir when added
+   **Where the exclusion lives:** `.gitignore`, **line 501**, verified 2026-10-06. **This said
+   484 until then** — the file grows, so find it by searching for `TRACK-INSTRUCTIONS.md` rather
+   than by line. It was `.git/info/exclude` in the COMMON gitdir when added
    in `9103cf16` because six tracks carry a different file at the same path and
    committing it collides at merge for no gain. (That commit also records the
    trap it hit first: an exclude placed in a *worktree's* gitdir is not read —
