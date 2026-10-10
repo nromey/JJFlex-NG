@@ -89,6 +89,18 @@ if (theRadio.DiversityIsAllowed) { ... }  // 2-SCU radios only
 if (theRadio.AvailableSlices >= 2) { ... }
 ```
 
+**`theRadio.MaxSlices` CAME BACK 0 FROM A REAL REMOTE 6300. Measured 2026-10-10 over
+SmartLink**, in `AnnounceSliceCensus:2/2 (radio.MaxSlices=0 model=2 mine=2 ...)`. The census
+announced the correct 2 of 2 **only because it does not trust FlexLib here** — it used a
+model-derived value instead. **So a slice gate written the way the line below recommends
+would evaluate `0 >= 2` and switch the feature off, silently, as a capability simply not
+offered.** Cross-check a model-derived count before gating on a slice number, and treat a
+zero as "not reported" rather than as "none".
+
+Whether `AvailableSlices` degrades the same way is **NOT established** — it never appeared in
+that trace. Do not assume it mirrors `MaxSlices`, and do not assume either is reliable on a
+WAN connection until someone has read it off a radio.
+
 ### Naming a namespace under `Radios`
 
 **Check `Radios.<X>` against `System.<X>` before you write it.** In VB a
