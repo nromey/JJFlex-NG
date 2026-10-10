@@ -1211,7 +1211,7 @@
                               AutomationProperties.Name="Step 2, register the radio with SmartLink">
                         <StackPanel Margin="4">
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,6"
-                                       Text="Registering ties the radio to your SmartLink account so you can reach it from away from home. The radio will ask you to key the microphone or the CW key to prove someone is standing at it. FlexRadio requires that and it cannot be done remotely — so a radio has to be registered before it goes anywhere you cannot reach."/>
+                                       Text="Register this radio with SmartLink so that you can connect to it when you're away from home. The radio will ask you to key the microphone or the CW key to prove someone is standing at it. FlexRadio requires that and it cannot be done remotely — so a radio has to be registered before it goes anywhere you cannot reach."/>
 
                             <!-- Naming lives with registration on purpose: this is
                                  the moment a radio gets set up, and an unnamed radio
@@ -1353,7 +1353,7 @@
                               AutomationProperties.Name="Step 5, open a way in from the internet">
                         <StackPanel Margin="4">
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,6"
-                                       Text="To reach the radio from away from home, SmartLink needs a way through the router. A forwarded port is the most reliable and needs one change on the router. UPnP does the same thing automatically when the router allows it. Where the router cannot be changed at all, hole-punch can often get through on its own."/>
+                                       Text="To connect to the radio when you're away from home, SmartLink needs a way through the router. A forwarded port is the most reliable and needs one change on the router. UPnP does the same thing automatically when the router allows it. Where the router cannot be changed at all, hole-punch can often get through on its own."/>
                             <TextBlock x:Name="SetupWayInStatus"
                                        Style="{StaticResource DialogLabel}"
                                        TextWrapping="Wrap"

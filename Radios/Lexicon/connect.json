@@ -634,7 +634,7 @@
   "connect.smartlink.signup.email_name": "Email address for the new SmartLink account",
   "connect.smartlink.signup.email_required": "Enter the email address for the new account first.",
   "connect.smartlink.signup.failed": "The account could not be created. You can try again in a moment.",
-  "connect.smartlink.signup.intro": "Create the free SmartLink account you will use to reach your radio from away from home. Your email and password go directly to Flex's sign-in service — no web page involved.",
+  "connect.smartlink.signup.intro": "Create the free SmartLink account you will use to connect to your radio when you're away from home. Your email and password go directly to Flex's sign-in service — no web page involved.",
   "connect.smartlink.signup.network": "Could not reach the sign-in service. Check your internet connection and try again.",
   "connect.smartlink.signup.password_label": "Password:",
   "connect.smartlink.signup.password_name": "Password for the new account. At least eight characters with a mix of letters and numbers is a safe choice.",

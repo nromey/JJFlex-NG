@@ -4859,7 +4859,7 @@ namespace Radios
                         Radio.WanRadioRegistrationState.WaitingOnServerConfirmation =>
                             "Keyed. Waiting for SmartLink to confirm.",
                         Radio.WanRadioRegistrationState.RegisterSuccess =>
-                            "Registered. This radio is now tied to your SmartLink account and can be reached from away from home.",
+                            "Registered. This radio is now tied to your SmartLink account, so you can connect to it when you're away from home.",
                         Radio.WanRadioRegistrationState.UnregisterSuccess =>
                             "Unregistered. This radio is no longer tied to a SmartLink account.",
                         Radio.WanRadioRegistrationState.FailedPTT =>
