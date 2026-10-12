@@ -559,6 +559,17 @@ When Noel says "done developing" or equivalent, that's the seal-the-day trigger.
   - **Briefs still in `for-codex/`** rather than `for-codex/done/`. Each is either in progress or was cut off at the usage limit, which gives no warning. List them.
   - **Every Codex run today has an entry in `JJFlex-private/planning/codex-evaluation.md`**, and its running tally is updated. That log is the evidence for whether the plan is worth upgrading, so an unlogged run is a hole in the decision.
 
+**AND DO NOT TRUNCATE THE SWEEP'S OWN OUTPUT. A cut-off list reads exactly like a complete
+one.** Added 2026-10-12, its first instance: the sweep that opened that seal ran
+`git log --since=<last seal> --oneline | head -20` over a 22-commit span, concluded that
+**2026-10-07 was idle, and nearly sealed a work day out of existence** - #704's live-microphone
+finding was commit 21 of 22. Nothing failed; `head` is not an error. **Count first, then list**
+(`git log ... | wc -l`), or sort by day and print the per-day counts (`--date=format:'%Y-%m-%d'
+| sort | uniq -c`), which makes an absent day visibly absent rather than merely unlisted. Same
+shape as `feedback_absence_is_not_evidence.md` and the `JJFlexRadioTrace-2026*.txt` glob trap
+above: **name every cause of the empty result before concluding from it, and a pager or a
+`head` is one of the causes.**
+
 **The anchoring failure mode that motivated the "read all" rule:** the reflexive search-for-topic-relevant-artifact pattern finds ONE file and treats it as the answer. The right starting prompt is "show me everything modified today, then synthesize," not "find the artifact about X." See `feedback_anchoring_on_first_relevant_artifact.md` for the lesson + corrective.
 
 The seal entry's "Cross-surface activity" bullet list MUST cover everything found in the sweep, not just what this session directly did. The AAR's per-surface section MUST do the same. **A 5-minute thorough sweep prevents a permanent gap in the durable record.**
@@ -630,7 +641,7 @@ always-loaded core indefinitely.
 Added 2026-08-06 after the index hit the warning threshold; rewritten
 2026-08-19 when the flat index reached 18.5KB and was split into a 9.8KB core.
 2. **Memory backup — ALL projects, not just JJFlex:** `backup-memory-to-nas.ps1` snapshots **every** per-project Claude memory tree found under `C:\Users\nrome\.claude\projects\`. JJFlex keeps its legacy flat path (`historical\memory\memory-<ts>.zip`) so its dated series stays unbroken; every other project lands at `historical\memory\projects\<slug>\memory-<ts>.zip`. As of 2026-08-01 this picks up **Freight Fate** (`C--dev-Freight-Fate`, ~118 files) and **Civ VI Access** (`c--dev-Civ-vi-access`, ~175 files), neither of which had ever been backed up. Pass `-PrimaryOnly` for the old JJFlex-only behaviour. **Critical:** these trees live under the user profile, so the `C:\dev` mirror in step 3a does NOT cover them — this script and step 2a are their only backup paths. Keep running it even though 2a also sweeps up `memory\`: this one produces the per-project dated series that `memory-<ts>.zip` history depends on.
-2a. **Claude Code state backup:** `backup-claude-state-to-nas.ps1` snapshots the whole `C:\Users\nrome\.claude` tree plus `~\.claude.json` to NAS `historical\claude-state\claude-state-<ts>.zip`. Keeps the last 12, prunes older. This is the **session transcripts** — the `.jsonl` files under `.claude\projects\<slug>\` that hold every conversation Claude Code has had, and the only thing `claude --resume` can read. Nothing else backs them up: step 3a mirrors `C:\dev` and these live under the user profile; step 2 takes `memory\` only; git covers none of it. They are also on a retention timer — Claude Code sweeps transcripts older than `cleanupPeriodDays` at startup, and on 2026-08-01 that removed nine June sessions across Civ VI Access and the flashdrive project. `cleanupPeriodDays` is now pinned to **365** in `~\.claude\settings.json`, but retention only widens the window; it is not a backup. Excludes regenerable state (`cache`, `plugins`, `shell-snapshots`) and `.credentials.json` — that is a live OAuth token, and re-auth is one `claude` launch. `file-history\` (the ~150 MB `/rewind` snapshot tree) is opt-in via `-IncludeFileHistory`. **Measured 2026-09-30: 575 MB compressed from 1,813 MB raw, across 2,353 files.** This line said "~180 MB compressed from ~415 MB raw" and was roughly 4x low -- long sessions with large contexts grow the transcript tree fast, so budget minutes for the step and several GB on the NAS for the twelve retained snapshots. Re-measure rather than trusting this number.
+2a. **Claude Code state backup:** `backup-claude-state-to-nas.ps1` snapshots the whole `C:\Users\nrome\.claude` tree plus `~\.claude.json` to NAS `historical\claude-state\claude-state-<ts>.zip`. Keeps the last 12, prunes older. This is the **session transcripts** — the `.jsonl` files under `.claude\projects\<slug>\` that hold every conversation Claude Code has had, and the only thing `claude --resume` can read. Nothing else backs them up: step 3a mirrors `C:\dev` and these live under the user profile; step 2 takes `memory\` only; git covers none of it. They are also on a retention timer — Claude Code sweeps transcripts older than `cleanupPeriodDays` at startup, and on 2026-08-01 that removed nine June sessions across Civ VI Access and the flashdrive project. `cleanupPeriodDays` is now pinned to **365** in `~\.claude\settings.json`, but retention only widens the window; it is not a backup. Excludes regenerable state (`cache`, `plugins`, `shell-snapshots`) and `.credentials.json` — that is a live OAuth token, and re-auth is one `claude` launch. `file-history\` (the ~150 MB `/rewind` snapshot tree) is opt-in via `-IncludeFileHistory`. **Re-measured 2026-10-12: 600 MB compressed from 1,927 MB raw, across 2,424 files** (2026-09-30: 575 MB / 1,813 MB / 2,353 files). This line said "~180 MB compressed from ~415 MB raw" and was roughly 4x low -- long sessions with large contexts grow the transcript tree fast, so budget minutes for the step and several GB on the NAS for the twelve retained snapshots. Re-measure rather than trusting this number. **A single long-running session can dominate the total** - on 2026-10-12 one transcript was 836 MB of the 1,927 MB raw, because a session resumed across 61 days keeps appending to one `.jsonl` and compaction shrinks the context, never the file.
 
    **Codex's home folder, `%USERPROFILE%\.codex`, is NOT covered by this or any other script yet (#575).** It holds `config.toml`, written by hand with its reasoning in the comments, and Codex's session history. Whatever eventually backs it up must leave out `auth.json` — a live ChatGPT sign-in token, excluded for the same reason as `.credentials.json` above — and must not copy the SQLite files while Codex is running.
 3. **Private docs backup:** `backup-private-to-nas.ps1` snapshots `C:\Users\nrome\JJFlex-private\` to NAS `historical\private\<date>\`. Captures easter eggs, unlock codes, and other private-docs state.
@@ -850,6 +861,19 @@ Added 2026-08-06 after the index hit the warning threshold; rewritten
    everything NVDA spoke in EVERY application - window titles, mail, whatever was
    on screen - so it is personal data by construction rather than by accident,
    and this repo is PUBLIC.
+
+   **JJFlex-private already keeps them out of ITS git too, and that is deliberate** -
+   `nvda-logs/` is excluded at `.gitignore:5`, verified 2026-10-12, so the files sit in the
+   working tree and travel only in the `backup-private-to-nas.ps1` zip. **Do not "fix" the
+   untracked status by committing them.** Convention is
+   `nvda-logs/<YYYY-MM>/<YYYY-MM-DD>-nvda.log` and `-nvda-old.log`.
+
+   **And check the level BEFORE trusting the capture, not after.** `grep -c Speaking` on the
+   log answers it in a second, and zero means the session was never at IO 12. On 2026-10-10 a
+   three-hour session at the radio ran entirely at INFO, so the one sentence that would have
+   settled #712 - the Step 2 registration line, verbatim - was never recorded, and the operator
+   had disconnected before reading it out. **The capture is cheap; discovering afterwards that
+   it was not armed costs the measurement.**
 
 3f. **Codex can still read what Claude writes.** No model call, seconds each.
 
