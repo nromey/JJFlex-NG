@@ -9,6 +9,236 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-10-07 AND 2026-10-10 — TWO WORK DAYS, ELEVEN FINDINGS, AND SIX STRINGS OF PRODUCT CODE
+
+**Written 2026-10-12, and it covers both unsealed work days at once.** Noel lost 2026-10-11 to
+headaches and the rest of 2026-10-10 to being busy, so neither day was sealed at the time.
+Nothing was lost — every tree was clean, the work was committed, it simply was not recorded.
+**2026-10-08, 2026-10-09 and 2026-10-11 were genuinely idle on every surface:** no commits in
+any repo or worktree, no memory writes, no planning edits, no backup runs, no Dropbox publish.
+
+**Theme: eleven register entries and six reworded strings.** Every one of the findings started
+with **Noel noticing something while trying to do something else** — #708 while checking
+something unrelated on Don's 6300, #705 while designing #702, #709 from a trace he captured at
+04:05, and #710 through #714 from a single attempt to flash firmware that never flashed
+anything. The output of both days was diagnosis. The only product code that changed was a
+wording fix.
+
+### 2026-10-07 — two commits, one finding
+
+- **#704** — the system-wide PTT watchdog **says the wrong thing twice, duplicates the transmit
+  timeout, and leaves two seconds of live microphone after the operator lets go.** Noel read the
+  three verdicts himself and ruled on them.
+- The second commit is the better habit: it records that the **mic-exposure frequency is
+  unknown**, defers it to field use, and **names the evidence that would settle it** rather than
+  estimating a number nobody measured.
+
+### 2026-10-10 — twenty commits in jjf-private, two in JJFlex-NG, ten findings
+
+**The hotkey design arc (01:28–01:57), seven commits.** Ctrl-tier noise toggles moved into the
+leader layer, rescuing **#628**, and **#702** was pinned down as Noel's two-path design in which
+**the default makes a key conflict impossible.** Along the way: one assignment mechanism for
+every hotkey (#702/#518, and most of it already built), four picker categories, modifiers as
+checkboxes, Win refused with evidence, a live preview, and the quick-entry path stopped being
+modal.
+
+- **#705 filed and ruled in the same hour** — the Hotkey Editor's capture mode **eats the Tab
+  key only to announce that Tab is for navigation.** Noel's ruling: Enter, Tab and Escape are
+  never hotkeys, **but they want three different behaviours.** Found while designing #702 and
+  independent of it.
+
+**The 2026-10-17 cluster (02:26–02:45).** The **N3FJP key check had been filed as unanswerable
+and is not** — corrected and marked urgent before 2026-10-17. Don's 6300 was measured over
+SmartLink, two asks were placed on briefs, and **#456**'s IQ diagnostic was added to an open
+sprint with Don's radio time recorded as standing.
+
+- **#706 is the one to read before anything else, and it corrected itself in four minutes.**
+  Filed 02:42 as *SmartSDR 4.3 shipped — hold everything*; **corrected by Noel at 02:45 to 4.3
+  being TALKED ABOUT on YouTube, not confirmed released.** The hold on Don's firmware stands
+  either way: we vendor a 4.2.x FlexLib, so his radio updating past it is a mismatch days before
+  a contest. **Verify the release before acting on anything downstream of it.**
+
+**Design and defect findings (02:49–04:12).**
+
+- **#707** — CW decode: where it runs is a real tradeoff, and **the presentation is ours wherever
+  it runs.** Design only, nothing to build yet. The second commit makes the quality question
+  measurable: pileups say what class the algorithm is.
+- **#708** — **entering a frequency does not set the mode, nothing maps frequency to mode at all,
+  and `EnforceTxRules` governs nothing.** Found on Don's 6300 at 03:20 while checking something
+  else.
+- **#709** — the remote-firmware warning is **80 words, it dies around word 42, and the half
+  nobody hears is the half that says don't do it.** Captured live on the 8600 at 04:05 in an
+  archived trace. Our own focus handling is eating the speech.
+
+**The bench session (05:13–08:31) — #710 through #714, and nothing was flashed.** Noel sat down
+at the 8600 to run the #659 firmware test and could not reach the *Choose a file* button.
+Everything below came out of asking why.
+
+- **#710** — declaring that a radio **CAN** use SmartLink silently stored a preference to
+  **PREFER** it, so a radio on the bench connected over the internet and every firmware control
+  left the tab order. Ruled out and recorded: not discovery, not a learned trend, not two rows.
+- **#711** — **Noel's ruling: local radios on top.** The roster's WAN clause carries his own
+  2026-08-05 attribution, and **the Remote mode that justified it no longer exists** — he ruled
+  on a question that is no longer asked. Two traps noted: `RosterOrderTests` asserts the current
+  order, and #254 shows deleting the clause is the wrong fix.
+- **#712** — Step 2 tells the operator his radio is not registered **while the app's own check
+  says it IS, twice, and names the account.** Observed live at 08:22 in a Verbose capture. The
+  fall-through renders the exact string Sprint 45 Track L3 was written to stop showing.
+- **#713** — registration asks the globally-signed-in account, **not the radio's own** — and
+  connect, in the same app, already does it right, with an anti-ping-pong guard. Noel's
+  hypothesis, confirmed in code the same morning. **His conclusion that this is why his first
+  registration failed is recorded as plausible and NOT proven:** the 8600's MIC jack carries no
+  PTT without the second RCA plug, so a `WaitingForPTT` death looks identical, and the deciding
+  trace is gone.
+- **#714** — **every Discovery line in a trace is missing its timestamp**, and one in
+  thirty-five is corrupted by a concurrent write. Measured in
+  `JJFlexRadioTrace-20261010-074908.txt`. It blocked the #710 question, which had to be settled
+  from a config file instead — an instrument nobody reading a tester's trace has.
+
+**The product code: `90627164`, Noel's wording, six places.** Reading Step 2 at the radio he
+stopped on the blurb above the Register button and dictated the replacement himself. Every
+*"from away from home"* in the app was preceded by *"from"*, so the fix was the class rather
+than the sentence he named — including **the spoken registration-success line in
+`FlexBase.cs`**, which was being heard rather than merely seen. The two lexicon files are LF and
+the XAML and C# are CRLF; the script asserted each file's own convention and refused rather than
+normalising, after an earlier check of mine wrongly reported all six as CRLF.
+
+**`28ef0c97`** records a CLAUDE.md drift the day exposed: **`theRadio.MaxSlices` came back 0
+from a real remote 6300**, while this file's feature-gating section told you to gate on it. A
+gate written as the old line recommended would evaluate `0 >= 2` and switch the feature off
+silently, as a capability simply not offered.
+
+### Cross-surface activity
+
+- **JJFlex-NG:** 2 commits on `sprint48/track-a`, both on 10-10. Tree clean. **Now pushed.**
+- **jjf-private:** 22 commits — 2 on 10-07, 20 on 10-10. Tree clean. No remote by design.
+- **Eight worktrees present** (`jjflex-45h`, `48b`–`48f`, `jjflex-codex`); none advanced in the
+  window.
+- **Other repos:** Freight Fate on `feat/career-1.9`, 1 dirty file, **16 unpushed** — unchanged,
+  and pushing it is Noel's call. Civ VI Access on `main`, 2 dirty, **0 unpushed** (was 45 at the
+  2026-08-01 seal, so that resolved). `jjf-data`, `jjflexible-connect` clean and current.
+  `rigmeter` clean, no remote.
+- **Codex:** no runs in the window — no trailer commits, no new report in `for-claude`, nothing
+  new in `for-codex`. Nothing owed to `codex-evaluation.md`.
+- **Memory:** three entries touched on 10-10, plus two corrected during this seal (below).
+- **External infrastructure:** no rarbox, Cloudflare, R2 or Dropbox activity in the window.
+
+### Checks
+
+- **Dependency advisories: none**, across all 20 projects.
+- **Codex instruction tests: 5 of 5 pass.** Positive control confirmed — `codex debug
+  prompt-input` really does load `AGENTS.md`. Sandbox `setup_error.json` absent.
+- **Register invariants clean:** 435 status lines, **424 open**, highest **#714**, **zero
+  duplicate numbers**. `open-tasks-summary.md` is 17 seconds newer than `tasks.md` at the same
+  count, so **no regeneration was needed** — checked by mtime, not by memory.
+- **Memory drift is FLAT, which is the number that matters:** path candidates in non-history
+  entries went **43 to 41**, symbol candidates **56 to 56**. **No new entry appeared.** Eight
+  worktrees the checker does not sweep are still inflating the symbol side.
+- **`MEMORY.md` is 14,697 bytes**, above the 12 KB seal threshold. **The archive sweep again
+  yields nothing**, and this time it was verified rather than assumed: of three core-linked
+  entries that matched on closure words, only `project_closed_history_index` carries a real
+  banner, and that is the template line documenting the stamp format. No stamped entry remains
+  in the core. The size is live reflex-rules.
+- **`claude-state` re-measured: 600 MB compressed from 1,927 MB raw across 2,424 files**, against
+  CLAUDE.md's 575/1,813/2,353 from 2026-09-30. That line already says re-measure rather than
+  trust, so it is behaving as designed — but **one session transcript is now 836 MB on its own.**
+- **Two memory drifts fixed, both exposed by this seal's own checks.** See below.
+
+### Two memory corrections, and one of them is this project's signature defect
+
+**`project_firmware_update_transport_protocol.md` contained the answer to its own open question,
+in a different section, for ten weeks.** Section 2 says firmware is LAN-only and that *the
+workaround for a remote radio is to port-forward TCP 4995, which must be set up while someone is
+on-site.* The Pi section further down the same entry says *the Pi is a Tailscale subnet router,
+so JJFlex on a tailnet-attached PC reaches the radio's LAN IP directly.* **Both facts, one
+document, never connected** — so the recorded plan for Don was an on-site visit and an exposed
+port when his tailnet already solves it with no forwarding at all. Corrected, with the real
+constraint named: **the radio must be LAN-reachable; the operator need not be on the LAN.** The
+core pointer now says so too.
+
+**And the guard is wrong in both directions.** `BeginFirmwareUpdate` refuses on
+`IsWanConnection`, which asks about the session's path rather than about reachability — so it
+refuses an operator who has a working tailnet route and waves through a LAN operator with nobody
+at the rig. There is no client-side version check anywhere in that path. Recorded in the entry
+against #706.
+
+**`project_smartlink_login_silent_validation_bug.md` was gating a pre-test on a version that is
+no longer what is installed.** It said *NVDA 2026.1 on Noel's dev machine may already surface the
+Auth0 error text* — the machine now runs **2026.2**, which is also Noel's develop-for target from
+2026-09-07. The floor is satisfied, so **the pre-test is unblocked, not deferred.** Reworded to
+name a floor rather than an installed version, and the core pointer is now version-proof.
+
+**Verified rather than "corrected":** the other 2026.1 references in memory are **deliberate
+floors**, not stale current-version claims — the zero-size browse-mode fix genuinely landed in
+2026.1. The drift checker was right to call them candidates and wrong to be obeyed blindly.
+
+### NVDA speech capture: NOT ARMED, and it cost this session a measurement
+
+Both NVDA logs hold **zero `Speaking` lines** — NVDA was at INFO, never restarted into IO level
+12. Archived anyway, dated, to `JJFlex-private/nvda-logs/2026-10/`, because they recycle on
+restart.
+
+**This is the day it would have paid for itself.** The one question still blocking #712 is what
+the Step 2 registration line actually said, verbatim — and Noel disconnected before reading it
+out. **An armed transcript would have captured that sentence whether or not anybody read it
+aloud.** The SOP says to arm it before a session that presses keys; this session pressed keys at
+the radio for three hours.
+
+### NIGHTLY PROMOTE: SKIPPED, DELIBERATELY
+
+**The window's only product change is six unbuilt strings**, one of which is spoken aloud. The
+10-10 Debug build at 07:44 predates the wording commit at 08:31, so no artifact exists that
+contains it, and by the rule added 2026-10-02 **a build is promotable when its changes have been
+exercised, not when it compiles.** The NAS archive is the durability layer and is complete.
+
+### Rigmeter — both figures, labelled
+
+- **JJFlex-NG, 10-10 only:** 2 commits, 5 unique files. Work summed across commits **+18 / -6,
+  net +12**. Repository size change **net +12**, 5 files differing. By type: Markdown +12, JSON
+  +3/-3 across two lexicons, XAML +2/-2, C# +1/-1.
+- **JJFlex-NG, whole window since 2026-10-06:** 4 commits, 6 files, **+207 / -10, net +197** —
+  but **two of those four commits are the ones that wrote the previous seal**, so the +197 is a
+  window figure and not a work figure.
+- **jjf-private, the real volume:** 22 commits, **+1,909 / -41 across 3 files** — `tasks.md`
+  +1,836/-21, a Track F brief +56/-14, the summary +17/-6. **Rigmeter does not see any of
+  this**, which is why the JJFlex-NG net of +12 understates two work days by two orders of
+  magnitude.
+- Snapshot written.
+
+### Setup for 2026-10-12
+
+**The contest is the clock: the New York QSO Party is around 2026-10-17, five days out, and five
+open tasks hang on it** — **#151** (Don's second ask, and the three-chord N3FJP check our hook
+swallows), **#307** (his third ask), **#565**, **#675** (the N3FJP slot measurement on the 8600
+over LAN), and **#706** (Don must not update past 4.2.x before it). **#706 gates the rest:
+confirm whether SmartSDR 4.3 is actually released before acting on anything downstream.**
+
+**Two things at the radio are still owed, and only Noel can run them.**
+
+- **The #659 firmware flash never happened.** Both FLEX-9600 images sit hash-verified in
+  `C:\temp` — 4.2.18.41174 (`875d604b`) and 4.2.20.41343 (`0aa22ff0`). The plan is unchanged:
+  downgrade to 4.2.18, read Step 2, restore 4.2.20, read Step 2 again, **because if a flash
+  clears registration then remote firmware updates are structurally unsafe** — re-registration
+  needs physical keying, and the 8600's MIC jack has no PTT without the second RCA plug. Verified
+  zero `BeginFirmwareUpdate`, zero `SendUpdateFile`, zero `file upload`: nothing was sent.
+- **One sentence decides between two defects.** Read the Step 2 registration line verbatim. If it
+  begins *"Not confirmed. SmartLink is not offering this radio to your account…"* it is #713,
+  the account bug. If it begins *"Ready to register to … Checking with SmartLink whether it
+  already is…"* it is #712's fall-through and the account logic is innocent. **Arm NVDA at IO
+  level first** (`nvda -r -l 12`) so the answer is captured even if it goes by too fast.
+- **Do not press Register until the account question is settled.** The confirm dialog names the
+  account and can be cancelled there.
+
+**Noel's rulings owed**, carried: the Enter-key refusal wording; whether modifier checkboxes name
+the tiers in the JJ namespace; tab, button or combo for quick entry; whether frequency entry SETS
+the mode (#708); the noise layer's three-way `N`; whether `SystemWideKeysDialog` folds into the
+Hotkey Editor; whether #711's WAN clause should become conditional rather than deleted; and
+whether *"you're"* is the right contraction in the six reworded strings.
+
+**Offered and not done:** searching the roughly 100 archived trace zips under `Traces/2026/` for
+the original failed registration attempt; killing orphan `claude.exe` PID 2816, a five-day
+orphan from 2026-10-05 holding session `0b3126f0` and 436 MB.
+
 ## END-OF-DAY SEAL — 2026-10-05 — SPRINT 48 MERGED, AND THE REVIEWS OF THE NEXT THREE BRIEFS FOUND MORE THAN THE TRACKS DID
 
 **Written 2026-10-06. The day was not sealed at the time** — the session ran to about 20:30 and
