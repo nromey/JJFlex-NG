@@ -403,7 +403,7 @@ namespace Radios.Tests
                     {
                         DoLeaderCommand(k & ~Keys.Control);
                         ToggleLeaderDSP(""Noise Blanker"", () => rig.NoiseBlanker, v => rig.NoiseBlanker = v);
-                        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get(""leader.near_miss""));
+                        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get(nearMissKey));
                     }
                     break;
             }
