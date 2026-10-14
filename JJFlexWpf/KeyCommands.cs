@@ -4360,8 +4360,21 @@ public class KeyCommands
                 // most, bare form first. The layer still disarms — this
                 // changes what is SAID, not what happens.
                 //
-                // #558, ruled by Noel 2026-09-06 after pressing B in the audio
-                // layer: say the RECOVERY, at every tier, and nothing else.
+                // THE CONTRACT OF THIS ARM (#695, ruled 2026-10-05): it NAMES
+                // the chord the operator probably meant and never EXECUTES it.
+                // Absorbing an unbound Ctrl+letter onto the bare letter was
+                // ruled and reversed the same day, because under the grammar
+                // (#515) bare and Ctrl mean different KINDS of thing — an
+                // unbound Ctrl+M absorbed would OPEN THE MODE LAYER, not toggle
+                // something beginning with M. So nothing below this comment
+                // dispatches: it traces, sounds, asks the inventory, and
+                // speaks. LeaderUnknownKeyTests holds the arm to that list of
+                // calls. The sentence itself is Noel's and is open under #693.
+                //
+                // Say the RECOVERY, at every tier, and nothing else. (This
+                // paragraph once credited a ruling "#558" of 2026-09-06; no
+                // such task exists in either register file, and #616 records
+                // the fabrication. The reasoning stands on its own.)
                 // This used to lead with "Ctrl+G is not a command" and gate the
                 // useful half behind Chatty, on the reasoning that naming what
                 // to press instead is a hint and Terse carries values, not
@@ -5338,9 +5351,11 @@ public class KeyCommands
         if (!KeyInventory.TryFindLayerNearMiss(context, pressed, out string alt, out string what))
             return null;
 
-        // #558: the recovery alone. The refusal earcon has already said the
-        // key did nothing; naming the layer the operator is standing in, and
-        // the key they just pressed, tells them only what they knew.
+        // The recovery alone. The refusal earcon has already said the key did
+        // nothing; naming the layer the operator is standing in, and the key
+        // they just pressed, tells them only what they knew. (A citation
+        // "#558" stood here; it names no task — see #616.) Like the leader's
+        // near-miss, this NAMES the neighbour and executes nothing (#695).
         return Radios.Lexicon.Get("audio.value_layer.near_miss",
             ("alt", alt), ("what", what));
     }

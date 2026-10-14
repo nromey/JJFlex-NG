@@ -739,7 +739,7 @@ public static class KeyInventory
     /// key and needs to hear which key is right, not a paragraph about it.
     /// </summary>
     /// <remarks>
-    /// #558. Both near-miss paths call this, deliberately. When the value
+    /// Both near-miss paths call this, deliberately. When the value
     /// layer and the leader each rendered their own sentence they drifted into
     /// two vocabularies for one idea, which is the same shape as the pan words
     /// scale (#536) and the restore list's two renderers - so the shortening
