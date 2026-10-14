@@ -1867,7 +1867,7 @@
                  keys, deep-links here, and so does the Keys dialog from a
                  system-wide row. -->
             <TabItem Header="System-wide keys"
-                     AutomationProperties.Name="System-wide keys, the JJ key and push to talk from other programs">
+                     AutomationProperties.Name="System-wide keys settings">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="8" Loaded="SystemWideKeysPanel_Loaded">
                         <ContentControl x:Name="SystemWideKeysHost" Focusable="False"/>
