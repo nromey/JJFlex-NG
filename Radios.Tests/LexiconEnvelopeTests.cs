@@ -819,6 +819,8 @@ namespace Radios.Tests
                 "settings.systemwide_keys.leader_enabled_help",
                 "settings.systemwide_keys.transmit_enabled",
                 "settings.systemwide_keys.transmit_enabled_help",
+                "settings.keys.editor.systemwide_route",             // Sprint 48 Track E, #307 Item 6
+                "settings.systemwide_keys.reset_help",               // Sprint 48 Track E, #307 Item 6
             };
 
             Assert.Equal(3129, unclassified);

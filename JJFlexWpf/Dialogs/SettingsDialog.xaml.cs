@@ -1572,6 +1572,7 @@ namespace JJFlexWpf.Dialogs
             if (!CommitRadioProfiles(queued, applied)) return false;
             CommitSetupRadioNameIfDirty(applied);
             if (!CommitPortForwardIfDirty(queued, applied)) return false;
+            CommitSystemWideKeysIfDirty(applied);   // Sprint 48 Track E (#307): see SettingsDialog.SystemWideKeys.cs
 
             SettingsApplied?.Invoke();
 

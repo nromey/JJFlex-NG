@@ -2365,8 +2365,13 @@ public class NativeMenuBar : IDisposable
         // other place an operator changes a key, and deliberately not inside
         // it: those are in-window bindings in five in-window scopes, and
         // these are taken from every program on the machine.
-        AddWired(tools, "System-wide keys", () =>
-            Dialogs.SystemWideKeysDialog.Show(System.Windows.Window.GetWindow(_window)));
+        //
+        // Sprint 48 Track E: a DEEP LINK into Settings, as "Diagnostic Log"
+        // is, not a dialog of its own. Noel, 2026-10-05: "no need for two
+        // nested dialogs". The label stays "System-wide keys" on purpose —
+        // the Keys dialog's rows and the Finder door say "Tools, System-wide
+        // keys", and this item keeps that route true.
+        AddWired(tools, "System-wide keys", () => ShowSettingsDialog(SystemWideKeysSettingsTab));
         // QB Track A stub audit: band-plan data (HamBands.Bands) and the WPF
         // ShowBandsDialog both existed, unconnected. Works without a radio —
         // the band table is static data.
@@ -3111,6 +3116,13 @@ public class NativeMenuBar : IDisposable
     /// Hotkey Editor; viewing from Help → Key Assignments. Works with or
     /// without a radio — key bindings are app state, not radio state.
     /// </summary>
+    /// <summary>
+    /// The Settings tab header the system-wide keys live under (#307, Sprint
+    /// 48 Track E). One name, used by the Tools deep link and by the Keys
+    /// dialog's route, so the two cannot drift apart.
+    /// </summary>
+    internal const string SystemWideKeysSettingsTab = "System-wide keys";
+
     private void ShowKeysSurface(bool editable)
     {
         var commands = _window.KeyCommandsRef;
@@ -3121,6 +3133,13 @@ public class NativeMenuBar : IDisposable
         }
         var dialog = new Dialogs.KeysDialog(commands, editable);
         dialog.ShowDialog();
+
+        // Sprint 48 Track E: a system-wide row is listed here and configured
+        // in Settings. The dialog cannot open Settings over itself without
+        // the modal-inside-a-modal Noel ruled out, so it closes and asks us
+        // to; one door closes, the next opens, no nesting.
+        if (dialog.OpenSettingsAtTab != null)
+            ShowSettingsDialog(dialog.OpenSettingsAtTab);
     }
 
     /// <summary>

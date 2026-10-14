@@ -1856,6 +1856,25 @@
                  toggles, manual "Check now," last-check timestamp. The
                  first-time-nightly consent dialog fires when the user picks
                  Nightly without having acknowledged it before. -->
+            <!-- System-wide keys (#307, Sprint 48 Track E). The JJ key, push to
+                 talk and the transmit lock as they are reached from ANOTHER
+                 program, their two switches, and the four-layer conflict
+                 report. Noel, 2026-10-05: "I'd have the ptt toggle stuff in a
+                 settings tab somewhere, no need for two nested dialogs". The
+                 panel is code-built in SystemWideKeysPanel and created when
+                 this tab first loads (SettingsDialog.SystemWideKeys.cs); it
+                 commits on OK and Apply like its neighbours. Tools, System-wide
+                 keys, deep-links here, and so does the Keys dialog from a
+                 system-wide row. -->
+            <TabItem Header="System-wide keys"
+                     AutomationProperties.Name="System-wide keys, the JJ key and push to talk from other programs">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="8" Loaded="SystemWideKeysPanel_Loaded">
+                        <ContentControl x:Name="SystemWideKeysHost" Focusable="False"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
             <TabItem Header="Updates" AutomationProperties.Name="Update channel and auto-check preferences">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="8">
