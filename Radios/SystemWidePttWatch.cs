@@ -117,6 +117,29 @@ namespace Radios
         }
 
         /// <summary>
+        /// The hook that saw the down can no longer deliver the up — it has
+        /// faulted, or it is being torn down — and the host has posted the
+        /// release on the hook's behalf. Treat that exactly as a release the
+        /// hook posted itself: if the controller is still holding once the
+        /// grace has passed, <see cref="Verdict.KillReleaseNotHonoured"/>
+        /// drops the carrier from the poll thread (#698).
+        /// </summary>
+        /// <remarks>
+        /// This exists because the two fault paths used to <see cref="Reset"/>
+        /// the watch instead, which switched the watchdog off at the one
+        /// moment it was built for: a release handed to a UI thread that is
+        /// not processing it (#402). A hold that is handed off stays
+        /// <see cref="Busy"/> until the release is seen honoured or the
+        /// carrier is dropped. A no-op when nothing is held, so a release
+        /// already in flight is never restamped.
+        /// </remarks>
+        public void HandOffHold(long nowMs)
+        {
+            if (!_held) return;
+            NoteUp(nowMs);
+        }
+
+        /// <summary>
         /// The periodic question. <paramref name="physicallyDown"/> is the
         /// operating system's answer about the chord's main key;
         /// <paramref name="controllerHolding"/> is whether the PTT safety

@@ -52,10 +52,14 @@ namespace JJFlexWpf
     /// <b>The machine is released without a keystroke.</b> Teardown runs on
     /// the hook thread at shutdown and at process exit through
     /// <see cref="KeyboardHookThread"/>; an exception inside the callback
-    /// marks the hook faulted, passes every later key straight through, posts
-    /// an unkey if a hold was in flight, and asks the hook thread to unhook.
-    /// The probe that trapped the operator offered no exit that did not run
-    /// through the keyboard it was eating; this one needs none.
+    /// marks the hook faulted, passes every later key straight through, and
+    /// asks the hook thread to unhook. On both paths a hold in flight is
+    /// unkeyed three ways at once (#698): the release is posted to the UI
+    /// thread, the carrier is dropped directly without waiting, and the
+    /// watch keeps the release in flight so its not-honoured verdict runs
+    /// the full kill from the pool thread if the UI thread never processes
+    /// the post. The probe that trapped the operator offered no exit that did
+    /// not run through the keyboard it was eating; this one needs none.
     /// </para>
     /// <para>
     /// <b>Screen readers hooking the same chord.</b> Windows calls low-level
@@ -288,6 +292,20 @@ namespace JJFlexWpf
         /// in flight is released on the way out: the hook that saw the down
         /// is going away, so nothing else would ever see the up.
         /// </summary>
+        /// <remarks>
+        /// <b>The release is posted AND the hold is handed to the watchdog
+        /// AND the carrier is dropped directly (#698).</b> Until 2026-10-14
+        /// this path posted the release and then reset and stopped the
+        /// watch, so a hold in flight at teardown had no backstop until the
+        /// UI thread processed the post — and at process exit the UI
+        /// dispatcher is shutting down, so the post is simply lost. Now the
+        /// watch keeps the release in flight (its not-honoured verdict kills
+        /// from the pool thread if the controller is still holding after the
+        /// grace), and the carrier is also dropped here, without waiting,
+        /// AFTER the hook is out so that nothing on this thread can stall a
+        /// keystroke. The three are redundant on purpose: a redundant unkey
+        /// costs nothing.
+        /// </remarks>
         private static void UnhookOnHookThread()
         {
             bool releasePtt;
@@ -295,16 +313,28 @@ namespace JJFlexWpf
             {
                 releasePtt = _decider.PttHeld;
                 _decider.Reset();
-                _watch.Reset();
-                StopWatchLocked();
+                if (releasePtt)
+                {
+                    _watch.HandOffHold(Environment.TickCount64);
+                    StartWatchLocked();
+                }
+                else if (!_watch.Busy)
+                {
+                    StopWatchLocked();   // nothing in flight: the poll can rest
+                }
+                // A release already in flight (a fault handed it off a moment
+                // ago) keeps the watch running until it is honoured or killed.
             }
             if (releasePtt) Post(() => PttEdge?.Invoke(false));
 
-            if (_hookHandle == IntPtr.Zero)
-                return;
-            UnhookWindowsHookEx(_hookHandle);
-            _hookHandle = IntPtr.Zero;
-            _hookProc = null;
+            if (_hookHandle != IntPtr.Zero)
+            {
+                UnhookWindowsHookEx(_hookHandle);
+                _hookHandle = IntPtr.Zero;
+                _hookProc = null;
+            }
+
+            if (releasePtt) DropCarrierWithoutWaiting("system-wide push to talk teardown with a hold in flight");
         }
 
         private static IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
@@ -398,6 +428,19 @@ namespace JJFlexWpf
         /// and the hook thread is asked to unhook once this callback has
         /// returned. Nothing here waits.
         /// </summary>
+        /// <remarks>
+        /// <b>A hold in flight is handed to the watchdog, not just posted
+        /// (#698).</b> This runs INSIDE the hook callback, so it may not
+        /// block, and <see cref="PttSafetyController.KillTransmitNow"/> can —
+        /// it confirms the carrier down through a sleep loop whenever a
+        /// transmit check is armed. So the release is posted, the carrier is
+        /// dropped without waiting, and the watch is told the hold is now a
+        /// posted release: if the UI thread does not honour it within the
+        /// grace, the existing not-honoured verdict runs the full kill from
+        /// the pool thread, off this one. Before this the unhook that follows
+        /// reset the watch, which switched the backstop off at the moment it
+        /// was built for.
+        /// </remarks>
         private static void Fault(Exception ex)
         {
             _faulted = true;
@@ -406,10 +449,19 @@ namespace JJFlexWpf
             {
                 releasePtt = _decider.PttHeld;
                 _decider.Reset();
+                if (releasePtt)
+                {
+                    _watch.HandOffHold(Environment.TickCount64);
+                    StartWatchLocked();
+                }
             }
             Tracing.TraceLine("SystemWideKeys: exception in the hook callback; passing every key through from now on and unhooking. "
                 + ex, TraceLevel.Error);
-            if (releasePtt) Post(() => PttEdge?.Invoke(false));
+            if (releasePtt)
+            {
+                Post(() => PttEdge?.Invoke(false));
+                DropCarrierWithoutWaiting("system-wide push to talk hook fault with a hold in flight");
+            }
             try
             {
                 Dispatcher.CurrentDispatcher.BeginInvoke(new Action(UnhookOnHookThread));
@@ -417,6 +469,23 @@ namespace JJFlexWpf
             catch (Exception post)
             {
                 Tracing.TraceLine("SystemWideKeys: could not post the unhook: " + post.Message, TraceLevel.Error);
+            }
+        }
+
+        /// <summary>
+        /// Both carriers off, now, through the controller's non-blocking
+        /// drop. Never the full kill from here: see <see cref="Fault"/>.
+        /// Swallows everything — a fault path that throws is no path.
+        /// </summary>
+        private static void DropCarrierWithoutWaiting(string source)
+        {
+            try
+            {
+                PttControllerSource?.Invoke()?.DropCarrierNow(source);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("SystemWideKeys: the direct carrier drop failed: " + ex.Message, TraceLevel.Error);
             }
         }
 

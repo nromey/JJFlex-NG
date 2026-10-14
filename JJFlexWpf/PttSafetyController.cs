@@ -380,6 +380,36 @@ namespace JJFlexWpf
         }
 
         /// <summary>
+        /// The first step of <see cref="KillTransmitNow"/> and nothing else:
+        /// both carriers off, each independently, with no confirmation, no
+        /// speech and no bookkeeping. For a caller that must not wait — the
+        /// keyboard hook thread, where every keystroke on the machine waits
+        /// behind whatever it does (#402) — and for process exit, where a
+        /// posted release is lost in a dispatcher that has shut down (#698).
+        /// </summary>
+        /// <remarks>
+        /// Non-blocking by construction: <see cref="FlexBase.Transmit"/> and
+        /// <see cref="FlexBase.TxTune"/> enqueue to the radio's command queue.
+        /// <see cref="KillTransmitNow"/> is NOT safe from such a caller even
+        /// though its remarks say it may run on another thread — that is
+        /// thread affinity, not non-blocking: through
+        /// <see cref="TransmitKillSwitch.Request"/> it can spend
+        /// <see cref="TransmitKillSwitch.ConfirmDownMs"/> in a sleep loop
+        /// when a transmit check is armed. A caller that can wait should call
+        /// the full kill; this is the one that cannot.
+        /// </remarks>
+        /// <param name="source">Who asked, for the trace.</param>
+        public void DropCarrierNow(string source)
+        {
+            FlexBase? rig = null;
+            try { rig = _getRigControl(); } catch { }
+            Tracing.TraceLine("PTT: carrier dropped without waiting, by " + source
+                              + " (controller state " + State + ")", TraceLevel.Warning);
+            TransmitKillSwitch.DropCarrier(rig, TransmitKillSwitch.Carrier.Mox);
+            TransmitKillSwitch.DropCarrier(rig, TransmitKillSwitch.Carrier.Tune);
+        }
+
+        /// <summary>
         /// The sentence and subject the next <see cref="FinishOwnedKill"/>
         /// speaks, set by the three-argument kill and consumed once. Written
         /// on the killing thread and read on the dispatcher after a post;
