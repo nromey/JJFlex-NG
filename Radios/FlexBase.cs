@@ -2126,6 +2126,26 @@ namespace Radios
         public bool ATUHardwarePresent => theRadio?.ATUPresent == true;
 
         /// <summary>
+        /// Whether the tuner remembers its solutions per frequency.
+        /// </summary>
+        /// <remarks>
+        /// Sprint 48 Track D (#700's neighbour, #110). Exposed for the ATU
+        /// Memories dialog, whose door - <see cref="ShowATUMemoriesDialog"/> -
+        /// was declared in Sprint 10, invoked by <see cref="AntennaTunerMemories"/>,
+        /// and assigned by nothing until now. False also when no radio or no
+        /// ATU is reported, which is "not reported", not "proven off" - the
+        /// same caveat as <see cref="ATUHardwarePresent"/>.
+        /// </remarks>
+        public bool ATUMemoriesEnabled
+        {
+            get => theRadio?.ATUMemoriesEnabled == true;
+            set { var r = theRadio; if (r != null) r.ATUMemoriesEnabled = value; }
+        }
+
+        /// <summary>Forget every stored tuner solution. No-op without a radio.</summary>
+        public void ClearATUMemories() => theRadio?.ATUClearMemories();
+
+        /// <summary>
         /// True while the antenna tuner is actively running a tune cycle.
         /// <para>Exists because a tune cycle is the one time high reflected
         /// power is <b>expected</b>. The tuner transmits into a deliberately
@@ -9671,6 +9691,7 @@ namespace Radios
                             _RXVFO = SliceToVFO(s);
                             s.Panadapter.GetRFGainInfo();
                             FilterObj.RXFreqChange(s);
+                            EscStateChanged?.Invoke();
 #if CWMonitor
                             if (useCWMon && (s == VFOToSlice(TXVFO)) && (s.DemodMode == "CW"))
                             {
@@ -10081,6 +10102,11 @@ namespace Radios
                                 NoteOperatorPlace(s);
                             }
                         }
+                        break;
+                    case "ESCEnabled":
+                    case "ESCPhaseShift":
+                    case "ESCGain":
+                        EscStateChanged?.Invoke();
                         break;
                     case "DemodMode":
                         {
@@ -11241,6 +11267,20 @@ namespace Radios
         /// UI layers subscribe to force immediate DSP state refresh.
         /// </summary>
         public event Action<string> ModeChanged;
+
+        /// <summary>
+        /// Fired when what the Enhanced Signal Clarity dialog shows may have
+        /// changed under it: the active slice moved, or the radio reported
+        /// ESC on or off, phase or gain for one of our slices.
+        /// </summary>
+        /// <remarks>
+        /// Sprint 48 Track D (#700's neighbour). <c>EscDialog</c> had asked
+        /// for a refresh callback since Sprint 9 and nothing had ever been
+        /// wired to call it, so a change made from another client, or a
+        /// slice change, left the dialog showing stale values until it was
+        /// reopened. This is the signal NativeMenuBar's wiring subscribes.
+        /// </remarks>
+        public event Action EscStateChanged;
 
         /// <summary>
         /// Fired when the radio connection state changes (connected/disconnected).

@@ -778,6 +778,21 @@ namespace Radios.Tests
             // classified alone, because the only classified surface so far is
             // facts.* and this test says so below; the seven tier labels want
             // classifying together, under #629, as the window text they are.
+            //
+            // Sprint 48 Track D (#591, #700, 2026-10-14): ten keys, frozen for
+            // the same reason as every track above. Eight for the Memories and
+            // ATU Memories dialogs whose mutators were never wired -
+            // settings.memory.tone_mode_off / tone_mode_ctcss, offset_minus /
+            // offset_simplex / offset_plus (combo labels), add_failed and
+            // frequency_rejected (the two outcomes the dialog's own controls
+            // cannot convey), and settings.atu.memories_cleared (the Clear
+            // button changes nothing visible). Two for the logging layout's
+            // radio pane, whose ten hooks were never assigned:
+            // logging.radio_pane.frequency_set and tune_step, which until now
+            // were literals in RadioPaneControl that nothing had ever spoken.
+            // The spoken ones carry SpeechSubject keys (MemoryEdit, AtuMemories,
+            // LoggingRadioPane) so supersession works; their shelf life is the
+            // #617 decision this brief did not carry.
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -790,7 +805,7 @@ namespace Radios.Tests
                 }
             }
 
-            Assert.Equal(3131, unclassified);
+            Assert.Equal(3141, unclassified);
             Assert.All(classified, key =>
                 Assert.StartsWith("facts.", key, StringComparison.Ordinal));
             Assert.True(classified.Count > 30,

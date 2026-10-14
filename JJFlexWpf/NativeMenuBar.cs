@@ -1330,8 +1330,15 @@ public class NativeMenuBar : IDisposable
 
         AddWired(parent, "ATU Memories", () =>
         {
-            if (Rig?.ShowMemoriesDialog != null)
-                Rig.ShowMemoriesDialog();
+            // Sprint 48 Track D (#700): until now this opened the FREQUENCY
+            // Memories dialog - the wrong dialog, found while the command route
+            // to the right one turned out to be dead as well. The ATU dialog is
+            // reached through FlexBase.AntennaTunerMemories, which MainWindow
+            // now wires. HasATU is the condition under which FlexBase grants the
+            // ATMems capability the command route is gated on.
+            var rig = Rig;
+            if (rig != null && rig.HasATU)
+                rig.AntennaTunerMemories();
             else
                 SpeakAfterMenuClose(Radios.Lexicon.Get("settings.atu.memories_unavailable"));
         });
@@ -1487,6 +1494,14 @@ public class NativeMenuBar : IDisposable
         var rig = Rig;
         if (rig == null) { SpeakNoRadio(); return; }
 
+        // Sprint 48 Track D (#700's neighbour): the dialog had asked for a
+        // refresh callback since Sprint 9 and nothing wired one, so while it
+        // was open a slice change, a mode change or an ESC change from another
+        // client left it showing stale values. The dialog marshals to its own
+        // dispatcher inside the callback.
+        Action? refresh = null;
+        Action<string>? refreshOnMode = null;
+
         var dialog = new Dialogs.EscDialog
         {
             Owner = System.Windows.Window.GetWindow(_window),
@@ -1499,7 +1514,26 @@ public class NativeMenuBar : IDisposable
             HasActiveSlice = () => rig.HasActiveSlice,
             IsDiversityReady = () => rig.DiversityReady,
             IsDiversityOn = () => rig.DiversityOn,
-            GetDiversityGateMessage = () => NonEmpty(rig.DiversityGateMessage)
+            GetDiversityGateMessage = () => NonEmpty(rig.DiversityGateMessage),
+            RegisterRefreshCallback = callback =>
+            {
+                refresh = callback;
+                refreshOnMode = _ => callback();
+                rig.SliceCountChanged += refresh;
+                rig.EscStateChanged += refresh;
+                rig.ModeChanged += refreshOnMode;
+            },
+            UnregisterRefreshCallback = () =>
+            {
+                if (refresh != null)
+                {
+                    rig.SliceCountChanged -= refresh;
+                    rig.EscStateChanged -= refresh;
+                }
+                if (refreshOnMode != null) rig.ModeChanged -= refreshOnMode;
+                refresh = null;
+                refreshOnMode = null;
+            },
         };
         dialog.ShowDialog();
 

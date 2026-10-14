@@ -299,7 +299,7 @@ public partial class RadioPaneControl : UserControl
             if (freqHz.HasValue && SetFrequencyManual != null)
             {
                 SetFrequencyManual(freqHz.Value);
-                SpeakAction?.Invoke("Frequency set");
+                SpeakAction?.Invoke(Radios.Lexicon.Get("logging.radio_pane.frequency_set"));
             }
         }
         catch (Exception)
@@ -323,7 +323,7 @@ public partial class RadioPaneControl : UserControl
         var stepText = FormatStepSize(TuneStepList[_currentStepIndex]);
         TuneStepBox.Text = "Step: " + stepText;
         AutomationProperties.SetName(TuneStepBox, "Tune step " + stepText);
-        SpeakAction?.Invoke("Tune step " + stepText);
+        SpeakAction?.Invoke(Radios.Lexicon.Get("logging.radio_pane.tune_step", ("step", stepText)));
     }
 
     /// <summary>

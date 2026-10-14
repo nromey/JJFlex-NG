@@ -138,6 +138,18 @@ public sealed class DelegateSurfaceTests
 
         ["MessageDialog.SaveSuppressed"] =
             "The other half of CheckSuppressed, same status, same decision.",
+
+        ["AboutDialog.LaunchConnectionTest"] =
+            "#700's neighbour. The About dialog's Connection Test button speaks 'Connection " +
+            "test not available' every time - honest, and permanently dead. NOT wired by " +
+            "Sprint 48 Track D on purpose: the only tester in the tree, ConnectionTesterDialog, " +
+            "runs ConnectionTester, which creates its own FlexBase and performs N " +
+            "connect-start-disconnect cycles (default 25) against the radio - a SmartLink " +
+            "stress tool the connection dialog launches BEFORE connecting. Launching that from " +
+            "About, which is reachable while connected, would open repeated extra sessions " +
+            "against the radio the operator is on. What the button should do needs a ruling: " +
+            "open the tester for the connected radio anyway, open it only when disconnected " +
+            "and a radio is known, or remove the button.",
     };
 
     /// <summary>
@@ -151,10 +163,6 @@ public sealed class DelegateSurfaceTests
     /// </summary>
     private static readonly Dictionary<string, string> UnconstructedAwaitingDecision = new(StringComparer.Ordinal)
     {
-        ["ATUMemoriesDialog"] =
-            "ATU Memories: switch the tuner's memories on or off and clear them. Reached, if " +
-            "wired, through FlexBase.ShowATUMemoriesDialog from the ATU Memories command and " +
-            "menu item (#700 neighbour, #110).",
         ["CMDLineDialog"] =
             "Command Line: type a raw command to the radio and see the reply. #482: dead with " +
             "no menu item at all - silent rather than honest.",

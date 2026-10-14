@@ -468,5 +468,36 @@ namespace Radios.Speech
         /// must come from the same owner about the same condition.
         /// </summary>
         public const string SystemWidePttWatchdog = "system-wide-ptt-watchdog";
+
+        /// <summary>
+        /// What the logging layout's radio pane said about the operator's own
+        /// action on it — the tune step they just chose, or that a typed
+        /// frequency took. Each is covered by the next: an unheard "Tune step
+        /// 1 kHz" is worthless once Right has been pressed again and it is 5.
+        /// Nothing outside the pane covers it; the Home display speaks about
+        /// the same frequency in its own words, and a replacement must come
+        /// from the same owner about the same condition. Sprint 48 Track D
+        /// (#483, #591): the pane's ten hooks were never assigned, so these
+        /// sentences had never been heard before.
+        /// </summary>
+        public const string LoggingRadioPane = "logging-radio-pane";
+
+        /// <summary>
+        /// The outcome of an edit in the Memories dialog that the dialog's own
+        /// controls cannot convey — the radio did not add a memory, or a typed
+        /// frequency was refused and the old one kept. Covered by the next such
+        /// outcome. Sprint 48 Track D (#700): every mutator on that dialog was
+        /// unwired, so until then there was no outcome to report.
+        /// </summary>
+        public const string MemoryEdit = "memory-edit";
+
+        /// <summary>
+        /// The ATU Memories dialog reporting that the tuner's stored solutions
+        /// were cleared. The Clear button changes no visible state, so without
+        /// this a blind operator pressing it hears nothing, which is
+        /// indistinguishable from nothing having happened. Covered only by the
+        /// next clear.
+        /// </summary>
+        public const string AtuMemories = "atu-memories";
     }
 }

@@ -205,6 +205,8 @@
   "logging.problems.save_title": "Save the diagnostic log",
   "logging.problems.saved": "Diagnostic log saved, about {size}.",
   "logging.problems.unknown_size": "unknown size",
+  "logging.radio_pane.frequency_set": "Frequency set",
+  "logging.radio_pane.tune_step": "Tune step {step}",
   "logging.recording.health.archive_failed_detail": "The recording is kept as plain text at {path}, {retained}. What went wrong: {why}. The log that is running now is not affected. If you are sending evidence to Noel, send that file.",
   "logging.recording.health.archive_failed_detail_no_log": "The recording is kept as plain text at {path}, {retained}. What went wrong: {why}. If you are sending evidence to Noel, send that file.",
   "logging.recording.health.archive_failed_what": "An earlier recording could not be filed",
