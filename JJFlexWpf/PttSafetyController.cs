@@ -367,6 +367,14 @@ namespace JJFlexWpf
             TransmitKillSwitch.DropCarrier(rig, TransmitKillSwitch.Carrier.Mox);
             TransmitKillSwitch.DropCarrier(rig, TransmitKillSwitch.Carrier.Tune);
 
+            // 1b. Nothing left armed to key it again (#699). An engaged voice
+            //     file or test tone replaces the microphone, and a deliberate
+            //     VOX send reaches the radio while receiving — so a kill that
+            //     dropped the carrier and left the source engaged either
+            //     parked the operator's microphone or handed VOX the thing it
+            //     keys on. Same independence as the two drops above.
+            TransmitKillSwitch.DisarmSources(rig);
+
             // 2. If a transmit check is armed, it owns the confirmation and the
             //    words — it is the thing that knows whether a carrier was ever
             //    raised. A no-op when nothing is armed.

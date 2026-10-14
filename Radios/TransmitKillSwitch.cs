@@ -338,6 +338,51 @@ namespace Radios
         }
 
         /// <summary>
+        /// Disarm every transmit SOURCE this computer generates — the voice
+        /// file and the test tone — beside the carrier drops and for the same
+        /// reason they are separate from each other: a safety stop that leaves
+        /// armed the one thing which can key the radio again is not a stop
+        /// (#699).
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Found by the Sprint 48 integration pass and visible from no single
+        /// track: Track A made an engaged source replace the microphone and
+        /// wait for the key; Track B's watchdog drops the carrier from the
+        /// pool thread and tells the operator they are off the air; the VOX
+        /// half of the voice send then lets a deliberate send reach the radio
+        /// while receiving. Drop the carrier and leave the file engaged, and
+        /// the operator's microphone stays parked until the UI thread ticks
+        /// the send — or, from any key-down that bypasses our UI thread, the
+        /// whole recording goes out from the top instead of their voice. With
+        /// a VOX send flowing, the radio simply keys again.
+        /// </para>
+        /// <para>
+        /// Independent of the carriers and of each other, non-blocking (each
+        /// stop flips a state word the audio thread reads), idempotent (a
+        /// player already releasing returns early), and never throws.
+        /// <see cref="FlexBase.TxFileStop"/> also clears the deliberate-send
+        /// flag that lets a VOX send flow while receiving, so after this call
+        /// nothing this computer generates can reach the radio until somebody
+        /// starts it again on purpose.
+        /// </para>
+        /// </remarks>
+        public static void DisarmSources(FlexBase rig)
+        {
+            if (rig == null) return;
+            try { rig.TxFileStop(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("TransmitKillSwitch: COULD NOT DISARM the voice file — " + ex.Message, TraceLevel.Error);
+            }
+            try { rig.TxToneStop(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("TransmitKillSwitch: COULD NOT DISARM the test tone — " + ex.Message, TraceLevel.Error);
+            }
+        }
+
+        /// <summary>
         /// Drop a carrier. Refuses nothing, needs no arm, and never throws — an
         /// unkey is the one step that must never be conditional on anything.
         /// </summary>
@@ -409,6 +454,11 @@ namespace Radios
             // 1. RF off. Both carriers, independently.
             DropCarrier(rig, Carrier.Mox);
             DropCarrier(rig, Carrier.Tune);
+
+            // 1b. And nothing left armed to key it again (#699). The transmit
+            //     check's own boundary stops its source in a finally, on its
+            //     own thread; this does not wait for that thread to be alive.
+            DisarmSources(rig);
 
             // 2. The alarm, before anything that waits. A blind operator has no
             //    TX light; this is the first thing that tells them the press
