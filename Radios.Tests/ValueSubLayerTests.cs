@@ -2231,7 +2231,7 @@ namespace Radios.Tests
                 "audio.audio_layer.slice_volume_no_slice",
                 "audio.mute.slice_muted",          // the same words as M on Home — one vocabulary
                 "audio.mute.slice_unmuted",
-                "audio.pc_audio.on",               // the same words as Ctrl+J, Ctrl+P
+                "audio.pc_audio.on",               // the same words as the PC audio menu item
                 "audio.pc_audio.off",
                 "audio.pc_audio.could_not_start",
                 "audio.binaural.on",

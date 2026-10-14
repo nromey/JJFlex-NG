@@ -84,7 +84,6 @@ Plain `M` is spoken for: it is the mode layer, ruled and not yet built. Until it
 - **Ctrl+W** — Toggle Wideband Noise Blanker
 - **Ctrl+R** — Toggle On-Radio Neural Noise Reduction (the radio's own DSP). Reading the recorded problems, which used to be here, is `Alt+R`
 - **Ctrl+A** — Toggle Auto Notch. It was plain `A` until the grammar arrived; plain `A` is the audio layer's door now
-- **Ctrl+P** — Turn PC audio on or off — whether radio audio plays through this computer at all. P for PC; it was `Ctrl+A` once. (`Ctrl+J`, `A`, `O` rides how *loud* it plays; this is the switch, and it tells you which way it went)
 - **Ctrl+G** — Arm or disarm the TX test tone (it replaces your microphone while transmitting)
 - **Ctrl+T** — Toggle meter tones on/off
 - **Ctrl+E** — Toggle alert sounds (earcons) on/off — E for earcons; it was `Shift+T`
@@ -107,15 +106,13 @@ Plain `M` is spoken for: it is the mode layer, ruled and not yet built. Until it
 
 ### Still finding their layer
 
-Each of these is a switch whose initial is already taken on the Ctrl tier by another switch — spectral NR wants `Ctrl+S` and that is the S-meter unit, the peak filter wants `Ctrl+P` and that is PC audio — so it stays on its old key until the noise layer and the rest of the audio layer give it a home. Two Ctrl chords sit here too, because they are not switches: `Ctrl+C` copies because `Ctrl+C` copies everywhere in Windows, and `Ctrl+F` is waiting on a decision about the Alt tier.
+Each of these is a switch whose initial is already taken on the Ctrl tier by another switch — spectral NR wants `Ctrl+S` and that is the S-meter unit, the peak filter wants `Ctrl+P` and that was PC audio — so it stays on its old key until the noise layer gives it a home. The compander and the speech processor have left this list: their switches live inside the audio layer beside their levels (`A`, then `Ctrl+C` or `Ctrl+S`), and PC audio's switch is in there too (`A`, then `Ctrl+P`). Two Ctrl chords sit here too, because they are not switches: `Ctrl+C` copies because `Ctrl+C` copies everywhere in Windows, and `Ctrl+F` is waiting on a decision about the Alt tier.
 
 - **S** — Toggle On-Radio Spectral Noise Reduction (the radio's own DSP)
 - **Shift+N** — Toggle NR Filter
 - **Shift+R** — Toggle PC Neural Noise Reduction (runs on your computer, works on every radio)
 - **Shift+S** — Toggle PC Spectral Noise Reduction (runs on your computer, works on every radio)
 - **P** — Toggle Audio Peak Filter (APF, CW only)
-- **C** — Toggle Compander
-- **Shift+P** — Toggle Speech Processor
 - **D** — Toggle tuning speech debounce
 - **Ctrl+C** — Copy what was just spoken to the clipboard — walk back with `Ctrl+F4` to the message you want first, then copy it (see "Copying what the app said" below)
 - **Ctrl+F** — Enter a frequency
@@ -149,8 +146,8 @@ The levels — pick one, then ride Up and Down:
 - **O** — PC output volume, in dB of boost. O for output — the computer’s. This is how loud radio audio plays *through your computer* — the one remote operators actually want. Ranges 0 to 24 dB; the long-time default is 12 dB.
 - **M** — mic level, your transmit audio level. Applies to PC audio too.
 - **L** — on-radio line out volume. The line out jacks on the radio itself.
-- **C** — compander level. (Toggle the compander itself with `Ctrl+J`, `C`.)
-- **S** — speech processor mode: Up and Down step through Normal, DX, and DX plus. (Toggle the processor with `Ctrl+J`, `Shift+P`.)
+- **C** — compander level. (`Ctrl+C`, below, turns the compander itself on or off.)
+- **S** — speech processor mode: Up and Down step through Normal, DX, and DX plus. (`Ctrl+S`, below, turns the processor itself on or off.)
 - **X** — VOX gain, 0 to 100: how loud your voice has to be before VOX keys the radio. Too low and room noise keys you up; too high and it never trips. X because `V` is already slice volume. If VOX is off it says so after the number, so you can set the threshold before you arm it — which is the right order. (Turn VOX itself on or off on the VOX field in Home, with the VOX checkbox in the Transmission group, or from the menu.)
 - **D** — VOX delay: how long the radio stays keyed after you stop talking, in milliseconds, up to two seconds. Up and Down move it 100 ms at a time; Shift moves it one radio step, 20 ms, which is the finest the radio can do. Too short and it drops between your words; too long and the other station waits on you. In CW both of these say "not used in CW" — the VOX switch means break-in there, and these two numbers are not in play.
 - **P** — pan, for the slice you're on. Pan mode lived on `P` before the layers, so this is the letter your hands already know. Left and Right move it too — for pan, direction means something real — and `0` snaps it back to center.
@@ -158,7 +155,9 @@ The levels — pick one, then ride Up and Down:
 The switches — one press flips it, and it tells you which way it went:
 
 - **Ctrl+M** — mute or unmute the slice you're on. The same mute as `M` on Home, reachable from in here.
-- **Ctrl+P** — PC audio on or off: whether radio audio plays through this computer at all. The same chord as `Ctrl+J`, `Ctrl+P` outside the layer, on purpose — one chord, one meaning, wherever you press it. `O` above sets how loud; this is the switch. It reads the radio back before answering, so if turning it on couldn't find a sound device it tells you that rather than claiming success.
+- **Ctrl+P** — PC audio on or off: whether radio audio plays through this computer at all. `O` above sets how loud; this is the switch. It reads the radio back before answering, so if turning it on couldn't find a sound device it tells you that rather than claiming success. This used to have a second door at the top level, `Ctrl+J`, `Ctrl+P`; that door is closed, and the switch lives here beside its level.
+- **Ctrl+C** — compander on or off. `C` above sets its level; when the compander is off, the level says so after the number. The top-level `Ctrl+J`, `C` used to do this.
+- **Ctrl+S** — speech processor on or off. `S` above picks its mode; when the processor is off, the mode says so after the name. The top-level `Ctrl+J`, `Shift+P` used to do this.
 - **Ctrl+B** — binaural receive on or off, the radio's own stereo widening of what you hear. It is a property of the radio rather than of one slice, so it changes every slice at once. There are two other ways to reach it if you would rather see it than remember it: **Binaural** in Home's Audio and Slice group (`Ctrl+Shift+U`), and **Binaural** on the Audio menu. All three say the same thing when they flip.
 
 And the keys that work on whatever you've picked:
@@ -720,7 +719,7 @@ Some commands ship without a key, and it is worth knowing that this is not one l
 **Already have a key, just not their own one.** These answer to the JJ key, so
 you may not need to bind anything: show memories (`Ctrl+J`, `Alt+M`), log
 statistics (`Ctrl+J`, `Alt+L`), toggle meter tones (`Ctrl+J`, `Ctrl+T`), PC audio on/off
-(`Ctrl+J`, `Ctrl+P`), echo recent CW (`Ctrl+J`, `Alt+E`), and speak the version and
+(`Ctrl+J`, `A`, then `Ctrl+P`, inside the audio layer), echo recent CW (`Ctrl+J`, `Alt+E`), and speak the version and
 build (`Ctrl+J`, `Alt+V`). Speak TX filter width used to be `Ctrl+J`, `F`; that
 letter is the filter layer's door now and the readout lives inside the layer —
 until it lands, the Radio menu's TX Filter submenu has a Read TX Filter item.

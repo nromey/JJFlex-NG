@@ -522,18 +522,12 @@ public static class KeyInventory
         // Ctrl is the toggle tier and A is Auto Notch's own initial.
         new("Leader", "JJ key", "Ctrl+J, Ctrl+A", "Toggle Auto Notch",
             new[] { "anf", "auto", "notch", "carrier", "heterodyne", "tone", "leader", "toggle" }, "Radio", "DSP"),
-        // Ctrl+P — P for PC, ruled #513 (Noel, 2026-09-01: "p for pc makes
-        // more sense"). Ctrl is the toggle tier of the four-tier grammar and
-        // P is the toggle's own initial. It was Ctrl+A from Sprint 32 Track G
-        // (#130), when Noel named it on the unbound-command survey: "No hotkey
-        // for PC audio on and off available that I know of, you have to do it
-        // in the menu." Ctrl+A belongs to Auto Notch now, the toggle whose
-        // initial it is. Sits one keystroke from Ctrl+J, A, O, which rides the
-        // PC output LEVEL; this is the on/off switch, and the pairing is
-        // deliberate.
-        new("Leader", "JJ key", "Ctrl+J, Ctrl+P", "Turn PC audio on or off — whether radio audio plays through this computer",
-            new[] { "pc", "audio", "on", "off", "toggle", "remote", "sound", "mute", "unmute",
-                    "computer", "playback", "hear", "silence", "quiet", "leader" }, "Radio", "Audio"),
+        // Ctrl+P (PC audio on or off) had a row here from Sprint 44 Track J
+        // until Sprint 48 Track F. The same switch sits inside the audio layer
+        // on the same chord, beside O, which sets how loud it plays — two
+        // doors into one toggle, and Noel's ruling of 2026-10-05 (#518) closed
+        // the top-level one: the audio layer holds the switch for anything
+        // whose level it already holds. The AudioLayerCommands row carries it.
         // Audio Arc Keys Track (2026-08-11) — the tone generator; a toggle on
         // its own initial since Sprint 48 Track C (it was plain G).
         new("Leader", "JJ key", "Ctrl+J, Ctrl+G", "Arm or disarm the TX test tone (replaces your microphone while transmitting)",
@@ -665,10 +659,9 @@ public static class KeyInventory
             new[] { "pc", "spectral", "noise", "reduction", "leader" }, "Radio", "DSP"),
         new("Leader", "JJ key", "Ctrl+J, P", "Toggle Audio Peak Filter (CW only)",
             new[] { "apf", "audio", "peak", "filter", "cw", "leader" }, "Radio", "DSP"),
-        new("Leader", "JJ key", "Ctrl+J, C", "Toggle Compander",
-            new[] { "compander", "compression", "tx", "transmit", "voice", "leader", "toggle" }, "Radio", "Transmit"),
-        new("Leader", "JJ key", "Ctrl+J, Shift+P", "Toggle Speech Processor",
-            new[] { "speech", "processor", "proc", "tx", "transmit", "voice", "leader", "toggle" }, "Radio", "Transmit"),
+        // The compander (plain C) and the speech processor (Shift+P) had rows
+        // here until Sprint 48 Track F; their switches live inside the audio
+        // layer beside their levels (Ctrl+C, Ctrl+S there), per #518.
         new("Leader", "JJ key", "Ctrl+J, D", "Toggle tuning speech debounce",
             new[] { "debounce", "tuning", "speech", "leader" }, "Global", "General"),
         // Two Ctrl chords that are not toggles, kept on purpose. Ctrl+C is
@@ -960,6 +953,15 @@ public static class KeyInventory
             new[] { "pc", "audio", "on", "off", "toggle", "switch", "computer", "playback", "hear", "remote", "sound" }, "Radio", "Audio"),
         new(AudioLayerContext, "Audio layer", "Ctrl+B", "Binaural receive on or off — the radio's own stereo widening of what you hear",
             new[] { "binaural", "stereo", "wide", "widening", "receive", "toggle", "switch", "ears", "headphones" }, "Radio", "Audio"),
+        // Sprint 48 Track F (#518): the switch beside the level. Plain C in
+        // here is the compander LEVEL and plain S the processor MODE; Ctrl
+        // flips each on or off. Both chords are provisional like every
+        // letter in this table (#524). They were plain C and Shift+P at the
+        // top level.
+        new(AudioLayerContext, "Audio layer", "Ctrl+C", "Compander on or off — C sets its level",
+            new[] { "compander", "compression", "tx", "transmit", "voice", "toggle", "switch" }, "Radio", "Transmit"),
+        new(AudioLayerContext, "Audio layer", "Ctrl+S", "Speech processor on or off — S sets its mode",
+            new[] { "speech", "processor", "proc", "tx", "transmit", "voice", "toggle", "switch" }, "Radio", "Transmit"),
         new(AudioLayerContext, "Audio layer", "Shift+A through Shift+H", "Jump to that slice without leaving the layer — slice volume, mute and pan follow you to it",
             new[] { "slice", "jump", "letter" }, "Radio", "Audio"),
         new(AudioLayerContext, "Audio layer", "Enter", "Keep every change and leave the audio layer",

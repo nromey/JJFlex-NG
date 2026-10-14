@@ -1803,10 +1803,11 @@ public class KeyCommands
             + "want the Version. Help, About carries the same facts in full, including the "
             + "commit."),
         [CommandValues.RemoteAudio] = new(UnboundReason.LeaderLayer,
-            "Ctrl+J, Ctrl+P turns PC audio on and off — P for PC, ruled in Sprint 44; it was "
-            + "Ctrl+A from Sprint 32 Track G until then. Noel named this one specifically: "
-            + "'No hotkey for PC audio on and off available that I know of, you have to do it "
-            + "in the menu.' Also on the Radio menu under Audio."),
+            "Ctrl+J, A, then Ctrl+P turns PC audio on and off — inside the audio layer, beside "
+            + "O, which sets how loud it plays. P for PC, ruled in Sprint 44; it was a top-level "
+            + "Ctrl+J, Ctrl+P until Sprint 48, when the second door into one switch closed. Noel "
+            + "named this one specifically: 'No hotkey for PC audio on and off available that I "
+            + "know of, you have to do it in the menu.' Also on the Radio menu under Audio."),
         // Task #337 made this the unit toggle. The citation is HERE and not in
         // the Detail string below: KeyManifest writes every Detail verbatim
         // into the key list the operator exports from the Hotkey Editor, so a
@@ -3697,7 +3698,7 @@ public class KeyCommands
         //
         // Still outside the grammar, each with the reason at its arm: the
         // plain-letter and Shift toggles whose Ctrl initial is spoken for
-        // (C, D, P, S, Shift+N, Shift+P, Shift+R, Shift+S), the Ctrl chords
+        // (D, P, S, Shift+N, Shift+R, Shift+S), the Ctrl chords
         // that are not toggles (Ctrl+C copy, Ctrl+F frequency), and the
         // Alt+P door into the audio layer. JjKeyGrammarTests holds that list
         // in both directions, so it can only shrink.
@@ -3904,8 +3905,9 @@ public class KeyCommands
             // an action, but "Ctrl+C copies" is a rule an operator derived
             // from Windows long before this layer existed, and a derivable
             // map is the whole point. Our grammar yields to the wider one.
-            // The cost is that the Compander toggle, whose initial is C,
-            // stays on plain C until the audio layer gives it a switch.
+            // The compander, whose initial is C, has its switch inside the
+            // audio layer beside its level (Ctrl+J, A, Ctrl+C) — a layer is
+            // its own namespace, so the Windows rule costs nothing there.
             // Recorded in JjKeyGrammarTests.CtrlTierActionDebt.
             //
             // No rig gate: what was said is ours, not the radio's, and copying
@@ -4026,53 +4028,23 @@ public class KeyCommands
                 ToggleTxTone();
                 break;
 
-            // Plain C — Compander. NOT YET IN THE GRAMMAR: a toggle, so
-            // Ctrl+C, and Ctrl+C is copy, which the layer keeps on purpose
-            // (see that arm). Its home is the audio layer, where its LEVEL
-            // already sits on C and an on-or-off switch beside it is one
-            // target away — but the audio layer's letters are provisional
-            // until Noel rules them (#524), so nothing is added there here.
-            // Recorded in JjKeyGrammarTests.PlainTierDebt.
-            case Keys.C:
-                if (rig == null) LeaderNoRadio();
-                else ToggleLeaderDSP("Compander",
-                    () => rig.Compander, v => rig.Compander = v);
-                break;
-
-            // Ctrl+P = PC audio on or off. Ruled #513, Noel 2026-09-01: "p for
-            // pc makes more sense." Under the four-tier grammar (#515) Ctrl is
-            // the toggle tier and the letter is the toggle's own initial — P
-            // for PC audio — so the chord is derived, not memorised.
+            // THREE SWITCHES LEFT THIS LEVEL FOR THE AUDIO LAYER in Sprint 48
+            // Track F — plain C (compander), Shift+P (speech processor) and
+            // Ctrl+P (PC audio on or off). Noel's ruling of 2026-10-05 (#518):
+            // the audio layer holds the ON/OFF switch for anything whose LEVEL
+            // it already holds, and the top-level copy goes. The compander's
+            // level was already on C in there, the processor's mode on S, and
+            // PC audio's level on O with its switch on Ctrl+P beside it — so
+            // the first two gained a switch beside their level, and the third
+            // was a second door into one toggle. The chords inside the layer
+            // are Ctrl+C, Ctrl+S and Ctrl+P; see EnterAudioLayer. #513's
+            // ruling that P means PC audio is kept there, not here.
             //
-            // It was Ctrl+A from Sprint 32 Track G (#130) until Sprint 44.
-            // Noel, on the survey of commands with no key: "No hotkey for PC
-            // audio on and off available that I know of, you have to do it in
-            // the menu." Of the twenty-nine unbound commands this is the one
-            // that earns a key — it is a toggle you reach for mid-QSO, in the
-            // dark, when you cannot hear something, and a menu is the wrong
-            // instrument for that.
-            //
-            // #513 kept Ctrl+A as a courtesy alias "with the caveat that if we
-            // need A somewhere else we use it." We need it: plain A is the
-            // audio layer's door now, and Auto Notch — the toggle whose
-            // initial IS A — had to leave it. So Ctrl+A is Auto Notch, below,
-            // and the alias expired the day it was granted. A slip onto it is
-            // audible and reversible: it announces itself by name and a second
-            // press undoes it.
-            //
-            // Flat Ctrl+P is the FREQUENCY panning field. Different layer,
-            // shares a word and nothing else; the pan-mode comment below
-            // records the earlier worry, now overridden by the ruling. Note
-            // Ctrl+J, A, O rides the PC output LEVEL — this is the on/off
-            // switch, and they sit one keystroke apart on purpose.
-            //
-            // Nothing is duplicated here: the handler is the registry command's
-            // own, so this chord, the Command Finder and the Hotkey Editor all
-            // do the identical thing and say the identical words.
-            case Keys.P | Keys.Control:
-                if (rig == null) LeaderNoRadio();
-                else PCAudioHandler();
-                break;
+            // The reasons each had camped here are in the history of this
+            // file: Ctrl+C is copy at this level by the Windows convention
+            // (#433, the arm above), and P and S were both spent on the Ctrl
+            // tier. Nothing was wrong with those reasons; the room next door
+            // was simply the right one, and it was half empty.
 
             // Ctrl+A = Auto Notch. Moved from plain A in Sprint 44 Track J,
             // when the four-tier grammar (#515) made plain letters layer doors
@@ -4084,17 +4056,6 @@ public class KeyCommands
                 if (rig == null) LeaderNoRadio();
                 else ToggleLeaderDSP("Auto Notch",
                     () => rig.AutoNotchFFT, v => rig.AutoNotchFFT = v);
-                break;
-
-            // Shift+P — Speech Processor. NOT YET IN THE GRAMMAR: a toggle
-            // whose initials are both spoken for on the Ctrl tier — P is PC
-            // audio (#513), S is the S-meter unit. P is beyond H, so no slice
-            // is blocked. Its home is the audio layer, where its mode already
-            // sits on S. Recorded in JjKeyGrammarTests.ShiftTierDebt.
-            case Keys.P | Keys.Shift:
-                if (rig == null) LeaderNoRadio();
-                else ToggleLeaderDSP("Speech Processor",
-                    () => rig.ProcessorOn, v => rig.ProcessorOn = v);
                 break;
 
             // Ctrl+F = enter a frequency. OUTSIDE THE GRAMMAR, deliberately
@@ -4569,8 +4530,9 @@ public class KeyCommands
     /// headphone (Ctrl+H), PC output (P), mic level (M), on-radio line out
     /// (L), compander level (C), speech processor mode (S), VOX gain (X),
     /// VOX delay (D), and pan (P, per slice). Switches, one press each: slice mute (Ctrl+M,
-    /// per slice), PC audio on or off (Ctrl+A) and binaural receive
-    /// (Ctrl+B). The per-slice targets follow a Shift+letter jump. Up and
+    /// per slice), PC audio on or off (Ctrl+P), binaural receive (Ctrl+B),
+    /// the compander (Ctrl+C, beside its level on C) and the speech processor
+    /// (Ctrl+S, beside its mode on S). The per-slice targets follow a Shift+letter jump. Up and
     /// Down adjust the picked level (Shift by one); Left and Right also
     /// adjust pan; Home, End and 0 place it at its minimum, maximum or
     /// centre (#522) — the engine's, on every target, so nothing here
@@ -4809,6 +4771,37 @@ public class KeyCommands
                 : wanted ? Radios.Lexicon.Get("audio.pc_audio.could_not_start")
                 : Radios.Lexicon.Get("audio.pc_audio.off"));
 
+        // The compander and the speech processor, on or off — each beside the
+        // level or mode it already had in here (C and S). Sprint 48 Track F,
+        // under Noel's ruling of 2026-10-05 (#518): the audio layer holds the
+        // switch for anything whose level it already holds, and the top-level
+        // copies (plain C, Shift+P) are gone. Ctrl+C is copy at the TOP level
+        // by the Windows convention (#433); inside a layer that only ever
+        // holds levels and switches there is nothing to copy, and Ctrl+letter
+        // flipping the switch whose level is on the letter is this layer's own
+        // rule (#514, ruling two). THESE TWO CHORDS ARE PROVISIONAL, like every
+        // letter in here (#524): Noel vetoes by ear. The words are the ones the
+        // top-level toggles said — "{label} on", "{label} off" — with the
+        // layer's own names for the two, so one subject keeps one name.
+        var companderSwitch = Switch("compander-switch", Keys.C | Keys.Control,
+            () => rig.Compander == FlexBase.OffOnValues.on,
+            on =>
+            {
+                rig.Compander = on ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off;
+                if (on) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+            },
+            on => Radios.Lexicon.Get(on ? "audio.dsp.toggled_on" : "audio.dsp.toggled_off",
+                ("label", Radios.Lexicon.Get("audio.audio_layer.name_compander"))));
+        var processorSwitch = Switch("processor-switch", Keys.S | Keys.Control,
+            () => rig.ProcessorOn == FlexBase.OffOnValues.on,
+            on =>
+            {
+                rig.ProcessorOn = on ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off;
+                if (on) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+            },
+            on => Radios.Lexicon.Get(on ? "audio.dsp.toggled_on" : "audio.dsp.toggled_off",
+                ("label", Radios.Lexicon.Get("audio.audio_layer.name_processor"))));
+
         // Binaural receive — radio-wide, a toggle with no level beside it.
         var binaural = Switch("binaural", Keys.B | Keys.Control,
             () => rig.Binaural == FlexBase.OffOnValues.on,
@@ -4822,7 +4815,7 @@ public class KeyCommands
         var targets = new List<Radios.ValueTarget>
         {
             sliceVolume, headphone, pcOutput, mic, lineout, compander, processor, voxGain, voxDelay, pan,
-            mute, pcAudio, binaural,
+            mute, pcAudio, binaural, companderSwitch, processorSwitch,
         };
 
         var def = new Radios.ValueSubLayerDefinition

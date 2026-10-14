@@ -32,7 +32,7 @@ The JJ key also works from another program. Press `Ctrl+Shift+J` while a contest
 
 A plain letter after the JJ key opens a layer: a set of keys about one subject, where the arrows adjust, `H` lists the layer's own keys, Enter keeps what you changed and Escape puts it all back. Two layers exist today, and `M` is spoken for: the mode layer is ruled and not yet built, so pressing `M` tells you where the memories went instead.
 
-- **A** — Enter the audio layer — pick a level with one letter (`V` slice volume, `Ctrl+H` headphone, `O` PC output, `M` mic, `L` line out, `C` compander, `S` processor, `X` VOX gain, `D` VOX delay, `P` pan), ride Up and Down and place it at once with Home, End or `0`; flip a switch with one press (`Ctrl+M` mute, `Ctrl+P` PC audio on or off, `Ctrl+B` binaural). Escape reverts changes - all of them, not just the last - and Enter accepts. Plain `H` lists the layer’s keys. The full walk is on the Keyboard Reference page
+- **A** — Enter the audio layer — pick a level with one letter (`V` slice volume, `Ctrl+H` headphone, `O` PC output, `M` mic, `L` line out, `C` compander, `S` processor, `X` VOX gain, `D` VOX delay, `P` pan), ride Up and Down and place it at once with Home, End or `0`; flip a switch with one press (`Ctrl+M` mute, `Ctrl+P` PC audio on or off, `Ctrl+B` binaural, `Ctrl+C` compander on or off, `Ctrl+S` processor on or off). Escape reverts changes - all of them, not just the last - and Enter accepts. Plain `H` lists the layer’s keys. The full walk is on the Keyboard Reference page
 - **V** — The same audio layer, by the letter your fingers may already know from volume mode. A second door to one room, kept as a courtesy until `V` is wanted for a layer of its own
 - **Alt+P** — Enter the audio layer with pan already picked — Left and Right, or Up and Down, place the slice you're on in the stereo field, Shift moves by one, 0 centers, Home and End are hard left and hard right, Escape reverts changes, Enter accepts. Speaks the number every time, on a 0-to-100 scale. The one chord on Alt that opens a layer rather than doing something: pan lives in the audio layer now (`A`, then `P`), and this door stays open for the fingers that learned pan mode
 - **F** — Enter the filter layer — hold Left Shift for the low edge or Right Shift for the high edge, the arrows move it, Home and End send it straight to its limit, `T` and `R` switch between the transmit and receive filters, and `S` speaks it. Plain `H` lists the layer’s keys
@@ -50,7 +50,6 @@ Ctrl plus a letter switches something on or off, and the letter is the thing's o
 - **Ctrl+W** — Toggle Wideband Noise Blanker on or off
 - **Ctrl+R** — Toggle On-Radio Neural Noise Reduction (RNN) on or off. R used to read you the recorded problems; that is `Alt+R` now
 - **Ctrl+A** — Toggle Auto Notch Filter on or off. It was plain `A` until the grammar arrived; plain `A` is the audio layer's door now
-- **Ctrl+P** — Turn PC audio on or off — whether radio audio plays through this computer at all. P for PC; it was `Ctrl+A` once. It reads the radio back before answering, so if turning it on could not find a sound device it says that rather than claiming success. `A` then `O` rides how loud it plays; this is the switch
 - **Ctrl+G** — Arm or disarm the TX test tone (replaces your microphone while transmitting)
 - **Ctrl+T** — Toggle meter tones on or off
 - **Ctrl+E** — Toggle alert sounds (earcons) on or off — E for earcons. It was `Shift+T`
@@ -75,15 +74,13 @@ Alt plus a letter does something that is neither a layer nor a switch: speaks a 
 
 ## Still finding their layer
 
-These are the ones the grammar cannot place yet, and each has the same shape: a switch whose initial is already a Ctrl chord for something else. The spectral noise reduction wants `Ctrl+S`, which is the S-meter unit; the audio peak filter wants `Ctrl+P`, which is PC audio; the compander wants `Ctrl+C`, which is copy. They keep working where they are until the noise layer and the rest of the audio layer give each one a home, and this section shrinks as they do. Two Ctrl chords sit here on purpose, because they are not switches: `Ctrl+C` copies because `Ctrl+C` copies everywhere in Windows, and `Ctrl+F` is waiting on a decision about what the Alt tier should mean.
+These are the ones the grammar cannot place yet, and each has the same shape: a switch whose initial is already a Ctrl chord for something else. The spectral noise reduction wants `Ctrl+S`, which is the S-meter unit; the audio peak filter wants `Ctrl+P`, which was PC audio. They keep working where they are until the noise layer gives each one a home, and this section shrinks as they do — the compander and the speech processor have already left it for the audio layer, where their switches sit beside their levels (`A`, then `Ctrl+C` or `Ctrl+S`), and PC audio's switch went with them (`A`, then `Ctrl+P`). Two Ctrl chords sit here on purpose, because they are not switches: `Ctrl+C` copies because `Ctrl+C` copies everywhere in Windows, and `Ctrl+F` is waiting on a decision about what the Alt tier should mean.
 
 - **S** — Toggle On-Radio Spectral Noise Reduction (NRS) on or off
 - **Shift+N** — Toggle NR Filter on or off (model-specific)
 - **Shift+R** — Toggle PC Neural Noise Reduction on or off (runs on your computer, every radio)
 - **Shift+S** — Toggle PC Spectral Noise Reduction on or off (runs on your computer, every radio)
 - **P** — Toggle Audio Peak Filter on or off (CW mode only)
-- **C** — Toggle Compander on or off
-- **Shift+P** — Toggle Speech Processor on or off
 - **D** — Toggle tuning speech debounce on or off
 - **Ctrl+C** — Copy the message the history walk is sitting on to the clipboard. Walk to the one you want first with `Ctrl+F4` (back) and `Ctrl+F5` (forward), or press it straight away to copy the most recent thing said. Works with no radio connected — the moment you most want to paste an error is usually just after the radio has gone away
 - **Ctrl+F** — Open the direct frequency-entry box

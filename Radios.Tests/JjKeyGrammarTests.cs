@@ -88,7 +88,8 @@ namespace Radios.Tests
             // toggle whose Ctrl initial is spoken for by another toggle or by
             // a ruling — a collision of initials the grammar cannot resolve
             // and a layer can. The noise layer's letter is Noel's (#518).
-            [Keys.C] = "Compander toggle — Ctrl+C is copy, kept by the Windows convention; home is the audio layer",
+            // Sprint 48 Track F paid C: the compander's switch is inside the
+            // audio layer beside its level (#518).
             [Keys.D] = "tuning speech debounce toggle — Ctrl+D is the detailed capture, also a D toggle; home is the tuning layer",
             [Keys.P] = "Audio Peak Filter toggle — Ctrl+P is PC audio (#513); home is the noise or filter layer, Noel's call (#516)",
             [Keys.S] = "On-Radio Spectral NR toggle — Ctrl+S is the S-meter unit, also an S toggle; home is the noise layer",
@@ -105,7 +106,8 @@ namespace Radios.Tests
         private static readonly Dictionary<Keys, string> ShiftTierDebt = new()
         {
             [Keys.N | Keys.Shift] = "NR Filter toggle — Ctrl+N went to Noise Reduction itself; the noise layer tells the two N toggles apart",
-            [Keys.P | Keys.Shift] = "Speech Processor toggle — P and S are both taken on the Ctrl tier; home is the audio layer, where its mode sits on S",
+            // Sprint 48 Track F paid Shift+P: the speech processor's switch is
+            // inside the audio layer beside its mode (#518).
             [Keys.R | Keys.Shift] = "PC Neural NR toggle — Ctrl+R is its on-radio twin; a pair differing only by side of the wire needs a layer",
             [Keys.S | Keys.Shift] = "PC Spectral NR toggle — Ctrl+S is the S-meter unit, and its on-radio twin is waiting too",
         };
@@ -804,8 +806,9 @@ namespace Radios.Tests
             // goes UP, a one-shot was added on a plain or Shift letter instead
             // of on its tier — read the failure in the test above, not this
             // one. If it goes down, a layer landed: lower the number here too.
-            Assert.Equal(4, PlainTierDebt.Count);
-            Assert.Equal(4, ShiftTierDebt.Count);
+            // Sprint 48 Track F paid C and Shift+P into the audio layer (#518).
+            Assert.Equal(3, PlainTierDebt.Count);
+            Assert.Equal(3, ShiftTierDebt.Count);
             Assert.Equal(1, AltTierLayerDebt.Count);
             Assert.Equal(2, CtrlTierActionDebt.Count);
         }
