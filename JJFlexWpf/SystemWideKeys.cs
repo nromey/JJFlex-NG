@@ -215,9 +215,10 @@ namespace JJFlexWpf
             }
             KeyInventory.SystemWideReservation = ReservationFor;
             Tracing.TraceLine("SystemWideKeys: " + (set.Enabled ? "on" : "off")
-                + "; leader " + Describe(set.Leader)
-                + ", push to talk " + Describe(set.PushToTalk)
-                + ", transmit lock " + Describe(set.TransmitLock), TraceLevel.Info);
+                + "; leader " + Describe(set.Leader) + (set.LeaderEnabled ? "" : " (switched off)")
+                + ", push to talk " + Describe(set.PushToTalk) + (set.TransmitKeysEnabled ? "" : " (switched off)")
+                + ", transmit lock " + Describe(set.TransmitLock) + (set.TransmitKeysEnabled ? "" : " (switched off)"),
+                TraceLevel.Info);
         }
 
         private static string Describe(WinFormsKeys k) =>
@@ -225,7 +226,7 @@ namespace JJFlexWpf
 
         private static string? ReservationFor(WinFormsKeys k)
         {
-            var set = _current;
+            var set = _current.AsHonoured();   // a switched-off role reserves nothing
             if (!set.Enabled) return null;
             var role = set.RoleOf(k);
             if (role == null) return null;

@@ -66,7 +66,8 @@ namespace JJFlexWpf.Dialogs
         private readonly string _configDirectory;
         private SystemWideKeySet _draft;
 
-        private readonly CheckBox _enabled = new();
+        private readonly CheckBox _leaderEnabled = new();
+        private readonly CheckBox _transmitEnabled = new();
         private readonly Dictionary<SystemWideRole, Button> _changeButtons = new();
         private readonly Dictionary<SystemWideRole, TextBlock> _reports = new();
         private readonly TextBlock _status = new();
@@ -97,12 +98,14 @@ namespace JJFlexWpf.Dialogs
             };
             root.Children.Add(intro);
 
-            _enabled.Content = Lexicon.Get("settings.systemwide_keys.enabled");
-            _enabled.IsChecked = _draft.Enabled;
-            _enabled.Margin = new Thickness(0, 0, 0, 12);
-            AutomationProperties.SetName(_enabled, Lexicon.Get("settings.systemwide_keys.enabled"));
-            JJFlexHelp.SetText(_enabled, Lexicon.Get("settings.systemwide_keys.enabled_help"));
-            root.Children.Add(_enabled);
+            // Two switches, not one (Sprint 48 Track E): the JJ key's failure
+            // is a swallowed character; the transmit keys' is RF from another
+            // window. One switch would make giving up the first cost the second.
+            BuildToggle(_leaderEnabled, "settings.systemwide_keys.leader_enabled", "settings.systemwide_keys.leader_enabled_help", _draft.LeaderEnabled);
+            root.Children.Add(_leaderEnabled);
+            BuildToggle(_transmitEnabled, "settings.systemwide_keys.transmit_enabled", "settings.systemwide_keys.transmit_enabled_help", _draft.TransmitKeysEnabled);
+            _transmitEnabled.Margin = new Thickness(0, 0, 0, 12);
+            root.Children.Add(_transmitEnabled);
 
             foreach (var role in SystemWideKeySet.AllRoles)
                 root.Children.Add(BuildRole(role));
@@ -136,6 +139,21 @@ namespace JJFlexWpf.Dialogs
         }
 
         // ── layout ───────────────────────────────────────────────────────
+
+        private static void BuildToggle(CheckBox box, string key, string helpKey, bool checkedNow)
+        {
+            box.Content = Lexicon.Get(key);
+            box.IsChecked = checkedNow;
+            box.Margin = new Thickness(0, 0, 0, 6);
+            AutomationProperties.SetName(box, Lexicon.Get(key));
+            JJFlexHelp.SetText(box, Lexicon.Get(helpKey));
+        }
+
+        private SystemWideKeySet Draft() => _draft with
+        {
+            LeaderEnabled = _leaderEnabled.IsChecked == true,
+            TransmitKeysEnabled = _transmitEnabled.IsChecked == true,
+        };
 
         private UIElement BuildRole(SystemWideRole role)
         {
@@ -381,7 +399,12 @@ namespace JJFlexWpf.Dialogs
 
         private void ResetToDefaults()
         {
-            _draft = SystemWideKeySet.Defaults with { Enabled = _enabled.IsChecked == true };
+            _draft = Draft() with
+            {
+                Leader = SystemWideKeySet.DefaultLeader,
+                PushToTalk = SystemWideKeySet.DefaultPushToTalk,
+                TransmitLock = SystemWideKeySet.DefaultTransmitLock,
+            };
             foreach (var role in SystemWideKeySet.AllRoles)
             {
                 RefreshRoleLabel(role);
@@ -392,7 +415,7 @@ namespace JJFlexWpf.Dialogs
 
         private void SaveAndClose()
         {
-            _draft = _draft with { Enabled = _enabled.IsChecked == true };
+            _draft = Draft();
             _config.FromKeySet(_draft);
             bool saved = _config.Save(_configDirectory);
 

@@ -792,6 +792,14 @@ namespace Radios.Tests
             // that reaches this list has been looked at; a key that reaches
             // the manifest has been postponed. The wording itself is still
             // Noel's to review.
+            //
+            // THEN 3,129, same track: the system-wide keys' one master switch
+            // became two (Item 4 of Track E, recommended under #689), so
+            // settings.systemwide_keys.enabled and enabled_help are retired
+            // from the lexicon AND the manifest (-2), and the four strings of
+            // the two switches ship classified as window text (delivery null,
+            // the facts surface's own classification for labels and help),
+            // named below.
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -806,10 +814,14 @@ namespace Radios.Tests
 
             var classifiedOutsideFacts = new[]
             {
-                "settings.cw.vox_did_not_key",   // Sprint 48 Track E, #151
+                "settings.cw.vox_did_not_key",                        // Sprint 48 Track E, #151
+                "settings.systemwide_keys.leader_enabled",            // Sprint 48 Track E, #307 Item 4
+                "settings.systemwide_keys.leader_enabled_help",
+                "settings.systemwide_keys.transmit_enabled",
+                "settings.systemwide_keys.transmit_enabled_help",
             };
 
-            Assert.Equal(3131, unclassified);
+            Assert.Equal(3129, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,
