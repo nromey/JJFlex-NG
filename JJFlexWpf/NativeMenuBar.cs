@@ -632,13 +632,17 @@ public class NativeMenuBar : IDisposable
             // "On-Radio" prefix (DSP controls track, 2026-08-11): these run in
             // the radio's own DSP and have PC-side namesakes two submenus
             // down — the names now say which side of the wire each one is.
-            AddChecked(nrSub, "On-Radio Neural NR (RNN)\tCtrl+J, R", () =>
+            // Accelerator text names the noise layer's chords (Sprint 48 Track
+            // F, #518): JJ key N, then the switch's letter. Its letters are
+            // provisional until Noel walks them; when they change, they change
+            // here too.
+            AddChecked(nrSub, "On-Radio Neural NR (RNN)\tCtrl+J, N, R", () =>
                 ToggleDSP("On-Radio Neural NR", () => Rig.NeuralNoiseReduction, v => Rig.NeuralNoiseReduction = v),
                 () => Rig?.NeuralNoiseReduction == FlexBase.OffOnValues.on);
-            AddChecked(nrSub, "On-Radio Spectral NR (NRS)\tCtrl+J, S", () =>
+            AddChecked(nrSub, "On-Radio Spectral NR (NRS)\tCtrl+J, N, S", () =>
                 ToggleDSP("On-Radio Spectral NR", () => Rig.SpectralNoiseReduction, v => Rig.SpectralNoiseReduction = v),
                 () => Rig?.SpectralNoiseReduction == FlexBase.OffOnValues.on);
-            AddChecked(nrSub, "NR Filter (NRF)\tCtrl+J, Shift+N", () =>
+            AddChecked(nrSub, "NR Filter (NRF)\tCtrl+J, N, Ctrl+N", () =>
                 ToggleDSP("NR Filter", () => Rig.NoiseReductionFilter, v => Rig.NoiseReductionFilter = v),
                 () => Rig?.NoiseReductionFilter == FlexBase.OffOnValues.on);
         }
@@ -655,14 +659,14 @@ public class NativeMenuBar : IDisposable
 
         // === Noise Blankers submenu ===
         var nbSub = AddSubmenu(parent, "Noise Blankers");
-        AddChecked(nbSub, "Noise Blanker (NB)\tCtrl+J, Ctrl+B", () =>
+        AddChecked(nbSub, "Noise Blanker (NB)\tCtrl+J, N, B", () =>
             ToggleDSP("Noise Blanker", () => Rig.NoiseBlanker, v => Rig.NoiseBlanker = v),
             () => Rig?.NoiseBlanker == FlexBase.OffOnValues.on);
         AddWired(nbSub, "NB Level Up", () =>
             AdjustValue("NB Level", () => Rig.NoiseBlankerLevel, v => Rig.NoiseBlankerLevel = v, 5, 1, 100));
         AddWired(nbSub, "NB Level Down", () =>
             AdjustValue("NB Level", () => Rig.NoiseBlankerLevel, v => Rig.NoiseBlankerLevel = v, -5, 1, 100));
-        AddChecked(nbSub, "Wideband NB (WNB)\tCtrl+J, Ctrl+W", () =>
+        AddChecked(nbSub, "Wideband NB (WNB)\tCtrl+J, N, W", () =>
             ToggleDSP("Wideband NB", () => Rig.WidebandNoiseBlanker, v => Rig.WidebandNoiseBlanker = v),
             () => Rig?.WidebandNoiseBlanker == FlexBase.OffOnValues.on);
         AddWired(nbSub, "WNB Level Up", () =>
@@ -674,7 +678,7 @@ public class NativeMenuBar : IDisposable
         // QB Track I menu parity — these existed only as ScreenFields
         // checkboxes; the menu is the addressable second door.
         var pcSub = AddSubmenu(parent, "PC Noise Reduction");
-        AddChecked(pcSub, "PC Neural NR\tCtrl+J, Shift+R", () =>
+        AddChecked(pcSub, "PC Neural NR\tCtrl+J, N, Ctrl+R", () =>
         {
             var p = _window.FieldsPanel?.AudioPipeline;
             if (p == null) { SpeakAfterMenuClose(Radios.Lexicon.Get("audio.pc_pipeline.unavailable")); return; }
@@ -689,7 +693,7 @@ public class NativeMenuBar : IDisposable
                 ? Radios.Lexicon.Get("audio.pc_nr.neural_on")
                 : Radios.Lexicon.Get("audio.pc_nr.neural_off"));
         }, () => _window.FieldsPanel?.AudioPipeline?.RnnEnabled == true);
-        AddChecked(pcSub, "PC Spectral NR\tCtrl+J, Shift+S", () =>
+        AddChecked(pcSub, "PC Spectral NR\tCtrl+J, N, Ctrl+S", () =>
         {
             var p = _window.FieldsPanel?.AudioPipeline;
             if (p == null) { SpeakAfterMenuClose(Radios.Lexicon.Get("audio.pc_pipeline.unavailable")); return; }
@@ -737,7 +741,7 @@ public class NativeMenuBar : IDisposable
 
         // === Auto Notch ===
         var anfSub = AddSubmenu(parent, "Auto Notch");
-        AddChecked(anfSub, "FFT Auto-Notch\tCtrl+J, Ctrl+A", () =>
+        AddChecked(anfSub, "FFT Auto-Notch\tCtrl+J, N, A", () =>
             ToggleDSP("FFT Auto-Notch", () => Rig.AutoNotchFFT, v => Rig.AutoNotchFFT = v),
             () => Rig?.AutoNotchFFT == FlexBase.OffOnValues.on);
         AddChecked(anfSub, "Legacy Auto-Notch", () =>
@@ -745,7 +749,7 @@ public class NativeMenuBar : IDisposable
             () => Rig?.AutoNotchLegacy == FlexBase.OffOnValues.on);
 
         // === Audio Peak Filter (CW only) ===
-        AddChecked(parent, "Audio Peak Filter (APF)\tCtrl+J, P", () =>
+        AddChecked(parent, "Audio Peak Filter (APF)\tCtrl+J, N, P", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
             string? mode = Rig.Mode;

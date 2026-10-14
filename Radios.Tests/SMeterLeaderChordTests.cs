@@ -15,16 +15,21 @@ namespace Radios.Tests
     /// The generic leader checks already prove the chord is advertised, is
     /// handled, and has a row on both help pages. What they do not say is
     /// anything about its NEIGHBOURS, and the neighbours were the recorded
-    /// concern: plain S toggles the radio's own spectral noise reduction and
-    /// Shift+S toggles the PC one, so this chord sits one modifier from two
-    /// unrelated DSP switches.
+    /// concern: until Sprint 48 Track F plain S toggled the radio's own
+    /// spectral noise reduction and Shift+S the PC one, so this chord sat one
+    /// modifier from two unrelated DSP switches.
     /// </para>
     /// <para>
-    /// A slip is recoverable — all three are toggles that announce themselves
-    /// by name — but only while all three tiers stay bound. If one were ever
-    /// unbound, a slip onto it would fall through to the unknown arm, and the
-    /// near-miss would have to answer instead. This pins the arrangement down
-    /// so the reasoning stays true.
+    /// Track F moved both into the noise layer (JJ key N, #518), so Ctrl+S is
+    /// now the ONLY bound chord on the letter at the top level. The reasoning
+    /// this file pinned — a slip always lands on something that speaks — has
+    /// to stay true the other way round: a slip onto S, Shift+S or Alt+S now
+    /// falls through to the unknown arm, and the near-miss (#206) must name
+    /// Ctrl+S rather than dead-end. For an operator whose fingers learned the
+    /// old map that answer is honest but unhelpful — they wanted the spectral
+    /// reducer, and are told about the S-meter — which the Track F report
+    /// names as the cost of the move. This file pins what IS, so the help and
+    /// the near-miss cannot drift from it.
     /// </para>
     /// <para>
     /// The chord took a one-shot dBm READING for one day (#306, Sprint 37
@@ -46,7 +51,7 @@ namespace Radios.Tests
             // assertion below vacuously true.
             HashSet<Keys> chords = Advertised();
             Assert.NotEmpty(chords);
-            Assert.Contains(Keys.S, chords);                   // On-Radio Spectral NR
+            Assert.Contains(Keys.N, chords);                   // the noise layer's door, a plain letter
             Assert.Contains(Keys.Q | Keys.Control, chords);    // the QSO analyzer, a Ctrl chord
         }
 
@@ -58,30 +63,37 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void EveryTierOfTheSFamilyIsBoundSoASlipAlwaysLandsOnSomethingThatSpeaks()
+        public void OnlyTheUnitToggleIsBoundOnTheLetterAtTheTopLevel()
         {
+            // Sprint 48 Track F: the radio's spectral NR (plain S) and the PC
+            // one (Shift+S) live in the noise layer now. Shift+S is a slice
+            // jump's letter beyond H, so nothing binds it here either — which
+            // is the Shift tier's rule holding at the top level (#515).
             HashSet<Keys> chords = Advertised();
-            Assert.Contains(Keys.S, chords);                 // radio's spectral NR
-            Assert.Contains(Keys.S | Keys.Shift, chords);    // PC spectral NR
+            Assert.DoesNotContain(Keys.S, chords);
+            Assert.DoesNotContain(Keys.S | Keys.Shift, chords);
+            Assert.DoesNotContain(Keys.S | Keys.Alt, chords);
             Assert.Contains(Keys.S | Keys.Control, chords);  // the S-meter unit toggle
         }
 
         [Fact]
-        public void AnUnboundSTierChordHasABoundNeighbourToNameInTheNearMiss()
+        public void EverySlipOntoTheLetterHasTheUnitToggleToNameInTheNearMiss()
         {
             // The #206 near-miss turns "Unknown command" into a recovery by
-            // naming one bound neighbour, bare form first. Alt+S is the one
-            // S-tier chord nothing binds, so it is the case that exercises the
-            // path — and it must find a neighbour rather than dead-end.
+            // naming the first bound neighbour in LeaderChordParser's order
+            // (bare, Ctrl, Alt, Shift). Three S chords are unbound now, and
+            // for each the first bound neighbour must be Ctrl+S — a slip must
+            // land on something that speaks, never dead-end. That it names
+            // the S-meter to a hand reaching for spectral NR is the cost the
+            // move was made with; the help pages say so.
             HashSet<Keys> chords = Advertised();
-            Assert.DoesNotContain(Keys.S | Keys.Alt, chords);
-
-            IReadOnlyList<Keys> candidates =
-                LeaderChordParser.NearMissCandidates(Keys.S | Keys.Alt);
-            Assert.Contains(candidates, c => chords.Contains(c));
-
-            // Bare first, which is the documented most-likely intent.
-            Assert.Equal(Keys.S, candidates.First(c => chords.Contains(c)));
+            foreach (Keys slip in new[] { Keys.S, Keys.S | Keys.Shift, Keys.S | Keys.Alt })
+            {
+                Assert.DoesNotContain(slip, chords);
+                IReadOnlyList<Keys> candidates = LeaderChordParser.NearMissCandidates(slip);
+                Assert.Contains(candidates, c => chords.Contains(c));
+                Assert.Equal(Keys.S | Keys.Control, candidates.First(c => chords.Contains(c)));
+            }
         }
 
         [Fact]

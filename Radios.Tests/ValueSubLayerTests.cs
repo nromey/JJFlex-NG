@@ -2172,11 +2172,15 @@ namespace Radios.Tests
             // changes these four lines and the inventory rows together.
             Assert.Contains("SelectKey = Keys.V,", source);                  // slice volume
             Assert.Contains("Min = FlexBase.AudioGainMinValue", source);
-            Assert.Contains("Switch(\"mute\", Keys.M | Keys.Control,", source);
+            Assert.Contains("SwitchTarget(\"mute\", Keys.M | Keys.Control,", source);
             Assert.Contains("rig.SliceMute = on;", source);
-            Assert.Contains("Switch(\"pc-audio\", Keys.P | Keys.Control,", source);
+            Assert.Contains("SwitchTarget(\"pc-audio\", Keys.P | Keys.Control,", source);
             Assert.Contains("if (rig.PCAudio != on) _context.PCAudioToggle();", source);
-            Assert.Contains("Switch(\"binaural\", Keys.B | Keys.Control,", source);
+            Assert.Contains("SwitchTarget(\"binaural\", Keys.B | Keys.Control,", source);
+            // Sprint 48 Track F (#518): the compander and processor switches,
+            // beside their levels, on the shared switch builder.
+            Assert.Contains("SwitchTarget(\"compander-switch\", Keys.C | Keys.Control,", source);
+            Assert.Contains("SwitchTarget(\"processor-switch\", Keys.S | Keys.Control,", source);
             Assert.Contains("rig.Binaural = on ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off;", source);
             Assert.Contains("ToggleKey = chord,", source);
             Assert.Contains("InitialTarget = onPan ? targets.IndexOf(pan) : -1", source);
@@ -2193,21 +2197,22 @@ namespace Radios.Tests
 
             // #528: the shipped layer tells the engine whether its tones can
             // be heard, so a refusal at Terse is the thunk alone only when
-            // the thunk will sound. Both shipped layers wire it; a layer
-            // that forgot would speak every hint at every level, which is
-            // safe and wrong.
-            Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(
+            // the thunk will sound. All three shipped layers wire it (the
+            // noise layer since Sprint 48 Track F); a layer that forgot would
+            // speak every hint at every level, which is safe and wrong.
+            Assert.Equal(3, System.Text.RegularExpressions.Regex.Matches(
                 source, @"Audible = \(\) => EarconPlayer\.IsOn\(EarconPlayer\.EarconCategory\.CommandsAndConfirmations\)").Count);
 
-            // #547: both shipped layers ask the registry whether a refused key
-            // has anywhere to go, and both answer the near miss from their own
+            // #547: every shipped layer asks the registry whether a refused
+            // key has anywhere to go, and answers the near miss from its own
             // inventory rows. A layer that wired only one of the pair would
             // either never catch a slip or catch keys that meant something —
             // and neither failure announces itself, which is why the count is
-            // pinned rather than the presence.
-            Assert.Equal(2, Regex.Matches(
+            // pinned rather than the presence. Three layers since Track F.
+            Assert.Equal(3, Regex.Matches(
                 source, @"MeansSomethingOutside = MeansSomethingOutsideTheLayer").Count);
-            Assert.Equal(2, Regex.Matches(source, @"DescribeNearMiss = key => LayerNearMiss\(").Count);
+            Assert.Equal(3, Regex.Matches(source, @"DescribeNearMiss = key => LayerNearMiss\(").Count);
+            Assert.Contains("KeyLayerHelp.SpokenList(KeyInventory.NoiseLayerContext)", source);
             Assert.Contains("KeyInventory.TryFindLayerNearMiss(context, pressed", source);
             Assert.Contains("private bool MeansSomethingOutsideTheLayer(Keys k) => Lookup(k) != null;", source);
 

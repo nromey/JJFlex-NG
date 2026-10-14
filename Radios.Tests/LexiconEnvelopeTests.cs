@@ -109,7 +109,9 @@ namespace Radios.Tests
             // network and unknown-source rows in their pattern.
             // Seventeen from Track L13: Noel's approved pairs for the two
             // no-station companions, local network and unknown source (#634).
-            Assert.Equal(17, ladders);
+            // Eighteen from Sprint 48 Track F: the noise layer's entry
+            // sentence, a ladder like the audio and filter layers' (#518).
+            Assert.Equal(18, ladders);
             Assert.True(tiers >= 27, "only " + tiers + " ladder tiers were seen");
         }
 
@@ -778,6 +780,14 @@ namespace Radios.Tests
             // classified alone, because the only classified surface so far is
             // facts.* and this test says so below; the seven tier labels want
             // classifying together, under #629, as the window text they are.
+            //
+            // Sprint 48 Track F: fourteen keys for the noise layer
+            // (audio.noise_layer.*) — the layer's name, its entry ladder,
+            // closed, the two restore sentences, the switches-only hint and
+            // the eight switch names — frozen in the manifest rather than
+            // classified, for the reason Track C gave for its tier label:
+            // the only classified surface is facts.*, and this test says so
+            // below. 3131 became 3145.
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -790,7 +800,7 @@ namespace Radios.Tests
                 }
             }
 
-            Assert.Equal(3131, unclassified);
+            Assert.Equal(3145, unclassified);
             Assert.All(classified, key =>
                 Assert.StartsWith("facts.", key, StringComparison.Ordinal));
             Assert.True(classified.Count > 30,

@@ -84,15 +84,11 @@ namespace Radios.Tests
         {
             // Sprint 48 Track C paid eleven lines of this list: B, G, N, R, T
             // and W went to the Ctrl tier on their own initials, and E, K, L,
-            // M, O and Q to the Alt tier. What is left is every plain-letter
-            // toggle whose Ctrl initial is spoken for by another toggle or by
-            // a ruling — a collision of initials the grammar cannot resolve
-            // and a layer can. The noise layer's letter is Noel's (#518).
-            // Sprint 48 Track F paid C: the compander's switch is inside the
-            // audio layer beside its level (#518).
+            // M, O and Q to the Alt tier. Sprint 48 Track F paid three more:
+            // C into the audio layer beside its level, and P and S into the
+            // noise layer (#518). What is left is the one plain-letter toggle
+            // whose home — the tuning layer — has no letter yet (#518).
             [Keys.D] = "tuning speech debounce toggle — Ctrl+D is the detailed capture, also a D toggle; home is the tuning layer",
-            [Keys.P] = "Audio Peak Filter toggle — Ctrl+P is PC audio (#513); home is the noise or filter layer, Noel's call (#516)",
-            [Keys.S] = "On-Radio Spectral NR toggle — Ctrl+S is the S-meter unit, also an S toggle; home is the noise layer",
         };
 
         /// <summary>
@@ -105,11 +101,13 @@ namespace Radios.Tests
         /// </summary>
         private static readonly Dictionary<Keys, string> ShiftTierDebt = new()
         {
-            [Keys.N | Keys.Shift] = "NR Filter toggle — Ctrl+N went to Noise Reduction itself; the noise layer tells the two N toggles apart",
-            // Sprint 48 Track F paid Shift+P: the speech processor's switch is
-            // inside the audio layer beside its mode (#518).
-            [Keys.R | Keys.Shift] = "PC Neural NR toggle — Ctrl+R is its on-radio twin; a pair differing only by side of the wire needs a layer",
-            [Keys.S | Keys.Shift] = "PC Spectral NR toggle — Ctrl+S is the S-meter unit, and its on-radio twin is waiting too",
+            // EMPTY since Sprint 48 Track F, and meant to stay so. The four
+            // Shift squatters — the NR filter, the speech processor and the
+            // two PC-side NR twins — went into the noise layer and the audio
+            // layer (#518). Shift+letter now means "jump to that slice" at the
+            // top level as well as inside every layer, which is the first time
+            // the rule has been true everywhere it is stated. A line
+            // reappearing here is a squatter, not debt.
         };
 
         /// <summary>
@@ -149,6 +147,7 @@ namespace Radios.Tests
         {
             [Keys.A] = "the audio layer (#514, #515)",
             [Keys.F] = "the filter layer (#512, #516)",
+            [Keys.N] = "the noise layer (#518, ruled 2026-10-05)",
         };
 
         /// <summary>
@@ -806,9 +805,12 @@ namespace Radios.Tests
             // goes UP, a one-shot was added on a plain or Shift letter instead
             // of on its tier — read the failure in the test above, not this
             // one. If it goes down, a layer landed: lower the number here too.
-            // Sprint 48 Track F paid C and Shift+P into the audio layer (#518).
-            Assert.Equal(3, PlainTierDebt.Count);
-            Assert.Equal(3, ShiftTierDebt.Count);
+            // Sprint 48 Track F paid C and Shift+P into the audio layer, and
+            // P, S, Shift+N, Shift+R and Shift+S into the noise layer (#518).
+            // The Shift tier's debt is ZERO: the slice-jump rule holds at the
+            // top level for the first time.
+            Assert.Equal(1, PlainTierDebt.Count);
+            Assert.Equal(0, ShiftTierDebt.Count);
             Assert.Equal(1, AltTierLayerDebt.Count);
             Assert.Equal(2, CtrlTierActionDebt.Count);
         }
