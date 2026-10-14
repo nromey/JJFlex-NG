@@ -62,6 +62,22 @@ namespace JJFlexWpf
     /// not run through the keyboard it was eating; this one needs none.
     /// </para>
     /// <para>
+    /// <b>The layer from another program times out; the in-window layer
+    /// does not, on purpose.</b> Ruled by Noel 2026-10-05 (filed under #689):
+    /// a layer opened from a logger and then forgotten would swallow that
+    /// program's next keystroke, and nobody can see it happen. So the bare
+    /// waiting state — JJ key pressed, nothing on screen, waiting for the
+    /// second key, or waiting for H, slash or Escape after an unknown key —
+    /// expires after <see cref="SystemWideLayerTimeout.TimeoutMs"/>; any key
+    /// press restarts the clock; and while the key list or the key explorer
+    /// is open (<see cref="KeyHelpSurfaces.IsOpen"/>) the clock is suspended
+    /// and starts fresh when the surface closes, because a surface on screen
+    /// cannot be forgotten and a timer under an operator reading it at a
+    /// screen reader's pace is a trapdoor. Expiry says nothing: a layer that
+    /// announces its own abandonment into another program is noise. It is
+    /// traced.
+    /// </para>
+    /// <para>
     /// <b>Screen readers hooking the same chord.</b> Windows calls low-level
     /// hooks newest-first, so whichever of us installed later sees the key
     /// first; if the reader swallows it we never see it, and if we swallow it
@@ -128,6 +144,14 @@ namespace JJFlexWpf
         private static readonly object _gate = new object();
         private static readonly SystemWideKeyDecider _decider = new SystemWideKeyDecider();
         private static readonly SystemWidePttWatch _watch = new SystemWidePttWatch();
+
+        /// <summary>
+        /// The clock on the layer's bare waiting state (Noel, 2026-10-05:
+        /// it times out, every key press resets it, and the explorer
+        /// suspends it). Host-clocked like the watch, polled by the same
+        /// pool timer, and guarded by the same lock.
+        /// </summary>
+        private static readonly SystemWideLayerTimeout _layer = new SystemWideLayerTimeout();
         private static System.Threading.Timer? _watchTimer;
         private static bool _watchRunning;
 
@@ -249,7 +273,17 @@ namespace JJFlexWpf
         /// </summary>
         public static void NoteHelpArmed(bool armed)
         {
-            lock (_gate) { _decider.SetHelpArmed(armed); }
+            lock (_gate)
+            {
+                _decider.SetHelpArmed(armed);
+                if (armed)
+                {
+                    // "H for the list, Escape to cancel" is a bare waiting
+                    // state too: nothing on screen, the layer still live.
+                    _layer.Touch(Environment.TickCount64);
+                    StartWatchLocked();
+                }
+            }
         }
 
         // ── the hook thread ──────────────────────────────────────────────
@@ -375,6 +409,17 @@ namespace JJFlexWpf
                             _watch.NoteUp(now);
                             StartWatchLocked();   // stays up until the release is seen honoured
                             break;
+                    }
+
+                    // Every key press restarts the layer's clock — the arming
+                    // press itself, a modifier on its way to the second key,
+                    // the JJ key's own repeats. Checked AFTER Decide, so the
+                    // second key, which ends the waiting state, does not
+                    // restart a clock there is nothing left to time.
+                    if (isDown && _decider.Waiting)
+                    {
+                        _layer.Touch(now);
+                        StartWatchLocked();
                     }
                 }
 
@@ -521,16 +566,35 @@ namespace JJFlexWpf
                 var set = _current;
                 bool physicallyDown = set.PushToTalk != WinFormsKeys.None
                     && PhysicalKeyState.IsDown((int)SystemWideChord.VirtualKeyOf(set.PushToTalk));
+                bool surfaceOpen = KeyHelpSurfaces.IsOpen;   // a volatile read, no marshal
 
                 SystemWidePttWatch.Verdict verdict;
                 bool stop;
+                bool layerExpired;
                 lock (_gate)
                 {
-                    verdict = _watch.Poll(Environment.TickCount64, physicallyDown, holding);
+                    long now = Environment.TickCount64;
+                    verdict = _watch.Poll(now, physicallyDown, holding);
                     if (verdict == SystemWidePttWatch.Verdict.UnkeyMissedRelease)
                         _decider.ForceReleasePtt();
-                    stop = !_watch.Busy;
+
+                    layerExpired = _layer.Poll(now, _decider.Waiting, surfaceOpen);
+                    if (layerExpired) _decider.ExpireWaiting();
+
+                    stop = !_watch.Busy && !_decider.Waiting;
                     if (stop) StopWatchLocked();
+                }
+
+                if (layerExpired)
+                {
+                    // Silent on purpose; see the class remarks. The in-window
+                    // help-armed mirror is cleared the same way a let-go
+                    // clears it, so it cannot linger and claim a key later.
+                    Tracing.TraceLine("SystemWideKeys: the JJ key layer waited "
+                        + SystemWideLayerTimeout.TimeoutMs / 1000 + " s for a second key with nothing on screen; "
+                        + "closing it quietly so the next key goes to the program that has the keyboard.",
+                        TraceLevel.Info);
+                    Post(() => LeaderHelpLetGo?.Invoke());
                 }
 
                 switch (verdict)
