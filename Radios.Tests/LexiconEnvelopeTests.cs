@@ -778,6 +778,20 @@ namespace Radios.Tests
             // classified alone, because the only classified surface so far is
             // facts.* and this test says so below; the seven tier labels want
             // classifying together, under #629, as the window text they are.
+            //
+            // STILL 3,131 after Sprint 48 Track E (2026-10-14), AND THE FIRST
+            // KEY OUTSIDE facts.* IS CLASSIFIED. Noel's 2026-10-05 ruling
+            // above — classify, do not freeze — is applied from this track on:
+            // settings.cw.vox_did_not_key, the reason a VOX voice send gives
+            // when the radio never keyed (#151's VOX half), ships with a
+            // delivery contract (forgettable, request-scoped, a warning
+            // receipt) and NOT a manifest line. So the unclassified count did
+            // not move, and the classified set below is now ENUMERATED rather
+            // than prefix-matched: every classified key is either on the facts
+            // surface or named here, with the track that classified it. A key
+            // that reaches this list has been looked at; a key that reaches
+            // the manifest has been postponed. The wording itself is still
+            // Noel's to review.
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -790,9 +804,20 @@ namespace Radios.Tests
                 }
             }
 
+            var classifiedOutsideFacts = new[]
+            {
+                "settings.cw.vox_did_not_key",   // Sprint 48 Track E, #151
+            };
+
             Assert.Equal(3131, unclassified);
             Assert.All(classified, key =>
-                Assert.StartsWith("facts.", key, StringComparison.Ordinal));
+                Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
+                            || Array.IndexOf(classifiedOutsideFacts, key) >= 0,
+                    key + " is classified but is neither on the facts surface nor named in this test. "
+                    + "Classifying is the ruled direction (Noel, 2026-10-05); add it to the list with "
+                    + "the track that classified it, so the set stays enumerated."));
+            foreach (string key in classifiedOutsideFacts)
+                Assert.Contains(key, classified);
             Assert.True(classified.Count > 30,
                 "only " + classified.Count + " classified entries were found");
         }

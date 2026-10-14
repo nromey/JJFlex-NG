@@ -137,6 +137,7 @@
   "settings.cw.voice_sending": "Sending {label}, {length}.",
   "settings.cw.voice_sent": "{label} sent.",
   "settings.cw.voice_stopped": "{label} stopped. Your microphone is back.",
+  "settings.cw.vox_did_not_key": { "text": "VOX did not key the radio.", "delivery": { "shelfLife": "forgettable", "validity": "request-scoped", "receipt": "warning" } },
   "settings.cw_message.key_already_defined": "This key is already defined.",
   "settings.cw_message.kind_audio": "voice only",
   "settings.cw_message.kind_both": "CW and voice",
