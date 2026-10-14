@@ -488,7 +488,7 @@ public static class DelegateSurfaceScan
                         if (isDeclaration) break;
                         var offset = file.LineStarts[i] + m.Index;
                         var site = $"{file.Relative}:{lineNo}";
-                        var verdict = Attribute(m.Groups["recv"].Value, owner, ownerFile, file, offset, resolver);
+                        var verdict = Attribute(m.Groups["recv"].Value, owner, ownerFile, file, offset, resolver, isAssignment: true);
                         if (verdict == Verdict.Owner)
                         {
                             if (!m.Groups["rhs"].Success) assignedFrom.Add(site);
@@ -503,7 +503,7 @@ public static class DelegateSurfaceScan
                         if (isDeclaration) break;
                         var offset = file.LineStarts[i] + m.Index;
                         var site = $"{file.Relative}:{lineNo}";
-                        var verdict = Attribute(m.Groups["recv"].Value, owner, ownerFile, file, offset, resolver);
+                        var verdict = Attribute(m.Groups["recv"].Value, owner, ownerFile, file, offset, resolver, isAssignment: false);
                         if (verdict == Verdict.Owner) invokedFrom.Add(site);
                         else if (verdict == Verdict.Unresolved) nameOnly.Add(site + " (call, receiver unresolved)");
                     }
@@ -531,12 +531,22 @@ public static class DelegateSurfaceScan
     /// <summary>
     /// Decide whom a <c>recv.Name</c> (or bare <c>Name</c>) belongs to.
     /// </summary>
-    private static Verdict Attribute(string receiverChain, string owner, bool ownerFile, SourceFile file, int offset, Resolver resolver)
+    /// <param name="isAssignment">True for <c>Name = ...</c>, false for a call.
+    /// The object-initialiser rule applies to assignments only: a bare
+    /// <c>Hook = ...</c> at depth one of <c>new T { }</c> sets T's member, but a
+    /// bare <c>Hook?.Invoke()</c> there is a call on the ENCLOSING class - you
+    /// cannot call the object being initialised unqualified. ManageGroupsDialog
+    /// builds its edit dialog with <c>MemoryNames = GetMemoryNames?.Invoke()</c>,
+    /// and the first version of this credited that call to the edit dialog.</param>
+    private static Verdict Attribute(string receiverChain, string owner, bool ownerFile, SourceFile file, int offset, Resolver resolver, bool isAssignment)
     {
         var chain = receiverChain.Replace(" ", "").TrimEnd('.');
         if (chain.Length == 0)
         {
-            // Unqualified. The owner's own code, or an initialiser of the owner.
+            if (!isAssignment)
+                return ownerFile ? Verdict.Owner : Verdict.Unresolved;
+
+            // Unqualified assignment. The owner's own code, or an initialiser of the owner.
             if (ownerFile && !InsideSomeInitialiser(file, offset)) return Verdict.Owner;
             var initialiserType = InnermostInitialiser(file, offset);
             if (initialiserType != null)
