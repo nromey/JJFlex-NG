@@ -1626,7 +1626,7 @@ connect.smartlink.signup.email_malformed	87074c6a2d145f2d
 connect.smartlink.signup.email_name	302d7b1ab93003b8
 connect.smartlink.signup.email_required	1316c46698943459
 connect.smartlink.signup.failed	842b467d85c67d8c
-connect.smartlink.signup.intro	3ace35763db10811
+connect.smartlink.signup.intro	035a48abed8a7dfa
 connect.smartlink.signup.network	0e301ddd7a383726
 connect.smartlink.signup.password_label	6c60316af8e5d9ac
 connect.smartlink.signup.password_name	93f50ceff854d746
@@ -2901,14 +2901,14 @@ settings.radio.register.confirm_question	51079676c1b82197
 settings.radio.register.confirm_title	b928417b91520c47
 settings.radio.register.confirm_yes	2c66a37aa7a07df6
 settings.radio.register.done_over_smartlink	08b3ed52b9f63097
-settings.radio.register.not_in_account_list	d8b651bc04ec602d
+settings.radio.register.not_in_account_list	2b8f59bce55ab561
 settings.radio.register.starting	309328a08a1d6526
 settings.radio.restart.nothing_waiting	05e0f9cad237c2bf
 settings.radio.restart.pending	5ed919dd98cb6339
 settings.radio.restart.started	884464c31a6a4974
 settings.radio.steps_refreshed	39dc5588525a1ce2
 settings.radio.unregister.cancelled	a85fb533be703793
-settings.radio.unregister.confirm_body	615dba0664c8d7c7
+settings.radio.unregister.confirm_body	5217cac3602eb34c
 settings.radio.unregister.confirm_question	bc08b8c9e4f9ecd9
 settings.radio.unregister.confirm_title	6830ce0fa795400b
 settings.radio.unregister.confirm_yes	7a516a7779da45c0
