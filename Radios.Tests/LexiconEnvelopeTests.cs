@@ -786,8 +786,50 @@ namespace Radios.Tests
             // closed, the two restore sentences, the switches-only hint and
             // the eight switch names — frozen in the manifest rather than
             // classified, for the reason Track C gave for its tier label:
-            // the only classified surface is facts.*, and this test says so
-            // below. 3131 became 3145.
+            // the only classified surface is facts.*. Two existing hints
+            // (audio.noise.capture.turn_spectral_on, spectral_is_off_hint)
+            // were reworded and re-frozen, not added. +14.
+            //
+            // THAT FREEZE IS AGAINST THE RULING ABOVE, and so is Track D's
+            // ten (logging.radio_pane.*, settings.atu.memories_cleared,
+            // settings.memory.*). Both tracks gave the every-track-so-far
+            // precedent as their reason; the ruling names that precedent and
+            // overrules it. D's brief never cited #151 and had no route to
+            // the ruling; F's cited it, where it sits deep inside an entry
+            // about a different subject. The twenty-four are a known debt
+            // with a decision already against them, to be classified key by
+            // key — never batch-defaulted, which is the expensive mistake
+            // #617 names — with the perishable sentences going to Noel,
+            // because operator-facing prose is his.
+            //
+            // Sprint 48 Track E (2026-10-14) FOLLOWED THE RULING, froze
+            // nothing, AND CLASSIFIED THE FIRST KEYS OUTSIDE facts.*. Noel's
+            // 2026-10-05 ruling above — classify, do not freeze — is applied
+            // from that track on: settings.cw.vox_did_not_key, the reason a
+            // VOX voice send gives when the radio never keyed (#151's VOX
+            // half), ships with a delivery contract (forgettable,
+            // request-scoped, a warning receipt) and NOT a manifest line. The
+            // classified set below is now ENUMERATED rather than
+            // prefix-matched: every classified key is either on the facts
+            // surface or named here, with the track that classified it. A key
+            // that reaches this list has been looked at; a key that reaches
+            // the manifest has been postponed. The wording itself is still
+            // Noel's to review.
+            //
+            // Also that track: the system-wide keys' one master switch became
+            // two (Item 4 of Track E, recommended under #689), so
+            // settings.systemwide_keys.enabled and enabled_help are retired
+            // from the lexicon AND the manifest (-2), and the four strings of
+            // the two switches ship classified as window text (delivery null,
+            // the facts surface's own classification for labels and help),
+            // named below.
+            //
+            // SO THE MERGED NUMBER IS NEITHER TRACK'S. F alone would have
+            // said 3,145 and E alone 3,129, from the same base of 3,131. The
+            // value below was recomputed by running this test on the merged
+            // tree and pasting what it printed — not by adding the two
+            // deltas, which would be a prediction wearing a measurement's
+            // clothes.
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -800,9 +842,26 @@ namespace Radios.Tests
                 }
             }
 
-            Assert.Equal(3145, unclassified);
+            var classifiedOutsideFacts = new[]
+            {
+                "settings.cw.vox_did_not_key",                        // Sprint 48 Track E, #151
+                "settings.systemwide_keys.leader_enabled",            // Sprint 48 Track E, #307 Item 4
+                "settings.systemwide_keys.leader_enabled_help",
+                "settings.systemwide_keys.transmit_enabled",
+                "settings.systemwide_keys.transmit_enabled_help",
+                "settings.keys.editor.systemwide_route",             // Sprint 48 Track E, #307 Item 6
+                "settings.systemwide_keys.reset_help",               // Sprint 48 Track E, #307 Item 6
+            };
+
+            Assert.Equal(3143, unclassified);
             Assert.All(classified, key =>
-                Assert.StartsWith("facts.", key, StringComparison.Ordinal));
+                Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
+                            || Array.IndexOf(classifiedOutsideFacts, key) >= 0,
+                    key + " is classified but is neither on the facts surface nor named in this test. "
+                    + "Classifying is the ruled direction (Noel, 2026-10-05); add it to the list with "
+                    + "the track that classified it, so the set stays enumerated."));
+            foreach (string key in classifiedOutsideFacts)
+                Assert.Contains(key, classified);
             Assert.True(classified.Count > 30,
                 "only " + classified.Count + " classified entries were found");
         }

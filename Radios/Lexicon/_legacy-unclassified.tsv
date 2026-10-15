@@ -3052,8 +3052,6 @@ settings.systemwide_keys.change_help	5c0a213df20e4237
 settings.systemwide_keys.check	e70e32e58665bf58
 settings.systemwide_keys.check_help	aa47d15350135d5a
 settings.systemwide_keys.duplicate	36a73bce4d118e41
-settings.systemwide_keys.enabled	770710e3ea3c29b1
-settings.systemwide_keys.enabled_help	fade26d51d6ca277
 settings.systemwide_keys.finder_description	6202fd3fb1822f29
 settings.systemwide_keys.intro	fc4a021e87820621
 settings.systemwide_keys.key_unusable	de2c8dacdd931c72

@@ -42,13 +42,32 @@ namespace Radios
         public const string FileName = "systemWideKeysV1.xml";
 
         /// <summary>
-        /// The master switch. Default ON: Don's contest ask (#307) is served
+        /// The JJ key's switch. Default ON: Don's contest ask (#307) is served
         /// only if the keys work out of the box, and every default is two
-        /// modifiers plus a key. The dialog is where an operator turns it off,
-        /// and that dialog says plainly what is being taken from other
-        /// programs while it is on.
+        /// modifiers plus a key. Settings, System-wide keys, is where an
+        /// operator turns it off, and it says plainly what is being taken
+        /// from other programs while it is on.
+        /// </summary>
+        public bool LeaderEnabled { get; set; } = true;
+
+        /// <summary>
+        /// The switch over push to talk AND the transmit lock, which travel
+        /// together because both key the transmitter. Default ON, for the
+        /// same reason. Separate from the JJ key's switch so that an operator
+        /// whose JJ key collides with their logger can give that up without
+        /// losing the push to talk that was the point (Sprint 48 Track E).
+        /// </summary>
+        public bool TransmitKeysEnabled { get; set; } = true;
+
+        /// <summary>
+        /// The ONE master switch this file carried until Sprint 48 Track E
+        /// split it in two. Read so a file saved with it off keeps both
+        /// switches off; never written again (<see cref="ShouldSerializeEnabled"/>).
         /// </summary>
         public bool Enabled { get; set; } = true;
+
+        /// <summary>The legacy master switch is read, never written.</summary>
+        public bool ShouldSerializeEnabled() => false;
 
         /// <summary>The JJ key from any program, as a <see cref="Keys"/> integer. Zero means unassigned.</summary>
         public int Leader { get; set; } = (int)SystemWideKeySet.DefaultLeader;
@@ -67,13 +86,18 @@ namespace Radios
         public List<string> Repairs { get; } = new List<string>();
 
         /// <summary>The chords as the hook consumes them.</summary>
-        public SystemWideKeySet ToKeySet() =>
-            new SystemWideKeySet(Enabled, (Keys)Leader, (Keys)PushToTalk, (Keys)TransmitLock);
+        public SystemWideKeySet ToKeySet()
+        {
+            FoldLegacyMasterSwitch();
+            return new SystemWideKeySet(LeaderEnabled, TransmitKeysEnabled, (Keys)Leader, (Keys)PushToTalk, (Keys)TransmitLock);
+        }
 
         /// <summary>Take the chords from a set the dialog composed.</summary>
         public void FromKeySet(SystemWideKeySet set)
         {
-            Enabled = set.Enabled;
+            LeaderEnabled = set.LeaderEnabled;
+            TransmitKeysEnabled = set.TransmitKeysEnabled;
+            Enabled = true;
             Leader = (int)set.Leader;
             PushToTalk = (int)set.PushToTalk;
             TransmitLock = (int)set.TransmitLock;
@@ -102,6 +126,7 @@ namespace Radios
         public void Sanitize()
         {
             Repairs.Clear();
+            FoldLegacyMasterSwitch();
             Leader = Repair(SystemWideRole.Leader, Leader, (int)SystemWideKeySet.DefaultLeader);
             PushToTalk = Repair(SystemWideRole.PushToTalk, PushToTalk, (int)SystemWideKeySet.DefaultPushToTalk);
             TransmitLock = Repair(SystemWideRole.TransmitLock, TransmitLock, (int)SystemWideKeySet.DefaultTransmitLock);
@@ -116,6 +141,19 @@ namespace Radios
                 Repairs.Add("transmit lock shared its chord with another role and was cleared");
                 TransmitLock = 0;
             }
+        }
+
+        /// <summary>
+        /// A file written before the two switches existed carried one
+        /// <c>Enabled</c>; off meant everything off, and that is what it still
+        /// means. Idempotent: once folded, the legacy flag reads true.
+        /// </summary>
+        private void FoldLegacyMasterSwitch()
+        {
+            if (Enabled) return;
+            LeaderEnabled = false;
+            TransmitKeysEnabled = false;
+            Enabled = true;
         }
 
         private int Repair(SystemWideRole role, int stored, int fallback)

@@ -135,12 +135,44 @@ namespace Radios
     }
 
     /// <summary>
-    /// The three chords in force, plus the master switch. Immutable so the
-    /// keyboard hook can read one consistent snapshot while a dialog is
-    /// composing the next one.
+    /// The three chords in force, plus the two switches over them. Immutable
+    /// so the keyboard hook can read one consistent snapshot while a dialog
+    /// is composing the next one.
     /// </summary>
-    public sealed record SystemWideKeySet(bool Enabled, Keys Leader, Keys PushToTalk, Keys TransmitLock)
+    /// <remarks>
+    /// <b>Two switches, not one (Sprint 48 Track E; recommended under #689
+    /// and built as recommended).</b> <see cref="LeaderEnabled"/> governs the
+    /// JJ key; <see cref="TransmitKeysEnabled"/> governs push to talk AND the
+    /// transmit lock, because toggling the lock keys the transmitter. The
+    /// halves fail differently: the JJ key at worst eats a character in a
+    /// logger, the transmit keys put RF on the air from another window. The
+    /// failure that sends an operator to the switch is the JJ key's, and with
+    /// one switch the thing they would lose is the push to talk that was the
+    /// point. A switched-off role keeps its chord so switching back on
+    /// restores it; the hook reads <see cref="AsHonoured"/>, in which a role
+    /// that is off carries no chord.
+    /// </remarks>
+    public sealed record SystemWideKeySet(bool LeaderEnabled, bool TransmitKeysEnabled, Keys Leader, Keys PushToTalk, Keys TransmitLock)
     {
+        /// <summary>True when either switch is on: something is taken from other programs.</summary>
+        public bool Enabled => LeaderEnabled || TransmitKeysEnabled;
+
+        /// <summary>Whether this role's switch is on.</summary>
+        public bool IsOn(SystemWideRole role) =>
+            role == SystemWideRole.Leader ? LeaderEnabled : TransmitKeysEnabled;
+
+        /// <summary>
+        /// The set as the hook honours it: a switched-off role carries no
+        /// chord. Everything else is unchanged, so a decider working on this
+        /// needs no knowledge of the switches.
+        /// </summary>
+        public SystemWideKeySet AsHonoured() => this with
+        {
+            Leader = LeaderEnabled ? Leader : Keys.None,
+            PushToTalk = TransmitKeysEnabled ? PushToTalk : Keys.None,
+            TransmitLock = TransmitKeysEnabled ? TransmitLock : Keys.None,
+        };
+
         /// <summary>
         /// The provisional defaults, ruled by Noel 2026-10-05 and verified
         /// unbound in the in-app table that day. Alt is the marker of a
@@ -152,11 +184,11 @@ namespace Radios
         public static readonly Keys DefaultTransmitLock = Keys.Space | Keys.Alt | Keys.Shift;
 
         public static SystemWideKeySet Defaults { get; } =
-            new(true, DefaultLeader, DefaultPushToTalk, DefaultTransmitLock);
+            new(true, true, DefaultLeader, DefaultPushToTalk, DefaultTransmitLock);
 
         /// <summary>A set that claims nothing: the hook passes every key through.</summary>
         public static SystemWideKeySet Off { get; } =
-            new(false, Keys.None, Keys.None, Keys.None);
+            new(false, false, Keys.None, Keys.None, Keys.None);
 
         public Keys For(SystemWideRole role) => role switch
         {

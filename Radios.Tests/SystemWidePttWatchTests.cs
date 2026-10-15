@@ -138,11 +138,79 @@ namespace Radios.Tests
         [Fact]
         public void Reset_leaves_nothing_in_flight()
         {
+            // This is also the NEGATIVE CONTROL for the three tests below
+            // (#698): a hold reset while the controller is still holding polls
+            // Quiet for ever. That is what Reset means, and it is exactly what
+            // the fault and teardown paths used to do with a hold in flight —
+            // which is why they hand the hold off instead.
             var w = new SystemWidePttWatch();
             w.NoteDown(0);
             w.Reset();
             Assert.False(w.Busy);
             Assert.Equal(SystemWidePttWatch.Verdict.Quiet, w.Poll(100_000, physicallyDown: false, controllerHolding: true));
+        }
+
+        // ── #698: a hold the hook can no longer release is handed to the watch ──
+
+        [Fact]
+        public void A_hold_handed_off_by_a_dying_hook_is_killed_when_the_release_is_not_honoured()
+        {
+            // The hook faulted (or is being torn down) with the operator still
+            // physically holding the key, and the UI thread is blocked, so the
+            // posted release is never processed and the controller keeps
+            // reporting a held transmit. The watch must reach the direct kill
+            // on its own — physically-down or not, because no up edge can
+            // ever arrive now.
+            var w = new SystemWidePttWatch();
+            w.NoteDown(0);
+            w.HandOffHold(500);
+            Assert.True(w.Busy, "a handed-off hold is still in flight until it is honoured or killed");
+
+            long t = 500;
+            var verdict = SystemWidePttWatch.Verdict.Quiet;
+            long when = -1;
+            while (t < 500 + SystemWidePttWatch.ReleaseGraceMs + 1000)
+            {
+                verdict = w.Poll(t, physicallyDown: true, controllerHolding: true);
+                if (verdict != SystemWidePttWatch.Verdict.Quiet) { when = t; break; }
+                t += Poll;
+            }
+            Assert.Equal(SystemWidePttWatch.Verdict.KillReleaseNotHonoured, verdict);
+            Assert.True(when >= 500 + SystemWidePttWatch.ReleaseGraceMs,
+                "killed at " + when + ", inside the grace a legitimately-processing release is owed");
+            Assert.False(w.Busy, "after the kill nothing is in flight");
+        }
+
+        [Fact]
+        public void A_hold_handed_off_and_then_honoured_goes_quiet()
+        {
+            // The healthy case: the UI thread processed the posted release
+            // within the grace. Nothing is killed and nothing lingers.
+            var w = new SystemWidePttWatch();
+            w.NoteDown(0);
+            w.HandOffHold(500);
+            Assert.Equal(SystemWidePttWatch.Verdict.Quiet, w.Poll(550, physicallyDown: true, controllerHolding: false));
+            Assert.False(w.Busy);
+            Assert.Equal(SystemWidePttWatch.Verdict.Quiet,
+                w.Poll(550 + SystemWidePttWatch.ReleaseGraceMs + 1000, physicallyDown: true, controllerHolding: true));
+        }
+
+        [Fact]
+        public void Handing_off_with_nothing_held_does_not_restamp_a_release_already_in_flight()
+        {
+            // Fault hands off at 500; the unhook that follows it a moment
+            // later finds nothing held and must not move the clock, or every
+            // teardown would buy the UI thread a fresh grace.
+            var w = new SystemWidePttWatch();
+            w.NoteDown(0);
+            w.HandOffHold(500);
+            w.HandOffHold(2500);   // the second caller: nothing held now
+            Assert.Equal(SystemWidePttWatch.Verdict.KillReleaseNotHonoured,
+                w.Poll(500 + SystemWidePttWatch.ReleaseGraceMs, physicallyDown: true, controllerHolding: true));
+
+            var idle = new SystemWidePttWatch();
+            idle.HandOffHold(100);
+            Assert.False(idle.Busy, "handing off with no hold ever seen leaves nothing in flight");
         }
     }
 }

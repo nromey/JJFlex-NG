@@ -367,6 +367,14 @@ namespace JJFlexWpf
             TransmitKillSwitch.DropCarrier(rig, TransmitKillSwitch.Carrier.Mox);
             TransmitKillSwitch.DropCarrier(rig, TransmitKillSwitch.Carrier.Tune);
 
+            // 1b. Nothing left armed to key it again (#699). An engaged voice
+            //     file or test tone replaces the microphone, and a deliberate
+            //     VOX send reaches the radio while receiving — so a kill that
+            //     dropped the carrier and left the source engaged either
+            //     parked the operator's microphone or handed VOX the thing it
+            //     keys on. Same independence as the two drops above.
+            TransmitKillSwitch.DisarmSources(rig);
+
             // 2. If a transmit check is armed, it owns the confirmation and the
             //    words — it is the thing that knows whether a carrier was ever
             //    raised. A no-op when nothing is armed.
@@ -377,6 +385,36 @@ namespace JJFlexWpf
             // 3. Our own bookkeeping, on the thread that owns the timers.
             if (_dispatcher.CheckAccess()) FinishOwnedKill();
             else _dispatcher.BeginInvoke(new Action(FinishOwnedKill));
+        }
+
+        /// <summary>
+        /// The first step of <see cref="KillTransmitNow"/> and nothing else:
+        /// both carriers off, each independently, with no confirmation, no
+        /// speech and no bookkeeping. For a caller that must not wait — the
+        /// keyboard hook thread, where every keystroke on the machine waits
+        /// behind whatever it does (#402) — and for process exit, where a
+        /// posted release is lost in a dispatcher that has shut down (#698).
+        /// </summary>
+        /// <remarks>
+        /// Non-blocking by construction: <see cref="FlexBase.Transmit"/> and
+        /// <see cref="FlexBase.TxTune"/> enqueue to the radio's command queue.
+        /// <see cref="KillTransmitNow"/> is NOT safe from such a caller even
+        /// though its remarks say it may run on another thread — that is
+        /// thread affinity, not non-blocking: through
+        /// <see cref="TransmitKillSwitch.Request"/> it can spend
+        /// <see cref="TransmitKillSwitch.ConfirmDownMs"/> in a sleep loop
+        /// when a transmit check is armed. A caller that can wait should call
+        /// the full kill; this is the one that cannot.
+        /// </remarks>
+        /// <param name="source">Who asked, for the trace.</param>
+        public void DropCarrierNow(string source)
+        {
+            FlexBase? rig = null;
+            try { rig = _getRigControl(); } catch { }
+            Tracing.TraceLine("PTT: carrier dropped without waiting, by " + source
+                              + " (controller state " + State + ")", TraceLevel.Warning);
+            TransmitKillSwitch.DropCarrier(rig, TransmitKillSwitch.Carrier.Mox);
+            TransmitKillSwitch.DropCarrier(rig, TransmitKillSwitch.Carrier.Tune);
         }
 
         /// <summary>

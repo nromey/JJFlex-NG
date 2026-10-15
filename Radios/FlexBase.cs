@@ -22394,49 +22394,73 @@ namespace Radios
                         // about 8.75 KB/s, the 70 kbps Opus TX profile, plus
                         // one complexity-1 encode. Nothing against the receive
                         // stream.
-                        stopSelfClockedTxInput();
+                        //
+                        // A DELIBERATE VOX SEND FLOWS WHILE RECEIVING (Sprint
+                        // 48 Track E, #151's 2026-10-05 ruling). The
+                        // discriminator is DELIBERATE SEND versus ARMED AND
+                        // IDLE, never "is a source engaged": TxFileStartForVox
+                        // sets the flag, TxFileStart does not, TxFileStop
+                        // clears it. While it holds, the recording is fed to
+                        // the radio on the SELF-CLOCK with the microphone
+                        // parked — the same producer the transmit branch
+                        // above will keep using once VOX keys, so key-down is
+                        // not a producer swap and the player sees no stream
+                        // gap to read as a cold start. The capture clock was
+                        // never a candidate: it is the #208 metronome path the
+                        // self-clock was built to escape. The one-producer
+                        // rule holds because the capture is stopped before the
+                        // self-clock starts, as in the transmit branch.
+                        if (TxFileFlowsWhileReceiving)
+                        {
+                            stopOpusInputChannel();
+                            startSelfClockedTxInput();
+                        }
+                        else
+                        {
+                            stopSelfClockedTxInput();
 
-                        // AN ARMED GENERATED SOURCE PARKS THE MICROPHONE
-                        // (Sprint 48 Track A, #151). Found while measuring
-                        // whether TxFileStart's "otherwise at the next
-                        // key-down" survived #565, and it had not: the capture
-                        // callback hands every buffer to TxFramePipeline.Emit,
-                        // which hands it to the source mux, which lets an
-                        // engaged source REPLACE the microphone — that is the
-                        // pre-#208 borrowed-clock path, and it was harmless
-                        // while receiving only because receiving used to stop
-                        // the capture. Once #565 kept the capture running, a
-                        // file or tone armed from idle started going out
-                        // immediately on the capture's clock, into a radio
-                        // that was not transmitting, consuming the recording
-                        // before any key-down — and with VOX armed, a radio
-                        // that would key on it. So while a source is engaged
-                        // and the radio is receiving, the capture is parked,
-                        // exactly as it was for every receive before #565, and
-                        // the source waits for the self-clock at key-down.
-                        // Nothing streams while a source is armed: the source
-                        // replaces the microphone, so VOX has nothing to hear
-                        // by design.
-                        //
-                        // Otherwise the microphone keeps running. Idempotent —
-                        // the loop calls this on every poll.
-                        //
-                        // ENGAGED, NOT IDLE, AND THE DIFFERENCE IS A STUCK
-                        // RAMP. A source released while receiving sits in its
-                        // release ramp — not engaged, not idle — and the ramp
-                        // only advances when something processes a buffer.
-                        // With the capture parked and the self-clock stopped,
-                        // nothing does, so a gate that waited for Idle before
-                        // starting capture would wait forever and the
-                        // microphone would stay parked until the next
-                        // key-down. Starting the capture resolves it: the
-                        // first callback sees a stream gap and the source
-                        // resolves to idle in that frame (TxFilePlayer and
-                        // TxToneGenerator both do this). The one-producer rule
-                        // still holds because stopSelfClockedTxInput() above
-                        // joins the pump thread before returning.
-                        if (TxInputSources.Engaged) stopOpusInputChannel();
-                        else startOpusInputChannel();
+                            // AN ARMED GENERATED SOURCE PARKS THE MICROPHONE
+                            // (Sprint 48 Track A, #151). Found while measuring
+                            // whether TxFileStart's "otherwise at the next
+                            // key-down" survived #565, and it had not: the capture
+                            // callback hands every buffer to TxFramePipeline.Emit,
+                            // which hands it to the source mux, which lets an
+                            // engaged source REPLACE the microphone — that is the
+                            // pre-#208 borrowed-clock path, and it was harmless
+                            // while receiving only because receiving used to stop
+                            // the capture. Once #565 kept the capture running, a
+                            // file or tone armed from idle started going out
+                            // immediately on the capture's clock, into a radio
+                            // that was not transmitting, consuming the recording
+                            // before any key-down — and with VOX armed, a radio
+                            // that would key on it. So while a source is engaged
+                            // and the radio is receiving, the capture is parked,
+                            // exactly as it was for every receive before #565, and
+                            // the source waits for the self-clock at key-down.
+                            // Nothing streams while a source is armed: the source
+                            // replaces the microphone, so VOX has nothing to hear
+                            // by design.
+                            //
+                            // Otherwise the microphone keeps running. Idempotent —
+                            // the loop calls this on every poll.
+                            //
+                            // ENGAGED, NOT IDLE, AND THE DIFFERENCE IS A STUCK
+                            // RAMP. A source released while receiving sits in its
+                            // release ramp — not engaged, not idle — and the ramp
+                            // only advances when something processes a buffer.
+                            // With the capture parked and the self-clock stopped,
+                            // nothing does, so a gate that waited for Idle before
+                            // starting capture would wait forever and the
+                            // microphone would stay parked until the next
+                            // key-down. Starting the capture resolves it: the
+                            // first callback sees a stream gap and the source
+                            // resolves to idle in that frame (TxFilePlayer and
+                            // TxToneGenerator both do this). The one-producer rule
+                            // still holds because stopSelfClockedTxInput() above
+                            // joins the pump thread before returning.
+                            if (TxInputSources.Engaged) stopOpusInputChannel();
+                            else startOpusInputChannel();
+                        }
                     }
                 }
 
@@ -22799,22 +22823,89 @@ namespace Radios
         /// Track A it was false: the always-on capture consumed the recording
         /// on its own clock before any key-down. See the outer gate in
         /// <c>remoteAudioProc</c>, and <see cref="VoiceMessageSend"/> for the
-        /// caller that keys the radio itself rather than waiting.
+        /// caller that keys the radio itself rather than waiting — or, with
+        /// VOX on, calls <see cref="TxFileStartForVox"/> instead so the radio
+        /// can key on the recording.
         /// </remarks>
         public void TxFileStart()
         {
             Tracing.TraceLine("TxFileStart: \"" + txFilePlayer.ContentName + "\", "
                 + txFilePlayer.ContentSeconds.ToString("F1") + " s at "
                 + txFilePlayer.ContentSampleRate + " Hz", TraceLevel.Info);
+            _txFileFlowsWhileReceiving = false;
             txFilePlayer.Start();
         }
 
+        /// <summary>
+        /// A DELIBERATE send with VOX on (#151, Noel 2026-10-05: "if vox is on
+        /// ... it could use that"): start the loaded recording and let it
+        /// reach the radio NOW, keyed or not, so the radio's own VOX detector
+        /// keys on it. The recording rides the self-clock from its first
+        /// frame, exactly as it does once transmitting, so VOX tripping
+        /// changes nothing about which producer feeds the encoder — there is
+        /// no producer swap at key-down, hence no stream gap for the player to
+        /// read as a cold start and restart the file from the top.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>The discriminator is DELIBERATE SEND versus ARMED AND IDLE, not
+        /// "is a source engaged".</b> #151 and this method's one caller say so:
+        /// a source sitting armed because somebody pressed Ctrl+J, G earlier
+        /// must NOT reach a receiving radio, or a forgotten tone keys the
+        /// radio by itself the moment VOX is on; a send the operator just
+        /// asked for MUST reach it, or Don's VOX sends silently do nothing.
+        /// <see cref="TxFileStart"/> arms; this flows. Only this method sets
+        /// the flag, and <see cref="TxFileStop"/> — which the hard kill's
+        /// disarm calls (#699) — clears it, so a kill ends the flow in the
+        /// same call that releases the player.
+        /// </para>
+        /// <para>
+        /// What the air hears is still governed by the radio's VOX attack,
+        /// which is the operator's own setting and the same loss a hand mic
+        /// on VOX takes on its first syllable. The recording is delivered to
+        /// the radio whole; nothing here pre-rolls or pads it.
+        /// </para>
+        /// </remarks>
+        public void TxFileStartForVox()
+        {
+            Tracing.TraceLine("TxFileStartForVox: \"" + txFilePlayer.ContentName + "\", "
+                + txFilePlayer.ContentSeconds.ToString("F1") + " s at "
+                + txFilePlayer.ContentSampleRate + " Hz — reaching the radio while receiving so VOX can key on it",
+                TraceLevel.Info);
+            txFilePlayer.Start();
+            _txFileFlowsWhileReceiving = true;
+        }
+
         /// <summary>Stop transmitting the recording and restore the microphone.</summary>
+        /// <remarks>
+        /// Clears the deliberate-send flag FIRST, so the gate's next poll
+        /// stops the self-clock before anything else — the 2026-08-24 ruling
+        /// that a generated source stops hard, applied to a send that was
+        /// flowing while receiving.
+        /// </remarks>
         public void TxFileStop()
         {
             Tracing.TraceLine("TxFileStop", TraceLevel.Info);
+            _txFileFlowsWhileReceiving = false;
             txFilePlayer.Stop();
         }
+
+        /// <summary>
+        /// True while a deliberate VOX send is reaching the radio with the
+        /// radio receiving: the loaded recording is engaged AND it was started
+        /// by <see cref="TxFileStartForVox"/>. The transmit gate's receive
+        /// branch reads this on every poll. False for an armed-and-idle
+        /// source, false after <see cref="TxFileStop"/>, false once the player
+        /// has run off its end.
+        /// </summary>
+        public bool TxFileFlowsWhileReceiving => _txFileFlowsWhileReceiving && txFilePlayer.Engaged;
+
+        /// <summary>
+        /// Written on the UI thread by the two file starts and the stop, read
+        /// by the remote-audio thread on every poll. Volatile so the poll sees
+        /// the clear in the same order as the player's own state word.
+        /// </summary>
+        private volatile bool _txFileFlowsWhileReceiving;
         #endregion
 
         // Engine Track (2026-08-11): removed the dead #if opusToFile /

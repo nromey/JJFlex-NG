@@ -119,11 +119,36 @@ namespace Radios
         private bool _helpArmed;
         private uint _secondKeyVk;
 
-        /// <summary>The chords in force. Replaceable live; held state survives the swap.</summary>
+        /// <summary>
+        /// The chords in force. Replaceable live; held state survives the
+        /// swap. Stored as the hook honours it (<see cref="SystemWideKeySet.AsHonoured"/>),
+        /// so a role whose switch is off carries no chord here and every rule
+        /// below treats it exactly as an unassigned one.
+        /// </summary>
         public SystemWideKeySet Set
         {
             get => _set;
-            set => _set = value ?? SystemWideKeySet.Off;
+            set => _set = (value ?? SystemWideKeySet.Off).AsHonoured();
+        }
+
+        /// <summary>
+        /// True while the layer is in a BARE waiting state — the JJ key has
+        /// been pressed and no second key has come, or the unknown-key answer
+        /// has left it waiting for H, the slash key or Escape. Nothing is on
+        /// screen in either; this is what the host's timeout guards.
+        /// </summary>
+        public bool Waiting => _leaderArmed || _helpArmed;
+
+        /// <summary>
+        /// The host's clock ran out on a bare waiting state: forget it, so
+        /// the next key goes to whatever program has the keyboard. The JJ
+        /// key's own held-down state is kept, so its eventual up edge is still
+        /// swallowed rather than landing in that program as a stray key-up.
+        /// </summary>
+        public void ExpireWaiting()
+        {
+            _leaderArmed = false;
+            _helpArmed = false;
         }
 
         /// <summary>True while a push-to-talk down has been seen and its up has not.</summary>

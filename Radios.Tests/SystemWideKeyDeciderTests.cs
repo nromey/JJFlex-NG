@@ -171,7 +171,7 @@ namespace Radios.Tests
         [Fact]
         public void A_disabled_set_claims_nothing_at_all()
         {
-            var d = new SystemWideKeyDecider { Set = SystemWideKeySet.Defaults with { Enabled = false } };
+            var d = new SystemWideKeyDecider { Set = SystemWideKeySet.Defaults with { LeaderEnabled = false, TransmitKeysEnabled = false } };
             Assert.Equal(SystemWideDecision.Pass, d.Decide(VK_SPACE, true, CtrlAlt));
             Assert.Equal(SystemWideDecision.Pass, d.Decide(VK_J, true, CtrlShift));
             Assert.Equal(SystemWideDecision.Pass, d.Decide(VK_SPACE, true, AltShift));
@@ -384,9 +384,12 @@ namespace Radios.Tests
             Assert.Equal(SystemWideKeySet.Defaults, set);
 
             var moved = set.With(SystemWideRole.Leader, Keys.Oem2 | Keys.Alt | Keys.Shift);
-            cfg.FromKeySet(moved with { Enabled = false });
-            Assert.False(cfg.Enabled);
+            cfg.FromKeySet(moved with { LeaderEnabled = false, TransmitKeysEnabled = false });
+            Assert.False(cfg.LeaderEnabled);
+            Assert.False(cfg.TransmitKeysEnabled);
+            Assert.False(cfg.ToKeySet().Enabled);
             Assert.Equal((int)(Keys.Oem2 | Keys.Alt | Keys.Shift), cfg.Leader);
+            // A switched-off role keeps its chord so switching back on restores it.
             Assert.Equal(SystemWideRole.Leader, cfg.ToKeySet().RoleOf(Keys.Oem2 | Keys.Alt | Keys.Shift));
         }
 
@@ -397,12 +400,15 @@ namespace Radios.Tests
                 "jjflex-systemwide-" + Guid.NewGuid().ToString("N"));
             try
             {
-                var cfg = new SystemWideKeysConfig { Enabled = false, Leader = (int)(Keys.K | Keys.Control | Keys.Alt) };
+                var cfg = new SystemWideKeysConfig { LeaderEnabled = false, Leader = (int)(Keys.K | Keys.Control | Keys.Alt) };
                 Assert.True(cfg.Save(dir));
                 var back = SystemWideKeysConfig.Load(dir);
-                Assert.False(back.Enabled);
+                Assert.False(back.LeaderEnabled);
+                Assert.True(back.TransmitKeysEnabled, "the two switches travel separately through the file");
                 Assert.Equal((int)(Keys.K | Keys.Control | Keys.Alt), back.Leader);
                 Assert.Equal((int)SystemWideKeySet.DefaultPushToTalk, back.PushToTalk);
+                Assert.DoesNotContain("<Enabled>", System.IO.File.ReadAllText(SystemWideKeysConfig.GetFilePath(dir)),
+                    StringComparison.Ordinal);   // the legacy master switch is read, never written
             }
             finally
             {
@@ -415,8 +421,98 @@ namespace Radios.Tests
         {
             var cfg = SystemWideKeysConfig.Load(System.IO.Path.Combine(
                 System.IO.Path.GetTempPath(), "jjflex-nowhere-" + Guid.NewGuid().ToString("N")));
-            Assert.True(cfg.Enabled);
+            Assert.True(cfg.LeaderEnabled);
+            Assert.True(cfg.TransmitKeysEnabled);
             Assert.Equal(SystemWideKeySet.Defaults, cfg.ToKeySet());
+        }
+
+        // ── Two switches, not one (Sprint 48 Track E, Item 4) ─────────────
+
+        [Fact]
+        public void With_the_jj_key_switched_off_push_to_talk_still_keys_and_the_jj_key_passes_through()
+        {
+            // The whole reason for two switches: an operator whose JJ key
+            // collides with the logger gives THAT up and keeps the push to
+            // talk that was the point.
+            var d = new SystemWideKeyDecider { Set = SystemWideKeySet.Defaults with { LeaderEnabled = false } };
+
+            Assert.Equal(SystemWideDecision.Pass, d.Decide(VK_J, true, CtrlShift));
+            Assert.False(d.LeaderArmed);
+            Assert.Equal(SystemWideDecision.Pass, d.Decide(VK_J, false, CtrlShift));
+
+            var down = d.Decide(VK_SPACE, true, CtrlAlt);
+            Assert.Equal(SystemWideAction.PttDown, down.Action);
+            Assert.True(down.Swallow);
+            Assert.Equal(SystemWideAction.PttUp, d.Decide(VK_SPACE, false, Nothing).Action);
+        }
+
+        [Fact]
+        public void With_the_transmit_keys_switched_off_the_jj_key_still_arms_and_both_transmit_chords_pass_through()
+        {
+            var d = new SystemWideKeyDecider { Set = SystemWideKeySet.Defaults with { TransmitKeysEnabled = false } };
+
+            Assert.Equal(SystemWideDecision.Pass, d.Decide(VK_SPACE, true, CtrlAlt));     // push to talk
+            Assert.False(d.PttHeld);
+            Assert.Equal(SystemWideDecision.Pass, d.Decide(VK_SPACE, true, AltShift));    // transmit lock
+
+            var armed = d.Decide(VK_J, true, CtrlShift);
+            Assert.Equal(SystemWideAction.LeaderArmed, armed.Action);
+            Assert.True(armed.Swallow);
+        }
+
+        [Fact]
+        public void With_both_switched_off_nothing_is_taken_and_the_set_reads_off()
+        {
+            var set = SystemWideKeySet.Defaults with { LeaderEnabled = false, TransmitKeysEnabled = false };
+            Assert.False(set.Enabled);
+            var d = new SystemWideKeyDecider { Set = set };
+            Assert.Equal(SystemWideDecision.Pass, d.Decide(VK_J, true, CtrlShift));
+            Assert.Equal(SystemWideDecision.Pass, d.Decide(VK_SPACE, true, CtrlAlt));
+            Assert.Equal(SystemWideDecision.Pass, d.Decide(VK_SPACE, true, AltShift));
+        }
+
+        [Fact]
+        public void A_switched_off_role_reserves_no_key_in_the_honoured_set_but_keeps_its_chord()
+        {
+            var set = SystemWideKeySet.Defaults with { LeaderEnabled = false };
+            Assert.Equal(SystemWideKeySet.DefaultLeader, set.Leader);
+            Assert.Equal(SystemWideRole.Leader, set.RoleOf(SystemWideKeySet.DefaultLeader));
+            Assert.Null(set.AsHonoured().RoleOf(SystemWideKeySet.DefaultLeader));
+            Assert.Equal(SystemWideRole.PushToTalk, set.AsHonoured().RoleOf(SystemWideKeySet.DefaultPushToTalk));
+        }
+
+        [Fact]
+        public void A_file_from_before_the_split_with_the_one_switch_off_keeps_both_off()
+        {
+            // The legacy master switch: off meant everything off, and a file
+            // written by the first build must still mean that.
+            string dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "jjflex-systemwide-legacy-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                System.IO.Directory.CreateDirectory(dir);
+                System.IO.File.WriteAllText(SystemWideKeysConfig.GetFilePath(dir),
+                    "<?xml version=\"1.0\"?><SystemWideKeysConfig><Enabled>false</Enabled>"
+                    + "<Leader>" + (int)SystemWideKeySet.DefaultLeader + "</Leader>"
+                    + "<PushToTalk>" + (int)SystemWideKeySet.DefaultPushToTalk + "</PushToTalk>"
+                    + "<TransmitLock>" + (int)SystemWideKeySet.DefaultTransmitLock + "</TransmitLock>"
+                    + "</SystemWideKeysConfig>");
+                var cfg = SystemWideKeysConfig.Load(dir);
+                Assert.False(cfg.LeaderEnabled);
+                Assert.False(cfg.TransmitKeysEnabled);
+                Assert.False(cfg.ToKeySet().Enabled);
+
+                // And the control: the same file with the switch ON folds to both on.
+                System.IO.File.WriteAllText(SystemWideKeysConfig.GetFilePath(dir),
+                    "<?xml version=\"1.0\"?><SystemWideKeysConfig><Enabled>true</Enabled></SystemWideKeysConfig>");
+                var on = SystemWideKeysConfig.Load(dir);
+                Assert.True(on.LeaderEnabled);
+                Assert.True(on.TransmitKeysEnabled);
+            }
+            finally
+            {
+                try { System.IO.Directory.Delete(dir, recursive: true); } catch { }
+            }
         }
     }
 }

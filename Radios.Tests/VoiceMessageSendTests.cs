@@ -46,7 +46,9 @@ namespace Radios.Tests
             public bool FileReachedEnd { get; set; }
             public double FileSeconds { get; set; } = 8.0;
             public void FileStart() { Calls.Add("FileStart"); FilePlaying = true; }
+            public void FileStartForVox() { Calls.Add("FileStartForVox"); FilePlaying = true; }
             public void FileStop() { Calls.Add("FileStop"); FilePlaying = false; }
+            public bool VoxOn { get; set; }
         }
 
         [Fact]
@@ -189,6 +191,183 @@ namespace Radios.Tests
 
             Assert.Equal(calls, rig.Calls.Count);
             Assert.Equal(VoiceMessageOutcome.Stopped, send.Outcome);
+        }
+
+        // ── The VOX half (Sprint 48 Track E; #151, Noel 2026-10-05) ──────
+        //
+        // "If vox is on, which is how Don likes to do it, then it could use
+        // that, otherwise it keys and unkeys." Every test above is the
+        // "otherwise"; these are the VOX branch. The discriminator the fake
+        // records is the CALL — FileStartForVox lets the recording reach a
+        // receiving radio, FileStart arms it for the next key-down — because
+        // that is the whole difference between a deliberate send and an
+        // armed-and-idle source, and it is invisible in the outcome alone.
+
+        [Fact]
+        public void WithVoxOnTheSendStartsTheRecordingFlowingAndNeverTouchesTheKey()
+        {
+            var rig = new FakeRig { VoxOn = true };
+            var send = VoiceMessageSend.Begin(rig, "CQ", 0);
+
+            Assert.True(send.ViaVox);
+            Assert.False(send.WeKeyed);
+            Assert.Equal(new[] { "FileStartForVox" }, rig.Calls);
+            Assert.DoesNotContain("Transmit=true", rig.Calls);
+        }
+
+        [Fact]
+        public void WithVoxOffTheSendArmsAndKeysExactlyAsBefore()
+        {
+            // The control for the test above: the same rig with VOX off takes
+            // the keyed road, call for call.
+            var rig = new FakeRig { VoxOn = false };
+            var send = VoiceMessageSend.Begin(rig, "CQ", 0);
+            Assert.False(send.ViaVox);
+            Assert.True(send.WeKeyed);
+            Assert.Equal(new[] { "FileStart", "Transmit=true" }, rig.Calls);
+        }
+
+        [Fact]
+        public void WithVoxOnButAlreadyTransmittingTheSendArmsAndLeavesTheKeyAlone()
+        {
+            // VOX on AND the operator is holding PTT, or VOX has already keyed
+            // on their voice: the radio is transmitting, so the recording
+            // simply replaces the microphone. The already-transmitting case
+            // is unchanged by the ruling, by its own words.
+            var rig = new FakeRig { VoxOn = true, RadioSaysTransmitting = true };
+            var send = VoiceMessageSend.Begin(rig, "CQ", 0);
+            Assert.False(send.ViaVox);
+            Assert.False(send.WeKeyed);
+            Assert.Equal(new[] { "FileStart" }, rig.Calls);
+        }
+
+        [Fact]
+        public void AVoxSendEndsWhenTheRecordingEndsAndNeverUnkeys()
+        {
+            var rig = new FakeRig { VoxOn = true };
+            var send = VoiceMessageSend.Begin(rig, "CQ", 0);
+            rig.RadioSaysTransmitting = true;             // VOX tripped on the first word
+            send.Tick(300);
+            Assert.False(send.Finished);
+
+            rig.FileReachedEnd = true;
+            rig.FilePlaying = false;                      // the player ran off its end
+            send.Tick(8200);
+
+            Assert.Equal(VoiceMessageOutcome.Sent, send.Outcome);
+            Assert.Equal(new[] { "FileStartForVox", "FileStop" }, rig.Calls);
+            Assert.DoesNotContain("Transmit=false", rig.Calls);
+        }
+
+        [Fact]
+        public void AVoxDropBetweenWordsIsNotAnInterrupt()
+        {
+            // VOX at a short delay drops between "CQ contest" and the call,
+            // then keys again on the next word. The keyed send reads a dropped
+            // transmit as somebody unkeying under it; the VOX send must not,
+            // or every CQ would be cut at its first pause.
+            var rig = new FakeRig { VoxOn = true };
+            var send = VoiceMessageSend.Begin(rig, "CQ", 0);
+            rig.RadioSaysTransmitting = true;
+            send.Tick(300);
+            rig.RadioSaysTransmitting = false;            // the pause
+            send.Tick(1500);
+            Assert.False(send.Finished, "a VOX drop between words ended the send");
+            rig.RadioSaysTransmitting = true;             // the next word
+            send.Tick(1800);
+            Assert.False(send.Finished);
+
+            rig.FileReachedEnd = true;
+            rig.FilePlaying = false;
+            send.Tick(8200);
+            Assert.Equal(VoiceMessageOutcome.Sent, send.Outcome);
+        }
+
+        [Fact]
+        public void IfVoxNeverKeysTheSendGivesUpSaysSoAndRestoresTheMicrophone()
+        {
+            var rig = new FakeRig { VoxOn = true };
+            var send = VoiceMessageSend.Begin(rig, "CQ", 0);
+
+            send.Tick(VoiceMessageSend.VoxKeyWaitMs);      // still within patience
+            Assert.False(send.Finished);
+            send.Tick(VoiceMessageSend.VoxKeyWaitMs + 1);
+
+            Assert.Equal(VoiceMessageOutcome.VoxDidNotKey, send.Outcome);
+            Assert.Equal(new[] { "FileStartForVox", "FileStop" }, rig.Calls);
+            Assert.DoesNotContain("Transmit=false", rig.Calls);
+        }
+
+        [Fact]
+        public void IfTheRecordingEndsBeforeVoxEverKeysThatIsAlsoVoxNotKeying()
+        {
+            // A recording shorter than the patience: no point waiting past it.
+            var rig = new FakeRig { VoxOn = true, FileSeconds = 0.5 };
+            var send = VoiceMessageSend.Begin(rig, "CQ", 0);
+            rig.FileReachedEnd = true;
+            rig.FilePlaying = false;
+            send.Tick(600);
+            Assert.Equal(VoiceMessageOutcome.VoxDidNotKey, send.Outcome);
+        }
+
+        [Fact]
+        public void AKillThatReleasesThePlayerUnderAVoxSendIsAnInterruptAndNothingReKeys()
+        {
+            // #699: the hard kill drops the carrier AND disarms the source.
+            // The VOX send sees the player go, not the carrier, and ends as
+            // interrupted. Nothing here holds a key, so nothing re-keys.
+            var rig = new FakeRig { VoxOn = true };
+            var send = VoiceMessageSend.Begin(rig, "CQ", 0);
+            rig.RadioSaysTransmitting = true;
+            send.Tick(300);
+
+            rig.RadioSaysTransmitting = false;            // the kill dropped the carrier...
+            rig.FilePlaying = false;                      // ...and disarmed the player
+            send.Tick(400);
+
+            Assert.Equal(VoiceMessageOutcome.Interrupted, send.Outcome);
+            Assert.Equal(new[] { "FileStartForVox", "FileStop" }, rig.Calls);
+            Assert.DoesNotContain("Transmit=true", rig.Calls);
+        }
+
+        [Fact]
+        public void AKillBeforeVoxEverKeysIsAlsoAnInterrupt()
+        {
+            var rig = new FakeRig { VoxOn = true };
+            var send = VoiceMessageSend.Begin(rig, "CQ", 0);
+            rig.FilePlaying = false;                      // disarmed before the radio keyed
+            send.Tick(200);
+            Assert.Equal(VoiceMessageOutcome.Interrupted, send.Outcome);
+        }
+
+        [Fact]
+        public void AVoxSendThatNeverReportsItsEndIsStoppedPastItsLengthPlusGrace()
+        {
+            var rig = new FakeRig { VoxOn = true, FileSeconds = 8.0 };
+            var send = VoiceMessageSend.Begin(rig, "CQ", 0);
+            rig.RadioSaysTransmitting = true;
+
+            long allowed = 8000 + VoiceMessageSend.VoxKeyWaitMs + VoiceMessageSend.RunLongGraceMs;
+            send.Tick(allowed);
+            Assert.False(send.Finished);
+            send.Tick(allowed + 1);
+
+            Assert.Equal(VoiceMessageOutcome.RanLong, send.Outcome);
+            Assert.Equal(new[] { "FileStartForVox", "FileStop" }, rig.Calls);
+        }
+
+        [Fact]
+        public void StoppingAVoxSendRestoresTheMicrophoneAndLeavesVoxToDropTheCarrier()
+        {
+            var rig = new FakeRig { VoxOn = true };
+            var send = VoiceMessageSend.Begin(rig, "CQ", 0);
+            rig.RadioSaysTransmitting = true;
+            send.Tick(300);
+
+            send.Stop();
+
+            Assert.Equal(VoiceMessageOutcome.Stopped, send.Outcome);
+            Assert.Equal(new[] { "FileStartForVox", "FileStop" }, rig.Calls);
         }
     }
 }

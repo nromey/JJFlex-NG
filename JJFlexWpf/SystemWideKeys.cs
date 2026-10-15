@@ -52,10 +52,30 @@ namespace JJFlexWpf
     /// <b>The machine is released without a keystroke.</b> Teardown runs on
     /// the hook thread at shutdown and at process exit through
     /// <see cref="KeyboardHookThread"/>; an exception inside the callback
-    /// marks the hook faulted, passes every later key straight through, posts
-    /// an unkey if a hold was in flight, and asks the hook thread to unhook.
-    /// The probe that trapped the operator offered no exit that did not run
-    /// through the keyboard it was eating; this one needs none.
+    /// marks the hook faulted, passes every later key straight through, and
+    /// asks the hook thread to unhook. On both paths a hold in flight is
+    /// unkeyed three ways at once (#698): the release is posted to the UI
+    /// thread, the carrier is dropped directly without waiting, and the
+    /// watch keeps the release in flight so its not-honoured verdict runs
+    /// the full kill from the pool thread if the UI thread never processes
+    /// the post. The probe that trapped the operator offered no exit that did
+    /// not run through the keyboard it was eating; this one needs none.
+    /// </para>
+    /// <para>
+    /// <b>The layer from another program times out; the in-window layer
+    /// does not, on purpose.</b> Ruled by Noel 2026-10-05 (filed under #689):
+    /// a layer opened from a logger and then forgotten would swallow that
+    /// program's next keystroke, and nobody can see it happen. So the bare
+    /// waiting state — JJ key pressed, nothing on screen, waiting for the
+    /// second key, or waiting for H, slash or Escape after an unknown key —
+    /// expires after <see cref="SystemWideLayerTimeout.TimeoutMs"/>; any key
+    /// press restarts the clock; and while the key list or the key explorer
+    /// is open (<see cref="KeyHelpSurfaces.IsOpen"/>) the clock is suspended
+    /// and starts fresh when the surface closes, because a surface on screen
+    /// cannot be forgotten and a timer under an operator reading it at a
+    /// screen reader's pace is a trapdoor. Expiry says nothing: a layer that
+    /// announces its own abandonment into another program is noise. It is
+    /// traced.
     /// </para>
     /// <para>
     /// <b>Screen readers hooking the same chord.</b> Windows calls low-level
@@ -124,6 +144,14 @@ namespace JJFlexWpf
         private static readonly object _gate = new object();
         private static readonly SystemWideKeyDecider _decider = new SystemWideKeyDecider();
         private static readonly SystemWidePttWatch _watch = new SystemWidePttWatch();
+
+        /// <summary>
+        /// The clock on the layer's bare waiting state (Noel, 2026-10-05:
+        /// it times out, every key press resets it, and the explorer
+        /// suspends it). Host-clocked like the watch, polled by the same
+        /// pool timer, and guarded by the same lock.
+        /// </summary>
+        private static readonly SystemWideLayerTimeout _layer = new SystemWideLayerTimeout();
         private static System.Threading.Timer? _watchTimer;
         private static bool _watchRunning;
 
@@ -211,9 +239,10 @@ namespace JJFlexWpf
             }
             KeyInventory.SystemWideReservation = ReservationFor;
             Tracing.TraceLine("SystemWideKeys: " + (set.Enabled ? "on" : "off")
-                + "; leader " + Describe(set.Leader)
-                + ", push to talk " + Describe(set.PushToTalk)
-                + ", transmit lock " + Describe(set.TransmitLock), TraceLevel.Info);
+                + "; leader " + Describe(set.Leader) + (set.LeaderEnabled ? "" : " (switched off)")
+                + ", push to talk " + Describe(set.PushToTalk) + (set.TransmitKeysEnabled ? "" : " (switched off)")
+                + ", transmit lock " + Describe(set.TransmitLock) + (set.TransmitKeysEnabled ? "" : " (switched off)"),
+                TraceLevel.Info);
         }
 
         private static string Describe(WinFormsKeys k) =>
@@ -221,7 +250,7 @@ namespace JJFlexWpf
 
         private static string? ReservationFor(WinFormsKeys k)
         {
-            var set = _current;
+            var set = _current.AsHonoured();   // a switched-off role reserves nothing
             if (!set.Enabled) return null;
             var role = set.RoleOf(k);
             if (role == null) return null;
@@ -244,7 +273,17 @@ namespace JJFlexWpf
         /// </summary>
         public static void NoteHelpArmed(bool armed)
         {
-            lock (_gate) { _decider.SetHelpArmed(armed); }
+            lock (_gate)
+            {
+                _decider.SetHelpArmed(armed);
+                if (armed)
+                {
+                    // "H for the list, Escape to cancel" is a bare waiting
+                    // state too: nothing on screen, the layer still live.
+                    _layer.Touch(Environment.TickCount64);
+                    StartWatchLocked();
+                }
+            }
         }
 
         // ── the hook thread ──────────────────────────────────────────────
@@ -288,6 +327,20 @@ namespace JJFlexWpf
         /// in flight is released on the way out: the hook that saw the down
         /// is going away, so nothing else would ever see the up.
         /// </summary>
+        /// <remarks>
+        /// <b>The release is posted AND the hold is handed to the watchdog
+        /// AND the carrier is dropped directly (#698).</b> Until 2026-10-14
+        /// this path posted the release and then reset and stopped the
+        /// watch, so a hold in flight at teardown had no backstop until the
+        /// UI thread processed the post — and at process exit the UI
+        /// dispatcher is shutting down, so the post is simply lost. Now the
+        /// watch keeps the release in flight (its not-honoured verdict kills
+        /// from the pool thread if the controller is still holding after the
+        /// grace), and the carrier is also dropped here, without waiting,
+        /// AFTER the hook is out so that nothing on this thread can stall a
+        /// keystroke. The three are redundant on purpose: a redundant unkey
+        /// costs nothing.
+        /// </remarks>
         private static void UnhookOnHookThread()
         {
             bool releasePtt;
@@ -295,16 +348,28 @@ namespace JJFlexWpf
             {
                 releasePtt = _decider.PttHeld;
                 _decider.Reset();
-                _watch.Reset();
-                StopWatchLocked();
+                if (releasePtt)
+                {
+                    _watch.HandOffHold(Environment.TickCount64);
+                    StartWatchLocked();
+                }
+                else if (!_watch.Busy)
+                {
+                    StopWatchLocked();   // nothing in flight: the poll can rest
+                }
+                // A release already in flight (a fault handed it off a moment
+                // ago) keeps the watch running until it is honoured or killed.
             }
             if (releasePtt) Post(() => PttEdge?.Invoke(false));
 
-            if (_hookHandle == IntPtr.Zero)
-                return;
-            UnhookWindowsHookEx(_hookHandle);
-            _hookHandle = IntPtr.Zero;
-            _hookProc = null;
+            if (_hookHandle != IntPtr.Zero)
+            {
+                UnhookWindowsHookEx(_hookHandle);
+                _hookHandle = IntPtr.Zero;
+                _hookProc = null;
+            }
+
+            if (releasePtt) DropCarrierWithoutWaiting("system-wide push to talk teardown with a hold in flight");
         }
 
         private static IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
@@ -344,6 +409,17 @@ namespace JJFlexWpf
                             _watch.NoteUp(now);
                             StartWatchLocked();   // stays up until the release is seen honoured
                             break;
+                    }
+
+                    // Every key press restarts the layer's clock — the arming
+                    // press itself, a modifier on its way to the second key,
+                    // the JJ key's own repeats. Checked AFTER Decide, so the
+                    // second key, which ends the waiting state, does not
+                    // restart a clock there is nothing left to time.
+                    if (isDown && _decider.Waiting)
+                    {
+                        _layer.Touch(now);
+                        StartWatchLocked();
                     }
                 }
 
@@ -398,6 +474,19 @@ namespace JJFlexWpf
         /// and the hook thread is asked to unhook once this callback has
         /// returned. Nothing here waits.
         /// </summary>
+        /// <remarks>
+        /// <b>A hold in flight is handed to the watchdog, not just posted
+        /// (#698).</b> This runs INSIDE the hook callback, so it may not
+        /// block, and <see cref="PttSafetyController.KillTransmitNow"/> can —
+        /// it confirms the carrier down through a sleep loop whenever a
+        /// transmit check is armed. So the release is posted, the carrier is
+        /// dropped without waiting, and the watch is told the hold is now a
+        /// posted release: if the UI thread does not honour it within the
+        /// grace, the existing not-honoured verdict runs the full kill from
+        /// the pool thread, off this one. Before this the unhook that follows
+        /// reset the watch, which switched the backstop off at the moment it
+        /// was built for.
+        /// </remarks>
         private static void Fault(Exception ex)
         {
             _faulted = true;
@@ -406,10 +495,19 @@ namespace JJFlexWpf
             {
                 releasePtt = _decider.PttHeld;
                 _decider.Reset();
+                if (releasePtt)
+                {
+                    _watch.HandOffHold(Environment.TickCount64);
+                    StartWatchLocked();
+                }
             }
             Tracing.TraceLine("SystemWideKeys: exception in the hook callback; passing every key through from now on and unhooking. "
                 + ex, TraceLevel.Error);
-            if (releasePtt) Post(() => PttEdge?.Invoke(false));
+            if (releasePtt)
+            {
+                Post(() => PttEdge?.Invoke(false));
+                DropCarrierWithoutWaiting("system-wide push to talk hook fault with a hold in flight");
+            }
             try
             {
                 Dispatcher.CurrentDispatcher.BeginInvoke(new Action(UnhookOnHookThread));
@@ -417,6 +515,23 @@ namespace JJFlexWpf
             catch (Exception post)
             {
                 Tracing.TraceLine("SystemWideKeys: could not post the unhook: " + post.Message, TraceLevel.Error);
+            }
+        }
+
+        /// <summary>
+        /// Both carriers off, now, through the controller's non-blocking
+        /// drop. Never the full kill from here: see <see cref="Fault"/>.
+        /// Swallows everything — a fault path that throws is no path.
+        /// </summary>
+        private static void DropCarrierWithoutWaiting(string source)
+        {
+            try
+            {
+                PttControllerSource?.Invoke()?.DropCarrierNow(source);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("SystemWideKeys: the direct carrier drop failed: " + ex.Message, TraceLevel.Error);
             }
         }
 
@@ -451,16 +566,35 @@ namespace JJFlexWpf
                 var set = _current;
                 bool physicallyDown = set.PushToTalk != WinFormsKeys.None
                     && PhysicalKeyState.IsDown((int)SystemWideChord.VirtualKeyOf(set.PushToTalk));
+                bool surfaceOpen = KeyHelpSurfaces.IsOpen;   // a volatile read, no marshal
 
                 SystemWidePttWatch.Verdict verdict;
                 bool stop;
+                bool layerExpired;
                 lock (_gate)
                 {
-                    verdict = _watch.Poll(Environment.TickCount64, physicallyDown, holding);
+                    long now = Environment.TickCount64;
+                    verdict = _watch.Poll(now, physicallyDown, holding);
                     if (verdict == SystemWidePttWatch.Verdict.UnkeyMissedRelease)
                         _decider.ForceReleasePtt();
-                    stop = !_watch.Busy;
+
+                    layerExpired = _layer.Poll(now, _decider.Waiting, surfaceOpen);
+                    if (layerExpired) _decider.ExpireWaiting();
+
+                    stop = !_watch.Busy && !_decider.Waiting;
                     if (stop) StopWatchLocked();
+                }
+
+                if (layerExpired)
+                {
+                    // Silent on purpose; see the class remarks. The in-window
+                    // help-armed mirror is cleared the same way a let-go
+                    // clears it, so it cannot linger and claim a key later.
+                    Tracing.TraceLine("SystemWideKeys: the JJ key layer waited "
+                        + SystemWideLayerTimeout.TimeoutMs / 1000 + " s for a second key with nothing on screen; "
+                        + "closing it quietly so the next key goes to the program that has the keyboard.",
+                        TraceLevel.Info);
+                    Post(() => LeaderHelpLetGo?.Invoke());
                 }
 
                 switch (verdict)

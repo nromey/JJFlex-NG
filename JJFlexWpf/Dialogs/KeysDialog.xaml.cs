@@ -204,6 +204,23 @@ namespace JJFlexWpf.Dialogs
 
         private KeyManifest.Row? SelectedRow => KeysList.SelectedItem as KeyManifest.Row;
 
+        /// <summary>
+        /// Set when the operator asked to change a system-wide key (#307,
+        /// Sprint 48 Track E): the Settings tab header to open once this
+        /// dialog has closed. The caller (NativeMenuBar.ShowKeysSurface) opens
+        /// it, because opening Settings over this modal would be the
+        /// modal-inside-a-modal Noel ruled out on 2026-10-05.
+        /// </summary>
+        public string? OpenSettingsAtTab { get; private set; }
+
+        /// <summary>
+        /// A system-wide row (#307): listed here, configured in Settings. The
+        /// scope WORD is the discriminator, never KeyScope.Global, which means
+        /// every mode inside this window.
+        /// </summary>
+        private static bool IsSystemWide(KeyManifest.Row? row) =>
+            string.Equals(row?.Scope, "System-wide", StringComparison.Ordinal);
+
         private void KeysList_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             UpdateButtonStates();
@@ -212,9 +229,25 @@ namespace JJFlexWpf.Dialogs
         private void UpdateButtonStates()
         {
             bool canEdit = _editable && SelectedRow is { Rebindable: true, CommandId: not null };
-            ChangeKeyButton.IsEnabled = canEdit;
+            // A system-wide row cannot be rebound HERE, but Change Key on it
+            // is the route to where it can — the Keys dialog must have a
+            // route to the place that configures what it lists.
+            ChangeKeyButton.IsEnabled = canEdit || (_editable && IsSystemWide(SelectedRow));
             UnbindButton.IsEnabled = canEdit && SelectedRow?.KeyDisplay != "not bound";
             ResetButton.IsEnabled = canEdit;
+        }
+
+        /// <summary>
+        /// Close and ask the caller to open Settings at the system-wide keys.
+        /// Works in both doors — the editable Hotkey Editor and the read-only
+        /// Key Assignments — because finding the row and having nowhere to go
+        /// is the same gap from either.
+        /// </summary>
+        private void RouteToSystemWideKeys()
+        {
+            OpenSettingsAtTab = NativeMenuBar.SystemWideKeysSettingsTab;
+            Announce(Radios.Lexicon.Get("settings.keys.editor.systemwide_route"));
+            CloseWithResult(true);
         }
 
         // ── Announcements ──
@@ -249,6 +282,11 @@ namespace JJFlexWpf.Dialogs
         private void ChangeKeyButton_Click(object sender, RoutedEventArgs e)
         {
             var row = SelectedRow;
+            if (IsSystemWide(row))
+            {
+                RouteToSystemWideKeys();
+                return;
+            }
             if (row?.CommandId == null) return;
             if (!row.Rebindable)
             {
@@ -475,6 +513,14 @@ namespace JJFlexWpf.Dialogs
 
         private void KeysList_KeyDown(object sender, KeyEventArgs e)
         {
+            if (e.Key == Key.Enter && IsSystemWide(SelectedRow))
+            {
+                // Both doors: the read-only Key Assignments has no edit panel,
+                // and Enter is the one key an operator presses on a row.
+                RouteToSystemWideKeys();
+                e.Handled = true;
+                return;
+            }
             if (e.Key == Key.Enter && _editable && ChangeKeyButton.IsEnabled)
             {
                 ChangeKeyButton_Click(sender, e);

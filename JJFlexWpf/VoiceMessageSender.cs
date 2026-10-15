@@ -116,7 +116,10 @@ internal static class VoiceMessageSender
         }
 
         Tracing.TraceLine("VoiceMessageSender: sending \"" + label + "\" from " + path
-            + " (" + loaded.Describe() + "), " + (_send.WeKeyed ? "keying the radio" : "radio already transmitting"),
+            + " (" + loaded.Describe() + "), "
+            + (_send.WeKeyed ? "keying the radio"
+               : _send.ViaVox ? "letting VOX key the radio (#151)"
+               : "radio already transmitting"),
             TraceLevel.Info);
 
         ScreenReaderOutput.Speak(
@@ -192,11 +195,14 @@ internal static class VoiceMessageSender
             VoiceMessageOutcome.RanLong => Lexicon.Get("settings.cw.voice_ran_long", ("label", label)),
             VoiceMessageOutcome.RadioDidNotKey => Lexicon.Get("settings.cw.voice_not_sent",
                 ("label", label), ("reason", Lexicon.Get("settings.cw.radio_did_not_key"))),
+            VoiceMessageOutcome.VoxDidNotKey => Lexicon.Get("settings.cw.voice_not_sent",
+                ("label", label), ("reason", Lexicon.Get("settings.cw.vox_did_not_key"))),
             _ => "",
         };
         Tracing.TraceLine("VoiceMessageSender: \"" + label + "\" " + send.Outcome, TraceLevel.Info);
 
         bool trouble = send.Outcome == VoiceMessageOutcome.RadioDidNotKey
+                    || send.Outcome == VoiceMessageOutcome.VoxDidNotKey
                     || send.Outcome == VoiceMessageOutcome.RanLong;
         if (trouble) EarconPlayer.Warning2Beep();
         ScreenReaderOutput.Speak(line, SpeechIntent.Queue,
