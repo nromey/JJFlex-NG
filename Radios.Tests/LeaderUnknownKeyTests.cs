@@ -220,7 +220,8 @@ namespace Radios.Tests
         [Fact]
         public void The_near_miss_names_the_alternative_at_every_level()
         {
-            // #558, ruled by Noel 2026-09-06. This used to be a ladder: the
+            // This used to be a ladder (a citation "#558" stood here; it names
+            // no task in either register file — see #616): the
             // fallback tiers said only "Ctrl+G is not a command" and the
             // recovery lived at Chatty, on the reasoning that naming what to
             // press instead is a hint and Terse carries values, not hints.
@@ -343,6 +344,124 @@ namespace Radios.Tests
             Assert.True(leaderDrops > 0, "the scan found no leader teardown at all — it is broken");
             Assert.True(helpDrops >= leaderDrops,
                 $"{leaderDrops} places drop the leader but only {helpDrops} drop the help-armed state");
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        //  #695 — the near-miss NAMES a chord; it never EXECUTES one
+        // ────────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Every call the leader's unknown-key arm may make. Each one traces,
+        /// sounds, asks the inventory a question, or speaks. None dispatches.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Ruled 2026-10-05 (#695): absorbing an unbound Ctrl+letter onto the
+        /// bare letter — ruled hours earlier for Ctrl+G, when bare G was the
+        /// same one-shot — was DROPPED once Sprint 48 Track C made the tiers
+        /// real, because under #515 bare and Ctrl are different KINDS of thing:
+        /// an unbound Ctrl+M absorbed would open the mode layer rather than
+        /// toggle something beginning with M. So the near-miss names the chord
+        /// and does not run it, and this list is how the test says so: a
+        /// planted <c>DoLeaderCommand(k &amp; ~Keys.Control)</c> or any handler
+        /// call in the default arm is reported by name.
+        /// </para>
+        /// <para>
+        /// Sprint 48 Track F confirmed by reading that no absorption had ever
+        /// been built — the default arm's only dispatch-shaped statement is the
+        /// Speak of <c>leader.near_miss</c>, a sentence. This test is what keeps
+        /// that true without a reader.
+        /// </para>
+        /// </remarks>
+        private static readonly string[] DefaultArmMayCall =
+        {
+            "_context.Trace",
+            "EarconPlayer.LeaderInvalidTone",
+            "Radios.Speech.RefusalVoice.ToneStandsAlone",
+            "EarconPlayer.IsOn",
+            "KeyInventory.TryFindLeaderNearMiss",
+            "Radios.ScreenReaderOutput.Speak",
+            "Radios.Lexicon.Get",
+        };
+
+        private static readonly string[] NotCalls = { "if", "else", "switch", "while", "for", "foreach", "return", "out", "new" };
+
+        private static readonly System.Text.RegularExpressions.Regex CallSite =
+            new(@"\b([A-Za-z_][\w.]*)\s*\(", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        [Fact]
+        public void A_planted_dispatch_in_the_unknown_key_arm_is_reported()
+        {
+            // The positive control: an arm that absorbs (re-dispatches the bare
+            // letter) and one that runs a toggle directly. Both must be named,
+            // and the permitted calls around them must not be.
+            const string planted = @"
+                default:
+                    _context.Trace(""x"");
+                    EarconPlayer.LeaderInvalidTone();
+                    if (KeyInventory.TryFindLeaderNearMiss(k, out string a, out string b))
+                    {
+                        DoLeaderCommand(k & ~Keys.Control);
+                        ToggleLeaderDSP(""Noise Blanker"", () => rig.NoiseBlanker, v => rig.NoiseBlanker = v);
+                        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get(nearMissKey));
+                    }
+                    break;
+            }
+            return true;
+        }";
+
+            var offenders = UnpermittedCalls(Code(planted));
+
+            Assert.Equal(new[] { "DoLeaderCommand", "ToggleLeaderDSP" }, offenders);
+        }
+
+        [Fact]
+        public void The_unknown_key_arm_names_the_near_miss_and_executes_nothing()
+        {
+            string body = MethodBody(Source(KeyCommandsFile), "private bool DoLeaderCommand(Keys k)");
+            string arm = DefaultArm(body);
+
+            // It names: the inventory is asked, and the answer is spoken
+            // through the one sentence that owns it (#693 governs the words).
+            Assert.Contains("KeyInventory.TryFindLeaderNearMiss(", arm);
+            Assert.Contains("leader.near_miss", arm);
+
+            // It never executes: every call in the arm is on the list above.
+            var offenders = UnpermittedCalls(Code(arm));
+            Assert.True(offenders.Count == 0,
+                "the leader's unknown-key arm calls something that is not tracing, sounding, "
+                + "asking or speaking: " + string.Join(", ", offenders)
+                + ". The near-miss NAMES the chord the operator probably meant and never RUNS it "
+                + "(#695, ruled 2026-10-05 — absorption was dropped because a plain letter opens a "
+                + "layer and Ctrl toggles, so the two are different kinds of action). If a new call "
+                + "here genuinely only speaks or sounds, add it to DefaultArmMayCall with that claim.");
+        }
+
+        /// <summary>
+        /// The dispatcher's <c>default:</c> arm — from the label to the end of
+        /// the method — on the BLANKED body, so a label inside a string or a
+        /// comment cannot be mistaken for it.
+        /// </summary>
+        private static string DefaultArm(string methodBody)
+        {
+            string code = Code(methodBody);
+            int at = code.LastIndexOf("default:", StringComparison.Ordinal);
+            Assert.True(at >= 0, "DoLeaderCommand has no default arm — the scan is broken");
+            // Return the RAW text from the same offset: blanking preserves
+            // length, so offsets agree, and callers that need to see a lexicon
+            // key by name can.
+            return methodBody.Substring(at);
+        }
+
+        private static List<string> UnpermittedCalls(string code)
+        {
+            return CallSite.Matches(code)
+                .Select(m => m.Groups[1].Value)
+                .Where(name => !NotCalls.Contains(name))
+                .Where(name => !DefaultArmMayCall.Contains(name))
+                .Distinct()
+                .OrderBy(s => s, StringComparer.Ordinal)
+                .ToList();
         }
 
         // ────────────────────────────────────────────────────────────────

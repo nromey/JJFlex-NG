@@ -57,6 +57,16 @@ namespace Radios.Tests
             @"Id\s*=\s*""(?<id>[a-z0-9-]+)""(?<between>[\s\S]{0,900}?)SelectKey\s*=\s*(?<key>Keys\.[A-Za-z0-9_]+(?:\s*\|\s*Keys\.[A-Za-z0-9_]+)*)",
             RegexOptions.Compiled);
 
+        // A switch is FLIPPED by its chord rather than picked, and the engine
+        // finds it with FirstOrDefault too — so two switches on one chord fail
+        // exactly as #539 did. SwitchTarget(...) and the noise layer's
+        // RadioSwitch(...) wrapper both pass the chord second (Sprint 48 Track
+        // F); a switch chord and a select key in the same layer are the same
+        // key space, so both are read into one list.
+        private static readonly Regex SwitchCall = new Regex(
+            @"(?:SwitchTarget|RadioSwitch)\(\s*""(?<id>[a-z0-9-]+)""\s*,\s*(?<key>Keys\.[A-Za-z0-9_]+(?:\s*\|\s*Keys\.[A-Za-z0-9_]+)*)",
+            RegexOptions.Compiled);
+
         [Fact]
         public void No_two_targets_in_the_audio_layer_claim_the_same_letter()
         {
@@ -67,6 +77,29 @@ namespace Radios.Tests
         public void No_two_targets_in_the_filter_layer_claim_the_same_letter()
         {
             AssertUniqueWithin("internal void EnterFilterLayer");
+        }
+
+        [Fact]
+        public void No_two_switches_in_the_noise_layer_claim_the_same_chord()
+        {
+            AssertUniqueWithin("internal void EnterNoiseLayer");
+        }
+
+        /// <summary>
+        /// Positive control for the switch scanner: the noise layer is ten
+        /// switches and nothing else, so a scan that finds fewer is a scan
+        /// that would pass two switches on one chord.
+        /// </summary>
+        [Fact]
+        public void The_scanner_actually_finds_the_noise_layer_switches()
+        {
+            var found = KeysIn(BodyOf("internal void EnterNoiseLayer"));
+
+            Assert.True(found.Count >= 10,
+                "expected at least ten switches in the noise layer, found "
+                + found.Count + ": " + Describe(found));
+            Assert.Contains(found, f => f.Id == "auto-notch");
+            Assert.Contains(found, f => f.Id == "pc-spectral");
         }
 
         /// <summary>
@@ -126,6 +159,9 @@ namespace Radios.Tests
             var found = new List<(string, string)>();
 
             foreach (Match m in LevelCall.Matches(body))
+                found.Add((m.Groups["id"].Value, Normalise(m.Groups["key"].Value)));
+
+            foreach (Match m in SwitchCall.Matches(body))
                 found.Add((m.Groups["id"].Value, Normalise(m.Groups["key"].Value)));
 
             foreach (Match m in SelectKeyAssign.Matches(body))

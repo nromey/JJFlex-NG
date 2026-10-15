@@ -82,7 +82,7 @@ namespace JJFlexWpf.Tests
         {
             // Track K's explorer reads these rows; a row with no readable key
             // or description is a key that works and is invisible.
-            foreach (string context in new[] { KeyInventory.AudioLayerContext, KeyInventory.FilterLayerContext })
+            foreach (string context in new[] { KeyInventory.AudioLayerContext, KeyInventory.FilterLayerContext, KeyInventory.NoiseLayerContext })
             {
                 var rows = KeyInventory.LayerCommands(context);
                 Assert.NotEmpty(rows);

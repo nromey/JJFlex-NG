@@ -48,6 +48,15 @@ namespace Radios.Tests
     /// <c>_unboundNotes</c> already applies to the registry.
     /// </para>
     /// <para>
+    /// <b>The four debt lists audit LETTERS, and a fifth list declares the rest.</b>
+    /// Every tier check here is scoped to A through Z, which is correct for what
+    /// the lists describe — and leaves digits, function keys and punctuation
+    /// with no rule at all. <c>NonLetterArms</c> closes that: every switch arm
+    /// whose key is not a letter must be declared with the tier it belongs to,
+    /// in both directions, so the next chord bound outside the alphabet is seen
+    /// the day it is bound (Sprint 48 Track F).
+    /// </para>
+    /// <para>
     /// It reads SOURCE, in the <see cref="LeaderSourceScan"/> family, because
     /// Radios.Tests cannot load the WPF assembly and because the thing being
     /// verified is literal code written by people. A layer entry is recognised
@@ -75,14 +84,11 @@ namespace Radios.Tests
         {
             // Sprint 48 Track C paid eleven lines of this list: B, G, N, R, T
             // and W went to the Ctrl tier on their own initials, and E, K, L,
-            // M, O and Q to the Alt tier. What is left is every plain-letter
-            // toggle whose Ctrl initial is spoken for by another toggle or by
-            // a ruling — a collision of initials the grammar cannot resolve
-            // and a layer can. The noise layer's letter is Noel's (#518).
-            [Keys.C] = "Compander toggle — Ctrl+C is copy, kept by the Windows convention; home is the audio layer",
+            // M, O and Q to the Alt tier. Sprint 48 Track F paid three more:
+            // C into the audio layer beside its level, and P and S into the
+            // noise layer (#518). What is left is the one plain-letter toggle
+            // whose home — the tuning layer — has no letter yet (#518).
             [Keys.D] = "tuning speech debounce toggle — Ctrl+D is the detailed capture, also a D toggle; home is the tuning layer",
-            [Keys.P] = "Audio Peak Filter toggle — Ctrl+P is PC audio (#513); home is the noise or filter layer, Noel's call (#516)",
-            [Keys.S] = "On-Radio Spectral NR toggle — Ctrl+S is the S-meter unit, also an S toggle; home is the noise layer",
         };
 
         /// <summary>
@@ -95,10 +101,13 @@ namespace Radios.Tests
         /// </summary>
         private static readonly Dictionary<Keys, string> ShiftTierDebt = new()
         {
-            [Keys.N | Keys.Shift] = "NR Filter toggle — Ctrl+N went to Noise Reduction itself; the noise layer tells the two N toggles apart",
-            [Keys.P | Keys.Shift] = "Speech Processor toggle — P and S are both taken on the Ctrl tier; home is the audio layer, where its mode sits on S",
-            [Keys.R | Keys.Shift] = "PC Neural NR toggle — Ctrl+R is its on-radio twin; a pair differing only by side of the wire needs a layer",
-            [Keys.S | Keys.Shift] = "PC Spectral NR toggle — Ctrl+S is the S-meter unit, and its on-radio twin is waiting too",
+            // EMPTY since Sprint 48 Track F, and meant to stay so. The four
+            // Shift squatters — the NR filter, the speech processor and the
+            // two PC-side NR twins — went into the noise layer and the audio
+            // layer (#518). Shift+letter now means "jump to that slice" at the
+            // top level as well as inside every layer, which is the first time
+            // the rule has been true everywhere it is stated. A line
+            // reappearing here is a squatter, not debt.
         };
 
         /// <summary>
@@ -138,6 +147,46 @@ namespace Radios.Tests
         {
             [Keys.A] = "the audio layer (#514, #515)",
             [Keys.F] = "the filter layer (#512, #516)",
+            [Keys.N] = "the noise layer (#518, ruled 2026-10-05)",
+        };
+
+        /// <summary>
+        /// Every arm of the switch whose key is NOT a letter, and the tier it
+        /// belongs to. The four debt lists above are letter audits —
+        /// <see cref="IsTier"/> is an A-to-Z range check, on purpose, because
+        /// that is what those lists describe — so until Sprint 48 Track F
+        /// nothing examined a digit, a function key or a punctuation key at
+        /// all. Not false, not true: no rule there. That is one step worse
+        /// than the Shift squatters' shape (a rule true inside every layer
+        /// and false at the top level), because a chord no test examines is
+        /// exactly how the next squatter arrives.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Checked in BOTH directions, like the debt lists: a non-letter arm
+        /// with no line here is undeclared and fails; a line here for a chord
+        /// the switch no longer handles is stale and fails. Unlike the debt
+        /// lists this one is not meant to shrink — it is a DECLARATION, and
+        /// the digit arms (#151, held) will land here as ten lines on the
+        /// digit tier when they land, which is the grammar decision being
+        /// recorded rather than assumed. <see cref="DigitTierFaults"/> holds
+        /// what a digit arm must DO; this holds that it was declared at all.
+        /// </para>
+        /// <para>
+        /// Do not widen <see cref="IsTier"/> to cover these instead. That would
+        /// pull the two slash arms into the plain and Shift audits, where
+        /// they are not declared, and turn the suite red for a reason that has
+        /// nothing to do with any squatter.
+        /// </para>
+        /// </remarks>
+        private static readonly Dictionary<Keys, string> NonLetterArms = new()
+        {
+            // The two help doors (#514, #519): the slash key opens the JJ key
+            // explorer. "?" is Shift+/ on a US keyboard, so it arrives as
+            // Oem2 | Shift, and the bare Oem2 case alone never matched it
+            // (#183) — one physical key, two arrival forms, one meaning.
+            [Keys.Oem2] = "help tier — the slash key opens the JJ key explorer",
+            [Keys.Oem2 | Keys.Shift] = "help tier — the same key with Shift held, which is how ? arrives",
         };
 
         private static readonly Regex LayerEntry = new(@"\bEnter\w*(?:Mode|Layer)\s*\(", RegexOptions.Compiled);
@@ -499,6 +548,133 @@ namespace Radios.Tests
         private static bool IsDigit(Keys code) => code >= Keys.D0 && code <= Keys.D9;
 
         // ────────────────────────────────────────────────────────────────
+        //  Everything that is not a letter — declared, or it is invisible
+        // ────────────────────────────────────────────────────────────────
+
+        private const string NonLetterSample = @"
+            private bool DoLeaderCommand(Keys k)
+            {
+                switch (k)
+                {
+                    case Keys.N: EnterNoiseLayer(); break;
+                    case Keys.Oem2:
+                    case Keys.Oem2 | Keys.Shift: OpenKeyExplorer(); break;
+                    case Keys.F7: SpeakSomething(); break;
+                    case Keys.D1 | Keys.Alt: SendMessageSlot(1); break;
+                    case Keys.H: LeaderKeyHelp(); break;
+                    default: break;
+                }
+                return true;
+            }";
+
+        [Fact]
+        public void Planted_non_letter_arms_outside_the_declaration_are_each_reported()
+        {
+            // The positive control. The sample carries the two slash arms
+            // (declared below, as in the real list), one letter arm (not this
+            // check's business), and two non-letter arms nobody declared: a
+            // function key and a modified digit. Both must be named, by chord,
+            // and nothing else may be.
+            var arms = LeaderSourceScan.SwitchArms(NonLetterSample, "DoLeaderCommand");
+            var declared = new Dictionary<Keys, string>
+            {
+                [Keys.Oem2] = "help",
+                [Keys.Oem2 | Keys.Shift] = "help",
+            };
+
+            var undeclared = UndeclaredNonLetters(arms, declared);
+
+            Assert.Equal(new[] { "Alt+D1", "F7" }, undeclared.Select(Name).OrderBy(s => s, StringComparer.Ordinal));
+        }
+
+        [Fact]
+        public void A_planted_stale_non_letter_declaration_is_reported()
+        {
+            var arms = LeaderSourceScan.SwitchArms(NonLetterSample, "DoLeaderCommand");
+            var declared = new Dictionary<Keys, string>
+            {
+                [Keys.Oem2] = "help",
+                [Keys.Oem2 | Keys.Shift] = "help",
+                [Keys.F7] = "real",
+                [Keys.D1 | Keys.Alt] = "real",
+                [Keys.F9] = "stale — nothing handles it",
+            };
+
+            Assert.Equal(new[] { Keys.F9 }, StaleNonLetters(arms, declared));
+        }
+
+        [Fact]
+        public void Every_non_letter_arm_is_declared_with_its_tier()
+        {
+            // Sprint 48 Track F. The letter audits above cannot see these: a
+            // digit is below Keys.A, a function key and every punctuation key
+            // are above Keys.Z, and IsTier is a range check. So every case
+            // label whose key code falls outside A to Z must have a line in
+            // NonLetterArms saying which tier it belongs to — and the day
+            // somebody binds JJ key F7 without recording that, this is the
+            // test that says so, in the file where the grammar is written down.
+            var arms = LeaderSourceScan.RealSwitchArms();
+
+            var undeclared = UndeclaredNonLetters(arms, NonLetterArms);
+            Assert.True(undeclared.Count == 0,
+                "Non-letter chords handled by DoLeaderCommand and not declared in NonLetterArms: "
+                + string.Join(", ", undeclared.Select(Name))
+                + ". Every arm whose key is not a letter must say which tier it belongs to — the "
+                + "help tier for the slash key, the digit tier for a message slot (#151), or a new "
+                + "tier that #515 has ruled. Add a line to NonLetterArms with the tier and the reason; "
+                + "do not widen IsTier to make the letter audits swallow it.");
+
+            var stale = StaleNonLetters(arms, NonLetterArms);
+            Assert.True(stale.Count == 0,
+                "NonLetterArms declares chords that DoLeaderCommand no longer handles — delete their "
+                + "lines: " + string.Join(", ", stale.Select(Name)));
+        }
+
+        [Fact]
+        public void The_non_letter_sweep_actually_saw_the_slash_arms()
+        {
+            // Positive control on the real switch, not the sample: the two
+            // slash arms are the non-letter chords that exist today, and the
+            // declaration must hold exactly them so an empty dictionary and
+            // an empty sweep cannot agree about nothing.
+            var arms = LeaderSourceScan.RealSwitchArms();
+            var nonLetters = arms.SelectMany(a => a.Labels).Where(l => !IsLetter(l & Keys.KeyCode)).Distinct().ToList();
+
+            Assert.Contains(Keys.Oem2, nonLetters);
+            Assert.Contains(Keys.Oem2 | Keys.Shift, nonLetters);
+            Assert.Contains(Keys.Oem2, NonLetterArms.Keys);
+            Assert.Contains(Keys.Oem2 | Keys.Shift, NonLetterArms.Keys);
+        }
+
+        private static bool IsLetter(Keys code) => code >= Keys.A && code <= Keys.Z;
+
+        /// <summary>
+        /// Every case label whose key code is outside A to Z and which the
+        /// declaration does not name. Modifiers are part of the chord: a
+        /// declared bare F7 does not declare Ctrl+F7.
+        /// </summary>
+        private static List<Keys> UndeclaredNonLetters(List<LeaderSourceScan.SwitchArm> arms,
+            Dictionary<Keys, string> declared)
+        {
+            return arms
+                .SelectMany(a => a.Labels)
+                .Where(l => !IsLetter(l & Keys.KeyCode) && !declared.ContainsKey(l))
+                .Distinct()
+                .OrderBy(k => k)
+                .ToList();
+        }
+
+        /// <summary>Declared non-letter chords that no arm of the switch handles.</summary>
+        private static List<Keys> StaleNonLetters(List<LeaderSourceScan.SwitchArm> arms,
+            Dictionary<Keys, string> declared)
+        {
+            return declared.Keys
+                .Where(k => !arms.Any(a => a.Labels.Contains(k)))
+                .OrderBy(k => k)
+                .ToList();
+        }
+
+        // ────────────────────────────────────────────────────────────────
         //  The two help doors every layer has
         // ────────────────────────────────────────────────────────────────
 
@@ -629,8 +805,12 @@ namespace Radios.Tests
             // goes UP, a one-shot was added on a plain or Shift letter instead
             // of on its tier — read the failure in the test above, not this
             // one. If it goes down, a layer landed: lower the number here too.
-            Assert.Equal(4, PlainTierDebt.Count);
-            Assert.Equal(4, ShiftTierDebt.Count);
+            // Sprint 48 Track F paid C and Shift+P into the audio layer, and
+            // P, S, Shift+N, Shift+R and Shift+S into the noise layer (#518).
+            // The Shift tier's debt is ZERO: the slice-jump rule holds at the
+            // top level for the first time.
+            Assert.Equal(1, PlainTierDebt.Count);
+            Assert.Equal(0, ShiftTierDebt.Count);
             Assert.Equal(1, AltTierLayerDebt.Count);
             Assert.Equal(2, CtrlTierActionDebt.Count);
         }

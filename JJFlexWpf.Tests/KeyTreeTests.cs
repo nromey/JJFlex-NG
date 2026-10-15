@@ -45,8 +45,12 @@ namespace JJFlexWpf.Tests
             int chords = Chords(root).Count();
             int layers = Chords(root).Count(c => c.HasChildren);
 
-            Assert.True(chords >= 30, $"only {chords} chords — the Leader rows were not found");
-            Assert.True(layers >= 2, $"only {layers} layers — volume mode and pan mode should both be found");
+            // Forty leader rows until Sprint 48 Track F moved thirteen of them
+            // into the audio and noise layers and added one door: 28 now. The
+            // floor is a positive control on the sweep, not a count to keep,
+            // so it sits under the real figure rather than on it.
+            Assert.True(chords >= 25, $"only {chords} chords — the Leader rows were not found");
+            Assert.True(layers >= 3, $"only {layers} layers — the audio, filter and noise layers should all be found");
             Assert.True(root.Children.Count >= 3, "fewer than three tiers");
         }
 
@@ -194,9 +198,13 @@ namespace JJFlexWpf.Tests
         public void Jump_letters_ignore_the_modifier()
         {
             var root = KeyTree.Build();
+            // The slice row is the only Shift chord left at the top level
+            // since Sprint 48 Track F moved the Shift squatters into their
+            // layers, and that is the point of the tier (#515): a range row's
+            // jump letter is its first letter, with the modifier ignored.
             var shift = root.Children.Single(t => t.Tier == KeyTier.Shift);
-            var shiftN = shift.Children.Single(c => c.Entry!.KeyDisplay == "Ctrl+J, Shift+N");
-            Assert.Equal('N', KeyTree.JumpLetter(shiftN));
+            var slices = shift.Children.Single(c => c.Entry!.KeyDisplay == "Ctrl+J, Shift+A through Shift+H");
+            Assert.Equal('A', KeyTree.JumpLetter(slices));
         }
 
         [Fact]

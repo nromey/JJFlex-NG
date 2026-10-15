@@ -21,6 +21,7 @@ namespace JJFlexWpf.Tests
     {
         private static readonly string Audio = KeyInventory.AudioLayerContext;
         private static readonly string Filter = KeyInventory.FilterLayerContext;
+        private static readonly string Noise = KeyInventory.NoiseLayerContext;
 
         [Fact]
         public void Short_layers_speak_and_long_layers_list()
@@ -42,6 +43,8 @@ namespace JJFlexWpf.Tests
             Assert.False(KeyLayerHelp.IsShort(KeyLayerHelp.Rows(KeyLayerHelp.LeaderContext).Count));
             Assert.False(KeyLayerHelp.IsShort(KeyLayerHelp.Rows(Audio).Count));
             Assert.False(KeyLayerHelp.IsShort(KeyLayerHelp.Rows(Filter).Count));
+            // Ten switches plus the keys every layer has (Sprint 48 Track F).
+            Assert.False(KeyLayerHelp.IsShort(KeyLayerHelp.Rows(Noise).Count));
         }
 
         [Fact]

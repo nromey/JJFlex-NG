@@ -1803,10 +1803,11 @@ public class KeyCommands
             + "want the Version. Help, About carries the same facts in full, including the "
             + "commit."),
         [CommandValues.RemoteAudio] = new(UnboundReason.LeaderLayer,
-            "Ctrl+J, Ctrl+P turns PC audio on and off — P for PC, ruled in Sprint 44; it was "
-            + "Ctrl+A from Sprint 32 Track G until then. Noel named this one specifically: "
-            + "'No hotkey for PC audio on and off available that I know of, you have to do it "
-            + "in the menu.' Also on the Radio menu under Audio."),
+            "Ctrl+J, A, then Ctrl+P turns PC audio on and off — inside the audio layer, beside "
+            + "O, which sets how loud it plays. P for PC, ruled in Sprint 44; it was a top-level "
+            + "Ctrl+J, Ctrl+P until Sprint 48, when the second door into one switch closed. Noel "
+            + "named this one specifically: 'No hotkey for PC audio on and off available that I "
+            + "know of, you have to do it in the menu.' Also on the Radio menu under Audio."),
         // Task #337 made this the unit toggle. The citation is HERE and not in
         // the Detail string below: KeyManifest writes every Detail verbatim
         // into the key list the operator exports from the Hotkey Editor, so a
@@ -1984,7 +1985,7 @@ public class KeyCommands
         new(Keys.None, CommandValues.HeadphonesDown, KeyScope.Radio), // unbound: Reserved
         new(Keys.None, CommandValues.LineoutUp, KeyScope.Radio), // unbound: Reserved
         new(Keys.None, CommandValues.LineoutDown, KeyScope.Radio), // unbound: Reserved
-        new(Keys.None, CommandValues.RemoteAudio, KeyScope.Radio), // unbound: LeaderLayer — Ctrl+J, Ctrl+P
+        new(Keys.None, CommandValues.RemoteAudio, KeyScope.Radio), // unbound: LeaderLayer — Ctrl+J, A, then Ctrl+P
         new(Keys.None, CommandValues.AudioSetup, KeyScope.Radio), // unbound: MenuOrDialog
         new(Keys.None, CommandValues.ATUMemories, KeyScope.Radio), // unbound: MenuOrDialog
         new(Keys.None, CommandValues.Reboot, KeyScope.Radio), // unbound: MenuOrDialog
@@ -3684,8 +3685,8 @@ public class KeyCommands
         // lists and both help pages walk) and the explorer tree, which sorts
         // by tier for you.
         //
-        //   plain letter  — OPENS A LAYER: A audio, F filter. M is ruled for
-        //                   the mode layer and is free, waiting for it.
+        //   plain letter  — OPENS A LAYER: A audio, F filter, N noise. M is
+        //                   ruled for the mode layer and is free, waiting for it.
         //   Shift+letter  — JUMPS TO THAT SLICE, A to H, from anywhere.
         //   Ctrl+letter   — TOGGLES the thing whose initial it is.
         //   Alt+letter    — an ACTION that is neither: speak, open, send,
@@ -3695,153 +3696,26 @@ public class KeyCommands
         //                   digits only, top level only. See
         //                   JjKeyGrammarTests for the rules it must keep.
         //
-        // Still outside the grammar, each with the reason at its arm: the
-        // plain-letter and Shift toggles whose Ctrl initial is spoken for
-        // (C, D, P, S, Shift+N, Shift+P, Shift+R, Shift+S), the Ctrl chords
-        // that are not toggles (Ctrl+C copy, Ctrl+F frequency), and the
-        // Alt+P door into the audio layer. JjKeyGrammarTests holds that list
-        // in both directions, so it can only shrink.
+        // Still outside the grammar, each with the reason at its arm: one
+        // plain-letter toggle whose Ctrl initial is spoken for (D, waiting
+        // on the tuning layer), the Ctrl chords that are not toggles (Ctrl+C
+        // copy, Ctrl+F frequency), and the Alt+P door into the audio layer.
+        // The Shift tier carries NO debt since Sprint 48 Track F — every
+        // Shift+letter is a slice jump, here as inside every layer.
+        // JjKeyGrammarTests holds that list in both directions, so it can
+        // only shrink.
         switch (k)
         {
-            // Ctrl+N = legacy Noise Reduction. Sprint 48 Track C: Ctrl is the
-            // toggle tier and N is Noise Reduction's own initial, so the chord
-            // derives itself. It was plain N from the day the layer was built;
-            // a plain letter opens a layer now. The NR Filter, on Shift+N
-            // below, shares the initial and could not follow — it waits for
-            // the noise layer.
-            case Keys.N | Keys.Control:
-                if (rig == null) LeaderNoRadio();
-                else ToggleLeaderDSP("Legacy Noise Reduction",
-                    () => rig.NoiseReduction, v => rig.NoiseReduction = v);
-                break;
-            // Ctrl+B = Noise Blanker, Ctrl+W = Wideband Noise Blanker. Both
-            // toggles, both on their own initial (Sprint 48 Track C; they were
-            // plain B and W). Inside the AUDIO layer Ctrl+B is binaural — a
-            // layer's letters are its own targets (#514), not this tier's.
-            case Keys.B | Keys.Control:
-                if (rig == null) LeaderNoRadio();
-                else ToggleLeaderDSP("Noise Blanker",
-                    () => rig.NoiseBlanker, v => rig.NoiseBlanker = v);
-                break;
-            case Keys.W | Keys.Control:
-                if (rig == null) LeaderNoRadio();
-                else ToggleLeaderDSP("Wideband NB",
-                    () => rig.WidebandNoiseBlanker, v => rig.WidebandNoiseBlanker = v);
-                break;
-            // "On-Radio" prefix (DSP controls track, 2026-08-11): these two
-            // have PC-side namesakes on Shift+R/Shift+S — the spoken names
-            // say which side of the wire each one lives on.
-            //
-            // Ctrl+R = On-Radio Neural NR (Sprint 48 Track C). A toggle whose
-            // initial is R, so the Ctrl tier is where the grammar puts it.
-            // Ctrl+R was "read the recorded problems" until this track; that
-            // is an action, so it moved to Alt+R below and freed the chord.
-            // The PC twin on Shift+R shares the initial and stays where it
-            // is until the noise layer gives the pair separate letters.
-            case Keys.R | Keys.Control:
-                if (rig == null)
-                    LeaderNoRadio();
-                else if (!rig.NeuralNRHardwareSupported)
-                {
-                    EarconPlayer.LeaderInvalidTone();
-                    Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.nr.neural_unsupported"), Radios.VerbosityLevel.Critical);
-                }
-                else
-                    ToggleLeaderDSP("On-Radio Neural NR",
-                        () => rig.NeuralNoiseReduction, v => rig.NeuralNoiseReduction = v);
-                break;
-            // Plain S — On-Radio Spectral NR. NOT YET IN THE GRAMMAR: a
-            // toggle belongs on Ctrl+S, and Ctrl+S is the S-meter unit
-            // switch, itself a toggle on its own initial and kept by ruling
-            // (2026-08-28). Two toggles, one initial, so one of them waits
-            // for the noise layer; this one does. Its PC twin on Shift+S is
-            // in the same position. Recorded in JjKeyGrammarTests.PlainTierDebt.
-            case Keys.S:
-                if (rig == null)
-                    LeaderNoRadio();
-                else if (!rig.NeuralNRHardwareSupported)
-                {
-                    EarconPlayer.LeaderInvalidTone();
-                    Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.nr.spectral_unsupported"), Radios.VerbosityLevel.Critical);
-                }
-                else
-                    ToggleLeaderDSP("On-Radio Spectral NR",
-                        () => rig.SpectralNoiseReduction, v => rig.SpectralNoiseReduction = v);
-                break;
-            // Shift+N — NR Filter. NOT YET IN THE GRAMMAR: Shift means jump to
-            // that slice and nothing else, but N is beyond H so no slice is
-            // blocked, and the chord's derived home, Ctrl+N, went to Noise
-            // Reduction itself. The noise layer is where the two N toggles
-            // get told apart. Recorded in JjKeyGrammarTests.ShiftTierDebt.
-            case Keys.N | Keys.Shift:
-                if (rig == null)
-                    LeaderNoRadio();
-                else if (!rig.NeuralNRHardwareSupported)
-                {
-                    EarconPlayer.LeaderInvalidTone();
-                    Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.nr.filter_unsupported"), Radios.VerbosityLevel.Critical);
-                }
-                else
-                    ToggleLeaderDSP("NR Filter",
-                        () => rig.NoiseReductionFilter, v => rig.NoiseReductionFilter = v);
-                break;
-
-            // PC-side NR (works on ALL radios — processing runs on the PC).
-            // Shift+R and Shift+S are NOT YET IN THE GRAMMAR: each is a
-            // toggle whose initial is already a Ctrl chord (Neural NR on
-            // Ctrl+R, the S-meter unit on Ctrl+S), and a pair that differs
-            // only by which side of the wire it runs on cannot be told apart
-            // by an initial at all. That is what the noise layer is for.
-            // Recorded in JjKeyGrammarTests.ShiftTierDebt.
-            case Keys.R | Keys.Shift:
-                {
-                    var pipeline = _context.GetMainWindow()?.FieldsPanel.AudioPipeline;
-                    if (rig == null)
-                        LeaderNoRadio();
-                    else if (pipeline == null)
-                    {
-                        EarconPlayer.LeaderInvalidTone();
-                        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.pc_pipeline.not_ready"), Radios.VerbosityLevel.Critical);
-                    }
-                    else
-                    {
-                        pipeline.RnnEnabled = !pipeline.RnnEnabled;
-                        if (pipeline.RnnEnabled) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-                        Radios.ScreenReaderOutput.Speak(
-                            pipeline.RnnEnabled
-                                ? Radios.Lexicon.Get("audio.pc_nr.neural_on")
-                                : Radios.Lexicon.Get("audio.pc_nr.neural_off"),
-                            Radios.VerbosityLevel.Terse);
-                        _context.GetMainWindow()?.PersistDspSettings();
-                    }
-                }
-                break;
-            case Keys.S | Keys.Shift:
-                {
-                    var pipeline = _context.GetMainWindow()?.FieldsPanel.AudioPipeline;
-                    if (rig == null)
-                        LeaderNoRadio();
-                    else if (pipeline == null)
-                    {
-                        EarconPlayer.LeaderInvalidTone();
-                        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.pc_pipeline.not_ready"), Radios.VerbosityLevel.Critical);
-                    }
-                    else
-                    {
-                        pipeline.SpectralEnabled = !pipeline.SpectralEnabled;
-                        if (pipeline.SpectralEnabled) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-                        // The no-profile message names the exit now (DSP
-                        // controls track) — it used to announce a dead end
-                        // nothing in the app could resolve.
-                        string msg = pipeline.SpectralEnabled
-                            ? (pipeline.HasNoiseProfile
-                                ? Radios.Lexicon.Get("audio.pc_nr.spectral_on")
-                                : Radios.Lexicon.Get("audio.pc_nr.spectral_on_no_profile"))
-                            : Radios.Lexicon.Get("audio.pc_nr.spectral_off");
-                        Radios.ScreenReaderOutput.Speak(msg, Radios.VerbosityLevel.Terse);
-                        _context.GetMainWindow()?.PersistDspSettings();
-                    }
-                }
+            // JJ key N — the noise layer (#518; ruled by Noel 2026-10-05, and
+            // "no second door" on 2026-10-10). The ten noise switches that
+            // sat at this level across all four tiers — Ctrl+N, Ctrl+B,
+            // Ctrl+W, Ctrl+R, Ctrl+A, plain S and P, Shift+N, Shift+R,
+            // Shift+S — are its residents now, one letter each; see
+            // EnterNoiseLayer for the letters and why they are provisional.
+            // Alt+N (the tracking notch manager) and Alt+Q (the profile
+            // capture) are actions, not switches, and stay on the Alt tier.
+            case Keys.N:
+                EnterNoiseLayer();
                 break;
 
             // DSP controls track (2026-08-11): Q = capture a noise profile
@@ -3904,8 +3778,9 @@ public class KeyCommands
             // an action, but "Ctrl+C copies" is a rule an operator derived
             // from Windows long before this layer existed, and a derivable
             // map is the whole point. Our grammar yields to the wider one.
-            // The cost is that the Compander toggle, whose initial is C,
-            // stays on plain C until the audio layer gives it a switch.
+            // The compander, whose initial is C, has its switch inside the
+            // audio layer beside its level (Ctrl+J, A, Ctrl+C) — a layer is
+            // its own namespace, so the Windows rule costs nothing there.
             // Recorded in JjKeyGrammarTests.CtrlTierActionDebt.
             //
             // No rig gate: what was said is ours, not the radio's, and copying
@@ -3926,12 +3801,12 @@ public class KeyCommands
             // 2026-08-28 after talking to Don, so the chord is now the toggle
             // he remembered having and could not reach.
             //
-            // KNOWN ADJACENCY, recorded rather than discovered: plain S is the
-            // radio's own Spectral NR and Shift+S is the PC one, so this sits
-            // one modifier from two unrelated DSP toggles. All three are
-            // toggles and a second press undoes any of them, so a slip is
-            // recoverable — and all three announce themselves by name, so a
-            // slip is audible.
+            // Plain S and Shift+S were the radio's and the PC's spectral NR
+            // until Sprint 48 Track F moved both into the noise layer (JJ key
+            // N), so this chord no longer sits one modifier from two unrelated
+            // DSP toggles. A bare S here is now a near-miss that names THIS
+            // chord — which is the wrong answer for a hand that learned the
+            // old map and wanted the spectral reducer; see the Track F report.
             //
             // No rig gate at the case: the handler speaks the no-radio message
             // itself, the same one Ctrl+S gives, rather than the generic
@@ -3948,27 +3823,6 @@ public class KeyCommands
             // and a layer with no door is a complete feature nobody can reach.
             case Keys.A:
                 EnterAudioLayer(onPan: false);
-                break;
-
-            // Plain P — Audio Peak Filter. NOT YET IN THE GRAMMAR: a toggle,
-            // so Ctrl+P, and Ctrl+P is PC audio by ruling (#513). Its home
-            // is the noise layer, or the filter layer — #516 leaves which one
-            // to Noel. Recorded in JjKeyGrammarTests.PlainTierDebt.
-            case Keys.P:
-                if (rig == null)
-                    LeaderNoRadio();
-                else
-                {
-                    var mode = rig.Mode;
-                    if (mode != null && !mode.StartsWith("CW", StringComparison.OrdinalIgnoreCase))
-                    {
-                        EarconPlayer.LeaderInvalidTone();
-                        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.apf.cw_only"), Radios.VerbosityLevel.Critical);
-                    }
-                    else
-                        ToggleLeaderDSP("Audio Peak Filter",
-                            () => rig.APF, v => rig.APF = v);
-                }
                 break;
 
             // ── Audio Arc Track A (2026-08-11): "adjust how I sound and what
@@ -4026,76 +3880,23 @@ public class KeyCommands
                 ToggleTxTone();
                 break;
 
-            // Plain C — Compander. NOT YET IN THE GRAMMAR: a toggle, so
-            // Ctrl+C, and Ctrl+C is copy, which the layer keeps on purpose
-            // (see that arm). Its home is the audio layer, where its LEVEL
-            // already sits on C and an on-or-off switch beside it is one
-            // target away — but the audio layer's letters are provisional
-            // until Noel rules them (#524), so nothing is added there here.
-            // Recorded in JjKeyGrammarTests.PlainTierDebt.
-            case Keys.C:
-                if (rig == null) LeaderNoRadio();
-                else ToggleLeaderDSP("Compander",
-                    () => rig.Compander, v => rig.Compander = v);
-                break;
-
-            // Ctrl+P = PC audio on or off. Ruled #513, Noel 2026-09-01: "p for
-            // pc makes more sense." Under the four-tier grammar (#515) Ctrl is
-            // the toggle tier and the letter is the toggle's own initial — P
-            // for PC audio — so the chord is derived, not memorised.
+            // THREE SWITCHES LEFT THIS LEVEL FOR THE AUDIO LAYER in Sprint 48
+            // Track F — plain C (compander), Shift+P (speech processor) and
+            // Ctrl+P (PC audio on or off). Noel's ruling of 2026-10-05 (#518):
+            // the audio layer holds the ON/OFF switch for anything whose LEVEL
+            // it already holds, and the top-level copy goes. The compander's
+            // level was already on C in there, the processor's mode on S, and
+            // PC audio's level on O with its switch on Ctrl+P beside it — so
+            // the first two gained a switch beside their level, and the third
+            // was a second door into one toggle. The chords inside the layer
+            // are Ctrl+C, Ctrl+S and Ctrl+P; see EnterAudioLayer. #513's
+            // ruling that P means PC audio is kept there, not here.
             //
-            // It was Ctrl+A from Sprint 32 Track G (#130) until Sprint 44.
-            // Noel, on the survey of commands with no key: "No hotkey for PC
-            // audio on and off available that I know of, you have to do it in
-            // the menu." Of the twenty-nine unbound commands this is the one
-            // that earns a key — it is a toggle you reach for mid-QSO, in the
-            // dark, when you cannot hear something, and a menu is the wrong
-            // instrument for that.
-            //
-            // #513 kept Ctrl+A as a courtesy alias "with the caveat that if we
-            // need A somewhere else we use it." We need it: plain A is the
-            // audio layer's door now, and Auto Notch — the toggle whose
-            // initial IS A — had to leave it. So Ctrl+A is Auto Notch, below,
-            // and the alias expired the day it was granted. A slip onto it is
-            // audible and reversible: it announces itself by name and a second
-            // press undoes it.
-            //
-            // Flat Ctrl+P is the FREQUENCY panning field. Different layer,
-            // shares a word and nothing else; the pan-mode comment below
-            // records the earlier worry, now overridden by the ruling. Note
-            // Ctrl+J, A, O rides the PC output LEVEL — this is the on/off
-            // switch, and they sit one keystroke apart on purpose.
-            //
-            // Nothing is duplicated here: the handler is the registry command's
-            // own, so this chord, the Command Finder and the Hotkey Editor all
-            // do the identical thing and say the identical words.
-            case Keys.P | Keys.Control:
-                if (rig == null) LeaderNoRadio();
-                else PCAudioHandler();
-                break;
-
-            // Ctrl+A = Auto Notch. Moved from plain A in Sprint 44 Track J,
-            // when the four-tier grammar (#515) made plain letters layer doors
-            // and A became the audio layer. Ctrl is the toggle tier and A is
-            // Auto Notch's own initial, so the chord derives itself. It will
-            // also live inside the noise layer once that layer has a letter —
-            // a common toggle gets two doors, the rule of threes.
-            case Keys.A | Keys.Control:
-                if (rig == null) LeaderNoRadio();
-                else ToggleLeaderDSP("Auto Notch",
-                    () => rig.AutoNotchFFT, v => rig.AutoNotchFFT = v);
-                break;
-
-            // Shift+P — Speech Processor. NOT YET IN THE GRAMMAR: a toggle
-            // whose initials are both spoken for on the Ctrl tier — P is PC
-            // audio (#513), S is the S-meter unit. P is beyond H, so no slice
-            // is blocked. Its home is the audio layer, where its mode already
-            // sits on S. Recorded in JjKeyGrammarTests.ShiftTierDebt.
-            case Keys.P | Keys.Shift:
-                if (rig == null) LeaderNoRadio();
-                else ToggleLeaderDSP("Speech Processor",
-                    () => rig.ProcessorOn, v => rig.ProcessorOn = v);
-                break;
+            // The reasons each had camped here are in the history of this
+            // file: Ctrl+C is copy at this level by the Windows convention
+            // (#433, the arm above), and P and S were both spent on the Ctrl
+            // tier. Nothing was wrong with those reasons; the room next door
+            // was simply the right one, and it was half empty.
 
             // Ctrl+F = enter a frequency. OUTSIDE THE GRAMMAR, deliberately
             // left: it is an action, so the Alt tier's — and Alt+F is the
@@ -4278,12 +4079,12 @@ public class KeyCommands
             //
             // Alt because opening a manager is an ACTION under the four-tier
             // grammar (#515): it is not a layer, and it is not a toggle. The
-            // three letters that read as "notch" are all spoken for on their
-            // own tiers — Ctrl+N is legacy Noise Reduction, Shift+N is the NR
-            // Filter, Ctrl+A is Auto Notch — and the grammar is what keeps that
-            // from being a collision: a modifier changes the VERB, so Alt+N
-            // cannot be confused with any of them by an operator who knows the
-            // four tiers.
+            // noise toggles that once shared this letter at the top level —
+            // Ctrl+N noise reduction, Shift+N the NR filter, Ctrl+A auto notch
+            // — live inside the noise layer since Sprint 48 Track F (JJ key N,
+            // then a letter). Plain N opens that layer and Alt+N opens this
+            // manager: a modifier changes the VERB, which is what keeps the
+            // two apart for an operator who knows the tiers.
             //
             // This does NOT settle #516's open question about where the notch
             // ADJUSTMENT verbs live once a noise layer exists. That is Noel's
@@ -4360,8 +4161,21 @@ public class KeyCommands
                 // most, bare form first. The layer still disarms — this
                 // changes what is SAID, not what happens.
                 //
-                // #558, ruled by Noel 2026-09-06 after pressing B in the audio
-                // layer: say the RECOVERY, at every tier, and nothing else.
+                // THE CONTRACT OF THIS ARM (#695, ruled 2026-10-05): it NAMES
+                // the chord the operator probably meant and never EXECUTES it.
+                // Absorbing an unbound Ctrl+letter onto the bare letter was
+                // ruled and reversed the same day, because under the grammar
+                // (#515) bare and Ctrl mean different KINDS of thing — an
+                // unbound Ctrl+M absorbed would OPEN THE MODE LAYER, not toggle
+                // something beginning with M. So nothing below this comment
+                // dispatches: it traces, sounds, asks the inventory, and
+                // speaks. LeaderUnknownKeyTests holds the arm to that list of
+                // calls. The sentence itself is Noel's and is open under #693.
+                //
+                // Say the RECOVERY, at every tier, and nothing else. (This
+                // paragraph once credited a ruling "#558" of 2026-09-06; no
+                // such task exists in either register file, and #616 records
+                // the fabrication. The reasoning stands on its own.)
                 // This used to lead with "Ctrl+G is not a command" and gate the
                 // useful half behind Chatty, on the reasoning that naming what
                 // to press instead is a hint and Terse carries values, not
@@ -4552,12 +4366,45 @@ public class KeyCommands
     private void EnterPanMode() => EnterAudioLayer(onPan: true);
 
     /// <summary>
+    /// A switch target for a value sub-layer: on is Max, off is Min, the
+    /// chord flips it and the pick is untouched (the Ctrl tier of #515, one
+    /// press, restored by Escape like everything else the layer moved).
+    /// Speech reads the shadow like every other target — except where the
+    /// host can say the OUTCOME differs from the wish, which is what
+    /// <paramref name="describe"/> is for. Shared by the audio layer and the
+    /// noise layer (Sprint 48 Track F) so there is one builder of a switch,
+    /// not one per layer; ValueLayerSelectKeyUniquenessTests reads these
+    /// calls by name to hold each layer's chords unique.
+    /// </summary>
+    private static Radios.ValueTarget SwitchTarget(string id, Keys chord, Func<bool> read, Action<bool> apply,
+        Func<bool, string> say, bool perSlice = false, Func<bool, string>? describe = null)
+    {
+        return new Radios.ValueTarget
+        {
+            Id = id,
+            Name = "",
+            ToggleKey = chord,
+            PerSlice = perSlice,
+            Read = () => read() ? 1 : 0,
+            Apply = v => apply(v == 1),
+            Min = 0,
+            Max = 1,
+            Step = 1,
+            FineStep = 1,
+            Axes = Radios.ValueLayerAxes.None,
+            Number = v => say(v == 1),
+            DescribeSelected = describe == null ? null : v => describe(v == 1),
+        };
+    }
+
+    /// <summary>
     /// Enter the audio layer. Levels: slice volume (V, per slice), on-radio
     /// headphone (Ctrl+H), PC output (P), mic level (M), on-radio line out
     /// (L), compander level (C), speech processor mode (S), VOX gain (X),
     /// VOX delay (D), and pan (P, per slice). Switches, one press each: slice mute (Ctrl+M,
-    /// per slice), PC audio on or off (Ctrl+A) and binaural receive
-    /// (Ctrl+B). The per-slice targets follow a Shift+letter jump. Up and
+    /// per slice), PC audio on or off (Ctrl+P), binaural receive (Ctrl+B),
+    /// the compander (Ctrl+C, beside its level on C) and the speech processor
+    /// (Ctrl+S, beside its mode on S). The per-slice targets follow a Shift+letter jump. Up and
     /// Down adjust the picked level (Shift by one); Left and Right also
     /// adjust pan; Home, End and 0 place it at its minimum, maximum or
     /// centre (#522) — the engine's, on every target, so nothing here
@@ -4603,30 +4450,8 @@ public class KeyCommands
             };
         }
 
-        // A switch: on is Max, off is Min, the chord flips it and the pick
-        // is untouched. Speech reads the shadow like every other target —
-        // except where the host can say the OUTCOME differs from the wish,
-        // which is what `describe` is for.
-        Radios.ValueTarget Switch(string id, Keys chord, Func<bool> read, Action<bool> apply,
-            Func<bool, string> say, bool perSlice = false, Func<bool, string>? describe = null)
-        {
-            return new Radios.ValueTarget
-            {
-                Id = id,
-                Name = "",
-                ToggleKey = chord,
-                PerSlice = perSlice,
-                Read = () => read() ? 1 : 0,
-                Apply = v => apply(v == 1),
-                Min = 0,
-                Max = 1,
-                Step = 1,
-                FineStep = 1,
-                Axes = Radios.ValueLayerAxes.None,
-                Number = v => say(v == 1),
-                DescribeSelected = describe == null ? null : v => describe(v == 1),
-            };
-        }
+        // The switches below are built by SwitchTarget, shared with the noise
+        // layer since Sprint 48 Track F so one idea has one builder.
 
         // Slice volume — how loud the slice you're on sits in the mix, 0 to
         // 100. NOT the PC output volume below: that is how loud this
@@ -4770,7 +4595,7 @@ public class KeyCommands
 
         // Mute — the SAME words the M key on any Home field says, so the two
         // doors into one fact say one sentence. Per slice, like pan.
-        var mute = Switch("mute", Keys.M | Keys.Control,
+        var mute = SwitchTarget("mute", Keys.M | Keys.Control,
             () => rig.SliceMute,
             on =>
             {
@@ -4788,7 +4613,7 @@ public class KeyCommands
         // lands on the current state is silent. Turning it on can FAIL (no
         // usable sound device), so the answer reads the OUTCOME off the rig
         // rather than the wish — PCAudioHandler's rule, kept here.
-        var pcAudio = Switch("pc-audio", Keys.P | Keys.Control,
+        var pcAudio = SwitchTarget("pc-audio", Keys.P | Keys.Control,
             () => rig.PCAudio,
             on => { if (rig.PCAudio != on) _context.PCAudioToggle(); },
             on => Radios.Lexicon.Get(on ? "audio.pc_audio.on" : "audio.pc_audio.off"),
@@ -4796,8 +4621,39 @@ public class KeyCommands
                 : wanted ? Radios.Lexicon.Get("audio.pc_audio.could_not_start")
                 : Radios.Lexicon.Get("audio.pc_audio.off"));
 
+        // The compander and the speech processor, on or off — each beside the
+        // level or mode it already had in here (C and S). Sprint 48 Track F,
+        // under Noel's ruling of 2026-10-05 (#518): the audio layer holds the
+        // switch for anything whose level it already holds, and the top-level
+        // copies (plain C, Shift+P) are gone. Ctrl+C is copy at the TOP level
+        // by the Windows convention (#433); inside a layer that only ever
+        // holds levels and switches there is nothing to copy, and Ctrl+letter
+        // flipping the switch whose level is on the letter is this layer's own
+        // rule (#514, ruling two). THESE TWO CHORDS ARE PROVISIONAL, like every
+        // letter in here (#524): Noel vetoes by ear. The words are the ones the
+        // top-level toggles said — "{label} on", "{label} off" — with the
+        // layer's own names for the two, so one subject keeps one name.
+        var companderSwitch = SwitchTarget("compander-switch", Keys.C | Keys.Control,
+            () => rig.Compander == FlexBase.OffOnValues.on,
+            on =>
+            {
+                rig.Compander = on ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off;
+                if (on) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+            },
+            on => Radios.Lexicon.Get(on ? "audio.dsp.toggled_on" : "audio.dsp.toggled_off",
+                ("label", Radios.Lexicon.Get("audio.audio_layer.name_compander"))));
+        var processorSwitch = SwitchTarget("processor-switch", Keys.S | Keys.Control,
+            () => rig.ProcessorOn == FlexBase.OffOnValues.on,
+            on =>
+            {
+                rig.ProcessorOn = on ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off;
+                if (on) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+            },
+            on => Radios.Lexicon.Get(on ? "audio.dsp.toggled_on" : "audio.dsp.toggled_off",
+                ("label", Radios.Lexicon.Get("audio.audio_layer.name_processor"))));
+
         // Binaural receive — radio-wide, a toggle with no level beside it.
-        var binaural = Switch("binaural", Keys.B | Keys.Control,
+        var binaural = SwitchTarget("binaural", Keys.B | Keys.Control,
             () => rig.Binaural == FlexBase.OffOnValues.on,
             on =>
             {
@@ -4809,7 +4665,7 @@ public class KeyCommands
         var targets = new List<Radios.ValueTarget>
         {
             sliceVolume, headphone, pcOutput, mic, lineout, compander, processor, voxGain, voxDelay, pan,
-            mute, pcAudio, binaural,
+            mute, pcAudio, binaural, companderSwitch, processorSwitch,
         };
 
         var def = new Radios.ValueSubLayerDefinition
@@ -5224,6 +5080,222 @@ public class KeyCommands
     }
 
     // ────────────────────────────────────────────────────────────────
+    //  The noise layer — Sprint 48 Track F, #518. JJ key N: ruled by Noel
+    //  2026-10-05 (free, the subject's own initial, no exception to
+    //  remember), and "no second door" on 2026-10-10. Ten switches that had
+    //  spent eight plain letters and all four tiers at the top level live in
+    //  one room: auto notch, the noise blanker, the wideband blanker, noise
+    //  reduction, the radio's neural and spectral reducers, the NR filter,
+    //  the audio peak filter, and the two PC-side reducers. The layer is
+    //  where the infrequent lives (Noel's frequency ruling, #515), and the
+    //  move frees Ctrl+N at the top level for #628's notifications buffer.
+    //
+    //  EVERY KEY IN HERE IS A SWITCH. One press flips it and says which way
+    //  it went; there is nothing to pick, so the arrows have no job and an
+    //  arrow answers with the switches-only hint and stays. Enter keeps,
+    //  Escape puts back every switch you flipped, out loud, and Shift+letter
+    //  jumps to a slice with the layer live (#515). The radio-side switches
+    //  are per slice, so a jump re-reads them from the new slice and keeps
+    //  what you did on the old one — the audio layer's own rule.
+    //
+    //  THE LETTERS ARE PROVISIONAL. NOEL HAS NOT WALKED THEM (#518: "Do not
+    //  let a track pick these letters"). Where the initial is unique it is
+    //  derived and he vetoes by ear: A auto notch, B blanker, W wideband, P
+    //  peak filter, S spectral. THREE RESIDENTS SHARE N BY NATURE — noise
+    //  reduction, the radio's neural NR and the NR filter — and that is a
+    //  question for him, not a derivation: they sit on N, R (for RNN, the
+    //  chord the top level had already derived) and Ctrl+N, by the in-layer
+    //  rule for a letter already spoken for (#514, ruling two). The two
+    //  PC-side twins differ from the radio's by WHERE they run, not by what
+    //  they do, so they sit on Ctrl+R and Ctrl+S by the same rule — these
+    //  two are PLACEHOLDERS, chosen so the layer compiles. #518 proposes a
+    //  side-selector instead (pick radio or computer, then the same letters
+    //  for both), which would be the first nested layer and the first thing
+    //  Backspace pops (#514); its letter is Noel's and it is not built here.
+    //
+    //  The compander is NOT here: it is voice shaping, and its switch is in
+    //  the audio layer beside its level (ruled 2026-10-05, #518). Alt+N (the
+    //  tracking notch manager) and Alt+Q (the profile capture) are actions
+    //  and stay on the top level's Alt tier. Two residents have a contested
+    //  home — #516 leaves whether the notches and the audio peak filter
+    //  belong here or in the filter layer to Noel; both are here because
+    //  #515 and #518 list them as noise residents, and either moves in one
+    //  line.
+    //
+    //  ONE NAME CORRECTED ON THE WAY IN. The top-level chord called
+    //  rig.NoiseReduction "Legacy Noise Reduction". FlexBase says otherwise:
+    //  NoiseReduction is the slice's NROn — the radio's standard NR — and
+    //  NoiseReductionLegacy (NRLOn, "Legacy LMS Noise Reduction") is a
+    //  different switch that the DSP menu calls "Legacy NR" and no chord
+    //  reaches. The layer calls N "Noise Reduction"; the Track F report
+    //  names the discrepancy for Noel.
+    // ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Enter the noise layer: ten switches, a chord each, nothing to pick.
+    /// See the region comment for the letters and why they are provisional.
+    /// A switch the radio or the PC chain cannot honour is refused — the
+    /// refusal tone and the reason, as the top-level chords gave them — and
+    /// writes nothing.
+    /// </summary>
+    internal void EnterNoiseLayer()
+    {
+        var rig = _context.GetRigControl();
+        if (rig == null) { LeaderNoRadio(); return; }
+
+        // The PC chain is captured once, at entry. Null means the pipeline
+        // is not up, and both PC switches say so instead of flipping.
+        var win = _context.GetMainWindow();
+        var pipeline = win?.FieldsPanel.AudioPipeline;
+
+        // A gate that is not met sounds the refusal and hands back the reason.
+        // It runs from `describe`, the one hook ToggleSlot speaks through, so
+        // the tone sounds exactly once per refused press and never on
+        // Escape's silent restore of a switch that was refused on the way in.
+        string? Refused(string? why)
+        {
+            if (why != null) EarconPlayer.LeaderInvalidTone();
+            return why;
+        }
+
+        string? NeuralGate() => rig.NeuralNRHardwareSupported ? null : Radios.Lexicon.Get("audio.nr.neural_unsupported");
+        string? SpectralGate() => rig.NeuralNRHardwareSupported ? null : Radios.Lexicon.Get("audio.nr.spectral_unsupported");
+        string? FilterGate() => rig.NeuralNRHardwareSupported ? null : Radios.Lexicon.Get("audio.nr.filter_unsupported");
+        string? ApfGate()
+        {
+            string? mode = rig.Mode;
+            return mode != null && !mode.StartsWith("CW", StringComparison.OrdinalIgnoreCase)
+                ? Radios.Lexicon.Get("audio.apf.cw_only") : null;
+        }
+        string? PipelineGate() => pipeline == null ? Radios.Lexicon.Get("audio.pc_pipeline.not_ready") : null;
+
+        // A radio-side switch. The words are the ones the top-level toggles
+        // said — "{label} on", "{label} off" — with the layer's own name for
+        // the switch, so a subject keeps one name through the move. A gated
+        // switch writes nothing while its gate is shut; the shadow still
+        // flips, so Escape's restore calls Apply with the entry value and
+        // the gate swallows that too.
+        Radios.ValueTarget RadioSwitch(string id, Keys chord, string nameKey,
+            Func<FlexBase.OffOnValues> read, Action<FlexBase.OffOnValues> write, Func<string?>? gate = null)
+        {
+            string name = Radios.Lexicon.Get(nameKey);
+            string Say(bool on) => Radios.Lexicon.Get(on ? "audio.dsp.toggled_on" : "audio.dsp.toggled_off", ("label", name));
+            return SwitchTarget(id, chord,
+                () => read() == FlexBase.OffOnValues.on,
+                on =>
+                {
+                    if (gate?.Invoke() != null) return;
+                    write(on ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off);
+                    if (on) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                },
+                Say,
+                perSlice: true,
+                describe: gate == null ? null : on => Refused(gate()) ?? Say(on));
+        }
+
+        var autoNotch = RadioSwitch("auto-notch", Keys.A, "audio.noise_layer.name_auto_notch",
+            () => rig.AutoNotchFFT, v => rig.AutoNotchFFT = v);
+        var noiseBlanker = RadioSwitch("noise-blanker", Keys.B, "audio.noise_layer.name_noise_blanker",
+            () => rig.NoiseBlanker, v => rig.NoiseBlanker = v);
+        var widebandNb = RadioSwitch("wideband-nb", Keys.W, "audio.noise_layer.name_wideband_nb",
+            () => rig.WidebandNoiseBlanker, v => rig.WidebandNoiseBlanker = v);
+        var noiseReduction = RadioSwitch("noise-reduction", Keys.N, "audio.noise_layer.name_noise_reduction",
+            () => rig.NoiseReduction, v => rig.NoiseReduction = v);
+        var neuralNr = RadioSwitch("neural-nr", Keys.R, "audio.noise_layer.name_neural_nr",
+            () => rig.NeuralNoiseReduction, v => rig.NeuralNoiseReduction = v, NeuralGate);
+        var spectralNr = RadioSwitch("spectral-nr", Keys.S, "audio.noise_layer.name_spectral_nr",
+            () => rig.SpectralNoiseReduction, v => rig.SpectralNoiseReduction = v, SpectralGate);
+        var nrFilter = RadioSwitch("nr-filter", Keys.N | Keys.Control, "audio.noise_layer.name_nr_filter",
+            () => rig.NoiseReductionFilter, v => rig.NoiseReductionFilter = v, FilterGate);
+        var apf = RadioSwitch("apf", Keys.P, "audio.noise_layer.name_apf",
+            () => rig.APF, v => rig.APF = v, ApfGate);
+
+        // The PC-side twins. Not per slice: the pipeline is this computer's,
+        // not the radio's. Persisted the way the menu and the Home checkbox
+        // persist them, so the four roads into one state stay one state. The
+        // spectral reducer's "on" sentence says when no profile is loaded and
+        // names the capture chord, exactly as the top-level chord did.
+        string PcNeural(bool on) => Radios.Lexicon.Get(on ? "audio.pc_nr.neural_on" : "audio.pc_nr.neural_off");
+        string PcSpectral(bool on) => !on ? Radios.Lexicon.Get("audio.pc_nr.spectral_off")
+            : pipeline?.HasNoiseProfile == true ? Radios.Lexicon.Get("audio.pc_nr.spectral_on")
+            : Radios.Lexicon.Get("audio.pc_nr.spectral_on_no_profile");
+
+        var pcNeural = SwitchTarget("pc-neural", Keys.R | Keys.Control,
+            () => pipeline?.RnnEnabled == true,
+            on =>
+            {
+                if (pipeline == null) return;
+                pipeline.RnnEnabled = on;
+                if (on) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                win?.PersistDspSettings();
+            },
+            PcNeural,
+            describe: on => Refused(PipelineGate()) ?? PcNeural(on));
+        var pcSpectral = SwitchTarget("pc-spectral", Keys.S | Keys.Control,
+            () => pipeline?.SpectralEnabled == true,
+            on =>
+            {
+                if (pipeline == null) return;
+                pipeline.SpectralEnabled = on;
+                if (on) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                win?.PersistDspSettings();
+            },
+            PcSpectral,
+            describe: on => Refused(PipelineGate()) ?? PcSpectral(on));
+
+        var def = new Radios.ValueSubLayerDefinition
+        {
+            Id = "noise",
+            Selection = Radios.ValueLayerSelection.ByLetter,
+            Targets = new List<Radios.ValueTarget>
+            {
+                autoNotch, noiseBlanker, widebandNb, noiseReduction, neuralNr, spectralNr, nrFilter, apf,
+                pcNeural, pcSpectral,
+            },
+            InitialTarget = -1,
+            // Entry says where you are and stops; H does the rest (#519, #524
+            // — the audio layer's 175-character entry is the thing not to
+            // repeat). Nothing is picked in a layer of switches, so there is
+            // no "what is picked" half to say.
+            DescribeLayerEntry = layer => Radios.Lexicon.Get("audio.noise_layer.entered",
+                Radios.ScreenReaderOutput.CurrentVerbosity),
+            DescribeLayerHelp = layer => KeyLayerHelp.SpokenList(KeyInventory.NoiseLayerContext),
+            DescribeClosed = () => Radios.Lexicon.Get("audio.noise_layer.closed"),
+            // #536's rule, as the audio layer applies it: say that everything
+            // went back, not what each switch went back to.
+            DescribeLayerRestored = (layer, restored) => Radios.Lexicon.Get(
+                restored.Count == 0
+                    ? "audio.noise_layer.restored_nothing"
+                    : "audio.noise_layer.restored"),
+            // Arrows, Home, End and 0 have nothing to act on here: one hint,
+            // and the layer stays.
+            PickTargetHint = () => Radios.Lexicon.Get("audio.noise_layer.switches_only"),
+            WrongAxisHint = () => Radios.Lexicon.Get("audio.noise_layer.switches_only"),
+            PassThroughKeys = key => Lookup(key)?.KeyDef.Id == CommandValues.CycleVerbosity,
+            HostKeys = LayerSliceJump,
+            // #547, the same rule as the other two layers: a letter that means
+            // nothing out there and sits one modifier from a chord in here is
+            // a slip, named from this layer's own rows.
+            MeansSomethingOutside = MeansSomethingOutsideTheLayer,
+            DescribeNearMiss = key => LayerNearMiss(KeyInventory.NoiseLayerContext, key),
+            ListCommands = () => TryShowLayerCommandList(KeyInventory.NoiseLayerContext),
+            OpenExplorer = () => TryOpenLayerExplorer(KeyInventory.NoiseLayerContext),
+            Cues = new Radios.ValueLayerCues
+            {
+                Entered = EarconPlayer.LeaderEnterTone,
+                Closed = EarconPlayer.LeaderCancelTone,
+                Invalid = EarconPlayer.LeaderInvalidTone,
+                Help = EarconPlayer.LeaderHelpTone,
+                // #528: below Chatty a refused key is the thunk alone, so the
+                // engine must know whether the thunk will be heard.
+                Audible = () => EarconPlayer.IsOn(EarconPlayer.EarconCategory.CommandsAndConfirmations),
+            },
+        };
+
+        _valueLayer = Radios.ValueSubLayer.Enter(def);
+    }
+
+    // ────────────────────────────────────────────────────────────────
     //  Hooks every layer shares
     // ────────────────────────────────────────────────────────────────
 
@@ -5338,9 +5410,11 @@ public class KeyCommands
         if (!KeyInventory.TryFindLayerNearMiss(context, pressed, out string alt, out string what))
             return null;
 
-        // #558: the recovery alone. The refusal earcon has already said the
-        // key did nothing; naming the layer the operator is standing in, and
-        // the key they just pressed, tells them only what they knew.
+        // The recovery alone. The refusal earcon has already said the key did
+        // nothing; naming the layer the operator is standing in, and the key
+        // they just pressed, tells them only what they knew. (A citation
+        // "#558" stood here; it names no task — see #616.) Like the leader's
+        // near-miss, this NAMES the neighbour and executes nothing (#695).
         return Radios.Lexicon.Get("audio.value_layer.near_miss",
             ("alt", alt), ("what", what));
     }

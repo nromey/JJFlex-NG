@@ -48,7 +48,7 @@ The JJ Key, `Ctrl+J` in JJ Flexible Radio Access, can be used to activate variou
 
 Press `Ctrl+J` and then release it to enter the JJ key layer. You'll hear a rising tone to let you know that you've opened the layer and it's ready for you to press one of these keys to perform an action in the app.
 
-The second key follows a grammar, and the grammar is the point: you work out a chord instead of memorising it. Four rules cover nearly everything. A plain letter opens a layer — a set of keys about one thing, like the filter or your audio, with arrows to adjust and Escape to put things back. Shift plus a letter jumps to that slice, from anywhere, even from inside a layer: `Shift+C` is slice C and never anything else. Ctrl plus a letter switches on or off the thing whose initial it is — `Ctrl+N` is noise reduction, `Ctrl+B` the noise blanker, `Ctrl+P` PC audio, `Ctrl+T` meter tones. Alt plus a letter does something that is neither a layer nor a switch — `Alt+V` speaks the version, `Alt+K` is the mic check, `Alt+M` opens the memories. Inside any layer, `H` reads that layer's keys and the slash key opens the JJ key explorer. If you knew the old map: most of the plain-letter toggles moved one modifier over in this release, so `B` is `Ctrl+B`, `K` is `Alt+K`, and so on; press the old key and the layer tells you the new one. The handful of switches that have not found their place yet are listed last, each with the reason.
+The second key follows a grammar, and the grammar is the point: you work out a chord instead of memorising it. Four rules cover nearly everything. A plain letter opens a layer — a set of keys about one thing, like the filter or your audio, with arrows to adjust and Escape to put things back. Shift plus a letter jumps to that slice, from anywhere, even from inside a layer: `Shift+C` is slice C and never anything else. Ctrl plus a letter switches on or off the thing whose initial it is — `Ctrl+G` is the test tone, `Ctrl+T` meter tones, `Ctrl+E` the alert sounds, `Ctrl+D` a detailed capture. Alt plus a letter does something that is neither a layer nor a switch — `Alt+V` speaks the version, `Alt+K` is the mic check, `Alt+M` opens the memories. Inside any layer, `H` reads that layer's keys and the slash key opens the JJ key explorer. If you knew the old map: the noise switches moved into the noise layer in this release, so `B` for the blanker is `N` then `B` now, and the one-shots moved one modifier over, so `K` is `Alt+K`, and so on. Press an old one-shot key and the layer names the new chord; press an old noise key and it names the nearest chord it still has, which may not be the one you wanted — `N` then `H` is the surer road to a noise switch. The one switch that has not found its place yet is listed last, with the reason.
 
 <!-- LEADER-KEY-TABLE: every key line from here to the END marker is checked against KeyInventory.LeaderCommands by Radios.Tests/LeaderDocCoverageTests. Add a chord to the layer and this list fails until it has a line; delete a chord and a leftover line fails too. The wording is yours — only the set of keys is checked. The groups below are the tiers of the grammar (#515) — layers, slices, toggles, actions, the ones still finding a layer, then help — in the same order as KeyInventory.LeaderCommands and leader-key.md: it is one map read three ways, so it should be the same walk three times.
 
@@ -70,6 +70,7 @@ The second key follows a grammar, and the grammar is the point: you work out a c
 - **V** — The same audio layer, by the letter your fingers may know from volume mode — a second door to one room, kept as a courtesy
 - **Alt+P** — Enter the audio layer with pan already picked — Left and Right, or Up and Down, place the slice you're on in the stereo field, Shift moves by one, 0 centers, Home and End are hard left and hard right, Escape reverts changes, Enter accepts. Speaks the number every time, on a 0-to-100 scale. The one Alt chord that opens a layer rather than doing something; pan's home is `A` then `P`
 - **F** — Enter the filter layer — hold Left Shift for the low edge or Right Shift for the high edge, the arrows move it, Home and End send it straight to its limit, `T` and `R` switch between the transmit and receive filters, and `S` speaks it (see "The filter layer" below)
+- **N** — Enter the noise layer — ten switches, a letter each, one press flips one and says which way it went; Escape puts back every switch you flipped, Enter keeps them (see "The noise layer" below)
 
 Plain `M` is spoken for: it is the mode layer, ruled and not yet built. Until it lands, pressing `M` tells you the memories moved to `Alt+M`.
 
@@ -79,12 +80,6 @@ Plain `M` is spoken for: it is the mode layer, ruled and not yet built. Until it
 
 ### Toggles — Ctrl plus the initial
 
-- **Ctrl+N** — Toggle legacy Noise Reduction
-- **Ctrl+B** — Toggle Noise Blanker
-- **Ctrl+W** — Toggle Wideband Noise Blanker
-- **Ctrl+R** — Toggle On-Radio Neural Noise Reduction (the radio's own DSP). Reading the recorded problems, which used to be here, is `Alt+R`
-- **Ctrl+A** — Toggle Auto Notch. It was plain `A` until the grammar arrived; plain `A` is the audio layer's door now
-- **Ctrl+P** — Turn PC audio on or off — whether radio audio plays through this computer at all. P for PC; it was `Ctrl+A` once. (`Ctrl+J`, `A`, `O` rides how *loud* it plays; this is the switch, and it tells you which way it went)
 - **Ctrl+G** — Arm or disarm the TX test tone (it replaces your microphone while transmitting)
 - **Ctrl+T** — Toggle meter tones on/off
 - **Ctrl+E** — Toggle alert sounds (earcons) on/off — E for earcons; it was `Shift+T`
@@ -107,15 +102,8 @@ Plain `M` is spoken for: it is the mode layer, ruled and not yet built. Until it
 
 ### Still finding their layer
 
-Each of these is a switch whose initial is already taken on the Ctrl tier by another switch — spectral NR wants `Ctrl+S` and that is the S-meter unit, the peak filter wants `Ctrl+P` and that is PC audio — so it stays on its old key until the noise layer and the rest of the audio layer give it a home. Two Ctrl chords sit here too, because they are not switches: `Ctrl+C` copies because `Ctrl+C` copies everywhere in Windows, and `Ctrl+F` is waiting on a decision about the Alt tier.
+One switch is left here: tuning speech debounce wants `Ctrl+D`, which is the detailed capture, and its home is a tuning layer that does not exist yet. The noise family went into the noise layer (`N`); the compander and the speech processor went into the audio layer beside their levels (`A`, then `Ctrl+C` or `Ctrl+S`), and PC audio's switch with them (`A`, then `Ctrl+P`). Two Ctrl chords sit here too, because they are not switches: `Ctrl+C` copies because `Ctrl+C` copies everywhere in Windows, and `Ctrl+F` is waiting on a decision about the Alt tier.
 
-- **S** — Toggle On-Radio Spectral Noise Reduction (the radio's own DSP)
-- **Shift+N** — Toggle NR Filter
-- **Shift+R** — Toggle PC Neural Noise Reduction (runs on your computer, works on every radio)
-- **Shift+S** — Toggle PC Spectral Noise Reduction (runs on your computer, works on every radio)
-- **P** — Toggle Audio Peak Filter (APF, CW only)
-- **C** — Toggle Compander
-- **Shift+P** — Toggle Speech Processor
 - **D** — Toggle tuning speech debounce
 - **Ctrl+C** — Copy what was just spoken to the clipboard — walk back with `Ctrl+F4` to the message you want first, then copy it (see "Copying what the app said" below)
 - **Ctrl+F** — Enter a frequency
@@ -149,8 +137,8 @@ The levels — pick one, then ride Up and Down:
 - **O** — PC output volume, in dB of boost. O for output — the computer’s. This is how loud radio audio plays *through your computer* — the one remote operators actually want. Ranges 0 to 24 dB; the long-time default is 12 dB.
 - **M** — mic level, your transmit audio level. Applies to PC audio too.
 - **L** — on-radio line out volume. The line out jacks on the radio itself.
-- **C** — compander level. (Toggle the compander itself with `Ctrl+J`, `C`.)
-- **S** — speech processor mode: Up and Down step through Normal, DX, and DX plus. (Toggle the processor with `Ctrl+J`, `Shift+P`.)
+- **C** — compander level. (`Ctrl+C`, below, turns the compander itself on or off.)
+- **S** — speech processor mode: Up and Down step through Normal, DX, and DX plus. (`Ctrl+S`, below, turns the processor itself on or off.)
 - **X** — VOX gain, 0 to 100: how loud your voice has to be before VOX keys the radio. Too low and room noise keys you up; too high and it never trips. X because `V` is already slice volume. If VOX is off it says so after the number, so you can set the threshold before you arm it — which is the right order. (Turn VOX itself on or off on the VOX field in Home, with the VOX checkbox in the Transmission group, or from the menu.)
 - **D** — VOX delay: how long the radio stays keyed after you stop talking, in milliseconds, up to two seconds. Up and Down move it 100 ms at a time; Shift moves it one radio step, 20 ms, which is the finest the radio can do. Too short and it drops between your words; too long and the other station waits on you. In CW both of these say "not used in CW" — the VOX switch means break-in there, and these two numbers are not in play.
 - **P** — pan, for the slice you're on. Pan mode lived on `P` before the layers, so this is the letter your hands already know. Left and Right move it too — for pan, direction means something real — and `0` snaps it back to center.
@@ -158,7 +146,9 @@ The levels — pick one, then ride Up and Down:
 The switches — one press flips it, and it tells you which way it went:
 
 - **Ctrl+M** — mute or unmute the slice you're on. The same mute as `M` on Home, reachable from in here.
-- **Ctrl+P** — PC audio on or off: whether radio audio plays through this computer at all. The same chord as `Ctrl+J`, `Ctrl+P` outside the layer, on purpose — one chord, one meaning, wherever you press it. `O` above sets how loud; this is the switch. It reads the radio back before answering, so if turning it on couldn't find a sound device it tells you that rather than claiming success.
+- **Ctrl+P** — PC audio on or off: whether radio audio plays through this computer at all. `O` above sets how loud; this is the switch. It reads the radio back before answering, so if turning it on couldn't find a sound device it tells you that rather than claiming success. This used to have a second door at the top level, `Ctrl+J`, `Ctrl+P`; that door is closed, and the switch lives here beside its level.
+- **Ctrl+C** — compander on or off. `C` above sets its level; when the compander is off, the level says so after the number. The top-level `Ctrl+J`, `C` used to do this.
+- **Ctrl+S** — speech processor on or off. `S` above picks its mode; when the processor is off, the mode says so after the name. The top-level `Ctrl+J`, `Shift+P` used to do this.
 - **Ctrl+B** — binaural receive on or off, the radio's own stereo widening of what you hear. It is a property of the radio rather than of one slice, so it changes every slice at once. There are two other ways to reach it if you would rather see it than remember it: **Binaural** in Home's Audio and Slice group (`Ctrl+Shift+U`), and **Binaural** on the Audio menu. All three say the same thing when they flip.
 
 And the keys that work on whatever you've picked:
@@ -211,6 +201,33 @@ Two things there are new. The 50 hertz rung used to stop at 2,000 wide, which so
 When an edge can't go any further it says so — "Low edge 2650, at the limit" — rather than going quiet, because a control that silently refuses to move sounds exactly like a broken one. The transmit edges are constrained against each other by the radio: the low edge stops 50 hertz short of the high edge, and narrowing hits that rail. If you hold a Shift and the app can't tell which one — both, or none — it asks rather than guessing, because walking the wrong edge without saying so is the one thing this layer must never do.
 
 The bracket keys you already know are untouched: `[` and `]` still widen, `Shift` slides, `Ctrl` squeezes and pulls, `Alt` cycles your presets, and a double-tap still grabs a single edge. The layer is a second door into the same filter, not a replacement.
+
+### The noise layer — Ctrl+J, then N
+
+Noise fighting used to be spread across the whole JJ key — eight plain letters and all four tiers for one subject. It is one room now. Press `Ctrl+J`, then `N`, and every key in the layer is a switch: one press flips it and tells you which way it went, "Noise Blanker on", "Auto Notch off". There is nothing to pick and nothing to ride, so the arrows have no job here — press one and the layer says so and stays put.
+
+The switches, and the letter for each. These letters are provisional; if one lands wrong under your hand, say so.
+
+- **A** — Auto Notch: the radio hunts a steady carrier and notches it for you.
+- **B** — Noise Blanker, for pulse noise such as ignition and power-line crackle.
+- **W** — Wideband Noise Blanker, the blanker that works across the whole passband.
+- **N** — Noise Reduction, the radio's standard NR, for hiss.
+- **R** — the radio's own Neural Noise Reduction (RNN). On a radio that does not have it, the layer says so instead of pretending.
+- **S** — the radio's own Spectral Noise Reduction (NRS). Same honesty on a radio without it.
+- **Ctrl+N** — the NR Filter. Ctrl because plain `N` is noise reduction itself; the two share an initial by nature.
+- **P** — Audio Peak Filter, CW only. In any other mode it tells you it is CW only and changes nothing.
+- **Ctrl+R** — Neural Noise Reduction that runs on this computer, on every radio. The radio's own is plain `R`; this is its PC-side twin.
+- **Ctrl+S** — Spectral Noise Reduction that runs on this computer, on every radio. Its "on" sentence tells you when no noise profile is loaded and names `Ctrl+J`, `Alt+Q`, which captures one from anywhere.
+
+And the keys every layer has:
+
+- **Shift+A through Shift+H** — jump to that slice without leaving the layer. The radio's switches are per slice, so they follow you to the new one; whatever you flipped on the old slice stays flipped.
+- **Enter** — keep everything and leave.
+- **Escape** — put back every switch you flipped, out loud, and leave.
+- **H** — the layer's keys as a list you can arrow through, count first. `Shift slash` opens the JJ key explorer with this layer's branch open.
+- A key that means nothing anywhere, and sits one modifier from a key that does mean something in here, is a slip rather than an exit: the layer stays and names the key you were reaching for.
+
+The compander is not in this room, on purpose. It shapes your voice on transmit rather than fighting noise on receive, so its switch sits in the audio layer beside its level. The tracking notch manager (`Ctrl+J`, `Alt+N`) and the noise-profile capture (`Ctrl+J`, `Alt+Q`) are things you *open* or *do* rather than switches, so they stay on the Alt tier at the top level.
 
 ### Tracking notch filters — Ctrl+J, then Alt+N
 
@@ -720,7 +737,7 @@ Some commands ship without a key, and it is worth knowing that this is not one l
 **Already have a key, just not their own one.** These answer to the JJ key, so
 you may not need to bind anything: show memories (`Ctrl+J`, `Alt+M`), log
 statistics (`Ctrl+J`, `Alt+L`), toggle meter tones (`Ctrl+J`, `Ctrl+T`), PC audio on/off
-(`Ctrl+J`, `Ctrl+P`), echo recent CW (`Ctrl+J`, `Alt+E`), and speak the version and
+(`Ctrl+J`, `A`, then `Ctrl+P`, inside the audio layer), echo recent CW (`Ctrl+J`, `Alt+E`), and speak the version and
 build (`Ctrl+J`, `Alt+V`). Speak TX filter width used to be `Ctrl+J`, `F`; that
 letter is the filter layer's door now and the readout lives inside the layer —
 until it lands, the Radio menu's TX Filter submenu has a Read TX Filter item.

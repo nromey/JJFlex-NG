@@ -137,7 +137,10 @@ namespace JJFlexWpf.Tests
             // runs for it — but if it were asked anyway, the answer must be
             // no, or a bug elsewhere would overwrite a real command's speech.
             Assert.False(KeyInventory.TryFindLeaderNearMiss(Keys.G | Keys.Control, out _, out _));
-            Assert.False(KeyInventory.TryFindLeaderNearMiss(Keys.A | Keys.Control, out _, out _));
+            // Ctrl+D, the detailed capture. This used Ctrl+A (Auto Notch)
+            // until Sprint 48 Track F moved that switch into the noise layer;
+            // an unbound Ctrl+A is a near-miss onto the audio layer's door now.
+            Assert.False(KeyInventory.TryFindLeaderNearMiss(Keys.D | Keys.Control, out _, out _));
         }
 
         [Fact]
@@ -300,7 +303,7 @@ namespace JJFlexWpf.Tests
             // a paragraph. Every near miss both layers can produce, measured.
             foreach (var context in new[]
             {
-                KeyInventory.AudioLayerContext, KeyInventory.FilterLayerContext,
+                KeyInventory.AudioLayerContext, KeyInventory.FilterLayerContext, KeyInventory.NoiseLayerContext,
             })
             {
                 for (var code = Keys.A; code <= Keys.Z; code++)

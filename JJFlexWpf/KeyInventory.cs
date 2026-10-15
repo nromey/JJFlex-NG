@@ -429,7 +429,7 @@ public static class KeyInventory
     //
     //  THE GRAMMAR (#515, Noel's ruling, 2026-09-02) — so a chord is derived
     //  rather than memorised:
-    //    plain letter  — opens a LAYER (JJ key A audio, JJ key F filter)
+    //    plain letter  — opens a LAYER (JJ key A audio, F filter, N noise)
     //    Shift+letter  — JUMPS TO THAT SLICE, from anywhere, in any layer
     //    Ctrl+letter   — TOGGLES the thing whose initial it is
     //    Alt+letter    — an ACTION that is neither: speak, open, send, capture
@@ -489,6 +489,16 @@ public static class KeyInventory
         new("Leader", "JJ key", "Ctrl+J, F", "Enter the filter layer: hold Left Shift for the low edge or Right Shift for the high edge, arrows move it, S speaks it",
             new[] { "filter", "layer", "width", "bandwidth", "edge", "low", "high", "narrow", "wide", "passband", "transmit", "receive", "leader" }, "Radio", "DSP")
             { OpensLayer = FilterLayerContext },
+        // JJ key N — the noise layer (#518; ruled by Noel 2026-10-05, free
+        // and the subject's own initial). Sprint 48 Track F: the ten noise
+        // switches that spent eight plain letters and all four tiers at this
+        // level are its residents, and no second door stays out here (ruled
+        // 2026-10-10). Keywords carry what an operator HEARS — hiss, static,
+        // crackle, birdie — as well as what the features are called.
+        new("Leader", "JJ key", "Ctrl+J, N", "Enter the noise layer: a letter flips a noise filter on or off, Enter keeps it, Escape puts it back",
+            new[] { "noise", "layer", "nr", "nb", "reduction", "blanker", "notch", "neural", "spectral",
+                    "peak", "apf", "filter", "wideband", "hiss", "static", "crackle", "birdie", "leader" }, "Radio", "DSP")
+            { OpensLayer = NoiseLayerContext },
         // Plain M is RULED for the mode layer (#515: "JJ key M A for AM, JJ key
         // M S for SAM") and is free for it since Sprint 48 Track C moved the
         // memories dialog to Alt+M. No row here until the layer exists: a row
@@ -502,38 +512,21 @@ public static class KeyInventory
             new[] { "slice", "jump", "leader", "letter", "go", "switch", "select" }, "Radio", "General"),
 
         // ── Ctrl+letter TOGGLES the thing whose initial it is ──────────
-        // Sprint 48 Track C: the DSP toggles whose initial was free on the
-        // Ctrl tier moved there from their plain letters — N, B, W, R, G, T —
+        // Sprint 48 Track C moved the DSP toggles whose initial was free on
+        // the Ctrl tier here from their plain letters — N, B, W, R, G, T —
         // and the earcons from Shift+T. Each is derived: the modifier says
-        // "toggle", the letter says what.
-        new("Leader", "JJ key", "Ctrl+J, Ctrl+N", "Toggle legacy Noise Reduction",
-            new[] { "nr", "noise", "reduction", "leader", "toggle" }, "Radio", "DSP"),
-        new("Leader", "JJ key", "Ctrl+J, Ctrl+B", "Toggle Noise Blanker",
-            new[] { "nb", "noise", "blanker", "leader", "toggle" }, "Radio", "DSP"),
-        new("Leader", "JJ key", "Ctrl+J, Ctrl+W", "Toggle Wideband Noise Blanker",
-            new[] { "wnb", "wideband", "noise", "blanker", "leader", "toggle" }, "Radio", "DSP"),
-        // Ctrl+R was "read the recorded problems" until Sprint 48 Track C;
-        // that is an action and lives on Alt+R now, which freed the chord the
-        // grammar derives for the radio's Neural NR.
-        new("Leader", "JJ key", "Ctrl+J, Ctrl+R", "Toggle On-Radio Neural Noise Reduction (the radio's own DSP)",
-            new[] { "rnn", "neural", "noise", "reduction", "on-radio", "leader", "toggle" }, "Radio", "DSP"),
-        // Sprint 44 Track J: Ctrl+A, not plain A. Plain letters open layers
-        // under the four-tier grammar and A is the audio layer (#514, #515);
-        // Ctrl is the toggle tier and A is Auto Notch's own initial.
-        new("Leader", "JJ key", "Ctrl+J, Ctrl+A", "Toggle Auto Notch",
-            new[] { "anf", "auto", "notch", "carrier", "heterodyne", "tone", "leader", "toggle" }, "Radio", "DSP"),
-        // Ctrl+P — P for PC, ruled #513 (Noel, 2026-09-01: "p for pc makes
-        // more sense"). Ctrl is the toggle tier of the four-tier grammar and
-        // P is the toggle's own initial. It was Ctrl+A from Sprint 32 Track G
-        // (#130), when Noel named it on the unbound-command survey: "No hotkey
-        // for PC audio on and off available that I know of, you have to do it
-        // in the menu." Ctrl+A belongs to Auto Notch now, the toggle whose
-        // initial it is. Sits one keystroke from Ctrl+J, A, O, which rides the
-        // PC output LEVEL; this is the on/off switch, and the pairing is
-        // deliberate.
-        new("Leader", "JJ key", "Ctrl+J, Ctrl+P", "Turn PC audio on or off — whether radio audio plays through this computer",
-            new[] { "pc", "audio", "on", "off", "toggle", "remote", "sound", "mute", "unmute",
-                    "computer", "playback", "hear", "silence", "quiet", "leader" }, "Radio", "Audio"),
+        // "toggle", the letter says what. Sprint 48 Track F then moved the
+        // five NOISE toggles among them — Ctrl+N, Ctrl+B, Ctrl+W, Ctrl+R,
+        // Ctrl+A — INTO the noise layer (#518, ruled 2026-10-10: no second
+        // door; the layer is where the infrequent lives), which is why this
+        // group is shorter than the tier's rule suggests and Ctrl+N is free
+        // again for #628.
+        // Ctrl+P (PC audio on or off) had a row here from Sprint 44 Track J
+        // until Sprint 48 Track F. The same switch sits inside the audio layer
+        // on the same chord, beside O, which sets how loud it plays — two
+        // doors into one toggle, and Noel's ruling of 2026-10-05 (#518) closed
+        // the top-level one: the audio layer holds the switch for anything
+        // whose level it already holds. The AudioLayerCommands row carries it.
         // Audio Arc Keys Track (2026-08-11) — the tone generator; a toggle on
         // its own initial since Sprint 48 Track C (it was plain G).
         new("Leader", "JJ key", "Ctrl+J, Ctrl+G", "Arm or disarm the TX test tone (replaces your microphone while transmitting)",
@@ -651,24 +644,14 @@ public static class KeyInventory
 
         // ── Not yet in the grammar — each with the reason, and a home ──
         // A toggle whose Ctrl initial is spoken for cannot derive a chord,
-        // and a plain letter cannot be a one-shot under #515. These stay
-        // where they are until the layer that owns each exists; the noise
-        // layer's letter is Noel's to rule (#518). JjKeyGrammarTests lists
-        // every one of these as debt and fails if one is missing or paid.
-        new("Leader", "JJ key", "Ctrl+J, S", "Toggle On-Radio Spectral Noise Reduction (the radio's own DSP)",
-            new[] { "nrs", "spectral", "noise", "reduction", "on-radio", "leader" }, "Radio", "DSP"),
-        new("Leader", "JJ key", "Ctrl+J, Shift+N", "Toggle NR Filter",
-            new[] { "nr", "filter", "noise", "leader" }, "Radio", "DSP"),
-        new("Leader", "JJ key", "Ctrl+J, Shift+R", "Toggle PC Neural Noise Reduction (runs on your computer)",
-            new[] { "pc", "neural", "noise", "reduction", "leader" }, "Radio", "DSP"),
-        new("Leader", "JJ key", "Ctrl+J, Shift+S", "Toggle PC Spectral Noise Reduction (runs on your computer)",
-            new[] { "pc", "spectral", "noise", "reduction", "leader" }, "Radio", "DSP"),
-        new("Leader", "JJ key", "Ctrl+J, P", "Toggle Audio Peak Filter (CW only)",
-            new[] { "apf", "audio", "peak", "filter", "cw", "leader" }, "Radio", "DSP"),
-        new("Leader", "JJ key", "Ctrl+J, C", "Toggle Compander",
-            new[] { "compander", "compression", "tx", "transmit", "voice", "leader", "toggle" }, "Radio", "Transmit"),
-        new("Leader", "JJ key", "Ctrl+J, Shift+P", "Toggle Speech Processor",
-            new[] { "speech", "processor", "proc", "tx", "transmit", "voice", "leader", "toggle" }, "Radio", "Transmit"),
+        // and a plain letter cannot be a one-shot under #515. What stays here
+        // waits for the layer that owns it — the tuning layer, whose letter
+        // is Noel's (#518). JjKeyGrammarTests lists every one of these as
+        // debt and fails if one is missing or paid. Sprint 48 Track F paid
+        // nine lines of this list: the noise family (S, Shift+N, Shift+R,
+        // Shift+S, P) went into the noise layer, and the compander (plain C)
+        // and the speech processor (Shift+P) into the audio layer beside
+        // their levels, per #518.
         new("Leader", "JJ key", "Ctrl+J, D", "Toggle tuning speech debounce",
             new[] { "debounce", "tuning", "speech", "leader" }, "Global", "General"),
         // Two Ctrl chords that are not toggles, kept on purpose. Ctrl+C is
@@ -739,7 +722,7 @@ public static class KeyInventory
     /// key and needs to hear which key is right, not a paragraph about it.
     /// </summary>
     /// <remarks>
-    /// #558. Both near-miss paths call this, deliberately. When the value
+    /// Both near-miss paths call this, deliberately. When the value
     /// layer and the leader each rendered their own sentence they drifted into
     /// two vocabularies for one idea, which is the same shape as the pan words
     /// scale (#536) and the restore list's two renderers - so the shortening
@@ -918,6 +901,7 @@ public static class KeyInventory
     // ────────────────────────────────────────────────────────────────
     public const string AudioLayerContext = "AudioLayer";
     public const string FilterLayerContext = "FilterLayer";
+    public const string NoiseLayerContext = "NoiseLayer";
 
     // Sprint 44 Track N (#524): V, Ctrl+M, Ctrl+A and Ctrl+B are PROVISIONAL
     // letters — Noel has not ruled the map. They sit on keys that were free
@@ -960,6 +944,15 @@ public static class KeyInventory
             new[] { "pc", "audio", "on", "off", "toggle", "switch", "computer", "playback", "hear", "remote", "sound" }, "Radio", "Audio"),
         new(AudioLayerContext, "Audio layer", "Ctrl+B", "Binaural receive on or off — the radio's own stereo widening of what you hear",
             new[] { "binaural", "stereo", "wide", "widening", "receive", "toggle", "switch", "ears", "headphones" }, "Radio", "Audio"),
+        // Sprint 48 Track F (#518): the switch beside the level. Plain C in
+        // here is the compander LEVEL and plain S the processor MODE; Ctrl
+        // flips each on or off. Both chords are provisional like every
+        // letter in this table (#524). They were plain C and Shift+P at the
+        // top level.
+        new(AudioLayerContext, "Audio layer", "Ctrl+C", "Compander on or off — C sets its level",
+            new[] { "compander", "compression", "tx", "transmit", "voice", "toggle", "switch" }, "Radio", "Transmit"),
+        new(AudioLayerContext, "Audio layer", "Ctrl+S", "Speech processor on or off — S sets its mode",
+            new[] { "speech", "processor", "proc", "tx", "transmit", "voice", "toggle", "switch" }, "Radio", "Transmit"),
         new(AudioLayerContext, "Audio layer", "Shift+A through Shift+H", "Jump to that slice without leaving the layer — slice volume, mute and pan follow you to it",
             new[] { "slice", "jump", "letter" }, "Radio", "Audio"),
         new(AudioLayerContext, "Audio layer", "Enter", "Keep every change and leave the audio layer",
@@ -1017,6 +1010,58 @@ public static class KeyInventory
             new[] { "help", "list", "keys" }, "Radio", "help"),
         new(FilterLayerContext, "Filter layer", "?", "Open the JJ key explorer on this layer — the whole map as a tree, this branch open",
             new[] { "help", "explore", "explorer", "tree", "question", "shift slash" }, "Radio", "help")
+            { KeySpoken = "Shift slash" },
+    };
+
+    // ────────────────────────────────────────────────────────────────
+    //  The noise layer — Sprint 48 Track F, #518. JJ key N. Truth source:
+    //  KeyCommands.EnterNoiseLayer; the H list, the explorer, the Hotkey
+    //  Editor's Built-in keys view and the near-miss all read THIS table,
+    //  so a switch missing here is a switch nobody can find (#702, #524).
+    //
+    //  Every key is a switch: one press flips it and says which way it
+    //  went. There is nothing to pick, so the arrows have no job here.
+    //
+    //  THE LETTERS ARE PROVISIONAL — Noel has not walked them (#518). Where
+    //  the initial is unique the letter is derived; the three residents that
+    //  share N by nature sit on N, R and Ctrl+N, and the two PC-side twins
+    //  on Ctrl+R and Ctrl+S, by the in-layer rule for a letter already
+    //  spoken for (#514). #518 proposes a side-selector for the twins
+    //  instead; its letter is Noel's. When he rules, the letters change
+    //  here, in EnterNoiseLayer and in the two help pages, and nowhere else.
+    // ────────────────────────────────────────────────────────────────
+    private static readonly FixedKeyEntry[] NoiseLayerCommands =
+    {
+        new(NoiseLayerContext, "Noise layer", "A", "Auto Notch on or off — the radio finds a steady carrier and notches it for you",
+            new[] { "auto", "notch", "anf", "carrier", "heterodyne", "tone", "whistle", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "B", "Noise Blanker on or off — for pulse noise such as ignition and power-line crackle",
+            new[] { "noise", "blanker", "nb", "pulse", "crackle", "ignition", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "W", "Wideband Noise Blanker on or off — the blanker that works across the whole passband",
+            new[] { "wideband", "noise", "blanker", "wnb", "pulse", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "N", "Noise Reduction on or off — the radio's standard NR, for hiss",
+            new[] { "noise", "reduction", "nr", "hiss", "static", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "R", "On-Radio Neural Noise Reduction on or off — the radio's own RNN; model-specific",
+            new[] { "neural", "rnn", "noise", "reduction", "on-radio", "radio", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "S", "On-Radio Spectral Noise Reduction on or off — the radio's own NRS; model-specific",
+            new[] { "spectral", "nrs", "noise", "reduction", "on-radio", "radio", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Ctrl+N", "NR Filter on or off — model-specific; Ctrl because plain N is noise reduction itself",
+            new[] { "nr", "filter", "nrf", "noise", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "P", "Audio Peak Filter on or off — CW only; a narrow peak on the tone you are listening to",
+            new[] { "audio", "peak", "filter", "apf", "cw", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Ctrl+R", "PC Neural Noise Reduction on or off — runs on this computer, every radio; the radio's own is R",
+            new[] { "pc", "neural", "noise", "reduction", "computer", "rnnoise", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Ctrl+S", "PC Spectral Noise Reduction on or off — runs on this computer, every radio; the radio's own is S, and Ctrl+J, Alt+Q captures its noise profile",
+            new[] { "pc", "spectral", "noise", "reduction", "computer", "profile", "subtraction", "toggle", "switch" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Shift+A through Shift+H", "Jump to that slice without leaving the layer — the radio's switches follow you to it",
+            new[] { "slice", "jump", "letter" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Enter", "Keep every change and leave the noise layer",
+            new[] { "enter", "keep", "accept", "confirm", "done", "leave" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "Escape", "Put back every switch you flipped and leave the noise layer",
+            new[] { "escape", "cancel", "revert", "undo", "restore", "back", "leave" }, "Radio", "DSP"),
+        new(NoiseLayerContext, "Noise layer", "H", "List the noise layer's keys",
+            new[] { "help", "keys", "list", "what" }, "Radio", "help"),
+        new(NoiseLayerContext, "Noise layer", "?", "Open the JJ key explorer on this layer — the whole map as a tree, this branch open",
+            new[] { "help", "explorer", "explore", "tree", "map", "keys", "slash", "question", "shift slash" }, "Radio", "help")
             { KeySpoken = "Shift slash" },
     };
 
@@ -1315,6 +1360,7 @@ public static class KeyInventory
         foreach (var e in LeaderCommands) yield return e;
         foreach (var e in AudioLayerCommands) yield return e;
         foreach (var e in FilterLayerCommands) yield return e;
+        foreach (var e in NoiseLayerCommands) yield return e;
         foreach (var e in AudioWorkshopKeys) yield return e;
         foreach (var e in CategoryNavigationKeys) yield return e;
         foreach (var e in OtherKeys) yield return e;
