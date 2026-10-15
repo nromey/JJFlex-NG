@@ -824,12 +824,28 @@ namespace Radios.Tests
             // the facts surface's own classification for labels and help),
             // named below.
             //
-            // SO THE MERGED NUMBER IS NEITHER TRACK'S. F alone would have
-            // said 3,145 and E alone 3,129, from the same base of 3,131. The
-            // value below was recomputed by running this test on the merged
-            // tree and pasting what it printed — not by adding the two
-            // deltas, which would be a prediction wearing a measurement's
-            // clothes.
+            // Sprint 48 Track D (#591, #700, 2026-10-14): ten keys, frozen for
+            // the same reason as every track above. Eight for the Memories and
+            // ATU Memories dialogs whose mutators were never wired -
+            // settings.memory.tone_mode_off / tone_mode_ctcss, offset_minus /
+            // offset_simplex / offset_plus (combo labels), add_failed and
+            // frequency_rejected (the two outcomes the dialog's own controls
+            // cannot convey), and settings.atu.memories_cleared (the Clear
+            // button changes nothing visible). Two for the logging layout's
+            // radio pane, whose ten hooks were never assigned:
+            // logging.radio_pane.frequency_set and tune_step, which until now
+            // were literals in RadioPaneControl that nothing had ever spoken.
+            // The spoken ones carry SpeechSubject keys (MemoryEdit, AtuMemories,
+            // LoggingRadioPane) so supersession works; their shelf life is the
+            // #617 decision this brief did not carry.
+            //
+            // SO THE MERGED NUMBER IS NO TRACK'S OWN. From the same base of
+            // 3,131: F alone would have said 3,145, E alone 3,129, D alone
+            // 3,141. The value below was recomputed by running this test on
+            // the merged tree and pasting what it printed, and the assertion
+            // was shown reachable by mutating it one higher and watching it go
+            // red — not by adding the three deltas, which would be a
+            // prediction wearing a measurement's clothes.
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -853,7 +869,7 @@ namespace Radios.Tests
                 "settings.systemwide_keys.reset_help",               // Sprint 48 Track E, #307 Item 6
             };
 
-            Assert.Equal(3143, unclassified);
+            Assert.Equal(3153, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

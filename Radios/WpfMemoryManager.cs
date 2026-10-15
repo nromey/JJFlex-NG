@@ -108,6 +108,78 @@ namespace Radios
             return rv;
         }
 
+        /// <inheritdoc />
+        public Memory AddMemory(double freqMHz, string mode, int timeoutMs)
+        {
+            Radio radio = theRadio;
+            if (radio == null) return null;
+
+            Memory added = null;
+            using (var arrived = new System.Threading.ManualResetEventSlim(false))
+            {
+                Radio.MemoryAddedEventHandler onAdded = m => { added = m; arrived.Set(); };
+                radio.MemoryAdded += onAdded;
+                try
+                {
+                    radio.RequestMemory();
+                    if (!arrived.Wait(timeoutMs))
+                    {
+                        Tracing.TraceLine("WpfMemoryManager.AddMemory: the radio did not confirm a new memory within "
+                            + timeoutMs + " ms", TraceLevel.Error);
+                        return null;
+                    }
+                }
+                finally
+                {
+                    radio.MemoryAdded -= onAdded;
+                }
+            }
+
+            // Seed it so SortMemories keeps it - a fresh memory has Freq 0 and no
+            // mode, which that method treats as a null element and drops.
+            added.Freq = freqMHz;
+            if (!string.IsNullOrEmpty(mode)) added.Mode = mode;
+            Tracing.TraceLine("WpfMemoryManager.AddMemory: added memory " + added.Index + " at "
+                + freqMHz.ToString("F6") + " " + mode, TraceLevel.Info);
+            Refresh();
+            return added;
+        }
+
+        /// <inheritdoc />
+        public void RemoveMemory(Memory memory, int timeoutMs)
+        {
+            Radio radio = theRadio;
+            if (radio == null || memory == null) return;
+
+            using (var gone = new System.Threading.ManualResetEventSlim(false))
+            {
+                Radio.MemoryRemovedEventHandler onRemoved = m => { if (ReferenceEquals(m, memory)) gone.Set(); };
+                radio.MemoryRemoved += onRemoved;
+                try
+                {
+                    memory.Remove();
+                    if (!gone.Wait(timeoutMs))
+                        Tracing.TraceLine("WpfMemoryManager.RemoveMemory: the radio did not confirm removal of memory "
+                            + memory.Index + " within " + timeoutMs + " ms", TraceLevel.Error);
+                }
+                finally
+                {
+                    radio.MemoryRemoved -= onRemoved;
+                }
+            }
+            Refresh();
+        }
+
+        /// <inheritdoc />
+        public void Refresh()
+        {
+            Memory selected = SelectedMemory;
+            _SortedMemories = SortMemories();
+            int index = (selected == null) ? -1 : _SortedMemories.FindIndex(e => ReferenceEquals(e.Value, selected));
+            if (index >= 0) _CurrentMemoryChannel = index;
+            else CurrentMemoryChannel = _CurrentMemoryChannel; // clamps to the new count
+        }
+
         private List<MemoryElement> SortMemories()
         {
             List<MemoryElement> sorted = new List<MemoryElement>();

@@ -2038,6 +2038,8 @@ logging.problems.save_failed	0f507fce7faf969b
 logging.problems.save_title	2fdba38ea387235e
 logging.problems.saved	eb4ed0003f5158f9
 logging.problems.unknown_size	09f4aed9a5934ec7
+logging.radio_pane.frequency_set	d4692ba3ec427017
+logging.radio_pane.tune_step	8e41851d6df0f37e
 logging.recording.health.archive_failed_detail	ba1b70251db022ab
 logging.recording.health.archive_failed_detail_no_log	196e07aac9c41bad
 logging.recording.health.archive_failed_what	4687fa4ea2569617
@@ -2140,6 +2142,7 @@ settings.associations.unknown_model	996ffe8729c6dfe0
 settings.associations.unnamed_radio	a3a010932ae258b4
 settings.associations.will_connect_as	5cc2fae8cad0adde
 settings.atu.available_reopen	202b841855d921f6
+settings.atu.memories_cleared	0a1744efb4942853
 settings.atu.memories_unavailable	7020cc5f64839273
 settings.atu.mode	9d93f9c18d726884
 settings.atu.none_on_radio	4515d31828cb2b30
@@ -2471,7 +2474,14 @@ settings.lister.remove_default_confirm	08fa5f34e692af52
 settings.lister.remove_default_title	2f51fe884dfc2add
 settings.lister.remove_selected_blocked	fc394b59e7f8d6df
 settings.lister.remove_selected_title	f441e538a478e4b2
+settings.memory.add_failed	f91a178e232456c4
 settings.memory.channel	5ea7e93ac2be118a
+settings.memory.frequency_rejected	478ba75e1fdc5936
+settings.memory.offset_minus	05d699df9dfaf32d
+settings.memory.offset_plus	0707ccd045130254
+settings.memory.offset_simplex	43d875ca7bae8fcc
+settings.memory.tone_mode_ctcss	44b18ef658422f1c
+settings.memory.tone_mode_off	273e689aeb078500
 settings.memory_groups.add_title	dde185cf43996254
 settings.memory_groups.edit_title	af34cadd20f0b1bd
 settings.memory_groups.must_select	833770cb9fab4d59

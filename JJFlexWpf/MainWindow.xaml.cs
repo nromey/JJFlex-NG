@@ -3105,7 +3105,14 @@ public partial class MainWindow : UserControl
             // Sprint 33 Track J (#109): TXControlsDialog — same bug again,
             // declared and invoked since Sprint 11, never assigned.
             RigControl.ShowTXControlsDialog = ShowTXControlsDialog;
+            // Sprint 48 Track D (#700's neighbour, #110): ATUMemoriesDialog —
+            // the fourth of the same shape, declared in Sprint 10.
+            RigControl.ShowATUMemoriesDialog = ShowATUMemoriesDialog;
         }
+
+        // Sprint 48 Track D (#483, #591): the logging layout's radio pane had
+        // ten hooks and nothing ever assigned one.
+        WireLoggingRadioPane();
 
         // Disable controls initially — PowerNowOn enables them when radio powers on
         EnableDisableWindowControls(false);
@@ -5450,6 +5457,9 @@ public partial class MainWindow : UserControl
         // Wire sorted memory list
         dialog.GetSortedMemories = () =>
         {
+            // Re-sort first: a rename or a group change moves a memory, and
+            // the manager's list is a snapshot (Sprint 48 Track D, #700).
+            memories.Refresh();
             var items = new List<Dialogs.MemoriesDialog.MemoryDisplayItem>();
             foreach (var mem in memories.SortedMemories)
             {
@@ -5502,6 +5512,120 @@ public partial class MainWindow : UserControl
 
         // Mode list from rig caps
         dialog.ModeList = new List<string>(RigCaps.ModeTable);
+
+        // Everything from here to ShowDialog was missing until Sprint 48 Track D
+        // (#700). This construction site wired ten getters and not one mutator,
+        // so the dialog listed memories correctly and every Add, Delete, rename
+        // and edit silently did nothing - the null-conditional invoke swallowed
+        // the call, exactly #109's shape. The FM getters were missing too, so
+        // tone, squelch and offset read as zero and blank, and the three FM
+        // combo lists were never filled.
+        string toneOff = Lexicon.Get("settings.memory.tone_mode_off");
+        string toneCtcss = Lexicon.Get("settings.memory.tone_mode_ctcss");
+        string offsetMinus = Lexicon.Get("settings.memory.offset_minus");
+        string offsetSimplex = Lexicon.Get("settings.memory.offset_simplex");
+        string offsetPlus = Lexicon.Get("settings.memory.offset_plus");
+        var invariant = System.Globalization.CultureInfo.InvariantCulture;
+
+        dialog.ToneModeList = new List<string> { toneOff, toneCtcss };
+        dialog.ToneFrequencyList = (RigControl.ToneFrequencyTable ?? Array.Empty<float>())
+            .Select(f => f.ToString("0.0", invariant)).ToList();
+        dialog.OffsetDirectionList = new List<string> { offsetMinus, offsetSimplex, offsetPlus };
+
+        dialog.GetToneMode = memRef =>
+            memRef is Flex.Smoothlake.FlexLib.Memory mem && mem.ToneMode == Flex.Smoothlake.FlexLib.FMToneMode.CTCSS_TX
+                ? toneCtcss : toneOff;
+        dialog.GetToneFrequency = memRef =>
+        {
+            // The radio reports the tone as text; normalise it to the list's
+            // "88.5" form so the combo can select it.
+            if (memRef is not Flex.Smoothlake.FlexLib.Memory mem || string.IsNullOrEmpty(mem.ToneValue)) return "";
+            return float.TryParse(mem.ToneValue, System.Globalization.NumberStyles.Float, invariant, out float tone)
+                ? tone.ToString("0.0", invariant) : mem.ToneValue;
+        };
+        dialog.GetSquelchOn = memRef => memRef is Flex.Smoothlake.FlexLib.Memory mem && mem.SquelchOn;
+        dialog.GetSquelchLevel = memRef => memRef is Flex.Smoothlake.FlexLib.Memory mem ? mem.SquelchLevel : 0;
+        dialog.GetOffsetDirection = memRef =>
+            memRef is Flex.Smoothlake.FlexLib.Memory mem
+                ? mem.OffsetDirection switch
+                {
+                    Flex.Smoothlake.FlexLib.FMTXOffsetDirection.Down => offsetMinus,
+                    Flex.Smoothlake.FlexLib.FMTXOffsetDirection.Up => offsetPlus,
+                    _ => offsetSimplex,
+                }
+                : offsetSimplex;
+        // FlexLib keeps the repeater offset in megahertz; the dialog edits kilohertz.
+        dialog.GetOffsetKHz = memRef =>
+            memRef is Flex.Smoothlake.FlexLib.Memory mem ? (int)Math.Round(mem.RepeaterOffset * 1000.0) : 0;
+
+        dialog.SetFrequencyFromText = (memRef, text) =>
+        {
+            if (memRef is not Flex.Smoothlake.FlexLib.Memory mem) return;
+            if (Radios.ChainChecks.StationConditions.TryParse(text, out ulong hz) && hz > 0)
+            {
+                mem.Freq = hz / 1_000_000.0;
+                return;
+            }
+            // The dialog has no error surface of its own, and a rejected edit
+            // that leaves the old value standing is silent to a blind operator.
+            ScreenReaderOutput.Speak(Lexicon.Get("settings.memory.frequency_rejected"),
+                Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Critical, subject: Radios.Speech.SpeechSubject.MemoryEdit);
+        };
+        dialog.SetMode = (memRef, mode) => { if (memRef is Flex.Smoothlake.FlexLib.Memory mem) mem.Mode = mode; };
+        dialog.SetFilterLow = (memRef, v) => { if (memRef is Flex.Smoothlake.FlexLib.Memory mem) mem.RXFilterLow = v; };
+        dialog.SetFilterHigh = (memRef, v) => { if (memRef is Flex.Smoothlake.FlexLib.Memory mem) mem.RXFilterHigh = v; };
+        dialog.SetToneMode = (memRef, v) =>
+        {
+            if (memRef is Flex.Smoothlake.FlexLib.Memory mem)
+                mem.ToneMode = v == toneCtcss ? Flex.Smoothlake.FlexLib.FMToneMode.CTCSS_TX : Flex.Smoothlake.FlexLib.FMToneMode.Off;
+        };
+        dialog.SetToneFrequency = (memRef, v) => { if (memRef is Flex.Smoothlake.FlexLib.Memory mem) mem.ToneValue = v; };
+        dialog.SetSquelchOn = (memRef, v) => { if (memRef is Flex.Smoothlake.FlexLib.Memory mem) mem.SquelchOn = v; };
+        dialog.SetSquelchLevel = (memRef, v) => { if (memRef is Flex.Smoothlake.FlexLib.Memory mem) mem.SquelchLevel = v; };
+        dialog.SetOffsetDirection = (memRef, v) =>
+        {
+            if (memRef is not Flex.Smoothlake.FlexLib.Memory mem) return;
+            mem.OffsetDirection = v == offsetMinus ? Flex.Smoothlake.FlexLib.FMTXOffsetDirection.Down
+                                : v == offsetPlus ? Flex.Smoothlake.FlexLib.FMTXOffsetDirection.Up
+                                : Flex.Smoothlake.FlexLib.FMTXOffsetDirection.Simplex;
+        };
+        dialog.SetOffsetKHz = (memRef, khz) => { if (memRef is Flex.Smoothlake.FlexLib.Memory mem) mem.RepeaterOffset = khz / 1000.0; };
+        dialog.SetName = (memRef, v) => { if (memRef is Flex.Smoothlake.FlexLib.Memory mem) mem.Name = v; };
+        dialog.SetOwner = (memRef, v) => { if (memRef is Flex.Smoothlake.FlexLib.Memory mem) mem.Owner = v; };
+        dialog.SetGroup = (memRef, v) => { if (memRef is Flex.Smoothlake.FlexLib.Memory mem) mem.Group = v; };
+        dialog.IsDuplicateName = (memRef, name) =>
+        {
+            if (memRef is not Flex.Smoothlake.FlexLib.Memory mem) return false;
+            foreach (var el in memories.SortedMemories)
+            {
+                var other = el.Value;
+                if (ReferenceEquals(other, mem)) continue;
+                if (string.Equals(other.Name, name, StringComparison.Ordinal)
+                    && string.Equals(other.Group ?? "", mem.Group ?? "", StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
+        };
+        dialog.AddMemory = () =>
+        {
+            var rig = RigControl;
+            if (rig == null) return null;
+            // Seeded with where the operator is, which is what a new memory is for.
+            var added = memories.AddMemory(rig.RXFrequency / 1_000_000.0, rig.Mode ?? "", 2000);
+            if (added == null)
+            {
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.memory.add_failed"),
+                    Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Critical, subject: Radios.Speech.SpeechSubject.MemoryEdit);
+                return null;
+            }
+            string addedName = string.IsNullOrEmpty(added.Name) ? added.Freq.ToString("F6") : added.Name;
+            string addedGroup = string.IsNullOrEmpty(added.Group) ? "" : added.Group + '.';
+            return new Dialogs.MemoriesDialog.MemoryDisplayItem { FullName = addedGroup + addedName, MemoryRef = added };
+        };
+        dialog.RemoveMemory = memRef =>
+        {
+            if (memRef is Flex.Smoothlake.FlexLib.Memory mem) memories.RemoveMemory(mem, 2000);
+        };
 
         // Show the dialog (owner set by JJFlexDialog base class)
         dialog.ShowDialog();
@@ -5574,6 +5698,88 @@ public partial class MainWindow : UserControl
         dialog.SetRemoteOnEnabled = v => rig.RemoteOnEnabled = v;
 
         dialog.ShowDialog();
+    }
+
+    /// <summary>
+    /// Show the ATU Memories dialog wired to the current radio.
+    /// Sprint 48 Track D (#700's neighbour, #110): FlexBase.ShowATUMemoriesDialog
+    /// was declared in Sprint 10, invoked by AntennaTunerMemories from both the
+    /// ATU Memories command and (now) the menu item, and assigned by nothing -
+    /// so on a radio WITH tuner memories the command did nothing at all, while
+    /// a radio without them said "not supported". The fourth door of the
+    /// ShowMemoriesDialog / ShowRadioInfoDialog / ShowTXControlsDialog shape.
+    /// Wired in OnRadioStarted alongside the other three.
+    /// </summary>
+    private void ShowATUMemoriesDialog()
+    {
+        var rig = RigControl;
+        if (rig == null)
+        {
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.home.no_radio_sentence"),
+                Radios.VerbosityLevel.Critical, true);
+            return;
+        }
+
+        var dialog = new Dialogs.ATUMemoriesDialog
+        {
+            GetEnabled = () => rig.ATUMemoriesEnabled,
+            SetEnabled = v => rig.ATUMemoriesEnabled = v,
+            ClearMemories = () =>
+            {
+                rig.ClearATUMemories();
+                // The Clear button changes nothing visible, so without this a
+                // blind operator cannot tell a press that worked from one that
+                // did not - which is the whole class this track is about.
+                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.atu.memories_cleared"),
+                    Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Terse,
+                    subject: Radios.Speech.SpeechSubject.AtuMemories);
+            },
+        };
+        dialog.ShowDialog();
+    }
+
+    /// <summary>
+    /// Give the logging layout's radio pane its rig.
+    /// Sprint 48 Track D (#483 "also found, not fixed", #591): RadioPaneControl
+    /// declared ten hooks and nothing ever assigned one, so the pane said
+    /// "No radio" and "Connect a radio first" whatever the radio was doing, and
+    /// Up, Down, Left, Right and Ctrl+F in it did nothing. The scan could not
+    /// see it because the control's own Cleanup() sets every hook to null and
+    /// `= null` read as an assignment. The lambdas read RigControl at call time
+    /// rather than capturing a rig, so they stay right across a reconnect and
+    /// the pane's own no-radio branch covers the gaps; nothing needs to clear
+    /// them on disconnect.
+    /// </summary>
+    private void WireLoggingRadioPane()
+    {
+        var invariant = System.Globalization.CultureInfo.InvariantCulture;
+
+        LoggingRadioPane.IsRadioPowered = () => RigControl is { IsConnected: true } rig && rig.Power;
+        LoggingRadioPane.GetRXFrequency = () => RigControl?.RXFrequency ?? 0UL;
+        LoggingRadioPane.SetRXFrequency = hz => { if (RigControl != null) RigControl.RXFrequency = hz; };
+        LoggingRadioPane.GetTXFrequency = () => RigControl?.TXFrequency ?? 0UL;
+        LoggingRadioPane.GetMode = () => RigControl?.Mode;
+        LoggingRadioPane.GetBandName = hz => HamBands.Bands.Query(hz)?.Name;
+        LoggingRadioPane.FormatFrequency = hz =>
+            OpenParms?.FormatFreq?.Invoke(hz) ?? (hz / 1_000_000.0).ToString("F6", invariant);
+        LoggingRadioPane.SetFrequencyManual = hz => { if (RigControl != null && hz > 0) RigControl.RXFrequency = (ulong)hz; };
+        LoggingRadioPane.ShowFrequencyInputDialog = () =>
+        {
+            // The same entry dialog the Fixer uses, pre-filled with where the
+            // radio is so a screen reader entering the field reads the current
+            // frequency and the operator edits from there.
+            var dlg = new Dialogs.FreqInputDialog { Owner = System.Windows.Window.GetWindow(this) };
+            ulong before = RigControl?.RXFrequency ?? 0UL;
+            if (before != 0UL) dlg.FreqBox.Text = Radios.ChainChecks.StationConditions.Format(before).Replace(" MHz", "");
+            dlg.ValidateFrequency = text =>
+                Radios.ChainChecks.StationConditions.TryParse(text, out ulong parsed) ? parsed.ToString(invariant) : null;
+            if (dlg.ShowDialog() != true) return null;
+            return ulong.TryParse(dlg.ResultFrequency, System.Globalization.NumberStyles.None, invariant, out ulong hz)
+                ? (long)hz : null;
+        };
+        LoggingRadioPane.SpeakAction = text =>
+            Radios.ScreenReaderOutput.Speak(text, Radios.Speech.SpeechIntent.Latest, Radios.VerbosityLevel.Terse,
+                subject: Radios.Speech.SpeechSubject.LoggingRadioPane);
     }
 
     /// <summary>

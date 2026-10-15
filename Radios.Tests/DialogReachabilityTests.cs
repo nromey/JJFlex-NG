@@ -122,12 +122,11 @@ namespace Radios.Tests
 
             // ── Never wired, no original behind them. The TNF shape. Each is a
             //    surface that exists, compiles and ships with no route to it. ──
-            ["ATUMemoriesDialog"] = new(
-                "NEVER WIRED, and the worst of these: the Radio menu's ATU Memories item "
-                + "calls Rig.ShowMemoriesDialog() — the FREQUENCY memories — while "
-                + "FlexBase.ShowATUMemoriesDialog, the delegate that would reach this one, "
-                + "is assigned nowhere in the repository. The operator gets a plausible "
-                + "wrong dialog rather than nothing, so the error does not announce itself."),
+            // ATUMemoriesDialog WAS HERE and came off 2026-10-14 (Sprint 48 Track D,
+            // #591, #700): MainWindow.ShowATUMemoriesDialog now constructs it, wired
+            // to FlexBase.ShowATUMemoriesDialog in OnRadioStarted, and the Radio
+            // menu's ATU Memories item now reaches it instead of the frequency
+            // Memories dialog. Staged, unverified until pressed.
             ["PanListDialog"] = new(
                 "NEVER WIRED, and neither half ever was. #482 calls it two implementations of "
                 + "one idea; the lineage is that Radios/PanListForm.cs is Jim's original and "
