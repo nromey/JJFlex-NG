@@ -170,11 +170,33 @@ build that works — which matters this week, because the New York QSO Party is 
 1. **The system-wide noise door, asked three times now and still open, and Saturday is the
    reason it keeps being asked.** Track F moved the ten noise switches into a layer, and
    `SystemWideLeaderKey` refuses to open a layer from outside the app — it drops the layer, plays
-   the invalid tone and says *"That opens a layer, which needs the JJ Flexible Radio window."* **So
-   `Ctrl+Shift+J, Ctrl+B` from N3FJP toggled Don's noise blanker yesterday and now tells him to
-   switch windows**, and the same goes for all ten switches. **Verified against the base commit,
-   not assumed**: `case Keys.B | Keys.Control:` was at line 3721 of `0f2de8ce` and is gone.
-   **Nothing is published, so this is a bench fact and not yet a Don fact.** The choice is to
+   the invalid tone and says *"That opens a layer, which needs the JJ Flexible Radio window."*
+   **Verified against the base commit, not assumed**: `case Keys.B | Keys.Control:` was at line
+   3721 of `0f2de8ce` and is gone, and the same goes for all ten switches.
+
+   **CORRECTED 2026-10-15, SAME SESSION, BEFORE NOEL ACTED ON IT. There is no tester impact and
+   no deadline, and the earlier framing of this item was wrong.** It said
+   *"`Ctrl+Shift+J, Ctrl+B` from N3FJP toggled Don's noise blanker yesterday and now tells him to
+   switch windows."* **`JJFlexWpf/SystemWideKeys.cs` does not exist in Don's build at all** — he
+   is on `4.1.16.2208`, commit `d5ac8b95`, built 2026-10-03, and that file was CREATED by Sprint
+   48 Track B in `c4e9992d` on 2026-10-05, two days later. **The whole system-wide keys feature is
+   unreleased.** Don has never had a system-wide JJ key, has never had `Ctrl+B` for the blanker
+   either (his build reaches it on plain `B`, and calls `rig.NoiseReduction` "Legacy Noise
+   Reduction" on `N`, which is #721's mislabelling), and loses nothing on Saturday because the
+   nightly promote was skipped and he stays on that build.
+
+   **The mechanism, recorded because it is the one that matters:** the diff was read correctly and
+   then described in terms of a person's lived experience without checking which build that person
+   has. **Attaching a tester's name and a date made it read as a field report and stopped it being
+   questioned**, including by me — the same effect `CLAUDE.md` describes when it says "(#345)"
+   reads as already-verified and suppresses scrutiny. The sentence *"nothing is published, so this
+   is a bench fact and not yet a Don fact"* was carried alongside the claim through three
+   retellings; **being true next to a wrong claim is not the same as correcting it**, and it should
+   have been the prompt to go and look at the published build.
+
+   **What survives: a real narrowing of an UNRELEASED feature, and a design question with no
+   deadline.** When system-wide keys do ship, should the noise switches be reachable from outside
+   the app? The choice is to
    **accept the door closing**, or to **give the two or three mid-run chords a top-level binding
    under #702's per-operator mechanism**, which reaches a command directly instead of through a
    layer. Letting a switch-only layer open from outside is the option that looks obvious and is
