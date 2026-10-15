@@ -1334,20 +1334,30 @@ As tracks complete, Claude Desktop handles merges and keeps the user informed:
    `DelegateSurfaceScan`), and starting from a grep is starting from zero next
    to a tool that was built for it.
 
-   **`DelegateSurfaceTests` is RED, and the count depends on your WORKING COPY rather than on
-   the commit — measured 2026-10-06: 394 hooks scanned, 101 findings in a clean worktree, 100 in
-   the main checkout.** The difference is `flexlib4218/`, an untracked gitignored vendor tree
-   that only the main checkout holds: `DelegateSurfaceScan.CallsiteRoots` is `"."` and `IsVendor`
-   excludes only three named directories, **so the scan reads whatever is lying on the disk.**
-   That is its own defect and #591 now records it. **Do not quote 100 as a fixed number.** The
-   original note, kept because the instruction still stands:
+   **`DelegateSurfaceTests` IS GREEN as of 2026-10-15, and both of the things this paragraph
+   used to warn about are fixed.** Sprint 48 Track D rebuilt the scan rather than tuning it: the
+   corpus is now `git ls-files -z` plus `ls-files -z --others --exclude-standard` with a floor
+   that throws under 300 files, **so it no longer reads whatever is lying on the disk** — the
+   defect that made its own count depend on the working copy rather than on the commit. The unit
+   is now `(owner type, hook name)`, so a `Cleanup()` that nulls a field reads as teardown and not
+   as never-wired. Dead hooks on reachable surfaces went **101 to 11**, with 21 unconstructed
+   types and 11 idle.
 
-   **It was RED as of 2026-09-20, with 100 findings, and
-   that is why it is named here** — it had never been run, because a project a
-   guard refuses is a project nobody watches. Triage is #591; some of the 100
-   are genuine dead hooks of the #109 and #483 class and some are name
-   collisions in the scan. **Do not drop it from this filter to get a green
-   run.**
+   **It is still named here, and the instruction is unchanged: do not drop it from this filter.**
+   The reason has changed, which matters. It used to be here because a project a guard refuses is
+   a project nobody watches. **It is here now because a green test with an exception list is the
+   shape that rots** — a hook gets wired or renamed and its excuse stays behind forever. Track D
+   built the guard against that itself:
+   `Nothing_on_the_exception_lists_has_quietly_been_wired_or_renamed()` fails the day it happens,
+   and `The_scan_sees_each_shape_of_wiring_it_claims_to_see()` holds six permanent positive
+   controls pinning each attribution shape the scan could silently stop seeing. **Read those two
+   before trusting a green run**, and see
+   `memory/feedback_a_test_can_pin_the_bug_as_desired_behaviour.md`.
+
+   **Historical, because the numbers are still quoted in #591 and elsewhere:** it was RED from
+   2026-09-20 with ~100 findings — 101 in a clean worktree and 100 in the main checkout, the
+   difference being `flexlib4218/`, an untracked gitignored vendor tree only the main checkout
+   held. **Do not quote 100 as a current number**; the triage that cleared it is #591's.
 
    **And a merge note with two clauses needs two ticks.** Sprint 44's Track J
    wrote "take K's `LeaderKeyHelp` body, AND replace `OpenKeyExplorer()`'s body

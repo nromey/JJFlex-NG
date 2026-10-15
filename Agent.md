@@ -3,11 +3,195 @@
 This document captures the current state of JJ-Flex repository and active work.
 
 **Repository root:** `C:\dev\JJFlex-NG`
-**Branch:** *(as of 2026-10-05 current work is on `sprint48/*` branches; the merge target is `sprint48/track-a`, which carries Tracks A, B and C. This line said `sprint45/*` until then — and said `honest-tx-audio` long after that stopped being true, which is the same drift the note below warns about. Run `git rev-parse --abbrev-ref HEAD`.)* *(historical: as of 2026-09-30 work was on `sprint45/*`; integration was `sprint45/integration`. This header named `honest-tx-audio` as "where all current work lives" long after that stopped being true -- the same drift the note below warns about. Run `git rev-parse --abbrev-ref HEAD`.)* `honest-tx-audio` — historically this era's trunk, 867 commits ahead of `main` and 0 behind (corrected 2026-08-25; it said 19, and had said so for a long time). **The FlexLib fast-forward is DONE:** `main` vendors **FlexLib 4.2.20.41343** as of 2026-08-11, so main and the old track branch no longer diverge and the "305 commits behind" warning that stood here is retired. Verified 2026-08-12: `main` and `honest-tx-audio` share the same last FlexLib commit (`625bdbae`).
+**Branch:** *(as of 2026-10-05 current work is on `sprint48/*` branches; the merge target is `sprint48/track-a`, which as of 2026-10-15 carries **all six Sprint 48 tracks — A, B, C, D, E and F** (containment proven per branch; this line said "A, B and C" until that merge). This line said `sprint45/*` until then — and said `honest-tx-audio` long after that stopped being true, which is the same drift the note below warns about. Run `git rev-parse --abbrev-ref HEAD`.)* *(historical: as of 2026-09-30 work was on `sprint45/*`; integration was `sprint45/integration`. This header named `honest-tx-audio` as "where all current work lives" long after that stopped being true -- the same drift the note below warns about. Run `git rev-parse --abbrev-ref HEAD`.)* `honest-tx-audio` — historically this era's trunk, 867 commits ahead of `main` and 0 behind (corrected 2026-08-25; it said 19, and had said so for a long time). **The FlexLib fast-forward is DONE:** `main` vendors **FlexLib 4.2.20.41343** as of 2026-08-11, so main and the old track branch no longer diverge and the "305 commits behind" warning that stood here is retired. Verified 2026-08-12: `main` and `honest-tx-audio` share the same last FlexLib commit (`625bdbae`).
 
 *This header claimed work lived on `track/flexlib-4220` with main 305 commits behind until 2026-08-12 — a day after the merge made that false. It is the same drift documented in `memory/project_description_drift_pattern.md`; check `git rev-parse --abbrev-ref HEAD` rather than trusting this line.*
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
+
+## END-OF-DAY SEAL — 2026-10-14 AND 2026-10-15 — THREE TRACKS BUILT, THREE TRACKS MERGED, AND A GATE THAT HAD BEEN RED FOR FIVE DAYS
+
+**Written 2026-10-15 at 05:50, covering both unsealed work days.** The previous seal was written
+2026-10-12 at 04:57 and covered 2026-10-07 and 2026-10-10. **2026-10-12 after that commit and the
+whole of 2026-10-13 were genuinely idle on every surface** — counted rather than eyeballed: 20
+commits exist across all refs since that seal, 16 dated 2026-10-14 and 4 dated 2026-10-15, and no
+other repo in `C:\dev` has a commit in the span. Per-day counts were taken with
+`git log --date=format:'%Y-%m-%d' --format='%ad' | sort | uniq -c` **specifically so an absent day
+is visibly absent rather than merely unlisted**, which is the trap the 2026-10-12 seal nearly fell
+into.
+
+**Theme: the sprint's second round went out as three parallel tracks and came back whole.** D, E
+and F each ran as a background `jjflex-track` agent on Fable in its own worktree, all three
+reported complete and clean, and all three merged today with one conflict — the one that could not
+be resolved by picking a side.
+
+### 2026-10-14 — sixteen commits across three track branches
+
+- **Track F (`sprint48/track-f`, 5 commits) — the noise switches became a layer.** Ten switches
+  now live on `Ctrl+J`, `N`, one letter each; compander and speech processor moved into the audio
+  layer beside their levels; the `Shift`-tier debt went **4 to 0** and plain-letter debt **4 to
+  1**; `Ctrl+N` is free again. Item 1 (the digit arms) stayed on **HOLD**, its gate closed by
+  measurement rather than opinion — Noel pressed `Ctrl+1` on the bench 8600 into the dummy load at
+  09:24 and it transmitted: *"control 1 does work."* **Every letter in the new layer is
+  PROVISIONAL and wants Noel's hands on it**, including the three-way `N` collision (noise
+  reduction, radio neural, NR filter).
+- **Track E (`sprint48/track-e`, 8 commits) — the transmit safety paths.** #698 hands a held
+  transmit to `SystemWidePttWatch.HandOffHold` instead of dropping it; #699's kill switch now
+  disarms every armed transmit source; and the #151 VOX half means **a voice message can key a
+  radio on VOX, which it could not before** — so Don's VOX sends had been doing nothing at all,
+  silently. Also the ten-second timeout for a leader layer opened from another program, two
+  separate enable switches, and the system-wide key picker moved into a Settings tab.
+- **Track D (`sprint48/track-d`, 3 commits) — the dead-delegate scan rebuilt rather than tuned.**
+  The corpus is `git ls-files` plus untracked-not-ignored with a floor that throws under 300
+  files, so **the scan no longer reads whatever is lying on the disk** — the defect that made its
+  own count depend on the working copy. Dead hooks on reachable surfaces went **101 to 11**, and
+  **36 hooks were wired**, including all 22 in Memories (#700) and `RadioPaneControl`'s ten
+  (#483) — where **the Radio menu's ATU Memories item had been opening the frequency Memories
+  dialog instead.** Its best move was a refusal: it would not wire
+  `AboutDialog.LaunchConnectionTest`, because that runs 25 connect/disconnect cycles while About
+  is reachable mid-QSO.
+
+### 2026-10-15 — four commits: the merge, and what the merge found
+
+**Merged F, then E, then D**, so D's triage landed against a tree that already had F's hooks.
+**Containment proven for all five Sprint 48 track branches.** Solution build clean, 0 errors.
+**`Radios.Tests` 4,499 passed / 0 failed. Filtered `JJFlexWpf.Tests` 60 passed / 0 failed**, and
+**`DelegateSurfaceTests` is green for the first time since it was written** — legitimately, with
+six permanent positive controls plus an inverse guard that fails the day an excused hook is
+quietly wired or renamed.
+
+- **The one conflict: the lexicon's unclassified constant.** From a base of 3,131, F alone said
+  3,145, E alone 3,129, D alone 3,141. **The merged value is 3,153, read off the gate on the
+  merged tree**, then **shown reachable** by mutating it to 3,154 and watching it fail before
+  restoring. Arithmetic agrees — which is exactly why it was not trusted alone, a day after two
+  numbers agreed by coincidence over CRLF counting.
+- **#719 — the lexicon gate had been RED on `sprint48/track-a` since 2026-10-10.** `90627164`
+  applied Noel's *"when you're away from home"* wording and reworded three strings whose text the
+  migration manifest fingerprints, without updating those lines. **The merge did not break it, the
+  merge revealed it** — all three tracks were cut from `0f2de8ce`, which predates that commit, so
+  all three were honestly green. **The reason nobody noticed for five days is that the seal has no
+  step that runs the test suite**, and a docs-and-strings day is exactly the day skipping it feels
+  free. Recommendation filed; not added to `CLAUDE.md` unilaterally because lengthening the seal
+  is Noel's call.
+- **#720 — twenty-four strings were frozen against Noel's classify-don't-freeze ruling.** D froze
+  ten, F fourteen, each citing the every-track-so-far precedent that the ruling names and
+  overrules. **D's brief never cited #151 at all; F's did, and still missed it**, because the
+  ruling sits deep inside an enormous entry about voice messages. **Track E, whose brief carried
+  the rule in its own words, not only obeyed it but classified the first seven keys ever
+  classified outside `facts.*`** — so the technical excuse for freezing is gone.
+- **#721 — a chord was toggling the wrong noise reducer.** The old top-level chord called
+  `rig.NoiseReduction` "Legacy Noise Reduction"; `rig.NoiseReduction` is the slice's `NROn`, the
+  **standard** reducer, while the real Legacy LMS switch is `NoiseReductionLegacy` / `NRLOn`. F
+  corrected the name on the way in. What remains: the real Legacy LMS switch is reachable from the
+  DSP menu and the Home fields panel and **by no keyboard chord at all.**
+- **#722 — the near-miss mis-advises an old-map hand for ten of the thirteen moved chords**,
+  because its vocabulary names top-level chords and the new homes are two keys deep. Derived from
+  the tables, **not measured by pressing**, and it must be confirmed by pressing. It matters
+  because the changelog promises outright that pressing an old key tells you the new one.
+- **#723 — a track agent wrote its test mutation into the main repo instead of its worktree.** An
+  orphaned `case Keys.F7:` was found in `JJFlexWpf/KeyCommands.cs` on the merge target, mtime
+  2026-10-14 12:06, while Track F's own worktree was clean. **This is the missing half of a line in
+  F's report**: it said its first plant *"silently did not land and the test passed green"* — it
+  landed here, and the test was green because the test ran elsewhere. It also stripped the file's
+  UTF-8 BOM. Nothing was damaged, and the floor that held is narrow: git refuses a merge that would
+  overwrite local changes to a file the merge touches, and F's merge touched that file heavily.
+
+### Cross-surface activity
+
+- **JJFlex-NG:** 20 commits since the last seal (16 on 10-14 across three track branches, 4 today
+  on `sprint48/track-a`). All five Sprint 48 track branches contained. Tree clean.
+- **Every other repo in `C:\dev`: zero commits in the span.** Freight Fate still sits on **16
+  unpushed commits** and rigmeter on 13; both have been carried for a while and **pushing them is
+  Noel's call, not a sealing session's.** `jjf-private` shows 655 unpushed, which is correct and
+  permanent — it has no remote and a `pre-push` hook that refuses.
+- **Memory:** three entries appended today, **no new files**, so `MEMORY.md` and the topic indexes
+  are unchanged — today's lessons were new mechanisms inside families that already had a home
+  (`feedback_prohibitions_in_briefs_need_opened_evidence`,
+  `feedback_mutation_testing_needs_an_isolated_worktree`,
+  `feedback_agent_worktrees_are_cut_from_a_stale_base`). One cross-reference corrected in
+  `reference_smartsdr_v4_license_tiers` — Noel's 8600 has no Plus license today, where that entry
+  still said TBD. Yesterday's three memory writes (SmartSDR Plus tester access, the v4 license
+  tiers, and the testing index pointer) were read in full as part of this sweep.
+- **Register:** #719 through #723 appended. **444 status lines, 432 OPEN, 3 SHIPPED, 8 CLOSED, 1
+  RULED, no duplicate numbers, highest #723.** `open-tasks-summary.md` regenerated and verified
+  newer by mtime than `tasks.md`.
+- **Codex:** no runs in the span. All four checks green — `CodexInstructionFileTests` and
+  `IntegrationPassInstructionTests` 5 passed / 0 failed, the `codex debug prompt-input` positive
+  control finds *"Claude Code leads this"*, `AGENTS.md` is 10,984 bytes (33.5% of the 32 KiB
+  ceiling, test fails above 75%), and no sandbox `setup_error.json`. `codex/coverage-563` is clean
+  and already contained in `track-a`.
+- **Dependency advisories:** zero `NU1902`/`NU1903` lines, counted rather than paged.
+- **Memory drift:** positive control passed. 400 path references checked, 86 missing (41 in
+  entries not marked history); 851 symbol references, 56 named nowhere. **Two of those are in
+  TASKS rather than memory — #154 and #245 — which is the expensive kind, because agents read
+  tasks before writing code.**
+- **NVDA: no speech was captured, and has not been since 2026-10-10.** The process has been up
+  since 01:51 that day with **zero `Speaking` lines** in its log, so it is at INFO, not IO 12.
+  Both logs archived to `JJFlex-private/nvda-logs/2026-10/` dated today; `nvda-logs/` is excluded
+  at that repo's `.gitignore:5`, which is deliberate.
+- **Backups:** AppData config (31 files, 0.03 MB), memory (all 10 projects, JJFlex 312 files /
+  767 KB), Claude state, private docs and the `C:\dev` mirror.
+- **Memory index:** 14.4 KB — over the 12 KB advisory threshold, 5 KB under the harness warning.
+  **Archive sweep run and nothing moved, deliberately:** four entries carry genuine closure
+  banners and two more are "superseded in part" so they still hold live content, and **none of the
+  four is linked from the always-loaded core**, so archiving them buys no headroom where it
+  matters. The only way to shrink the core from here is to demote reflex-triggered rules, which
+  `CLAUDE.md` forbids.
+
+### THE NIGHTLY PROMOTE WAS DELIBERATELY SKIPPED
+
+**Not run, and the reason is the rule added 2026-10-02.** This merge's testable surface is
+**unexercised in both of the ways that rule cares about**: every chord in the new noise layer is
+unpressed — F's own changelog text says *"Every chord in it wants pressing before this ships"* —
+and Track E's three changes are all **transmit paths** (#698's held-transmit hand-off, #699's
+source disarm, and a VOX send that keys the radio) which have never been exercised on a radio.
+**A build is promotable when its changes have been exercised, not when it compiles.** The NAS
+archive is the durability layer and is complete, so skipping costs nothing and leaves Don on a
+build that works — which matters this week, because the New York QSO Party is ~2026-10-17 and
+**Don must not update to 4.3.16 before it.**
+
+### Rigmeter snapshot — end of 2026-10-15
+
+**Two spans, because a seal four days after the last one needs both.**
+
+- **Today only (since local midnight):** 4 commits. Work summed across commits **+3,340 / -599,
+  net +2,741**, 36 files touched. Repository size change **+2,762**. By type: C# +2,768/-542 over
+  24 files, Markdown +508/-45 over 6, JSON +33/-5, TSV +29/-5, XAML +2/-2.
+- **The seal's real span, `from 2026-10-12`:** 22 commits, **+5,551 / -1,096, net +4,455**, 56
+  files. C# +5,150/-1,040 over 45 files. **Report this one when asked what the span did** — the
+  today-only figure omits all sixteen of the track commits.
+- Authored scale for the span: ~3.2 braille volumes, 4.3 hours of read-aloud, 110 printed pages.
+- Snapshot written to `historical\stats\2026-10-15-779cbd47.json`. **Tool note:** rigmeter warned
+  that tokei language `INI` (1 file) is in neither its language map nor its ignore list, so those
+  lines are being dropped — a small gap in the tool, not in the measurement of code.
+
+### Setup for tomorrow — two decisions of Noel's, and one of them has a deadline
+
+1. **The system-wide noise door, asked three times now and still open, and Saturday is the
+   reason it keeps being asked.** Track F moved the ten noise switches into a layer, and
+   `SystemWideLeaderKey` refuses to open a layer from outside the app — it drops the layer, plays
+   the invalid tone and says *"That opens a layer, which needs the JJ Flexible Radio window."* **So
+   `Ctrl+Shift+J, Ctrl+B` from N3FJP toggled Don's noise blanker yesterday and now tells him to
+   switch windows**, and the same goes for all ten switches. **Verified against the base commit,
+   not assumed**: `case Keys.B | Keys.Control:` was at line 3721 of `0f2de8ce` and is gone.
+   **Nothing is published, so this is a bench fact and not yet a Don fact.** The choice is to
+   **accept the door closing**, or to **give the two or three mid-run chords a top-level binding
+   under #702's per-operator mechanism**, which reaches a command directly instead of through a
+   layer. Letting a switch-only layer open from outside is the option that looks obvious and is
+   not: for `B` to reach the layer the global hook must swallow it before N3FJP sees it, and **in a
+   contest logger, letters are callsigns.** The question that needs Noel: **which chords does Don
+   actually need mid-run?** F speculates the APF and the blanker.
+2. **#720's twenty-four keys.** Roughly fourteen are static names and labels and are mechanical;
+   the rest are receipts, refusals and errors, and the **past-tense perishable ones need a
+   `HistoryKey` in wording that is Noel's.** The three re-frozen SmartLink fingerprints join that
+   pass. Never batch-defaulted — #617 names a wrong default applied to hundreds of strings at once
+   as the expensive mistake.
+3. **Owed at the radio, and only Noel can run them:** #659's flash pair (4.2.18 `875d604b` →
+   4.2.20 `0aa22ff0`, both hash-verified in `C:\temp`) **before any 4.3 install**; the Step 2
+   registration line verbatim to settle #712 against #713; and a DVK download over SmartLink,
+   which is the one thing that would confirm whether the radio's dial-out transport survives NAT.
+4. **Still unpressed, and the keyboard audit requires it:** every chord in the noise layer, the
+   three moved in-layer audio chords, and #722's near-miss behaviour for the ten moved chords.
 
 ## END-OF-DAY SEAL — 2026-10-07 AND 2026-10-10 — TWO WORK DAYS, ELEVEN FINDINGS, AND SIX STRINGS OF PRODUCT CODE
 
