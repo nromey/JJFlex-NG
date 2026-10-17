@@ -1408,25 +1408,24 @@ public class NativeMenuBar : IDisposable
         var rig = Rig;
         if (rig == null) return "No radio connected.";
 
-        if (!rig.NeuralNRHardwareSupported)
-        {
-            return "This radio model does not have the DSP hardware for the advanced "
-                 + "noise reduction family — RNN, spectral NR and the NR filter. Legacy NR "
-                 + "and the noise blankers above work on every model, and JJ Flex's own "
-                 + "PC-side noise reduction runs on this computer and works on every radio.";
-        }
-
-        // Never reported: we do not know, so we do not say. The toggles stay.
-        if (!rig.NoiseReductionLicenseReported) return null;
-
-        if (!rig.NoiseReductionLicensed)
-        {
-            return "Your radio reports that the advanced noise reduction features are not "
-                 + "included in its current subscription. JJ Flex's own PC-side noise "
-                 + "reduction runs on this computer instead and needs no subscription.";
-        }
-
-        return null;
+        // THE LADDER MOVED, AND THIS IS NOW A READER OF IT (#726).
+        //
+        // Being private here is precisely why a second surface could not reuse
+        // it: the key layer needed the same answer, could not reach this, and
+        // wrote a worse one three lines wide that tested the model string and
+        // never the licence (#725). The ladder — and the two paragraphs of
+        // prose that used to live in this method, byte for byte — are now in
+        // FlexBase.Capabilities.cs, where every road can reach them.
+        //
+        // The asymmetry this method documented is preserved there and is worth
+        // restating: hardware is a fact we hold locally, so "your model does
+        // not have the DSP for it" is safe to state. A licence we have never
+        // been told about is not evidence of anything, so an unreported licence
+        // leaves the controls in place rather than declaring a subscribed
+        // feature missing. Only a positively-reported disabled licence produces
+        // a subscription message.
+        return rig.CapabilityWriteRefusal(
+            Radios.RadioCapability.NoiseReductionNeural, Radios.FlexBase.CapabilityWording.Long);
     }
 
     /// <summary>

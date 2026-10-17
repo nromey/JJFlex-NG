@@ -103,18 +103,107 @@ public static class KeyLayerHelp
 
     /// <summary>The short form: "{count} keys in {layer}: key, what it does; ..."</summary>
     public static string SpokenList(string layerContext)
+        => SpokenList(layerContext, null, null);
+
+    /// <summary>
+    /// The short form, with keys this radio cannot use lifted out of the
+    /// recitation and named together in one closing sentence.
+    /// </summary>
+    /// <param name="unavailableKeys">
+    /// Keys to lift out, matched against the same strings the recitation would
+    /// have spoken. Null or empty behaves exactly as the plain overload.
+    /// </param>
+    /// <param name="closingSentence">
+    /// Said after the rows when anything was lifted out. It is the caller's job
+    /// to name the keys in it, because only the caller knows WHY they are shut
+    /// and therefore which sentence is honest.
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// <b>Ruled by Noel 2026-10-17</b>, choosing this over marking each gated
+    /// row "not available on this radio" in place. The reasoning was length and
+    /// usefulness: the noise layer already recites fifteen full sentences, and
+    /// marking three of them in place makes the longest thing in the layer
+    /// longer while scattering the useful part — the alternative that DOES work
+    /// — across three fragments. One closing sentence says it once.
+    /// </para>
+    /// <para>
+    /// <b>This is not hiding, and the distinction is the ruling.</b> Noel's
+    /// standing rule is that an unavailable feature stays present, marked, and
+    /// self-explaining — "I hesitate to hide menu items / expanders" — and that
+    /// is about removing a CONTROL. These keys are still bound, still pressable,
+    /// and still explain themselves when pressed; they are named in the closing
+    /// sentence rather than deleted from the operator's world. What changes is
+    /// only where they are named.
+    /// </para>
+    /// <para>
+    /// <b>The known cost, accepted when it was ruled:</b> the count now varies
+    /// by radio — twelve on a 6300, fifteen on a licensed 8600 — so the list is
+    /// not the same length everywhere.
+    /// </para>
+    /// </remarks>
+    public static string SpokenList(
+        string layerContext,
+        IReadOnlyCollection<string>? unavailableKeys,
+        string? closingSentence)
     {
         var rows = Rows(layerContext);
+
+        bool anyLifted = false;
         var sb = new StringBuilder();
         bool first = true;
+        int count = 0;
+
         foreach (var (key, description) in rows)
         {
+            if (unavailableKeys != null && unavailableKeys.Contains(key))
+            {
+                anyLifted = true;
+                continue;
+            }
+
             if (!first) sb.Append("; ");
             sb.Append(Radios.Lexicon.Get("leader.help.row", ("key", key), ("description", description)));
             first = false;
+            count++;
         }
-        return Radios.Lexicon.Get("leader.help.spoken",
-            ("count", rows.Count), ("layer", LayerName(layerContext)), ("rows", sb.ToString()));
+
+        string spoken = Radios.Lexicon.Get("leader.help.spoken",
+            ("count", count), ("layer", LayerName(layerContext)), ("rows", sb.ToString()));
+
+        // Only when something was actually lifted. A closing sentence about
+        // nothing would be a sentence the operator has to listen past on every
+        // radio that has no problem at all.
+        if (anyLifted && !string.IsNullOrWhiteSpace(closingSentence))
+        {
+            spoken = spoken + " " + closingSentence;
+        }
+
+        return spoken;
+    }
+
+    /// <summary>
+    /// "R", "R and S", "R, S and Ctrl+N" — the spoken form of a key list.
+    /// </summary>
+    /// <remarks>
+    /// Spelled out rather than comma-joined because a screen reader reads a
+    /// trailing comma list as an unfinished thought, and the closing sentence
+    /// is the one place the gated keys are named at all.
+    /// </remarks>
+    public static string SpeakKeyList(IReadOnlyList<string> keys)
+    {
+        if (keys == null || keys.Count == 0) return string.Empty;
+        if (keys.Count == 1) return keys[0];
+        if (keys.Count == 2) return keys[0] + " and " + keys[1];
+
+        var sb = new StringBuilder();
+        for (int i = 0; i < keys.Count - 1; i++)
+        {
+            if (i > 0) sb.Append(", ");
+            sb.Append(keys[i]);
+        }
+        sb.Append(" and ").Append(keys[keys.Count - 1]);
+        return sb.ToString();
     }
 
     public static string ListTitle(string layerContext, int count)

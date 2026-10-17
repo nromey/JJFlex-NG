@@ -867,6 +867,30 @@ namespace Radios.Tests
                 "settings.systemwide_keys.transmit_enabled_help",
                 "settings.keys.editor.systemwide_route",             // Sprint 48 Track E, #307 Item 6
                 "settings.systemwide_keys.reset_help",               // Sprint 48 Track E, #307 Item 6
+
+                // #726, the capability gate, 2026-10-17. Classified rather
+                // than frozen because they were written here, not inherited
+                // from a branch older than the store.
+                //
+                // delivery: null - TextOnly - is an affirmative judgement, not
+                // the easy answer. Each of these is spoken ONLY in answer to a
+                // press: the three refusals when the operator presses R, S or
+                // Ctrl+N on a radio that cannot run them, and the two closing
+                // sentences as part of the H list they asked for. The
+                // application never says any of them on its own account, so
+                // none has a shelf life.
+                //
+                // Their three older siblings - audio.nr.neural_unsupported,
+                // .spectral_unsupported and .filter_unsupported, the hardware
+                // half of the same refusals - are legacy bare strings still in
+                // the manifest. WHEN THE PASS REACHES THOSE, DECIDE ALL SIX
+                // TOGETHER: splitting one family's classification across two
+                // judgements is how a surface ends up half-presentable.
+                "audio.nr.neural_unsubscribed",
+                "audio.nr.spectral_unsubscribed",
+                "audio.nr.filter_unsubscribed",
+                "audio.noise_layer.gated_keys_unavailable",
+                "audio.noise_layer.gated_keys_unsubscribed",
             };
 
             Assert.Equal(3153, unclassified);

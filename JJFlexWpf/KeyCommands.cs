@@ -5158,9 +5158,26 @@ public class KeyCommands
             return why;
         }
 
-        string? NeuralGate() => rig.NeuralNRHardwareSupported ? null : Radios.Lexicon.Get("audio.nr.neural_unsupported");
-        string? SpectralGate() => rig.NeuralNRHardwareSupported ? null : Radios.Lexicon.Get("audio.nr.spectral_unsupported");
-        string? FilterGate() => rig.NeuralNRHardwareSupported ? null : Radios.Lexicon.Get("audio.nr.filter_unsupported");
+        // THE GATED THREE, DECLARED ONCE. The refusals and the H list both read
+        // these pairs, so they cannot disagree about which keys are shut - which
+        // is the whole lesson of #725, where three surfaces each answered the
+        // question separately and the newest one answered it wrongly.
+        var gatedSwitches = new[]
+        {
+            (Key: "R", Capability: Radios.RadioCapability.NoiseReductionNeural),
+            (Key: "S", Capability: Radios.RadioCapability.NoiseReductionSpectral),
+            (Key: "Ctrl+N", Capability: Radios.RadioCapability.NoiseReductionFilter),
+        };
+
+        // These three tested the MODEL STRING and never the licence, so an
+        // 8600 whose subscription does not include advanced NR heard "On-Radio
+        // Neural NR on" while the radio ignored the command (#725). One ladder
+        // answers hardware and licence now, hardware first so a 6300 owner is
+        // told their model cannot do it and is never invited to buy a licence
+        // that would do nothing for them.
+        string? NeuralGate() => rig.CapabilityWriteRefusal(Radios.RadioCapability.NoiseReductionNeural);
+        string? SpectralGate() => rig.CapabilityWriteRefusal(Radios.RadioCapability.NoiseReductionSpectral);
+        string? FilterGate() => rig.CapabilityWriteRefusal(Radios.RadioCapability.NoiseReductionFilter);
         string? ApfGate()
         {
             string? mode = rig.Mode;
@@ -5259,7 +5276,34 @@ public class KeyCommands
             // no "what is picked" half to say.
             DescribeLayerEntry = layer => Radios.Lexicon.Get("audio.noise_layer.entered",
                 Radios.ScreenReaderOutput.CurrentVerbosity),
-            DescribeLayerHelp = layer => KeyLayerHelp.SpokenList(KeyInventory.NoiseLayerContext),
+            // H lists the keys this radio can actually use, and names the gated
+            // ones together in one closing sentence - ruled by Noel 2026-10-17
+            // over marking each gated row in place. The keys stay bound,
+            // pressable and self-explaining; only where they are named changes.
+            DescribeLayerHelp = layer =>
+            {
+                var closed = gatedSwitches.Where(g => rig.CapabilityIsClosedOnThisRadio(g.Capability)).ToList();
+                if (closed.Count == 0) return KeyLayerHelp.SpokenList(KeyInventory.NoiseLayerContext);
+
+                // Hardware and subscription are different sentences, and the
+                // honest one depends on why. If a radio somehow has both
+                // reasons across the three, hardware wins: it is the permanent
+                // fact, and telling somebody about a subscription for a feature
+                // their radio cannot run is the actively harmful error.
+                bool anyHardware = closed.Any(g =>
+                    rig.CapabilityClosedReason(g.Capability) == Radios.CapabilityBlock.Hardware);
+
+                string sentence = Radios.Lexicon.Get(
+                    anyHardware
+                        ? "audio.noise_layer.gated_keys_unavailable"
+                        : "audio.noise_layer.gated_keys_unsubscribed",
+                    ("keys", KeyLayerHelp.SpeakKeyList(closed.Select(g => g.Key).ToList())));
+
+                return KeyLayerHelp.SpokenList(
+                    KeyInventory.NoiseLayerContext,
+                    closed.Select(g => g.Key).ToHashSet(StringComparer.OrdinalIgnoreCase),
+                    sentence);
+            },
             DescribeClosed = () => Radios.Lexicon.Get("audio.noise_layer.closed"),
             // #536's rule, as the audio layer applies it: say that everything
             // went back, not what each switch went back to.

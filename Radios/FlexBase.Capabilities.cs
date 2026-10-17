@@ -117,6 +117,13 @@ namespace Radios
             /// </summary>
             public string LicenceDisabledFallbackText { get; init; } = string.Empty;
 
+            /// <summary>
+            /// Lexicon key for the SHORT licence refusal — a key layer cannot
+            /// speak a paragraph. Falls back to
+            /// <see cref="LicenceDisabledFallbackText"/> when absent.
+            /// </summary>
+            public string? LicenceDisabledShortKey { get; init; }
+
             /// <summary>Menu-length licence refusal, when one differs from the short form.</summary>
             public string? LicenceDisabledLongText { get; init; }
 
@@ -145,6 +152,7 @@ namespace Radios
                 Licence = r => r.theRadio?.FeatureLicense?.LicenseFeatNoiseReduction,
                 LicenceNotReportedText = null,
                 LicenceDisabledFallbackText = AdvancedNrLicenceProse,
+                LicenceDisabledShortKey = "audio.nr.filter_unsubscribed",
                 LicenceDisabledLongText = AdvancedNrLicenceProse,
                 ModeRequirement = NoiseReductionModeRequirement,
             },
@@ -160,6 +168,7 @@ namespace Radios
                 Licence = r => r.theRadio?.FeatureLicense?.LicenseFeatNoiseReduction,
                 LicenceNotReportedText = null,
                 LicenceDisabledFallbackText = AdvancedNrLicenceProse,
+                LicenceDisabledShortKey = "audio.nr.spectral_unsubscribed",
                 LicenceDisabledLongText = AdvancedNrLicenceProse,
                 ModeRequirement = NoiseReductionModeRequirement,
             },
@@ -175,6 +184,7 @@ namespace Radios
                 Licence = r => r.theRadio?.FeatureLicense?.LicenseFeatNoiseReduction,
                 LicenceNotReportedText = null,
                 LicenceDisabledFallbackText = AdvancedNrLicenceProse,
+                LicenceDisabledShortKey = "audio.nr.neural_unsubscribed",
                 LicenceDisabledLongText = AdvancedNrLicenceProse,
                 ModeRequirement = NoiseReductionModeRequirement,
             },
@@ -335,11 +345,20 @@ namespace Radios
                 if (!feature.FeatureEnabled)
                 {
                     // The radio's own sentence about its own subscription beats
-                    // ours. Only fall back when it supplies none.
-                    string message = feature.FeatureGatedMessage
-                        ?? (wording == CapabilityWording.Long
-                            ? (d.LicenceDisabledLongText ?? d.LicenceDisabledFallbackText)
-                            : d.LicenceDisabledFallbackText);
+                    // ours - EXCEPT where we hold long prose that names a
+                    // working alternative, because the radio cannot know this
+                    // application has a PC-side noise reducer and the operator
+                    // being told what DOES work is worth more than the vendor's
+                    // phrasing of what does not. Descriptors with no long text
+                    // of their own keep preferring the radio, which is how
+                    // diversity behaved before this class existed.
+                    string message =
+                        wording == CapabilityWording.Long && d.LicenceDisabledLongText != null
+                            ? d.LicenceDisabledLongText
+                            : feature.FeatureGatedMessage
+                              ?? (wording == CapabilityWording.Short && d.LicenceDisabledShortKey != null
+                                  ? Lexicon.Get(d.LicenceDisabledShortKey)
+                                  : d.LicenceDisabledFallbackText);
                     return new CapabilityVerdict(capability, CapabilityBlock.LicenceDisabled, message);
                 }
             }
@@ -374,6 +393,69 @@ namespace Radios
             if (verdict.Allowed) return null;
             if (verdict.Block == CapabilityBlock.LicenceNotReported) return null;
             return string.IsNullOrEmpty(verdict.Message) ? null : verdict.Message;
+        }
+
+        /// <summary>
+        /// Whether this class of reason actually stops a write.
+        /// </summary>
+        /// <remarks>
+        /// <b>One predicate, so the gate and every presentation that explains it
+        /// cannot disagree.</b> A key layer that announced a refusal the setter
+        /// then let through would be #725 inverted — the announcement and the
+        /// radio saying different things — which is the whole defect, not a
+        /// smaller version of it.
+        /// </remarks>
+        internal static bool BlocksWrite(CapabilityBlock block)
+            => block == CapabilityBlock.Hardware
+               || block == CapabilityBlock.LicenceDisabled
+               || block == CapabilityBlock.Resource;
+
+        /// <summary>
+        /// The refusal a presentation should speak when the operator presses
+        /// this capability's control, or null when the write would go through.
+        /// </summary>
+        /// <remarks>
+        /// Use this rather than <see cref="CapabilityRefusal"/> wherever the
+        /// answer is about to be SPOKEN in response to a press: it agrees with
+        /// the setter by construction, including about mode, which the ladder
+        /// reports but the write gate currently treats as advisory.
+        /// </remarks>
+        public string? CapabilityWriteRefusal(
+            RadioCapability capability, CapabilityWording wording = CapabilityWording.Short)
+        {
+            var verdict = EvaluateCapability(capability, wording);
+            if (!BlocksWrite(verdict.Block)) return null;
+            return string.IsNullOrEmpty(verdict.Message) ? null : verdict.Message;
+        }
+
+        /// <summary>
+        /// True when this radio cannot use the capability at all — its hardware
+        /// lacks it, or its licence positively says no.
+        /// </summary>
+        /// <remarks>
+        /// <b>Deliberately narrower than "refused".</b> A missing antenna, the
+        /// wrong mode and a slice not yet selected are all things the operator
+        /// can change in the next ten seconds, so they are not facts about the
+        /// radio and must not make a control disappear from a list. An
+        /// unreported licence is excluded for the same reason it never refuses:
+        /// not knowing is not a no.
+        /// </remarks>
+        public bool CapabilityIsClosedOnThisRadio(RadioCapability capability)
+        {
+            var block = EvaluateCapability(capability).Block;
+            return block == CapabilityBlock.Hardware || block == CapabilityBlock.LicenceDisabled;
+        }
+
+        /// <summary>
+        /// Why this radio cannot use the capability, as a block class, or
+        /// <see cref="CapabilityBlock.None"/> when it can.
+        /// </summary>
+        public CapabilityBlock CapabilityClosedReason(RadioCapability capability)
+        {
+            var block = EvaluateCapability(capability).Block;
+            return block == CapabilityBlock.Hardware || block == CapabilityBlock.LicenceDisabled
+                ? block
+                : CapabilityBlock.None;
         }
 
         /// <summary>
@@ -426,6 +508,31 @@ namespace Radios
                     "CapabilityWrite dropped (transient): " + capability + " block=" + verdict.Block,
                     TraceLevel.Verbose);
                 return true;
+            }
+
+            // MODE IS ADVISORY HERE, AND DELIBERATELY NOT A REFUSAL YET.
+            //
+            // The ladder reports it so a status readout can explain itself, but
+            // the write still goes through. The belief that these features are
+            // unavailable in CW or FM comes from ONE status builder in this
+            // codebase and has never been checked against a radio - and the
+            // cost of being wrong is asymmetric. If the belief is right we send
+            // a command the radio ignores, which is what happened before this
+            // class existed. If it is wrong and we refuse, we have taken a
+            // working feature away in a whole class of modes, which is exactly
+            // the defect #726 exists to prevent, rebuilt by the fix for it.
+            //
+            // One reading at the radio settles it: turn NR on in CW and see
+            // whether the radio reports it on. Until then the gate does not act
+            // on a belief it cannot source.
+            // Routed through the one predicate so a presentation asking "will
+            // this be refused?" gets the same answer the setter acts on.
+            if (!BlocksWrite(verdict.Block))
+            {
+                Tracing.TraceLine(
+                    "CapabilityWrite allowed, block is advisory: " + capability
+                    + " block=" + verdict.Block + " msg=" + verdict.Message, TraceLevel.Verbose);
+                return false;
             }
 
             Tracing.TraceLine(
