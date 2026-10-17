@@ -535,6 +535,27 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>runtimes\win-x64\native\nvdaControllerClient.LICENSE.txt</Link>
     </Content>
+    <!-- DeepFilterNet3 (#731, Sprint 48 Track G): its C API built from upstream
+         tag v0.5.6 as df.dll and shipped renamed, the upstream model archive it
+         must be given a path to, and the library's two licences (MIT OR
+         Apache-2.0). Loaded by ABSOLUTE PATH from JJFlexWpf\DeepFilterNet3Engine.cs,
+         with NativeLoader.vb saying where. Not selectable by an operator yet. -->
+    <Content Include="runtimes\win-x64\native\deepfilter.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>runtimes\win-x64\native\deepfilter.dll</Link>
+    </Content>
+    <Content Include="runtimes\win-x64\native\DeepFilterNet3_onnx.tar.gz">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>runtimes\win-x64\native\DeepFilterNet3_onnx.tar.gz</Link>
+    </Content>
+    <Content Include="runtimes\win-x64\native\deepfilter.LICENSE-MIT.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>runtimes\win-x64\native\deepfilter.LICENSE-MIT.txt</Link>
+    </Content>
+    <Content Include="runtimes\win-x64\native\deepfilter.LICENSE-APACHE.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>runtimes\win-x64\native\deepfilter.LICENSE-APACHE.txt</Link>
+    </Content>
   </ItemGroup>
   <ItemGroup Condition="'$(Platform)'=='x86'">
     <Content Include="runtimes\win-x86\native\portaudio.dll">
@@ -556,6 +577,23 @@
     <Content Include="runtimes\win-x86\native\nvdaControllerClient.LICENSE.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>runtimes\win-x86\native\nvdaControllerClient.LICENSE.txt</Link>
+    </Content>
+    <!-- DeepFilterNet3: the x86 build of the same pin. See the x64 group. -->
+    <Content Include="runtimes\win-x86\native\deepfilter.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>runtimes\win-x86\native\deepfilter.dll</Link>
+    </Content>
+    <Content Include="runtimes\win-x86\native\DeepFilterNet3_onnx.tar.gz">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>runtimes\win-x86\native\DeepFilterNet3_onnx.tar.gz</Link>
+    </Content>
+    <Content Include="runtimes\win-x86\native\deepfilter.LICENSE-MIT.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>runtimes\win-x86\native\deepfilter.LICENSE-MIT.txt</Link>
+    </Content>
+    <Content Include="runtimes\win-x86\native\deepfilter.LICENSE-APACHE.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>runtimes\win-x86\native\deepfilter.LICENSE-APACHE.txt</Link>
     </Content>
   </ItemGroup>
 

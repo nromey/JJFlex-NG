@@ -13,6 +13,24 @@ namespace JJFlexWpf
     /// Uses FftSharp for FFT/IFFT processing with overlap-add reconstruction.
     /// Sprint 25 Phase 11.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Each channel is processed on its own (#732, Sprint 48 Track G).</b>
+    /// This used to read channel 0, subtract, and write the result into every
+    /// channel, which replaced a right-panned slice with the left channel's
+    /// audio. Every channel now has its own frame accumulator, overlap-add
+    /// ring and noise profile; the arithmetic per channel is unchanged.
+    /// </para>
+    /// <para>
+    /// <b>Profiles.</b> A profile captured live is captured per channel, so
+    /// each channel subtracts the noise it actually carries. The saved file
+    /// still holds ONE spectrum (the format is unchanged): it is the per-bin
+    /// maximum across the channels, because a channel that is silent says
+    /// nothing about the band, and with the channels identical (one slice,
+    /// centred) that is exactly the channel-0 spectrum it always saved. A
+    /// loaded profile is applied to every channel.
+    /// </para>
+    /// </remarks>
     public class SpectralSubtractionProvider : ISampleProvider
     {
         private readonly ISampleProvider? _source;
@@ -29,24 +47,31 @@ namespace JJFlexWpf
         // That is a DSP decision, not a dependency upgrade.
         private readonly double[] _window;
         private readonly double[] _fftBuffer;
-        private readonly double[] _overlapBuffer;
 
-        // Noise profile (averaged magnitude spectrum)
-        private double[]? _noiseProfile;
-        private readonly List<double[]> _samplingFrames = new();
+        private const int OutputBufferSize = FftSize * 4; // ring buffer
+
+        /// <summary>
+        /// Everything that used to be one set of fields for channel 0, now one
+        /// per channel: input accumulation, the overlap-add output ring, and
+        /// the noise profile and its capture.
+        /// </summary>
+        private sealed class ChannelState
+        {
+            public readonly float[] InputAccum = new float[FftSize];
+            public int InputAccumCount;
+            public readonly float[] OutputBuffer = new float[OutputBufferSize];
+            public int OutputReadPos;
+            public int OutputWritePos;
+            public double[]? NoiseProfile;
+            public readonly List<double[]> SamplingFrames = new();
+            public int SampleFramesCaptured;
+        }
+
+        private ChannelState[] _channels;
+
         private bool _sampling;
         private int _sampleFrameTarget;
         private int _sampleFramesCaptured;
-
-        // Input accumulation buffer for building full FFT frames
-        private readonly float[] _inputAccum;
-        private int _inputAccumCount;
-
-        // Output overlap-add buffer
-        private readonly float[] _outputBuffer;
-        private int _outputReadPos;
-        private int _outputWritePos;
-        private const int OutputBufferSize = FftSize * 4; // ring buffer
 
         /// <summary>Whether spectral subtraction is active (subtracting noise).</summary>
         public bool Enabled { get; set; }
@@ -66,7 +91,7 @@ namespace JJFlexWpf
             : 0f;
 
         /// <summary>True if a noise profile has been captured and is ready for subtraction.</summary>
-        public bool HasProfile => _noiseProfile != null;
+        public bool HasProfile => _channels[0].NoiseProfile != null;
 
         /// <summary>Name of the currently loaded profile.</summary>
         public string ProfileName { get; set; } = "";
@@ -82,12 +107,7 @@ namespace JJFlexWpf
             _waveFormat = source.WaveFormat;
             _window = new FftSharp.Windows.Hanning().Create(FftSize);
             _fftBuffer = new double[FftSize];
-            _overlapBuffer = new double[FftSize];
-            _inputAccum = new float[FftSize];
-            _inputAccumCount = 0;
-            _outputBuffer = new float[OutputBufferSize];
-            _outputReadPos = 0;
-            _outputWritePos = 0;
+            _channels = NewChannels(_waveFormat.Channels);
         }
 
         /// <summary>
@@ -100,12 +120,29 @@ namespace JJFlexWpf
             _waveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels);
             _window = new FftSharp.Windows.Hanning().Create(FftSize);
             _fftBuffer = new double[FftSize];
-            _overlapBuffer = new double[FftSize];
-            _inputAccum = new float[FftSize];
-            _inputAccumCount = 0;
-            _outputBuffer = new float[OutputBufferSize];
-            _outputReadPos = 0;
-            _outputWritePos = 0;
+            _channels = NewChannels(channels);
+        }
+
+        private static ChannelState[] NewChannels(int count)
+        {
+            var states = new ChannelState[Math.Max(1, count)];
+            for (int i = 0; i < states.Length; i++) states[i] = new ChannelState();
+            return states;
+        }
+
+        /// <summary>
+        /// The stream's channel count changed: rebuild the per-channel state.
+        /// The profile carries over as a single spectrum applied to every
+        /// channel, the same rule a loaded profile follows, and a capture in
+        /// progress is cancelled because its frames no longer line up.
+        /// </summary>
+        private void EnsureChannels(int channels)
+        {
+            if (channels < 1 || _channels.Length == channels) return;
+            var profile = ProfileForSaving();
+            if (_sampling) CancelSampling();
+            _channels = NewChannels(channels);
+            foreach (var c in _channels) c.NoiseProfile = profile;
         }
 
         /// <summary>
@@ -121,7 +158,11 @@ namespace JJFlexWpf
             int framesPerSecond = WaveFormat.SampleRate / HopSize;
             _sampleFrameTarget = framesPerSecond * durationSeconds;
             _sampleFramesCaptured = 0;
-            _samplingFrames.Clear();
+            foreach (var c in _channels)
+            {
+                c.SamplingFrames.Clear();
+                c.SampleFramesCaptured = 0;
+            }
             _sampling = true;
         }
 
@@ -131,7 +172,7 @@ namespace JJFlexWpf
         public void CancelSampling()
         {
             _sampling = false;
-            _samplingFrames.Clear();
+            foreach (var c in _channels) c.SamplingFrames.Clear();
         }
 
         // NAudio 3.0: ISampleProvider.Read takes a Span<float>. offset/count
@@ -145,6 +186,7 @@ namespace JJFlexWpf
             if (totalRead == 0) return 0;
 
             int channels = WaveFormat.Channels;
+            EnsureChannels(channels);
 
             if (_sampling)
             {
@@ -152,7 +194,7 @@ namespace JJFlexWpf
                 return totalRead;
             }
 
-            if (!Enabled || _noiseProfile == null)
+            if (!Enabled || !HasProfile)
                 return totalRead;
 
             return ProcessSubtraction(buffer, offset, totalRead, channels);
@@ -166,6 +208,7 @@ namespace JJFlexWpf
         public void ProcessInPlace(float[] buffer, int offset, int count, int channels)
         {
             if (count == 0) return;
+            EnsureChannels(channels);
 
             if (_sampling)
             {
@@ -173,38 +216,49 @@ namespace JJFlexWpf
                 return;
             }
 
-            if (!Enabled || _noiseProfile == null) return;
+            if (!Enabled || !HasProfile) return;
             ProcessSubtraction(buffer, offset, count, channels);
         }
 
         private void AccumulateForSampling(Span<float> buffer, int offset, int count, int channels)
         {
-            for (int i = offset; i < offset + count; i += channels)
-            {
-                _inputAccum[_inputAccumCount++] = buffer[i];
+            for (int ch = 0; ch < channels; ch++)
+                AccumulateChannel(_channels[ch], buffer, offset + ch, offset + count, channels);
 
-                if (_inputAccumCount >= FftSize)
+            // Every channel sees the same number of samples, so they reach the
+            // target on the same frame; channel 0 stands for all of them.
+            _sampleFramesCaptured = _channels[0].SampleFramesCaptured;
+            if (_sampleFramesCaptured >= _sampleFrameTarget)
+                FinalizeSampling();
+        }
+
+        private void AccumulateChannel(ChannelState st, Span<float> buffer, int first, int end, int channels)
+        {
+            if (st.SampleFramesCaptured >= _sampleFrameTarget) return;
+
+            for (int i = first; i < end; i += channels)
+            {
+                st.InputAccum[st.InputAccumCount++] = buffer[i];
+
+                if (st.InputAccumCount >= FftSize)
                 {
                     // We have a full frame — FFT it and store the magnitude
                     for (int j = 0; j < FftSize; j++)
-                        _fftBuffer[j] = _inputAccum[j] * _window[j];
+                        _fftBuffer[j] = st.InputAccum[j] * _window[j];
 
                     var spectrum = FftSharp.FFT.Forward(_fftBuffer);
                     var magnitudes = new double[spectrum.Length];
                     for (int k = 0; k < spectrum.Length; k++)
                         magnitudes[k] = spectrum[k].Magnitude;
-                    _samplingFrames.Add(magnitudes);
-                    _sampleFramesCaptured++;
+                    st.SamplingFrames.Add(magnitudes);
+                    st.SampleFramesCaptured++;
 
                     // Shift by HopSize for overlap
-                    Array.Copy(_inputAccum, HopSize, _inputAccum, 0, FftSize - HopSize);
-                    _inputAccumCount = FftSize - HopSize;
+                    Array.Copy(st.InputAccum, HopSize, st.InputAccum, 0, FftSize - HopSize);
+                    st.InputAccumCount = FftSize - HopSize;
 
-                    if (_sampleFramesCaptured >= _sampleFrameTarget)
-                    {
-                        FinalizeSampling();
+                    if (st.SampleFramesCaptured >= _sampleFrameTarget)
                         return;
-                    }
                 }
             }
         }
@@ -213,79 +267,86 @@ namespace JJFlexWpf
         {
             _sampling = false;
 
-            if (_samplingFrames.Count == 0) return;
-
-            int spectrumSize = _samplingFrames[0].Length;
-            _noiseProfile = new double[spectrumSize];
-
-            // Average all captured frames to build the noise profile
-            foreach (var frame in _samplingFrames)
+            foreach (var st in _channels)
             {
-                for (int i = 0; i < spectrumSize && i < frame.Length; i++)
-                    _noiseProfile[i] += frame[i];
-            }
-            for (int i = 0; i < spectrumSize; i++)
-                _noiseProfile[i] /= _samplingFrames.Count;
+                if (st.SamplingFrames.Count == 0) continue;
 
-            _samplingFrames.Clear();
-            Trace.WriteLine($"SpectralSubtraction: noise profile captured ({_sampleFramesCaptured} frames)");
+                int spectrumSize = st.SamplingFrames[0].Length;
+                var profile = new double[spectrumSize];
+
+                // Average all captured frames to build the noise profile
+                foreach (var frame in st.SamplingFrames)
+                {
+                    for (int i = 0; i < spectrumSize && i < frame.Length; i++)
+                        profile[i] += frame[i];
+                }
+                for (int i = 0; i < spectrumSize; i++)
+                    profile[i] /= st.SamplingFrames.Count;
+
+                st.NoiseProfile = profile;
+                st.SamplingFrames.Clear();
+            }
+
+            Trace.WriteLine($"SpectralSubtraction: noise profile captured ({_sampleFramesCaptured} frames, {_channels.Length} channel(s))");
         }
 
         private int ProcessSubtraction(Span<float> buffer, int offset, int totalRead, int channels)
         {
-            // Feed samples into the accumulation buffer
-            for (int i = offset; i < offset + totalRead; i += channels)
-            {
-                _inputAccum[_inputAccumCount++] = buffer[i];
-
-                if (_inputAccumCount >= FftSize)
-                {
-                    ProcessOneFrame();
-
-                    // Shift by HopSize for overlap
-                    Array.Copy(_inputAccum, HopSize, _inputAccum, 0, FftSize - HopSize);
-                    _inputAccumCount = FftSize - HopSize;
-                }
-            }
-
-            // Read processed samples from the output ring buffer back into the caller's buffer
-            int samplesWritten = 0;
-            for (int i = offset; i < offset + totalRead; i += channels)
-            {
-                if (_outputReadPos != _outputWritePos)
-                {
-                    float processed = _outputBuffer[_outputReadPos];
-                    _outputReadPos = (_outputReadPos + 1) % OutputBufferSize;
-                    buffer[i] = processed;
-                    // Copy to other channels
-                    for (int ch = 1; ch < channels && i + ch < offset + totalRead; ch++)
-                        buffer[i + ch] = processed;
-                    samplesWritten++;
-                }
-            }
-
+            for (int ch = 0; ch < channels; ch++)
+                SubtractChannel(_channels[ch], buffer, offset + ch, offset + totalRead, channels);
             return totalRead;
         }
 
-        private void ProcessOneFrame()
+        private void SubtractChannel(ChannelState st, Span<float> buffer, int first, int end, int channels)
         {
-            if (_noiseProfile == null) return;
+            // Feed samples into the accumulation buffer
+            for (int i = first; i < end; i += channels)
+            {
+                st.InputAccum[st.InputAccumCount++] = buffer[i];
+
+                if (st.InputAccumCount >= FftSize)
+                {
+                    ProcessOneFrame(st);
+
+                    // Shift by HopSize for overlap
+                    Array.Copy(st.InputAccum, HopSize, st.InputAccum, 0, FftSize - HopSize);
+                    st.InputAccumCount = FftSize - HopSize;
+                }
+            }
+
+            // Read processed samples from the output ring buffer back into the
+            // caller's buffer. Where the ring has nothing yet (the first frame
+            // of a stream), the sample is left as it came in, as it always was.
+            for (int i = first; i < end; i += channels)
+            {
+                if (st.OutputReadPos != st.OutputWritePos)
+                {
+                    buffer[i] = st.OutputBuffer[st.OutputReadPos];
+                    st.OutputReadPos = (st.OutputReadPos + 1) % OutputBufferSize;
+                }
+            }
+        }
+
+        private void ProcessOneFrame(ChannelState st)
+        {
+            var noiseProfile = st.NoiseProfile;
+            if (noiseProfile == null) return;
 
             // Apply window and copy to FFT buffer
             for (int i = 0; i < FftSize; i++)
-                _fftBuffer[i] = _inputAccum[i] * _window[i];
+                _fftBuffer[i] = st.InputAccum[i] * _window[i];
 
             // Forward FFT (in-place, returns complex pairs)
             System.Numerics.Complex[] spectrum = FftSharp.FFT.Forward(_fftBuffer);
 
             // Subtract noise profile from magnitudes, preserving phase
-            for (int i = 0; i < spectrum.Length && i < _noiseProfile.Length; i++)
+            for (int i = 0; i < spectrum.Length && i < noiseProfile.Length; i++)
             {
                 double mag = spectrum[i].Magnitude;
                 double phase = spectrum[i].Phase;
 
                 // Subtract noise with strength scaling
-                double cleanMag = mag - _noiseProfile[i] * Strength;
+                double cleanMag = mag - noiseProfile[i] * Strength;
 
                 // Spectral floor prevents musical noise
                 double floor = mag * SpectralFloor;
@@ -302,18 +363,36 @@ namespace JJFlexWpf
             // Overlap-add into output buffer
             for (int i = 0; i < FftSize; i++)
             {
-                int pos = (_outputWritePos + i) % OutputBufferSize;
-                _outputBuffer[pos] += (float)(_fftBuffer[i] * _window[i]);
+                int pos = (st.OutputWritePos + i) % OutputBufferSize;
+                st.OutputBuffer[pos] += (float)(_fftBuffer[i] * _window[i]);
             }
 
             // Advance write position by HopSize (the non-overlapping portion is now final)
             // Clear the next HopSize samples in the ring buffer for the next overlap-add
             for (int i = 0; i < HopSize; i++)
             {
-                int clearPos = (_outputWritePos + FftSize + i) % OutputBufferSize;
-                _outputBuffer[clearPos] = 0;
+                int clearPos = (st.OutputWritePos + FftSize + i) % OutputBufferSize;
+                st.OutputBuffer[clearPos] = 0;
             }
-            _outputWritePos = (_outputWritePos + HopSize) % OutputBufferSize;
+            st.OutputWritePos = (st.OutputWritePos + HopSize) % OutputBufferSize;
+        }
+
+        /// <summary>
+        /// The one spectrum a saved file holds: per bin, the loudest channel's
+        /// noise. Identical to channel 0 whenever the channels are identical.
+        /// </summary>
+        private double[]? ProfileForSaving()
+        {
+            double[]? merged = null;
+            foreach (var st in _channels)
+            {
+                var p = st.NoiseProfile;
+                if (p == null) continue;
+                if (merged == null) { merged = (double[])p.Clone(); continue; }
+                for (int i = 0; i < merged.Length && i < p.Length; i++)
+                    if (p[i] > merged[i]) merged[i] = p[i];
+            }
+            return merged;
         }
 
         /// <summary>
@@ -328,7 +407,7 @@ namespace JJFlexWpf
                 var data = (NoiseProfileData?)serializer.Deserialize(stream);
                 if (data?.Magnitudes != null)
                 {
-                    _noiseProfile = data.Magnitudes;
+                    foreach (var st in _channels) st.NoiseProfile = data.Magnitudes;
                     ProfileName = data.Name ?? Path.GetFileNameWithoutExtension(filePath);
                     return true;
                 }
@@ -345,7 +424,8 @@ namespace JJFlexWpf
         /// </summary>
         public bool SaveProfile(string filePath, string name, string band = "", string antenna = "")
         {
-            if (_noiseProfile == null) return false;
+            var profile = ProfileForSaving();
+            if (profile == null) return false;
 
             try
             {
@@ -357,7 +437,7 @@ namespace JJFlexWpf
                     CapturedUtc = DateTime.UtcNow,
                     SampleRate = WaveFormat.SampleRate,
                     FftSize = FftSize,
-                    Magnitudes = _noiseProfile
+                    Magnitudes = profile
                 };
 
                 Directory.CreateDirectory(Path.GetDirectoryName(filePath) ?? "");
@@ -376,7 +456,7 @@ namespace JJFlexWpf
         /// <summary>Clear the current noise profile.</summary>
         public void ClearProfile()
         {
-            _noiseProfile = null;
+            foreach (var st in _channels) st.NoiseProfile = null;
             ProfileName = "";
         }
     }

@@ -1,26 +1,53 @@
 ﻿using System;
 using System.Diagnostics;
 using NAudio.Wave;
-using RNNoise.NET;
 
 namespace JJFlexWpf
 {
     /// <summary>
-    /// ISampleProvider wrapper that applies RNNoise neural noise reduction.
-    /// Processes 480-sample frames (10ms at 48kHz) through RNNoise.
-    /// Includes wet/dry mix control via Strength property.
+    /// ISampleProvider wrapper that applies neural noise reduction, one engine
+    /// per channel. RNNoise is the engine the app uses; 480-sample frames
+    /// (10 ms at 48 kHz). Includes wet/dry mix control via Strength property.
     /// Sprint 25 Phase 10.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Sprint 48 Track G (#731, #732):</b> this is now a thin owner of a
+    /// <see cref="PerChannelDenoiserBank"/>. It used to denoise channel 0 and
+    /// write the result into every channel, which replaced a right-panned slice
+    /// with the left channel's audio, and it passed the tail of any buffer that
+    /// was not a whole number of frames through unprocessed. Both are gone; the
+    /// public surface is unchanged.
+    /// </para>
+    /// <para>
+    /// <b>RNNoise remains the only engine the app uses.</b> The engine factory
+    /// constructor exists so code and the offline bench (<c>tools/nrbench</c>)
+    /// can run DeepFilterNet3 through exactly this class; nothing an operator
+    /// can reach selects it.
+    /// </para>
+    /// <para>
+    /// The transmit chain uses this class too (<c>TxAudioConditioning</c>). Its
+    /// stream carries the mono microphone duplicated on both channels, and a
+    /// deterministic engine fed identical channels produces identical output,
+    /// so transmit audio is unchanged; it now costs two engine instances
+    /// instead of one.
+    /// </para>
+    /// </remarks>
     public class NoiseReductionProvider : ISampleProvider, IDisposable
     {
         private readonly ISampleProvider? _source;
         private readonly WaveFormat _waveFormat;
-        private Denoiser? _denoiser;
-        private readonly float[] _frameBuffer;
-        private readonly float[] _originalBuffer;
+        private readonly Func<INeuralDenoiseEngine> _engineFactory;
+        private PerChannelDenoiserBank? _bank;
 
-        // RNNoise expects 480-sample frames (10ms at 48kHz)
-        private const int FrameSize = 480;
+        /// <summary>
+        /// Set whenever a buffer goes by unprocessed (disabled, or a non-voice
+        /// mode), so the next processed buffer drops any audio the carry held
+        /// from before the gap rather than playing it late.
+        /// </summary>
+        private bool _carryStale;
+
+        private bool _disposed;
 
         /// <summary>Whether noise reduction is active.</summary>
         public bool Enabled { get; set; }
@@ -48,18 +75,8 @@ namespace JJFlexWpf
         {
             _source = source;
             _waveFormat = source.WaveFormat;
-            _frameBuffer = new float[FrameSize];
-            _originalBuffer = new float[FrameSize];
-
-            try
-            {
-                _denoiser = new Denoiser();
-            }
-            catch (Exception ex)
-            {
-                Trace.WriteLine($"NoiseReductionProvider: RNNoise init failed: {ex.Message}");
-                _denoiser = null;
-            }
+            _engineFactory = DefaultEngine;
+            _bank = CreateBank(_waveFormat.Channels);
         }
 
         /// <summary>
@@ -67,42 +84,49 @@ namespace JJFlexWpf
         /// Call ProcessInPlace() to process buffers directly.
         /// </summary>
         public NoiseReductionProvider(int sampleRate = 48000, int channels = 2)
+            : this(sampleRate, channels, DefaultEngine)
+        {
+        }
+
+        /// <summary>
+        /// Standalone constructor with a chosen engine, for code and the
+        /// offline bench. Not reachable from anything an operator can select.
+        /// </summary>
+        /// <param name="engineFactory">Called once per channel; each call must return a new instance.</param>
+        public NoiseReductionProvider(int sampleRate, int channels, Func<INeuralDenoiseEngine> engineFactory)
         {
             _source = null;
             _waveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels);
-            _frameBuffer = new float[FrameSize];
-            _originalBuffer = new float[FrameSize];
-
-            try
-            {
-                _denoiser = new Denoiser();
-            }
-            catch (Exception ex)
-            {
-                Trace.WriteLine($"NoiseReductionProvider: RNNoise init failed: {ex.Message}");
-                _denoiser = null;
-            }
+            _engineFactory = engineFactory ?? throw new ArgumentNullException(nameof(engineFactory));
+            _bank = CreateBank(channels);
         }
 
-        // NAudio 3.0: ISampleProvider.Read takes a Span<float>. offset/count
-        // are re-declared here so the body's index arithmetic is unchanged -
-        // buffer[offset + n] indexes a Span exactly as it did an array.
+        /// <summary>Id of the engine this provider runs ("rnnoise" in the app).</summary>
+        public string EngineId => _bank?.EngineFor(0).Id ?? "";
+
+        /// <summary>
+        /// Delay the processed signal currently has, in samples per channel:
+        /// the engine's own (480 for RNNoise) plus any frame carry (0 on
+        /// frame-aligned input).
+        /// </summary>
+        public int LatencySamples => _bank?.LatencySamples ?? 0;
+
+        /// <summary>The bank, for tests and the bench.</summary>
+        internal PerChannelDenoiserBank? Bank => _bank;
+
+        // NAudio 3.0: ISampleProvider.Read takes a Span<float>.
         public int Read(Span<float> buffer)
         {
-            int offset = 0;
-            int count = buffer.Length;
-            int totalRead = _source?.Read(buffer.Slice(offset, count)) ?? 0;
+            int totalRead = _source?.Read(buffer) ?? 0;
 
-            // Pass through if disabled, no denoiser, or auto-disabled for non-voice modes
-            if (!Enabled || _denoiser == null || totalRead == 0)
+            // Pass through if disabled, no engine, or auto-disabled for non-voice modes
+            if (!Enabled || totalRead == 0 || (AutoDisableNonVoice && IsNonVoiceMode(CurrentMode)))
+            {
+                _carryStale = true;
                 return totalRead;
+            }
 
-            if (AutoDisableNonVoice && IsNonVoiceMode(CurrentMode))
-                return totalRead;
-
-            int channels = WaveFormat.Channels;
-            ProcessSamples(buffer, offset, totalRead, channels);
-
+            ProcessSamples(buffer.Slice(0, totalRead), WaveFormat.Channels);
             return totalRead;
         }
 
@@ -113,52 +137,63 @@ namespace JJFlexWpf
         /// </summary>
         public void ProcessInPlace(float[] buffer, int offset, int count, int channels)
         {
-            if (!Enabled || _denoiser == null || count == 0) return;
-            if (AutoDisableNonVoice && IsNonVoiceMode(CurrentMode)) return;
-            ProcessSamples(buffer, offset, count, channels);
+            if (!Enabled || count == 0 || (AutoDisableNonVoice && IsNonVoiceMode(CurrentMode)))
+            {
+                _carryStale = true;
+                return;
+            }
+            ProcessSamples(buffer.AsSpan(offset, count), channels);
         }
 
-        private void ProcessSamples(Span<float> buffer, int offset, int count, int channels)
+        private void ProcessSamples(Span<float> samples, int channels)
         {
-            int sampleIdx = offset;
-            int remaining = count;
+            if (channels < 1 || _disposed) return;
 
-            // Process full frames
-            while (remaining >= FrameSize * channels)
+            var bank = _bank;
+            if (bank == null || bank.Channels != channels)
             {
-                // Extract mono samples (channel 0) and scale to RNNoise range
-                for (int i = 0; i < FrameSize; i++)
-                {
-                    int srcIdx = sampleIdx + i * channels;
-                    float sample = srcIdx < offset + count ? buffer[srcIdx] : 0f;
-                    _originalBuffer[i] = sample;
-                    _frameBuffer[i] = sample * 32767f;
-                }
+                // The stream shape changed under us. A fresh bank per shape,
+                // never one engine stretched over a different channel count.
+                bank?.Dispose();
+                bank = _bank = CreateBank(channels);
+                _carryStale = false;
+            }
+            if (bank == null) return;
 
-                // Process in-place through RNNoise
-                _denoiser.Denoise(new Span<float>(_frameBuffer));
+            // No engine on any channel, and nothing held in the carry: step
+            // aside entirely, so an engine that never loaded leaves the audio
+            // exactly as it was. Once anything is queued, keep going through
+            // the bank, which passes failed frames through itself; bypassing
+            // it then would drop the queued audio and jump the timeline.
+            if (!bank.AnyAvailable && bank.CarryLatencySamples == 0) return;
 
-                // Scale back and write with wet/dry blend
-                for (int i = 0; i < FrameSize; i++)
-                {
-                    float processed = _frameBuffer[i] / 32767f;
-                    float blended = _originalBuffer[i] * (1f - Strength) + processed * Strength;
-                    int dstIdx = sampleIdx + i * channels;
-                    if (dstIdx < offset + count)
-                    {
-                        buffer[dstIdx] = blended;
-                        // Copy to other channels if stereo
-                        for (int ch = 1; ch < channels && dstIdx + ch < offset + count; ch++)
-                            buffer[dstIdx + ch] = blended;
-                    }
-                }
-
-                sampleIdx += FrameSize * channels;
-                remaining -= FrameSize * channels;
+            if (_carryStale)
+            {
+                bank.ClearCarry();
+                _carryStale = false;
             }
 
-            // Remaining samples less than a full frame pass through unprocessed
+            bank.Process(samples, Strength);
         }
+
+        private PerChannelDenoiserBank? CreateBank(int channels)
+        {
+            if (channels < 1) return null;
+            try
+            {
+                var bank = new PerChannelDenoiserBank(_engineFactory, channels);
+                if (!bank.IsAvailable)
+                    Trace.WriteLine($"NoiseReductionProvider: {bank.EngineFor(0).Id} is not available; audio will pass through unprocessed.");
+                return bank;
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"NoiseReductionProvider: engine init failed: {ex.Message}");
+                return null;
+            }
+        }
+
+        private static INeuralDenoiseEngine DefaultEngine() => new RnnoiseEngine();
 
         private static bool IsNonVoiceMode(string mode)
         {
@@ -171,8 +206,9 @@ namespace JJFlexWpf
 
         public void Dispose()
         {
-            _denoiser?.Dispose();
-            _denoiser = null;
+            _disposed = true;
+            _bank?.Dispose();
+            _bank = null;
         }
     }
 }

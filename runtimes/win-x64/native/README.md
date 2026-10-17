@@ -1,9 +1,11 @@
 # x64 Native Libraries
 
 This folder holds the x64 native libraries: `libopus.dll` and `portaudio.dll`
-(audio), `prism.dll` (speech and braille — the screen-reader backend), and
+(audio), `prism.dll` (speech and braille — the screen-reader backend),
 `nvdaControllerClient.dll` (NV Access's own controller client, used ONLY to
-ask NVDA whether an utterance was spoken to the end — see #521).
+ask NVDA whether an utterance was spoken to the end — see #521), and
+`deepfilter.dll` with its model archive (DeepFilterNet3 noise reduction, built
+and benched but not yet selectable — see #731).
 The same recipes build the x86 set — substitute `Win32` for `x64` and target
 `runtimes/win-x86/native/`.
 
@@ -14,6 +16,9 @@ The same recipes build the x86 set — substitute `Win32` for `x64` and target
 - **Prism v0.18.1, pinned at tag commit `d2998e9281806fe1efd3394971c6e44ac11b9e75`**
 - **NVDA controller client 2.0, from the NVDA 2026.2 release archive** (not
   built here — downloaded; see its section below for the hashes)
+- **DeepFilterNet v0.5.6, pinned at tag commit `978576aa8400552a4ce9730838c635aa30db5e61`**,
+  C API only, plus the upstream `DeepFilterNet3_onnx.tar.gz` model from the
+  same commit. No version string of its own; see its section for the hashes
 
 **Both DLLs embed a readable version string, so the binary is the authority.**
 `opus_get_version_string()` returns `libopus 1.6.1`, and `Pa_GetVersionText()`
@@ -185,9 +190,163 @@ you want, record the archive hash, copy `x64/` and `x86/nvdaControllerClient.dll
 here and into `win-x86`, run the recipe above on both, and update the three
 lines that name what should be present and absent.
 
+### DeepFilterNet3 (deepfilter.dll, DeepFilterNet3_onnx.tar.gz) — built here from upstream
+
+**What is shipped, and why it exists.** DeepFilterNet3 is a full-band 48 kHz
+speech denoiser by Hendrik Schröter et al. (FAU Erlangen-Nürnberg), from
+`https://github.com/Rikorose/DeepFilterNet`. Its `libDF` crate has a C API that
+runs the model with `tract`, a pure-Rust ONNX engine, so **no ONNX Runtime is
+involved.** It is the candidate second PC-side receive noise reducer (#731). As
+of Sprint 48 Track G it is built, tested and benched but **nothing an operator
+can reach selects it**; RNNoise is still the only engine the app runs.
+
+Four files, identical layout in both architecture folders:
+
+- `deepfilter.dll` — the C API library. Built as `df.dll` (the crate's library
+  name is `df`) and **renamed**, because a two-letter DLL name is a collision
+  waiting to happen.
+- `DeepFilterNet3_onnx.tar.gz` — upstream's model archive, byte-for-byte from
+  `models/` at the pinned commit (three ONNX graphs and a `config.ini`).
+- `deepfilter.LICENSE-MIT.txt` and `deepfilter.LICENSE-APACHE.txt` — upstream's
+  `LICENSE-MIT` and `LICENSE-APACHE`, renamed so they plainly belong to this
+  library. The code is MIT OR Apache-2.0 at our option.
+
+**Pinned at tag `v0.5.6`, commit `978576aa8400552a4ce9730838c635aa30db5e61`
+(2023-08-31)**, the newest release tag and the one carrying the final
+DeepFilterNet3 model (`models: Update final DeepFilterNet3 model`, `84d57ec`,
+2023-05-23). Upstream's `main` is 89 commits past the tag and its C API differs:
+`df_create` there takes a third `log_level` argument and log-message functions
+exist. **Do not take the binding from `main` or from any other project's copy of
+the header.** The binding in `JJFlexWpf/DeepFilterNet3Engine.cs` is written from
+`libDF/src/capi.rs` at this tag:
+
+- `df_create(const char *path, float atten_lim)` returns the state pointer
+- `df_get_frame_length(state)` returns `size_t` (480 for this model)
+- `df_set_atten_lim(state, float db)`, `df_set_post_filter_beta(state, float beta)`
+- `df_process_frame(state, float *in, float *out)` returns the frame's local SNR in dB; mono, floats in [-1, 1]
+- `df_free(state)`
+- `extern "C"`, which is **cdecl** on x86
+
+**The model must be given as a path; there is no embedded default you can
+reach.** The `capi` feature does switch on `default-model`, which
+`include_bytes!` the archive into `DfParams::default()`, but the C API never
+calls that: `df_create` always does `CStr::from_ptr(path)` then
+`DfParams::new(path)`. **A NULL path is undefined behaviour, not "use the
+default"**, at this tag and on `main` alike. And because nothing reachable calls
+`default()`, the linker drops the embedded copy: searching the built DLL for the
+archive's bytes finds nothing (checked 2026-10-17). So the archive ships beside
+the DLL and the engine passes its path.
+
+**A bad model path ends the process.** The C API reports every failure with
+`.expect(...)`, and the build profile sets `panic = "abort"`. So the engine
+hashes the archive and refuses anything that is not exactly the pinned file
+before it calls `df_create` at all. **When you bump the pin, update
+`DeepFilterNet3Engine.ModelSha256` in the same change**, or the engine will
+correctly refuse the new model and DeepFilterNet3 will be unavailable.
+
+**Exact build, as run 2026-10-17** with `rustc 1.98.0 (88d9e12ae 2026-08-18)`
+and `cargo 1.98.0`:
+
+```bash
+git clone https://github.com/Rikorose/DeepFilterNet.git deepfilternet-build
+cd deepfilternet-build
+git checkout v0.5.6          # <-- the pinned tag; update this line AND the SHA above when you bump it
+# The tag's Cargo.lock pins time 0.3.28, which no longer compiles on current
+# Rust (E0282 in time's format_description parser). time is only a BUILD
+# dependency here (liquid, used by tract-linalg's code generator), so this
+# changes no shipped code. It is the only change to the tree:
+cargo update -p time --precise 0.3.36
+rustup target add i686-pc-windows-msvc     # once, for the x86 build
+for t in x86_64-pc-windows-msvc i686-pc-windows-msvc; do
+  RUSTFLAGS="-C target-feature=+crt-static --remap-path-prefix=C:\\Users\\<you>\\.cargo=/cargo --remap-path-prefix=C:\\path\\to\\deepfilternet-build=/deepfilternet" \
+  cargo rustc --profile release-lto --locked -p deep_filter --lib --crate-type cdylib \
+              --no-default-features --features capi --target $t
+done
+# Copy target/x86_64-pc-windows-msvc/release-lto/df.dll here AS deepfilter.dll,
+# and target/i686-pc-windows-msvc/release-lto/df.dll to ../../win-x86/native/ the same way.
+# Copy models/DeepFilterNet3_onnx.tar.gz, LICENSE-MIT and LICENSE-APACHE beside each.
+```
+
+Why each flag:
+
+- **`cargo rustc --crate-type cdylib`.** At the tag `libDF` declares no crate
+  type, so a plain `cargo build` makes only an `rlib`. Upstream's own C-API
+  workflow (`.github/workflows/build_capi.yml`) uses `cargo-c`'s `cinstall`;
+  this produces the same library without installing `cargo-c`.
+- **`--profile release-lto`** is the profile upstream's C-API workflow uses: fat
+  LTO, stripped, and `panic = "abort"` (see above).
+- **`+crt-static`** matches upstream's `--crt-static` for MSVC: the C runtime
+  is linked in, so the DLL needs no Visual C++ redistributable. Its only imports
+  are Windows system DLLs (`KERNEL32`, `ADVAPI32`, `ntdll`, `bcrypt`,
+  `bcryptprimitives`, `api-ms-win-core-synch-l1-2-0`), checked with
+  `dumpbin /dependents`.
+- **`--remap-path-prefix`**, given both paths in the Windows form the compiler
+  sees (not Git Bash's `/c/...` form, which matches nothing), keeps the build
+  machine's paths out of the panic
+  messages compiled into the binary. Without it the DLL carries the builder's
+  user-profile path dozens of times, and this repository is public.
+- **`--no-default-features --features capi`** leaves out the Vorbis and FLAC
+  decoders the default feature set adds; the C API reads no audio files.
+
+**Record of what is shipped** (SHA-256):
+
+- `deepfilter.dll` x64: `4305FDE2109F60002E02DF3FEFC11F1E20FA99195E29FD2BD06940B45D54D51F`, 12,769,280 bytes
+- `deepfilter.dll` x86: `12278781334765ECF08A0F3530F24DDFE76D0513BD941DB84EDC94D4F2E7AA54`, 10,491,904 bytes
+- `DeepFilterNet3_onnx.tar.gz` (both folders): `C94D91F70911001C946E0FABB4AA9ADC37045F45A03B56008CB0C8244CB63616`, 7,983,136 bytes
+- `deepfilter.LICENSE-MIT.txt`: `24E6BB09C928AF8D8E56268082F87413247CE36B39DD5D33ADD2F9893968065E`
+  with LF line endings, as upstream's git stores it
+- `deepfilter.LICENSE-APACHE.txt`: `1EAEE808C5FB6B4E895BA30425285A5CDC5DD25BBA2CD230F264C2200C331AEC`
+  with LF line endings
+
+A rebuild is not guaranteed to reproduce the DLL hashes bit for bit (the
+linker stamps a timestamp). The model hash is upstream's file and must match
+exactly. **The two licence hashes are of the LF form**, which is what both this
+repository and upstream store; a Windows checkout converts them to CRLF and then
+hashes differently, so compare `git show HEAD:<path>` rather than the working
+copy.
+
+**How to tell what a copy is: it has no version string, so do not invent
+one.** The crate never compiles its own version into the binary (searching for
+`0.5.6` finds nothing) and there is no Win32 version resource. Identify a copy by:
+
+- **Exports** (`dumpbin /exports`): exactly `df_create`, `df_free`,
+  `df_get_frame_length`, `df_process_frame`, `df_process_frame_raw`,
+  `df_set_atten_lim`, `df_set_post_filter_beta`. **The POSITIVE CONTROL is
+  `df_process_frame`**: every build of this API exports it, so a search that
+  finds it proves the search works. A copy that ALSO exports `df_next_log_msg`
+  was built from upstream `main`, not from this tag, and takes a different
+  `df_create`.
+- **The ONNX engine it links:** the binary names its `tract` crates by version;
+  `grep -a -o "tract-core-0\.[0-9.]*"` reads `tract-core-0.19.16` for this pin.
+  Upstream `main` uses tract 0.21.
+- **The SHA-256 above.**
+
+**The model's licence is NOT settled — confirm before any public release.**
+Upstream's `README.md`, section *License*, says: *"All code in this repository
+is dual-licensed under either: MIT License … Apache License, Version 2.0 … at
+your option."* It says **code**. The model archives sit in the same repository
+under `models/`, and there is **no separate licence file for them**: none in
+`models/`, none inside `DeepFilterNet3_onnx.tar.gz` (its four entries are
+`enc.onnx`, `erb_dec.onnx`, `df_dec.onnx` and `config.ini`), and no licence
+statement in `config.ini`. Read 2026-10-17 at the pinned commit. The natural
+reading is that the repository's dual licence covers the trained weights too,
+but that is an inference, not a statement upstream has made, and the weights
+were trained on third-party speech and noise corpora whose own terms nobody has
+checked here. **Ask the author, or get a short legal read, before this ships in
+a public release.**
+
+**To bump it:** check out the new tag, record its full SHA here, re-read
+`libDF/src/capi.rs` against the binding list above (the signatures moved
+between this tag and `main`), rebuild both targets with the recipe, replace all
+four files in BOTH folders, update every hash in this section and
+`DeepFilterNet3Engine.ModelSha256`, and run `DeepFilterNet3EngineTests`.
+
 ## Where the build trees live
 
-`build-native/` at the repo root holds working clones of both projects. **That
+`build-native/` at the repo root holds working clones of both projects.
+DeepFilterNet's clone is kept outside the repo entirely
+(`C:\dev\deepfilternet-build` on the machine that built it); like
+`build-native/`, it is a convenience and not a record. **That
 directory is gitignored**, so nothing in it is part of the repository — it is a
 local convenience, not a record. **This file is the record.** Anything future
 rebuilds need to know belongs here, not in a note inside `build-native/`.
