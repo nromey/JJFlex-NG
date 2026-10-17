@@ -69,6 +69,14 @@ namespace JJFlexWpf
 
         public bool IsAvailable => _denoiser != null;
 
+        /// <summary>
+        /// 480 samples (10 ms): RNNoise analyses a 20 ms window every 10 ms
+        /// and its output is one frame behind its input. Measured, not just
+        /// quoted: <c>EngineLatencyTests</c> finds it by cross-correlation, and
+        /// tools/nrbench reports the same 10.0 ms.
+        /// </summary>
+        public int LatencySamples => Frame;
+
         /// <summary>Which input level this instance feeds RNNoise.</summary>
         public RnnoiseScaling Scaling => _scaling;
 

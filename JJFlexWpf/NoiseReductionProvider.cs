@@ -104,7 +104,11 @@ namespace JJFlexWpf
         /// <summary>Id of the engine this provider runs ("rnnoise" in the app).</summary>
         public string EngineId => _bank?.EngineFor(0).Id ?? "";
 
-        /// <summary>Delay currently added, in samples per channel (0 on frame-aligned input).</summary>
+        /// <summary>
+        /// Delay the processed signal currently has, in samples per channel:
+        /// the engine's own (480 for RNNoise) plus any frame carry (0 on
+        /// frame-aligned input).
+        /// </summary>
         public int LatencySamples => _bank?.LatencySamples ?? 0;
 
         /// <summary>The bank, for tests and the bench.</summary>
@@ -154,7 +158,14 @@ namespace JJFlexWpf
                 bank = _bank = CreateBank(channels);
                 _carryStale = false;
             }
-            if (bank == null || !bank.IsAvailable) return;
+            if (bank == null) return;
+
+            // No engine on any channel, and nothing held in the carry: step
+            // aside entirely, so an engine that never loaded leaves the audio
+            // exactly as it was. Once anything is queued, keep going through
+            // the bank, which passes failed frames through itself; bypassing
+            // it then would drop the queued audio and jump the timeline.
+            if (!bank.AnyAvailable && bank.CarryLatencySamples == 0) return;
 
             if (_carryStale)
             {

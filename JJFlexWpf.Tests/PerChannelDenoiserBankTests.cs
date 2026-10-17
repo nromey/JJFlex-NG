@@ -41,8 +41,21 @@ public sealed class PerChannelDenoiserBankTests
         public int SampleRate => 48000;
         public int FrameLength => F;
         public bool IsAvailable { get; set; } = true;
+        public int LatencySamples => 0;
+        /// <summary>Throw on every frame from this one on (0-based count of frames asked for); -1 never.</summary>
+        public int ThrowFrom = -1;
+        /// <summary>Report unavailable from this frame on, as an out-of-process engine whose helper died would.</summary>
+        public int DieFrom = -1;
+        public int Asked;
         public void ProcessFrame(ReadOnlySpan<float> input, Span<float> output)
         {
+            int k = Asked++;
+            if (DieFrom >= 0 && k + 1 >= DieFrom) IsAvailable = false;
+            if (ThrowFrom >= 0 && k >= ThrowFrom)
+            {
+                output.Fill(float.NaN); // half-written garbage must not escape either
+                throw new InvalidOperationException("the helper went away");
+            }
             Seen.Add(input.ToArray());
             for (int i = 0; i < F; i++)
                 output[i] = -0.5f * input[i] + 0.25f * _carry + Tag;
@@ -115,7 +128,7 @@ public sealed class PerChannelDenoiserBankTests
         // The live receive path: one 10 ms packet (480 frames) per call.
         var output = RunChunks(bank, input, Repeat(F, 20), strength: 1f);
 
-        Assert.Equal(0, bank.LatencySamples);
+        Assert.Equal(0, bank.CarryLatencySamples);
         for (int ch = 0; ch < 2; ch++)
         {
             var expected = FakeReference(Channel(input, ch), 0.001f * ch);
@@ -136,8 +149,8 @@ public sealed class PerChannelDenoiserBankTests
         using var pieces = new PerChannelDenoiserBank(FakeFactory(), 2);
         var odd = RunChunks(pieces, input, Cycle(new[] { 100, 1000, 37, 1, 961, 479, 481, 3000 }), strength: 0.8f);
 
-        Assert.Equal(F - 1, whole.LatencySamples);
-        Assert.Equal(F - 1, pieces.LatencySamples);
+        Assert.Equal(F - 1, whole.CarryLatencySamples);
+        Assert.Equal(F - 1, pieces.CarryLatencySamples);
         Assert.Equal(one, odd);
     }
 
@@ -172,7 +185,7 @@ public sealed class PerChannelDenoiserBankTests
 
         using var bank = new PerChannelDenoiserBank(FakeFactory(), 2);
         var output = RunChunks(bank, input, sizes, strength: 1f);
-        int lat = bank.LatencySamples;
+        int lat = bank.CarryLatencySamples;
         Assert.Equal(F - 1, lat);
 
         for (int ch = 0; ch < 2; ch++)
@@ -196,7 +209,7 @@ public sealed class PerChannelDenoiserBankTests
         var input = RandomStereo(F * 6 + 5, seed: 5);
         using var bank = new PerChannelDenoiserBank(FakeFactory(), 2);
         var output = RunChunks(bank, input, Cycle(new[] { 250, 731 }), strength: 0f);
-        int lat = bank.LatencySamples;
+        int lat = bank.CarryLatencySamples;
         for (int t = lat * 2; t < output.Length; t++)
             Assert.Equal(input[t - lat * 2], output[t]);
     }
@@ -228,7 +241,7 @@ public sealed class PerChannelDenoiserBankTests
 
         // Four aligned packets, then a misaligned one, then the rest.
         var output = RunChunks(bank, input, new[] { F, F, F, F, 100, F * 6 - 100 }, strength: 1f);
-        Assert.Equal(F - 1, bank.LatencySamples);
+        Assert.Equal(F - 1, bank.CarryLatencySamples);
 
         var reference = FakeReference(Channel(input, 0), 0f);
         var got = Channel(output, 0);
@@ -248,9 +261,9 @@ public sealed class PerChannelDenoiserBankTests
         using var bank = new PerChannelDenoiserBank(FakeFactory(), 2);
         var buf = RandomStereo(300, seed: 7);
         bank.Process(buf, 1f);
-        Assert.Equal(F - 1, bank.LatencySamples);
+        Assert.Equal(F - 1, bank.CarryLatencySamples);
         bank.ClearCarry();
-        Assert.Equal(0, bank.LatencySamples);
+        Assert.Equal(0, bank.CarryLatencySamples);
     }
 
     [Fact]
@@ -260,6 +273,91 @@ public sealed class PerChannelDenoiserBankTests
         int n = 0;
         using var bank = new PerChannelDenoiserBank(() => new FakeEngine { IsAvailable = n++ == 0 }, 2);
         Assert.False(bank.IsAvailable);
+    }
+
+    /// <summary>
+    /// Ruled by Noel 2026-10-17 for the out-of-process engine (#737): an
+    /// engine that throws costs that channel its processing, never its audio.
+    /// The failing frames go out exactly as they came in, the other channel is
+    /// untouched, and nothing reaches the caller.
+    /// </summary>
+    [Fact]
+    public void AnEngineThatThrowsAfterNFramesPassesThoseFramesThroughUnprocessed()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        const int goodFrames = 5;
+        var made = new List<FakeEngine>();
+        int n = 0;
+        using var bank = new PerChannelDenoiserBank(() =>
+        {
+            var e = new FakeEngine { Tag = 0.001f * n, ThrowFrom = n == 1 ? goodFrames : -1 };
+            n++;
+            made.Add(e);
+            return e;
+        }, 2);
+        var input = RandomStereo(F * 12, seed: 9);
+
+        var output = RunChunks(bank, input, Repeat(F, 12), strength: 1f);   // must not throw
+
+        var left = Channel(output, 0);
+        var right = Channel(output, 1);
+        Assert.Equal(FakeReference(Channel(input, 0), 0f), left);            // the healthy channel is untouched
+        var rightIn = Channel(input, 1);
+        var rightRef = FakeReference(rightIn, 0.001f);
+        for (int t = 0; t < goodFrames * F; t++)
+            Assert.Equal(rightRef[t], right[t]);                             // processed while it worked
+        for (int t = goodFrames * F; t < right.Length; t++)
+            Assert.Equal(rightIn[t], right[t]);                              // then exactly the input: no NaN, no silence
+        Assert.Equal(12 - goodFrames, bank.FallbackFrames);
+        Assert.Equal(12, made[1].Asked);                                     // asked again every frame, so it can recover
+    }
+
+    [Fact]
+    public void AnEngineThatBecomesUnavailableMidStreamIsPassedThroughAndNotAskedToProcess()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        FakeEngine? victim = null;
+        using var bank = new PerChannelDenoiserBank(() => victim = new FakeEngine { DieFrom = 3 }, 1);
+        var input = new float[F * 8];
+        for (int i = 0; i < input.Length; i++) input[i] = (float)Math.Sin(i * 0.01);
+        var output = (float[])input.Clone();
+        for (int pos = 0; pos < output.Length; pos += F)
+            bank.Process(output.AsSpan(pos, F), 1f);
+
+        var reference = FakeReference(input, 0f);
+        for (int t = 0; t < 3 * F; t++) Assert.Equal(reference[t], output[t]);
+        for (int t = 3 * F; t < output.Length; t++) Assert.Equal(input[t], output[t]);
+        Assert.Equal(3, victim!.Asked);   // never asked once it said it was unavailable
+        Assert.Equal(5, bank.FallbackFrames);
+        Assert.False(bank.AnyAvailable);
+    }
+
+    [Fact]
+    public void AnEngineThatComesBackIsUsedAgain()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        FakeEngine? e = null;
+        using var bank = new PerChannelDenoiserBank(() => e = new FakeEngine(), 1);
+        var buf = new float[F];
+        e!.IsAvailable = false;
+        bank.Process(buf, 1f);
+        Assert.Equal(1, bank.FallbackFrames);
+        e.IsAvailable = true;
+        bank.Process(buf, 1f);
+        Assert.Equal(1, bank.FallbackFrames);
+        Assert.Equal(1, e.Asked);
+    }
+
+    [Fact]
+    public void TheProviderKeepsAudioFlowingWhenItsEngineThrows()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        using var nr = new NoiseReductionProvider(48000, 2, () => new FakeEngine { ThrowFrom = 0 }) { Enabled = true };
+        var buf = RandomStereo(F, seed: 11);
+        var before = (float[])buf.Clone();
+        nr.ProcessInPlace(buf, 0, buf.Length, 2);   // must not throw
+        for (int i = 0; i < buf.Length; i++)
+            Assert.True(Math.Abs(before[i] - buf[i]) <= 1e-6f, $"sample {i}");
     }
 
     /// <summary>

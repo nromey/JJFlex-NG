@@ -42,16 +42,33 @@ namespace JJFlexWpf
         int FrameLength { get; }
 
         /// <summary>
-        /// False when the engine could not start: its native library is
-        /// missing or failed to load, or its model would not initialise. An
-        /// unavailable engine must not be asked to process.
+        /// False when the engine cannot process right now: its native library
+        /// is missing or failed to load, its model would not initialise, or
+        /// (for an engine that lives outside this process) the thing doing the
+        /// work has gone away. <b>It may change at any time, in either
+        /// direction</b>, so callers read it per frame rather than once at
+        /// construction; <see cref="PerChannelDenoiserBank"/> does.
         /// </summary>
         bool IsAvailable { get; }
+
+        /// <summary>
+        /// How far the engine's output lags its input, in samples at
+        /// <see cref="SampleRate"/>, not counting any frame carry the caller
+        /// adds. A property of the engine's algorithm (its analysis window and
+        /// look-ahead), so it is a fact to report, never a setting.
+        /// </summary>
+        int LatencySamples { get; }
 
         /// <summary>
         /// Denoise one frame. Both spans are exactly <see cref="FrameLength"/>
         /// long, samples in [-1, 1]. Input and output may not overlap.
         /// </summary>
+        /// <remarks>
+        /// May throw. <see cref="PerChannelDenoiserBank"/> treats a throw, like
+        /// an unavailable engine, as "pass this frame through unprocessed": the
+        /// audio thread is never stalled, never silenced and never handed the
+        /// exception.
+        /// </remarks>
         void ProcessFrame(ReadOnlySpan<float> input, Span<float> output);
 
         /// <summary>Forget everything learned so far, as if newly created.</summary>

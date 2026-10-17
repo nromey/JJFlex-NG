@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 
 namespace JJFlexWpf
 {
@@ -49,6 +50,18 @@ namespace JJFlexWpf
     /// wet so the two stay sample-aligned.
     /// </para>
     /// <para>
+    /// <b>A failing engine costs that channel its processing, never its audio.</b>
+    /// Availability is read per frame, because an engine can stop working
+    /// mid-stream (one running in another process can die). A frame whose
+    /// engine is unavailable, or throws, goes out exactly as it came in, for
+    /// that channel only, and the bank asks again on the next frame. Ruled by
+    /// Noel 2026-10-17 for the out-of-process engine (#737): never silence,
+    /// never stall the audio thread, never pass the exception on. Note that a
+    /// passed-through frame does not carry the engine's own delay, so the
+    /// moment of failure, and of recovery, is a jump of
+    /// <see cref="EngineLatencySamples"/> in the timeline.
+    /// </para>
+    /// <para>
     /// Not thread-safe: <see cref="Process"/> belongs to one audio thread.
     /// </para>
     /// </remarks>
@@ -61,6 +74,7 @@ namespace JJFlexWpf
         private int _inCount;              // identical across channels by construction
         private int _outCount;
         private bool _carrying;
+        private readonly bool[] _failing; // per channel: currently in a fallback stretch
 
         /// <param name="engineFactory">Called once per channel. Every instance must report the same frame length.</param>
         /// <param name="channels">Interleaved channel count, at least 1.</param>
@@ -80,6 +94,7 @@ namespace JJFlexWpf
             if (FrameLength < 1)
                 throw new InvalidOperationException("An engine reported a frame length below one sample.");
 
+            _failing = new bool[channels];
             _in = new float[channels][];
             _wet = new float[channels][];
             _dry = new float[channels][];
@@ -97,7 +112,7 @@ namespace JJFlexWpf
         /// <summary>The engines' frame length, in samples per channel.</summary>
         public int FrameLength { get; }
 
-        /// <summary>True only when every channel's engine is available.</summary>
+        /// <summary>True only when every channel's engine is available right now.</summary>
         public bool IsAvailable
         {
             get
@@ -108,11 +123,43 @@ namespace JJFlexWpf
             }
         }
 
+        /// <summary>True when at least one channel's engine is available right now.</summary>
+        public bool AnyAvailable
+        {
+            get
+            {
+                foreach (var e in _engines)
+                    if (e.IsAvailable) return true;
+                return false;
+            }
+        }
+
         /// <summary>
-        /// Delay the bank currently adds, in samples per channel: 0 while the
-        /// input has been frame-aligned, <c>FrameLength - 1</c> once it has not.
+        /// Delay the frame carry currently adds, in samples per channel: 0
+        /// while the input has been frame-aligned, <c>FrameLength - 1</c> once
+        /// it has not.
         /// </summary>
-        public int LatencySamples => _carrying ? FrameLength - 1 : 0;
+        public int CarryLatencySamples => _carrying ? FrameLength - 1 : 0;
+
+        /// <summary>The engines' own delay (the largest across channels), in samples.</summary>
+        public int EngineLatencySamples
+        {
+            get
+            {
+                int max = 0;
+                foreach (var e in _engines) max = Math.Max(max, e.LatencySamples);
+                return max;
+            }
+        }
+
+        /// <summary>Everything the processed signal lags its input by: carry plus engine.</summary>
+        public int LatencySamples => CarryLatencySamples + EngineLatencySamples;
+
+        /// <summary>
+        /// Frames, summed over channels, that went out unprocessed because the
+        /// engine was unavailable or threw. Zero in health.
+        /// </summary>
+        public long FallbackFrames { get; private set; }
 
         /// <summary>The engine serving one channel, for the offline bench's per-engine figures.</summary>
         public INeuralDenoiseEngine EngineFor(int channel) => _engines[channel];
@@ -171,7 +218,14 @@ namespace JJFlexWpf
 
                     if (inCount == f)
                     {
-                        engine.ProcessFrame(inBuf, wet.AsSpan(outCount, f));
+                        if (!RunEngine(ch, engine, inBuf, wet.AsSpan(outCount, f)))
+                        {
+                            // Unavailable or threw: this frame goes out as it
+                            // came in, for this channel only. Never silence,
+                            // never a stall, never the exception.
+                            Array.Copy(inBuf, 0, wet, outCount, f);
+                            FallbackFrames++;
+                        }
                         Array.Copy(inBuf, 0, dry, outCount, f);
                         outCount += f;
                         inCount = 0;
@@ -221,6 +275,43 @@ namespace JJFlexWpf
         public void Dispose()
         {
             foreach (var e in _engines) e.Dispose();
+        }
+
+        /// <summary>
+        /// True when the engine produced this frame. Checked per frame,
+        /// because availability can change mid-stream (an engine in another
+        /// process can die). Each channel's failure is traced once per
+        /// stretch, not once per frame, so a dead engine cannot flood the
+        /// trace from the audio thread.
+        /// </summary>
+        private bool RunEngine(int ch, INeuralDenoiseEngine engine, float[] input, Span<float> output)
+        {
+            string? failure = null;
+            if (engine.IsAvailable)
+            {
+                try
+                {
+                    engine.ProcessFrame(input, output);
+                    _failing[ch] = false;
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    failure = ex.GetType().Name + ": " + ex.Message;
+                }
+            }
+            else
+            {
+                failure = "not available";
+            }
+
+            if (!_failing[ch])
+            {
+                _failing[ch] = true;
+                Trace.WriteLine($"PerChannelDenoiserBank: {engine.Id} on channel {ch} failed ({failure}); " +
+                                "passing that channel through unprocessed until it recovers.");
+            }
+            return false;
         }
 
         private void EnsureOutCapacity(int needed)

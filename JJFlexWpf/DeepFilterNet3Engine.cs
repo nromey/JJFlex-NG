@@ -92,6 +92,16 @@ namespace JJFlexWpf
 
         public bool IsAvailable => _state != IntPtr.Zero;
 
+        /// <summary>
+        /// 1,440 samples (30 ms) for this model: the analysis window overhangs
+        /// the hop by one frame (fft_size 960 minus hop_size 480) and the model
+        /// looks two frames ahead (df_lookahead = 2, conv_lookahead = 2, both
+        /// from the model's config.ini at the pinned tag). Measured, not just
+        /// derived: <c>EngineLatencyTests</c> finds it by cross-correlation, and
+        /// tools/nrbench reports the same 30.0 ms.
+        /// </summary>
+        public int LatencySamples => (960 - FrameLength) + 2 * FrameLength;
+
         /// <summary>Why <see cref="IsAvailable"/> is false, in plain words; empty when it is true.</summary>
         public string UnavailableReason { get; private set; } = "";
 
