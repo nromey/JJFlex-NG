@@ -248,6 +248,222 @@ namespace Radios.Tests
             }
         }
 
+        // ---------------------------------------------------------------
+        // The ladder itself. #726 item 8.
+        //
+        // These are the four tests the brief asked for, and they are possible
+        // because FlexBase.DecideBlock is pure: every input is an argument, so
+        // a licence state that would otherwise need a radio is one enum value.
+        // ---------------------------------------------------------------
+
+        /// <summary>A capable, licensed, well-resourced radio is ALLOWED.</summary>
+        /// <remarks>
+        /// <b>The positive control, and it goes first because without it the
+        /// other three prove nothing.</b> A ladder that refused everything
+        /// would pass every refusal test in this file. Something has to show it
+        /// says yes.
+        /// </remarks>
+        [Fact]
+        public void ACapableLicensedRadioIsAllowedThrough()
+        {
+            Assert.Equal(CapabilityBlock.None, FlexBase.DecideBlock(
+                connected: true, requiresSlice: true, sliceSelected: true,
+                hasHardwareRequirement: true, hardwareSupported: true,
+                licence: FlexBase.LicenceState.Enabled,
+                resourcesSatisfied: true, modeSatisfied: true));
+
+            // And a capability with no licence requirement at all.
+            Assert.Equal(CapabilityBlock.None, FlexBase.DecideBlock(
+                connected: true, requiresSlice: true, sliceSelected: true,
+                hasHardwareRequirement: false, hardwareSupported: false,
+                licence: FlexBase.LicenceState.NotApplicable,
+                resourcesSatisfied: true, modeSatisfied: true));
+        }
+
+        /// <summary>
+        /// #725's shape as a regression: reported AND disabled must refuse.
+        /// </summary>
+        /// <remarks>
+        /// <b>This asserts the REFUSAL, not that a method was called.</b> The
+        /// measured defect was an 8600 reporting the licence present and
+        /// disabled while three surfaces announced "on" — so the thing worth
+        /// pinning is that this exact state produces a licence refusal and
+        /// nothing else.
+        /// </remarks>
+        [Fact]
+        public void APositivelyDisabledLicenceRefuses()
+        {
+            var block = FlexBase.DecideBlock(
+                connected: true, requiresSlice: true, sliceSelected: true,
+                hasHardwareRequirement: true, hardwareSupported: true,
+                licence: FlexBase.LicenceState.Disabled,
+                resourcesSatisfied: true, modeSatisfied: true);
+
+            Assert.Equal(CapabilityBlock.LicenceDisabled, block);
+            Assert.True(FlexBase.BlocksWrite(block), "a disabled licence must stop the write");
+        }
+
+        /// <summary>
+        /// The three-state asymmetry: never-reported is NOT disabled.
+        /// </summary>
+        /// <remarks>
+        /// A licence we were never told about is not evidence of anything, so
+        /// it reports its own block AND must not stop a write. If these two
+        /// ever collapse into one state, an application that has simply not
+        /// heard from the radio yet starts removing features the operator owns.
+        /// </remarks>
+        [Fact]
+        public void NeverReportedBehavesDifferentlyFromPositivelyDisabled()
+        {
+            var notReported = FlexBase.DecideBlock(
+                connected: true, requiresSlice: true, sliceSelected: true,
+                hasHardwareRequirement: true, hardwareSupported: true,
+                licence: FlexBase.LicenceState.NotReported,
+                resourcesSatisfied: true, modeSatisfied: true);
+
+            var disabled = FlexBase.DecideBlock(
+                connected: true, requiresSlice: true, sliceSelected: true,
+                hasHardwareRequirement: true, hardwareSupported: true,
+                licence: FlexBase.LicenceState.Disabled,
+                resourcesSatisfied: true, modeSatisfied: true);
+
+            Assert.NotEqual(disabled, notReported);
+            Assert.Equal(CapabilityBlock.LicenceNotReported, notReported);
+
+            // The load-bearing half: silence does not refuse.
+            Assert.False(FlexBase.BlocksWrite(notReported),
+                "a licence we were never told about must not stop a write");
+            Assert.True(FlexBase.BlocksWrite(disabled));
+        }
+
+        /// <summary>
+        /// Hardware is decided before any licence, so a radio that cannot run
+        /// the feature is never told about a subscription.
+        /// </summary>
+        /// <remarks>
+        /// <b>The harmful-error test, and the one most worth having.</b>
+        /// Inviting somebody to buy a licence for hardware they do not have
+        /// costs them money for nothing. Asserted against every licence state,
+        /// including Enabled — a 6300 owner who somehow holds the licence still
+        /// has to be told it is the model, not the subscription.
+        /// </remarks>
+        [Theory]
+        [InlineData(FlexBase.LicenceState.NotReported)]
+        [InlineData(FlexBase.LicenceState.Disabled)]
+        [InlineData(FlexBase.LicenceState.Enabled)]
+        [InlineData(FlexBase.LicenceState.NotApplicable)]
+        public void MissingHardwareIsNeverReportedAsALicenceProblem(FlexBase.LicenceState licence)
+        {
+            var block = FlexBase.DecideBlock(
+                connected: true, requiresSlice: true, sliceSelected: true,
+                hasHardwareRequirement: true, hardwareSupported: false,
+                licence: licence,
+                resourcesSatisfied: false, modeSatisfied: false);
+
+            Assert.Equal(CapabilityBlock.Hardware, block);
+
+            // Said the other way round, because this is the sentence that
+            // matters to an operator: the verdict is not about a licence.
+            var verdict = new CapabilityVerdict(RadioCapability.NoiseReductionNeural, block, "x");
+            Assert.False(verdict.IsAboutLicence);
+        }
+
+        /// <summary>
+        /// Operator-fixable reasons come last, so a radio without the licence
+        /// hears about the licence rather than about antennas.
+        /// </summary>
+        [Fact]
+        public void OperatorFixableReasonsComeAfterTheLicence()
+        {
+            // Licence disabled AND resources missing AND wrong mode: the
+            // licence is the answer.
+            Assert.Equal(CapabilityBlock.LicenceDisabled, FlexBase.DecideBlock(
+                connected: true, requiresSlice: true, sliceSelected: true,
+                hasHardwareRequirement: true, hardwareSupported: true,
+                licence: FlexBase.LicenceState.Disabled,
+                resourcesSatisfied: false, modeSatisfied: false));
+
+            // Everything allowed but a resource missing: resources, not mode.
+            Assert.Equal(CapabilityBlock.Resource, FlexBase.DecideBlock(
+                connected: true, requiresSlice: true, sliceSelected: true,
+                hasHardwareRequirement: true, hardwareSupported: true,
+                licence: FlexBase.LicenceState.Enabled,
+                resourcesSatisfied: false, modeSatisfied: false));
+
+            // Only the mode left.
+            Assert.Equal(CapabilityBlock.Mode, FlexBase.DecideBlock(
+                connected: true, requiresSlice: true, sliceSelected: true,
+                hasHardwareRequirement: true, hardwareSupported: true,
+                licence: FlexBase.LicenceState.Enabled,
+                resourcesSatisfied: true, modeSatisfied: false));
+        }
+
+        /// <summary>
+        /// The transient rungs come first and say nothing about the capability.
+        /// </summary>
+        [Fact]
+        public void NotConnectedAndNoSliceOutrankEveryCapabilityReason()
+        {
+            // Not connected wins over everything, including missing hardware.
+            Assert.Equal(CapabilityBlock.NotConnected, FlexBase.DecideBlock(
+                connected: false, requiresSlice: true, sliceSelected: false,
+                hasHardwareRequirement: true, hardwareSupported: false,
+                licence: FlexBase.LicenceState.Disabled,
+                resourcesSatisfied: false, modeSatisfied: false));
+
+            // No slice wins over hardware too: it is transient and the
+            // hardware answer will still be there once a slice is selected.
+            Assert.Equal(CapabilityBlock.NoSlice, FlexBase.DecideBlock(
+                connected: true, requiresSlice: true, sliceSelected: false,
+                hasHardwareRequirement: true, hardwareSupported: false,
+                licence: FlexBase.LicenceState.Disabled,
+                resourcesSatisfied: false, modeSatisfied: false));
+
+            // A capability needing no slice skips that rung.
+            Assert.Equal(CapabilityBlock.Hardware, FlexBase.DecideBlock(
+                connected: true, requiresSlice: false, sliceSelected: false,
+                hasHardwareRequirement: true, hardwareSupported: false,
+                licence: FlexBase.LicenceState.Enabled,
+                resourcesSatisfied: true, modeSatisfied: true));
+
+            // And neither transient rung stops a write by itself - they drop it
+            // silently instead, which is what keeps a panel building itself
+            // from announcing "No radio connected" at the operator.
+            Assert.False(FlexBase.BlocksWrite(CapabilityBlock.NotConnected));
+            Assert.False(FlexBase.BlocksWrite(CapabilityBlock.NoSlice));
+        }
+
+        /// <summary>
+        /// Mode is reported but does not stop a write, pending one bench
+        /// reading.
+        /// </summary>
+        /// <remarks>
+        /// <b>This test pins a deliberate gap, and says so.</b> The belief that
+        /// advanced NR is unavailable in CW and FM comes from one status builder
+        /// in this codebase and has never been checked against a radio. Until it
+        /// is, the ladder reports mode so a readout can explain itself and the
+        /// write goes through anyway — because refusing on an unsourced belief
+        /// would remove a working feature across a whole class of modes, which
+        /// is the defect this class exists to prevent.
+        /// <para>
+        /// <b>When the bench reading says mode really does block, change this
+        /// test deliberately</b> rather than deleting it: it is the record of
+        /// why the gap was left.
+        /// </para>
+        /// </remarks>
+        [Fact]
+        public void ModeIsReportedButAdvisoryUntilItHasBeenMeasured()
+        {
+            Assert.Equal(CapabilityBlock.Mode, FlexBase.DecideBlock(
+                connected: true, requiresSlice: true, sliceSelected: true,
+                hasHardwareRequirement: true, hardwareSupported: true,
+                licence: FlexBase.LicenceState.Enabled,
+                resourcesSatisfied: true, modeSatisfied: false));
+
+            Assert.False(FlexBase.BlocksWrite(CapabilityBlock.Mode),
+                "mode is advisory until somebody turns NR on in CW on a real radio");
+        }
+
         /// <summary>
         /// Every road to the three gated switches asks the ladder before it
         /// speaks.

@@ -331,13 +331,32 @@ namespace Radios
         {
             var d = DescriptorFor(capability);
 
-            if (theRadio == null)
-                return new CapabilityVerdict(capability, CapabilityBlock.NotConnected, d.NotConnectedText);
+            // Gather, then decide. The ladder ORDER lives in DecideBlock, which
+            // is pure and takes no radio - that is what lets the ordering and
+            // the three-state asymmetry be table tests on a bench holding one
+            // radio. This method's remaining job is to read the inputs off the
+            // rig and to pick the wording for whatever block came back.
+            bool connected = theRadio != null;
+            bool requiresSlice = d.NoSliceText != null;
+            bool hasHardwareRequirement = d.Hardware != null;
 
-            if (d.NoSliceText != null && !HasActiveSlice)
-                return new CapabilityVerdict(capability, CapabilityBlock.NoSlice, d.NoSliceText);
+            bool hardwareSupported = !hasHardwareRequirement || (connected && d.Hardware!(this));
+            LicenceState licence = connected ? LicenceStateOf(d) : LicenceState.NotApplicable;
+            string? resourceWhy = connected && d.Resources != null ? d.Resources(this) : null;
+            string? modeWhy = connected && d.ModeRequirement != null ? d.ModeRequirement(this) : null;
 
-            if (d.Hardware != null && !d.Hardware(this))
+            CapabilityBlock block = DecideBlock(
+                connected, requiresSlice, HasActiveSlice,
+                hasHardwareRequirement, hardwareSupported,
+                licence, resourceWhy == null, modeWhy == null);
+
+            if (block == CapabilityBlock.NotConnected)
+                return new CapabilityVerdict(capability, block, d.NotConnectedText);
+
+            if (block == CapabilityBlock.NoSlice)
+                return new CapabilityVerdict(capability, block, d.NoSliceText ?? string.Empty);
+
+            if (block == CapabilityBlock.Hardware)
             {
                 string message = wording == CapabilityWording.Long || d.HardwareShortKey == null
                     ? d.HardwareLongText
@@ -345,21 +364,19 @@ namespace Radios
                 return new CapabilityVerdict(capability, CapabilityBlock.Hardware, message);
             }
 
-            if (d.Licence != null)
+            if (block == CapabilityBlock.LicenceNotReported)
             {
-                var feature = d.Licence(this);
-
                 // Never reported is a THIRD STATE. A licence we have never been
                 // told about is not evidence of anything - the radio may simply
                 // not have sent its feature list yet - so the message may be
                 // empty and the caller is expected to let the write through.
-                if (feature == null)
-                {
-                    return new CapabilityVerdict(
-                        capability, CapabilityBlock.LicenceNotReported, d.LicenceNotReportedText ?? string.Empty);
-                }
+                return new CapabilityVerdict(
+                    capability, CapabilityBlock.LicenceNotReported, d.LicenceNotReportedText ?? string.Empty);
+            }
 
-                if (!feature.FeatureEnabled)
+            if (block == CapabilityBlock.LicenceDisabled)
+            {
+                var feature = d.Licence?.Invoke(this);
                 {
                     // The radio's own sentence about its own subscription beats
                     // ours - EXCEPT where we hold long prose that names a
@@ -372,7 +389,7 @@ namespace Radios
                     string message =
                         wording == CapabilityWording.Long && d.LicenceDisabledLongText != null
                             ? d.LicenceDisabledLongText
-                            : feature.FeatureGatedMessage
+                            : feature?.FeatureGatedMessage
                               ?? (wording == CapabilityWording.Short && d.LicenceDisabledShortKey != null
                                   ? Lexicon.Get(d.LicenceDisabledShortKey)
                                   : d.LicenceDisabledFallbackText);
@@ -380,19 +397,112 @@ namespace Radios
                 }
             }
 
-            if (d.Resources != null)
+            if (block == CapabilityBlock.Resource)
             {
-                string? why = d.Resources(this);
-                if (why != null) return new CapabilityVerdict(capability, CapabilityBlock.Resource, why);
+                return new CapabilityVerdict(capability, CapabilityBlock.Resource, resourceWhy ?? string.Empty);
             }
 
-            if (d.ModeRequirement != null)
+            if (block == CapabilityBlock.Mode)
             {
-                string? why = d.ModeRequirement(this);
-                if (why != null) return new CapabilityVerdict(capability, CapabilityBlock.Mode, why);
+                return new CapabilityVerdict(capability, CapabilityBlock.Mode, modeWhy ?? string.Empty);
             }
 
             return new CapabilityVerdict(capability, CapabilityBlock.None, string.Empty);
+        }
+
+        /// <summary>
+        /// The three states a licence can be in, plus the fourth that means the
+        /// capability is not licensed at all.
+        /// </summary>
+        /// <remarks>
+        /// <b><see cref="NotReported"/> is the one that matters.</b> It is not a
+        /// synonym for <see cref="Disabled"/>: a radio that has not sent its
+        /// feature list yet has told us nothing, and treating silence as a "no"
+        /// is how an application takes away a feature the operator paid for.
+        /// Keeping it as a named state rather than a bool is what makes the
+        /// asymmetry impossible to collapse by accident.
+        /// </remarks>
+        public enum LicenceState
+        {
+            /// <summary>This capability carries no licence requirement.</summary>
+            NotApplicable = 0,
+
+            /// <summary>The radio has not told us. Not evidence of anything.</summary>
+            NotReported,
+
+            /// <summary>The radio reported it, and it is off.</summary>
+            Disabled,
+
+            /// <summary>The radio reported it, and it is on.</summary>
+            Enabled,
+        }
+
+        private LicenceState LicenceStateOf(CapabilityDescriptor d)
+        {
+            if (d.Licence == null) return LicenceState.NotApplicable;
+            var feature = d.Licence(this);
+            if (feature == null) return LicenceState.NotReported;
+            return feature.FeatureEnabled ? LicenceState.Enabled : LicenceState.Disabled;
+        }
+
+        /// <summary>
+        /// The ladder, as a pure function. <b>This method IS the ordering</b>,
+        /// and the ordering is the design.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Why it is pure.</b> Every input arrives as an argument, so the
+        /// order and the three-state asymmetry can be asserted exhaustively
+        /// with no radio, no connection and no mocking. The predicate that
+        /// decides a hardware fact went the same way in #729, for the same
+        /// reason: a decision that can only be exercised through a live radio
+        /// is a decision nobody exercises, and a wrong one then survives behind
+        /// a confident comment.
+        /// </para>
+        /// <para>
+        /// <b>Hardware before any licence.</b> A radio that physically cannot
+        /// do the thing must be told so, and must never be invited to buy a
+        /// licence that would do nothing for it. That is the actively harmful
+        /// error and this ordering is the only thing preventing it.
+        /// </para>
+        /// <para>
+        /// <b>Resources and mode last.</b> A radio without the licence should
+        /// hear about the licence, not about antennas. Each reason is only
+        /// worth saying once the more fundamental ones have passed.
+        /// </para>
+        /// </remarks>
+        internal static CapabilityBlock DecideBlock(
+            bool connected,
+            bool requiresSlice,
+            bool sliceSelected,
+            bool hasHardwareRequirement,
+            bool hardwareSupported,
+            LicenceState licence,
+            bool resourcesSatisfied,
+            bool modeSatisfied)
+        {
+            if (!connected) return CapabilityBlock.NotConnected;
+            if (requiresSlice && !sliceSelected) return CapabilityBlock.NoSlice;
+
+            // Not reported is reported BEFORE disabled and after hardware, and
+            // it is a distinct answer rather than a flavour of refusal. What a
+            // caller does with it is the caller's policy: a status readout may
+            // say "pending", and anything that refuses or removes must let it
+            // through.
+            if (hasHardwareRequirement && !hardwareSupported) return CapabilityBlock.Hardware;
+
+            // Not reported is reported BEFORE disabled and after hardware, and
+            // it is a distinct answer rather than a flavour of refusal. What a
+            // caller does with it is the caller's policy: a status readout may
+            // say "pending", and anything that refuses or removes must let it
+            // through.
+            if (licence == LicenceState.NotReported) return CapabilityBlock.LicenceNotReported;
+            if (licence == LicenceState.Disabled) return CapabilityBlock.LicenceDisabled;
+
+            if (!resourcesSatisfied) return CapabilityBlock.Resource;
+            if (!modeSatisfied) return CapabilityBlock.Mode;
+
+            return CapabilityBlock.None;
         }
 
         /// <summary>
