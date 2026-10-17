@@ -2058,13 +2058,18 @@ namespace Radios
         /// </summary>
         public bool NoiseReductionLicensed => theRadio?.FeatureLicense?.LicenseFeatNoiseReduction?.FeatureEnabled == true;
         /// <summary>
-        /// True only on radios with hardware capable of Neural/Spectral NR (8000 series, Aurora).
-        /// 6000 series radios lack the DSP hardware even if a license is purchased.
-        /// </summary>
-        /// <summary>
-        /// True when the radio hardware supports advanced NR (NRF, NRS, RNN).
-        /// Only available on 8000-series and Aurora — requires their DSP hardware.
-        /// 6000 series has Legacy NR and ANF only.
+        /// True when the radio hardware supports the advanced NR family (NRF, NRS, RNN).
+        /// 8000-series and Aurora only — the 6000 series lacks the DSP hardware, and a
+        /// SmartSDR+ licence does not change that. The 6000s get NRL, ANFL and ANFT.
+        /// <para>
+        /// THIS IS THE hardware predicate for the family. Do not write a second one.
+        /// FlexRadio's SmartSDR v4.1.3 release notes say "Only available on 8000 Series
+        /// Radios" of NRF, NRS and RNN alike, and mark all three footnote 1 (Aurora,
+        /// FLEX-8000) while NRL, ANFL and ANFT carry footnote 1,2 (plus FLEX-6000).
+        /// The AU-520-only feature is Enhanced Signal Clarity, which needs dual SCUs —
+        /// not RNN. A predicate matching AU-52* has confused the two before (#729).
+        /// Working: JJFlex-private/planning/research/flexradio-noise-mitigation-model-matrix.md
+        /// </para>
         /// </summary>
         public bool NeuralNRHardwareSupported
         {
@@ -14990,22 +14995,30 @@ namespace Radios
                 NoiseReduction == OffOnValues.on,
                 hasSlice, nrModeAllowed, "not available in CW or FM modes"));
 
-            bool rnnSupported = IsRnnModel(radio);
+            // NRF, NRS and RNN share ONE hardware requirement — 8000-series or Aurora DSP —
+            // so they share one predicate. They did not until 2026-10-17: RNN tested a
+            // second, stricter predicate that excluded the AU-510, while NRF and NRS
+            // claimed no hardware requirement at all and so read as available on every
+            // 6000-series radio that holds a licence. Three answers, one requirement (#729).
+            // NRL below is correctly unconditional — it runs on the 6000s too.
+            bool advancedNrSupported = NeuralNRHardwareSupported;
+            string advancedNrReason = advancedNrSupported ? "" : "requires 8000-series radio";
+
             lines.Add(BuildAdvancedNoiseStatus("Noise Reduction (RNN)",
                 NeuralNoiseReduction == OffOnValues.on,
-                rnnSupported, rnnSupported ? "" : "requires 8000-series radio",
+                advancedNrSupported, advancedNrReason,
                 hasSlice, nrModeAllowed, "not available in CW or FM modes",
                 licenseFeature, licenseReported, licenseEnabled));
 
             lines.Add(BuildAdvancedNoiseStatus("Noise Reduction (NRF)",
                 NoiseReductionFilter == OffOnValues.on,
-                true, "",
+                advancedNrSupported, advancedNrReason,
                 hasSlice, nrModeAllowed, "not available in CW or FM modes",
                 licenseFeature, licenseReported, licenseEnabled));
 
             lines.Add(BuildAdvancedNoiseStatus("Noise Reduction (NRS)",
                 SpectralNoiseReduction == OffOnValues.on,
-                true, "",
+                advancedNrSupported, advancedNrReason,
                 hasSlice, nrModeAllowed, "not available in CW or FM modes",
                 licenseFeature, licenseReported, licenseEnabled));
 
@@ -15094,14 +15107,6 @@ namespace Radios
             if (!hasSlice) return BuildFeatureLine(feature, "unavailable", "select a slice");
             if (!modeAllowed) return BuildFeatureLine(feature, "unavailable", modeReason);
             return BuildFeatureLine(feature, enabled ? "enabled" : "disabled", enabled ? "" : "available");
-        }
-
-        private static bool IsRnnModel(Radio radio)
-        {
-            var model = radio?.Model ?? string.Empty;
-            // 8000 series and Aurora AU-520 (based on 8600) support RNN
-            return model.StartsWith("FLEX-8", StringComparison.OrdinalIgnoreCase)
-                || model.StartsWith("AU-52", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
