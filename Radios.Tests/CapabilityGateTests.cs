@@ -249,6 +249,110 @@ namespace Radios.Tests
         }
 
         /// <summary>
+        /// Every road to the three gated switches asks the ladder before it
+        /// speaks.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>What this catches and what it does not.</b> It reads the three
+        /// known roads' source and asserts each write is accompanied by its
+        /// capability. It cannot catch a BRAND NEW road that writes the
+        /// properties some other way — nothing short of a real UI walk can.
+        /// What that fourth road would get is a refused write, because the
+        /// setter is gated, plus a <c>CapabilityWriteRefused</c> trace line;
+        /// what it would lose is only the spoken reason.
+        /// </para>
+        /// <para>
+        /// It is worth having anyway because the failure it guards against is
+        /// the one that actually happened three times: a road that writes and
+        /// announces without asking (#725). A source assertion is the only kind
+        /// available here — these roads are WPF surfaces, and the test project
+        /// that can construct them refuses to run on a live desk.
+        /// </para>
+        /// </remarks>
+        [Theory]
+        [InlineData("JJFlexWpf/Controls/ScreenFieldsPanel.xaml.cs", "_neuralNrCheck", "NoiseReductionNeural")]
+        [InlineData("JJFlexWpf/Controls/ScreenFieldsPanel.xaml.cs", "_spectralNrCheck", "NoiseReductionSpectral")]
+        [InlineData("JJFlexWpf/Controls/ScreenFieldsPanel.xaml.cs", "_nrfCheck", "NoiseReductionFilter")]
+        public void TheExpandersCheckboxesAskTheLadderBeforeTheySpeak(
+            string relativePath, string control, string capability)
+        {
+            string source = ReadRepoFile(relativePath);
+
+            // Both directions of the checkbox, and both must be gated: an
+            // operator turning a refused switch OFF is just as entitled to hear
+            // why nothing happened as one turning it on.
+            foreach (string handler in new[] { ".Checked +=", ".Unchecked +=" })
+            {
+                int at = source.IndexOf(control + handler, StringComparison.Ordinal);
+                Assert.True(at >= 0, control + handler + " not found in " + relativePath);
+
+                // The handler is one statement; read to its terminator.
+                int end = source.IndexOf(");", at, StringComparison.Ordinal);
+                Assert.True(end > at, "unterminated handler for " + control + handler);
+                string statement = source.Substring(at, end - at);
+
+                Assert.Contains("ToggleGatedRig", statement);
+                Assert.Contains("RadioCapability." + capability, statement);
+            }
+        }
+
+        /// <summary>
+        /// The Radio menu's three advanced-NR items pass their capability to
+        /// <c>ToggleDSP</c>, and the switches that need no gate do not.
+        /// </summary>
+        /// <remarks>
+        /// The negative half is the half worth having. Legacy NR runs on every
+        /// model and needs no licence, so gating it would be wrong — and a gate
+        /// applied to things that do not need one is how a gate stops meaning
+        /// anything and starts getting removed wholesale.
+        /// </remarks>
+        [Fact]
+        public void TheRadioMenuGatesExactlyTheThreeThatNeedIt()
+        {
+            string source = ReadRepoFile("JJFlexWpf/NativeMenuBar.cs");
+
+            foreach (var (label, capability) in new[]
+                     {
+                         ("On-Radio Neural NR", "NoiseReductionNeural"),
+                         ("On-Radio Spectral NR", "NoiseReductionSpectral"),
+                         ("NR Filter", "NoiseReductionFilter"),
+                     })
+            {
+                int at = source.IndexOf("ToggleDSP(\"" + label + "\"", StringComparison.Ordinal);
+                Assert.True(at >= 0, "no ToggleDSP call for " + label);
+                int end = source.IndexOf(");", at, StringComparison.Ordinal);
+                Assert.True(end > at, "unterminated ToggleDSP call for " + label);
+
+                Assert.Contains("RadioCapability." + capability, source.Substring(at, end - at));
+            }
+
+            // Legacy NR is deliberately ungated.
+            int legacy = source.IndexOf("ToggleDSP(\"Legacy NR\"", StringComparison.Ordinal);
+            Assert.True(legacy >= 0, "no ToggleDSP call for Legacy NR");
+            int legacyEnd = source.IndexOf(");", legacy, StringComparison.Ordinal);
+            Assert.DoesNotContain("RadioCapability.", source.Substring(legacy, legacyEnd - legacy));
+        }
+
+        /// <summary>
+        /// Find a file by walking up from the test binary to the repository
+        /// root, the way the integration-pass scans do.
+        /// </summary>
+        private static string ReadRepoFile(string relativePath)
+        {
+            var dir = new System.IO.DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "JJFlexRadio.sln")))
+            {
+                dir = dir.Parent;
+            }
+
+            Assert.NotNull(dir);
+            string full = System.IO.Path.Combine(dir!.FullName, relativePath.Replace('/', System.IO.Path.DirectorySeparatorChar));
+            Assert.True(System.IO.File.Exists(full), "not found: " + full);
+            return System.IO.File.ReadAllText(full);
+        }
+
+        /// <summary>
         /// <see cref="FlexBase.CapabilityRefusal"/> returns null for available
         /// and for a licence we were never told about, because not knowing is
         /// not a reason to refuse.

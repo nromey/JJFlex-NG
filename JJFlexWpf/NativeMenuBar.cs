@@ -494,9 +494,31 @@ public class NativeMenuBar : IDisposable
     /// than as the menu being quieter. One tone here covers every item that
     /// funnels through this method, which is the argument for the funnel.
     /// </remarks>
-    private void ToggleDSP(string label, Func<FlexBase.OffOnValues> getter, Action<FlexBase.OffOnValues> setter)
+    /// <param name="capability">
+    /// The capability to ask the ladder about before speaking, or null for a
+    /// switch the radio never refuses. <b>#725 on this road:</b> this method
+    /// wrote, toned and announced unconditionally, so a radio that silently
+    /// dropped the command still answered "on". The write is gated at the
+    /// setter now; this parameter is what makes the SPEECH agree with it.
+    /// Switches that run on every model pass nothing, because gating what needs
+    /// no gate is how a gate stops meaning anything.
+    /// </param>
+    private void ToggleDSP(string label, Func<FlexBase.OffOnValues> getter, Action<FlexBase.OffOnValues> setter,
+        Radios.RadioCapability? capability = null)
     {
         if (Rig == null) { SpeakNoRadio(); return; }
+
+        if (capability != null)
+        {
+            string? refusal = Rig.CapabilityWriteRefusal(capability.Value);
+            if (refusal != null)
+            {
+                EarconPlayer.LeaderInvalidTone();
+                SpeakAfterMenuClose(refusal);
+                return;
+            }
+        }
+
         var current = getter();
         var newVal = Rig.ToggleOffOn(current);
         setter(newVal);
@@ -637,13 +659,16 @@ public class NativeMenuBar : IDisposable
             // provisional until Noel walks them; when they change, they change
             // here too.
             AddChecked(nrSub, "On-Radio Neural NR (RNN)\tCtrl+J, N, R", () =>
-                ToggleDSP("On-Radio Neural NR", () => Rig.NeuralNoiseReduction, v => Rig.NeuralNoiseReduction = v),
+                ToggleDSP("On-Radio Neural NR", () => Rig.NeuralNoiseReduction, v => Rig.NeuralNoiseReduction = v,
+                    Radios.RadioCapability.NoiseReductionNeural),
                 () => Rig?.NeuralNoiseReduction == FlexBase.OffOnValues.on);
             AddChecked(nrSub, "On-Radio Spectral NR (NRS)\tCtrl+J, N, S", () =>
-                ToggleDSP("On-Radio Spectral NR", () => Rig.SpectralNoiseReduction, v => Rig.SpectralNoiseReduction = v),
+                ToggleDSP("On-Radio Spectral NR", () => Rig.SpectralNoiseReduction, v => Rig.SpectralNoiseReduction = v,
+                    Radios.RadioCapability.NoiseReductionSpectral),
                 () => Rig?.SpectralNoiseReduction == FlexBase.OffOnValues.on);
             AddChecked(nrSub, "NR Filter (NRF)\tCtrl+J, N, Ctrl+N", () =>
-                ToggleDSP("NR Filter", () => Rig.NoiseReductionFilter, v => Rig.NoiseReductionFilter = v),
+                ToggleDSP("NR Filter", () => Rig.NoiseReductionFilter, v => Rig.NoiseReductionFilter = v,
+                    Radios.RadioCapability.NoiseReductionFilter),
                 () => Rig?.NoiseReductionFilter == FlexBase.OffOnValues.on);
         }
         // Legacy NR always available

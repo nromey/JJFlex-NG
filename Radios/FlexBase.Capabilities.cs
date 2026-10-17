@@ -55,10 +55,27 @@ namespace Radios
 
         /// <summary>
         /// Raised when a write to a gated capability was refused rather than
-        /// sent. <b>Subscribe once, centrally</b> — every road is covered by the
-        /// one subscriber, and a second subscriber that also speaks would double
-        /// the announcement.
+        /// sent.
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>DO NOT SPEAK FROM THIS EVENT.</b> As of 2026-10-17 all three roads
+        /// to the advanced-NR switches — the noise layer, the DSP expander's
+        /// checkboxes and the Radio menu — ask
+        /// <see cref="CapabilityWriteRefusal"/> before they announce anything,
+        /// and each says the refusal itself. A subscriber here that also spoke
+        /// would therefore say it twice, and a doubled announcement is a defect
+        /// this project has paid for before (#521).
+        /// </para>
+        /// <para>
+        /// <b>What it is for:</b> the trace, the tests, and noticing a road that
+        /// did NOT ask. A new surface that writes one of these switches without
+        /// consulting the ladder still gets its write refused — that is the
+        /// point of gating the setter — and this event is how that shows up as
+        /// something other than silence. If a central speaker is ever wanted,
+        /// the three roads must stop speaking for themselves in the same change.
+        /// </para>
+        /// </remarks>
         public event EventHandler<CapabilityRefusedEventArgs>? CapabilityWriteRefused;
 
         /// <summary>

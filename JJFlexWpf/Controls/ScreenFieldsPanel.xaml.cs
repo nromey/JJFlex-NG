@@ -320,19 +320,36 @@ public partial class ScreenFieldsPanel : UserControl
         // without the prefix, "Spectral NR" and "PC Spectral NR" sat in one
         // list daring an operator to guess which was which. Same vocabulary
         // as On-Radio Headphone Level vs PC Output Volume.
+        // The gated three go through ToggleGatedRig, which asks the capability
+        // ladder before it speaks. Legacy NR, the blankers and the notches
+        // below stay on plain ToggleRig on purpose: they run on every model and
+        // need no licence, and gating what does not need gating is how a gate
+        // stops meaning anything.
         _neuralNrCheck = MakeToggle(Lexicon.Get("audio.fields.neural_nr"));
-        _neuralNrCheck.Checked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.neural_nr_spoken"), v => { if (_rig != null) _rig.NeuralNoiseReduction = v; }, true);
-        _neuralNrCheck.Unchecked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.neural_nr_spoken"), v => { if (_rig != null) _rig.NeuralNoiseReduction = v; }, false);
+        _neuralNrCheck.Checked += (s, e) => ToggleGatedRig(_neuralNrCheck,
+            RadioCapability.NoiseReductionNeural, Lexicon.Get("audio.fields.neural_nr_spoken"),
+            v => { if (_rig != null) _rig.NeuralNoiseReduction = v; }, true);
+        _neuralNrCheck.Unchecked += (s, e) => ToggleGatedRig(_neuralNrCheck,
+            RadioCapability.NoiseReductionNeural, Lexicon.Get("audio.fields.neural_nr_spoken"),
+            v => { if (_rig != null) _rig.NeuralNoiseReduction = v; }, false);
         DspContent.Children.Add(_neuralNrCheck);
 
         _spectralNrCheck = MakeToggle(Lexicon.Get("audio.fields.spectral_nr"));
-        _spectralNrCheck.Checked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.spectral_nr_spoken"), v => { if (_rig != null) _rig.SpectralNoiseReduction = v; }, true);
-        _spectralNrCheck.Unchecked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.spectral_nr_spoken"), v => { if (_rig != null) _rig.SpectralNoiseReduction = v; }, false);
+        _spectralNrCheck.Checked += (s, e) => ToggleGatedRig(_spectralNrCheck,
+            RadioCapability.NoiseReductionSpectral, Lexicon.Get("audio.fields.spectral_nr_spoken"),
+            v => { if (_rig != null) _rig.SpectralNoiseReduction = v; }, true);
+        _spectralNrCheck.Unchecked += (s, e) => ToggleGatedRig(_spectralNrCheck,
+            RadioCapability.NoiseReductionSpectral, Lexicon.Get("audio.fields.spectral_nr_spoken"),
+            v => { if (_rig != null) _rig.SpectralNoiseReduction = v; }, false);
         DspContent.Children.Add(_spectralNrCheck);
 
         _nrfCheck = MakeToggle(Lexicon.Get("audio.fields.nr_filter"));
-        _nrfCheck.Checked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.nr_filter_spoken"), v => { if (_rig != null) _rig.NoiseReductionFilter = v; }, true);
-        _nrfCheck.Unchecked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.nr_filter_spoken"), v => { if (_rig != null) _rig.NoiseReductionFilter = v; }, false);
+        _nrfCheck.Checked += (s, e) => ToggleGatedRig(_nrfCheck,
+            RadioCapability.NoiseReductionFilter, Lexicon.Get("audio.fields.nr_filter_spoken"),
+            v => { if (_rig != null) _rig.NoiseReductionFilter = v; }, true);
+        _nrfCheck.Unchecked += (s, e) => ToggleGatedRig(_nrfCheck,
+            RadioCapability.NoiseReductionFilter, Lexicon.Get("audio.fields.nr_filter_spoken"),
+            v => { if (_rig != null) _rig.NoiseReductionFilter = v; }, false);
         DspContent.Children.Add(_nrfCheck);
 
         _legacyNrCheck = MakeToggle(Lexicon.Get("audio.fields.legacy_nr"));
@@ -1216,6 +1233,56 @@ public partial class ScreenFieldsPanel : UserControl
             VerbosityLevel.Terse, interrupt: true);
     }
 
+    /// <summary>
+    /// A checkbox for a capability the radio can refuse. Asks the one ladder
+    /// before it speaks, so this surface cannot announce a state the radio
+    /// never took.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is #725 on this road.</b> <see cref="ToggleRig"/> writes, plays
+    /// the on-tone and announces, in that order and unconditionally — so on a
+    /// radio whose subscription does not include advanced noise reduction the
+    /// operator heard "On-Radio Neural NR on" while the setter silently dropped
+    /// the command. The write is gated now, which is what makes the behaviour
+    /// correct; this method exists so the SPEECH agrees with it.
+    /// </para>
+    /// <para>
+    /// It asks <c>CapabilityWriteRefusal</c> rather than testing hardware or a
+    /// licence itself. That is the whole point of the class: a presentation
+    /// that re-derives the answer is a presentation that can get a different
+    /// one, which is how three surfaces came to disagree.
+    /// </para>
+    /// </remarks>
+    private void ToggleGatedRig(CheckBox box, RadioCapability capability, string label,
+                                Action<FlexBase.OffOnValues> setter, bool isOn)
+    {
+        if (_polling || _rig == null) return;
+
+        string? refusal = _rig.CapabilityWriteRefusal(capability);
+        if (refusal == null)
+        {
+            ToggleRig(label, setter, isOn);
+            return;
+        }
+
+        // Put the box back WITHOUT re-entering this handler. The 100 ms poll in
+        // PollUpdate would correct it within a tick anyway, and does so under
+        // the same flag — but only while the DSP expander is open, and leaving
+        // the control claiming a state the radio refused is exactly the lie
+        // this work exists to end. Closing the window costs three lines.
+        bool wasPolling = _polling;
+        _polling = true;
+        try { box.IsChecked = !isOn; }
+        finally { _polling = wasPolling; }
+
+        EarconPlayer.LeaderInvalidTone();
+        // interrupt: true cuts off NVDA's own "checked" announcement, which
+        // would otherwise report the state the click implied rather than the
+        // one the radio kept.
+        ScreenReaderOutput.Speak(refusal, VerbosityLevel.Terse, interrupt: true);
+    }
+
     private void ToggleBoolRig(string label, Action<bool> setter, bool isOn)
     {
         if (_polling || _rig == null) return;
@@ -1262,7 +1329,12 @@ public partial class ScreenFieldsPanel : UserControl
     {
         if (_rig == null) return;
 
-        // Only poll NR controls if license is available (controls may be collapsed)
+        // Only poll the advanced NR controls while they are on screen. THE
+        // CONDITION IS HARDWARE, NOT A LICENCE - this comment said "if license
+        // is available" and the visibility it tests is set from
+        // NeuralNRHardwareSupported a few hundred lines up, so the sentence
+        // named the wrong one of the two conditions this whole area confuses
+        // (#726). Fixed 2026-10-17.
         if (_neuralNrCheck.Visibility == Visibility.Visible)
         {
             _neuralNrCheck.IsChecked = _rig.NeuralNoiseReduction == FlexBase.OffOnValues.on;
