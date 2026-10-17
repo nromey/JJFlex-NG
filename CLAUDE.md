@@ -1336,11 +1336,16 @@ As tracks complete, Claude Desktop handles merges and keeps the user informed:
    Filtering to classes that construct no window is safe on a live desk:
 
    ```bash
-   dotnet test JJFlexWpf.Tests/JJFlexWpf.Tests.csproj -c Debug -p:Platform=x64      --filter "FullyQualifiedName~KeyTreeTests|FullyQualifiedName~LayerHelpRowsTests|FullyQualifiedName~KeyLayerHelpTests|FullyQualifiedName~LeaderNearMissTests|FullyQualifiedName~HomeFieldChordTests|FullyQualifiedName~DelegateSurfaceTests"
+   dotnet test JJFlexWpf.Tests/JJFlexWpf.Tests.csproj -c Debug -p:Platform=x64      --filter "FullyQualifiedName~KeyTreeTests|FullyQualifiedName~LayerHelpRowsTests|FullyQualifiedName~KeyLayerHelpTests|FullyQualifiedName~LeaderNearMissTests|FullyQualifiedName~HomeFieldChordTests|FullyQualifiedName~DelegateSurfaceTests|FullyQualifiedName~NoiseReductionPerChannelTests|FullyQualifiedName~PerChannelDenoiserBankTests|FullyQualifiedName~DeepFilterNet3EngineTests|FullyQualifiedName~EngineLatencyTests"
    ```
 
    **Say which classes the run covered**, because the set grows and a class
    nobody names silently drops out of coverage the day it is added. See #531.
+
+   **`NoiseReductionPerChannelTests`, `PerChannelDenoiserBankTests`, `DeepFilterNet3EngineTests` and
+   `EngineLatencyTests` were added 2026-10-17** with Sprint 48 Track G (#731, #732). They exercise
+   audio buffers and native engines only; no window. **On x86, four of them fail by design until #739**
+   (the RNNoise package ships a 64-bit DLL as its 32-bit one), so run this filter on x64.
 
    **`HomeFieldChordTests` and `DelegateSurfaceTests` were added 2026-09-20**,
    both verified to construct zero windows. **Do not check that by grepping for

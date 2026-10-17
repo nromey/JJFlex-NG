@@ -87,7 +87,12 @@ Section "MYPGM (required)"
   ; pre-package sweep deleted them from bin\release\, a path that no longer
   ; exists. Excluded here instead — the app reads no .xml from its install
   ; directory (its config XMLs live in AppData).
-  File /r /x "*.pdb" /x "*.xml" /x "runPgm.bat" "MYOUTDIR\*.*"
+  ; deepfilter.* and DeepFilterNet3_onnx.tar.gz are a second PC-side noise
+  ; reducer that nothing an operator can reach selects yet. They stay in the
+  ; build tree for debug builds and the offline bench, and are held out of
+  ; the release installer until the noise layer can offer them (#731,
+  ; ruled 2026-10-17). Remove these two exclusions when it can.
+  File /r /x "*.pdb" /x "*.xml" /x "runPgm.bat" /x "deepfilter.*" /x "DeepFilterNet3_onnx.tar.gz" "MYOUTDIR\*.*"
 
   ; Include changelog
   File "docs\CHANGELOG.md"
