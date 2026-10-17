@@ -241,12 +241,7 @@ public partial class ScreenFieldsPanel : UserControl
         _neuralNrCheck.Visibility = Visibility.Visible;
         _spectralNrCheck.Visibility = Visibility.Visible;
         _nrfCheck.Visibility = Visibility.Visible;
-        MarkGatedToggle(_neuralNrCheck, RadioCapability.NoiseReductionNeural,
-            Lexicon.Get("audio.fields.neural_nr"));
-        MarkGatedToggle(_spectralNrCheck, RadioCapability.NoiseReductionSpectral,
-            Lexicon.Get("audio.fields.spectral_nr"));
-        MarkGatedToggle(_nrfCheck, RadioCapability.NoiseReductionFilter,
-            Lexicon.Get("audio.fields.nr_filter"));
+        RefreshCapabilityMarkers();
         // Legacy NR is always available — no license required
         _nrLevelControl.Visibility = Visibility.Collapsed; // shown only when Legacy NR is on
 
@@ -1211,6 +1206,33 @@ public partial class ScreenFieldsPanel : UserControl
         };
         AutomationProperties.SetName(cb, label);
         return cb;
+    }
+
+    /// <summary>
+    /// Re-read the gates and update the three advanced-NR labels.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Called at connect AND whenever the radio's licence state moves</b>,
+    /// which is the half of this that is easy to forget. Hardware cannot change
+    /// under a live radio, but a subscription can arrive mid-session — and a
+    /// label that gained ", needs subscription" at connect and never lost it
+    /// would be a permanent lie about a feature that now works, which is worse
+    /// than the collapsed checkbox this marker replaced.
+    /// </para>
+    /// <para>
+    /// Safe to call repeatedly: it recomputes from the rig every time and
+    /// writes the plain label when nothing is in the way.
+    /// </para>
+    /// </remarks>
+    public void RefreshCapabilityMarkers()
+    {
+        MarkGatedToggle(_neuralNrCheck, RadioCapability.NoiseReductionNeural,
+            Lexicon.Get("audio.fields.neural_nr"));
+        MarkGatedToggle(_spectralNrCheck, RadioCapability.NoiseReductionSpectral,
+            Lexicon.Get("audio.fields.spectral_nr"));
+        MarkGatedToggle(_nrfCheck, RadioCapability.NoiseReductionFilter,
+            Lexicon.Get("audio.fields.nr_filter"));
     }
 
     /// <summary>

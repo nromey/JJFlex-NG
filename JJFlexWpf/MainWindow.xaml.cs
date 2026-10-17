@@ -4357,6 +4357,13 @@ public partial class MainWindow : UserControl
     private string? _featureGateSignature;
 
     /// <summary>
+    /// Which capabilities were closed at the last gating change, so an OPENING
+    /// can be told from a closing. Null until the first verdict for a radio,
+    /// which is how the first verdict stays silent.
+    /// </summary>
+    private HashSet<Radios.RadioCapability>? _closedCapabilities;
+
+    /// <summary>
     /// The licence-gated features changed their minds, so the surfaces that
     /// gate on them get rebuilt.
     ///
@@ -4399,6 +4406,10 @@ public partial class MainWindow : UserControl
         if (rig == null)
         {
             _featureGateSignature = null;
+            // Cleared together, or the next radio's first verdict would be
+            // diffed against the last radio's and announce an "opening" that
+            // is really just a different radio.
+            _closedCapabilities = null;
             return;
         }
 
@@ -4455,8 +4466,72 @@ public partial class MainWindow : UserControl
         Tracing.TraceLine(
             $"FeatureLicenseChanged: gating moved to {signature} — rebuilding menus",
             TraceLevel.Info);
+
+        // WHICH CAPABILITIES OPENED, AND WHICH CLOSED (#726 item 7).
+        //
+        // Diffed from the signature-moved branch rather than per event on
+        // purpose: FlexLib raises FeatureLicenseChanged for every property
+        // change on the licence object, so a per-event announcement would fire
+        // a burst of them for one real transition.
+        //
+        // NOTHING IS SPOKEN HERE YET, AND THAT IS A DELIBERATE STOP RATHER
+        // THAN AN OMISSION. A sentence the application says on its own
+        // account, unprompted, is a Message with a shelf life and a validity
+        // contract naming the condition that makes it true — not a label. The
+        // five strings this work added are all TextOnly because each is spoken
+        // only in ANSWER to a press; this one would be the first that is not,
+        // and classifying it by convenience is exactly the mistake #617 named.
+        // Its wording is Noel's (#720) and its shelf life is a #617 speech
+        // decision nobody has made. So: detect, trace, and fix the labels.
+        var closedNow = new HashSet<Radios.RadioCapability>();
+        foreach (var capability in FlexBase.GatedCapabilities)
+        {
+            if (rig.CapabilityIsClosedOnThisRadio(capability)) closedNow.Add(capability);
+        }
+
+        if (_closedCapabilities != null)
+        {
+            var opened = _closedCapabilities.Where(c => !closedNow.Contains(c)).ToList();
+            var closed = closedNow.Where(c => !_closedCapabilities.Contains(c)).ToList();
+
+            if (opened.Count > 0)
+            {
+                Tracing.TraceLine(
+                    "FeatureLicenseChanged: capabilities now AVAILABLE: "
+                    + string.Join(", ", opened), TraceLevel.Info);
+            }
+
+            if (closed.Count > 0)
+            {
+                // A gate closing is traced and never announced. The brief is
+                // explicit: tell somebody a feature just left and the next
+                // question is "what did I do?", when the answer is that a
+                // subscription lapsed in the background.
+                Tracing.TraceLine(
+                    "FeatureLicenseChanged: capabilities now CLOSED: "
+                    + string.Join(", ", closed), TraceLevel.Info);
+            }
+        }
+
+        _closedCapabilities = closedNow;
         _featureGateSignature = signature;
         SetupOperationsMenu();
+
+        // The menus are rebuilt above, so their markers are recomputed by
+        // construction. The Home panel's checkboxes are long-lived and are
+        // NOT, so their labels have to be told. Without this a subscription
+        // arriving mid-session leaves three controls reading ", needs
+        // subscription" for the rest of the session while working perfectly.
+        try
+        {
+            FieldsPanel?.RefreshCapabilityMarkers();
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine(
+                $"FeatureLicenseChanged: could not refresh capability markers: {ex.Message}",
+                TraceLevel.Warning);
+        }
     }
 
     private void TransmitChangeHandler(object sender, bool transmit)
