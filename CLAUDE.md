@@ -800,14 +800,29 @@ Added 2026-08-06 after the index hit the warning threshold; rewritten
 
 3d. **AppData config backup:** run `& "C:\dev\JJFlex-NG\backup-appdata-to-nas.ps1"`.
    Snapshots the operator's CONFIGURATION out of `%AppData%\JJFlexRadio\` to
-   `historical\appdata\` as a dated zip. About 73 files and 0.07 MB compressed,
-   so it costs nothing and can be run freely. Keeps 24 by default.
+   `historical\appdata\` as a dated zip. **Measured 2026-10-17: 32 files and
+   0.03 MB compressed**, so it costs nothing and can be run freely. Keeps 24 by
+   default. This line said "about 73 files and 0.07 MB" until then; the filter
+   is intact — the five staged categories sum exactly to 32 — and the drop is
+   explained by connection profiles going from 51 to 7. **Re-measure rather
+   than trusting either number**, and when a count looks low, establish which
+   of "the doc is stale" and "the backup silently covers less than it used to"
+   is true before reasoning from it. They call for opposite responses.
 
    **Nothing else covers this directory.** `backup-dev-to-nas.ps1` mirrors
    `C:\dev`; `backup-claude-state-to-nas.ps1` takes `~\.claude`;
    `backup-private-to-nas.ps1` takes JJFlex-private. All three live outside
    `%AppData%`, so until 2026-08-21 the operator's key map, audio config, radio
    entries and 51 connection profiles existed in exactly one place.
+
+   **AND CONFIG IS ONLY FIVE OF FOURTEEN SUBFOLDERS, so parts of this tree are
+   still in exactly one place — see #728.** Found 2026-10-17 while checking the
+   count above. `alarm-journal` holds 27 files and 6.5 MB of dated journals and
+   preroll captures from real sessions, and `output-transcripts`, `FixerRuns`,
+   `SignalCaptures` and `profile-reports` are likewise untaken. **A measurement
+   cannot be re-taken from a later state**, which is the same reasoning that
+   created this step. `WebView2` (37 MB of regenerable cache) and `Recordings`
+   (155 MB) are correctly excluded and should stay that way.
 
    **Added 2026-08-21 after a background agent's worktree build rewrote
    `KeyDefs.xml`.** Every instance shares `%AppData%` regardless of which binary
