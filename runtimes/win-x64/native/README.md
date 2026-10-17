@@ -293,12 +293,17 @@ Why each flag:
 - `deepfilter.dll` x64: `4305FDE2109F60002E02DF3FEFC11F1E20FA99195E29FD2BD06940B45D54D51F`, 12,769,280 bytes
 - `deepfilter.dll` x86: `12278781334765ECF08A0F3530F24DDFE76D0513BD941DB84EDC94D4F2E7AA54`, 10,491,904 bytes
 - `DeepFilterNet3_onnx.tar.gz` (both folders): `C94D91F70911001C946E0FABB4AA9ADC37045F45A03B56008CB0C8244CB63616`, 7,983,136 bytes
-- `deepfilter.LICENSE-MIT.txt`: `D38482491663EE5C55BB9FD4A7A193F1652157BA85A4BE5D4E8A50649B2CBC3D`
-- `deepfilter.LICENSE-APACHE.txt`: `2D71D2472AE6446E986CC9AD3EC6182B91868C639734F838AA1D03888838EF56`
+- `deepfilter.LICENSE-MIT.txt`: `24E6BB09C928AF8D8E56268082F87413247CE36B39DD5D33ADD2F9893968065E`
+  with LF line endings, as upstream's git stores it
+- `deepfilter.LICENSE-APACHE.txt`: `1EAEE808C5FB6B4E895BA30425285A5CDC5DD25BBA2CD230F264C2200C331AEC`
+  with LF line endings
 
 A rebuild is not guaranteed to reproduce the DLL hashes bit for bit (the
-linker stamps a timestamp); the model and licence hashes are upstream's files
-and must match exactly.
+linker stamps a timestamp). The model hash is upstream's file and must match
+exactly. **The two licence hashes are of the LF form**, which is what both this
+repository and upstream store; a Windows checkout converts them to CRLF and then
+hashes differently, so compare `git show HEAD:<path>` rather than the working
+copy.
 
 **How to tell what a copy is: it has no version string, so do not invent
 one.** The crate never compiles its own version into the binary (searching for
