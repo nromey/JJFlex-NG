@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Sprint 48 Track G (#731): the offline noise-reduction bench. NOT part of
+       the app build or solution. It compiles the app's REAL noise-reduction
+       sources by link, the same way tools/voicelab does, so what this tool
+       renders is exactly what the app would run: the same provider, the same
+       per-channel bank, the same engines, fed the same 10 ms packets.
+
+       Runs offline only. It reads a WAV and writes WAVs and a text report. It
+       opens no audio device and plays nothing; listening is done afterwards,
+       in whatever the operator uses to play files.
+
+       Run: dotnet run (project tools/nrbench) with the arguments after the
+       separator. Program.cs carries the usage text. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>nrbench</AssemblyName>
+    <RootNamespace>NrBench</RootNamespace>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <!-- deepfilter.dll is chosen by the process's bitness; pin x64 so the
+         bench and the x64 DLL it loads by default agree. -->
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="NAudio.Core" Version="3.0.0" />
+    <PackageReference Include="YellowDogMan.RRNoise.NET" Version="0.1.9" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\..\JJFlexWpf\INeuralDenoiseEngine.cs" Link="src\INeuralDenoiseEngine.cs" />
+    <Compile Include="..\..\JJFlexWpf\RnnoiseEngine.cs" Link="src\RnnoiseEngine.cs" />
+    <Compile Include="..\..\JJFlexWpf\DeepFilterNet3Engine.cs" Link="src\DeepFilterNet3Engine.cs" />
+    <Compile Include="..\..\JJFlexWpf\PerChannelDenoiserBank.cs" Link="src\PerChannelDenoiserBank.cs" />
+    <Compile Include="..\..\JJFlexWpf\NoiseReductionProvider.cs" Link="src\NoiseReductionProvider.cs" />
+  </ItemGroup>
+</Project>
