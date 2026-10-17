@@ -891,6 +891,14 @@ namespace Radios.Tests
                 "audio.nr.filter_unsubscribed",
                 "audio.noise_layer.gated_keys_unavailable",
                 "audio.noise_layer.gated_keys_unsubscribed",
+
+                // #726 item 6, the same day: the textual markers that replaced
+                // a collapsed checkbox and a stand-in menu item. These two are
+                // LABELS rather than announcements - they are the control's own
+                // name, read when focus lands on it - so delivery: null is the
+                // plainest case of TextOnly in this group.
+                "audio.nr.marker_needs_subscription",
+                "audio.nr.marker_not_on_this_radio",
             };
 
             Assert.Equal(3153, unclassified);

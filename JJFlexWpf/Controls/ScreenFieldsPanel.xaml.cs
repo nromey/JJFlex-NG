@@ -223,11 +223,30 @@ public partial class ScreenFieldsPanel : UserControl
         if (rxAnts.Length > 0) _rxAntennaControl.SetOptions(rxAnts);
         if (txAnts.Length > 0) _txAntennaControl.SetOptions(txAnts);
 
-        // NRF, NRS, RNN all require 8000-series/Aurora DSP hardware
-        bool advancedNrAvailable = rig.NeuralNRHardwareSupported;
-        _neuralNrCheck.Visibility = advancedNrAvailable ? Visibility.Visible : Visibility.Collapsed;
-        _spectralNrCheck.Visibility = advancedNrAvailable ? Visibility.Visible : Visibility.Collapsed;
-        _nrfCheck.Visibility = advancedNrAvailable ? Visibility.Visible : Visibility.Collapsed;
+        // NRF, NRS and RNN need 8000-series/Aurora DSP hardware, and a
+        // subscription on top of it.
+        //
+        // THEY STAY ON SCREEN NOW, MARKED IN TEXT (#726 item 6). All three used
+        // to be Visibility.Collapsed when the hardware test failed, so on a
+        // 6000-series radio they were simply gone - and a control that is gone
+        // is indistinguishable from a control that was never built. Noel's rule
+        // is that an unavailable feature stays present, marked in text,
+        // invocable and self-explaining, and a collapsed checkbox is none of
+        // those four things.
+        //
+        // Not grayed either: IsEnabled = false would take them out of the tab
+        // order and leave the screen reader saying "unavailable" with no way to
+        // ask why. They remain live, and ToggleGatedRig speaks the reason when
+        // one is pressed.
+        _neuralNrCheck.Visibility = Visibility.Visible;
+        _spectralNrCheck.Visibility = Visibility.Visible;
+        _nrfCheck.Visibility = Visibility.Visible;
+        MarkGatedToggle(_neuralNrCheck, RadioCapability.NoiseReductionNeural,
+            Lexicon.Get("audio.fields.neural_nr"));
+        MarkGatedToggle(_spectralNrCheck, RadioCapability.NoiseReductionSpectral,
+            Lexicon.Get("audio.fields.spectral_nr"));
+        MarkGatedToggle(_nrfCheck, RadioCapability.NoiseReductionFilter,
+            Lexicon.Get("audio.fields.nr_filter"));
         // Legacy NR is always available — no license required
         _nrLevelControl.Visibility = Visibility.Collapsed; // shown only when Legacy NR is on
 
@@ -1194,6 +1213,42 @@ public partial class ScreenFieldsPanel : UserControl
         return cb;
     }
 
+    /// <summary>
+    /// Put a textual marker on a gated toggle's label, or take it off again
+    /// when the gate opens.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Content and AutomationProperties.Name are both set, and that is not
+    /// belt-and-braces.</b> <see cref="MakeToggle"/> sets both from one string
+    /// precisely so they agree; updating only one would leave the screen reader
+    /// and the screen saying different things about the same control, which is a
+    /// worse state than either being wrong on its own.
+    /// </para>
+    /// <para>
+    /// <b>The no-marker branch matters as much as the marked ones.</b> A
+    /// subscription can arrive mid-session, and a label that acquired "needs
+    /// subscription" and never lost it would be a permanent lie about a feature
+    /// that now works.
+    /// </para>
+    /// </remarks>
+    private void MarkGatedToggle(CheckBox box, RadioCapability capability, string plainLabel)
+    {
+        var reason = _rig?.CapabilityClosedReason(capability) ?? CapabilityBlock.None;
+
+        string label = reason switch
+        {
+            CapabilityBlock.Hardware =>
+                Lexicon.Get("audio.nr.marker_not_on_this_radio", ("label", plainLabel)),
+            CapabilityBlock.LicenceDisabled =>
+                Lexicon.Get("audio.nr.marker_needs_subscription", ("label", plainLabel)),
+            _ => plainLabel,
+        };
+
+        box.Content = label;
+        AutomationProperties.SetName(box, label);
+    }
+
     private static ValueFieldControl MakeValue(string label, int min, int max, int step)
     {
         var ctl = new ValueFieldControl();
@@ -1329,12 +1384,16 @@ public partial class ScreenFieldsPanel : UserControl
     {
         if (_rig == null) return;
 
-        // Only poll the advanced NR controls while they are on screen. THE
-        // CONDITION IS HARDWARE, NOT A LICENCE - this comment said "if license
-        // is available" and the visibility it tests is set from
-        // NeuralNRHardwareSupported a few hundred lines up, so the sentence
-        // named the wrong one of the two conditions this whole area confuses
-        // (#726). Fixed 2026-10-17.
+        // The advanced NR controls are ALWAYS on screen as of #726 item 6, so
+        // this condition is now always true and is kept only because the block
+        // also polls Legacy NR and its level.
+        //
+        // It said "Only poll NR controls if license is available" until
+        // 2026-10-17, and the visibility it tested was set from
+        // NeuralNRHardwareSupported - it named the wrong one of the two
+        // conditions this whole area confuses. Worth leaving the correction
+        // visible: the comment was wrong for as long as it was, because
+        // nothing reads a comment back.
         if (_neuralNrCheck.Visibility == Visibility.Visible)
         {
             _neuralNrCheck.IsChecked = _rig.NeuralNoiseReduction == FlexBase.OffOnValues.on;

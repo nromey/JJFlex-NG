@@ -628,6 +628,47 @@ public class NativeMenuBar : IDisposable
     }
 
     /// <summary>
+    /// A menu label with a textual marker when this radio cannot use the
+    /// capability behind it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The marker goes before the tab, which is load-bearing.</b> A menu
+    /// label is "Name\tAccelerator"; appending to the whole string would put
+    /// the marker after the chord, so a screen reader would read "On-Radio
+    /// Neural NR, Ctrl+J N R, needs subscription" and the operator would hear
+    /// the condition attached to the keystroke rather than to the feature.
+    /// </para>
+    /// <para>
+    /// <b>A TEXTUAL marker, not a visual or a disabled state.</b> Graying is
+    /// the thing this replaces: a grayed item cannot be invoked, so it cannot
+    /// explain itself, and a screen reader announces only "unavailable". Text
+    /// in the label is the house convention for exactly this reason.
+    /// </para>
+    /// <para>
+    /// Hardware and subscription get different markers because they are
+    /// different facts and only one of them is worth money. Wording is
+    /// proposed, not ruled (#720); both are one-line lexicon edits.
+    /// </para>
+    /// </remarks>
+    private string NrItemLabel(string label, Radios.RadioCapability capability)
+    {
+        var reason = Rig?.CapabilityClosedReason(capability) ?? Radios.CapabilityBlock.None;
+        if (reason == Radios.CapabilityBlock.None) return label;
+
+        string key = reason == Radios.CapabilityBlock.Hardware
+            ? "audio.nr.marker_not_on_this_radio"
+            : "audio.nr.marker_needs_subscription";
+
+        int tab = label.IndexOf('\t');
+        if (tab < 0) return Radios.Lexicon.Get(key, ("label", label));
+
+        string name = label.Substring(0, tab);
+        string accelerator = label.Substring(tab);
+        return Radios.Lexicon.Get(key, ("label", name)) + accelerator;
+    }
+
+    /// <summary>
     /// Build ScreenFields DSP submenu (shared between Classic and Modern DSP menus).
     /// </summary>
     private void BuildDSPItems(IntPtr parent)
@@ -637,36 +678,44 @@ public class NativeMenuBar : IDisposable
         // === Noise Reduction submenu ===
         var nrSub = AddSubmenu(parent, "Noise Reduction");
         // NRF, NRS, RNN all require 8000-series/Aurora DSP hardware, and a
-        // subscription on top of it. Sprint 30 Track A: when either gate is
-        // shut the family used to be simply ABSENT, which reads exactly like a
-        // missing feature. Now one item stands in its place and says which
-        // gate it is — and, because a feature you cannot have is only useful
-        // news alongside the one you can, points at the PC-side equivalent.
-        string? nrGate = AdvancedNrGateMessage();
-        if (nrGate != null)
+        // subscription on top of it.
+        //
+        // THE THREE ITEMS ARE NOW ALWAYS PRESENT, MARKED IN TEXT (#726 item 6).
+        // Sprint 30 Track A replaced an absent family with one stand-in item,
+        // which was a real improvement on absence - absence reads exactly like
+        // a missing feature. But a stand-in is still three controls the
+        // operator cannot find: it answers "why can I not have this family"
+        // and never "what happened to NR Filter". Noel's rule is that an
+        // unavailable feature stays PRESENT, marked in text, invocable and
+        // self-explaining, and three marked items satisfy it where one stand-in
+        // did not.
+        //
+        // Nothing is grayed, deliberately. A grayed item cannot be invoked, so
+        // it cannot say why it is shut or name the alternative - the screen
+        // reader says "unavailable" and the operator learns nothing. These stay
+        // live: pressing one speaks the reason, because ToggleDSP asks the
+        // ladder before it speaks.
+        //
+        // "On-Radio" prefix (DSP controls track, 2026-08-11): these run in
+        // the radio's own DSP and have PC-side namesakes two submenus
+        // down — the names now say which side of the wire each one is.
+        // Accelerator text names the noise layer's chords (Sprint 48 Track
+        // F, #518): JJ key N, then the switch's letter. Its letters are
+        // provisional until Noel walks them; when they change, they change
+        // here too.
         {
-            AddWired(nrSub, "Advanced noise reduction unavailable", () =>
-                SpeakAfterMenuClose(AdvancedNrGateMessage()
-                    ?? Radios.Lexicon.Get("audio.nr.advanced_available_reopen")));
-        }
-        else
-        {
-            // "On-Radio" prefix (DSP controls track, 2026-08-11): these run in
-            // the radio's own DSP and have PC-side namesakes two submenus
-            // down — the names now say which side of the wire each one is.
-            // Accelerator text names the noise layer's chords (Sprint 48 Track
-            // F, #518): JJ key N, then the switch's letter. Its letters are
-            // provisional until Noel walks them; when they change, they change
-            // here too.
-            AddChecked(nrSub, "On-Radio Neural NR (RNN)\tCtrl+J, N, R", () =>
+            AddChecked(nrSub, NrItemLabel("On-Radio Neural NR (RNN)\tCtrl+J, N, R",
+                    Radios.RadioCapability.NoiseReductionNeural), () =>
                 ToggleDSP("On-Radio Neural NR", () => Rig.NeuralNoiseReduction, v => Rig.NeuralNoiseReduction = v,
                     Radios.RadioCapability.NoiseReductionNeural),
                 () => Rig?.NeuralNoiseReduction == FlexBase.OffOnValues.on);
-            AddChecked(nrSub, "On-Radio Spectral NR (NRS)\tCtrl+J, N, S", () =>
+            AddChecked(nrSub, NrItemLabel("On-Radio Spectral NR (NRS)\tCtrl+J, N, S",
+                    Radios.RadioCapability.NoiseReductionSpectral), () =>
                 ToggleDSP("On-Radio Spectral NR", () => Rig.SpectralNoiseReduction, v => Rig.SpectralNoiseReduction = v,
                     Radios.RadioCapability.NoiseReductionSpectral),
                 () => Rig?.SpectralNoiseReduction == FlexBase.OffOnValues.on);
-            AddChecked(nrSub, "NR Filter (NRF)\tCtrl+J, N, Ctrl+N", () =>
+            AddChecked(nrSub, NrItemLabel("NR Filter (NRF)\tCtrl+J, N, Ctrl+N",
+                    Radios.RadioCapability.NoiseReductionFilter), () =>
                 ToggleDSP("NR Filter", () => Rig.NoiseReductionFilter, v => Rig.NoiseReductionFilter = v,
                     Radios.RadioCapability.NoiseReductionFilter),
                 () => Rig?.NoiseReductionFilter == FlexBase.OffOnValues.on);

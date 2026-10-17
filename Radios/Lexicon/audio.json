@@ -554,6 +554,8 @@
   "audio.noise_profiles.folder_open_failed": "Could not open the profiles folder",
   "audio.noise_profiles.folder_opened": "Profiles folder opened in File Explorer",
   "audio.nr.advanced_available_reopen": "Advanced noise reduction is available — reopen this menu.",
+  "audio.nr.marker_needs_subscription": { "text": "{label}, needs subscription", "delivery": null },
+  "audio.nr.marker_not_on_this_radio": { "text": "{label}, not on this radio", "delivery": null },
   "audio.nr.filter_unsubscribed": { "text": "NR Filter is not in this radio's subscription", "delivery": null },
   "audio.nr.filter_unsupported": "NR Filter not available on this radio",
   "audio.nr.neural_unsubscribed": { "text": "On-Radio Neural NR is not in this radio's subscription. Ctrl+R runs it on this computer instead", "delivery": null },
