@@ -9,6 +9,150 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-10-16, SEALED 2026-10-17 — A GATE THAT TESTED THE WRONG THING, AND THE CLASS BEHIND IT
+
+**Written 2026-10-17 at 07:30.** Covers the window from the previous seal's commit (`20310faf`,
+2026-10-15 05:49) through 2026-10-16 01:20. **Delta measured from `20310faf`, not from midnight**,
+because the previous seal's own morning would otherwise be counted twice.
+
+**Why this seal is late:** the 2026-10-15 seal committed at 05:49 that morning, and a full working
+day followed it — the noise-layer walk at the radio, then the subscription-gating design past
+midnight. Noel returned on the morning of 2026-10-17 and asked to seal before moving forward.
+**Nothing in that window was committed to `JJFlex-NG`**, which is exactly why it needed sealing:
+all of its output lives in `JJFlex-private` and the memory tree, where no build or test would ever
+have noticed it missing.
+
+### What the window produced
+
+- **One commit in `JJFlex-NG`:** `5de9ba5a`, +27/-5 in one file — correcting a finding that had
+  been attributed to a tester who never had the feature in his build.
+- **Three register entries: #725, #726 and #727.** #726 is track-sized and holds the design.
+  #727 was found by the seal itself, not reported.
+- **Register: 448 status lines, 436 OPEN, 3 SHIPPED, 8 CLOSED, 1 RULED, no duplicates, highest
+  #727, zero bare LF.** `open-tasks-summary.md` regenerated and verified newer by mtime.
+- **Two memory entries written across the window**
+  (`feedback_address_noel_in_second_person.md`,
+  `project_subscription_gating_is_centralised_and_nothing_hides.md`), each reachable from exactly
+  one index.
+- **A 133-line walk sheet**, `planning/agile/sprint48-noise-layer-walk.md`.
+
+### The substance: #725 under #726
+
+**Noel pressed `R` and `S` in the new noise layer on his own 8600 and both announced a toggle**, on
+a radio whose licence does not include advanced noise reduction. The radio had said so outright —
+the walk trace carries `nrLicenceReported=True, nrLicenceEnabled=False`, which is the strong case
+rather than the ambiguous one.
+
+**All three gates test a model-string prefix** (`NeuralNRHardwareSupported`, `FLEX-8*` / `AU-5*`)
+instead of the licence. The property that answers the right question, `NoiseReductionLicensed`,
+sits eleven lines above the wrong one in the same file with a docstring telling you to use it.
+
+**The expensive finding is structural, and it is Noel's ruling:** the gate is re-implemented at
+every presentation site, so the newest road always forgets. The expander writes straight from its
+checkbox handler with only a visibility gate; the layer is hardware-only; the menu is correct but
+only at build time; `ToggleDSP` and the `FlexBase` setters have no gate at all. **The correct
+three-state ladder already existed and was `private` to `NativeMenuBar`**, which is why a second
+surface could not reuse it. The house pattern it should have followed, `DiversityGateMessage`, is
+a public property on `FlexBase`.
+
+**Two rulings, both his:** one class that gates the **write**, so no road can bypass it; and
+**nothing hides** — graying is a worse hiding than marking, because a disabled item cannot be
+invoked and so cannot explain itself or offer the alternative.
+
+### Cross-surface activity
+
+- **`JJFlex-NG`:** 1 commit, clean tree, 0 unpushed. Branch `sprint48/track-a`.
+- **`JJFlex-private`:** 2 commits in the window, plus the register growth sealed today.
+- **Worktrees:** eight exist (`jjflex-45h`, `48b` through `48f`, `jjflex-codex`). **No commits in
+  any of them** in this window. All six Sprint 48 tracks remain contained in `sprint48/track-a`.
+- **`jjf-data`, `jjflexible-connect`, `prism`:** idle, clean.
+- **`rigmeter`:** idle, **13 unpushed commits**, no remote — carried, and pushing is Noel's call.
+- **Freight Fate:** idle, on `feat/career-1.9`, **16 unpushed commits**, 1 dirty file. **Civ VI
+  Access:** idle, 2 dirty files, 0 unpushed. Both carried; both Noel's call.
+- **Codex:** no runs, no commits carrying the trailer, no new reports in `for-claude`, nothing
+  moved in `for-codex`. `codex-evaluation.md` untouched since 2026-10-01, correctly.
+- **External infrastructure:** nothing. No NAS or Cloudflare activity beyond this seal's own
+  backups.
+
+### Seal gates
+
+- **Dependency advisories: clean.** No `NU1902`/`NU1903` in any project.
+- **Codex instruction tests: 5 passed, 0 failed.** Positive control confirmed Codex really loads
+  `AGENTS.md` (`codex debug prompt-input` returns the leading line). Sandbox healthy, no
+  `setup_error.json`.
+- **Memory drift check: 87 missing paths (41 in non-history entries), 56 missing symbols** —
+  within the normal band, no new cluster. **Two flagged register symbols checked and both are
+  false positives:** #154's are Win32 window class names (`CabinetWClass`, `PickerHost`,
+  `Shell_SystemDialogProxy`), and #245 is already archived.
+- **Archive sweep: nothing to move.** All three genuinely-closed banner-stamped entries are
+  already in `project_closed_history_index.md`; the other three banners read "superseded in part"
+  and are still live guidance.
+- **`MEMORY.md` was 15,209 bytes, over the ~12KB seal threshold.** Reduced to 14,829 and **a
+  real contradiction was fixed in the process** — see below. **Still over threshold**, and the
+  remaining reduction is an architecture decision for Noel rather than a sweep.
+- **Nightly promote: DELIBERATELY SKIPPED.** The only build in the window is the 06:42 Debug from
+  `5de9ba5a`, and the walk that exercised it **found a defect in it** — the three gated NR
+  switches announce a toggle they cannot perform. A build is promotable when its changes have been
+  exercised; this one was exercised and failed. NAS history is complete, so skipping costs
+  nothing.
+
+### The contradiction the seal found in the memory core
+
+**The always-loaded core said the `AskUserQuestion` form is fine (Noel, 2026-10-05). The entry it
+points at still had a section headed "Never use the AskUserQuestion tool's structured form —
+2026-08-21."** The correction had been written into the pointer line and never into the entry.
+
+This is the exact failure `MEMORY.md` warns about in its own text — the index line is fresher
+because it gets rewritten during maintenance while long entries get appended to rather than
+revised — and it is self-concealing: the core is loaded automatically, so behaviour was correct
+while the stale version waited for whoever followed the link to resolve a doubt.
+
+Fixed by moving the ruling into the entry with the two findings that are **not** retracted (ASCII
+previews remain forbidden; four questions at once is still four questions at once) plus the
+2026-10-16 nuance that prose is better when the question itself may be wrong. The core line was
+then compressed to its naming job. **Every one of the 105 links was verified preserved by diffing
+the link set before overwriting.**
+
+### #727, found by the seal
+
+**The NVDA speech capture has now missed four consecutive sessions at the radio.** Counting
+`Speaking` lines in the archived logs: 2026-10-12 zero, 2026-10-15 zero — that is the
+noise-layer walk — and the live 2026-10-16 log zero across 28 KB of real content. 2026-10-10 was
+the same failure and is already written into `CLAUDE.md` step 3e.
+
+**Every property of the step is on the wrong side of the failure:** armed by hand before a session,
+fails silently, looks identical to success, and the only tell is a count somebody must think to run
+afterwards — by which time NVDA has recycled the log. The instruction to check it has been in
+place through two further misses, so the instruction is not the fix. Three options are recorded in
+#727 and the call is Noel's; option 1, making the seal report the count every time, is purely
+additive and is what produced this finding.
+
+### Rigmeter snapshot — end of 2026-10-16
+
+- **Since midnight 2026-10-17: 0 commits**, nothing to measure.
+- **`from 2026-10-15`: 6 commits, +3,576 / -619, net +2,957**, 36 files — but **five of those six
+  commits were already counted by the previous seal**, which committed at 05:49 that morning.
+- **The honest delta for this seal is one commit: +27 / -5, one file.** The window's real output
+  was 385 lines of register and two memory entries, which rigmeter does not see because
+  `JJFlex-private` is a different repository.
+- Snapshot written to the NAS time series as `2026-10-15-5de9ba5a.json`. One incidental: rigmeter
+  warns that tokei language `INI` is in neither its language map nor its ignore list, so those
+  lines are dropped — harmless here, worth a fix when rigmeter is next touched.
+
+### Setup for next
+
+1. **#726 is the live decision: a track brief read in a clean window, or built in session.**
+2. **The `H` list policy** is the one small open ruling; a recommendation is on the table and is
+   reversible.
+3. **#727's option 1** — have something report the `Speaking` count so a missed capture is
+   recorded rather than invisible.
+4. **`MEMORY.md` is still over the seal threshold** at 14,829 bytes. The remaining candidates are
+   topic-triggered clusters that could move one hop: the build/publish cluster, the three
+   announcement entries, the Ctrl+J pointer and the Jim-era pointer. **Not moved** — relocating
+   rules that shape behaviour is Noel's call, not a sweep's.
+5. **Still owed at the radio, Noel only:** #659's flash pair before any 4.3 install; the Step 2
+   registration line verbatim to settle #712 against #713; a DVK download over SmartLink.
+
 ## END-OF-DAY SEAL — 2026-10-14 AND 2026-10-15 — THREE TRACKS BUILT, THREE TRACKS MERGED, AND A GATE THAT HAD BEEN RED FOR FIVE DAYS
 
 **Written 2026-10-15 at 05:50, covering both unsealed work days.** The previous seal was written
