@@ -37,11 +37,30 @@ Public Module NativeLoader
                 GetType(Radios.ScreenReaderOutput).Assembly,
                 AddressOf ResolveNativeLibrary)
 
+            ' DeepFilterNet3 (#731, Sprint 48 Track G) is NOT a DllImport, so it
+            ' takes no resolver: the engine loads deepfilter.dll by absolute
+            ' path and binds its entry points from that handle, because its C
+            ' API aborts the process on a bad model path and must never be
+            ' reached by a search-order surprise. This module still decides
+            ' WHERE it lives, the same way it does for every other native
+            ' library; the engine asks through this locator.
+            WireDeepFilterLocator()
+
             _initialized = True
         Catch ex As Exception
             ' Log but don't throw - let default resolution attempt to work
             System.Diagnostics.Trace.WriteLine($"NativeLoader.Initialize warning: {ex.Message}")
         End Try
+    End Sub
+
+    ''' <summary>
+    ''' Kept out of Initialize's own body so that the JJFlexWpf reference is
+    ''' resolved when this runs, inside Initialize's Try, and not when
+    ''' Initialize itself is compiled on the first line of the process.
+    ''' </summary>
+    <System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)>
+    Private Sub WireDeepFilterLocator()
+        JJFlexWpf.DeepFilterNet3Engine.LibraryLocator = AddressOf LocateDeepFilter
     End Sub
 
     Private Function ResolveNativeLibrary(
@@ -52,20 +71,7 @@ Public Module NativeLoader
         Dim arch As String = If(Environment.Is64BitProcess, "x64", "x86")
         Dim basePath As String = AppContext.BaseDirectory
 
-        ' Map library names to actual file names
-        Dim mappedName As String
-        Select Case libraryName.ToLowerInvariant()
-            Case "portaudio.dll", "portaudio"
-                mappedName = "portaudio.dll"
-            Case "libopus.dll", "libopus", "opus"
-                mappedName = "libopus.dll"
-            Case "prism.dll", "prism"
-                ' Screen-reader and braille output (ethindp/prism). Talks to
-                ' NVDA, JAWS and SAPI itself - one file, no per-reader clients.
-                mappedName = "prism.dll"
-            Case Else
-                mappedName = libraryName
-        End Select
+        Dim mappedName As String = MappedFileName(libraryName)
 
         ' Try architecture-specific runtimes folder first
         Dim runtimePath As String = Path.Combine(basePath, "runtimes", $"win-{arch}", "native", mappedName)
@@ -103,5 +109,40 @@ Public Module NativeLoader
 
         ' Return zero to let default search continue
         Return IntPtr.Zero
+    End Function
+
+    ''' <summary>
+    ''' Map a library name as code asks for it to the file actually shipped.
+    ''' </summary>
+    Private Function MappedFileName(libraryName As String) As String
+        Select Case libraryName.ToLowerInvariant()
+            Case "portaudio.dll", "portaudio"
+                Return "portaudio.dll"
+            Case "libopus.dll", "libopus", "opus"
+                Return "libopus.dll"
+            Case "prism.dll", "prism"
+                ' Screen-reader and braille output (ethindp/prism). Talks to
+                ' NVDA, JAWS and SAPI itself - one file, no per-reader clients.
+                Return "prism.dll"
+            Case "deepfilter.dll", "deepfilter", "df.dll", "df"
+                ' DeepFilterNet3's C API, built from upstream as df.dll and
+                ' shipped renamed (see runtimes\win-x64\native\README.md).
+                Return "deepfilter.dll"
+            Case Else
+                Return libraryName
+        End Select
+    End Function
+
+    ''' <summary>
+    ''' Absolute path of this architecture's deepfilter.dll, or Nothing when it
+    ''' is not there. No app-directory fallback: the library is new, so there
+    ''' is no legacy location to honour, and a stray copy elsewhere is exactly
+    ''' what must not be loaded.
+    ''' </summary>
+    Private Function LocateDeepFilter() As String
+        Dim arch As String = If(Environment.Is64BitProcess, "x64", "x86")
+        Dim p As String = Path.Combine(AppContext.BaseDirectory, "runtimes", $"win-{arch}", "native",
+                                       MappedFileName("deepfilter.dll"))
+        Return If(File.Exists(p), p, Nothing)
     End Function
 End Module
