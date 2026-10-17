@@ -2072,14 +2072,7 @@ namespace Radios
         /// </para>
         /// </summary>
         public bool NeuralNRHardwareSupported
-        {
-            get
-            {
-                string model = RadioModel;
-                return model.StartsWith("FLEX-8", StringComparison.OrdinalIgnoreCase) ||
-                       model.StartsWith("AU-5", StringComparison.OrdinalIgnoreCase);
-            }
-        }
+            => CapabilityHardware.SupportsAdvancedNoiseReduction(RadioModel);
 
         /// <summary>
         /// Legacy alias — use NeuralNRHardwareSupported for Neural NR gating.
@@ -13459,24 +13452,20 @@ namespace Radios
 
         #endregion
 
+        /// <summary>
+        /// Why diversity cannot be used, or empty when it can.
+        /// </summary>
+        /// <remarks>
+        /// <b>This was the template and is now a reader of the thing it taught.</b>
+        /// Its ladder - connection, operator context, hardware, licence not
+        /// reported, licence disabled, then operator-fixable resources - is the
+        /// order <see cref="CapabilityBlock"/> encodes for every capability, and
+        /// the wording below moved into the descriptor table unchanged. Keeping
+        /// this property is deliberate: it is read from several places and is
+        /// the name people look for.
+        /// </remarks>
         public string DiversityGateMessage
-        {
-            get
-            {
-                if (theRadio == null) return "Radio not ready";
-                if (!HasActiveSlice) return "Select a slice";
-                if (!theRadio.DiversityIsAllowed) return "Model lacks diversity support";
-                var licenseFeature = theRadio.FeatureLicense?.LicenseFeatDivEsc;
-                if (licenseFeature == null) return "Diversity license status pending";
-                if (!licenseFeature.FeatureEnabled)
-                {
-                    return licenseFeature.FeatureGatedMessage ?? "Purchase a diversity license to enable this feature";
-                }
-                if ((theRadio.RXAntList?.Length ?? 0) < 2) return "Need two RX antennas";
-                if (theRadio.AvailableSlices < 2) return "Need two slices for diversity";
-                return string.Empty;
-            }
-        }
+            => EvaluateCapability(RadioCapability.DiversityReception, CapabilityWording.Long).Message;
 
         internal string DiversityStatus
         {
@@ -15626,6 +15615,7 @@ namespace Radios
             }
             set
             {
+                if (RefuseCapabilityWrite(RadioCapability.NoiseReductionSpectral)) return;
                 if (HasActiveSlice && theRadio?.ActiveSlice != null)
                 {
                     NoteOperatorChangedRadioSetting("SpectralNoiseReduction");
@@ -15651,6 +15641,7 @@ namespace Radios
             }
             set
             {
+                if (RefuseCapabilityWrite(RadioCapability.NoiseReductionFilter)) return;
                 if (HasActiveSlice && theRadio?.ActiveSlice != null)
                 {
                     NoteOperatorChangedRadioSetting("NoiseReductionFilter");
@@ -15673,6 +15664,7 @@ namespace Radios
             }
             set
             {
+                if (RefuseCapabilityWrite(RadioCapability.NoiseReductionNeural)) return;
                 if (HasActiveSlice && theRadio?.ActiveSlice != null)
                 {
                     NoteOperatorChangedRadioSetting("NeuralNoiseReduction");
@@ -23592,6 +23584,11 @@ namespace Radios
         /// <param name="isIntermittent">Optional intermittent flag (FlexLib slice auto_tune int=)</param>
         public void CWAutotune(bool? isIntermittent = null)
         {
+            // CW Auto Tune is a SmartSDR+ feature, so the caps table is only
+            // half the question. This path checked the hardware and never the
+            // licence - #725's defect in a second feature, found by enumerating
+            // the thirteen licence features for #726 rather than by a report.
+            if (RefuseCapabilityWrite(RadioCapability.CwAutotune)) return;
             if (!SupportsCwAutotune) return;
             if (!HasActiveSlice) return;
 
