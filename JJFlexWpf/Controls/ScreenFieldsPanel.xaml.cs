@@ -1263,24 +1263,13 @@ public partial class ScreenFieldsPanel : UserControl
             CapabilityBlock.Hardware =>
                 Lexicon.Get("audio.nr.marker_not_on_this_radio", ("label", plainLabel)),
             CapabilityBlock.LicenceDisabled =>
-                Lexicon.Get(NrLicenceMarkerKeyPendingNoel(
+                Lexicon.Get(Radios.FlexBase.NrLicenceMarkerKey(
                     _rig?.CapabilityLicenceReasonCode(capability)), ("label", plainLabel)),
             _ => plainLabel,
         };
 
         box.Content = label;
         AutomationProperties.SetName(box, label);
-    }
-
-    /// <summary>
-    /// #752 marker seam. The protocol reason is present; the current key stays
-    /// in each branch only until Noel supplies the reviewed #720 replacements.
-    /// </summary>
-    private static string NrLicenceMarkerKeyPendingNoel(string? reasonCode)
-    {
-        // PLACEHOLDER #720 for plus, ea, license_file, built_in and unknown.
-        _ = reasonCode;
-        return "audio.nr.marker_needs_subscription";
     }
 
     private static ValueFieldControl MakeValue(string label, int min, int max, int step)

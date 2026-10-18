@@ -658,7 +658,7 @@ public class NativeMenuBar : IDisposable
 
         string key = reason == Radios.CapabilityBlock.Hardware
             ? "audio.nr.marker_not_on_this_radio"
-            : NrLicenceMarkerKeyPendingNoel(
+            : Radios.FlexBase.NrLicenceMarkerKey(
                 Rig?.CapabilityLicenceReasonCode(capability));
 
         int tab = label.IndexOf('\t');
@@ -667,18 +667,6 @@ public class NativeMenuBar : IDisposable
         string name = label.Substring(0, tab);
         string accelerator = label.Substring(tab);
         return Radios.Lexicon.Get(key, ("label", name)) + accelerator;
-    }
-
-    /// <summary>
-    /// #752 marker seam. The current key is preserved in every branch until
-    /// Noel supplies the #720 text; the protocol reason is already available
-    /// here, so filling the placeholders will not require another UI sweep.
-    /// </summary>
-    private static string NrLicenceMarkerKeyPendingNoel(string? reasonCode)
-    {
-        // PLACEHOLDER #720 for plus, ea, license_file, built_in and unknown.
-        _ = reasonCode;
-        return "audio.nr.marker_needs_subscription";
     }
 
     /// <summary>

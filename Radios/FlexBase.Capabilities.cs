@@ -505,6 +505,36 @@ namespace Radios
         /// exposed so labels as well as spoken refusals can select reviewed
         /// #720 wording without parsing FlexLib's sentence.
         /// </summary>
+        /// <summary>
+        /// The lexicon key for an advanced-noise-reduction marker whose licence
+        /// is disabled, chosen from the radio's own reason code.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>#752 seam, and every branch is still a PLACEHOLDER #720.</b>
+        /// The reason code is available here — `plus`, `ea`, `license_file`,
+        /// `built_in`, `unknown` — so filling in Noel's reviewed sentences will
+        /// not need another sweep of the UI. Until he supplies them this returns
+        /// today's single key for every reason, so nothing unreviewed can reach
+        /// an operator.</para>
+        /// <para><b>It lives here because it was written TWICE.</b> Codex added
+        /// an identical private copy to both marker sites — `NativeMenuBar` and
+        /// `ScreenFieldsPanel` — and `IntegrationPassDedupTests` caught it at the
+        /// merge: <i>"Neither copy knows about the other, so a fix to one is a
+        /// divergence."</i> That is exactly the hazard here, because the fix TO
+        /// COME is Noel's wording, and a reason-aware sentence filled into one
+        /// copy would leave the other saying the old thing on a different
+        /// surface. One function, two callers.</para>
+        /// <para>Beside <see cref="CapabilityLicenceReasonCode"/> on purpose: a
+        /// mapping belongs with the thing it maps from, and both callers are
+        /// presentation code that should not own a licence-tier decision.</para>
+        /// </remarks>
+        public static string NrLicenceMarkerKey(string? reasonCode)
+        {
+            // PLACEHOLDER #720 for plus, ea, license_file, built_in and unknown.
+            _ = reasonCode;
+            return "audio.nr.marker_needs_subscription";
+        }
+
         public string? CapabilityLicenceReasonCode(RadioCapability capability)
         {
             var feature = DescriptorFor(capability).Licence?.Invoke(this);
