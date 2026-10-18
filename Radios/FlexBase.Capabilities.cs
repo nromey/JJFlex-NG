@@ -1,4 +1,4 @@
-#nullable enable
+﻿#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -205,6 +205,20 @@ namespace Radios
                 LicenceDisabledLongText = AdvancedNrLicenceProse,
                 ModeRequirement = NoiseReductionModeRequirement,
             },
+            // DIVERSITY CARRIES NO LICENCE. Verified at the radio 2026-10-18
+            // (#745): on an 8600 reporting div_esc DISABLED, the radio built
+            // the diversity pair anyway -- slice 0 and a radio-created slice 3,
+            // cross-referenced as parent and child. Minutes later ESC was
+            // refused on that same live pair with the same licence state.
+            //
+            // The boundary is WHEN the feature shipped, per Noel and per
+            // FlexRadio's 4.2.20 note ("Radios licensed for SmartSDR v3 will
+            // retain all of the prior SmartSDR v3 features when running
+            // SmartSDR v4"): diversity is v3 and Basic, ESC is v4 and Plus.
+            // div_esc is a single licence item whose NAME straddles that
+            // boundary, so any gate keyed on it alone must be wrong about one
+            // of the two features it names. It was wrong about this one, and
+            // the cost was telling a two-SCU owner to buy what he owned.
             new CapabilityDescriptor
             {
                 Capability = RadioCapability.DiversityReception,
@@ -216,9 +230,51 @@ namespace Radios
                 Hardware = r => r.theRadio?.DiversityIsAllowed == true,
                 HardwareShortKey = null,
                 HardwareLongText = "Model lacks diversity support",
+                Resources = DiversityResourceRequirement,
+            },
+            // ESC IS THE LICENSED HALF, and it needs a ladder of its OWN.
+            //
+            // NativeMenuBar.EscGateMessage used to return null on
+            // DiversityReady, reasoning that reusing diversity's ladder meant
+            // "the two can never drift into disagreeing about the same radio".
+            // Normally right; wrong here, because they MUST disagree on exactly
+            // this term. Merging them back would strip ESC's licence gate the
+            // moment diversity's was removed -- which is precisely the edit
+            // that happened above. Keep them separate.
+            //
+            // Diversity being currently OFF is deliberately NOT a rung here.
+            // The ESC dialog opens and says "turn diversity on first", because
+            // that is an instruction the operator can act on, while a menu item
+            // that vanishes is not.
+            new CapabilityDescriptor
+            {
+                Capability = RadioCapability.Esc,
+                Name = "Enhanced Signal Clarity",
+                NotConnectedText = "Radio not ready",
+                NoSliceText = "Select a slice",
+                Hardware = r => r.theRadio?.DiversityIsAllowed == true,
+                HardwareShortKey = null,
+                HardwareLongText = "Model lacks the two receivers ESC needs",
                 Licence = r => r.theRadio?.FeatureLicense?.LicenseFeatDivEsc,
-                LicenceNotReportedText = "Diversity license status pending",
-                LicenceDisabledFallbackText = "Purchase a diversity license to enable this feature",
+                LicenceNotReportedText = "ESC license status pending",
+                // UNREACHABLE TODAY, AND THE WORDING IS WRONG EITHER WAY --
+                // #752. The selection above prefers FlexLib's
+                // FeatureGatedMessage whenever a row carries no
+                // LicenceDisabledLongText, and #742 records that FlexLib always
+                // says something for a disabled licence, so this string is dead.
+                //
+                // An earlier comment here argued that deferring to FlexRadio was
+                // CORRECT for ESC, since we have no PC-side alternative to point
+                // at. #752 rules otherwise, and for a better reason: a
+                // plus-gated feature is unlocked by SmartSDR+ OR SmartSDR+ Early
+                // Access, and the vendor string names only one of the two. So it
+                // is not merely not-ours, it is INCOMPLETE -- it would send an
+                // operator to buy the narrower of two things that work.
+                //
+                // #752 names this row and the EvaluateCapability preference as
+                // sites to change; the sentence itself is Noel's under #720.
+                // Do not edit this literal expecting the operator to hear it.
+                LicenceDisabledFallbackText = "Subscribe to SmartSDR+ to enable Enhanced Signal Clarity",
                 Resources = DiversityResourceRequirement,
             },
             new CapabilityDescriptor
@@ -280,19 +336,52 @@ namespace Radios
 
             if ((radio.RXAntList?.Length ?? 0) < 2) return "Need two RX antennas";
 
-            // theRadio.MaxSlices CAME BACK 0 FROM A REAL REMOTE 6300 over
-            // SmartLink, measured 2026-10-10, and a gate written as ">= 2"
-            // then evaluates 0 >= 2 and switches the feature off silently -
-            // as a capability simply not offered. Whether AvailableSlices
-            // degrades the same way is NOT established; it never appeared in
-            // that trace. So treat zero as "not reported" rather than as
-            // "none", and cross-check the model-derived count, which is what
-            // AnnounceSliceCensus already does. One reading off a radio over
-            // SmartLink would settle it.
-            int available = radio.AvailableSlices;
-            if (available <= 0) return null;
-            if (available < 2 && rig.TotalMaxSlices >= 2) return null;
-            return available < 2 ? "Need two slices for diversity" : null;
+            // AvailableSlices IS NOT READ HERE ANY MORE, and MaxSlices never
+            // was -- #765. Both come from the radio's discovery broadcast, and
+            // both degrade. MaxSlices came back 0 from a real remote 6300 over
+            // SmartLink (2026-10-10). AvailableSlices was measured on the 8600
+            // on 2026-10-18: it tracked 4 -> 1 as three slices came up, then
+            // FROZE at 1 while a slice was released and while the radio itself
+            // created a fourth, with AnnounceSliceCensus reporting 3/4 and then
+            // 2/4 correctly from the same radio in the same seconds.
+            //
+            // So capacity is computed from the two values that demonstrably
+            // track: the model-derived maximum, which the code already says to
+            // prefer, and the live slice list -- every slice on the radio, not
+            // just ours, because on a MultiFlex radio another station's slices
+            // occupy the same capacity.
+            //
+            // ONE free slice, not two. Measured: diversity engaged with three
+            // slices live on a four-slice radio, and the radio created the
+            // partner itself. Noel's recollection was two, offered as "I
+            // think", and it was deliberately not enforced on that basis --
+            // writing an unverified number into a gate is the same machine that
+            // kept #745 alive, one term over.
+            // CAPACITY IS A PRECONDITION FOR BUILDING THE PAIR, NOT FOR
+            // KEEPING IT. Once diversity is on, the pair is OCCUPYING the
+            // capacity it needed -- on a four-slice radio that is four of four
+            // live and nothing free. Testing for free space then closes the
+            // gate, and DiversityReady governs the menu item that both enables
+            // AND disables diversity, so the operator is stranded with the
+            // feature on and no road back. Caught 2026-10-18 before it reached
+            // the radio, on a bench session that had left a pair running.
+            //
+            // Asked of the radio's own pair state first and our cached flag
+            // second. DiversityChild is radio-written, so it answers even when
+            // DiversityOn is only reflecting something we wrote; the cached
+            // flag still matters, because an operator who turned it on deserves
+            // to be able to turn it off whether or not the radio agreed.
+            if (radio.SliceList != null)
+            {
+                foreach (Slice s in radio.SliceList)
+                {
+                    if (s.DiversityChild || s.DiversityOn) return null;
+                }
+            }
+            if (rig.DiversityOn) return null;
+
+            int free = rig.TotalMaxSlices - (radio.SliceList?.Count ?? 0);
+            return free < 1 ? "Free up a slice for the diversity pair" : null;
         }
 
         private static CapabilityDescriptor DescriptorFor(RadioCapability capability)

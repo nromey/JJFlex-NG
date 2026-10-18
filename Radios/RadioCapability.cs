@@ -1,4 +1,4 @@
-#nullable enable
+﻿#nullable enable
 using System;
 using Flex.Smoothlake.FlexLib;
 
@@ -37,8 +37,18 @@ namespace Radios
         /// <summary>Neural / recurrent-network noise reduction (RNN). 8000-series/Aurora DSP.</summary>
         NoiseReductionNeural,
 
-        /// <summary>Diversity reception, including Enhanced Signal Clarity. Two SCUs.</summary>
+        /// <summary>Diversity reception. Two SCUs, and NO licence -- it is a
+        /// v3-era hardware capability. Enhanced Signal Clarity is a SEPARATE
+        /// capability that runs inside it and does carry a licence; see
+        /// <see cref="Esc"/>. This comment read "including Enhanced Signal
+        /// Clarity" until 2026-10-18, which was the conflation behind #745
+        /// stated in one sentence.</summary>
         DiversityReception,
+
+        /// <summary>Enhanced Signal Clarity (ESC). Two SCUs AND the div_esc
+        /// licence -- a v4 feature, so SmartSDR+. Runs inside a diversity
+        /// pair.</summary>
+        Esc,
 
         /// <summary>CW Auto Tune — tunes the active slice to a CW signal in the passband.</summary>
         CwAutotune,

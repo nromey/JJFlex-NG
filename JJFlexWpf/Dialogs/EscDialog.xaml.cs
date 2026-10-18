@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Input;
@@ -46,13 +46,17 @@ public partial class EscDialog : JJFlexDialog
     public Func<bool>? HasActiveSlice { get; set; }
 
     /// <summary>Returns true if diversity hardware is present.</summary>
-    public Func<bool>? IsDiversityReady { get; set; }
+    /// <summary>Whether ESC itself can be offered: diversity's hardware and
+    /// resources PLUS the div_esc licence. <b>Not the same question as whether
+    /// diversity is ready</b> — this delegate asked that until 2026-10-18, and
+    /// the two differ on exactly one term (#745).</summary>
+    public Func<bool>? IsEscReady { get; set; }
 
     /// <summary>Returns true if diversity is currently enabled.</summary>
     public Func<bool>? IsDiversityOn { get; set; }
 
     /// <summary>Returns a message explaining why diversity isn't available, or null.</summary>
-    public Func<string?>? GetDiversityGateMessage { get; set; }
+    public Func<string?>? GetEscGateMessage { get; set; }
 
     /// <summary>Called when the dialog should refresh its state (e.g., slice changed).</summary>
     public Action<Action>? RegisterRefreshCallback { get; set; }
@@ -89,16 +93,25 @@ public partial class EscDialog : JJFlexDialog
         }
 
         bool hasSlice = HasActiveSlice?.Invoke() ?? false;
-        bool diversityReady = IsDiversityReady?.Invoke() ?? false;
+        bool escReady = IsEscReady?.Invoke() ?? false;
         bool diversityActive = IsDiversityOn?.Invoke() ?? false;
-        bool controlsEnabled = hasSlice && diversityReady && diversityActive;
+        bool controlsEnabled = hasSlice && escReady && diversityActive;
         bool escEnabled = hasSlice && (GetEscEnabled?.Invoke() ?? false);
 
         _suppressControlEvents = true;
         try
         {
             EscEnabledCheckBox.IsChecked = escEnabled;
-            EscEnabledCheckBox.IsEnabled = hasSlice && diversityActive;
+
+            // THE ON SWITCH IS GATED ON READINESS NOW, and it was not before
+            // (#766). This line read `hasSlice && diversityActive`, with no
+            // readiness term at all, so the parameters were gated and the one
+            // control that talks to a licensed feature was not. On an
+            // unlicensed radio Noel could tick it, the radio answered esc=off,
+            // and the box reverted under his hand with nothing said. Backwards
+            // in both halves: the harmless controls refused, the consequential
+            // one allowed.
+            EscEnabledCheckBox.IsEnabled = controlsEnabled;
             PhaseSlider.IsEnabled = controlsEnabled;
             PhaseValueBox.IsEnabled = controlsEnabled;
             GainSlider.IsEnabled = controlsEnabled;
@@ -117,10 +130,16 @@ public partial class EscDialog : JJFlexDialog
 
             if (!hasSlice)
                 StatusLabel.Text = "Select an active slice to adjust ESC.";
-            else if (!diversityReady)
+            else if (!escReady)
             {
-                var gate = GetDiversityGateMessage?.Invoke();
-                StatusLabel.Text = string.IsNullOrEmpty(gate) ? "Diversity not ready." : gate;
+                // ESC's own ladder supplies this, so an unlicensed radio is
+                // told about SmartSDR+ rather than about diversity. The
+                // controls are disabled and the reason is stated: the house
+                // pattern is refuse-with-a-reason, never a silent revert.
+                var gate = GetEscGateMessage?.Invoke();
+                StatusLabel.Text = string.IsNullOrEmpty(gate)
+                    ? "Enhanced Signal Clarity is not available on this radio."
+                    : gate;
             }
             else if (!diversityActive)
                 StatusLabel.Text = "Enable diversity to apply ESC.";

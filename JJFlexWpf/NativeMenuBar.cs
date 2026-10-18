@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -1555,12 +1555,20 @@ public class NativeMenuBar : IDisposable
     {
         var rig = Rig;
         if (rig == null) return "No radio connected.";
-        if (rig.DiversityReady) return null;
+        if (rig.EscReady) return null;
 
-        string detail = NonEmpty(rig.DiversityGateMessage)
+        // ESC HAS ITS OWN LADDER NOW (#745). This asked rig.DiversityReady
+        // until 2026-10-18, on the reasoning in the doc comment above -- that
+        // sharing one ladder stopped the two drifting into disagreement. They
+        // must disagree: verified at the radio, diversity runs with div_esc
+        // disabled and ESC does not. Sharing the ladder would have stripped
+        // ESC's licence gate the moment diversity's was removed.
+        //
+        // The prefix stays because it is still true, and is now honest rather
+        // than merely reassuring: ESC does need everything diversity needs,
+        // AND a licence on top.
+        return NonEmpty(rig.EscGateMessage)
             ?? "Enhanced Signal Clarity is not available on this radio right now.";
-        return "Enhanced Signal Clarity works on a diversity pair, so it needs everything "
-             + "diversity needs. " + detail + ".";
     }
 
     /// <summary>
@@ -1589,9 +1597,9 @@ public class NativeMenuBar : IDisposable
             GetEscGain = () => rig.EscGain,
             SetEscGain = v => rig.EscGain = v,
             HasActiveSlice = () => rig.HasActiveSlice,
-            IsDiversityReady = () => rig.DiversityReady,
+            IsEscReady = () => rig.EscReady,
             IsDiversityOn = () => rig.DiversityOn,
-            GetDiversityGateMessage = () => NonEmpty(rig.DiversityGateMessage),
+            GetEscGateMessage = () => NonEmpty(rig.EscGateMessage),
             RegisterRefreshCallback = callback =>
             {
                 refresh = callback;

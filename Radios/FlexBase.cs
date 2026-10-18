@@ -13373,21 +13373,57 @@ namespace Radios
             return null;
         }
 
-        // Diversity readiness helper; ensure hardware, license, antennas, and slices
+        /// <summary>
+        /// Whether diversity can be offered: two-SCU hardware, two RX antenna
+        /// ports, and room for the pair. <b>No licence.</b>
+        /// </summary>
+        /// <remarks>
+        /// <para>Delegates to the capability ladder rather than restating it.
+        /// This property used to hand-roll its own three terms, and the two
+        /// implementations drifted in both directions at once (#745, #765): it
+        /// required a licence the radio does not enforce, while the ladder's
+        /// resource rung already defended against the slice number this one
+        /// trusted. One gate, one implementation.</para>
+        /// </remarks>
         public bool DiversityReady
         {
             get
             {
                 if (theRadio == null) return false;
-                bool hasHardware = theRadio.DiversityIsAllowed;
-                bool hasLicense = (theRadio.FeatureLicense != null) &&
-                                  (theRadio.FeatureLicense.LicenseFeatDivEsc != null) &&
-                                  theRadio.FeatureLicense.LicenseFeatDivEsc.FeatureEnabled;
-                bool hasAntennas = (theRadio.RXAntList != null) && (theRadio.RXAntList.Length >= 2);
-                bool hasSlices = theRadio.AvailableSlices >= 2;
-                return hasHardware && hasLicense && hasAntennas && hasSlices;
+                bool ready = EvaluateCapability(RadioCapability.DiversityReception).Allowed;
+
+                // This area cost a morning at the radio to diagnose, twice,
+                // because every surface that could have reported it was reading
+                // a value it had written itself. One line per menu build is a
+                // cheap standing answer to "what did the gate actually see?".
+                Tracing.TraceLine(
+                    "diversityGate: "
+                    + $"hardware={theRadio.DiversityIsAllowed} "
+                    + $"licenceReported={DiversityLicenseReported} "
+                    + $"licenceEnabled={DiversityLicensed} (not gated) "
+                    + $"antennas={theRadio.RXAntList?.Length ?? 0} "
+                    + $"free={TotalMaxSlices - (theRadio.SliceList?.Count ?? 0)} "
+                    + $"(maxModel={TotalMaxSlices} live={theRadio.SliceList?.Count ?? -1}) "
+                    + $"availableReported={theRadio.AvailableSlices} (not gated) "
+                    + $"-> ready={ready}",
+                    TraceLevel.Info);
+                return ready;
             }
         }
+
+        /// <summary>
+        /// Why Enhanced Signal Clarity cannot be offered, or null when it can.
+        /// ESC is the LICENSED half of the diversity pair -- a v4 feature, so
+        /// SmartSDR+ -- and it has its own ladder on purpose. See the comment
+        /// on the Esc row in <c>CapabilityTable</c> before merging it back into
+        /// diversity's.
+        /// </summary>
+        public string EscGateMessage
+            => EvaluateCapability(RadioCapability.Esc, CapabilityWording.Long).Message;
+
+        /// <summary>Whether ESC can be offered: diversity's hardware and
+        /// resources, PLUS the div_esc licence.</summary>
+        public bool EscReady => EvaluateCapability(RadioCapability.Esc).Allowed;
 
         public bool DiversityOn
         {
@@ -13409,7 +13445,74 @@ namespace Radios
         /// </summary>
         public void ToggleDiversity()
         {
-            DiversityOn = !DiversityOn;
+            bool target = !DiversityOn;
+            TraceDiversityPair("before", target);
+            DiversityOn = target;
+
+            // Sampled off the UI thread and after a beat, because the write
+            // goes through the command queue and the radio's reply arrives
+            // asynchronously. 1500 ms is long enough for a LAN round trip with
+            // room to spare; a WAN radio may need more.
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(1500).ConfigureAwait(false);
+                TraceDiversityPair("after", target);
+            });
+        }
+
+        /// <summary>
+        /// Trace the slice-pair state the RADIO owns, which is the only
+        /// evidence available that a diversity command was ACCEPTED.
+        /// </summary>
+        /// <remarks>
+        /// <para>Do not be tempted to read <see cref="DiversityOn"/> for this.
+        /// FlexLib's slice setter writes its cache BEFORE it sends the command,
+        /// and its status parser for <c>diversity</c> returns early when the
+        /// radio's report matches the cache -- so a confirmation raises no
+        /// event, a refusal raises no event, and the property afterwards holds
+        /// whatever we wrote in either case. Reading it back measures our own
+        /// write. The menu's spoken confirmation has exactly this defect and
+        /// announces success unconditionally.</para>
+        /// <para><c>diversity_child</c> and <c>diversity_index</c> are
+        /// different in kind: nothing on this side ever writes them, and the
+        /// radio populates them only when it really has paired two slices. A
+        /// change there cannot be manufactured by our own command, which is
+        /// the entire reason this method reads them instead.</para>
+        /// </remarks>
+        private void TraceDiversityPair(string phase, bool target)
+        {
+            try
+            {
+                var r = theRadio;
+                if (r == null)
+                {
+                    Tracing.TraceLine($"diversityPair[{phase}]: no radio", TraceLevel.Info);
+                    return;
+                }
+
+                var parts = new List<string>();
+                foreach (Slice s in r.SliceList)
+                {
+                    string partner = s.DiversitySlicePartner == null
+                        ? "none"
+                        : s.DiversitySlicePartner.Index.ToString();
+                    parts.Add($"slice{s.Index}[on={s.DiversityOn} child={s.DiversityChild} "
+                            + $"idx={s.DiversityIndex} partner={partner}]");
+                }
+
+                Tracing.TraceLine(
+                    $"diversityPair[{phase}]: target={target} hardware={r.DiversityIsAllowed} "
+                    + $"licenceReported={DiversityLicenseReported} licenceEnabled={DiversityLicensed} "
+                    + $"sliceCount={r.SliceList.Count} " + string.Join(" ", parts),
+                    TraceLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                // The slice list can change under us; a failed reading is
+                // reported rather than swallowed, so an empty result is never
+                // mistaken for a refusal.
+                Tracing.TraceLine($"diversityPair[{phase}]: read failed: {ex.Message}", TraceLevel.Warning);
+            }
         }
 
         #region ESC — Enhanced Signal Clarity (Sprint 31 Track R)
