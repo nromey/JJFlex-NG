@@ -5296,7 +5296,11 @@ public class KeyCommands
                 string sentence = Radios.Lexicon.Get(
                     anyHardware
                         ? "audio.noise_layer.gated_keys_unavailable"
-                        : "audio.noise_layer.gated_keys_unsubscribed",
+                        : GatedKeysLicenceKeyPendingNoel(closed
+                            .Select(g => rig.CapabilityLicenceReasonCode(g.Capability))
+                            .Where(code => code != null)
+                            .Distinct(StringComparer.Ordinal)
+                            .ToList()),
                     ("keys", KeyLayerHelp.SpeakKeyList(closed.Select(g => g.Key).ToList())));
 
                 return KeyLayerHelp.SpokenList(
@@ -5335,6 +5339,17 @@ public class KeyCommands
                 Audible = () => EarconPlayer.IsOn(EarconPlayer.EarconCategory.CommandsAndConfirmations),
             },
         };
+
+        // PLACEHOLDER #720/#752. One layer summary may cover several refused
+        // features, hence the list. Every reason combination preserves today's
+        // key until Noel supplies the reviewed tier-aware variants.
+        static string GatedKeysLicenceKeyPendingNoel(IReadOnlyList<string?> reasonCodes)
+        {
+            // PLACEHOLDER #720 for one or mixed plus, ea, license_file,
+            // built_in and unknown reasons.
+            _ = reasonCodes;
+            return "audio.noise_layer.gated_keys_unsubscribed";
+        }
 
         _valueLayer = Radios.ValueSubLayer.Enter(def);
     }

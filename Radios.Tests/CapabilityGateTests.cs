@@ -1,6 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
+using Flex.Smoothlake.FlexLib;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Radios;
 using Xunit;
 
@@ -53,6 +57,188 @@ namespace Radios.Tests
             // cannot quietly accumulate dead entries either.
             Assert.Equal(declared.Length, gated.Count);
             Assert.Equal(gated.Count, gated.Distinct().Count());
+        }
+
+        /// <summary>
+        /// The measured split: plain diversity is hardware-only, while ESC
+        /// alone resolves the radio's <c>div_esc</c> licence item.
+        /// </summary>
+        /// <remarks>
+        /// This is the re-merge detector. On 2026-10-18 an 8600 built a
+        /// diversity pair while <c>div_esc</c> was reported disabled, then the
+        /// same radio refused ESC. A tidy shared ladder would recreate the
+        /// defect by making those two measured answers identical again.
+        /// </remarks>
+        [Fact]
+        public void TheMeasuredDiversityEscSplitCannotBeMergedBackIntoOneLadder()
+        {
+            var diversity = FlexBase.DescriptorFor(RadioCapability.DiversityReception);
+            var esc = FlexBase.DescriptorFor(RadioCapability.Esc);
+
+            Assert.True(diversity.Licence == null,
+                "plain diversity worked on the 8600 while div_esc was disabled; it must carry no licence rung");
+            Assert.NotNull(esc.Licence);
+
+            // They really do share the permanent hardware question and the
+            // resource question. The licence term is the one measured split.
+            Assert.Equal(diversity.Hardware, esc.Hardware);
+            Assert.Equal(diversity.Resources, esc.Resources);
+
+            var marker = new Feature("div_esc", false, FeatureStatusReason.Plus);
+            FlexBase rig = OfflineDiversityRig(sliceCount: 3, marker);
+            try
+            {
+                Assert.Same(marker, esc.Licence!(rig));
+            }
+            finally
+            {
+                DisposeOfflineRig(rig);
+            }
+        }
+
+        /// <summary>
+        /// Discovery-broadcast slice counts are observations, not capacity
+        /// authority, and neither may close the diversity resource rung.
+        /// </summary>
+        [Fact]
+        public void TheDiversityResourceRungDoesNotReadDiscoverySliceCounts()
+        {
+            string source = ReadRepoFile("Radios/FlexBase.Capabilities.cs");
+            var root = CSharpSyntaxTree.ParseText(source).GetRoot();
+            var method = root.DescendantNodes().OfType<MethodDeclarationSyntax>()
+                .Single(m => m.Identifier.ValueText == "DiversityResourceRequirement");
+            var reads = method.DescendantNodes().OfType<MemberAccessExpressionSyntax>()
+                .Select(m => m.Name.Identifier.ValueText)
+                .ToList();
+
+            Assert.DoesNotContain("AvailableSlices", reads);
+            Assert.DoesNotContain("MaxSlices", reads);
+        }
+
+        /// <summary>
+        /// One free slice passes and zero fails. One was measured at the radio;
+        /// two was a recollection and must never become the gate.
+        /// </summary>
+        [Fact]
+        public void DiversityNeedsOneMeasuredFreeSliceNotTwo()
+        {
+            FlexBase oneFree = OfflineDiversityRig(sliceCount: 3);
+            FlexBase noneFree = OfflineDiversityRig(sliceCount: 4);
+            try
+            {
+                Assert.Null(FlexBase.DiversityResourceRequirement(oneFree));
+                Assert.Equal("Free up a slice for the diversity pair",
+                    FlexBase.DiversityResourceRequirement(noneFree));
+            }
+            finally
+            {
+                DisposeOfflineRig(oneFree);
+                DisposeOfflineRig(noneFree);
+            }
+        }
+
+        /// <summary>
+        /// The rendered operator report must describe owned plain diversity
+        /// independently from licensed ESC on the same radio.
+        /// </summary>
+        [Fact]
+        public void FeatureAvailabilityDoesNotCallOwnedDiversityUnsubscribed()
+        {
+            var divEsc = new Feature("div_esc", false, FeatureStatusReason.Plus);
+            FlexBase rig = OfflineDiversityRig(sliceCount: 3, divEsc);
+            try
+            {
+                string[] lines = rig.BuildFeatureAvailabilityText()
+                    .Split(new[] { Environment.NewLine }, StringSplitOptions.None);
+                string diversity = Assert.Single(lines.Where(l => l.StartsWith("Diversity:", StringComparison.Ordinal)));
+                string esc = Assert.Single(lines.Where(l => l.StartsWith("ESC:", StringComparison.Ordinal)));
+
+                Assert.Equal("Diversity: disabled - diversity ready", diversity);
+                Assert.DoesNotContain("unsubscribed", diversity, StringComparison.OrdinalIgnoreCase);
+                Assert.Equal("ESC: unsubscribed - Subscribe to SmartSDR+ to use this feature!", esc);
+            }
+            finally
+            {
+                DisposeOfflineRig(rig);
+            }
+        }
+
+        /// <summary>
+        /// The standing first-verdict trace names all thirteen vendored items,
+        /// including absence, enabled state, and the radio's reason code.
+        /// </summary>
+        [Fact]
+        public void LicenseInventoryNamesAllThirteenItemsAndPreservesProtocolReasonCodes()
+        {
+            var divEsc = new Feature("div_esc", false, FeatureStatusReason.Plus);
+            FlexBase rig = OfflineDiversityRig(sliceCount: 3, divEsc);
+            try
+            {
+                string inventory = rig.BuildLicenseFeatureInventoryTrace();
+                string[] names =
+                {
+                    "alpha", "auto_tune", "digital_voice_keyer", "div_esc", "multiflex",
+                    "navtex_wf", "noise_floor", "noise_reduction", "smartlink", "wfp",
+                    "rapidm_logging", "panadapter_visuals", "filter_preset_conf",
+                };
+
+                Assert.All(names, name => Assert.Contains(name + "=[", inventory, StringComparison.Ordinal));
+                Assert.Equal(13, inventory.Split("=[", StringSplitOptions.None).Length - 1);
+                Assert.Contains("div_esc=[reported=true enabled=false reason=plus]", inventory, StringComparison.Ordinal);
+                Assert.Contains("auto_tune=[reported=false enabled=n/a reason=n/a]", inventory, StringComparison.Ordinal);
+            }
+            finally
+            {
+                DisposeOfflineRig(rig);
+            }
+        }
+
+        /// <summary>
+        /// Every licensed row has one owned, reason-aware seam ready for Noel's
+        /// reviewed #720 wording; adding a new licensed capability without the
+        /// plumbing must fail before it can fall straight through to FlexLib.
+        /// </summary>
+        [Fact]
+        public void EveryLicensedCapabilityHasAReasonAwareOwnedWordingSeam()
+        {
+            foreach (RadioCapability capability in FlexBase.GatedCapabilities)
+            {
+                var descriptor = FlexBase.DescriptorFor(capability);
+                if (descriptor.Licence == null) continue;
+
+                Assert.NotNull(descriptor.TierAwareLicenceDisabledText);
+                foreach (FeatureStatusReason reason in Enum.GetValues<FeatureStatusReason>())
+                {
+                    // The placeholders deliberately return null until Noel
+                    // supplies the words. Invoking every branch is the test:
+                    // the reason vocabulary is wired now, not at prose time.
+                    descriptor.TierAwareLicenceDisabledText!(reason, FlexBase.CapabilityWording.Short);
+                    descriptor.TierAwareLicenceDisabledText!(reason, FlexBase.CapabilityWording.Long);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Immediate diversity feedback must use the target captured before
+        /// the queued radio write, never the stale property read-back.
+        /// </summary>
+        [Fact]
+        public void DiversityFeedbackUsesTheQueuedTargetNotTheStateItJustLeft()
+        {
+            string rigSource = ReadRepoFile("Radios/FlexBase.cs");
+            var root = CSharpSyntaxTree.ParseText(rigSource).GetRoot();
+            var toggle = root.DescendantNodes().OfType<MethodDeclarationSyntax>()
+                .Single(m => m.Identifier.ValueText == "ToggleDiversity");
+
+            Assert.Equal("bool", toggle.ReturnType.ToString());
+            Assert.Contains(toggle.DescendantNodes().OfType<ReturnStatementSyntax>(),
+                statement => statement.Expression?.ToString() == "target");
+
+            string menu = ReadRepoFile("JJFlexWpf/NativeMenuBar.cs");
+            Assert.Contains("bool target = Rig.ToggleDiversity();", menu, StringComparison.Ordinal);
+            Assert.Contains("EarconPlayer.ToggleTone(target);", menu, StringComparison.Ordinal);
+            Assert.DoesNotContain("EarconPlayer.ToggleTone(Rig.DiversityOn);", menu, StringComparison.Ordinal);
+            Assert.DoesNotContain("SpeakAfterMenuClose(Rig.DiversityOn", menu, StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -566,6 +752,38 @@ namespace Radios.Tests
             string full = System.IO.Path.Combine(dir!.FullName, relativePath.Replace('/', System.IO.Path.DirectorySeparatorChar));
             Assert.True(System.IO.File.Exists(full), "not found: " + full);
             return System.IO.File.ReadAllText(full);
+        }
+
+        private static FlexBase OfflineDiversityRig(int sliceCount, Feature? divEsc = null)
+        {
+            const BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
+            var rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+            var radio = (Radio)Activator.CreateInstance(
+                typeof(Radio), Private, binder: null, args: new object[] { false }, culture: null)!;
+
+            typeof(Radio).GetField("_model", Private)!.SetValue(radio, "FLEX-8600");
+            typeof(Radio).GetField("_rx_ant_list", Private)!
+                .SetValue(radio, new[] { "ANT1", "ANT2" });
+            radio.FeatureLicense.LicenseFeatDivEsc = divEsc;
+
+            for (int index = 0; index < sliceCount; index++)
+            {
+                var slice = (Slice)Activator.CreateInstance(
+                    typeof(Slice), Private, binder: null, args: new object[] { radio }, culture: null)!;
+                typeof(Slice).GetField("_index", Private)!.SetValue(slice, index);
+                typeof(Slice).GetField("_active", Private)!.SetValue(slice, index == 0);
+                radio.SliceList.Add(slice);
+            }
+
+            rig.theRadio = radio;
+            return rig;
+        }
+
+        private static void DisposeOfflineRig(FlexBase rig)
+        {
+            // Do not let disposal try to disconnect the offline vendor object.
+            rig.theRadio = null;
+            rig.Dispose();
         }
 
         /// <summary>

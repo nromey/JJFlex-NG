@@ -658,7 +658,8 @@ public class NativeMenuBar : IDisposable
 
         string key = reason == Radios.CapabilityBlock.Hardware
             ? "audio.nr.marker_not_on_this_radio"
-            : "audio.nr.marker_needs_subscription";
+            : NrLicenceMarkerKeyPendingNoel(
+                Rig?.CapabilityLicenceReasonCode(capability));
 
         int tab = label.IndexOf('\t');
         if (tab < 0) return Radios.Lexicon.Get(key, ("label", label));
@@ -666,6 +667,18 @@ public class NativeMenuBar : IDisposable
         string name = label.Substring(0, tab);
         string accelerator = label.Substring(tab);
         return Radios.Lexicon.Get(key, ("label", name)) + accelerator;
+    }
+
+    /// <summary>
+    /// #752 marker seam. The current key is preserved in every branch until
+    /// Noel supplies the #720 text; the protocol reason is already available
+    /// here, so filling the placeholders will not require another UI sweep.
+    /// </summary>
+    private static string NrLicenceMarkerKeyPendingNoel(string? reasonCode)
+    {
+        // PLACEHOLDER #720 for plus, ea, license_file, built_in and unknown.
+        _ = reasonCode;
+        return "audio.nr.marker_needs_subscription";
     }
 
     /// <summary>
@@ -1442,9 +1455,9 @@ public class NativeMenuBar : IDisposable
             AddChecked(parent, "Toggle Diversity", () =>
             {
                 if (Rig == null) { SpeakNoRadio(); return; }
-                Rig.ToggleDiversity();
-                EarconPlayer.ToggleTone(Rig.DiversityOn);
-                SpeakAfterMenuClose(Rig.DiversityOn
+                bool target = Rig.ToggleDiversity();
+                EarconPlayer.ToggleTone(target);
+                SpeakAfterMenuClose(target
                     ? Radios.Lexicon.Get("settings.diversity.on")
                     : Radios.Lexicon.Get("settings.diversity.off"));
             }, () => Rig?.DiversityOn == true);
@@ -1475,7 +1488,7 @@ public class NativeMenuBar : IDisposable
     /// its feature list yet — so an unreported licence leaves the controls in
     /// place rather than declaring a subscribed feature missing. Only a
     /// licence the radio positively reported as disabled produces a
-    /// subscription message, and then it is the radio's own wording.</para>
+    /// subscription message. The ladder owns that wording.</para>
     /// </summary>
     private string? AdvancedNrGateMessage()
     {
@@ -1527,13 +1540,24 @@ public class NativeMenuBar : IDisposable
         string? gate = EscGateMessage();
         if (gate != null)
         {
-            AddWired(parent, "Enhanced Signal Clarity unavailable", () =>
+            AddWired(parent, EscUnavailableLabelPendingNoel(), () =>
                 SpeakAfterMenuClose(EscGateMessage()
                     ?? Radios.Lexicon.Get("settings.esc.available_reopen")));
             return;
         }
 
         AddWired(parent, "Enhanced Signal Clarity", ShowEscDialog);
+    }
+
+    /// <summary>
+    /// #752/#751 label seam. Noel has not chosen whether the disabled ESC row
+    /// names a tier, so each reason deliberately keeps today's label for now.
+    /// </summary>
+    private string EscUnavailableLabelPendingNoel()
+    {
+        // PLACEHOLDER #720 for plus, ea, license_file, built_in and unknown.
+        _ = Rig?.CapabilityLicenceReasonCode(Radios.RadioCapability.Esc);
+        return "Enhanced Signal Clarity unavailable";
     }
 
     /// <summary>
