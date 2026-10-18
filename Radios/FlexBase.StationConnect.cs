@@ -572,11 +572,23 @@ namespace Radios
         }
 
         /// <summary>
-        /// Record the owner's station — every own slice's frequency and mode,
-        /// in slice order — beside the radio's config, when the radio is
-        /// declared ours. Read back by case 2 of the 2026-09-22 ruling on a
-        /// later connect that finds company. Skips the write when unchanged.
+        /// Record the owner's station — every own slice's letter, frequency,
+        /// mode and mute, in slice order — beside the radio's config, when the
+        /// radio is declared ours. Read back by case 2 of the 2026-09-22 ruling
+        /// on a later connect that finds company. Skips the write when
+        /// unchanged.
         /// </summary>
+        /// <remarks>
+        /// Mute and the slice letter were added 2026-10-18 (#762). Mute is the
+        /// one setting an operator cannot read without changing it, so it is
+        /// exactly the one where a logged value replaces a destructive read —
+        /// every mute reading in the 2026-10-17 autosave investigation had to
+        /// come from Noel toggling a slice and listening, while the frequency
+        /// and mode halves were already machine-recorded to the hertz. It also
+        /// has to be here before #499's put-back can be trusted: a copy that
+        /// omits mute restores a station with the wrong slices audible, which
+        /// on a two-SCU radio is not cosmetic.
+        /// </remarks>
         private void RecordOwnStationLayout(string why)
         {
             var radio = theRadio;
@@ -590,7 +602,11 @@ namespace Radios
                 {
                     long hz = (long)LibFreqtoLong(s.Freq);
                     if (hz <= 0) continue;
-                    layout.Slices.Add(new SliceLayoutEntry(hz, s.DemodMode ?? ""));
+                    layout.Slices.Add(new SliceLayoutEntry(
+                        hz,
+                        s.DemodMode ?? "",
+                        s.Letter ?? "",
+                        s.Mute ? SliceMuteState.Muted : SliceMuteState.Unmuted));
                 }
             }
             if (layout.IsEmpty) return;

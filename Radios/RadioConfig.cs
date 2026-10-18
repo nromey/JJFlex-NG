@@ -612,7 +612,13 @@ namespace Radios
                 if (cfg.LastStationLayoutSlices == null || cfg.LastStationLayoutSlices.Count == 0) return null;
                 return new Radios.StationConnect.StationLayout
                 {
-                    Slices = cfg.LastStationLayoutSlices.Select(s => new Radios.StationConnect.SliceLayoutEntry(s.FreqHz, s.Mode)).ToList(),
+                    // Copied whole. This read the frequency and mode only
+                    // until 2026-10-18, so a letter and a mute that had
+                    // survived the WRITE were dropped on the way back out
+                    // (#762) -- the third site with the same defect, and the
+                    // one a test caught rather than a reading.
+                    Slices = cfg.LastStationLayoutSlices
+                        .Select(s => new Radios.StationConnect.SliceLayoutEntry(s)).ToList(),
                     ProfileName = cfg.LastStationLayoutProfile ?? "",
                     RecordedUtc = cfg.LastStationLayoutRecordedUtc,
                 };
@@ -631,12 +637,28 @@ namespace Radios
             try
             {
                 var cfg = LoadForRadio(radioId);
+
+                // THE COMPARISON AND THE COPY BOTH NAME EVERY FIELD, and both
+                // were a field short until 2026-10-18 (#762). The copy rebuilt
+                // each entry from frequency and mode alone, so a letter or a
+                // mute populated at the flush was dropped on the way to disk
+                // while the trace line printed it correctly -- the feature
+                // would have looked done and restored the wrong slices
+                // audible. The skip-the-write test had the same gap, so a
+                // mute-only change compared equal and was never written at
+                // all. Adding a field to SliceLayoutEntry means adding it in
+                // BOTH places here.
                 bool same = cfg.LastStationLayoutSlices != null
                     && cfg.LastStationLayoutSlices.Count == layout.Slices.Count
-                    && cfg.LastStationLayoutSlices.Zip(layout.Slices, (a, b) => a.FreqHz == b.FreqHz && a.Mode == b.Mode).All(x => x)
+                    && cfg.LastStationLayoutSlices.Zip(layout.Slices, (a, b) =>
+                           a.FreqHz == b.FreqHz
+                           && a.Mode == b.Mode
+                           && (a.Letter ?? "") == (b.Letter ?? "")
+                           && a.Mute == b.Mute).All(x => x)
                     && (cfg.LastStationLayoutProfile ?? "") == (layout.ProfileName ?? "");
                 if (same) return;
-                cfg.LastStationLayoutSlices = layout.Slices.Select(s => new Radios.StationConnect.SliceLayoutEntry(s.FreqHz, s.Mode)).ToList();
+                cfg.LastStationLayoutSlices = layout.Slices
+                    .Select(s => new Radios.StationConnect.SliceLayoutEntry(s)).ToList();
                 cfg.LastStationLayoutProfile = layout.ProfileName ?? "";
                 cfg.LastStationLayoutRecordedUtc = DateTime.UtcNow;
                 cfg.SaveForRadio(radioId);

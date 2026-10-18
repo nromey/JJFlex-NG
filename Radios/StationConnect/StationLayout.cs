@@ -4,14 +4,95 @@ using System.Linq;
 
 namespace Radios.StationConnect
 {
-    /// <summary>One slice's frequency and mode, in the operator's own words.</summary>
+    /// <summary>
+    /// Whether a recorded slice was muted. <b>Three states, and the third is
+    /// the point</b> (#762).
+    /// </summary>
+    /// <remarks>
+    /// <para><c>NotRecorded</c> is zero so that a layout written before mute
+    /// was captured deserialises to "we never looked" rather than to
+    /// "unmuted". A plain <c>bool</c> would have every historic record assert
+    /// that every slice was audible, which is a claim nobody made, and the
+    /// put-back in #499 would act on it.</para>
+    /// <para>Same reasoning as the licence three-state settled on 2026-10-18:
+    /// silence is not a no. The difference between "no" and "nothing was
+    /// reported" has to survive into storage, or it is lost at the first
+    /// restart.</para>
+    /// </remarks>
+    public enum SliceMuteState
+    {
+        NotRecorded = 0,
+        Unmuted,
+        Muted,
+    }
+
+    /// <summary>One slice's letter, frequency, mode and mute, in the
+    /// operator's own words.</summary>
     public sealed class SliceLayoutEntry
     {
         public SliceLayoutEntry() { }
-        public SliceLayoutEntry(long freqHz, string mode) { FreqHz = freqHz; Mode = mode ?? ""; }
+
+        public SliceLayoutEntry(long freqHz, string mode)
+            : this(freqHz, mode, "", SliceMuteState.NotRecorded) { }
+
+        public SliceLayoutEntry(long freqHz, string mode, string letter, SliceMuteState mute)
+        {
+            FreqHz = freqHz;
+            Mode = mode ?? "";
+            Letter = letter ?? "";
+            Mute = mute;
+        }
+
+        /// <summary>
+        /// Copy every field. <b>Use this to copy an entry; never re-list the
+        /// fields by hand.</b>
+        /// </summary>
+        /// <remarks>
+        /// Added 2026-10-18 (#762) because copying was spelled
+        /// <c>new SliceLayoutEntry(s.FreqHz, s.Mode)</c> in THREE places — the
+        /// write in <c>RecordStationLayout</c>, its skip-the-write comparison,
+        /// and the read in <c>StationLayoutOf</c> — and adding a field left all
+        /// three silently discarding it. Nothing failed: the build passed, the
+        /// trace line printed the new field correctly, and only the stored copy
+        /// was wrong. Two of the three were found by reading and the third by a
+        /// test, which is the honest measure of how visible the shape is.
+        /// <para>A field added to this type is now correct at every copy site
+        /// for free, rather than correct wherever somebody remembered.</para>
+        /// </remarks>
+        public SliceLayoutEntry(SliceLayoutEntry other)
+        {
+            if (other == null) return;
+            FreqHz = other.FreqHz;
+            Mode = other.Mode ?? "";
+            Letter = other.Letter ?? "";
+            Mute = other.Mute;
+        }
+
         public long FreqHz { get; set; }
         public string Mode { get; set; } = "";
-        public override string ToString() => FreqHz + " Hz " + Mode;
+
+        /// <summary>The slice's own letter, so a recorded line can be read
+        /// against an operator saying "A and C are muted". The list was
+        /// positional until 2026-10-18 and a three-slice line could not be
+        /// matched to a report (#762).</summary>
+        public string Letter { get; set; } = "";
+
+        public SliceMuteState Mute { get; set; } = SliceMuteState.NotRecorded;
+
+        /// <summary>
+        /// Reads as the operator would say it. <b>Unmuted is stated rather
+        /// than implied by silence</b>, so a reader can tell a slice we
+        /// measured as audible from one whose mute we never captured.
+        /// </summary>
+        public override string ToString()
+        {
+            string head = string.IsNullOrEmpty(Letter) ? "" : Letter + " ";
+            string tail =
+                Mute == SliceMuteState.Muted ? " muted"
+                : Mute == SliceMuteState.Unmuted ? " unmuted"
+                : " (mute not recorded)";
+            return head + FreqHz + " Hz " + Mode + tail;
+        }
     }
 
     /// <summary>
