@@ -84,7 +84,7 @@ namespace Radios
         /// row is forgotten, so the acceptance test is enforced rather than
         /// merely stated.
         /// </summary>
-        private sealed class CapabilityDescriptor
+        internal sealed class CapabilityDescriptor
         {
             public RadioCapability Capability { get; init; }
 
@@ -128,9 +128,9 @@ namespace Radios
             public string? LicenceNotReportedText { get; init; }
 
             /// <summary>
-            /// Used only when the radio supplies no <c>FeatureGatedMessage</c>.
-            /// <b>The radio's own wording is preferred</b> — it is the vendor's
-            /// sentence about the vendor's subscription.
+            /// Legacy fallback used only while the #720 reason-aware text is
+            /// still pending and neither a row override nor FlexLib supplies
+            /// anything.
             /// </summary>
             public string LicenceDisabledFallbackText { get; init; } = string.Empty;
 
@@ -143,6 +143,14 @@ namespace Radios
 
             /// <summary>Menu-length licence refusal, when one differs from the short form.</summary>
             public string? LicenceDisabledLongText { get; init; }
+
+            /// <summary>
+            /// Our reason-aware refusal text. This is consulted before either
+            /// the legacy row text or FlexLib's incomplete vendor sentence.
+            /// A null result means Noel has not supplied the #720 wording yet.
+            /// </summary>
+            public Func<FeatureStatusReason, CapabilityWording, string?>?
+                TierAwareLicenceDisabledText { get; init; }
 
             /// <summary>Operator-fixable preconditions. Returns the instruction, or null when satisfied.</summary>
             public Func<FlexBase, string?>? Resources { get; init; }
@@ -171,6 +179,8 @@ namespace Radios
                 LicenceDisabledFallbackText = AdvancedNrLicenceProse,
                 LicenceDisabledShortKey = "audio.nr.filter_unsubscribed",
                 LicenceDisabledLongText = AdvancedNrLicenceProse,
+                TierAwareLicenceDisabledText = (reason, wording) =>
+                    TierAwareLicenceTextPendingNoel("NR Filter", reason, wording),
                 ModeRequirement = NoiseReductionModeRequirement,
             },
             new CapabilityDescriptor
@@ -187,6 +197,8 @@ namespace Radios
                 LicenceDisabledFallbackText = AdvancedNrLicenceProse,
                 LicenceDisabledShortKey = "audio.nr.spectral_unsubscribed",
                 LicenceDisabledLongText = AdvancedNrLicenceProse,
+                TierAwareLicenceDisabledText = (reason, wording) =>
+                    TierAwareLicenceTextPendingNoel("Spectral NR", reason, wording),
                 ModeRequirement = NoiseReductionModeRequirement,
             },
             new CapabilityDescriptor
@@ -203,6 +215,8 @@ namespace Radios
                 LicenceDisabledFallbackText = AdvancedNrLicenceProse,
                 LicenceDisabledShortKey = "audio.nr.neural_unsubscribed",
                 LicenceDisabledLongText = AdvancedNrLicenceProse,
+                TierAwareLicenceDisabledText = (reason, wording) =>
+                    TierAwareLicenceTextPendingNoel("Neural NR", reason, wording),
                 ModeRequirement = NoiseReductionModeRequirement,
             },
             // DIVERSITY CARRIES NO LICENCE. Verified at the radio 2026-10-18
@@ -227,7 +241,7 @@ namespace Radios
                 // for months and whose strings appear in a status field.
                 NotConnectedText = "Radio not ready",
                 NoSliceText = "Select a slice",
-                Hardware = r => r.theRadio?.DiversityIsAllowed == true,
+                Hardware = DiversityHardwareRequirement,
                 HardwareShortKey = null,
                 HardwareLongText = "Model lacks diversity support",
                 Resources = DiversityResourceRequirement,
@@ -252,16 +266,17 @@ namespace Radios
                 Name = "Enhanced Signal Clarity",
                 NotConnectedText = "Radio not ready",
                 NoSliceText = "Select a slice",
-                Hardware = r => r.theRadio?.DiversityIsAllowed == true,
+                Hardware = DiversityHardwareRequirement,
                 HardwareShortKey = null,
                 HardwareLongText = "Model lacks the two receivers ESC needs",
                 Licence = r => r.theRadio?.FeatureLicense?.LicenseFeatDivEsc,
                 LicenceNotReportedText = "ESC license status pending",
                 // UNREACHABLE TODAY, AND THE WORDING IS WRONG EITHER WAY --
-                // #752. The selection above prefers FlexLib's
-                // FeatureGatedMessage whenever a row carries no
-                // LicenceDisabledLongText, and #742 records that FlexLib always
-                // says something for a disabled licence, so this string is dead.
+                // #752. Until Noel fills the reason-aware placeholder, the
+                // legacy selection prefers FlexLib's FeatureGatedMessage when
+                // a row carries no LicenceDisabledLongText; #742 records that
+                // FlexLib always says something for a disabled licence, so
+                // this string remains dead in that interim path.
                 //
                 // An earlier comment here argued that deferring to FlexRadio was
                 // CORRECT for ESC, since we have no PC-side alternative to point
@@ -275,6 +290,8 @@ namespace Radios
                 // sites to change; the sentence itself is Noel's under #720.
                 // Do not edit this literal expecting the operator to hear it.
                 LicenceDisabledFallbackText = "Subscribe to SmartSDR+ to enable Enhanced Signal Clarity",
+                TierAwareLicenceDisabledText = (reason, wording) =>
+                    TierAwareLicenceTextPendingNoel("Enhanced Signal Clarity", reason, wording),
                 Resources = DiversityResourceRequirement,
             },
             new CapabilityDescriptor
@@ -296,6 +313,8 @@ namespace Radios
                 LicenceNotReportedText = null,
                 LicenceDisabledFallbackText =
                     "Your radio reports that CW Autotune is not included in its current subscription.",
+                TierAwareLicenceDisabledText = (reason, wording) =>
+                    TierAwareLicenceTextPendingNoel("CW Autotune", reason, wording),
                 ModeRequirement = CwAutotuneModeRequirement,
             },
         };
@@ -314,6 +333,27 @@ namespace Radios
             + "included in its current subscription. JJ Flex's own PC-side noise "
             + "reduction runs on this computer instead and needs no subscription.";
 
+        /// <summary>
+        /// #752/#720 plumbing only. Every disabled-licence presentation reaches
+        /// this reason-aware seam before legacy or vendor wording. Noel has not
+        /// supplied any of the sentences yet, so every branch deliberately
+        /// returns null and preserves today's rendering in the meantime.
+        /// </summary>
+        private static string? TierAwareLicenceTextPendingNoel(
+            string featureName, FeatureStatusReason reason, CapabilityWording wording)
+        {
+            _ = featureName;
+            _ = wording;
+            return reason switch
+            {
+                FeatureStatusReason.Plus => null,       // PLACEHOLDER #720: Plus OR Early Access wording.
+                FeatureStatusReason.Ea => null,         // PLACEHOLDER #720: EA now, Plus after graduation wording.
+                FeatureStatusReason.LicenseFile => null,// PLACEHOLDER #720: licence-file entitlement wording.
+                FeatureStatusReason.BuiltIn => null,    // PLACEHOLDER #720: tier-neutral unlicensed wording.
+                _ => null,                              // PLACEHOLDER #720: tier-neutral unknown wording.
+            };
+        }
+
         private static string? NoiseReductionModeRequirement(FlexBase rig)
         {
             string mode = (rig.Mode ?? string.Empty).ToLowerInvariant();
@@ -329,7 +369,10 @@ namespace Radios
                 : "switch to CW mode to use autotune";
         }
 
-        private static string? DiversityResourceRequirement(FlexBase rig)
+        internal static bool DiversityHardwareRequirement(FlexBase rig)
+            => rig.theRadio?.DiversityIsAllowed == true;
+
+        internal static string? DiversityResourceRequirement(FlexBase rig)
         {
             var radio = rig.theRadio;
             if (radio == null) return null;
@@ -384,7 +427,7 @@ namespace Radios
             return free < 1 ? "Free up a slice for the diversity pair" : null;
         }
 
-        private static CapabilityDescriptor DescriptorFor(RadioCapability capability)
+        internal static CapabilityDescriptor DescriptorFor(RadioCapability capability)
         {
             foreach (var d in CapabilityTable)
             {
@@ -408,6 +451,89 @@ namespace Radios
                 foreach (var d in CapabilityTable) list.Add(d.Capability);
                 return list;
             }
+        }
+
+        /// <summary>
+        /// One trace-safe inventory of every feature item vendored FlexLib
+        /// 4.2.20 parses, including the radio's protocol reason code.
+        /// </summary>
+        public string BuildLicenseFeatureInventoryTrace()
+        {
+            var licence = theRadio?.FeatureLicense;
+            return string.Join(" ", new[]
+            {
+                DescribeLicenseFeature("alpha", licence?.LicenseFeatAlpha),
+                DescribeLicenseFeature("auto_tune", licence?.LicenseFeatAutotune),
+                DescribeLicenseFeature("digital_voice_keyer", licence?.LicenseFeatDVK),
+                DescribeLicenseFeature("div_esc", licence?.LicenseFeatDivEsc),
+                DescribeLicenseFeature("multiflex", licence?.LicenseFeatMultiflex),
+                DescribeLicenseFeature("navtex_wf", licence?.LicenseFeatNAVTEX),
+                DescribeLicenseFeature("noise_floor", licence?.LicenseFeatNoiseFloor),
+                DescribeLicenseFeature("noise_reduction", licence?.LicenseFeatNoiseReduction),
+                DescribeLicenseFeature("smartlink", licence?.LicenseFeatSmartlink),
+                DescribeLicenseFeature("wfp", licence?.LicenseFeatWFP),
+                DescribeLicenseFeature("rapidm_logging", licence?.LicenseFeatRapidmLogging),
+                DescribeLicenseFeature("panadapter_visuals", licence?.LicenseFeatPanadapterVisuals),
+                DescribeLicenseFeature("filter_preset_conf", licence?.LicenseFeatFilterPresetConf),
+            });
+        }
+
+        private static string DescribeLicenseFeature(string name, Feature? feature)
+        {
+            if (feature == null)
+                return $"{name}=[reported=false enabled=n/a reason=n/a]";
+
+            return $"{name}=[reported=true enabled={feature.FeatureEnabled.ToString().ToLowerInvariant()} "
+                 + $"reason={LicenseReasonCode(feature.FeatureStatusReason)}]";
+        }
+
+        /// <summary>The spelling used by the radio protocol, not the enum's
+        /// presentation spelling. Kept here so traces and tier-aware refusal
+        /// plumbing cannot invent two reason-code vocabularies.</summary>
+        internal static string LicenseReasonCode(FeatureStatusReason reason)
+            => reason switch
+            {
+                FeatureStatusReason.LicenseFile => "license_file",
+                FeatureStatusReason.Plus => "plus",
+                FeatureStatusReason.Ea => "ea",
+                FeatureStatusReason.BuiltIn => "built_in",
+                _ => "unknown",
+            };
+
+        /// <summary>
+        /// The radio-protocol reason for a capability's reported licence item,
+        /// exposed so labels as well as spoken refusals can select reviewed
+        /// #720 wording without parsing FlexLib's sentence.
+        /// </summary>
+        public string? CapabilityLicenceReasonCode(RadioCapability capability)
+        {
+            var feature = DescriptorFor(capability).Licence?.Invoke(this);
+            return feature == null ? null : LicenseReasonCode(feature.FeatureStatusReason);
+        }
+
+        private string LicenceDisabledMessage(
+            CapabilityDescriptor? descriptor, Feature? feature,
+            CapabilityWording wording, string featureName, string fallback)
+        {
+            string? reviewed = descriptor?.TierAwareLicenceDisabledText?.Invoke(
+                feature?.FeatureStatusReason ?? FeatureStatusReason.Unknown, wording)
+                ?? TierAwareLicenceTextPendingNoel(
+                    featureName,
+                    feature?.FeatureStatusReason ?? FeatureStatusReason.Unknown,
+                    wording);
+            if (!string.IsNullOrWhiteSpace(reviewed)) return reviewed;
+
+            if (descriptor != null)
+            {
+                if (wording == CapabilityWording.Long && descriptor.LicenceDisabledLongText != null)
+                    return descriptor.LicenceDisabledLongText;
+                if (feature?.FeatureGatedMessage != null) return feature.FeatureGatedMessage;
+                if (wording == CapabilityWording.Short && descriptor.LicenceDisabledShortKey != null)
+                    return Lexicon.Get(descriptor.LicenceDisabledShortKey);
+                return descriptor.LicenceDisabledFallbackText;
+            }
+
+            return feature?.FeatureGatedMessage ?? fallback;
         }
 
         /// <summary>
@@ -467,21 +593,12 @@ namespace Radios
             {
                 var feature = d.Licence?.Invoke(this);
                 {
-                    // The radio's own sentence about its own subscription beats
-                    // ours - EXCEPT where we hold long prose that names a
-                    // working alternative, because the radio cannot know this
-                    // application has a PC-side noise reducer and the operator
-                    // being told what DOES work is worth more than the vendor's
-                    // phrasing of what does not. Descriptors with no long text
-                    // of their own keep preferring the radio, which is how
-                    // diversity behaved before this class existed.
-                    string message =
-                        wording == CapabilityWording.Long && d.LicenceDisabledLongText != null
-                            ? d.LicenceDisabledLongText
-                            : feature?.FeatureGatedMessage
-                              ?? (wording == CapabilityWording.Short && d.LicenceDisabledShortKey != null
-                                  ? Lexicon.Get(d.LicenceDisabledShortKey)
-                                  : d.LicenceDisabledFallbackText);
+                    // Our reason-aware #720 sentence wins once supplied. Until
+                    // then, preserve the legacy rendering: long row prose when
+                    // it names a working alternative, otherwise FlexLib's
+                    // sentence, then the old short/fallback text.
+                    string message = LicenceDisabledMessage(
+                        d, feature, wording, d.Name, d.LicenceDisabledFallbackText);
                     return new CapabilityVerdict(capability, CapabilityBlock.LicenceDisabled, message);
                 }
             }

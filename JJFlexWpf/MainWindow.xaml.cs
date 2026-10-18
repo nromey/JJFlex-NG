@@ -4459,7 +4459,8 @@ public partial class MainWindow : UserControl
                 + $"connection={(RigControl?.RemoteRig == true ? "SmartLink" : "local")}, "
                 + $"nrLicenceReported={rig.NoiseReductionLicenseReported}, "
                 + $"nrLicenceEnabled={rig.NoiseReductionLicensed}, "
-                + $"diversityGate='{rig.DiversityGateMessage}'",
+                + $"diversityGate='{rig.DiversityGateMessage}', "
+                + $"features: {rig.BuildLicenseFeatureInventoryTrace()}",
                 TraceLevel.Info);
         }
 

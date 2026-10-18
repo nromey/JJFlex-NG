@@ -13443,7 +13443,7 @@ namespace Radios
         /// Toggle diversity on/off for the active slice.
         /// Sprint 11: Replaces Flex6300Filters.ToggleDiversity().
         /// </summary>
-        public void ToggleDiversity()
+        public bool ToggleDiversity()
         {
             bool target = !DiversityOn;
             TraceDiversityPair("before", target);
@@ -13458,6 +13458,10 @@ namespace Radios
                 await Task.Delay(1500).ConfigureAwait(false);
                 TraceDiversityPair("after", target);
             });
+
+            // The setter above enqueues the radio write. Return the requested
+            // state so immediate feedback never reads the old state back.
+            return target;
         }
 
         /// <summary>
@@ -13471,8 +13475,8 @@ namespace Radios
         /// radio's report matches the cache -- so a confirmation raises no
         /// event, a refusal raises no event, and the property afterwards holds
         /// whatever we wrote in either case. Reading it back measures our own
-        /// write. The menu's spoken confirmation has exactly this defect and
-        /// announces success unconditionally.</para>
+        /// write. Immediate feedback must therefore use the target returned by
+        /// <see cref="ToggleDiversity"/>, not read this cache back.</para>
         /// <para><c>diversity_child</c> and <c>diversity_index</c> are
         /// different in kind: nothing on this side ever writes them, and the
         /// radio populates them only when it really has paired two slices. A
@@ -15005,28 +15009,14 @@ namespace Radios
 
         private string BuildDiversityStatus(Radio radio)
         {
-            string status;
-            string reason = string.Empty;
-
-            bool hasSlice = HasActiveSlice;
-            bool hasHardware = DiversityHardwareSupported;
-            var licenseFeature = radio.FeatureLicense?.LicenseFeatDivEsc;
-            bool licenseReported = licenseFeature != null;
-            bool licenseEnabled = licenseFeature?.FeatureEnabled == true;
-            bool hasAntennas = (radio.RXAntList?.Length ?? 0) >= 2;
-            bool hasSlices = radio.AvailableSlices >= 2;
-
-            if (!hasHardware) { status = "unavailable"; reason = "model lacks diversity support"; }
-            else if (!licenseReported) { status = "pending"; reason = "license status pending"; }
-            else if (!licenseEnabled) { status = "unsubscribed"; reason = licenseFeature.FeatureGatedMessage ?? "license disabled"; }
-            else if (!hasSlice) { status = "unavailable"; reason = "select a slice"; }
-            else if (!hasAntennas) { status = "unavailable"; reason = "need two RX antennas"; }
-            else if (!hasSlices) { status = "unavailable"; reason = "need two slices"; }
-            else
-            {
-                status = DiversityOn ? "enabled" : "disabled";
-                if (!DiversityOn) reason = "diversity ready";
-            }
+            var verdict = EvaluateCapability(
+                RadioCapability.DiversityReception, CapabilityWording.Long);
+            string status = verdict.Allowed
+                ? (DiversityOn ? "enabled" : "disabled")
+                : "unavailable";
+            string reason = verdict.Allowed && !DiversityOn
+                ? "diversity ready"
+                : verdict.Message;
 
             return BuildFeatureLine("Diversity", status, reason);
         }
@@ -15035,21 +15025,23 @@ namespace Radios
         {
             string status;
             string reason = string.Empty;
+            var verdict = EvaluateCapability(RadioCapability.Esc, CapabilityWording.Long);
 
-            bool hasSlice = HasActiveSlice;
-            bool hasHardware = DiversityHardwareSupported;
-            var licenseFeature = radio.FeatureLicense?.LicenseFeatDivEsc;
-            bool licenseReported = licenseFeature != null;
-            bool licenseEnabled = licenseFeature?.FeatureEnabled == true;
-            bool hasAntennas = (radio.RXAntList?.Length ?? 0) >= 2;
-            bool hasSlices = radio.AvailableSlices >= 2;
-
-            if (!hasHardware) { status = "unavailable"; reason = "model lacks diversity support"; }
-            else if (!licenseReported) { status = "pending"; reason = "license status pending"; }
-            else if (!licenseEnabled) { status = "unsubscribed"; reason = licenseFeature.FeatureGatedMessage ?? "license disabled"; }
-            else if (!hasSlice) { status = "unavailable"; reason = "select a slice"; }
-            else if (!hasAntennas) { status = "unavailable"; reason = "need two RX antennas"; }
-            else if (!hasSlices) { status = "unavailable"; reason = "need two slices"; }
+            if (verdict.Block == CapabilityBlock.LicenceNotReported)
+            {
+                status = "pending";
+                reason = verdict.Message;
+            }
+            else if (verdict.Block == CapabilityBlock.LicenceDisabled)
+            {
+                status = LicenceDisabledStatusPendingNoel;
+                reason = verdict.Message;
+            }
+            else if (!verdict.Allowed)
+            {
+                status = "unavailable";
+                reason = verdict.Message;
+            }
             else if (!DiversityOn) { status = "disabled"; reason = "enable diversity to use ESC"; }
             else
             {
@@ -15188,14 +15180,21 @@ namespace Radios
             return BuildFeatureLine(feature, enabled ? "enabled" : "disabled", enabled ? "" : "available");
         }
 
-        private static string BuildAdvancedNoiseStatus(string feature, bool enabled,
+        // PLACEHOLDER #720/#752: Noel has not reviewed the Feature Availability state
+        // word yet. Keep today's rendering until he supplies its replacement;
+        // the appended reason already has the tier-aware seam.
+        private const string LicenceDisabledStatusPendingNoel = "unsubscribed";
+
+        private string BuildAdvancedNoiseStatus(string feature, bool enabled,
             bool modelSupported, string modelReason,
             bool hasSlice, bool modeAllowed, string modeReason,
             Feature licenseFeature, bool licenseReported, bool licenseEnabled)
         {
             if (!modelSupported) return BuildFeatureLine(feature, "unavailable", modelReason);
             if (!licenseReported) return BuildFeatureLine(feature, "pending", "license status pending");
-            if (!licenseEnabled) return BuildFeatureLine(feature, "unsubscribed", licenseFeature?.FeatureGatedMessage ?? "license disabled");
+            if (!licenseEnabled) return BuildFeatureLine(feature, LicenceDisabledStatusPendingNoel,
+                LicenceDisabledMessage(null, licenseFeature, CapabilityWording.Long,
+                    feature, "license disabled"));
             if (!hasSlice) return BuildFeatureLine(feature, "unavailable", "select a slice");
             if (!modeAllowed) return BuildFeatureLine(feature, "unavailable", modeReason);
             return BuildFeatureLine(feature, enabled ? "enabled" : "disabled", enabled ? "" : "available");
