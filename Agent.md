@@ -9,6 +9,129 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-10-17, SEALED 2026-10-18 — A GATE VERIFIED ONLY ON ITS REFUSING SIDE, AND A FLAG THAT GOVERNS A DIFFERENT PROFILE
+
+**Written 2026-10-18 at 00:30.** Covers the window from the previous seal's commit (`5fe45721`,
+2026-10-17 07:30) through 2026-10-18 00:30. **Delta measured from `5fe45721`**, not from midnight,
+because the previous seal's own morning would otherwise be counted twice.
+
+### What the day produced
+
+**Sprint 48 Track G merged, and the capability-gate class built and verified at the radio.** 17
+commits on `sprint48/track-a`, +5,600 / -371 across 38 files, 4,668 of those lines C# in 21 files.
+Track G brought the DeepFilterNet3 engine slot, the per-channel noise-reduction fix and the offline
+bench; the capability-gate class went in as six commits ending `a6003971`, and `87023780` held
+DeepFilterNet3 out of the release installer until it can be chosen.
+
+**The subscription-lie defect is SHIPPED and verified by pressing keys.** All three on-radio noise
+reduction switches were pressed by all three roads on the 8600 — the noise layer's `R`, `S` and
+`Ctrl+N`, the Home DSP expander's checkboxes, and Slice then DSP then Noise Reduction. Every one
+refused, with the tone, a spoken reason, and the switch not reporting on afterwards. Markers correct
+on both surfaces, nothing grayed, nothing missing.
+
+**But the verification covers only the refusing half, and that is this seal's main caveat.** Every one
+of those nine presses was on a radio whose licence is DISABLED. The allow path has never been
+exercised by anything, and the project's own memory says why that matters: *"a gate that refuses
+everything also looks correct on an unsubscribed radio."* Don's licensed 6300 over SmartLink is the
+only positive control this project has, and Noel confirmed access is a phone call rather than a
+schedule.
+
+**The profile autosave question, open since 2026-09-01, is SOLVED.** `profile autosave` governs
+TRANSMIT and MICROPHONE profiles; the radio reports `auto_save_unsaved_changes_tx` and the `_mic`
+equivalent and has no global one, so global station state was never in its scope. Measured both
+directions: frequency, mode and mute all reverted across a clean disconnect AND across a profile
+deselect, while turning the speech processor off on a TX profile survived a profile round trip.
+**The answer was already in a doc comment** in `FlexBase.UnsavedProfileChangesFor`: *"Global profiles
+have no such report, so global reads false. That is an honest gap, not a claim of safety."*
+
+**A two-layer save design was settled from it.** Local record every change (power-failure insurance,
+our own disk, two generations so revert means undo-this-session); the radio's global profile on
+disconnect and exit (cross-client durability, and a flash write); Noel's interval control available
+and defaulting off. The frequent writes go in the private layer and the rare ones in the shared layer,
+matching write frequency to blast radius.
+
+### The register
+
+**24 new entries.** Not a count worth reciting: **nine are behaviour defects**, **five are facts the
+app reads and never records**, **six are rulings from Noel**, **three are unexplained and need one
+reading each**, and one is the register's own defect. Plus the subscription-lie entry SHIPPED, Don's
+profiles-not-honoured entry CLOSED on his evidence that it was ownership all along, and the guest-radio
+profile design SOLVED.
+
+**The five missing-log-line entries are the cheapest work on the list, and each one cost a bench
+reading today**: no S-meter value is recorded anywhere; the disconnect save offer declines silently in
+four of its five branches; the station-layout flush omits mute and names slices positionally; the two
+unsaved-changes flags are read and never traced; and no trace enumerates the thirteen licence items.
+
+**One entry is the register criticising itself, at Noel's diagnosis:** *"we file first, then we forget
+we filed it, and we don't plan where we would want to possibly fix it / what priority it is."*
+Measured across all 468 open entries: **186 have neither a sprint route nor a ruling** — 40%, on a
+generous test. Seventeen of the day's own 24 went in unrouted, which is the defect demonstrated by the
+session that filed it.
+
+### Cross-surface activity
+
+- **JJFlex-NG `sprint48/track-a`:** 16 commits since the last seal, now pushed.
+- **`sprint48/track-g`:** 9 commits, and **it had never been pushed at all** — Track G's whole day
+  existed on one disk until 23:00. Pushed. Both branches verified on origin by SHA.
+- Other worktrees (`jjflex-45h`, `48b` through `48f`, `jjflex-codex`): no commits.
+- **Memory: 16 files touched today, seven by earlier sessions**, all read per the read-all rule — the
+  AetherSDR feature survey, the waterfall entry's port-to-AetherSDR ruling and its data methods, the
+  TCI addendum to the DAX/CAT driver ladder, the brief-review correction (the orchestrator LAUNCHES
+  the reader rather than handing over the command), and the AskUserQuestion ruling.
+- **Two new memory entries:** diversity is hardware while ESC is the licensed layer inside it; and
+  flipping a code default is invisible once the value has been persisted. Don's tester tier corrected
+  in two entries that disagreed with each other, and the v4 licence-tier reference extended with the
+  release-by-release map and FlexRadio's move away from the word "subscribe".
+- **43 dangling wiki-links repaired** across 12 memory files (hyphens where filenames use
+  underscores); **51 remain and need judgement, not a rule.** The drift checker does not look for
+  these at all.
+- **JJFlex-private: 17 planning files touched** — two sprint plans from a parallel window
+  (`noise-floor-quartet.md` for Sprint 49 and `squelch-tail-sieve.md`), two clean-window readings, the
+  AetherSDR survey, the Flex licence matrix, tonight's bench sheet and its results, and a
+  session-state handoff.
+- **Codex: no commits today.** One genuine unfinished brief sits in `for-codex/`
+  (`2026-09-29-build-638-ownership-at-connect.md`); the other files there are `ANSWER-*` outputs and a
+  README that want moving to `done/`.
+- **Freight Fate: 16 unpushed commits** on `feat/career-1.9`, mirrored across every `ff-*` worktree.
+  **Civ VI Access: clean, nothing unpushed.** **rigmeter: 13 unpushed**, and it has no remote, so the
+  NAS mirror is its only other copy. **Pushing those is Noel's call, not a sealing session's.**
+- **The NVDA capture worked and earned its keep the same evening.** Armed at IO 12 before the bench
+  session; the archived log is 8.63 MB and is the sole evidence for three of the day's defects,
+  including an 8-to-24 ms NVDA cancellation of spoken text that no trace of ours could have shown.
+
+### Checks
+
+Dependency advisories: **none** across the solution. Codex instruction gates: **5 of 5 passed**, the
+positive control confirms Codex loads the rules, and no sandbox error file exists. Memory drift check:
+positive control passed; 42 path and 56 symbol candidates, flat against the standing
+do-not-chase-zero rule. The one new flag is today's AetherSDR entry naming paths inside
+`C:\dev\AetherSDR`, **a research clone the drift checker does not sweep** — the same gap as the
+worktrees it does not sweep.
+
+**Nightly promote SKIPPED, and not as a judgement call: `build-debug.bat` was never run today**, so no
+archived zip exists to promote. Worth noting that the build which verified the capability gates at the
+radio was made at 12:31 from `a6003971` and lives only in `bin/`, where the next build overwrites it.
+
+### Setup for tomorrow
+
+Noel's order. **First, build the Debug x64 with `hasLicense` dropped from `DiversityReady`, and he
+tests it.** He cannot test diversity in SmartSDR — it is not reachable there with NVDA or JAWS, which
+is why the vendor's client is not an available control group for this project, and why the one-line
+change is both the test and the fix. Then review sprint and track state. Then the routing catch-up
+pass over the 186. Full handoff:
+`JJFlex-private/planning/active/SESSION-STATE-2026-10-17.md`.
+
+### Rigmeter snapshot — end of 2026-10-17
+
+Span measured from 2026-10-17 (two calendar days, since this seal ran past midnight). **Work done,
+summed across every commit: +5,600 / -371, net +5,229, 38 files, 17 commits.** Repository size change
+over the same span is also +5,229. By type: C# +4,668 in 21 files, text data +440 in 4, docs +349 in
+4, VB +55, build files +81. For scale, 5,600 added lines is about 2.6 braille volumes and three and a
+half hours of read-aloud time. Structured snapshot written to the NAS as
+`2026-10-17-87023780.json`. **JJFlex-private is not in this figure** — its own delta tonight was
++1,596 / -19 in the register alone, plus twelve new planning files.
+
 ## END-OF-DAY SEAL — 2026-10-16, SEALED 2026-10-17 — A GATE THAT TESTED THE WRONG THING, AND THE CLASS BEHIND IT
 
 **Written 2026-10-17 at 07:30.** Covers the window from the previous seal's commit (`20310faf`,

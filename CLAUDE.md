@@ -627,9 +627,23 @@ recorded. So:
   <date>: <what changed>**`. Stamp the *reasoning*, not just the fact — see
   `project_as_retry_pathway_regression.md`, filed as a networking regression and
   actually closed by authentication work nobody had connected to it.
-- Then sweep: `grep -lin "RESOLVED\|SHIPPED\|SUPERSEDED\|CLOSED" *.md` over the
-  memory directory. Anything stamped, whose work nothing live still depends on,
-  moves into `project_closed_history_index.md` and out of the core.
+- Then sweep for the BANNER, not the word. Anything stamped, whose work nothing
+  live still depends on, moves into `project_closed_history_index.md` and out of
+  the core.
+
+  **This step said `grep -lin "RESOLVED\|SHIPPED\|SUPERSEDED\|CLOSED" *.md`
+  until 2026-10-18, and that search is worse than useless.** Run on 318 entries
+  it returned twenty-plus hits, nearly all false positives, because it matches
+  the word anywhere in a body — it flagged
+  `feedback_grep_memory_before_asserting.md`, one of the most-consulted rules in
+  the tree, merely because the entry discusses things that were resolved. **A
+  sweep whose output you must skim is a sweep that finds nothing**, which is the
+  failure this step exists to end. Match the banner form this step prescribes
+  two paragraphs above — `> **RESOLVED` / `> **SHIPPED` / `> **SUPERSEDED` at
+  the top of the entry, after the frontmatter — which on the same tree returned
+  six hits and no noise. Of those six, three were already archived and two were
+  partial or were themselves the resolution, so **expect the honest yield to be
+  one or two entries, not a cull.**
 - Age is NOT the signal. `project_anti_patterns_from_blindcat.md` is one of the
   oldest entries and is consulted constantly. Closure is the only signal.
 
@@ -707,6 +721,20 @@ Added 2026-08-06 after the index hit the warning threshold; rewritten
    `ClientRowPhrase` flagged that day purely because it lives on `sprint45/track-l`. **Check a
    flagged symbol against the track branches (`git grep <name> <branch>`) before calling an
    entry stale**, and expect the count to rise during a sprint and fall at the merge.
+
+   **IT DOES NOT SWEEP THE RESEARCH CLONES EITHER, and that now costs a false positive on
+   brand-new entries.** Added 2026-10-18: the AetherSDR survey entry, written that day, flagged
+   immediately because it names paths inside `C:\dev\AetherSDR` — a clone this machine holds and
+   the checker does not walk. **That matters more than an ordinary false positive**, because the
+   one signal this tool offers is "a NEW entry appeared", and a vendor-research entry will always
+   trip it on the day it is written. Either add the clones to the tree list or expect every survey
+   entry to arrive pre-flagged.
+
+   **AND IT DOES NOT CHECK THE `[[link]]` GRAPH AT ALL.** It walks file paths and code symbols.
+   Measured 2026-10-18: **94 dangling wiki-links across 38 memory entries**, 43 of them a plain
+   hyphen-for-underscore mismatch against a file that exists, which is mechanically repairable and
+   was. **51 remain and need judgement.** Step 1a already requires that "no link may dangle" after
+   a restructure; nothing was enforcing it, so the graph had been quietly rotting.
 
    **Do not chase the count to zero.** Roughly half the remaining hits are
    entries legitimately naming files in estates this machine does not hold
