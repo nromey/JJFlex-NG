@@ -2744,10 +2744,25 @@ namespace JJFlexWpf.Dialogs
                 _ownershipQuestionOpen = true;
                 try
                 {
-                    // FIRST DRAFT: connect reason and dismissal consequence
-                    // await Noel's wording review (#638). Ownership is a
-                    // per-radio declaration, so the existing Workshop question
-                    // also applies before station restoration.
+                    // The reason text is REVIEWED now (Noel, 2026-10-18), so
+                    // this is no longer a draft awaiting his wording. What he
+                    // changed is the dismissal clause, and the reason is worth
+                    // keeping here because it is easy to "tidy" back: the old
+                    // sentence said dismissing "gives no new permission; you
+                    // may connect with no slices or receive audio", which is
+                    // true and also rewards answering MINE about a radio that
+                    // is not yours - the single harm this whole question
+                    // exists to prevent. It now states the consequence without
+                    // the pull, and leads with the condition rather than
+                    // stacking "not" and "no" in one spoken breath.
+                    //
+                    // Its sibling connect.ownership.silencing is STILL an
+                    // unreviewed draft. Do not infer from this one that the
+                    // pair was cleared.
+                    //
+                    // Ownership is a per-radio declaration, so the existing
+                    // Workshop question also applies before station
+                    // restoration.
                     if (!RadioOwnershipDialog.AskForConnect(radio.Serial, radioName,
                         Lexicon.Get("connect.ownership.reason"), ownershipConfig))
                     {

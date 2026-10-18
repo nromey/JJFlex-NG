@@ -899,9 +899,33 @@ namespace Radios.Tests
                 // plainest case of TextOnly in this group.
                 "audio.nr.marker_needs_subscription",
                 "audio.nr.marker_not_on_this_radio",
+
+                // The connect-time ownership question's reason, classified
+                // 2026-10-18 when Noel reviewed its wording. It had been
+                // FROZEN AS A DRAFT since the Track N merge precisely because
+                // the review had not happened, and the call site said so in a
+                // comment. The review is what makes it classifiable: the
+                // migration manifest's own header says a key "cannot be edited
+                // and left unclassified", so rewording it and re-fingerprinting
+                // it in place was not an option.
+                //
+                // delivery: null - TextOnly - because this is the dialog's BODY
+                // PROSE, read when focus lands in it, and the application never
+                // says it on its own account. A sentence this long having a
+                // shelf life would mean it could be shortened or dropped by the
+                // verbosity machinery, which for a consent question is the one
+                // thing that must not happen.
+                //
+                // Its two siblings from the same merge - connect.ownership.silencing
+                // and settings.silenced.ownership - ARE STILL FROZEN. That is
+                // deliberate and not an oversight: only the reason text was
+                // reviewed. WHEN THE PASS REACHES THEM, DECIDE BOTH WITH THIS
+                // ONE IN VIEW, for the reason the audio.nr family's note gives
+                // two blocks above.
+                "connect.ownership.reason",
             };
 
-            Assert.Equal(3153, unclassified);
+            Assert.Equal(3152, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,
