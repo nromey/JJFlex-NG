@@ -1186,7 +1186,7 @@ Every sprint follows this lifecycle. Claude (in the Desktop/orchestrator session
    > `MIGRATION.md`, `Agent.md`. Moving the existing 70,124 lines out is #260.
 3. **Track decomposition** — Claude analyzes the work and splits it into parallel tracks:
    - Identify independent work units (dialogs, features, files that don't overlap)
-   - Group into tracks (max 6 concurrent tracks)
+   - Group into tracks. **There is no fixed track limit** — Noel, 2026-10-18: twelve have run at once. The real limits are his attention, the single desktop and build collisions (see `memory/user_usage_headroom_is_not_the_constraint.md`)
    - Identify dependencies between tracks (e.g., "Track A must complete Phase X before B/C can start")
    - Identify merge order (which tracks merge first, any conflict-prone areas)
 4. **User approval** — User reviews track split, adjusts if needed
@@ -1204,7 +1204,7 @@ Claude performs ALL setup before the user spawns any CLI sessions:
    # Track A stays in main repo: C:\dev\JJFlex-NG
    git worktree add ../jjflex-Nb sprintN/track-a -b sprintN/track-b
    git worktree add ../jjflex-Nc sprintN/track-a -b sprintN/track-c
-   # ... up to 6 tracks
+   # ... one per track
    ```
    **Naming convention:** `../jjflex-Nx` where N = sprint number, x = track letter.
 
@@ -1548,8 +1548,8 @@ Future automation (not blocking — deferred): a build-time pass that introspect
 
 | Rule | Details |
 |------|---------|
-| Max concurrent tracks | 6 (practical limit for Claude CLI sessions) |
-| Worktree naming | `../jjflex-Nx` (N=sprint, x=track letter a-f) |
+| Concurrent tracks | No fixed limit (twelve have run at once; ruled 2026-10-18) |
+| Worktree naming | `../jjflex-Nx` (N=sprint, x=track letter) |
 | Branch naming | `sprintN/track-x` |
 | Track instructions | `TRACK-INSTRUCTIONS.md` in each worktree root |
 | CLI prompt format | `Start Sprint N Track X from TRACK-INSTRUCTIONS.md` |
