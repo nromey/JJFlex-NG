@@ -86,7 +86,7 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     tell `compression=none` apart from a status line carrying no compression key
     at all; both leave it false. Keeping the radio's unparsed answer is what
     makes "what does this radio do with a stream that does not declare
-    compression?" an observation rather than an inference. `Radios/FlexBase.cs`
+    compression?" an observation rather than an inference. `Radios/FlexBase.RemoteAudio.cs`
     logs both in `opusInputStreamAddedHandler` and raises an error-level line if
     the radio opened the stream as anything other than opus, because every
     packet we send is Opus and a mismatch would be silent transmit with no other

@@ -1111,8 +1111,10 @@ worked perfectly and every one was invisible to relocation, which is how the
 first isolated run could truthfully report itself isolated while twenty stores
 wrote the live folder anyway. Deliberately still independent: `JJFlexUpdater`
 (does not reference Radios, never runs in a test), `ImportSetup.vb` (extracts an
-operator-chosen zip to the AppData *parent*), and `FlexBase.cs:4078` (points at
-FlexRadio's own folder, not ours).
+operator-chosen zip to the AppData *parent*), and
+`FlexBase.FirmwareVersionCheckBypassed` in `Radios/FlexBase.Firmware.cs` (points at
+FlexRadio's own folder, not ours). This said `FlexBase.cs:4078` until 2026-10-19,
+already stale before the FlexBase split moved the code; cite it by symbol.
 
 ### Trace File Location
 - Boot trace: `%AppData%\JJFlexRadio\JJFlexRadioTrace.txt` (enabled when `BootTrace = True` in `globals.vb`)
