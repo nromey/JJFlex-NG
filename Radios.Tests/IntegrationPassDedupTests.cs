@@ -146,10 +146,14 @@ namespace Radios.Tests
 
         /// <summary>
         /// The preprocessor symbols a real build of this tree defines, Debug
-        /// and Release. Read 2026-10-19 by evaluating <c>Radios.csproj</c>'s
-        /// DefineConstants through the SDK: <c>TRACE;DEBUG;NET;NET10_0;
-        /// NETCOREAPP;WINDOWS;WINDOWS7_0</c> plus the <c>_OR_GREATER</c>
-        /// family. No authored project adds its own;
+        /// and Release: the SDK's explicit <c>TRACE;DEBUG</c> or
+        /// <c>TRACE;RELEASE</c> (evaluated 2026-10-19 with
+        /// <c>dotnet msbuild -getProperty:DefineConstants</c>) plus the
+        /// implicit framework family. <b>RELEASE was missing from the first
+        /// version</b>, built from a Debug-only reading; Codex's third check
+        /// found that it would hide a sentence under <c>#if RELEASE</c>. The
+        /// guard now asks the build rather than trusting this list.
+        /// No authored project adds its own;
         /// <see cref="No_project_defines_a_symbol_this_scan_does_not_know"/>
         /// fails the day one does.
         /// </summary>
@@ -159,7 +163,7 @@ namespace Radios.Tests
         private static string[] BuildSymbols(bool debug)
         {
             var list = new List<string> { "TRACE", "NET", "NET10_0", "NETCOREAPP", "WINDOWS", "WINDOWS7_0" };
-            if (debug) list.Add("DEBUG");
+            list.Add(debug ? "DEBUG" : "RELEASE");
             for (int v = 5; v <= 10; v++) list.Add("NET" + v + "_0_OR_GREATER");
             foreach (string c in new[] { "1_0", "1_1", "2_0", "2_1", "2_2", "3_0", "3_1" })
                 list.Add("NETCOREAPP" + c + "_OR_GREATER");
@@ -248,6 +252,7 @@ namespace Radios.Tests
         [InlineData("x.cs", "#if dontIgnore\nvar s = \"This text sits in a block that no build ever switches on.\";\n#endif", "This text", true)]
         [InlineData("x.cs", "#if DEBUG\nvar s = \"A real sentence a Debug build speaks must still be counted here.\";\n#endif", "A real", false)]
         [InlineData("x.cs", "#if !DEBUG\nvar s = \"A real sentence only a Release build speaks is still counted.\";\n#endif", "A real", false)]
+        [InlineData("x.cs", "#if RELEASE\nvar s = \"A real sentence a Release build speaks must still be counted.\";\n#endif", "A real", false)]
         [InlineData("x.cs", "#define CWMonitor\n#if CWMonitor\nvar s = \"A real sentence under a switch its own file turns on.\";\n#endif", "A real", false)]
         [InlineData("x.cs", "#region \"This text is quoted on a region line and nobody hears it.\"\n#endregion", "This text", true)]
         [InlineData("x.vb", "' \"This text is quoted in a VB comment and nobody hears it at all.\"", "This text", true)]
@@ -286,8 +291,29 @@ namespace Radios.Tests
                         if (!known.Contains(sym)) unknown.Add(rel + ": " + sym);
             }
             Assert.True(projects > 20, "only " + projects + " project files were found, so this guard is not looking at the tree.");
+
+            // And ask the build itself. The SDK supplies symbols no project file
+            // spells out (RELEASE was the one first missed), so a scan of the
+            // XML alone cannot see them. Evaluate Radios.csproj, the project the
+            // FlexBase partials live in, in both configurations.
+            foreach ((string config, string[] mine) in new[] { ("Debug", DebugSymbols), ("Release", ReleaseSymbols) })
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo("dotnet",
+                    "msbuild Radios/Radios.csproj -getProperty:DefineConstants -p:Configuration=" + config + " -p:Platform=x64")
+                {
+                    WorkingDirectory = root, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false
+                };
+                using var p = System.Diagnostics.Process.Start(psi)!;
+                string evaluated = p.StandardOutput.ReadToEnd().Trim();
+                p.WaitForExit();
+                Assert.True(p.ExitCode == 0 && evaluated.Length > 0,
+                    "could not evaluate Radios.csproj's " + config + " DefineConstants, so the scan's symbol set is unchecked");
+                foreach (string sym in evaluated.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    if (Array.IndexOf(mine, sym) < 0)
+                        unknown.Add("Radios.csproj " + config + " (evaluated): " + sym);
+            }
             Assert.True(unknown.Count == 0,
-                "a project defines a preprocessor symbol the duplicate-sentence scan does not know, so text under it "
+                "a build defines a preprocessor symbol the duplicate-sentence scan does not know, so text under it "
                 + "could be skipped as switched off when a real build turns it on. Add it to BuildSymbols: "
                 + string.Join("; ", unknown));
         }
