@@ -3509,7 +3509,7 @@ namespace Radios
                     if (!SuppressSpeech && !quietFailures)
                     {
                         ScreenReaderOutput.Speak(
-                            "No SmartLink radios available. The remote radio may be turned off.",
+                            Lexicon.Get("connect.smartlink.no_radios"),
                             VerbosityLevel.Critical, true);
                     }
                 }

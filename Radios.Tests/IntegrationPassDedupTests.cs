@@ -106,6 +106,12 @@ namespace Radios.Tests
                 string text = IntegrationPassTree.Read(file);
                 foreach (Match m in literal.Matches(text))
                 {
+                    // Text quoted inside a comment is not a sentence anyone hears.
+                    // Added 2026-10-19 when the FlexBase split put two comments that
+                    // quote one vendor error ("Invalid state for application
+                    // registration") into different files and this rule called them
+                    // a duplicated operator sentence.
+                    if (InsideComment(text, m.Index)) continue;
                     string s = m.Groups[1].Value;
                     if (s.StartsWith("http", StringComparison.OrdinalIgnoreCase)) continue;
                     if (s.Contains('{') || s.Contains('<')) continue;         // templates and markup
@@ -133,6 +139,28 @@ namespace Radios.Tests
                  "A sentence the operator reads should have one home. Two copies are two places "
                  + "to correct and only one of them ever gets corrected.",
                  findings);
+        }
+
+        /// <summary>
+        /// True when the match starts inside a line comment: after a C# <c>//</c>
+        /// that is not itself inside a string, or on a VB line that opens with
+        /// <c>'</c>. Block comments are not handled; the tree does not quote
+        /// prose in them.
+        /// </summary>
+        private static bool InsideComment(string text, int index)
+        {
+            int lineStart = text.LastIndexOf('\n', Math.Max(0, index - 1)) + 1;
+            string prefix = text.Substring(lineStart, index - lineStart);
+            if (prefix.TrimStart().StartsWith("'", StringComparison.Ordinal)) return true;
+            int slash = prefix.IndexOf("//", StringComparison.Ordinal);
+            while (slash >= 0)
+            {
+                int quotes = 0;
+                for (int i = 0; i < slash; i++) if (prefix[i] == '"') quotes++;
+                if (quotes % 2 == 0) return true;
+                slash = prefix.IndexOf("//", slash + 2, StringComparison.Ordinal);
+            }
+            return false;
         }
 
         /// <summary>

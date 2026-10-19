@@ -1085,7 +1085,7 @@ namespace Radios
                 if (!SuppressSpeech)
                 {
                     ScreenReaderOutput.Speak(
-                        "No SmartLink radios available. The remote radio may be turned off.",
+                        Lexicon.Get("connect.smartlink.no_radios"),
                         VerbosityLevel.Critical, true);
                 }
                 goto setupRemoteDone;
@@ -1123,7 +1123,7 @@ namespace Radios
                     if (!SuppressSpeech)
                     {
                         ScreenReaderOutput.Speak(
-                            "No SmartLink radios available. The remote radio may be turned off.",
+                            Lexicon.Get("connect.smartlink.no_radios"),
                             VerbosityLevel.Critical, true);
                     }
                     goto setupRemoteDone;
@@ -1163,7 +1163,7 @@ namespace Radios
                         if (!SuppressSpeech)
                         {
                             ScreenReaderOutput.Speak(
-                                "No SmartLink radios available. The remote radio may be turned off.",
+                                Lexicon.Get("connect.smartlink.no_radios"),
                                 VerbosityLevel.Critical, true);
                         }
                     }
