@@ -51,7 +51,10 @@ namespace Radios.Tests.StationConnect
             // ordering assertions below are unchanged.
             string body = text.Substring(at, 3600);
             int enqueue = body.IndexOf("q.Enqueue((FunctionDel)(() =>", StringComparison.Ordinal);
-            int save = body.IndexOf("theRadio.SaveGlobalProfile(p.Name);", StringComparison.Ordinal);
+            // Round three of #777 replaced the vendor's void SaveGlobalProfile
+            // with the reply-bearing send, so the pinned "save" line moved
+            // with it; the ordering it anchors is unchanged.
+            int save = body.IndexOf("notSent = SendGlobalProfileSave(p.Name);", StringComparison.Ordinal);
             int readback = body.IndexOf("inv.Sequence > seq && inv.Contains(p.Name)", StringComparison.Ordinal);
             int uncertain = body.IndexOf("_uncertainGlobalCreation = pending;", StringComparison.Ordinal);
             int clear = body.IndexOf("_pendingGlobalCreation = null;", StringComparison.Ordinal);

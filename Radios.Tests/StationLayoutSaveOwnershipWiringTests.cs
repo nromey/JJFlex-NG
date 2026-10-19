@@ -98,8 +98,8 @@ namespace Radios.Tests
         public void TheFunnelRefusesAGlobalWriteOnARadioThatIsNotOursBeforeSending()
         {
             string body = MethodBody(Read(FlexBaseProfiles), "public GuardedOutcome SaveProfileGuarded(Profile_t p, bool immediately = false)");
-            int refusal = body.IndexOf("OwnershipRefusesGlobalProfileWrite(", StringComparison.Ordinal);
-            int send = body.IndexOf(".SaveGlobalProfile(", StringComparison.Ordinal);
+            int refusal = body.IndexOf("OwnershipRefusesProfileWrite(", StringComparison.Ordinal);
+            int send = body.IndexOf("notSent = SendGlobalProfileSave(p.Name);", StringComparison.Ordinal);
             Assert.True(refusal >= 0,
                 "SaveProfileGuarded no longer asks whose radio it is. The Profiles dialog's Save button and the "
                 + "WinForms form's Save button reach the radio through this method and nothing else, so "
@@ -114,11 +114,33 @@ namespace Radios.Tests
             // Round two, Codex B1: Delete asked only the hold, which defaults
             // off, so a guest could remove the owner's global profile.
             string body = MethodBody(Read(FlexBaseProfiles), "public GuardedOutcome DeleteProfileGuarded(");
-            int refusal = body.IndexOf("OwnershipRefusesGlobalProfileWrite(", StringComparison.Ordinal);
+            int refusal = body.IndexOf("OwnershipRefusesProfileWrite(", StringComparison.Ordinal);
             int hold = body.IndexOf("GuardRefuses(\"settings.guard.action.profile_delete\")", StringComparison.Ordinal);
             int send = body.IndexOf(".DeleteGlobalProfile(", StringComparison.Ordinal);
             Assert.True(refusal >= 0 && hold >= 0 && send >= 0, "the delete funnel lost its ownership gate, its hold, or its send");
             Assert.True(refusal < hold && hold < send, "ownership, then the hold, then the send — the blocker's order");
+            // Round three (ruled 2026-10-19): all three kinds, so the gate
+            // must not be conditioned on the global type any more.
+            Assert.DoesNotContain("prof.ProfileType == ProfileTypes.global\r\n                && OwnershipRefusesProfileWrite", body);
+            Assert.DoesNotContain("prof.ProfileType == ProfileTypes.global\n                && OwnershipRefusesProfileWrite", body);
+            Assert.True(body.IndexOf(".DeleteTXProfile(", StringComparison.Ordinal) > refusal
+                     && body.IndexOf(".DeleteMICProfile(", StringComparison.Ordinal) > refusal,
+                "the transmit and microphone deletes must sit behind the same ownership gate");
+        }
+
+        [Fact]
+        public void TheSelectFunnelRefusesTheCreateHalfOnARadioThatIsNotOurs()
+        {
+            // A transmit or microphone profile is only ever WRITTEN from the
+            // operator surfaces by Select creating an absent name; that is
+            // their save (ruled 2026-10-19).
+            string body = MethodBody(Read(FlexBaseProfiles), "public GuardedOutcome SelectProfileGuarded(");
+            int gate = body.IndexOf("WouldCreateOnSelect(prof)", StringComparison.Ordinal);
+            int refusal = body.IndexOf("OwnershipRefusesProfileWrite(", StringComparison.Ordinal);
+            int createTx = body.IndexOf(".CreateTXProfile(", StringComparison.Ordinal);
+            int createMic = body.IndexOf(".CreateMICProfile(", StringComparison.Ordinal);
+            Assert.True(gate >= 0 && refusal > gate && createTx > refusal && createMic > refusal,
+                "the create-on-select must ask whose radio it is before either create");
         }
 
         [Fact]
@@ -184,35 +206,62 @@ namespace Radios.Tests
         {
             // WHAT THIS CHECKS, AND ONLY THAT (round two, Codex F2): the member
             // calls of FlexLib's two global-profile mutators, SaveGlobalProfile
-            // and DeleteGlobalProfile, in Radios, JJFlexWpf and the root VB.
-            // It does not see a raw "profile global ..." command string, the
-            // database import upload (F3), or a writer in another tree. A
-            // leading dot, so the port's own declaration and the interface
-            // member do not count.
-            var callSite = new Regex(@"\.(SaveGlobalProfile|DeleteGlobalProfile)\s*\(", RegexOptions.Compiled);
+            // and DeleteGlobalProfile, AND — since round three replaced the
+            // save funnel's vendor call with a raw command through the
+            // reply-bearing send — any literal "profile global save" or
+            // "profile global delete" command text, in Radios, JJFlexWpf and
+            // the root VB. It does not see the database import upload (F3) or
+            // a writer in another tree. A leading dot on the member calls, so
+            // the port's own declaration and the interface member do not count.
+            // Round three widened it to every kind: the vendor's save, create
+            // and delete for global, transmit and microphone profiles, and the
+            // raw command text for any of them.
+            var callSite = new Regex(
+                @"\.(SaveGlobalProfile|DeleteGlobalProfile|SaveTXProfile|CreateTXProfile|DeleteTXProfile|SaveMICProfile|CreateMICProfile|DeleteMICProfile)\s*\("
+                + @"|""(profile (?:global|transmit|mic) (?:save|create|delete))\b", RegexOptions.Compiled);
             var found = new List<string>();
             foreach (string path in SourceFiles())
             {
                 string text = File.ReadAllText(path);
-                var names = callSite.Matches(text).Select(m => m.Groups[1].Value).OrderBy(s => s, StringComparer.Ordinal).ToList();
+                var names = callSite.Matches(text)
+                    .Select(m => m.Groups[1].Success ? m.Groups[1].Value : "\"" + m.Groups[2].Value + "\"")
+                    .OrderBy(s => s, StringComparer.Ordinal).ToList();
                 if (names.Count > 0) found.Add(Relative(path) + ": " + string.Join(", ", names));
             }
             found.Sort(StringComparer.Ordinal);
 
             var expected = new[]
             {
-                // The two operator funnels, SaveProfileGuarded and
-                // DeleteProfileGuarded (ownership, then the hold), and
+                // The two operator funnels: SaveProfileGuarded (ownership,
+                // then the hold, then the raw "profile global save" through
+                // SendRadioCommandWithReply, whose 0-means-disconnected is
+                // what makes Done honest) and DeleteProfileGuarded (ownership,
+                // then the hold, then the vendor delete, confirmed by a
+                // one-second readback of the profile list); and
                 // RemoveProfileRestorePoint, which deletes only a name
                 // ProfileRestorePoints.IsRestorePoint recognises as one of
                 // OUR markers, on a radio we were a guest on — gated by that
                 // name test, not by ownership, because it exists to clean up
                 // after a guest visit.
-                "Radios/FlexBase.Profiles.cs: DeleteGlobalProfile, DeleteGlobalProfile, SaveGlobalProfile",
-                // The station port, whose one caller decides through
+                // Transmit and microphone (round three): the creates in
+                // SelectProfileGuarded sit behind WouldCreateOnSelect plus the
+                // ownership gate; the creates in ApplyProfileSelection run
+                // only when the stewardship plan's mayCreate is true, which a
+                // pure function decides and is false for every radio not
+                // declared ours; the deletes in DeleteProfileGuarded sit
+                // behind the ownership gate; the deletes in
+                // RemoveProfileRestorePoint are the marker-name cleanup above.
+                // Dead code: createProfile() inside an "#if zero" block that
+                // has not compiled in years. Textually present, never built.
+                "Radios/FlexBase.MainThread.cs: CreateTXProfile",
+                "Radios/FlexBase.Profiles.cs: \"profile global save\", CreateMICProfile, CreateMICProfile, CreateTXProfile, CreateTXProfile, "
+                    + "DeleteGlobalProfile, DeleteGlobalProfile, DeleteMICProfile, DeleteMICProfile, DeleteTXProfile, DeleteTXProfile",
+                // The station port: the deferred global create decides through
                 // DeferredGlobalCreation.Decide (ownership Mine, hold off,
-                // intent, only-us roster).
-                "Radios/FlexBase.StationConnect.cs: SaveGlobalProfile",
+                // intent, only-us roster); the transmit and microphone creates
+                // run inside the owner initialisation, which
+                // MayWriteSharedStateAutomatically gates on the same facts.
+                "Radios/FlexBase.StationConnect.cs: CreateMICProfile, CreateTXProfile, SaveGlobalProfile",
                 "Radios/StationConnect/DeferredCreationRun.cs: SaveGlobalProfile",
             };
             Assert.True(expected.SequenceEqual(found),
@@ -229,8 +278,16 @@ namespace Radios.Tests
         [Theory]
         [InlineData("settings.guard.profile_write_not_our_radio", "settings.guard.action.profile_save", "did not save a profile on it")]
         [InlineData("settings.guard.profile_write_not_our_radio", "settings.guard.action.profile_delete", "did not delete a profile from it")]
+        [InlineData("settings.guard.profile_write_not_our_radio", "settings.guard.action.tx_profile_create", "did not create a transmit profile on it")]
+        [InlineData("settings.guard.profile_write_not_our_radio", "settings.guard.action.tx_profile_delete", "did not delete a transmit profile from it")]
+        [InlineData("settings.guard.profile_write_not_our_radio", "settings.guard.action.mic_profile_create", "did not create a microphone profile on it")]
+        [InlineData("settings.guard.profile_write_not_our_radio", "settings.guard.action.mic_profile_delete", "did not delete a microphone profile from it")]
         [InlineData("settings.guard.profile_write_ownership_unknown", "settings.guard.action.profile_save", "did not save a profile on it")]
         [InlineData("settings.guard.profile_write_ownership_unknown", "settings.guard.action.profile_delete", "did not delete a profile from it")]
+        [InlineData("settings.guard.profile_write_ownership_unknown", "settings.guard.action.tx_profile_create", "did not create a transmit profile on it")]
+        [InlineData("settings.guard.profile_write_ownership_unknown", "settings.guard.action.tx_profile_delete", "did not delete a transmit profile from it")]
+        [InlineData("settings.guard.profile_write_ownership_unknown", "settings.guard.action.mic_profile_create", "did not create a microphone profile on it")]
+        [InlineData("settings.guard.profile_write_ownership_unknown", "settings.guard.action.mic_profile_delete", "did not delete a microphone profile from it")]
         public void TheRefusalNamesTheVerbAndWhereTheOwnershipAnswerLives(string key, string actionKey, string verb)
         {
             // #638: Don's own radio sat at an unanswered ownership question he
@@ -248,7 +305,11 @@ namespace Radios.Tests
             string assembled = template.Replace("{action}", action);
             Assert.Contains("{action}", template);
             Assert.Contains(verb, assembled);
-            Assert.Contains("Settings, under Radios", assembled);
+            // Ruled 2026-10-19 (Q4, Q5): the full application name, and the
+            // tab called what NVDA reads for it.
+            Assert.Contains("JJ Flexible Radio Access", assembled);
+            Assert.Contains("Settings, under Per-radio settings", assembled);
+            Assert.DoesNotContain("under Radios", assembled);
             Assert.DoesNotContain("replace", assembled);
             Assert.DoesNotContain("saved locally", assembled);
             Assert.DoesNotContain("saved on this computer", assembled);

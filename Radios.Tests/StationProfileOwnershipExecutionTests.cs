@@ -27,6 +27,9 @@ namespace Radios.Tests
         private static void Declare(RadioOwnership ownership) =>
             Assert.True(new RadioConfig { Ownership = ownership }.SaveForRadio(Serial));
 
+        private const string SaveAction = "settings.guard.action.profile_save";
+        private const string DeleteAction = "settings.guard.action.profile_delete";
+
         private static string Expected(RadioOwnership ownership, string actionKey)
         {
             string key = ownership == RadioOwnership.SomeoneElses
@@ -54,9 +57,9 @@ namespace Radios.Tests
             // What NVDA would have spoken, assembled: the verb is "save a
             // profile on it", true whether the name exists on the radio or not.
             string heard = fixture.Rig.LastGlobalProfileWriteRefusal;
-            Assert.Equal(Expected(ownership, "settings.guard.action.profile_save"), heard);
+            Assert.Equal(Expected(ownership, SaveAction), heard);
             Assert.Contains("did not save a profile on it", heard);
-            Assert.Contains("Settings, under Radios", heard);
+            Assert.Contains("Settings, under Per-radio settings", heard);
             Assert.DoesNotContain("replace", heard);
             Assert.DoesNotContain("{action}", heard);
         }
@@ -130,9 +133,9 @@ namespace Radios.Tests
             Assert.Equal(0, held.Count);
             Assert.Empty(fixture.Vendor.Transport.Commands);
             string heard = fixture.Rig.LastGlobalProfileWriteRefusal;
-            Assert.Equal(Expected(ownership, "settings.guard.action.profile_delete"), heard);
+            Assert.Equal(Expected(ownership, DeleteAction), heard);
             Assert.Contains("did not delete a profile from it", heard);
-            Assert.Contains("Settings, under Radios", heard);
+            Assert.Contains("Settings, under Per-radio settings", heard);
         }
 
         [Fact]
@@ -174,7 +177,7 @@ namespace Radios.Tests
 
             string blocker = fixture.Rig.SaveCurrentStationLayout();
 
-            Assert.Equal(Expected(ownership, "settings.guard.action.profile_save"), blocker);
+            Assert.Equal(Expected(ownership, SaveAction), blocker);
             Assert.Empty(fixture.Vendor.Transport.Commands);
         }
 
@@ -212,6 +215,199 @@ namespace Radios.Tests
             Assert.Contains("was not saved to " + Name, error);
             Assert.Empty(fixture.Vendor.Transport.Commands);
             Assert.True(fixture.Rig.OperatorChangedStationThisSession, "an unsent save must leave the changes unsaved");
+        }
+
+        // ------------------------------------------------------------------
+        // The transport drops after the press and before the dispatch
+        // (round three, Codex B3 residual)
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void ASaveWhoseTransportDroppedBeforeDispatchIsFailedAndSendsNothing()
+        {
+            // The vendor's void SaveGlobalProfile discarded SendCommand's
+            // 0-for-disconnected, so this used to come back Done with zero
+            // commands on the wire. Codex's StationProfileRoundTwoReviewTests
+            // pins the same case; this one also reads what the operator's
+            // layout save would then do with it.
+            Declare(RadioOwnership.Mine);
+            using var fixture = new RigOnVendorRadio(Serial);
+            MakeSaveable(fixture);
+            SetDirty(fixture.Rig, true);
+            using var held = new HeldQueue(fixture.Rig);
+            var save = System.Threading.Tasks.Task.Run(() => fixture.Rig.SaveCurrentStationLayout());
+            Assert.True(System.Threading.SpinWait.SpinUntil(() => held.Count > 0 || save.IsCompleted, 2000));
+            Assert.False(save.IsCompleted);
+
+            DropTransport(fixture);
+            held.RunOne();
+            string error = save.GetAwaiter().GetResult();
+
+            Assert.Empty(fixture.Vendor.Transport.Commands);
+            Assert.Equal(Lexicon.Get("settings.station_layout.save_not_sent", ("profileName", Name)), error);
+            Assert.True(fixture.Rig.OperatorChangedStationThisSession, "a save the transport refused leaves the changes unsaved");
+        }
+
+        [Fact]
+        public void ADeleteWhoseTransportDroppedBeforeDispatchIsFailedNotDone()
+        {
+            // Delete has the same void vendor call, but it already confirms
+            // by readback — the name must leave the radio's reported list
+            // within a second — so a dropped delete reports Failed and its
+            // caller says "Could not delete". Proven here rather than changed.
+            Declare(RadioOwnership.Mine);
+            using var fixture = new RigOnVendorRadio(Serial);
+            fixture.Vendor.Status("profile global list=" + Name + "^");
+            fixture.Rig.Callouts.Profiles = new List<Profile_t>();
+            using var held = new HeldQueue(fixture.Rig);
+            var delete = System.Threading.Tasks.Task.Run(() =>
+                fixture.Rig.DeleteProfileGuarded(new Profile_t(Name, ProfileTypes.global, false), new List<Profile_t>()));
+            Assert.True(System.Threading.SpinWait.SpinUntil(() => held.Count > 0 || delete.IsCompleted, 2000));
+            Assert.False(delete.IsCompleted);
+
+            DropTransport(fixture);
+            held.RunOne();
+            var outcome = delete.GetAwaiter().GetResult();
+
+            Assert.Empty(fixture.Vendor.Transport.Commands);
+            Assert.Equal(GuardedOutcome.Failed, outcome);
+        }
+
+        [Fact]
+        public void TheRadiosReplyToASaveIsTakenWithoutDisturbingTheOutcome()
+        {
+            // Done is "handed to a connected transport"; the reply arrives
+            // later and is only traced. A rejection must not throw on the
+            // receive path and must not retroactively change anything here.
+            Declare(RadioOwnership.Mine);
+            using var fixture = new RigOnVendorRadio(Serial);
+
+            var outcome = fixture.Rig.SaveProfileGuarded(new Profile_t(Name, ProfileTypes.global, false), immediately: true);
+            Assert.Equal(GuardedOutcome.Done, outcome);
+            Assert.Equal("profile global save \"" + Name + "\"", fixture.Vendor.LastCommand);
+
+            fixture.Vendor.Reply(fixture.Vendor.LastSequence, 0x50000015, "profile save failed");
+            fixture.Vendor.ReplyOk(fixture.Vendor.LastSequence);
+            Assert.Single(fixture.Vendor.Transport.Commands);
+        }
+
+        private static void DropTransport(RigOnVendorRadio fixture)
+        {
+            // The transport's own disconnected-state transition, the one
+            // SendCommand checks; nothing subscribes to the fixture's events,
+            // so Radio.Connected stays true and only the sequence number can
+            // tell. Not Radio.Disconnect, which tears down the whole rig.
+            typeof(Flex.Smoothlake.FlexLib.CommandCommunicationBase)
+                .GetMethod("PublishDisconnected", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(fixture.Vendor.Transport, new object[] { fixture.Vendor.Transport.CurrentConnection! });
+            Assert.False(fixture.Vendor.Transport.IsConnected);
+        }
+
+        // ------------------------------------------------------------------
+        // Transmit and microphone profiles (Noel, 2026-10-19: refused exactly
+        // like global ones, saving and deleting alike)
+        // ------------------------------------------------------------------
+
+        [Theory]
+        [InlineData(RadioOwnership.Unset, ProfileTypes.tx, "did not delete a transmit profile from it")]
+        [InlineData(RadioOwnership.SomeoneElses, ProfileTypes.tx, "did not delete a transmit profile from it")]
+        [InlineData(RadioOwnership.Unset, ProfileTypes.mic, "did not delete a microphone profile from it")]
+        [InlineData(RadioOwnership.SomeoneElses, ProfileTypes.mic, "did not delete a microphone profile from it")]
+        public void ATransmitOrMicrophoneDeleteOnARadioThatIsNotOursIsRefusedBeforeAnythingIsQueued(
+            RadioOwnership ownership, ProfileTypes type, string verb)
+        {
+            Declare(ownership);
+            using var fixture = new RigOnVendorRadio(Serial);
+            fixture.Rig.Callouts.Profiles = new List<Profile_t>();
+            using var held = new HeldQueue(fixture.Rig);
+
+            var outcome = fixture.Rig.DeleteProfileGuarded(new Profile_t("K5TEST-" + type, type, false), new List<Profile_t>());
+
+            Assert.Equal(GuardedOutcome.Refused, outcome);
+            Assert.Equal(0, held.Count);
+            Assert.Empty(fixture.Vendor.Transport.Commands);
+            string heard = fixture.Rig.LastGlobalProfileWriteRefusal;
+            Assert.Equal(Expected(ownership, FlexBase.ProfileWriteActionKey(type, delete: true)), heard);
+            Assert.Contains(verb, heard);
+            Assert.Contains("Settings, under Per-radio settings", heard);
+        }
+
+        [Theory]
+        [InlineData(ProfileTypes.tx, "profile transmit delete \"K5TEST-tx\"")]
+        [InlineData(ProfileTypes.mic, "profile mic delete \"K5TEST-mic\"")]
+        public void ATransmitOrMicrophoneDeleteOnOurOwnRadioStillGoesOut(ProfileTypes type, string wire)
+        {
+            // Positive control: the same held-queue drain as the global case.
+            Declare(RadioOwnership.Mine);
+            using var fixture = new RigOnVendorRadio(Serial);
+            fixture.Rig.Callouts.Profiles = new List<Profile_t>();
+            using var held = new HeldQueue(fixture.Rig);
+
+            fixture.Rig.DeleteProfileGuarded(new Profile_t("K5TEST-" + type, type, false), new List<Profile_t>());
+
+            Assert.Equal(1, held.Count);
+            held.RunOne();
+            Assert.Contains(wire, fixture.Vendor.Transport.Commands);
+            Assert.Null(fixture.Rig.LastGlobalProfileWriteRefusal);
+        }
+
+        [Theory]
+        [InlineData(RadioOwnership.Unset, ProfileTypes.tx, "did not create a transmit profile on it")]
+        [InlineData(RadioOwnership.SomeoneElses, ProfileTypes.tx, "did not create a transmit profile on it")]
+        [InlineData(RadioOwnership.Unset, ProfileTypes.mic, "did not create a microphone profile on it")]
+        [InlineData(RadioOwnership.SomeoneElses, ProfileTypes.mic, "did not create a microphone profile on it")]
+        public void SelectingATransmitOrMicrophoneNameTheRadioDoesNotHaveIsRefusedOnARadioThatIsNotOurs(
+            RadioOwnership ownership, ProfileTypes type, string verb)
+        {
+            // Select is how a transmit or microphone profile gets WRITTEN from
+            // the Profiles dialog: an absent name is created on the radio
+            // first. That create is the "save" the ruling covers.
+            Declare(ownership);
+            using var fixture = new RigOnVendorRadio(Serial);
+
+            var outcome = fixture.Rig.SelectProfileGuarded(new Profile_t("K5TEST-" + type, type, false));
+
+            Assert.Equal(GuardedOutcome.Refused, outcome);
+            Assert.Empty(fixture.Vendor.Transport.Commands);
+            string heard = fixture.Rig.LastGlobalProfileWriteRefusal;
+            Assert.Equal(Expected(ownership, FlexBase.ProfileWriteActionKey(type, delete: false)), heard);
+            Assert.Contains(verb, heard);
+        }
+
+        [Theory]
+        [InlineData(ProfileTypes.tx, "profile transmit create \"K5TEST-tx\"")]
+        [InlineData(ProfileTypes.mic, "profile mic create \"K5TEST-mic\"")]
+        public void SelectingATransmitOrMicrophoneNameOnOurOwnRadioStillCreatesIt(ProfileTypes type, string wire)
+        {
+            // Positive control. Select enqueues with the run-before-the-main-
+            // loop flag, so it goes out inline here.
+            Declare(RadioOwnership.Mine);
+            using var fixture = new RigOnVendorRadio(Serial);
+
+            var outcome = fixture.Rig.SelectProfileGuarded(new Profile_t("K5TEST-" + type, type, false));
+
+            Assert.Equal(GuardedOutcome.Done, outcome);
+            Assert.Contains(wire, fixture.Vendor.Transport.Commands);
+            Assert.Null(fixture.Rig.LastGlobalProfileWriteRefusal);
+        }
+
+        [Theory]
+        [InlineData(RadioOwnership.Unset)]
+        [InlineData(RadioOwnership.SomeoneElses)]
+        public void SelectingATransmitProfileTheRadioAlreadyHasIsNotAProfileWriteAndIsUnchanged(RadioOwnership ownership)
+        {
+            // Not this ruling's subject: selecting an existing profile writes
+            // no profile. Pinned so the gate is seen to stop at the create.
+            Declare(ownership);
+            using var fixture = new RigOnVendorRadio(Serial);
+            fixture.Vendor.Status("profile tx list=K5TEST-tx^");
+            Assert.Contains("K5TEST-tx", fixture.Vendor.Radio.ProfileTXList);
+
+            var outcome = fixture.Rig.SelectProfileGuarded(new Profile_t("K5TEST-tx", ProfileTypes.tx, false));
+
+            Assert.Equal(GuardedOutcome.Done, outcome);
+            Assert.DoesNotContain(fixture.Vendor.Transport.Commands, c => c.Contains("create"));
+            Assert.Null(fixture.Rig.LastGlobalProfileWriteRefusal);
         }
 
         // ------------------------------------------------------------------

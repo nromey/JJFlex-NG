@@ -201,11 +201,14 @@ namespace Radios
         {
             if (prof == null) return GuardedOutcome.Failed;
             Tracing.TraceLine("SelectProfile:" + prof.ToString(), TraceLevel.Info);
-            // Loading a profile rewrites shared station state, and the tx and
-            // mic cases below CREATE the profile on the radio when it is
-            // absent — the write #403 exists for. The connect path skips its
-            // calls before reaching here; this refusal is for the operator
-            // surfaces, and it speaks — so the caller must NOT speak again.
+            // Tx and mic CREATE an absent profile below — their only "save"
+            // from here — so whose radio it is comes first (#777, ruled
+            // 2026-10-19); selecting an existing one is not a profile write.
+            if (WouldCreateOnSelect(prof)
+                && OwnershipRefusesProfileWrite(prof.Name, ProfileWriteActionKey(prof.ProfileType, delete: false)))
+                return GuardedOutcome.Refused;
+            // Loading rewrites shared station state (#403). This refusal is
+            // for the operator surfaces and it speaks; the caller must not.
             if (GuardRefuses("settings.guard.action.profile_load")) return GuardedOutcome.Refused;
             bool rv = true;
             // select profiles, allowed before main loop.
@@ -258,6 +261,25 @@ namespace Radios
                     break;
             }
             return rv ? GuardedOutcome.Done : GuardedOutcome.Failed;
+        }
+
+        /// <summary>
+        /// Whether selecting this profile would first CREATE it on the radio:
+        /// a transmit or microphone name the radio's own list does not carry.
+        /// Read before the enqueue, from the same lists the queued delegate
+        /// consults; a list the radio has not reported yet reads as absent,
+        /// which refuses rather than guesses.
+        /// </summary>
+        private bool WouldCreateOnSelect(Profile_t prof)
+        {
+            var radio = theRadio;
+            if (radio == null) return false;
+            switch (prof.ProfileType)
+            {
+                case ProfileTypes.tx: return radio.ProfileTXList?.Contains(prof.Name) != true;
+                case ProfileTypes.mic: return radio.ProfileMICList?.Contains(prof.Name) != true;
+                default: return false;
+            }
         }
 
         // ── Mic-profile accessors (Track F, 2026-08-16) ──
@@ -888,9 +910,12 @@ namespace Radios
         public bool? RadioProfileAutoSave => theRadio?.ProfileAutoSave;
 
         /// <summary>
-        /// Save a global profile. True only when the save went out — see
-        /// <see cref="SaveProfileGuarded"/>, which this wraps for the callers
-        /// that cannot tell a refusal from a failure (the WinForms form).
+        /// Save a global profile — the bool face of <see cref="SaveProfileGuarded"/>
+        /// for the one caller that cannot tell a refusal from a failure (the
+        /// WinForms form). With <paramref name="immediately"/> true, true means
+        /// the command was handed to a connected transport. With it false, the
+        /// default, true means only that the save was QUEUED for the main
+        /// loop: whether it later went out is not reported here.
         /// </summary>
         /// <param name="p">the profile</param>
         /// <param name="immediately">(optional)true to wait for the command to go out, default is false</param>
@@ -899,10 +924,17 @@ namespace Radios
 
         /// <summary>
         /// Save a global profile, telling a refusal apart from a failure
-        /// (#486) and a failure apart from success (#777 round two). Done
-        /// means the command went out, or — when <paramref name="immediately"/>
-        /// is false — was queued for the main loop, which was always this
-        /// method's contract for a caller that did not ask to wait.
+        /// (#486) and a failure apart from success (#777 rounds two and
+        /// three). With <paramref name="immediately"/> true, Done means the
+        /// command was HANDED TO A CONNECTED TRANSPORT — FlexLib's public
+        /// reply-bearing send returned a sequence number rather than the 0 it
+        /// returns for a transport that has dropped. It does not mean the
+        /// bytes reached the radio (the TCP writer swallows write errors and
+        /// disconnects asynchronously) and it does not mean the radio stored
+        /// anything (no readback exists for a global save). Failed means the
+        /// command was not handed over within the bound, or the transport
+        /// refused it. With <paramref name="immediately"/> false, Done means
+        /// queued for the main loop, which was always that caller's contract.
         /// </summary>
         public GuardedOutcome SaveProfileGuarded(Profile_t p, bool immediately = false)
         {
@@ -912,7 +944,7 @@ namespace Radios
             // dialog, SaveCurrentStationLayout, Profile.vb). Ownership first
             // (#777), then the hold — StationLayoutSaveGuard.Decide's order.
             if (p.ProfileType == ProfileTypes.global
-                && OwnershipRefusesGlobalProfileWrite(p.Name, "settings.guard.action.profile_save"))
+                && OwnershipRefusesProfileWrite(p.Name, ProfileWriteActionKey(ProfileTypes.global, delete: false)))
                 return GuardedOutcome.Refused;
             if (GuardRefuses("settings.guard.action.profile_save")) return GuardedOutcome.Refused;
             if (p.ProfileType != ProfileTypes.global)
@@ -923,11 +955,14 @@ namespace Radios
                 return GuardedOutcome.Skipped;
             }
             bool commandDone = false;
+            bool commandRefused = false;
             {
                 q.Enqueue((FunctionDel)(() =>
                     {
                         long seq = ProfileEvidence.Sequence;
-                        using (OwnProfileWrite()) theRadio.SaveGlobalProfile(p.Name);
+                        string notSent;
+                        using (OwnProfileWrite()) notSent = SendGlobalProfileSave(p.Name);
+                        if (notSent != null) { commandRefused = true; return; }
                         commandDone = true;
                         // An operator save under the pending name satisfies
                         // the deferred create — once it has actually gone out.
@@ -964,11 +999,48 @@ namespace Radios
             // go out and returned true either way, so a queue that never
             // drained produced a spoken "saved" and a cleared dirty flag for a
             // save that was still sitting in the queue. An unsent save is a
-            // failure, and the caller says so.
-            if (await(() => commandDone, 3000)) return GuardedOutcome.Done;
-            Tracing.TraceLine("SaveProfile: the save of '" + p.Name + "' did not go out within 3000 ms; "
-                + "reported as a failure, not a success (#777)", TraceLevel.Error);
+            // failure, and the caller says so — whether the queue never ran
+            // it or the transport refused it when it did (round three).
+            await(() => commandDone || commandRefused, 3000);
+            if (commandDone) return GuardedOutcome.Done;
+            Tracing.TraceLine("SaveProfile: the save of '" + p.Name + "' "
+                + (commandRefused ? "was refused by the transport" : "did not go out within 3000 ms")
+                + "; reported as a failure, not a success (#777)", TraceLevel.Error);
             return GuardedOutcome.Failed;
+        }
+
+        /// <summary>The <c>profile global save</c> command exactly as FlexLib's
+        /// own <c>Radio.SaveGlobalProfile</c> would send it.</summary>
+        private static string ProfileSaveCommand(string name) => "profile global save \"" + name + "\"";
+
+        /// <summary>
+        /// Hand the global save to the radio's command transport. Null when
+        /// it was handed to a CONNECTED transport; otherwise why it was not.
+        /// </summary>
+        /// <remarks>
+        /// NOT the vendor's void <c>Radio.SaveGlobalProfile</c> (#777 round
+        /// three, Codex B3 residual): that discards <c>SendCommand</c>'s
+        /// 0-for-disconnected, so a transport that dropped after the save was
+        /// queued and before it was dispatched still read as "sent", the
+        /// dialog said "saved" and the layout save cleared its dirty flag.
+        /// The public reply-bearing send returns the sequence number, or 0
+        /// when the transport is down, and <see cref="SendRadioCommandWithReply"/>
+        /// turns that 0 into a refusal. The radio's reply, when it arrives,
+        /// is traced and nothing waits for it — so a null here means "handed
+        /// to a connected transport" and no more: not that the bytes reached
+        /// the radio (the TCP writer swallows write errors asynchronously),
+        /// and not that the radio stored anything (no readback exists for a
+        /// global save). The spoken receipts built on it, "Profile X saved"
+        /// and "Station setup saved to X", claim storage; see the #777 report.
+        /// </remarks>
+        private string SendGlobalProfileSave(string name)
+        {
+            string notSent = SendRadioCommandWithReply(theRadio, ProfileSaveCommand(name), reply =>
+                Tracing.TraceLine("SaveProfile: the radio replied " + reply,
+                    reply.Acknowledged ? TraceLevel.Info : TraceLevel.Warning));
+            if (notSent != null)
+                Tracing.TraceLine("SaveProfile: '" + name + "' was NOT sent — " + notSent, TraceLevel.Error);
+            return notSent;
         }
 
         // ── The one automatic write that already existed, and its gaps ──
@@ -2736,7 +2808,7 @@ namespace Radios
 
                 case StationLayoutSaveRefusal.NotOurRadio:
                 case StationLayoutSaveRefusal.OwnershipUnknown:
-                    return OwnershipRefusalSentence(refusal, "settings.guard.action.profile_save");
+                    return OwnershipRefusalSentence(refusal, ProfileWriteActionKey(ProfileTypes.global, delete: false));
 
                 case StationLayoutSaveRefusal.ChangeNothing:
                     return Lexicon.Get("settings.guard.layout_save_blocked");
@@ -2778,7 +2850,9 @@ namespace Radios
         /// </summary>
         internal static string OwnershipRefusalSentence(StationLayoutSaveRefusal refusal, string actionKey)
         {
-            // DRAFT PROSE (#777): awaiting Noel — both keys.
+            // APPROVED BY NOEL 2026-10-19 (#777 Q4, Q5): both sentences as
+            // written, with the full application name and the Settings tab
+            // called what NVDA reads for it, "Per-radio settings".
             string action = Lexicon.Get(actionKey);
             return refusal == StationLayoutSaveRefusal.NotOurRadio
                 ? Lexicon.Get("settings.guard.profile_write_not_our_radio", ("action", action))
@@ -2789,28 +2863,57 @@ namespace Radios
         /// The sentence the last ownership refusal spoke, or would have spoken
         /// under <see cref="SuppressSpeech"/>. For tests that drive the real
         /// funnel and need to read what the operator would hear; null until a
-        /// refusal has happened on this instance.
+        /// refusal has happened on this instance. Named for the global case it
+        /// began with; since the 2026-10-19 ruling it records transmit and
+        /// microphone refusals too.
         /// </summary>
         internal string LastGlobalProfileWriteRefusal { get; private set; }
 
         /// <summary>
-        /// The ownership gate on the funnels every global-profile write passes
-        /// through — <see cref="SaveProfileGuarded"/> and
-        /// <see cref="DeleteProfileGuarded"/>. True, having traced and spoken
-        /// the refusal, when the radio is not declared the operator's. False
-        /// when it is — or when there is no radio at all, which is not this
-        /// gate's question and is left to the caller's own no-radio handling
-        /// exactly as before #777.
+        /// The <c>settings.guard.action.*</c> key naming the verb and the
+        /// profile kind an ownership refusal refers to (Noel, 2026-10-19:
+        /// transmit and microphone profiles are refused exactly like global
+        /// ones, saving and deleting alike, and the sentence names what it
+        /// refused). Global keeps the fragments Noel approved the same day —
+        /// "save a profile on it", "delete a profile from it" — which read
+        /// true of a global profile. A transmit or microphone profile reaches
+        /// the radio only by being CREATED, so that is its verb, and those
+        /// four fragments name the kind.
+        /// </summary>
+        internal static string ProfileWriteActionKey(ProfileTypes type, bool delete)
+        {
+            switch (type)
+            {
+                case ProfileTypes.tx:
+                    // DRAFT PROSE (#777 round three): awaiting Noel — the four tx/mic fragments.
+                    return delete ? "settings.guard.action.tx_profile_delete" : "settings.guard.action.tx_profile_create";
+                case ProfileTypes.mic:
+                    return delete ? "settings.guard.action.mic_profile_delete" : "settings.guard.action.mic_profile_create";
+                default:
+                    return delete ? "settings.guard.action.profile_delete" : "settings.guard.action.profile_save";
+            }
+        }
+
+        /// <summary>
+        /// The ownership gate on the funnels every operator-pressed profile
+        /// write passes through — <see cref="SaveProfileGuarded"/>,
+        /// <see cref="DeleteProfileGuarded"/> and the create half of
+        /// <see cref="SelectProfileGuarded"/>, for global, transmit and
+        /// microphone profiles alike (ruled 2026-10-19). True, having traced
+        /// and spoken the refusal, when the radio is not declared the
+        /// operator's. False when it is — or when there is no radio at all,
+        /// which is not this gate's question and is left to the caller's own
+        /// no-radio handling exactly as before #777.
         /// </summary>
         /// <remarks>
         /// Needed because <see cref="StationLayoutSaveBlocker"/> is asked only
-        /// by the layout save; the Profiles dialog's Save and Delete buttons
-        /// and the WinForms form's Save reach the funnels directly with a
-        /// NAMED global profile, and until #777 nothing on those routes asked
+        /// by the layout save; the Profiles dialog's Save, Delete and Select
+        /// buttons and the WinForms form's Save reach the funnels directly
+        /// with a NAMED profile, and until #777 nothing on those routes asked
         /// whose radio it was. Speaks here, like <c>GuardRefuses</c>, because
         /// not every caller honours the return value.
         /// </remarks>
-        private bool OwnershipRefusesGlobalProfileWrite(string profileName, string actionKey)
+        private bool OwnershipRefusesProfileWrite(string profileName, string actionKey)
         {
             var radio = theRadio;
             if (radio == null) return false;
@@ -3126,12 +3229,11 @@ namespace Radios
         public GuardedOutcome DeleteProfileGuarded(Profile_t prof, List<Profile_t> lst = null)
         {
             if (prof == null) return GuardedOutcome.Failed;
-            // Whose radio it is first (#777 round two): a guest could delete
-            // the owner's global profile with the hold off, its default. Same
-            // decision as the save funnel; tx and mic deletes are not gated
-            // here, on purpose, until a ruling widens #777 past global.
-            if (prof.ProfileType == ProfileTypes.global
-                && OwnershipRefusesGlobalProfileWrite(prof.Name, "settings.guard.action.profile_delete"))
+            // Whose radio it is first (#777): a guest could delete the owner's
+            // profile with the hold off, its default. Same decision as the
+            // save funnel, for all three kinds — Noel, 2026-10-19: transmit
+            // and microphone profiles are refused exactly like global ones.
+            if (OwnershipRefusesProfileWrite(prof.Name, ProfileWriteActionKey(prof.ProfileType, delete: true)))
                 return GuardedOutcome.Refused;
             if (GuardRefuses("settings.guard.action.profile_delete")) return GuardedOutcome.Refused;
             Tracing.TraceLine("DeleteProfile:" + prof.Name + ' ' + prof.ProfileType.ToString(), TraceLevel.Info);

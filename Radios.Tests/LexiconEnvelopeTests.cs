@@ -959,6 +959,19 @@ namespace Radios.Tests
                 // wordings are DRAFTS awaiting Noel.
                 "settings.guard.profile_write_not_our_radio",
                 "settings.guard.profile_write_ownership_unknown",
+                // Round three, Noel's 2026-10-19 ruling that transmit and
+                // microphone profiles are refused like global ones: the verb
+                // and kind the two sentences above take as {action} for those
+                // kinds. FRAGMENTS of a sentence, never spoken alone, so
+                // TextOnly is the only honest classification; global keeps
+                // the approved legacy fragments settings.guard.action.profile_save
+                // / profile_delete, which stay frozen and are shared with the
+                // hold's refusal. These four are DRAFTS awaiting Noel; the two
+                // sentences above were APPROVED the same day.
+                "settings.guard.action.tx_profile_create",
+                "settings.guard.action.tx_profile_delete",
+                "settings.guard.action.mic_profile_create",
+                "settings.guard.action.mic_profile_delete",
                 // Same track, round two (Codex B3): the honest receipt for a
                 // save whose command did not go out within its bound, which
                 // until then was announced as saved. Spoken only in answer to
