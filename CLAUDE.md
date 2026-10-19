@@ -1370,6 +1370,23 @@ As tracks complete, Claude Desktop handles merges and keeps the user informed:
    **Say which classes the run covered**, because the set grows and a class
    nobody names silently drops out of coverage the day it is added. See #531.
 
+   **AND THE FILTER COVERS TEN OF TWENTY-THREE. Measured 2026-10-18:**
+   `JJFlexWpf.Tests` holds 23 classes carrying `[Fact]`/`[Theory]` across 22
+   files, and the filter above names ten, so **thirteen are unwatched at merge
+   time**: `CaptureArchivedDialogTests`, `CwCloseTests`, `DeskGuardDecisionTests`,
+   `DialogEarlyExitTests`, `DialogInvariantTests`, `FixerFixDecisionTests`,
+   `HarnessTests`, `LayerNearMissTests`, `ProblemLogUpdateTests`, `QuietRunTests`,
+   `RadioRowWordingTests`, `RxDuckTimingTests`, `UndeliveredDetailsSurfaceTests`.
+   That is the same gap #531 describes, grown.
+
+   **DO NOT simply paste those into the filter.** The filter is a list of classes
+   asserted to construct no window on a live desk, and several of those names are
+   about dialogs. Adding one blind puts windows on the operator's screen mid-session,
+   which is the exact harm this whole section exists to prevent. Establishing which
+   are desk-safe is a real piece of work and belongs to the harness that already owns
+   the question (`JJFlexWpf.Tests/Infrastructure/`: `DeskGuard`, `DialogCatalog`,
+   `RealizedDialog`, `DelegateSurfaceScan`) — not to a grep, and not to this file.
+
    **`NoiseReductionPerChannelTests`, `PerChannelDenoiserBankTests`, `DeepFilterNet3EngineTests` and
    `EngineLatencyTests` were added 2026-10-17** with Sprint 48 Track G (#731, #732). They exercise
    audio buffers and native engines only; no window. **On x86, four of them fail by design until #739**
@@ -1584,10 +1601,17 @@ clean `git merge` is not evidence that the result compiles.
 - **Claude is the only writer for the memory tree and the register.** Codex's Windows sandbox can read both, and a write into the memory folder is refused by the operating system — verified with a real Codex session. Codex puts what it learned under "For the memory" and "For the register" in its report, and Claude files it.
 - **The mailbox is files, not messages.** Briefs go in `JJFlex-private/planning/for-codex/`; Codex moves a finished one into `for-codex/done/` and reports into `for-claude/` with `codex` in the file name. As with for-noel, the folder name says who acts next. What a brief must contain: `for-codex/README.md`.
 - **Brief Codex the way this file says to brief any agent: write the prohibitions, not just the goal** — plus the model, the worktree, the register entry, and how to survive being cut off. **Then run `& "C:\dev\JJFlex-NG\check-brief-citations.ps1"` before launching it.** Two seconds, and it prints every `#NNN` the brief cites beside that task's real heading and marks the closed ones. It caught both errors in the 2026-09-20 key-ownership brief — a prohibition citing #345, which is about a different key entirely, and #19 named as a live symptom five weeks after it closed. **It cannot catch a citation you failed to make**, which is the worse error: that same brief contradicted #514, a standing ruling nobody looked for. Grep the register for the SUBJECT, not just the numbers you already have.
-- **Model tiers, ruled by Noel 2026-09-16:** `gpt-5.6-sol` is the default, the Opus of the pair. `gpt-6-astra` is named explicitly for hard implementation, or for verifying something troubled or stuck. No other model without a ruling.
+- **Model tiers, ruled by Noel 2026-09-16:** `gpt-6-sol` is the default, the Opus of the pair.
+  (This said `gpt-5.6-sol` until 2026-10-18; `config.toml:19` reads `model = "gpt-6-sol"`,
+  and the config is the thing Codex actually loads.) `gpt-6-astra` is named explicitly for hard implementation, or for verifying something troubled or stuck. No other model without a ruling.
 - **Two dials, not one, and they move independently. Ruled by Noel 2026-09-20.** *Which model* and *how hard it reasons* are separate decisions, and conflating them produces both wasted runs and under-powered ones.
   - **Dial one, the model: use the SAME decision tree as Opus versus Fable.** Whatever makes a job Fable-worthy on the Claude side makes it Astra-worthy here — design, architecture, safety-critical work, anything shipping to a real user, anything troubled or stuck. Everything else is Sol, and **Sol is the right tool for it, not a compromise.**
-  - **Dial two, the reasoning level:** `low`, `medium`, `high`, `xhigh`, `max`, `ultra`. **BOTH Sol and Astra default to `low`** — the bottom of the ladder — so naming a model is NOT enough. `config.toml` pins `medium` as the everyday floor and `astra.config.toml` pins `high`; raise per run with `-c model_reasoning_effort="high"` or `"xhigh"`. **Ruled by Noel 2026-09-20: medium or high at least, `low` only when we really need low.** This line said only "Astra's default is low" for one day, and in that day every Sol run was still executing at `low` because the config set no effort at all — the fix had been applied to one instance instead of to the class.
+  - **Dial two, the reasoning level:** `low`, `medium`, `high`, `xhigh`, `max`, `ultra`. **Never rely on the model's own default — pin the level.** The vendor default has already
+    moved under us once: this line read "BOTH Sol and Astra default to `low`" until 2026-10-18,
+    while `config.toml`'s own comment records that the GPT-6 models all default to `medium`,
+    read from the account 2026-09-22. **Verify against the account, not against this file or
+    that comment** — both are dated readings of someone else's product. The instruction is
+    unchanged either way, which is the point: naming a model is NOT enough. `config.toml` pins `medium` as the everyday floor and `astra.config.toml` pins `high`; raise per run with `-c model_reasoning_effort="high"` or `"xhigh"`. **Ruled by Noel 2026-09-20: medium or high at least, `low` only when we really need low.** This line said only "Astra's default is low" for one day, and in that day every Sol run was still executing at `low` because the config set no effort at all — the fix had been applied to one instance instead of to the class.
   - **When a run comes back wrong, escalate BOTH.** Noel: *"if we're seeing errors, we might want to run it with vitamin C and maybe extra pea flakes."* A re-run of a failed brief at the same model and the same reasoning is a re-run, not an escalation.
   - **Down-tiering for FIT is correct; down-tiering for COST is the defect.** Record the reason in `codex-evaluation.md` when it was cost — that sentence is the signal the plan needs upgrading, and it is the only one worth writing down.
 - **A Codex run can stop at the account's usage limit, with no warning and no resume.** Bulk use is fine; design for interruption. A non-interactive `codex exec` run cannot commit at all — its sandbox keeps `.git` read-only and it never stops to ask — so the progress notes it writes into its report are what survive.
