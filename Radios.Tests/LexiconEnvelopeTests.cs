@@ -942,21 +942,33 @@ namespace Radios.Tests
                 // forwarded it would start frequency entry. DRAFT awaiting Noel.
                 "audio.value_layer.typed_number",
 
-                // Junkbox #777, 2026-10-19: the station-layout save refused
-                // because the radio is declared someone else's, or its
-                // ownership was never answered. Classified rather than frozen
-                // (#720). delivery: null - TextOnly - on the #726 reasoning:
-                // each is spoken ONLY in answer to the operator's own press
-                // (the menu's Save Station Setup to Radio, or the Profiles
-                // dialog's Save), the application never says either on its
-                // own account, and a refusal whose sentence names the remedy
-                // must not be shortened by the verbosity machinery. Their
-                // siblings settings.guard.layout_save_blocked and
-                // .layout_save_roster_unknown are legacy and still frozen;
+                // Junkbox #777, 2026-10-19: a global-profile write (Save, or
+                // Delete since round two) refused because the radio is
+                // declared someone else's, or its ownership was never
+                // answered; the verb comes from settings.guard.action.* the
+                // way settings.guard.refused does it. Classified rather than
+                // frozen (#720). delivery: null - TextOnly - on the #726
+                // reasoning: each is spoken ONLY in answer to the operator's
+                // own press (the menu's Save Station Setup to Radio, or the
+                // Profiles dialog's Save or Delete), the application never
+                // says either on its own account, and a refusal whose sentence
+                // names the remedy must not be shortened by the verbosity
+                // machinery. Their siblings settings.guard.layout_save_blocked
+                // and .layout_save_roster_unknown are legacy and still frozen;
                 // WHEN THE PASS REACHES THEM, DECIDE ALL FOUR TOGETHER. Both
                 // wordings are DRAFTS awaiting Noel.
-                "settings.guard.layout_save_not_our_radio",
-                "settings.guard.layout_save_ownership_unknown",
+                "settings.guard.profile_write_not_our_radio",
+                "settings.guard.profile_write_ownership_unknown",
+                // Same track, round two (Codex B3): the honest receipt for a
+                // save whose command did not go out within its bound, which
+                // until then was announced as saved. Spoken only in answer to
+                // the press that asked for the save; TextOnly on the same
+                // reasoning; the existing receipts settings.profile.saved and
+                // settings.station_layout.saved beside them are legacy and
+                // still frozen - DECIDE EACH PAIR TOGETHER. DRAFTS awaiting
+                // Noel.
+                "settings.profile.save_not_sent",
+                "settings.station_layout.save_not_sent",
             };
 
             Assert.Equal(3152, unclassified);

@@ -122,10 +122,10 @@ namespace Radios
         }
 
         /// <summary>
-        /// The ownership half alone, for the funnel every global-profile write
-        /// passes through: a named global save from the Profiles dialog has no
-        /// loaded-profile or layout question, but it writes the same shared
-        /// state and asks the same owner. <see cref="RadioOwnership.Mine"/> is
+        /// The ownership half alone, for the funnels every global-profile
+        /// write passes through — the named save and, since round two, the
+        /// delete: neither has a loaded-profile or layout question, but both
+        /// change the same shared state and ask the same owner. <see cref="RadioOwnership.Mine"/> is
         /// the only answer that returns <see cref="StationLayoutSaveRefusal.None"/>;
         /// Unset and SomeoneElses refuse, and any value this enum grows later
         /// refuses until somebody decides otherwise here.

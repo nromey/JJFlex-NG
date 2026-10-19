@@ -34,12 +34,18 @@ namespace Radios.Tests
     /// decides through <c>DeferredGlobalCreation.Decide</c>; that decision
     /// refuses a radio not declared ours and is pinned in
     /// <c>DeferredGlobalCreationTests</c>.</item>
+    /// <item>Round two: <c>FlexBase.DeleteProfileGuarded</c>, the delete
+    /// funnel (Profiles dialog's Delete), which asked only the hold; and
+    /// <c>RemoveProfileRestorePoint</c>, which deletes only our own marker
+    /// names after a guest visit.</item>
     /// </list>
     /// <para>
-    /// A third call site appearing anywhere fails
-    /// <see cref="EveryGlobalProfileWriterIsOneOfTheKnownTwo"/>, which is
-    /// the point: the finding that matters most in #777 is a writer that
-    /// bypasses the gate, and a new one must be unable to arrive quietly.
+    /// A new save or delete call site anywhere fails
+    /// <see cref="EveryGlobalProfileSaveAndDeleteCallSiteIsKnownAndNamesItsGate"/>,
+    /// which is the point: the finding that matters most in #777 is a writer
+    /// that bypasses the gate, and a new one must be unable to arrive quietly.
+    /// These are source pins; the same paths are driven by execution in
+    /// <see cref="StationProfileOwnershipExecutionTests"/>.
     /// </para>
     /// </remarks>
     public sealed class StationLayoutSaveOwnershipWiringTests
@@ -91,28 +97,54 @@ namespace Radios.Tests
         [Fact]
         public void TheFunnelRefusesAGlobalWriteOnARadioThatIsNotOursBeforeSending()
         {
-            string body = MethodBody(Read(FlexBaseProfiles), "public bool SaveProfile(Profile_t p, bool immediately = false)");
+            string body = MethodBody(Read(FlexBaseProfiles), "public GuardedOutcome SaveProfileGuarded(Profile_t p, bool immediately = false)");
             int refusal = body.IndexOf("OwnershipRefusesGlobalProfileWrite(", StringComparison.Ordinal);
             int send = body.IndexOf(".SaveGlobalProfile(", StringComparison.Ordinal);
             Assert.True(refusal >= 0,
-                "SaveProfile no longer asks whose radio it is. The Profiles dialog's Save button and the "
+                "SaveProfileGuarded no longer asks whose radio it is. The Profiles dialog's Save button and the "
                 + "WinForms form's Save button reach the radio through this method and nothing else, so "
                 + "without it a global profile on somebody else's radio can be rewritten from here.");
-            Assert.True(send >= 0, "SaveProfile no longer sends the global save; the funnel moved and this test must follow it.");
+            Assert.True(send >= 0, "SaveProfileGuarded no longer sends the global save; the funnel moved and this test must follow it.");
             Assert.True(refusal < send, "the ownership refusal must come BEFORE the command goes out, not after.");
         }
 
         [Fact]
-        public void TheProfilesDialogSaveHonoursARefusal()
+        public void TheDeleteFunnelRefusesAGlobalDeleteOnARadioThatIsNotOursBeforeSending()
+        {
+            // Round two, Codex B1: Delete asked only the hold, which defaults
+            // off, so a guest could remove the owner's global profile.
+            string body = MethodBody(Read(FlexBaseProfiles), "public GuardedOutcome DeleteProfileGuarded(");
+            int refusal = body.IndexOf("OwnershipRefusesGlobalProfileWrite(", StringComparison.Ordinal);
+            int hold = body.IndexOf("GuardRefuses(\"settings.guard.action.profile_delete\")", StringComparison.Ordinal);
+            int send = body.IndexOf(".DeleteGlobalProfile(", StringComparison.Ordinal);
+            Assert.True(refusal >= 0 && hold >= 0 && send >= 0, "the delete funnel lost its ownership gate, its hold, or its send");
+            Assert.True(refusal < hold && hold < send, "ownership, then the hold, then the send — the blocker's order");
+        }
+
+        [Fact]
+        public void TheProfilesDialogSaveHonoursARefusalAndReportsAnUnsentSave()
         {
             // Before #777 the dialog spoke "saved" unconditionally, so a
             // refusal from the change-nothing hold was spoken and then
             // overwritten by a receipt for a save that never happened (the
-            // #486 shape). The ownership refusal would have met the same
-            // fate.
+            // #486 shape). Round two: an unsent save is spoken as a failure,
+            // not left silent.
             string body = MethodBody(Read(Menu), "OnSave = (profileData) =>");
-            Assert.Contains("if (Rig.SaveProfile(profile, immediately: true))", body);
+            Assert.Contains("switch (Rig.SaveProfileGuarded(profile, immediately: true))", body);
+            Assert.Contains("case Radios.GuardedOutcome.Done:", body);
+            Assert.Contains("case Radios.GuardedOutcome.Refused:", body);
+            Assert.Contains("settings.profile.save_not_sent", body);
             Assert.DoesNotContain("Rig.SaveProfile(profile, immediately: true);", body);
+        }
+
+        [Fact]
+        public void TheLayoutSaveClearsTheDirtyFlagOnlyAfterTheCommandWentOut()
+        {
+            string body = MethodBody(Read(FlexBaseProfiles), "public string SaveCurrentStationLayout(");
+            int outcome = body.IndexOf("if (outcome != GuardedOutcome.Done)", StringComparison.Ordinal);
+            int clear = body.IndexOf("OperatorChangedStationThisSession = false;", StringComparison.Ordinal);
+            Assert.True(outcome >= 0 && clear > outcome, "the dirty flag must be cleared only after a Done outcome");
+            Assert.DoesNotContain("The radio did not accept the save.", body);
         }
 
         [Fact]
@@ -148,30 +180,45 @@ namespace Radios.Tests
         // ------------------------------------------------------------------
 
         [Fact]
-        public void EveryGlobalProfileWriterIsOneOfTheKnownTwo()
+        public void EveryGlobalProfileSaveAndDeleteCallSiteIsKnownAndNamesItsGate()
         {
-            // Member calls only (a leading dot), so the port's own declaration
-            // and the interface member do not count as writers.
-            var callSite = new Regex(@"\.SaveGlobalProfile\s*\(", RegexOptions.Compiled);
+            // WHAT THIS CHECKS, AND ONLY THAT (round two, Codex F2): the member
+            // calls of FlexLib's two global-profile mutators, SaveGlobalProfile
+            // and DeleteGlobalProfile, in Radios, JJFlexWpf and the root VB.
+            // It does not see a raw "profile global ..." command string, the
+            // database import upload (F3), or a writer in another tree. A
+            // leading dot, so the port's own declaration and the interface
+            // member do not count.
+            var callSite = new Regex(@"\.(SaveGlobalProfile|DeleteGlobalProfile)\s*\(", RegexOptions.Compiled);
             var found = new List<string>();
             foreach (string path in SourceFiles())
             {
                 string text = File.ReadAllText(path);
-                int n = callSite.Matches(text).Count;
-                if (n > 0) found.Add(Relative(path) + " x" + n);
+                var names = callSite.Matches(text).Select(m => m.Groups[1].Value).OrderBy(s => s, StringComparer.Ordinal).ToList();
+                if (names.Count > 0) found.Add(Relative(path) + ": " + string.Join(", ", names));
             }
             found.Sort(StringComparer.Ordinal);
 
             var expected = new[]
             {
-                "Radios/FlexBase.Profiles.cs x1",            // the funnel, SaveProfile
-                "Radios/FlexBase.StationConnect.cs x1",      // the station port
-                "Radios/StationConnect/DeferredCreationRun.cs x1", // the port's one caller
+                // The two operator funnels, SaveProfileGuarded and
+                // DeleteProfileGuarded (ownership, then the hold), and
+                // RemoveProfileRestorePoint, which deletes only a name
+                // ProfileRestorePoints.IsRestorePoint recognises as one of
+                // OUR markers, on a radio we were a guest on — gated by that
+                // name test, not by ownership, because it exists to clean up
+                // after a guest visit.
+                "Radios/FlexBase.Profiles.cs: DeleteGlobalProfile, DeleteGlobalProfile, SaveGlobalProfile",
+                // The station port, whose one caller decides through
+                // DeferredGlobalCreation.Decide (ownership Mine, hold off,
+                // intent, only-us roster).
+                "Radios/FlexBase.StationConnect.cs: SaveGlobalProfile",
+                "Radios/StationConnect/DeferredCreationRun.cs: SaveGlobalProfile",
             };
             Assert.True(expected.SequenceEqual(found),
-                "The set of places that send a global profile save changed. Expected:\n  "
+                "The set of places that save or delete a global profile changed. Expected:\n  "
                 + string.Join("\n  ", expected) + "\nFound:\n  " + string.Join("\n  ", found)
-                + "\nA new writer must ask whose radio it is (StationLayoutSaveGuard) before it sends, "
+                + "\nA new one must ask whose radio it is (StationLayoutSaveGuard.OwnershipRefusal) before it sends, "
                 + "and then be added here with its gate named.");
         }
 
@@ -180,21 +227,44 @@ namespace Radios.Tests
         // ------------------------------------------------------------------
 
         [Theory]
-        [InlineData("settings.guard.layout_save_not_our_radio")]
-        [InlineData("settings.guard.layout_save_ownership_unknown")]
-        public void TheRefusalNamesWhereTheOwnershipAnswerLives(string key)
+        [InlineData("settings.guard.profile_write_not_our_radio", "settings.guard.action.profile_save", "did not save a profile on it")]
+        [InlineData("settings.guard.profile_write_not_our_radio", "settings.guard.action.profile_delete", "did not delete a profile from it")]
+        [InlineData("settings.guard.profile_write_ownership_unknown", "settings.guard.action.profile_save", "did not save a profile on it")]
+        [InlineData("settings.guard.profile_write_ownership_unknown", "settings.guard.action.profile_delete", "did not delete a profile from it")]
+        public void TheRefusalNamesTheVerbAndWhereTheOwnershipAnswerLives(string key, string actionKey, string verb)
         {
             // #638: Don's own radio sat at an unanswered ownership question he
             // may never have heard, so "unknown refuses" will refuse a real
             // owner on his own radio. That is the right direction only if the
-            // sentence tells him where the answer is given.
+            // sentence tells him where the answer is given. And round two
+            // (Codex B2): the sentence must be true for a save that would
+            // CREATE a profile, for one that would overwrite, and for a
+            // delete — so it names the verb and never claims a replacement.
+            var entries = LexiconBaseline.Parse(Read(SettingsJson));
+            Assert.True(entries.ContainsKey(key), key + " is not in the settings partition");
+            Assert.True(entries.ContainsKey(actionKey), actionKey + " is not in the settings partition");
+            string template = entries[key].Resolve(VerbosityLevel.Chatty) ?? "";
+            string action = entries[actionKey].Resolve(VerbosityLevel.Chatty) ?? "";
+            string assembled = template.Replace("{action}", action);
+            Assert.Contains("{action}", template);
+            Assert.Contains(verb, assembled);
+            Assert.Contains("Settings, under Radios", assembled);
+            Assert.DoesNotContain("replace", assembled);
+            Assert.DoesNotContain("saved locally", assembled);
+            Assert.DoesNotContain("saved on this computer", assembled);
+        }
+
+        [Theory]
+        [InlineData("settings.profile.save_not_sent", "profile", "was not saved")]
+        [InlineData("settings.station_layout.save_not_sent", "profileName", "was not saved")]
+        public void TheUnsentSaveSentenceSaysNothingWasSaved(string key, string placeholder, string phrase)
+        {
             var entries = LexiconBaseline.Parse(Read(SettingsJson));
             Assert.True(entries.ContainsKey(key), key + " is not in the settings partition");
             string text = entries[key].Resolve(VerbosityLevel.Chatty) ?? "";
-            Assert.Contains("Settings, under Radios", text);
-            Assert.Contains("not save", text);
-            Assert.DoesNotContain("saved locally", text);
-            Assert.DoesNotContain("saved on this computer", text);
+            Assert.Contains("{" + placeholder + "}", text);
+            Assert.Contains(phrase, text);
+            Assert.DoesNotContain("saved to the radio", text);
         }
 
         // ------------------------------------------------------------------
