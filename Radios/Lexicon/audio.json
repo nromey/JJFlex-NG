@@ -805,6 +805,7 @@
   "audio.unit.watts": "watts",
   "audio.value.adjusted": "{label} {value}{suffix}",
   "audio.value_layer.near_miss": "{alt}: {what}",
+  "audio.value_layer.typed_number": { "text": "A typed number does nothing in the {layer}. Use the arrows to move the value.", "delivery": null },
   "audio.value_layer.unknown_key": { "text": "Not a key in the {layer}. H lists its keys.", "delivery": null },
   "audio.workshop.section_nothing_to_adjust": "{section}, nothing to adjust here.",
   "audio.workshop.unnamed_section": "Section"

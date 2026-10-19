@@ -937,6 +937,10 @@ namespace Radios.Tests
                 // THE PASS REACHES IT, DECIDE BOTH TOGETHER. The wording is a
                 // DRAFT awaiting Noel.
                 "audio.value_layer.unknown_key",
+                // Same track, same reasoning: the line for a bare digit, which
+                // a value layer now refuses before asking the registry because
+                // forwarded it would start frequency entry. DRAFT awaiting Noel.
+                "audio.value_layer.typed_number",
             };
 
             Assert.Equal(3152, unclassified);

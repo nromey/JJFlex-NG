@@ -491,7 +491,10 @@ namespace Radios.Tests
         // reason. The same two lexicon keys, the same layer-name argument.
 
         private static string LayerUnknownKey(string layerNameKey, Keys pressed, ValueLayerRefusal why)
-            => Lexicon.Get("audio.value_layer.unknown_key", ("layer", Lexicon.Get(layerNameKey)));
+            => Lexicon.Get(why == ValueLayerRefusal.TypedEntry
+                    ? "audio.value_layer.typed_number"
+                    : "audio.value_layer.unknown_key",
+                ("layer", Lexicon.Get(layerNameKey)));
 
         private static string? LayerNearMiss(Dictionary<Keys, (string Key, string What)> chords,
             string layerNameKey, Keys pressed, VerbosityLevel verbosity)
@@ -1419,6 +1422,136 @@ namespace Radios.Tests
             // Escape is the exit, and it still is.
             Assert.Equal(ValueLayerKeyResult.Closed, h.Layer.HandleKey(Keys.Escape));
             Assert.False(h.Layer.IsLive);
+        }
+
+        // ── A digit never leaves a value layer (#778, half one B) ───────
+
+        [Fact]
+        public void Audio_typing_a_value_and_enter_never_reaches_the_radio_as_a_frequency()
+        {
+            // The capture, 2026-10-19 07:41:58: VOX gain picked, then 4, 0.
+            // The layer closed on the 4, both digits went to the frequency
+            // field, and quick-type said "Invalid frequency" — only because
+            // 40 kHz is under the parser's floor. "14, Enter" meant as a gain
+            // is 14 kHz... and "140" is a retune. Mic stands in for VOX gain
+            // here (the mirror predates that target); the engine does not
+            // care which level is picked.
+            var (h, rig) = OpenAudio(VerbosityLevel.Chatty);
+            h.Layer.HandleKey(Keys.M);
+            h.Layer.HandleKey(Keys.Up);                               // 35
+
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.D1));
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.D4));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal("A typed number does nothing in the Audio layer. Use the arrows to move the value.",
+                h.LastSaid);
+            Assert.DoesNotContain("Audio layer closed", h.Said);
+
+            // Enter now means what it always means in here: keep and leave.
+            // Nothing about a frequency was ever in play.
+            Assert.Equal(ValueLayerKeyResult.Closed, h.Layer.HandleKey(Keys.Return));
+            Assert.Equal(35, rig.Mic);
+            Assert.Equal("Audio layer closed", h.LastSaid);
+        }
+
+        [Fact]
+        public void Audio_a_digit_with_nothing_picked_gets_the_letter_list()
+        {
+            // No target yet, so "use the arrows" would point at nothing; the
+            // list of letters is the recovery, as it is for any other key.
+            var (h, _) = OpenAudio(VerbosityLevel.Chatty);
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.D1));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal("Pick a target first: V, Ctrl+H, O, M, L, C, S, X, D, or P.", h.LastSaid);
+        }
+
+        [Fact]
+        public void Audio_the_keypad_digits_are_refused_like_the_top_row()
+        {
+            // CharFor in FreqOutHandlers turns NumPad0-9 into the same digit
+            // characters, so the keypad starts frequency entry exactly as the
+            // top row does. NumPad0 is here too — 0 on the top row is the
+            // centre jump, but there is deliberately no numpad binding.
+            var (h, rig) = OpenAudio(VerbosityLevel.Chatty);
+            h.Layer.HandleKey(Keys.M);
+            foreach (var k in new[] { Keys.NumPad5, Keys.NumPad0, Keys.NumPad9 })
+            {
+                Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(k));
+                Assert.True(h.Layer.IsLive);
+                Assert.Equal("A typed number does nothing in the Audio layer. Use the arrows to move the value.",
+                    h.LastSaid);
+            }
+            Assert.Equal(30, rig.Mic);
+        }
+
+        [Fact]
+        public void Audio_a_shifted_digit_is_not_typed_entry()
+        {
+            // The set is the main window's own: Shift+digit produces no
+            // character there, so it starts nothing and is an ordinary key
+            // with nowhere to go — it stays, with the plain line.
+            var (h, _) = OpenAudio(VerbosityLevel.Chatty);
+            h.Layer.HandleKey(Keys.M);
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.D1 | Keys.Shift));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal("Not a key in the Audio layer. H lists its keys.", h.LastSaid);
+        }
+
+        [Fact]
+        public void Audio_zero_on_the_top_row_is_still_the_centre_jump()
+        {
+            // The one digit the layer already spends (#522) keeps its meaning;
+            // the typed-entry rule starts at 1.
+            var (h, rig) = OpenAudio(VerbosityLevel.Chatty);
+            h.Layer.HandleKey(Keys.P);
+            h.Layer.HandleKey(Keys.Right);                            // 45
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.D0));
+            Assert.Equal(50, rig.Pan["A"]);
+        }
+
+        [Fact]
+        public void Single_a_digit_is_consumed_even_when_the_host_says_it_means_something_outside()
+        {
+            // The registry is not consulted for a digit: a bare-digit chord
+            // added to the key table one day must not reopen the fall-through.
+            // The control: in the same harness a letter the host vouches for
+            // still leaves.
+            var h = new Harness { Verbosity = VerbosityLevel.Terse };
+            var rig = new SingleRig { Value = 40 };
+            h.Open(new ValueSubLayerDefinition
+            {
+                Id = "power",
+                Read = () => rig.Value,
+                Apply = v => { rig.Value = v; rig.Writes.Add(v); },
+                Min = 0, Max = 100, Step = 5, FineStep = 1,
+                Number = v => "Power " + v,
+                DescribeEntry = (cur, entry) => "Power layer.",
+                DescribeClosed = () => "Power layer closed",
+                MeansSomethingOutside = k => true,
+            });
+
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.D7));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal(ValueLayerKeyResult.ClosedPassThrough, h.Layer.HandleKey(Keys.X));
+            Assert.False(h.Layer.IsLive);
+        }
+
+        [Fact]
+        public void The_typed_entry_set_is_the_bare_digits_and_nothing_else()
+        {
+            foreach (Keys k in new[] { Keys.D1, Keys.D5, Keys.D9, Keys.NumPad0, Keys.NumPad9 })
+                Assert.True(ValueSubLayer.IsTypedEntryKey(k), k.ToString());
+            foreach (Keys k in new[]
+            {
+                Keys.D0,                       // the centre jump
+                Keys.D1 | Keys.Shift,          // no character on the main window
+                Keys.D1 | Keys.Control,        // a message slot chord
+                Keys.NumPad5 | Keys.Alt,
+                Keys.OemPeriod, Keys.Decimal,  // continue an entry, never start one
+                Keys.OemMinus, Keys.Subtract,
+                Keys.Z, Keys.Tab, Keys.Space,
+            })
+                Assert.False(ValueSubLayer.IsTypedEntryKey(k), k.ToString());
         }
 
         [Fact]
@@ -2351,6 +2484,7 @@ namespace Radios.Tests
             {
                 "audio.value_layer.near_miss",
                 "audio.value_layer.unknown_key",
+                "audio.value_layer.typed_number",
                 "audio.audio_layer.entered",
                 "audio.audio_layer.entered_on_pan",
                 "audio.audio_layer.closed",

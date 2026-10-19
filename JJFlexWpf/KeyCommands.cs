@@ -5509,9 +5509,13 @@ public class KeyCommands
     /// </remarks>
     private static string LayerUnknownKey(string context, Keys pressed, Radios.ValueLayerRefusal why)
     {
-        // DRAFT PROSE (#778): awaiting Noel
-        return Radios.Lexicon.Get("audio.value_layer.unknown_key",
-            ("layer", KeyLayerHelp.LayerName(context)));
+        // A digit says what the operator was probably trying to do and what
+        // does it instead; anything else points at H. Both DRAFT PROSE (#778):
+        // awaiting Noel.
+        string key = why == Radios.ValueLayerRefusal.TypedEntry
+            ? "audio.value_layer.typed_number"   // DRAFT PROSE (#778): awaiting Noel
+            : "audio.value_layer.unknown_key";   // DRAFT PROSE (#778): awaiting Noel
+        return Radios.Lexicon.Get(key, ("layer", KeyLayerHelp.LayerName(context)));
     }
 
     /// <summary>

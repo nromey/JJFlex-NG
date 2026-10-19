@@ -1203,6 +1203,24 @@ namespace Radios
             // rows that say what a chord does in the words H already uses.
             // The engine owns what HAPPENS — refuse, and stay live — and
             // Refuse() carries the #528 voice rule for free.
+            //
+            // A KEY THAT WOULD START TYPED ENTRY IS CONSUMED FIRST, whatever
+            // the registry says (#778's case in hand). Noel picked VOX gain
+            // and typed 4, 0 (07:41:58): the layer closed on the 4, both
+            // digits were forwarded to the frequency field, and quick-type
+            // frequency entry said "Invalid frequency" — only because 40 kHz
+            // is below the parser's floor. "14, Enter" meant as a gain would
+            // have been accepted as a frequency. So a bare digit never leaves
+            // a value layer: it is refused and the layer stays. The registry
+            // is not asked, because a digit's forwarded meaning is typed entry
+            // on whatever field has focus, and a future bare-digit chord in
+            // the registry must not reopen the fall-through.
+            if (IsTypedEntryKey(k))
+            {
+                RefuseAndStay(k, ValueLayerRefusal.TypedEntry);
+                return ValueLayerKeyResult.Handled;
+            }
+
             if (!(_def.MeansSomethingOutside?.Invoke(k) ?? false))
             {
                 RefuseAndStay(k, ValueLayerRefusal.NowhereToGo);
@@ -1216,6 +1234,36 @@ namespace Radios
             // engine's call.
             Confirm(speak: true);
             return ValueLayerKeyResult.ClosedPassThrough;
+        }
+
+        /// <summary>
+        /// The keys that START typed entry on the main window, established from
+        /// its handlers and not from a brief (#778): a bare digit on either
+        /// row. In <c>JJFlexWpf/FreqOutHandlers.cs</c>, <c>CharFor</c> turns
+        /// <c>Key.D0..D9</c> and <c>Key.NumPad0..NumPad9</c> into the digit
+        /// character when no modifier but Shift is down, and a shifted digit or
+        /// any Ctrl/Alt/Win chord into nothing; <c>HandleQuickTypeKey</c> then
+        /// starts quick-type frequency entry on any digit character, from both
+        /// the Classic and the Modern tuning handler. The same bare digit jumps
+        /// to a slice on the pan field and begins number entry on a value box.
+        /// The decimal point and minus are NOT here: neither starts frequency
+        /// entry (the point is accepted only once an entry is open), and both
+        /// are kept inside by the nowhere-to-go rule anyway.
+        /// </summary>
+        /// <remarks>
+        /// Bare <c>0</c> never reaches this — it is the centre jump (#522) and
+        /// is handled above. <c>NumPad0</c> does reach it, deliberately: there
+        /// is no numpad binding in a value layer, because both NVDA and JAWS own
+        /// the pad in their desktop layouts. When typed values arrive in value
+        /// layers (#778's second half, not ruled) this is the set that will
+        /// mean "type a value", which is why it is one list and not two.
+        /// </remarks>
+        internal static bool IsTypedEntryKey(Keys k)
+        {
+            if ((k & Keys.Modifiers) != Keys.None) return false;
+            Keys code = k & Keys.KeyCode;
+            return (code >= Keys.D1 && code <= Keys.D9)
+                || (code >= Keys.NumPad0 && code <= Keys.NumPad9);
         }
 
         /// <summary>
