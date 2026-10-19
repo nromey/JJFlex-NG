@@ -9,6 +9,199 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-10-18, SEALED 2026-10-19 — THE JUNKBOX READ, TWELVE RULINGS, AND A MEASUREMENT THAT WITHDREW ITS OWN RECOMMENDATION
+
+**Written 2026-10-19 at 05:15.** Covers the window from the previous seal's commit
+(`9be61032`, 2026-10-18 00:35) through this morning. **Delta measured from `9be61032`**, not
+from midnight, so the previous seal's own post-midnight session is not counted twice. Sealed on
+a Monday morning because the working session ran 2026-10-18 evening and was still open.
+
+### What the day produced
+
+**The junkbox got READ, and that is the whole day's headline.** Nine delegated readers read
+**225 register entries against the code** rather than against themselves. Every one now carries
+a dated `READ 2026-10-18` block giving what has already shipped, what remains in one briefable
+line, whether its blocker still holds, and the files it touches. Conservation was reconciled in
+both directions: 225 reported, 225 filed, nothing reported that was not filed and nothing filed
+that was not reported.
+
+**Verdicts: 201 FINISH, 12 RULING, 8 CLOSE, 4 not-junkbox.** The classification pass earlier the
+same day had gone over all 475 open entries, closed 81 and archived Sprint 45 — so the read ran
+against a register that had already been cleaned once, and still found this much stale state.
+
+**All twelve rulings were taken from Noel the same evening.** Seven were his outright: an
+Amplifier section in Settings with three connection kinds rather than two; the key drops when the
+radio drops (*"if the key drops, you know you're not talking"*); inside JJ Flexible the ordinary
+transmit keys work everywhere, including in dialogs; `F` speaks the TRANSMIT frequency, with a
+three-value setting — Active, Transmit, or Both; the radio is the source of a profile on a radio
+you own and the local copy exists to save on close; three menu labels, which turned out to be
+five announcements; and focus owns the braille display. One was settled by consequence, three
+were Claude's within granted authority, and one was half-and-half — filed as a `PART-RULED`
+correction saying so.
+
+**The unblocking sweep is the day's most expensive single finding.** Four entries carried a
+standing *"Blocked on #125"* line between **19 and 59 days** after that blocker had closed or had
+turned out never to apply. The readers' own blocks said the blocker was stale; the entry's
+STANDING line still said it was blocked, and a standing line is what the next agent sees first.
+That is work that was buildable for two months and was never offered to anyone. Four standing
+lines rewritten, in both directions, and `#772` — an Amplifier section in Settings — created to
+carry the half that genuinely remained.
+
+### The track split, measured — and the premise it killed
+
+**File-disjoint partitioning of this work is not difficult, it is impossible.**
+`Radios/FlexBase.cs` is named by **55 of the 201** finishable entries; twenty files are claimed by
+five or more; and excluding every registry file AND all the mega-hubs, **103 of the 201 are still
+ONE connected component.** The plan had been built on grouping by files, so that premise is gone
+and merge safety has to come from elsewhere.
+
+What the numbers do support: **76 entries touch no contested file at all**; 125 touch at least one
+of twenty hubs; roughly **25 to 30 tracks** at seven or eight entries each, with **12 to 15 able
+to run at once**. The registry files leave the tracks entirely — each track writes a changelog
+and keyboard-reference fragment and integration merges them once, which also turns the keyboard
+audit into ONE deliberate pass instead of twelve partial ones. Waves, each merged and verified
+before the next starts, with Codex verifying each track. **This is a programme, not a sprint**,
+and saying so is what stops it ending with two tracks unmerged and nothing flagging it.
+
+**The `FlexBase.cs` region measurement came back negative, and the recommendation it was run to
+support was withdrawn within the hour.** Resolved from the SYMBOLS each entry names — not line
+numbers, which nine readers warned are drifting — against the 1,229 member declarations in the
+file: 53 of 55 resolve, the **median entry's symbols span 16,884 lines of a 24,958-line file**,
+and only **5 of the 43** entries naming two or more keep all of them inside any 2,000-line
+window. No cut into partials would separate these entries.
+
+**The negative result improved the plan rather than damaging it.** The measurement cannot tell
+reading from editing — which is exactly why 22 of 53 entries land in the top band, where `Name`,
+`Radio` and `theRadio` are named by nearly everything, and those are reads. And **git merges by
+hunk, not by file**, so two tracks editing one file ten thousand lines apart do not conflict. Hub
+ownership becomes **neighbourhood ownership**: a track's brief names the symbols it may edit, two
+tracks may hold `FlexBase.cs` at once when their neighbourhoods are disjoint, and the concurrency
+ceiling therefore goes UP. The partial-class extraction stays worth doing for readability, on its
+own schedule, off the critical path.
+
+### The repo
+
+**10 commits on `sprint48/track-a`, +1,053 / -142 across 20 files**, 1,050 of those lines C# in 15
+files. Codex's `#745` completion merged (one ladder with three callers, the tier-aware seams and
+the queued-target fix), the diversity/ESC split finished with the licence gating one of them as
+measured at the radio, and a duplicated marker key hoisted to one seam with two callers after
+`IntegrationPassDedupTests` caught it. The sprint procedure's six-track ceiling was dropped —
+Noel, 2026-10-18: twelve have run at once.
+
+**Four verified-false guidance claims corrected, and one deliberately NOT acted on.** The Codex
+default model is `gpt-6-sol`, not `gpt-5.6-sol` (config.toml is what Codex loads); the "both
+models default to `low`" claim was replaced with *never rely on the model's own default — pin the
+level*, recording that both readings are dated readings of someone else's product; and two
+`MIGRATION.md` vendor paths pointed at a `FlexLib/FlexLib/` directory that does not exist.
+**The desk-safe test filter was left alone on purpose**: it covers ten of twenty-three
+`JJFlexWpf.Tests` classes, several unlisted names are dialog-named, and adding one blind puts
+windows on the operator's live desk mid-session — the exact harm that section exists to prevent.
+The CLAIM was corrected and the gap named honestly instead.
+
+### Cross-surface activity
+
+- **`sprint48/track-a`** — the 10 commits above. Clean tree at seal. Six Sprint 48 worktrees
+  (`48b` through `48g`) all sit at their own heads, idle, nothing uncommitted.
+- **`jjflex-codex` worktree** — idle on `codex/745-diversity-esc`, now merged. Holds an untracked
+  `BRIEF.md`; **left in place deliberately**, same reasoning as TRACK-INSTRUCTIONS files.
+- **JJFlex-private: 42 commits**, the register at 405 entries and roughly 2.95 MB, carrying 225
+  dated READ blocks and 13 dated RULED blocks. `open-tasks-summary.md` regenerated at 19:30 and
+  verified fresher than `tasks.md` by mtime, so step 3c-bis needed no rerun.
+- **The noise sprint ran in its own window and produced about 25 of those commits** — step-zero
+  contracts, a clean-window reading, and nine rulings of its own (named settings with descriptors,
+  no jump on engine dropout, direct keys and favourites across both sides, day-one default engine,
+  CW/digital auto-disable, GPL-2.0-or-later helper, public helper repository, warm-up cross-fade,
+  new spectral windowing with old profiles converted on load, DeepFilter standing in while the
+  NVIDIA card is absent). That window correctly did not write `tasks.md`; its register items are
+  queued in `for-claude/2026-10-18-noise-window-for-register.md`.
+- **Codex** — one trailered commit (`53c3ba77`), logged in `codex-evaluation.md` with its outcome
+  and the one defect caught at the merge. **Tokens were not captured**, which that entry says
+  plainly: an evaluation log without cost can say a run was worth having but not what it was
+  worth.
+- **Freight Fate and Civ VI Access: both idle on 2026-10-18.** Freight Fate sits on **16 unpushed
+  commits** and one dirty file; Civ VI has two dirty files and nothing unpushed. Pushing those is
+  Noel's call, not a sealing session's — the NAS dev mirror covers durability.
+- **rigmeter: 13 unpushed commits and no remote**, unchanged; its only copies are this machine and
+  the mirror.
+- **Two untracked reports** were sitting in `for-claude/` from the noise window (the NVIDIA AFX
+  terms research and the step-zero clean reading) and are committed with this seal.
+
+### Decisions and scope changes
+
+- **The junkbox programme runs BEFORE the move to FlexLib 4.3**, agreed by Noel. The cheap
+  pre-commitment check is still owed: whether 4.3 moves the APIs the 201 entries call.
+- **Codex's role on this programme is verification, not bulk coding.** The evaluation log's
+  evidence: 0 tracks completed, 9 real defects found that Claude missed, 0 false alarms, and 3 of
+  3 reviews ending DO NOT MERGE on tracks that had each reported themselves complete with a green
+  named test project. `codex exec` cannot commit at all — its sandbox keeps `.git` read-only.
+- **Hub files are owned by neighbourhood**, per the measurement above. Filed as a memory entry.
+
+### What this seal is leaving open, stated rather than buried
+
+- **MEMORY.md is 15,140 bytes against a 12 KB seal threshold, and the threshold is no longer
+  reachable under the triage rule as written.** The "Always applies" section alone is **7,325
+  bytes, 48.4% of the core**, and those are reflex rules that by the stated rule cannot move one
+  hop. Even moving ALL of Current State (1,965 bytes) leaves 13,175. The core is still well short
+  of the 19.5 KB warning and the ~24.4 KB hard limit, so nothing is at risk — but the number to
+  act on needs re-deriving, and that is a decision for Noel rather than a restructure performed
+  quietly at 5 AM.
+- **The archive sweep's honest yield this seal was ZERO.** Six banner-stamped entries, five
+  already archived, and the two that remain live (`project_daxiq_iq_findings`,
+  `reference_rim_remote_access`) are **partial** supersessions whose index lines still state live
+  rules and which still have live inbound links. Archiving them would have removed working
+  guidance to hit a number.
+- **A reachability check that counts one link syntax reports 24 false orphans.** The first run of
+  the 1a invariant check counted only markdown `](file.md)` links and flagged 24 entries as
+  unreachable — including `feedback_grep_memory_before_asserting.md`, one of the most-consulted
+  rules in the tree — because the core links some entries in wiki-bracket form. Counting both
+  gives **zero unreachable and zero dangling.** Same shape as the trace-glob trap: the tool's
+  blind spot and a real absence print the same thing.
+- **The drift check found a live standing-line drift and it was fixed this morning:**
+  `memory/project_codex_interop.md` still said `gpt-5.6-sol` was the default in its STANDING model
+  line, with the correction appended 240 lines below. That is the same defect shape as the stale
+  blockers above, in our own memory, one day after the same claim was corrected in `CLAUDE.md` —
+  a fix aimed at the named instance left the class. Corrected with a dated note.
+- **Neither NVDA log was armed.** `grep -c Speaking` returns **0** for both `nvda.log` and
+  `nvda-old.log`, so the evening produced no speech capture, and the evening session's own log had
+  already been recycled by this morning's restart. Both archived dated anyway.
+- **Still owed to Noel from earlier passes:** the VOX reset on every connect in Don's build; the
+  still-silent reflected-power check; the system-wide PTT's missing foreground check; the sixteen
+  non-standard-status entries (`#771`); `NativeMenuBar.cs:1451`'s checked-state half; the ruled
+  safety threshold never applied; the five-minute chord-swallowing check; the complete-but-unwired
+  key-ownership code; and four agent-worktree firewall Allow rules needing filing.
+- **One question still unanswered:** whether to add inverse merge containment to `CLAUDE.md` — a
+  check that a branch deliberately EXCLUDED from a sprint is not an ancestor of main, written as
+  one command that has to FAIL.
+
+### Setup for Monday 2026-10-19
+
+Noel is at work and cannot type much. His own framing: the FlexBase partial-class refactor is
+reasonable work to run while he is unavailable, and what runs first gets decided after this seal.
+The eight CLOSE verdicts still need the deliberate treatment the earlier nine `CLOSE?` entries
+got, two entries name no resolvable symbol (`#316`, `#439`) and need a reading pass before
+briefing, and the wave-one brief — 76 hub-free entries plus about a dozen narrow hub entries, each
+track's brief naming its edit neighbourhood — is the thing every measurement was run to unblock.
+**No track launches without Noel's word**, and any brief goes through
+`check-brief-citations.ps1` first.
+
+### Rigmeter snapshot — end of 2026-10-18
+
+Measured over the explicit span `from 2026-10-18 to 2026-10-18`, because `today` at seal time
+spans 2026-10-19 and reports zero.
+
+- **Work done, summed across every commit: 11 commits, 21 unique files, +1,239 / -177, net
+  +1,062.** By type: 1,050 added lines of C# across 15 files, 186 lines of markdown across 3, with
+  trivial JSON and TSV movement.
+- **Repository size change over the span: net +1,062 across 21 files differing**, so nothing large
+  left the tree.
+- For scale: 1,238 added lines, 8,233 words, about 55 minutes read aloud, roughly 0.7 of a braille
+  volume.
+- **Branch-scope caveat, and it is large today.** Rigmeter measures `JJFlex-NG` only. The day's
+  bulk was in JJFlex-private — 42 commits and a register near 2.95 MB carrying 225 new READ
+  blocks — none of which appears in any figure above. Authors line reads `JJ Flexbot: 11
+  commits`.
+- Snapshot JSON written to the NAS stats series.
+
 ## END-OF-DAY SEAL — 2026-10-17, SEALED 2026-10-18 — A GATE VERIFIED ONLY ON ITS REFUSING SIDE, AND A FLAG THAT GOVERNS A DIFFERENT PROFILE
 
 **Written 2026-10-18 at 00:30.** Covers the window from the previous seal's commit (`5fe45721`,

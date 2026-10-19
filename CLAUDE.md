@@ -1254,6 +1254,12 @@ track had to shift up.
   safety-critical, anything shipping to a real user.
 - **Opus** — specified work in known files: real code needing care,
   where the judgement is already extracted into a plan or design doc.
+  **Opus means `claude-opus-5-5[1m]`, pinned by full ID** (Noel,
+  2026-10-19). The bare alias `opus` resolves to whatever the harness maps
+  it to and announces nothing — this window ran Opus 5 all of 2026-10-18
+  without anyone noticing. `.claude/agents/jjflex-track-ruled.md` carries the
+  pin; **never pass `model: "opus"` on a spawn**, because that override
+  silently undoes it.
 - **Sonnet** — genuinely mechanical work.
 
 **The orchestrator window runs Opus on purpose, and that says nothing
