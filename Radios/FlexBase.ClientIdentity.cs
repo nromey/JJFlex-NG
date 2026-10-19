@@ -140,7 +140,132 @@ namespace Radios
                 _fenceAcknowledgedForAttempt = -1;
                 _fenceWhy = "";
                 _fenceHeldReportedCount = -1;
+                _arrivalNumbers.Clear();
+                _arrivalsUnattributed.Clear();
+                _arrivals.Clear();
+                _arrivalCount = 0;
             }
+        }
+
+        // ── arrival order, for the bench's firmware question ───────────────
+        //
+        // The fence proves the ping's reply arrived after every status line
+        // the radio had sent by then; it cannot prove the radio had nothing
+        // more to send. Only the radio can answer that, and the bench reads
+        // the answer off this log: on a RETURNING connect, the first line seen
+        // for each slice and panadapter in the vendor's lists (its ARRIVAL,
+        // ready or not) and the ping's acknowledgement are numbered in the
+        // order they arrived. Every object the radio restored for us must
+        // carry a lower number than the acknowledgement, and no own object
+        // may arrive after the fence is recorded unless we asked for it.
+
+        //
+        // FlexLib puts an object in its list (and raises the list change)
+        // BEFORE it parses the line's keys, so at the instant of arrival the
+        // object's client handle is still 0. The log therefore has two kinds
+        // of line: the ARRIVAL, numbered, written the moment the object is
+        // first seen; and its ATTRIBUTION, written under the same number at
+        // the next trigger (the next list change, the object becoming ready,
+        // or the acknowledgement — whose own walk runs first, so everything
+        // that arrived before the reply is attributed before the ACK line).
+
+        private readonly Dictionary<object, int> _arrivalNumbers = new Dictionary<object, int>(ReferenceEqualityComparer.Instance);
+        private readonly List<object> _arrivalsUnattributed = new List<object>();
+        private readonly List<string> _arrivals = new List<string>();
+        private int _arrivalCount;
+
+        /// <summary>The arrival log of the current returning connect, in the
+        /// order written, exactly as the trace shows it after the
+        /// "ConnectFence: ARRIVAL " prefix. Empty on a fresh connect.</summary>
+        internal IReadOnlyList<string> ConnectFenceArrivals
+        {
+            get { lock (_fenceSync) return _arrivals.ToList(); }
+        }
+
+        private void noteArrivalLine(string what)
+        {
+            lock (_fenceSync) _arrivals.Add(what);
+            Tracing.TraceLine("ConnectFence: ARRIVAL " + what, TraceLevel.Info);
+        }
+
+        /// <summary>A one-off event in the arrival stream (the ping's reply).</summary>
+        private void noteArrival(string what)
+        {
+            int n;
+            lock (_fenceSync) n = ++_arrivalCount;
+            noteArrivalLine("#" + n + " " + what);
+        }
+
+        /// <summary>
+        /// Attribute every earlier arrival whose handle is now parsed, then
+        /// log every object in the vendor's slice and panadapter lists not
+        /// seen before, in list order. Called on each list change, on each
+        /// own object becoming ready, and before the ping's reply is logged,
+        /// on a returning connect only.
+        /// </summary>
+        private void noteArrivals()
+        {
+            if (!PresentedStoredIdThisConnect) return;
+            var radio = theRadio;
+            if (radio == null) return;
+            uint handle = clientHandle;
+            var lines = new List<string>();
+
+            lock (_fenceSync)
+            {
+                for (int i = _arrivalsUnattributed.Count - 1; i >= 0; i--)
+                {
+                    object o = _arrivalsUnattributed[i];
+                    uint h = o is Slice sl ? sl.ClientHandle : o is Panadapter pa ? pa.ClientHandle : 0;
+                    if (h == 0) continue;
+                    bool ours = handle != noClient && h == handle;
+                    string name = o is Slice s2 ? "slice " + s2.Index : "panadapter 0x" + ((Panadapter)o).StreamID.ToString("X");
+                    string pan = o is Slice s3 ? ", pan 0x" + s3.PanadapterStreamID.ToString("X") : "";
+                    lines.Add("#" + _arrivalNumbers[o] + " attributed: " + name + " is " + (ours ? "OURS" : "another client's") + " (handle 0x" + h.ToString("X") + pan + ")");
+                    _arrivalsUnattributed.RemoveAt(i);
+                }
+                lines.Reverse(); // attributions in arrival order
+            }
+
+            var slices = radio.SliceList;
+            if (slices != null)
+            {
+                lock (slices)
+                {
+                    foreach (var s in slices)
+                    {
+                        if (s == null) continue;
+                        lock (_fenceSync)
+                        {
+                            if (_arrivalNumbers.ContainsKey(s)) continue;
+                            int n = ++_arrivalCount;
+                            _arrivalNumbers[s] = n;
+                            _arrivalsUnattributed.Add(s);
+                            lines.Add("#" + n + " slice " + s.Index + " reported (handle and pan not parsed yet at arrival; not yet ready)");
+                        }
+                    }
+                }
+            }
+            var pans = radio.PanadapterList;
+            if (pans != null)
+            {
+                lock (pans)
+                {
+                    foreach (var p in pans)
+                    {
+                        if (p == null) continue;
+                        lock (_fenceSync)
+                        {
+                            if (_arrivalNumbers.ContainsKey(p)) continue;
+                            int n = ++_arrivalCount;
+                            _arrivalNumbers[p] = n;
+                            _arrivalsUnattributed.Add(p);
+                            lines.Add("#" + n + " panadapter 0x" + p.StreamID.ToString("X") + " reported (handle not parsed yet at arrival)");
+                        }
+                    }
+                }
+            }
+            foreach (var l in lines) noteArrivalLine(l);
         }
 
         /// <summary>
@@ -179,10 +304,13 @@ namespace Radios
             }
             int gen = AttemptGen;
             var sw = Stopwatch.StartNew();
+            noteArrivals(); // whatever the vendor already holds when the fence goes out
             string refusal = SendRadioCommandWithReply(radio, "ping", reply =>
             {
+                noteArrivals(); // anything that arrived before the reply and was not yet logged
                 if (!reply.Acknowledged)
                 {
+                    noteArrival("ping REJECTED with code 0x" + reply.Code.ToString("X") + " after " + sw.ElapsedMilliseconds + " ms — not fence evidence");
                     Tracing.TraceLine("ConnectFence: " + why + " — ping answered with code 0x" + reply.Code.ToString("X") + " after " + sw.ElapsedMilliseconds
                         + " ms; a rejected ping is NOT fence evidence, so the station phase will not allocate (materialization stays unknown)", TraceLevel.Error);
                     return;
@@ -193,8 +321,7 @@ namespace Radios
                     _fenceWhy = why;
                     _fenceHeldReportedCount = -1;
                 }
-                Tracing.TraceLine("ConnectFence: " + why + " — ping acknowledged after " + sw.ElapsedMilliseconds
-                    + " ms — every object the radio restored for this client should have been REPORTED above this line; a restored slice or panadapter traced below it means the fence is early", TraceLevel.Info);
+                noteArrival("ping ACK after " + sw.ElapsedMilliseconds + " ms — every slice or panadapter the radio restored for this client must carry a LOWER arrival number than this one; an OURS arrival with a higher number that we did not request means the radio restores after answering, and the fence is early");
                 tryRecordConnectFence("the ping reply");
             });
             if (refusal != null)

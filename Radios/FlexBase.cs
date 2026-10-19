@@ -5056,8 +5056,14 @@ namespace Radios
                     break;
                 case "SliceList":
                     // The vendor's list changed (a slice REPORTED, ready or
-                    // not, or removed): a held post-connect fence re-counts (#782).
+                    // not, or removed): on a returning connect the arrival is
+                    // logged for the bench, and a held post-connect fence
+                    // re-counts (#782).
+                    noteArrivals();
                     tryRecordConnectFence("the vendor's slice list changing");
+                    break;
+                case "PanadapterList":
+                    noteArrivals();
                     break;
                 case "ProfileGlobalList":
                     {
@@ -6299,7 +6305,10 @@ namespace Radios
                 // status and a ready panadapter, or explicitly headless), so
                 // the observation carries a resolved association.
                 ObserveOwnSliceAdded(binding, slc);
-                // A held post-connect fence re-checks readiness here (#782).
+                // On a returning connect the arrival log attributes the slice
+                // (its handle is parsed by now), and a held post-connect fence
+                // re-checks readiness here (#782).
+                noteArrivals();
                 tryRecordConnectFence("own slice " + slc.Index + " becoming ready");
                 SliceCountChanged?.Invoke();
                 // #58: opens the bulk window and restarts the settle timer, so
@@ -6433,6 +6442,7 @@ namespace Radios
                 }
                 ObserveOwnPanadapterAdded(binding, pan);
                 Tracing.TraceLine("panadapterAdded:mine " + ct.ToString() + ':' + pan.ToString(), TraceLevel.Info);
+                noteArrivals(); // attribute this pan's arrival on a returning connect (#782)
             }
             else Tracing.TraceLine("panadapterAdded:not mine " + pan.ToString(), TraceLevel.Info);
         }
