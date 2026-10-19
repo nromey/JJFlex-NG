@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Xunit;
 using static Radios.Tests.IntegrationPass;
 
@@ -104,6 +106,7 @@ namespace Radios.Tests
             foreach (string file in Corpus())
             {
                 string text = IntegrationPassTree.Read(file);
+                SyntaxNode? root = null;
                 foreach (Match m in literal.Matches(text))
                 {
                     // Text quoted inside a comment is not a sentence anyone hears.
@@ -111,7 +114,7 @@ namespace Radios.Tests
                     // quote one vendor error ("Invalid state for application
                     // registration") into different files and this rule called them
                     // a duplicated operator sentence.
-                    if (InsideComment(text, m.Index)) continue;
+                    if (InsideComment(file, text, m.Index, ref root)) continue;
                     string s = m.Groups[1].Value;
                     if (s.StartsWith("http", StringComparison.OrdinalIgnoreCase)) continue;
                     if (s.Contains('{') || s.Contains('<')) continue;         // templates and markup
@@ -142,25 +145,69 @@ namespace Radios.Tests
         }
 
         /// <summary>
-        /// True when the match starts inside a line comment: after a C# <c>//</c>
-        /// that is not itself inside a string, or on a VB line that opens with
-        /// <c>'</c>. Block comments are not handled; the tree does not quote
-        /// prose in them.
+        /// True when <paramref name="index"/> falls inside a comment, decided by
+        /// the C# PARSER rather than by inspecting characters. For VB, a line
+        /// that opens with <c>'</c> or <c>REM</c>.
         /// </summary>
-        private static bool InsideComment(string text, int index)
+        /// <remarks>
+        /// <para>
+        /// <b>Rewritten 2026-10-19 after Codex returned DO NOT MERGE on the
+        /// first version.</b> That one counted quote characters before a
+        /// <c>//</c> to decide whether it opened a comment, and an escaped
+        /// quote inside an earlier string threw the count: a genuine spoken
+        /// sentence later on the same line was skipped as a "comment", which is
+        /// the blindness this rule exists to prevent. Verbatim strings and
+        /// character literals break quote-counting the same way. The parser
+        /// already knows; ask it.
+        /// </para>
+        /// <para>
+        /// <paramref name="root"/> is parsed on first need and reused for the
+        /// file, so files with no candidate literal are never parsed.
+        /// </para>
+        /// </remarks>
+        private static bool InsideComment(string file, string text, int index, ref SyntaxNode? root)
         {
-            int lineStart = text.LastIndexOf('\n', Math.Max(0, index - 1)) + 1;
-            string prefix = text.Substring(lineStart, index - lineStart);
-            if (prefix.TrimStart().StartsWith("'", StringComparison.Ordinal)) return true;
-            int slash = prefix.IndexOf("//", StringComparison.Ordinal);
-            while (slash >= 0)
+            if (file.EndsWith(".vb", StringComparison.OrdinalIgnoreCase))
             {
-                int quotes = 0;
-                for (int i = 0; i < slash; i++) if (prefix[i] == '"') quotes++;
-                if (quotes % 2 == 0) return true;
-                slash = prefix.IndexOf("//", slash + 2, StringComparison.Ordinal);
+                int lineStart = text.LastIndexOf('\n', Math.Max(0, index - 1)) + 1;
+                string lead = text.Substring(lineStart, index - lineStart).TrimStart();
+                return lead.StartsWith("'", StringComparison.Ordinal)
+                    || lead.StartsWith("REM ", StringComparison.OrdinalIgnoreCase);
             }
-            return false;
+            root ??= CSharpSyntaxTree.ParseText(text).GetRoot();
+            SyntaxKind kind = root.FindTrivia(index, findInsideTrivia: false).Kind();
+            return kind == SyntaxKind.SingleLineCommentTrivia
+                || kind == SyntaxKind.MultiLineCommentTrivia
+                || kind == SyntaxKind.SingleLineDocumentationCommentTrivia
+                || kind == SyntaxKind.MultiLineDocumentationCommentTrivia;
+        }
+
+        /// <summary>
+        /// The comment filter must skip comments and NOTHING ELSE. Each case is
+        /// a line of valid source; the second literal on code lines is a real
+        /// sentence the rule must still see.
+        /// </summary>
+        /// <remarks>
+        /// The first case is Codex's counterexample from its 2026-10-19
+        /// verification, verbatim: it defeated the quote-counting version.
+        /// </remarks>
+        [Theory]
+        [InlineData("x.cs", "string prefix = \"quoted \\\" // still in a string\"; string message = \"The remote radio is unavailable because the account has no online radios.\";", false)]
+        [InlineData("x.cs", "var p = @\"C:\\temp\"\" // \"; string message = \"A real sentence after a verbatim string with a doubled quote.\";", false)]
+        [InlineData("x.cs", "char c = '\"'; string message = \"A real sentence after a character literal that is a quote mark.\";", false)]
+        [InlineData("x.cs", "// \"This text is quoted in an ordinary comment and nobody hears it.\"", true)]
+        [InlineData("x.cs", "/// <summary>\"This text is quoted in a documentation comment, not spoken.\"</summary>\nclass C {}", true)]
+        [InlineData("x.cs", "/* \"This text is quoted inside a block comment and is never spoken.\" */", true)]
+        [InlineData("x.vb", "' \"This text is quoted in a VB comment and nobody hears it at all.\"", true)]
+        [InlineData("x.vb", "Dim s = \"A real VB sentence that the rule must keep on counting.\"", false)]
+        public void The_comment_filter_skips_comments_and_nothing_else(string file, string source, bool expected)
+        {
+            string target = expected ? "This text is quoted" : "A real";
+            if (source.Contains("The remote radio is unavailable")) target = "The remote radio";
+            int at = source.LastIndexOf(target, StringComparison.Ordinal) - 1;   // the opening quote
+            Assert.True(at >= 0 && source[at] == '"', "fixture is malformed: no quote before the target");
+            SyntaxNode? root = null;
+            Assert.Equal(expected, InsideComment(file, source, at, ref root));
         }
 
         /// <summary>
