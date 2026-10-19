@@ -923,6 +923,24 @@ namespace Radios.Tests
                 // ONE IN VIEW, for the reason the audio.nr family's note gives
                 // two blocks above.
                 "connect.ownership.reason",
+
+                // Junkbox #778, 2026-10-19: the value layers' answer to a key
+                // that has nowhere to go and is no near miss, now that such a
+                // key stays in the layer instead of leaving it. Classified
+                // rather than frozen because it was written here (Noel's
+                // 2026-10-05 ruling; #720). delivery: null - TextOnly - on the
+                // #726 reasoning two blocks above: it is spoken ONLY in answer
+                // to a press, through the engine's own refusal path where #528
+                // already decides whether words or the tone are heard, and the
+                // application never says it on its own account. Its sibling
+                // audio.value_layer.near_miss is legacy and still frozen; WHEN
+                // THE PASS REACHES IT, DECIDE BOTH TOGETHER. The wording is a
+                // DRAFT awaiting Noel.
+                "audio.value_layer.unknown_key",
+                // Same track, same reasoning: the line for a bare digit, which
+                // a value layer now refuses before asking the registry because
+                // forwarded it would start frequency entry. DRAFT awaiting Noel.
+                "audio.value_layer.typed_number",
             };
 
             Assert.Equal(3152, unclassified);
