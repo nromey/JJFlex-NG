@@ -140,9 +140,8 @@ namespace Radios.Tests
         [Fact]
         public void FlexBase_both_arms_the_guard_and_consults_it()
         {
-            string flexBase = IntegrationPassTree.AllFiles.Single(
-                f => Path.GetFileName(f).Equals("FlexBase.cs", StringComparison.OrdinalIgnoreCase));
-            string text = File.ReadAllText(flexBase);
+            // Every FlexBase partial, not FlexBase.cs alone.
+            string text = FlexBasePartials.JoinedText();
 
             foreach (string guard in new[] { "_rxFreqEcho", "_txFreqEcho" })
             {

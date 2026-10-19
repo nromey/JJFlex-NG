@@ -450,12 +450,12 @@ namespace Radios.Tests
             string reporter = Read("Radios/ProfileReporter.cs");
 
             // Positive control FIRST: prove this scan sees the forbidden
-            // tokens where they are known to live. FlexBase.cs defines the
+            // tokens where they are known to live. FlexBase defines the
             // operator-list default this test exists to keep out of the
             // reporter — if these lines ever fail, the scan itself is broken
             // or the operator-list layer was renamed, and either way the
             // DoesNotContain results below prove nothing.
-            string flexBase = Read("Radios/FlexBase.cs");
+            string flexBase = FlexBasePartials.JoinedText();   // every FlexBase partial
             Assert.Contains("Callouts.Profiles", flexBase);
             Assert.Contains("GetProfilesByType", flexBase);
 

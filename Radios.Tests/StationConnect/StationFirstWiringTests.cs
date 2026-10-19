@@ -27,8 +27,12 @@ namespace Radios.Tests.StationConnect
             return dir!.FullName;
         }
 
+        // The FlexBase class is read whole: FlexBase.cs and every partial.
+        // FlexBaseStation still reads its one file.
         private static string Read(string relative) =>
-            File.ReadAllText(Path.Combine(RepoRoot(), relative.Replace('/', Path.DirectorySeparatorChar)));
+            relative == FlexBase
+                ? FlexBasePartials.JoinedText()
+                : File.ReadAllText(Path.Combine(RepoRoot(), relative.Replace('/', Path.DirectorySeparatorChar)));
 
         private static int IndexOf(string text, string needle)
         {

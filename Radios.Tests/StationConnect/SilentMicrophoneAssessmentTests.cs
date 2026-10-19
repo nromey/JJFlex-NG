@@ -99,7 +99,7 @@ namespace Radios.Tests.StationConnect
         [Fact]
         public void TheProductionCheckDecidesFromReportedEvidence_AndRepairsThroughACheckedDispatch()
         {
-            var text = Read("Radios/FlexBase.cs");
+            var text = FlexBasePartials.JoinedText();   // every FlexBase partial
             int at = text.IndexOf("private void CheckMicProfileForSilentTx(bool mayRepair)", StringComparison.Ordinal);
             Assert.True(at >= 0);
             string body = text.Substring(at, 7000);

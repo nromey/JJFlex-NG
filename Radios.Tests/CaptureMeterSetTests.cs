@@ -1052,7 +1052,7 @@ namespace Radios.Tests
             // Track H5 moved the archive from the RadioRemoved drop arm, which
             // FlexLib never reaches for a SmartLink-only radio, to our radio's
             // Connected property falling. The ordering this pins moved with it.
-            string source = File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "FlexBase.cs"));
+            string source = FlexBasePartials.JoinedText();   // every FlexBase partial
             string body = CaptureArchiveTests.ArchiveMethodBody(source);
 
             int archive = body.IndexOf("CaptureArchive.AfterConnectionDrop", StringComparison.Ordinal);
@@ -1292,7 +1292,7 @@ namespace Radios.Tests
 
             // And the writer's own limits are what the sentence says: read
             // from the source, with a control that the reader finds the method.
-            string source = File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "FlexBase.cs"));
+            string source = FlexBasePartials.JoinedText();   // every FlexBase partial
             int at = source.IndexOf("private void traceTxMeters()", StringComparison.Ordinal);
             Assert.True(at > 0, "traceTxMeters not found");
             string body = source.Substring(at, Math.Min(12000, source.Length - at));
@@ -1308,8 +1308,7 @@ namespace Radios.Tests
         [Fact]
         public void The_shipped_handler_is_what_calls_it()
         {
-            string source = File.ReadAllText(Path.Combine(RepoRoot(),
-                "Radios", "FlexBase.cs"));
+            string source = FlexBasePartials.JoinedText();   // every FlexBase partial
             // Positive control first: a reader that finds nothing must be
             // shown to find something.
             Assert.Contains("private void PATempDataHandler(float data)", source, StringComparison.Ordinal);

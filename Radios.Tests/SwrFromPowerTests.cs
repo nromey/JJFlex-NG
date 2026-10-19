@@ -246,16 +246,14 @@ namespace Radios.Tests
         /// </remarks>
         private static string FlexBaseMemberBody(string signature)
         {
-            string path = Path.Combine(RepoRoot(), "Radios", "FlexBase.cs");
-            Assert.True(File.Exists(path),
-                "The sweep cannot find FlexBase.cs — fix the path, do not delete the test.");
-
-            string text = File.ReadAllText(path);
+            // Every FlexBase partial, not FlexBase.cs alone (FlexBasePartials
+            // throws if FlexBase.cs itself is missing).
+            string text = FlexBasePartials.JoinedText();
             int at = text.IndexOf(signature, StringComparison.Ordinal);
 
             // POSITIVE CONTROL.
             Assert.True(at >= 0,
-                $"'{signature}' was not found in FlexBase.cs. If it moved, move this test "
+                $"'{signature}' was not found in any FlexBase file. If it moved, move this test "
                 + "with it — do not let a missing member read as a passing check.");
 
             int open = text.IndexOf('{', at);

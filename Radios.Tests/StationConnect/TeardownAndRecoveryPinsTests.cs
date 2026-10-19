@@ -19,6 +19,9 @@ namespace Radios.Tests.StationConnect
     {
         private static string Read(string relative)
         {
+            // The FlexBase class is read whole: FlexBase.cs and every partial.
+            if (relative == "Radios/FlexBase.cs") return FlexBasePartials.JoinedText();
+
             var dir = new DirectoryInfo(AppContext.BaseDirectory);
             while (dir != null && !File.Exists(Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
             Assert.NotNull(dir);

@@ -343,10 +343,7 @@ namespace Radios.Tests.StationConnect
             // All three callers go through the one helper, so the scoping
             // cannot be true of one entry and false of another. Pinned in the
             // source because the defect was precisely a sibling left behind.
-            var dir = new System.IO.DirectoryInfo(AppContext.BaseDirectory);
-            while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
-            Assert.NotNull(dir);
-            string text = System.IO.File.ReadAllText(System.IO.Path.Combine(dir!.FullName, "Radios", "FlexBase.cs"));
+            string text = FlexBasePartials.JoinedText();   // every FlexBase partial
             int helper = text.IndexOf("private void AbandonUnappliedLiveAudio()", StringComparison.Ordinal);
             Assert.True(helper > 0);
             string body = text.Substring(helper, 1600);
@@ -368,10 +365,7 @@ namespace Radios.Tests.StationConnect
             // microphone input — and its own summary says callers append it to
             // their announcement. This path produced that note and threw it
             // away, so a half-applied chain was announced as applied.
-            var dir = new System.IO.DirectoryInfo(AppContext.BaseDirectory);
-            while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
-            Assert.NotNull(dir);
-            string text = System.IO.File.ReadAllText(System.IO.Path.Combine(dir!.FullName, "Radios", "FlexBase.cs"));
+            string text = FlexBasePartials.JoinedText();   // every FlexBase partial
 
             int apply = text.IndexOf("private bool ApplyLocalTransmitAudioPayloadNow(AudioChainPreset payload, string presetName, out string receipt)", StringComparison.Ordinal);
             Assert.True(apply > 0, "the apply must hand its receipt back");

@@ -34,7 +34,6 @@ namespace Radios.Tests
     [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class BareThreadBoundaryTests
     {
-        private const string FlexBase = "Radios/FlexBase.cs";
         private const string Globals = "globals.vb";
 
         /// <summary>
@@ -169,8 +168,9 @@ namespace Radios.Tests
         /// </summary>
         private static string MethodBody(string signature)
         {
-            string source = File.ReadAllText(
-                Path.Combine(RepoRoot(), FlexBase.Replace('/', Path.DirectorySeparatorChar)));
+            // Every FlexBase partial, not FlexBase.cs alone: the method may live
+            // in any of them.
+            string source = FlexBasePartials.JoinedText();
 
             int start = source.IndexOf(signature, StringComparison.Ordinal);
             if (start < 0) return string.Empty;

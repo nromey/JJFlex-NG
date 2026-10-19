@@ -373,8 +373,7 @@ namespace Radios.Tests
         [Fact]
         public void Connect_resets_the_meter_inventory_before_hooking_any_handler()
         {
-            string source = System.IO.File.ReadAllText(System.IO.Path.Combine(
-                CaptureMeterSetTests.RepoRoot(), "Radios", "FlexBase.cs"));
+            string source = FlexBasePartials.JoinedText();   // every FlexBase partial
             int start = source.IndexOf("public bool Connect(string serial, bool lowBW", StringComparison.Ordinal);
             Assert.True(start > 0, "Connect not found");
             int end = source.IndexOf("theRadio.TxBandSettingsAdded +=", start, StringComparison.Ordinal);

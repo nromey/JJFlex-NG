@@ -79,8 +79,8 @@ namespace Radios.Tests
 
         // ---- the scan ----
 
-        private static string FlexBaseSource() =>
-            File.ReadAllText(Path.Combine(FieldKeyMapScan.RepoRoot(), "Radios", "FlexBase.cs"));
+        // Every FlexBase partial, not FlexBase.cs alone.
+        private static string FlexBaseSource() => FlexBasePartials.JoinedText();
 
         /// <summary>The source from <paramref name="start"/> up to the next
         /// <paramref name="end"/> after it.</summary>

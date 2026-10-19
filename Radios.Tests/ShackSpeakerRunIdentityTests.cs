@@ -87,7 +87,7 @@ namespace Radios.Tests
             // The pure function only matters if the teardown calls it with the
             // run it was started for. remoteAudioProc takes that run as its
             // parameter, so there is no field for a newer run to have moved.
-            string text = Source("Radios/FlexBase.cs");
+            string text = FlexBasePartials.JoinedText();   // every FlexBase partial
 
             int start = text.IndexOf("private void startRemoteAudioThread()", StringComparison.Ordinal);
             Assert.True(start > 0);

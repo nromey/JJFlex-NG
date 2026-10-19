@@ -820,7 +820,7 @@ namespace Radios.Tests
         [Fact]
         public void Connect_and_Disconnect_are_what_wire_and_unwire_it()
         {
-            string source = File.ReadAllText(Path.Combine(CaptureMeterSetTests.RepoRoot(), "Radios", "FlexBase.cs"));
+            string source = FlexBasePartials.JoinedText();   // every FlexBase partial
 
             // Positive control: the reader finds the handler at all. It takes
             // the attempt's binding (Track G), which is why only the station
@@ -943,7 +943,7 @@ namespace Radios.Tests
         [Fact]
         public void The_cancellation_sits_after_the_archive_and_before_the_state_event()
         {
-            string source = File.ReadAllText(Path.Combine(CaptureMeterSetTests.RepoRoot(), "Radios", "FlexBase.cs"));
+            string source = FlexBasePartials.JoinedText();   // every FlexBase partial
             int connectedMethod = source.IndexOf("private void onRadioConnectedChanged(Radio r, CommandConnectionChanged report, ConnectionLifetime.Token token)", StringComparison.Ordinal);
             Assert.True(connectedMethod > 0, "the Connected handler moved");
             int methodEnd = source.IndexOf("private void radioPropertyChangedHandler(", connectedMethod, StringComparison.Ordinal);
@@ -985,7 +985,7 @@ namespace Radios.Tests
         [Fact]
         public void The_archive_is_taken_on_the_fall_and_nowhere_else()
         {
-            string source = File.ReadAllText(Path.Combine(CaptureMeterSetTests.RepoRoot(), "Radios", "FlexBase.cs"));
+            string source = FlexBasePartials.JoinedText();   // every FlexBase partial
 
             int calls = 0;
             for (int at = source.IndexOf("CaptureArchive.AfterConnectionDrop(", StringComparison.Ordinal);

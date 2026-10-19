@@ -60,13 +60,8 @@ namespace Radios.Tests.StationConnect
         // connect-path write in ChangeNothingGuardTests. The behavioural
         // proof is a physical press, and it is on the bench list.
 
-        private static string FlexBaseSource()
-        {
-            var dir = new System.IO.DirectoryInfo(AppContext.BaseDirectory);
-            while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "JJFlexRadio.sln"))) dir = dir.Parent;
-            Assert.NotNull(dir);
-            return System.IO.File.ReadAllText(System.IO.Path.Combine(dir.FullName, "Radios", "FlexBase.cs"));
-        }
+        // Every FlexBase partial, not FlexBase.cs alone.
+        private static string FlexBaseSource() => FlexBasePartials.JoinedText();
 
         [Theory]
         [InlineData("IsMuteLocalAudioWhenRemoteOn=true on remote audio start", true)]

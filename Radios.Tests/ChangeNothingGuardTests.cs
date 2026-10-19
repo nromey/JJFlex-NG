@@ -38,7 +38,7 @@ namespace Radios.Tests
     /// </remarks>
     // LEXICON_SCANNER_EXEMPT — the Lexicon.Get texts below are assertion
     // SUBJECTS quoted from FlexBase, not call sites of their own; the real
-    // call sites live in FlexBase.cs and the sweep verifies them there. The
+    // call sites live in FlexBase's files and the sweep verifies them there. The
     // store-side halves of the same keys are pinned by this file's own
     // TheGuardSentencesExistInTheStore.
     [Collection(RadioConfigStaticsCollection.Name)]
@@ -48,6 +48,9 @@ namespace Radios.Tests
 
         public void Dispose() => _scope.Dispose();
 
+        /// <summary>The FlexBase class. <see cref="Read"/> answers this name with
+        /// EVERY FlexBase partial (<see cref="FlexBasePartials"/>), so a sweep
+        /// keeps seeing its call sites when they move between files.</summary>
         private const string FlexBase = "Radios/FlexBase.cs";
         /// <summary>The station-first connect half of FlexBase (Sprint 45
         /// Track G). The connect-time profile writers moved here on
@@ -522,6 +525,10 @@ namespace Radios.Tests
 
         private static string Read(string relative)
         {
+            // The FlexBase class, read whole: FlexBase.cs and every partial.
+            // FlexBaseStation still reads its one file.
+            if (relative == FlexBase) return FlexBasePartials.JoinedText();
+
             string path = Path.Combine(RepoRoot(), relative.Replace('/', Path.DirectorySeparatorChar));
             Assert.True(File.Exists(path),
                 "Could not find " + relative + " (looked at " + path + "). A test that "

@@ -143,8 +143,7 @@ namespace Radios.Tests
         {
             // A truth table nothing consults is a truth table that is wrong for
             // free. This pins the call site.
-            string source = File.ReadAllText(Path.Combine(
-                CaptureMeterSetTests.RepoRoot(), "Radios", "FlexBase.cs"));
+            string source = FlexBasePartials.JoinedText();   // every FlexBase partial
             string archiveMethod = ArchiveMethodBody(source);
 
             Assert.Contains("ClassifyRadioRemoval(", archiveMethod, StringComparison.Ordinal);
@@ -185,8 +184,7 @@ namespace Radios.Tests
         [Fact]
         public void The_drop_arm_hands_the_flush_over_as_a_function_rather_than_writing_it()
         {
-            string source = File.ReadAllText(Path.Combine(
-                CaptureMeterSetTests.RepoRoot(), "Radios", "FlexBase.cs"));
+            string source = FlexBasePartials.JoinedText();   // every FlexBase partial
             // The archive moved from the removal arm to the connection's fall in
             // Track H5; the #618 shape moved with it.
             string dropArm = ArchiveMethodBody(source);
