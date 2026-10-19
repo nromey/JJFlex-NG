@@ -147,12 +147,15 @@ namespace Radios.Tests
         /// <summary>
         /// The text of every file that can define a preprocessor symbol for a
         /// build of this tree: project files, props, targets and build
-        /// scripts. Read once.
+        /// scripts, and MSBuild response files (Directory.Build.rsp), which can pass
+        /// -p:DefineConstants on a command line no project file shows. Read once. Not
+        /// covered, by design: a symbol supplied only through an environment variable
+        /// or typed by hand on one developer's command line.
         /// </summary>
         private static readonly Lazy<string> BuildText = new Lazy<string>(() =>
         {
             string root = IntegrationPassTree.Root;
-            var patterns = new[] { "*.csproj", "*.vbproj", "*.props", "*.targets", "*.bat", "*.cmd", "*.ps1" };
+            var patterns = new[] { "*.csproj", "*.vbproj", "*.props", "*.targets", "*.rsp", "*.bat", "*.cmd", "*.ps1" };
             var sb = new System.Text.StringBuilder();
             int n = 0;
             foreach (string pattern in patterns)
