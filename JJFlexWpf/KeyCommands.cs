@@ -4713,6 +4713,9 @@ public class KeyCommands
             // the report.
             MeansSomethingOutside = MeansSomethingOutsideTheLayer,
             DescribeNearMiss = key => LayerNearMiss(KeyInventory.AudioLayerContext, key),
+            // #778: a key with nowhere to go stays, and this is what it hears
+            // when it is no near miss and a target is already picked.
+            DescribeUnknownKey = (key, why) => LayerUnknownKey(KeyInventory.AudioLayerContext, key, why),
             ListCommands = () => TryShowLayerCommandList(KeyInventory.AudioLayerContext),
             OpenExplorer = () => TryOpenLayerExplorer(KeyInventory.AudioLayerContext),
             Exited = why => { if (pcTouched) _context.GetMainWindow()?.PersistPcOutputVolume(); },
@@ -5061,6 +5064,9 @@ public class KeyCommands
             // ending the mode without a word.
             MeansSomethingOutside = MeansSomethingOutsideTheLayer,
             DescribeNearMiss = key => LayerNearMiss(KeyInventory.FilterLayerContext, key),
+            // #778: nothing is ever "picked" in a ByModifier layer, so this is
+            // the answer for every unknown key here that is not a near miss.
+            DescribeUnknownKey = (key, why) => LayerUnknownKey(KeyInventory.FilterLayerContext, key, why),
             ListCommands = () => TryShowLayerCommandList(KeyInventory.FilterLayerContext),
             OpenExplorer = () => TryOpenLayerExplorer(KeyInventory.FilterLayerContext),
             Exited = why => { _filterRx = null; },
@@ -5326,6 +5332,10 @@ public class KeyCommands
             // a slip, named from this layer's own rows.
             MeansSomethingOutside = MeansSomethingOutsideTheLayer,
             DescribeNearMiss = key => LayerNearMiss(KeyInventory.NoiseLayerContext, key),
+            // #778: nothing is picked in a switch-only layer, so the engine
+            // answers an unknown key with the switches_only line above first;
+            // this is the fallback should that ever be null.
+            DescribeUnknownKey = (key, why) => LayerUnknownKey(KeyInventory.NoiseLayerContext, key, why),
             ListCommands = () => TryShowLayerCommandList(KeyInventory.NoiseLayerContext),
             OpenExplorer = () => TryOpenLayerExplorer(KeyInventory.NoiseLayerContext),
             Cues = new Radios.ValueLayerCues
@@ -5479,20 +5489,57 @@ public class KeyCommands
     }
 
     /// <summary>
+    /// The recovery line for a key a value layer refused and kept inside
+    /// (#778): no near miss, nothing picked to list for, so the layer says
+    /// what to press instead. Named through <see cref="KeyLayerHelp.LayerName"/>
+    /// like the near miss, so the three layers cannot call themselves by two
+    /// names.
+    /// </summary>
+    /// <remarks>
+    /// The engine says WHY it refused — nowhere to go, or a key that would
+    /// start typed entry — and the words follow the reason. Like the
+    /// near-miss, this says the recovery and does not restate the key or the
+    /// fact that it did nothing: the refusal earcon has already said that,
+    /// and the leader layer's own unknown-key line ("Unknown key. H for the
+    /// list, Escape to cancel.") is the vocabulary it mirrors. A key that
+    /// stays in the layer is answered in the layer's voice, which is what
+    /// lets an operator tell "still in the audio layer" from Home's
+    /// "Z does nothing on the Frequency field" — the two sentences Noel could
+    /// not tell apart on 2026-10-19 because the first was never spoken.
+    /// </remarks>
+    private static string LayerUnknownKey(string context, Keys pressed, Radios.ValueLayerRefusal why)
+    {
+        // DRAFT PROSE (#778): awaiting Noel
+        return Radios.Lexicon.Get("audio.value_layer.unknown_key",
+            ("layer", KeyLayerHelp.LayerName(context)));
+    }
+
+    /// <summary>
     /// Does a key mean anything once a layer lets go of it? The live
     /// registry, so a remap is honoured — the same question and the same
     /// source as <see cref="Lookup(Keys)"/>'s own dispatch (#547).
     /// </summary>
     /// <remarks>
-    /// It answers for OUR vocabulary and makes no claim about Windows'. That
-    /// is safe only because its answer decides nothing on its own: it is
-    /// consulted alongside <see cref="LayerNearMiss"/>, which is letters-only,
-    /// so no key without a near neighbour is ever held back on the strength of
-    /// this. Tab, Space and the navigation keys — whose meanings live below
-    /// us, where the registry cannot see them — leave exactly as they did.
+    /// <para>
+    /// It answers for OUR vocabulary and makes no claim about Windows'. Until
+    /// #778 that was safe because the answer decided nothing on its own — it
+    /// was consulted alongside <see cref="LayerNearMiss"/>, letters-only, so
+    /// Tab, Space and the navigation keys, whose meanings live below us where
+    /// the registry cannot see them, left exactly as they did. Since #778 a
+    /// "no" from here KEEPS the key inside the layer, so those keys now stay
+    /// too: a value layer is modal, and its exits are Enter and Escape. That
+    /// is reported under #778 as a consequence for Noel to rule on, and this
+    /// method deliberately does not try to second-guess Windows to soften it
+    /// — a guess here would reopen the fall-through for whichever key it
+    /// guessed wrong.
+    /// </para>
+    /// <para>
     /// Within letters the answer is sound: no bare letter is bound anywhere in
     /// the default table, in any scope, so a bare letter this says no to
-    /// genuinely has nowhere to go.
+    /// genuinely has nowhere to go. Bare digits are likewise unbound (the
+    /// Ctrl+digit message slots are chords), and the engine consumes them
+    /// before asking this anyway.
+    /// </para>
     /// </remarks>
     private bool MeansSomethingOutsideTheLayer(Keys k) => Lookup(k) != null;
 

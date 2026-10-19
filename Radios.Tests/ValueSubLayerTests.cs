@@ -249,17 +249,51 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Single_a_modified_jump_key_is_an_unknown_key_and_travels_on()
+        public void Single_a_modified_jump_key_with_nowhere_to_go_stays()
         {
-            // Ctrl+Home means "top of the document" everywhere else; inside a
-            // layer that selects by letter it is simply not ours, so it keeps
-            // the value, says the layer closed, and goes on to mean what it
-            // always means.
+            // #778. Ctrl+Home means "top of the document" to Windows, but the
+            // host's registry has no chord for it, so from the layer's point
+            // of view it has nowhere to go. Until #778 this test pinned the
+            // opposite — close, speak, travel — which was the defect: the key
+            // left the layer and then did nothing, a mode change bought for
+            // no gain. Now it is refused and the layer is still there; the
+            // host has no own-line here, so the refusal is the tone alone.
             var (h, rig) = OpenSingle(40, VerbosityLevel.Terse);
-            Assert.Equal(ValueLayerKeyResult.ClosedPassThrough,
+            int saidBefore = h.Said.Count;
+            Assert.Equal(ValueLayerKeyResult.Handled,
                 h.Layer.HandleKey(Keys.Home | Keys.Control));
             Assert.Equal(40, rig.Value);
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal(saidBefore, h.Said.Count);
+        }
+
+        [Fact]
+        public void Single_a_key_the_host_says_means_something_outside_still_leaves()
+        {
+            // The positive control for the rule above: the SAME chord, with a
+            // host that answers "yes, that is a command out here", keeps the
+            // value, says the layer closed, and travels on. The decision is
+            // the registry's answer and nothing else.
+            var h = new Harness { Verbosity = VerbosityLevel.Terse };
+            var rig = new SingleRig { Value = 40 };
+            h.Open(new ValueSubLayerDefinition
+            {
+                Id = "power",
+                Read = () => rig.Value,
+                Apply = v => { rig.Value = v; rig.Writes.Add(v); },
+                Min = 0, Max = 100, Step = 5, FineStep = 1,
+                Number = v => "Power " + v,
+                DescribeEntry = (cur, entry) => "Power layer.",
+                DescribeClosed = () => "Power layer closed",
+                MeansSomethingOutside = k => k == (Keys.Home | Keys.Control),
+            });
+            h.Layer.HandleKey(Keys.Up);
+
+            Assert.Equal(ValueLayerKeyResult.ClosedPassThrough,
+                h.Layer.HandleKey(Keys.Home | Keys.Control));
             Assert.False(h.Layer.IsLive);
+            Assert.Equal(45, rig.Value);
+            Assert.Equal("Power layer closed", h.LastSaid);
         }
 
         [Fact]
@@ -298,16 +332,23 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Single_an_unknown_key_confirms_announces_and_travels_on()
+        public void Single_an_unknown_letter_stays_and_the_arrows_still_work()
         {
+            // #778. X is nothing in this layer and nothing outside it. It used
+            // to confirm, announce the close and travel; now it is refused and
+            // the layer is exactly as it was — the next arrow moves the same
+            // value, and nothing was written on the way.
             var (h, rig) = OpenSingle(40, VerbosityLevel.Terse);
             h.Layer.HandleKey(Keys.Up);
             var r = h.Layer.HandleKey(Keys.X);
 
-            Assert.Equal(ValueLayerKeyResult.ClosedPassThrough, r);
-            Assert.False(h.Layer.IsLive);
+            Assert.Equal(ValueLayerKeyResult.Handled, r);
+            Assert.True(h.Layer.IsLive);
             Assert.Equal(new[] { 45 }, rig.Writes);
-            Assert.Equal("Power layer closed", h.LastSaid);
+            Assert.DoesNotContain("Power layer closed", h.Said);
+
+            h.Layer.HandleKey(Keys.Up);
+            Assert.Equal(50, rig.Value);
         }
 
         [Fact]
@@ -442,6 +483,15 @@ namespace Radios.Tests
 
         private static string? FilterLayerNearMiss(Keys pressed, VerbosityLevel verbosity)
             => LayerNearMiss(FilterLetterChords, "audio.filter_layer.name", pressed, verbosity);
+
+        // ── The #778 unknown-key hook, as the shipped hosts wire it ──────
+        //
+        // KeyCommands.LayerUnknownKey names the layer through
+        // KeyLayerHelp.LayerName and picks the lexicon line from the engine's
+        // reason. The same two lexicon keys, the same layer-name argument.
+
+        private static string LayerUnknownKey(string layerNameKey, Keys pressed, ValueLayerRefusal why)
+            => Lexicon.Get("audio.value_layer.unknown_key", ("layer", Lexicon.Get(layerNameKey)));
 
         private static string? LayerNearMiss(Dictionary<Keys, (string Key, string What)> chords,
             string layerNameKey, Keys pressed, VerbosityLevel verbosity)
@@ -600,6 +650,7 @@ namespace Radios.Tests
                 // leaves.
                 MeansSomethingOutside = k => k == (Keys.F | Keys.Control),
                 DescribeNearMiss = k => AudioLayerNearMiss(k, h.Verbosity),
+                DescribeUnknownKey = (k, why) => LayerUnknownKey("audio.audio_layer.name", k, why),
                 PassThroughKeys = k => k == (Keys.V | Keys.Control | Keys.Shift),
                 HostKeys = k =>
                 {
@@ -1226,13 +1277,42 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Audio_an_unknown_key_confirms_and_travels_on()
+        public void Audio_an_unknown_key_with_a_target_picked_stays_with_the_layers_own_line()
         {
-            var (h, rig) = OpenAudio(VerbosityLevel.Terse);
+            // #778. X is nothing in this mirror (the shipped layer has it as
+            // VOX gain; the mirror predates that) and nothing outside. With
+            // mic picked, the pick-a-target list would be the wrong sentence,
+            // so the layer answers in its own voice and stays. Read as NVDA
+            // speaks it: a sentence that names the layer, so an operator can
+            // tell it from Home's "X does nothing on the Frequency field".
+            var (h, rig) = OpenAudio(VerbosityLevel.Chatty);
             h.Layer.HandleKey(Keys.M); h.Layer.HandleKey(Keys.Up);
-            Assert.Equal(ValueLayerKeyResult.ClosedPassThrough, h.Layer.HandleKey(Keys.X));
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.X));
+            Assert.True(h.Layer.IsLive);
             Assert.Equal(35, rig.Mic);
-            Assert.Equal("Audio layer closed", h.LastSaid);
+            Assert.Equal("Not a key in the Audio layer. H lists its keys.", h.LastSaid);
+            Assert.DoesNotContain("Audio layer closed", h.Said);
+
+            // Still the layer it was: the arrows still move what was picked.
+            h.Layer.HandleKey(Keys.Up);
+            Assert.Equal(40, rig.Mic);
+        }
+
+        [Fact]
+        public void Audio_an_unknown_key_below_chatty_is_the_tone_alone_and_stays()
+        {
+            // #528 governs this refusal like every other: below Chatty the
+            // thunk is the whole answer — and the layer still stays, because
+            // verbosity changes what is said, never what happens.
+            var tones = new ToneCounter();
+            var (h, _) = OpenAudio(VerbosityLevel.Terse, cues: tones.Cues);
+            h.Layer.HandleKey(Keys.M);
+            int saidBefore = h.Said.Count;
+
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.X));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal(1, tones.Invalid);
+            Assert.Equal(saidBefore, h.Said.Count);
         }
 
         // ── A slipped modifier is not an exit (#547) ────────────────────
@@ -1314,14 +1394,42 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Audio_a_letter_bound_at_no_tier_is_still_a_plain_unknown_key()
+        public void Audio_z_with_nothing_picked_stays_and_lists_the_letters()
         {
-            // Z is nothing here at any tier. Inventing an alternative would be
-            // worse than the exit, so the unhandled-key rule stands untouched.
+            // #778, Noel's capture of 2026-10-19 07:46:03 — JJ key, A, Z. The
+            // layer closed, Z was forwarded, and the frequency field said "Z
+            // does nothing on the Frequency field" sixteen milliseconds after
+            // "Audio layer closed", cutting it off; from the chair the layer
+            // sounded open while the app had closed it. Z is nothing here at
+            // any tier and nothing outside, so there was never anywhere for
+            // it to go. Now it stays, and with nothing picked the recovery is
+            // the list of letters — the sentence Sprint 47's matrix expected
+            // and the one this press should always have heard.
             var (h, _) = OpenAudio(VerbosityLevel.Chatty);
-            Assert.Equal(ValueLayerKeyResult.ClosedPassThrough, h.Layer.HandleKey(Keys.Z));
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.Z));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal("Pick a target first: V, Ctrl+H, O, M, L, C, S, X, D, or P.", h.LastSaid);
+            Assert.DoesNotContain("Audio layer closed", h.Said);
+
+            // His next key, A, got Home's "A does nothing" reply. In the layer
+            // it is another unknown letter and gets the same list again.
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.A));
+            Assert.True(h.Layer.IsLive);
+
+            // Escape is the exit, and it still is.
+            Assert.Equal(ValueLayerKeyResult.Closed, h.Layer.HandleKey(Keys.Escape));
             Assert.False(h.Layer.IsLive);
-            Assert.Equal("Audio layer closed", h.LastSaid);
+        }
+
+        [Fact]
+        public void Audio_the_near_miss_line_still_wins_over_the_letter_list()
+        {
+            // Both are recoveries for a key with nowhere to go; the near miss
+            // is the more specific one and keeps first claim (#547). B with
+            // nothing picked names Ctrl+B, not the ten letters.
+            var (h, _) = OpenAudio(VerbosityLevel.Chatty);
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.B));
+            Assert.Equal("Ctrl+B: Binaural receive on or off", h.LastSaid);
         }
 
         [Fact]
@@ -1559,6 +1667,7 @@ namespace Radios.Tests
                 // than ending the mode without a word.
                 MeansSomethingOutside = k => false,
                 DescribeNearMiss = k => FilterLayerNearMiss(k, h.Verbosity),
+                DescribeUnknownKey = (k, why) => LayerUnknownKey("audio.filter_layer.name", k, why),
             };
             h.Open(def);
             return (h, rig);
@@ -1586,6 +1695,19 @@ namespace Radios.Tests
                 Assert.Single(h.Said));
             Assert.Equal("receive", h.Layer.CurrentGroup);
             Assert.Null(h.Layer.CurrentTarget);
+        }
+
+        [Fact]
+        public void Filter_an_unknown_key_stays_in_the_filter_layers_own_voice()
+        {
+            // #778 in a ByModifier layer: nothing is ever picked, there is no
+            // pick-a-target list, and Z is no near miss for S, T or R — so the
+            // layer's own line is the recovery, and the layer stays.
+            var (h, rig) = OpenFilter(VerbosityLevel.Chatty);
+            Assert.Equal(ValueLayerKeyResult.Handled, Press(h, rig, Keys.Z, ShiftSide.None));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal("Not a key in the Filter layer. H lists its keys.", h.LastSaid);
+            Assert.DoesNotContain(Lexicon.Get("audio.filter_layer.closed"), h.Said);
         }
 
         [Fact]
@@ -2216,9 +2338,19 @@ namespace Radios.Tests
             Assert.Contains("KeyInventory.TryFindLayerNearMiss(context, pressed", source);
             Assert.Contains("private bool MeansSomethingOutsideTheLayer(Keys k) => Lookup(k) != null;", source);
 
+            // #778: every shipped layer also supplies the line for a key that
+            // was refused and kept inside and is no near miss. A layer that
+            // forgot would answer those keys with the tone alone, which is
+            // safe and wrong in the same way as above, so the count is pinned.
+            Assert.Equal(3, Regex.Matches(
+                source, @"DescribeUnknownKey = \(key, why\) => LayerUnknownKey\(").Count);
+            Assert.Contains("private static string LayerUnknownKey(string context, Keys pressed, Radios.ValueLayerRefusal why)", source);
+            Assert.Contains("KeyLayerHelp.LayerName(context)", source);
+
             foreach (string key in new[]
             {
                 "audio.value_layer.near_miss",
+                "audio.value_layer.unknown_key",
                 "audio.audio_layer.entered",
                 "audio.audio_layer.entered_on_pan",
                 "audio.audio_layer.closed",

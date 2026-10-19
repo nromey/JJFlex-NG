@@ -121,6 +121,33 @@ namespace Radios
     }
 
     /// <summary>
+    /// Why a key the layer did not take was REFUSED and kept inside rather
+    /// than let out (#778). Passed to <see cref="ValueSubLayerDefinition.DescribeUnknownKey"/>
+    /// so the host can choose the recovery sentence without re-deriving the
+    /// classification; the engine owns the decision, the host owns the words.
+    /// </summary>
+    public enum ValueLayerRefusal
+    {
+        /// <summary>
+        /// The key means nothing outside the layer — the host's registry has
+        /// no chord for it — so leaving would have been a mode change bought
+        /// for no gain, and the next keystroke would land somewhere the
+        /// operator did not believe they were (#547's principle, applied to
+        /// every such key and not only to near misses).
+        /// </summary>
+        NowhereToGo,
+
+        /// <summary>
+        /// The key is one that STARTS TYPED ENTRY on the main window — a bare
+        /// digit on either row. Forwarded, it begins frequency entry on the
+        /// frequency field, jumps a slice on the pan field, or begins number
+        /// entry on a value box; "14, Enter" meant as a gain becomes a
+        /// retune. Consumed here whatever the registry says about it.
+        /// </summary>
+        TypedEntry,
+    }
+
+    /// <summary>
     /// What <see cref="ValueSubLayer.HandleKey"/> did with a key, so the host
     /// dispatcher knows whether to consume it, let it travel, or re-arm the
     /// leader. The host owns the plumbing; the layer owns the decision.
@@ -142,10 +169,13 @@ namespace Radios
 
         /// <summary>
         /// The layer confirmed and closed, and the key was NOT consumed: an
-        /// unhandled key keeps the value and travels on to mean what it always
-        /// means. This is the pattern's answer to the stuck-modal problem —
-        /// there is no key that can strand an operator here, because every
-        /// key either works or leaves.
+        /// unhandled key that MEANS SOMETHING OUTSIDE — a chord the host's
+        /// registry answers for — keeps the value and travels on to mean what
+        /// it always means, because the operator who pressed it meant to go
+        /// there. A key with nowhere to go, or one that would start typed
+        /// entry, is refused and stays instead (#778); the stuck-modal answer
+        /// is Escape and Enter, which no key can take away, not "every key
+        /// leaves".
         /// </summary>
         ClosedPassThrough,
 
@@ -541,18 +571,30 @@ namespace Radios
         /// </summary>
         /// <remarks>
         /// <para>
-        /// #547. The engine's unhandled-key rule is "keep the value, close out
+        /// #547. The engine's unhandled-key rule WAS "keep the value, close out
         /// loud, and travel on to mean what it always means" — and the last
         /// clause is a promise the engine cannot keep on its own. A key with
         /// no meaning to travel to leaves the layer and then does nothing,
-        /// which is a mode change bought for no gain.
+        /// which is a mode change bought for no gain. Since #778 that is the
+        /// whole rule: a key this answers false for is refused and STAYS,
+        /// whether or not it is a near miss; only a key this answers true for
+        /// leaves.
         /// </para>
         /// <para>
         /// Null, or a host that answers false, means "no meaning out there",
-        /// and that is the deliberate DEFAULT: it is the answer under which a
-        /// near miss is caught and named. Defaulting the other way would make
-        /// the whole check silently inert in any layer that forgot to wire it
-        /// — the invisible failure this exists to close.
+        /// and that is the deliberate DEFAULT: it is the answer under which
+        /// the key is kept inside. Defaulting the other way would make every
+        /// key leave in any layer that forgot to wire it — the invisible
+        /// failure this exists to close.
+        /// </para>
+        /// <para>
+        /// The host answers for ITS vocabulary, the key registry, and makes no
+        /// claim about Windows'. Tab, Space, the page keys and an unbound
+        /// function key therefore read as "nowhere to go" and are kept inside
+        /// too — a value layer is modal, and its exits are Enter and Escape.
+        /// Whether those navigation keys should instead be treated as
+        /// deliberate exits is reported under #778 as a ruling for Noel, not
+        /// decided here.
         /// </para>
         /// </remarks>
         public Func<Keys, bool>? MeansSomethingOutside;
@@ -566,14 +608,48 @@ namespace Radios
         /// </summary>
         /// <remarks>
         /// #547, following the leader layer's #206: "Ctrl+G is not a command.
-        /// G: arm or disarm the TX test tone." A non-null answer is also the
-        /// engine's signal to STAY OPEN, because a key with a near neighbour
-        /// in here and no meaning out there is a slipped modifier, not an
-        /// exit. Spoken through the engine's own refusal path, so #528 governs
-        /// it like every other refusal: the tone alone below Chatty, the words
-        /// at every level when the tone cannot sound.
+        /// G: arm or disarm the TX test tone." A key with a near neighbour in
+        /// here and no meaning out there is a slipped modifier, not an exit.
+        /// Spoken through the engine's own refusal path, so #528 governs it
+        /// like every other refusal: the tone alone below Chatty, the words at
+        /// every level when the tone cannot sound. Since #778 a non-null
+        /// answer no longer decides whether the layer stays — every key with
+        /// nowhere to go stays — it only picks the sentence, ahead of
+        /// <see cref="DescribeUnknownKey"/>.
         /// </remarks>
         public Func<Keys, string?>? DescribeNearMiss;
+
+        /// <summary>
+        /// The recovery line for a key this layer did not take, that is no
+        /// near miss, and that the engine has refused and kept inside (#778):
+        /// (key, why) → sentence, or null for the tone alone. The host owns
+        /// the words because it owns the layer's name and its key inventory.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Asked AFTER <see cref="DescribeNearMiss"/> and after
+        /// <see cref="PickTargetHint"/> when no target is picked: a layer that
+        /// selects by letter and has nothing picked answers an unknown letter
+        /// with the same list of letters it gives an early arrow, because that
+        /// list IS the recovery — it is the sentence Sprint 47's matrix
+        /// expected, and it is spoken for Noel's "JJ key, A, Z" exactly.
+        /// </para>
+        /// <para>
+        /// <see cref="ValueLayerRefusal.TypedEntry"/> lets the host say
+        /// something useful about a digit — that a typed number does nothing
+        /// here and the arrows move the value — rather than the generic line.
+        /// When typed values arrive in value layers (#778's second half, not
+        /// ruled) this is the branch that goes away; the engine's set of
+        /// typed-entry keys is the set that will then mean "type a value".
+        /// </para>
+        /// <para>
+        /// Null, and a null answer, fall back to the refusal tone alone —
+        /// which is silent when the layer wired no tone either. The shipped
+        /// hosts all wire this; the source-scan test in Radios.Tests pins the
+        /// count, as it does for the #547 pair.
+        /// </para>
+        /// </remarks>
+        public Func<Keys, ValueLayerRefusal, string?>? DescribeUnknownKey;
 
         /// <summary>
         /// H: show this layer's commands as a NAVIGABLE LIST (#519). Returns
@@ -624,13 +700,19 @@ namespace Radios
     /// <para><b>How you get out.</b> Enter confirms and closes. Escape cancels:
     /// everything the layer moved is written back, out loud, and the layer
     /// closes. Ctrl+J confirms silently and hands off to a fresh leader
-    /// chord. Any UNHANDLED key that MEANS something outside confirms,
-    /// announces the close, and travels on to mean what it always means — the
-    /// layer cannot strand anyone, because every key either works or leaves.
-    /// An unhandled key that means nothing outside and is one modifier from a
-    /// chord this layer does have is a SLIP, not an exit: it names the
-    /// neighbour and the layer stays, the leader layer's answer since #206
-    /// (#547). Alt chords, F1 and the host's whitelist
+    /// chord. Any UNHANDLED key that MEANS something outside — a chord the
+    /// host's registry answers for — confirms, announces the close, and
+    /// travels on to mean what it always means: the operator who pressed it
+    /// meant to go there. Any unhandled key that means NOTHING outside is
+    /// refused and the layer STAYS (#778): a near miss names its neighbour
+    /// (#547, the leader's answer since #206); a letter pressed before any
+    /// target is picked gets the layer's list of letters; anything else gets
+    /// the layer's own recovery line. A bare digit is refused and kept
+    /// whatever the registry says, because forwarded it would START TYPED
+    /// ENTRY on the main window — "14, Enter" meant as a gain was 14 MHz.
+    /// The layer cannot strand anyone, because Enter and Escape are always
+    /// its exits; it was never necessary that every other key leaves.
+    /// Alt chords, F1 and the host's whitelist
     /// (the verbosity cycle) travel on with the layer still live,
     /// so the operator can flip words-versus-numbers mid-hunt. Confirm never
     /// writes; only cancel writes. (Volume mode predated this pattern and
@@ -1092,45 +1174,80 @@ namespace Radios
                 return ValueLayerKeyResult.Handled;
             }
 
-            // A SLIPPED MODIFIER IS NOT AN EXIT (#547). The rule below this
-            // one — close out loud and travel on to mean what it always
-            // means — is right exactly when the key HAS a meaning to travel
-            // to. A bare B has none: it is one modifier from Ctrl+B, this
-            // layer's binaural switch, and nothing at all outside. Closing on
-            // it drops the operator out of the mode for a typo, and the next
-            // keystroke then lands somewhere other than where they believe
-            // they are.
+            // A KEY WITH NOWHERE TO GO STAYS IN THE LAYER (#778, extending
+            // #547). The rule at the bottom — close out loud and travel on to
+            // mean what it always means — is right exactly when the key HAS a
+            // meaning to travel to. #547 drew that line for a slipped
+            // modifier: a bare B is one modifier from Ctrl+B, this layer's
+            // binaural switch, and nothing at all outside, so closing on it
+            // dropped the operator out of the mode for a typo. But the
+            // reasoning never depended on the near neighbour. Noel pressed Z
+            // in the audio layer (2026-10-19 07:46:03): Z is nothing here and
+            // nothing outside, the layer closed, Z was forwarded, and the
+            // frequency field said "Z does nothing on the Frequency field" —
+            // sixteen milliseconds after "Audio layer closed", which it cut
+            // off. From the chair the layer sounded open while the app had
+            // closed it, a state the operator cannot know they are in.
             //
-            // So the distinction is not "did the layer handle it" but "is
-            // there anywhere for it to go". A key that means something
-            // elsewhere still leaves, because the operator who pressed it
-            // meant to. A key that is one modifier from a chord in HERE, and
-            // means nothing out THERE, is a slip: name the neighbour and stay,
-            // which is what the leader layer has done since #206 — and the
-            // layer with more modifier tiers had less modifier help, which was
-            // backwards.
+            // So the distinction is "is there anywhere for it to go", and
+            // only that. A key that means something elsewhere still leaves,
+            // because the operator who pressed it meant to. A key that means
+            // nothing out there is refused and the layer stays, with the best
+            // sentence available: the near neighbour when there is one, the
+            // layer's list of letters when nothing is picked yet, the layer's
+            // own recovery line otherwise. Escape is the exit, as it is in the
+            // leader layer, which has consumed every unknown key since #303.
             //
-            // The two questions are the host's to answer: only it knows the
-            // live registry, and only it holds the inventory rows that say
-            // what a chord does in the words H already uses. The engine owns
-            // what HAPPENS — refuse, and stay live — and Refuse() carries the
-            // #528 voice rule for free.
+            // The host answers the registry question and owns every sentence:
+            // only it knows the live registry, and only it holds the inventory
+            // rows that say what a chord does in the words H already uses.
+            // The engine owns what HAPPENS — refuse, and stay live — and
+            // Refuse() carries the #528 voice rule for free.
             if (!(_def.MeansSomethingOutside?.Invoke(k) ?? false))
             {
-                string? nearMiss = _def.DescribeNearMiss?.Invoke(k);
-                if (!string.IsNullOrEmpty(nearMiss))
-                {
-                    Tracing.TraceLine("ValueSubLayer(" + _def.Id + "): near miss on " + k
-                        + ", staying open", TraceLevel.Info);
-                    Refuse(nearMiss);
-                    return ValueLayerKeyResult.Handled;
-                }
+                RefuseAndStay(k, ValueLayerRefusal.NowhereToGo);
+                return ValueLayerKeyResult.Handled;
             }
 
-            // Everything else: keep the value, close out loud, and let the
-            // key travel on to mean what it always means.
+            // A key that means a deliberate command outside — a registry
+            // chord in the current scope — keeps the value, closes out loud,
+            // and travels on to mean what it always means. Whether a command
+            // key should also stay inside is #778's open ruling, not the
+            // engine's call.
             Confirm(speak: true);
             return ValueLayerKeyResult.ClosedPassThrough;
+        }
+
+        /// <summary>
+        /// Refuse a key the layer did not take and keep the layer live (#778),
+        /// choosing the recovery sentence in a fixed order: the near-miss line
+        /// when the key is one modifier from a chord in here (#547); the
+        /// pick-a-target list when the layer selects by letter and nothing is
+        /// picked yet, because that list is the recovery and is the sentence
+        /// Noel's "JJ key, A, Z" should have heard; the host's own line for
+        /// the given reason otherwise. <see cref="Refuse"/> then applies
+        /// #528: the tone alone below Chatty, the words at every level when
+        /// the tone cannot sound.
+        /// </summary>
+        private void RefuseAndStay(Keys k, ValueLayerRefusal why)
+        {
+            string? hint = why == ValueLayerRefusal.NowhereToGo ? _def.DescribeNearMiss?.Invoke(k) : null;
+            string chosen = "near miss";
+            if (string.IsNullOrEmpty(hint) && _current == null)
+            {
+                hint = _def.PickTargetHint?.Invoke();
+                chosen = "pick-a-target list";
+            }
+            if (string.IsNullOrEmpty(hint))
+            {
+                hint = _def.DescribeUnknownKey?.Invoke(k, why);
+                chosen = "layer's own line";
+            }
+            if (string.IsNullOrEmpty(hint)) chosen = "tone alone";
+
+            Tracing.TraceLine("ValueSubLayer(" + _def.Id + "): refused " + k + " (" + why
+                + "), staying open, " + chosen, TraceLevel.Info);
+            Refuse(hint);
         }
 
         private void HandleArrow(Keys code, Keys mods)
