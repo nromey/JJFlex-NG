@@ -36,11 +36,25 @@ namespace Radios.Tests
         private const string Id = "1F2E3D4C-0000-4000-8000-0000000000AB";
         private const string OtherId = "7A7A7A7A-0000-4000-8000-0000000000CD";
 
-        public GuiClientIdentityTests() => GuiClientIdentityRefusals.ClearForTests();
+        // The process slot a rig reads, taken under a TEST prefix and planted:
+        // the production slot must never be taken by a test run, or a copy of
+        // the program the operator starts meanwhile gets a different slot and
+        // a different stored id (Codex, round 2, finding 4).
+        private readonly GuiClientSlot _slot = GuiClientSlot.Acquire(@"Local\JJFlexRadio.Tests.GuiClientIdentity." + Guid.NewGuid().ToString("N") + ".");
+        private readonly IDisposable _slotScope;
+        private int Slot => _slot.Number;
+
+        public GuiClientIdentityTests()
+        {
+            GuiClientIdentityRefusals.ClearForTests();
+            _slotScope = GuiClientSlot.OverrideForTests(_slot);
+        }
 
         public void Dispose()
         {
             GuiClientIdentityRefusals.ClearForTests();
+            _slotScope.Dispose();
+            _slot.Dispose();
             _scope.Dispose();
         }
 
@@ -369,7 +383,7 @@ namespace Radios.Tests
                 Assert.Null(presented);
                 Assert.NotNull(rig.Rig.ClientIdentity);
                 int slot = rig.Rig.ClientIdentity.Slot;
-                Assert.Equal(GuiClientSlot.Current.Number, slot);
+                Assert.Equal(Slot, slot);
                 Assert.True(slot > 0, "the test process holds no client-id slot");
 
                 // The radio's own status for OUR handle, parsed by the vendor
@@ -393,7 +407,7 @@ namespace Radios.Tests
         [Fact]
         public void TheRadiosDuplicateRefusal_OutlivesTheRigThatSawIt()
         {
-            int slot = GuiClientSlot.Current.Number;
+            int slot = Slot;
             Assert.Null(GuiClientIdentityStore.Write(Serial, slot, Id));
             Assert.Null(GuiClientIdentityStore.Write(OtherSerial, slot, OtherId));
 
@@ -434,7 +448,7 @@ namespace Radios.Tests
         [Fact]
         public void ARefusalOnAnotherRadioObject_IsIgnored()
         {
-            int slot = GuiClientSlot.Current.Number;
+            int slot = Slot;
             Assert.Null(GuiClientIdentityStore.Write(Serial, slot, Id));
             using var rig = new RigOnVendorRadio(Serial);
             var stranger = new VendorRadioFixture(OtherSerial);
@@ -462,7 +476,7 @@ namespace Radios.Tests
         [Fact]
         public void TheFence_IsSentOnlyForAReturningConnect_AndHoldsUntilEveryReportedOwnSliceIsReady()
         {
-            int slot = GuiClientSlot.Current.Number;
+            int slot = Slot;
             using var rig = new RigOnVendorRadio(Serial);
             var sendFence = typeof(FlexBase).GetMethod("sendConnectFence", BindingFlags.Instance | BindingFlags.NonPublic)!;
             var tryRecord = typeof(FlexBase).GetMethod("tryRecordConnectFence", BindingFlags.Instance | BindingFlags.NonPublic)!;
@@ -538,7 +552,9 @@ namespace Radios.Tests
             // ProgramInstance into the identity any more.
             Assert.DoesNotContain("ProgramInstance", source, StringComparison.Ordinal);
             Assert.DoesNotContain("OpenParms.ProgramInstance", File.ReadAllText(Path.Combine(RepoRoot(), "globals.vb")), StringComparison.Ordinal);
-            Assert.Contains("GuiClientSlot.Current.Number", source, StringComparison.Ordinal);
+            // Split so the slot tests' scan for tests reaching the production
+            // slot does not read this pin on production text as a use.
+            Assert.Contains("GuiClientSlot." + "Current.Number", source, StringComparison.Ordinal);
         }
 
         [Fact]

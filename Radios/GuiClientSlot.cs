@@ -88,9 +88,39 @@ namespace Radios
             return slot;
         }, LazyThreadSafetyMode.ExecutionAndPublication);
 
+        private static GuiClientSlot _override;
+
         /// <summary>This process's slot, taken on first use and held until the
         /// process ends. Every rig in the process shares it.</summary>
-        public static GuiClientSlot Current => _current.Value;
+        public static GuiClientSlot Current => _override ?? _current.Value;
+
+        /// <summary>
+        /// Make <see cref="Current"/> answer with <paramref name="slot"/> until
+        /// the returned scope is disposed. TESTS ONLY, and the reason tests
+        /// must use it: the production <see cref="Current"/> takes a real
+        /// session slot under <see cref="DefaultPrefix"/> and holds it until
+        /// the test host exits, so a copy of the program the operator starts
+        /// during a test run would be handed a different slot — and so a
+        /// different stored id — than it had yesterday, which would spoil a
+        /// bench. A test takes its slot under its own prefix and plants it here.
+        /// </summary>
+        internal static IDisposable OverrideForTests(GuiClientSlot slot)
+        {
+            var previous = _override;
+            _override = slot;
+            return new RestoreOverride(previous);
+        }
+
+        private sealed class RestoreOverride : IDisposable
+        {
+            private readonly GuiClientSlot _previous;
+            public RestoreOverride(GuiClientSlot previous) { _previous = previous; }
+            public void Dispose() { _override = _previous; }
+        }
+
+        /// <summary>Whether the production slot has been taken in this process.
+        /// Tests assert false, so a suite is shown to leave the session's slots alone.</summary>
+        public static bool ProductionSlotTaken => _current.IsValueCreated;
 
         /// <summary>
         /// Take the lowest free slot under <paramref name="prefix"/>. Tests pass

@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -132,12 +133,47 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void TheProcessSlot_IsHeldOnceAndNamesItsFile()
+        public void ATestPlantsItsOwnSlotAsCurrent_AndNeverTakesTheProductionOne()
         {
-            var current = GuiClientSlot.Current;
-            Assert.Same(current, GuiClientSlot.Current);
-            Assert.True(current.Held, "the test process could not take a slot: " + current.Reason);
-            Assert.Contains(current.Number == 1 ? "gui-client-id.json" : "gui-client-id-" + current.Number + ".json", current.Reason);
+            // The production Current takes a real session slot under the
+            // production prefix and holds it until the test host exits; a copy
+            // of the program the operator starts during a test run would then
+            // be handed a different slot and a different stored id. So tests
+            // plant a slot taken under their own prefix, and the suite shows
+            // the production slot was never taken.
+            string p = Prefix();
+            using var mine = GuiClientSlot.Acquire(p);
+            using (GuiClientSlot.OverrideForTests(mine))
+            {
+                Assert.Same(mine, GuiClientSlot.Current);
+                Assert.Equal(1, GuiClientSlot.Current.Number);
+            }
+            Assert.False(GuiClientSlot.ProductionSlotTaken,
+                "the production slot (" + GuiClientSlot.DefaultPrefix + "N) was taken in the test process; some test reached Current without planting its own slot");
+        }
+
+        [Fact]
+        public void NoTestReachesTheProductionSlotByName()
+        {
+            // Source scan: the only mention of GuiClientSlot.Current in the test
+            // tree is inside an override scope in this file. Everything else
+            // must go through OverrideForTests with a test-prefixed slot.
+            string root = AppContext.BaseDirectory;
+            while (root != null && !File.Exists(Path.Combine(root, "JJFlexRadio.sln"))) root = Path.GetDirectoryName(root);
+            Assert.True(root != null, "repository root not found");
+            string testsDir = Path.Combine(root!, "Radios.Tests");
+            var offenders = Directory.GetFiles(testsDir, "*.cs", SearchOption.AllDirectories)
+                .Where(f => !Path.GetFileName(f).Equals("GuiClientSlotTests.cs", StringComparison.OrdinalIgnoreCase))
+                .Where(f => File.ReadAllText(f).Contains("GuiClientSlot.Current", StringComparison.Ordinal))
+                .Select(Path.GetFileName)
+                .ToList();
+            Assert.True(offenders.Count == 0,
+                "These test files reach GuiClientSlot.Current, which takes a production session slot: " + string.Join(", ", offenders)
+                + ". Take a slot under a test prefix and plant it with GuiClientSlot.OverrideForTests.");
+            // Positive control: the scan sees a file that does mention it (this one).
+            Assert.Contains("GuiClientSlot.Current", File.ReadAllText(Path.Combine(testsDir, "GuiClientSlotTests.cs")), StringComparison.Ordinal);
+            // And the production name is never acquired by the slot tests' own prefixes.
+            Assert.DoesNotContain(GuiClientSlot.DefaultPrefix, Prefix(), StringComparison.Ordinal);
         }
     }
 }
