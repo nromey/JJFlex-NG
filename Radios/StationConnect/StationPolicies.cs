@@ -209,6 +209,57 @@ namespace Radios.StationConnect
     }
 
     /// <summary>
+    /// Initial materialization ends when our own handle is known AND the
+    /// radio has answered the post-connect fence (#782). <b>The default since
+    /// the GUI client id became stable.</b>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why the own-handle boundary stopped being enough.</b>
+    /// <see cref="MaterializationEndsAtOwnHandlePolicy"/> rests on "a client
+    /// the radio has just minted has nothing persisted to deliver", which
+    /// bench D measured true while every connect minted a new id. Once JJ
+    /// Flexible presents a stored id, the radio can recognise the client and
+    /// restore its panadapters and slices — and FlexLib subscribes
+    /// <c>sub client all</c> BEFORE <c>sub pan all</c> and <c>sub slice all</c>,
+    /// so our handle is known before a single restored slice can have been
+    /// reported. A coordinator judging "ended" at the handle would read zero
+    /// own slices and allocate, and the restored ones would then arrive on
+    /// top: the duplication the own-handle policy's own note warned of.
+    /// </para>
+    /// <para>
+    /// <b>The fence.</b> Right after the vendor's Connect returns, FlexBase
+    /// sends one reply-bearing no-op (<c>ping</c>, the keep-alive's own
+    /// command) on the same ordered command channel. The radio answers it
+    /// after every earlier command on that channel has been handled, the
+    /// subscriptions included, so the reply sits AFTER every object the
+    /// radio reported on its own. Deterministic on LAN and WAN alike, and it
+    /// costs one round trip. What it assumes, and the bench must show: that
+    /// the radio reports a restored object while handling the subscription
+    /// rather than from a later background step. If a restored slice is
+    /// ever traced AFTER the fence reply, this boundary is early and must
+    /// move.
+    /// </para>
+    /// <para>
+    /// <b>Fail-closed, as before.</b> Pending until both facts are in; the
+    /// phase deadline turns a fence that never answers into Unknown, which
+    /// allocates nothing — the same safe refusal the design always had,
+    /// now reachable only when the transport is genuinely not answering.
+    /// </para>
+    /// </remarks>
+    public sealed class MaterializationEndsAtConnectFencePolicy : IInitialMaterializationPolicy
+    {
+        public static readonly MaterializationEndsAtConnectFencePolicy Instance = new MaterializationEndsAtConnectFencePolicy();
+        public string Name => "ends at the post-connect fence reply, with our own handle established";
+        public MaterializationBoundary Judge(MaterializationEvidence e)
+        {
+            if (e?.Roster == null || !e.Roster.OwnHandleKnown) return MaterializationBoundary.Pending;
+            if (e.Profiles == null || e.Profiles.ConnectFenceAtSequence == 0) return MaterializationBoundary.Pending;
+            return MaterializationBoundary.Ended;
+        }
+    }
+
+    /// <summary>
     /// The three pluggable policies the bench supplies, held together so the
     /// connect path reads one object. <see cref="Current"/> is what production
     /// uses; the orchestrator sets it once the bench answers, and a test
@@ -235,11 +286,23 @@ namespace Radios.StationConnect
         /// <see cref="MaterializationEndsAtOwnHandlePolicy"/> was written on,
         /// and its premise holds unconditionally rather than situationally.
         ///
-        /// CONDITIONAL ON NOBODY MAKING THE CLIENT ID STABLE. That is the one
-        /// thing that would invalidate this: a persisted or derived client id
-        /// would let the radio recognise us and deliver a station we would then
-        /// allocate over. If a future change makes the id stable, this default
-        /// has to come back to Unknown and bench D has to be re-run.
+        /// THE CLIENT ID BECAME STABLE ON 2026-10-19 (#782), WHICH IS THE ONE
+        /// THING THE PARAGRAPH BELOW SAID WOULD INVALIDATE THE OWN-HANDLE
+        /// BOUNDARY — so the default is now
+        /// <see cref="MaterializationEndsAtConnectFencePolicy"/>: our own handle
+        /// AND the radio's reply to a post-connect fence, which sits after
+        /// every object the radio restored for a returning client. The
+        /// own-handle policy stays as the positive control that reproduces
+        /// the duplication in a test. The note that follows is kept as the
+        /// record of why the fence exists; "come back to Unknown" was the
+        /// zero-slices regression and is not the answer.
+        ///
+        /// (Original note:) CONDITIONAL ON NOBODY MAKING THE CLIENT ID STABLE.
+        /// That is the one thing that would invalidate this: a persisted or
+        /// derived client id would let the radio recognise us and deliver a
+        /// station we would then allocate over. If a future change makes the
+        /// id stable, this default has to come back to Unknown and bench D has
+        /// to be re-run.
         ///
         /// WHAT IT UNBLOCKS, measured on the bench 8600 2026-10-03: with the
         /// Unknown placeholder, an owner connecting with the
@@ -261,7 +324,7 @@ namespace Radios.StationConnect
         /// placeholders were answered on 2026-10-02; only ONE of them was a
         /// one-line swap.
         /// </summary>
-        public IInitialMaterializationPolicy InitialMaterialization = MaterializationEndsAtOwnHandlePolicy.Instance;
+        public IInitialMaterializationPolicy InitialMaterialization = MaterializationEndsAtConnectFencePolicy.Instance;
 
         /// <summary>
         /// The authority a GUEST'S shared write (the UseMyTransmitAudio
@@ -278,9 +341,10 @@ namespace Radios.StationConnect
         /// </summary>
         public IRosterAuthorityPolicy GuestSharedWriteAuthority = RosterAuthorityUnknownPolicy.Instance;
 
-        /// <summary>The production defaults, as of 2026-10-03: the ruled owner
-        /// roster authority; materialization ending at our own handle (bench D,
-        /// answered 2026-10-02); load completion and the GUEST shared-write
+        /// <summary>The production defaults, as of 2026-10-19: the ruled owner
+        /// roster authority; materialization ending at the post-connect fence
+        /// with our own handle known (#782; own handle alone from 2026-10-03
+        /// to 2026-10-19); load completion and the GUEST shared-write
         /// authority still fail-closed. Materialization was fail-closed until
         /// 2026-10-03, and that default was the whole of the zero-slices
         /// report — see the note on the field.</summary>

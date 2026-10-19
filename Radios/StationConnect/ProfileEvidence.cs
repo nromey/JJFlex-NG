@@ -163,6 +163,18 @@ namespace Radios.StationConnect
         /// as evidence only so a policy can be told to ignore it.</summary>
         public long PersistenceLoadedAtSequence { get; }
 
+        /// <summary>
+        /// Sequence at which the POST-CONNECT FENCE was answered, or 0. The
+        /// fence is one reply-bearing no-op (<c>ping</c>) FlexBase sends on the
+        /// command channel right after the vendor's Connect returns; the radio
+        /// answers it only after handling every earlier command on that
+        /// channel, the subscriptions among them — so every object the radio
+        /// restores for a returning GUI client has been reported before this
+        /// sequence. The materialization policy's boundary since #782; see
+        /// <see cref="MaterializationEndsAtConnectFencePolicy"/>.
+        /// </summary>
+        public long ConnectFenceAtSequence { get; internal set; }
+
         /// <summary>Sequence at which a radio-origin end boundary was observed,
         /// or 0. <b>Nothing in the application emits one today.</b> This is
         /// the hook bench question B fills: if the radio has a distinct end
@@ -205,6 +217,7 @@ namespace Radios.StationConnect
         private readonly HashSet<string> _txChainFields = new HashSet<string>(StringComparer.Ordinal);
         private AutosaveObservation _autosave;
         private long _persistenceLoadedAt;
+        private long _connectFenceAt;
         private long _endBoundaryAt;
         private string _endBoundaryToken = "";
         private long _sequence;
@@ -232,6 +245,7 @@ namespace Radios.StationConnect
                 _txChainFields.Clear();
                 _autosave = null;
                 _persistenceLoadedAt = 0;
+                _connectFenceAt = 0;
                 _endBoundaryAt = 0;
                 _endBoundaryToken = "";
                 _attemptGeneration = attemptGeneration;
@@ -298,6 +312,20 @@ namespace Radios.StationConnect
             Changed?.Invoke();
         }
 
+        /// <summary>The radio answered the post-connect fence for this attempt
+        /// (see <see cref="ProfileEvidenceSnapshot.ConnectFenceAtSequence"/>).
+        /// The first answer counts; a later one adds nothing.</summary>
+        public void ConnectFenceObserved(int attemptGeneration)
+        {
+            lock (_lock)
+            {
+                if (attemptGeneration != _attemptGeneration) return;
+                _sequence++;
+                if (_connectFenceAt == 0) _connectFenceAt = _sequence;
+            }
+            Changed?.Invoke();
+        }
+
         /// <summary>A radio-origin "this load has finished" boundary. No
         /// production handler calls this yet; see
         /// <see cref="ProfileEvidenceSnapshot.RadioEndBoundaryAtSequence"/>.</summary>
@@ -340,6 +368,7 @@ namespace Radios.StationConnect
                     TxReported = _txReported,
                     MicReported = _micReported,
                     TxChainFieldsReported = _txChainFields.ToList(),
+                    ConnectFenceAtSequence = _connectFenceAt,
                 };
             }
         }

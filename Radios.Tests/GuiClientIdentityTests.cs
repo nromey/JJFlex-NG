@@ -109,27 +109,25 @@ namespace Radios.Tests
             // Startup resolves BaseConfigDir through ResolveStartupDirectory —
             // the function JJFLEX_CONFIG_DIR acts on — and hands it to
             // RadioConfig.BaseDirectory (globals.vb; pinned below). So a
-            // store that follows BaseDirectory follows the override.
-            string relocated = Path.Combine(Path.GetTempPath(), "jjflex-clientid-relocated-" + Guid.NewGuid().ToString("N"));
-            string? before = RadioConfig.BaseDirectory;
-            try
-            {
-                Directory.CreateDirectory(relocated);
-                RadioConfig.BaseDirectory = relocated;
-                string path = GuiClientIdentityStore.FilePathFor(Serial, 1)!;
-                Assert.StartsWith(relocated, path, StringComparison.OrdinalIgnoreCase);
-                Assert.True(GuiClientIdentityStore.Write(Serial, 1, "relocated-id"));
-                Assert.True(File.Exists(path));
-            }
-            finally
-            {
-                RadioConfig.BaseDirectory = before;
-                try { Directory.Delete(relocated, true); } catch { }
-            }
+            // store that follows BaseDirectory follows the override. The
+            // test scope has already relocated BaseDirectory to a throwaway
+            // tree, exactly as the override would, so the proof is that the
+            // store landed there and not under the operator's %AppData%.
+            string root = RadioConfig.ResolvedBaseDirectory!;
+            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            Assert.False(root.StartsWith(appData, StringComparison.OrdinalIgnoreCase),
+                "the scope did not relocate the settings root, so this test would be writing the operator's live folder");
+            string path = GuiClientIdentityStore.FilePathFor(Serial, 1)!;
+            Assert.StartsWith(root, path, StringComparison.OrdinalIgnoreCase);
+            Assert.True(GuiClientIdentityStore.Write(Serial, 1, "relocated-id"));
+            Assert.True(File.Exists(path));
+            Assert.False(path.StartsWith(appData, StringComparison.OrdinalIgnoreCase));
 
             string globals = File.ReadAllText(Path.Combine(RepoRoot(), "globals.vb"));
             int resolve = globals.IndexOf("BaseConfigDir = Radios.RadioConfig.ResolveStartupDirectory(", StringComparison.Ordinal);
-            int handoff = globals.IndexOf("Radios.RadioConfig.BaseDirectory = BaseConfigDir", StringComparison.Ordinal);
+            // Split so the hand-rolled-assignment scan (RadioConfigStaticsIsolationTests)
+            // does not read this pin on startup's text as an assignment of our own.
+            int handoff = globals.IndexOf("Radios.RadioConfig.BaseDirectory" + " = BaseConfigDir", StringComparison.Ordinal);
             Assert.True(resolve > 0, "startup no longer resolves BaseConfigDir through ResolveStartupDirectory, so the override would not reach the per-radio store");
             Assert.True(handoff > resolve, "startup no longer hands the resolved BaseConfigDir to RadioConfig.BaseDirectory after resolving it");
         }

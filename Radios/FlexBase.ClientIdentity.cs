@@ -94,6 +94,41 @@ namespace Radios
                 + (identity?.FilePath != null ? " at " + identity.FilePath : "") + ".", TraceLevel.Error);
         }
 
+        /// <summary>
+        /// The post-connect fence (#782): one reply-bearing <c>ping</c> on the
+        /// command channel, sent right after the vendor's Connect returns.
+        /// The radio answers it after every earlier command — FlexLib's
+        /// subscriptions included — so by the reply every panadapter and
+        /// slice the radio restored for a returning client has been reported.
+        /// The reply feeds the station phase's materialization boundary
+        /// (<see cref="Radios.StationConnect.MaterializationEndsAtConnectFencePolicy"/>);
+        /// the trace line beside it is what the bench reads to check the
+        /// order the policy assumes.
+        /// </summary>
+        private void sendConnectFence(string why)
+        {
+            var radio = theRadio;
+            if (radio == null) return;
+            int gen = AttemptGen;
+            var sw = Stopwatch.StartNew();
+            string refusal = SendRadioCommandWithReply(radio, "ping", reply =>
+            {
+                int ownSlices = StationTracker.Snapshot().OwnSliceCount;
+                int pans;
+                try { pans = radio.PanadapterList?.Count ?? -1; } catch { pans = -1; }
+                Tracing.TraceLine("ConnectFence: " + why + " — ping " + (reply.Acknowledged ? "acknowledged" : "answered 0x" + reply.Code.ToString("X"))
+                    + " after " + sw.ElapsedMilliseconds + " ms; own slices reported so far: " + ownSlices
+                    + ", panadapters on the radio (all clients): " + pans
+                    + " — every object the radio restored for this client should have been reported ABOVE this line; a restored slice traced below it means the fence is early", TraceLevel.Info);
+                ProfileEvidence.ConnectFenceObserved(gen);
+            });
+            if (refusal != null)
+            {
+                Tracing.TraceLine("ConnectFence: " + why + " — not sent: " + refusal
+                    + "; the station phase will not allocate (materialization stays unknown)", TraceLevel.Error);
+            }
+        }
+
         private void wireClientIdentityHandlers(Radio radio)
         {
             if (radio == null || _duplicateClientIdHandlers.ContainsKey(radio)) return;

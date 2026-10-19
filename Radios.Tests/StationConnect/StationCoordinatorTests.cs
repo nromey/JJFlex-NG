@@ -82,6 +82,10 @@ namespace Radios.Tests.StationConnect
             policies.RosterAuthority = RosterAuthorityUnknownPolicy.Instance;
             var h = new StationHarness(policies);
             h.ArrangeOwnerReconnect();
+            // The production materialization default waits for the
+            // post-connect fence (#782); without it the refusal would wait out
+            // the phase on the boundary, which is not what this test measures.
+            h.ConnectFence();
 
             // Honour the panafalls. The roster refusal now falls through to
             // the client-local allocation, because bench D (2026-10-02)

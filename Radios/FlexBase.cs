@@ -2874,6 +2874,9 @@ namespace Radios
             if (rv)
             {
                 Tracing.TraceLine("Connect worked:" + theRadio.Serial, TraceLevel.Info);
+                // The post-connect fence: its reply marks the end of whatever
+                // the radio restored for a returning client (#782).
+                sendConnectFence("Connect");
 
                 // 4.1-line cache writer: seed radioConnectionCacheV1.xml so the
                 // 4.2-line discovery cascade (Rung 1a CachedLanIp) can short-circuit
@@ -3401,6 +3404,7 @@ namespace Radios
                     {
                         // Seed the 4.2-line discovery-chain cache on retry success too.
                         RecordConnectedRadioForCache();
+                        sendConnectFence("RetryConnect");
                     }
                 }
 
