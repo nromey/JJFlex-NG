@@ -106,7 +106,7 @@ namespace Radios.Tests
             foreach (string file in Corpus())
             {
                 string text = IntegrationPassTree.Read(file);
-                SyntaxNode? root = null;
+                ParsedFile parsed = new ParsedFile();
                 foreach (Match m in literal.Matches(text))
                 {
                     // Text quoted inside a comment is not a sentence anyone hears.
@@ -114,7 +114,7 @@ namespace Radios.Tests
                     // quote one vendor error ("Invalid state for application
                     // registration") into different files and this rule called them
                     // a duplicated operator sentence.
-                    if (InsideComment(file, text, m.Index, ref root)) continue;
+                    if (NeverSpoken(file, text, m.Index, parsed)) continue;
                     string s = m.Groups[1].Value;
                     if (s.StartsWith("http", StringComparison.OrdinalIgnoreCase)) continue;
                     if (s.Contains('{') || s.Contains('<')) continue;         // templates and markup
@@ -145,27 +145,61 @@ namespace Radios.Tests
         }
 
         /// <summary>
-        /// True when <paramref name="index"/> falls inside a comment, decided by
-        /// the C# PARSER rather than by inspecting characters. For VB, a line
-        /// that opens with <c>'</c> or <c>REM</c>.
+        /// The preprocessor symbols a real build of this tree defines, Debug
+        /// and Release. Read 2026-10-19 by evaluating <c>Radios.csproj</c>'s
+        /// DefineConstants through the SDK: <c>TRACE;DEBUG;NET;NET10_0;
+        /// NETCOREAPP;WINDOWS;WINDOWS7_0</c> plus the <c>_OR_GREATER</c>
+        /// family. No authored project adds its own;
+        /// <see cref="No_project_defines_a_symbol_this_scan_does_not_know"/>
+        /// fails the day one does.
+        /// </summary>
+        private static readonly string[] ReleaseSymbols = BuildSymbols(debug: false);
+        private static readonly string[] DebugSymbols = BuildSymbols(debug: true);
+
+        private static string[] BuildSymbols(bool debug)
+        {
+            var list = new List<string> { "TRACE", "NET", "NET10_0", "NETCOREAPP", "WINDOWS", "WINDOWS7_0" };
+            if (debug) list.Add("DEBUG");
+            for (int v = 5; v <= 10; v++) list.Add("NET" + v + "_0_OR_GREATER");
+            foreach (string c in new[] { "1_0", "1_1", "2_0", "2_1", "2_2", "3_0", "3_1" })
+                list.Add("NETCOREAPP" + c + "_OR_GREATER");
+            list.Add("WINDOWS7_0_OR_GREATER");
+            return list.ToArray();
+        }
+
+        /// <summary>The two parses of one file, made on first need.</summary>
+        private sealed class ParsedFile
+        {
+            public SyntaxNode? Debug;
+            public SyntaxNode? Release;
+        }
+
+        /// <summary>
+        /// True when the text at <paramref name="index"/> can never be heard: it
+        /// is in a comment, in a preprocessor directive line, or in code that
+        /// is switched off in BOTH the Debug and the Release build. Decided by
+        /// the C# parser. For VB, a line that opens with <c>'</c> or <c>REM</c>.
         /// </summary>
         /// <remarks>
         /// <para>
-        /// <b>Rewritten 2026-10-19 after Codex returned DO NOT MERGE on the
-        /// first version.</b> That one counted quote characters before a
-        /// <c>//</c> to decide whether it opened a comment, and an escaped
-        /// quote inside an earlier string threw the count: a genuine spoken
-        /// sentence later on the same line was skipped as a "comment", which is
-        /// the blindness this rule exists to prevent. Verbatim strings and
-        /// character literals break quote-counting the same way. The parser
-        /// already knows; ask it.
+        /// <b>History, because each version failed a different way.</b> The
+        /// first counted quote characters to decide whether <c>//</c> opened a
+        /// comment; Codex (2026-10-19) built valid source where an escaped
+        /// quote made a real sentence vanish. The second asked Roslyn for
+        /// comment trivia only, and Codex then found that text inside a
+        /// switched-off <c>#if</c> block (<c>JJLogIO/logio/ScreenSaver.cs</c>,
+        /// <c>#if dontIgnore</c>) was still counted as prose.
         /// </para>
         /// <para>
-        /// <paramref name="root"/> is parsed on first need and reused for the
-        /// file, so files with no candidate literal are never parsed.
+        /// <b>Why "both builds", not "this parse".</b> Parsed with no symbols, a
+        /// <c>#if DEBUG</c> block looks switched off, and skipping it would hide
+        /// every sentence a Debug build speaks \— the dangerous direction. So
+        /// text is skipped only when it is disabled under the Debug symbols AND
+        /// under the Release symbols. A file's own <c>#define</c> lines are
+        /// honoured by the parser in both.
         /// </para>
         /// </remarks>
-        private static bool InsideComment(string file, string text, int index, ref SyntaxNode? root)
+        private static bool NeverSpoken(string file, string text, int index, ParsedFile parsed)
         {
             if (file.EndsWith(".vb", StringComparison.OrdinalIgnoreCase))
             {
@@ -174,40 +208,88 @@ namespace Radios.Tests
                 return lead.StartsWith("'", StringComparison.Ordinal)
                     || lead.StartsWith("REM ", StringComparison.OrdinalIgnoreCase);
             }
-            root ??= CSharpSyntaxTree.ParseText(text).GetRoot();
-            SyntaxKind kind = root.FindTrivia(index, findInsideTrivia: false).Kind();
-            return kind == SyntaxKind.SingleLineCommentTrivia
-                || kind == SyntaxKind.MultiLineCommentTrivia
-                || kind == SyntaxKind.SingleLineDocumentationCommentTrivia
-                || kind == SyntaxKind.MultiLineDocumentationCommentTrivia;
+
+            parsed.Release ??= CSharpSyntaxTree.ParseText(text,
+                new CSharpParseOptions(preprocessorSymbols: ReleaseSymbols)).GetRoot();
+            SyntaxTrivia inRelease = parsed.Release.FindTrivia(index, findInsideTrivia: false);
+            if (IsComment(inRelease) || inRelease.IsDirective) return true;
+            if (!inRelease.IsKind(SyntaxKind.DisabledTextTrivia)) return false;
+
+            parsed.Debug ??= CSharpSyntaxTree.ParseText(text,
+                new CSharpParseOptions(preprocessorSymbols: DebugSymbols)).GetRoot();
+            SyntaxTrivia inDebug = parsed.Debug.FindTrivia(index, findInsideTrivia: false);
+            return inDebug.IsKind(SyntaxKind.DisabledTextTrivia) || IsComment(inDebug);
+        }
+
+        private static bool IsComment(SyntaxTrivia t)
+            => t.IsKind(SyntaxKind.SingleLineCommentTrivia)
+            || t.IsKind(SyntaxKind.MultiLineCommentTrivia)
+            || t.IsKind(SyntaxKind.SingleLineDocumentationCommentTrivia)
+            || t.IsKind(SyntaxKind.MultiLineDocumentationCommentTrivia);
+
+        /// <summary>
+        /// The filter must skip what is never heard and NOTHING ELSE. Cases
+        /// that must stay COUNTED are the dangerous ones: each is a real
+        /// sentence a shipped build can speak.
+        /// </summary>
+        /// <remarks>
+        /// The first case is Codex's first counterexample verbatim; the
+        /// <c>dontIgnore</c> case is the shape of its second, from
+        /// <c>ScreenSaver.cs</c>; the <c>#if DEBUG</c> case pins the hazard a
+        /// careless fix for the second would create.
+        /// </remarks>
+        [Theory]
+        [InlineData("x.cs", "string prefix = \"quoted \\\" // still in a string\"; string message = \"The remote radio is unavailable because the account has no online radios.\";", "The remote radio", false)]
+        [InlineData("x.cs", "var p = @\"C:\\temp\"\" // \"; string message = \"A real sentence after a verbatim string with a doubled quote.\";", "A real", false)]
+        [InlineData("x.cs", "char c = '\"'; string message = \"A real sentence after a character literal that is a quote mark.\";", "A real", false)]
+        [InlineData("x.cs", "// \"This text is quoted in an ordinary comment and nobody hears it.\"", "This text", true)]
+        [InlineData("x.cs", "/// <summary>\"This text is quoted in a documentation comment, not spoken.\"</summary>\nclass C {}", "This text", true)]
+        [InlineData("x.cs", "/* \"This text is quoted inside a block comment and is never spoken.\" */", "This text", true)]
+        [InlineData("x.cs", "#if dontIgnore\nvar s = \"This text sits in a block that no build ever switches on.\";\n#endif", "This text", true)]
+        [InlineData("x.cs", "#if DEBUG\nvar s = \"A real sentence a Debug build speaks must still be counted here.\";\n#endif", "A real", false)]
+        [InlineData("x.cs", "#if !DEBUG\nvar s = \"A real sentence only a Release build speaks is still counted.\";\n#endif", "A real", false)]
+        [InlineData("x.cs", "#define CWMonitor\n#if CWMonitor\nvar s = \"A real sentence under a switch its own file turns on.\";\n#endif", "A real", false)]
+        [InlineData("x.cs", "#region \"This text is quoted on a region line and nobody hears it.\"\n#endregion", "This text", true)]
+        [InlineData("x.vb", "' \"This text is quoted in a VB comment and nobody hears it at all.\"", "This text", true)]
+        [InlineData("x.vb", "Dim s = \"A real VB sentence that the rule must keep on counting.\"", "A real", false)]
+        public void The_filter_skips_only_what_is_never_heard(string file, string source, string target, bool expected)
+        {
+            int at = source.LastIndexOf(target, StringComparison.Ordinal) - 1;   // the opening quote
+            Assert.True(at >= 0 && source[at] == '"', "fixture is malformed: no quote before the target");
+            Assert.Equal(expected, NeverSpoken(file, source, at, new ParsedFile()));
         }
 
         /// <summary>
-        /// The comment filter must skip comments and NOTHING ELSE. Each case is
-        /// a line of valid source; the second literal on code lines is a real
-        /// sentence the rule must still see.
+        /// <see cref="NeverSpoken"/> is only safe while it knows every symbol a
+        /// build can define. Today no authored project file adds one; a vendor
+        /// project under <c>FlexLib_API/</c> sets only DEBUG and TRACE, which
+        /// are already known. The day an authored project adds its own, this
+        /// fails rather than letting text under that symbol be skipped as
+        /// switched off.
         /// </summary>
-        /// <remarks>
-        /// The first case is Codex's counterexample from its 2026-10-19
-        /// verification, verbatim: it defeated the quote-counting version.
-        /// </remarks>
-        [Theory]
-        [InlineData("x.cs", "string prefix = \"quoted \\\" // still in a string\"; string message = \"The remote radio is unavailable because the account has no online radios.\";", false)]
-        [InlineData("x.cs", "var p = @\"C:\\temp\"\" // \"; string message = \"A real sentence after a verbatim string with a doubled quote.\";", false)]
-        [InlineData("x.cs", "char c = '\"'; string message = \"A real sentence after a character literal that is a quote mark.\";", false)]
-        [InlineData("x.cs", "// \"This text is quoted in an ordinary comment and nobody hears it.\"", true)]
-        [InlineData("x.cs", "/// <summary>\"This text is quoted in a documentation comment, not spoken.\"</summary>\nclass C {}", true)]
-        [InlineData("x.cs", "/* \"This text is quoted inside a block comment and is never spoken.\" */", true)]
-        [InlineData("x.vb", "' \"This text is quoted in a VB comment and nobody hears it at all.\"", true)]
-        [InlineData("x.vb", "Dim s = \"A real VB sentence that the rule must keep on counting.\"", false)]
-        public void The_comment_filter_skips_comments_and_nothing_else(string file, string source, bool expected)
+        [Fact]
+        public void No_project_defines_a_symbol_this_scan_does_not_know()
         {
-            string target = expected ? "This text is quoted" : "A real";
-            if (source.Contains("The remote radio is unavailable")) target = "The remote radio";
-            int at = source.LastIndexOf(target, StringComparison.Ordinal) - 1;   // the opening quote
-            Assert.True(at >= 0 && source[at] == '"', "fixture is malformed: no quote before the target");
-            SyntaxNode? root = null;
-            Assert.Equal(expected, InsideComment(file, source, at, ref root));
+            string root = IntegrationPassTree.Root;
+            var known = new HashSet<string>(DebugSymbols, StringComparer.Ordinal) { "$(DefineConstants)" };
+            var define = new Regex("<DefineConstants>([^<]*)</DefineConstants>");
+            int projects = 0;
+            var unknown = new List<string>();
+            foreach (string path in Directory.EnumerateFiles(root, "*.*proj", SearchOption.AllDirectories)
+                         .Concat(Directory.EnumerateFiles(root, "*.props", SearchOption.AllDirectories)))
+            {
+                string rel = Path.GetRelativePath(root, path).Replace('\\', '/');
+                if (rel.Contains("/bin/") || rel.Contains("/obj/") || rel.StartsWith("bin/") || rel.StartsWith("obj/")) continue;
+                projects++;
+                foreach (Match m in define.Matches(File.ReadAllText(path)))
+                    foreach (string sym in m.Groups[1].Value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                        if (!known.Contains(sym)) unknown.Add(rel + ": " + sym);
+            }
+            Assert.True(projects > 20, "only " + projects + " project files were found, so this guard is not looking at the tree.");
+            Assert.True(unknown.Count == 0,
+                "a project defines a preprocessor symbol the duplicate-sentence scan does not know, so text under it "
+                + "could be skipped as switched off when a real build turns it on. Add it to BuildSymbols: "
+                + string.Join("; ", unknown));
         }
 
         /// <summary>
