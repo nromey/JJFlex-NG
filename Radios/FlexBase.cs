@@ -1220,6 +1220,7 @@ namespace Radios
                         _ownClientReportedDeparture = false;
                         _ownStationReportedByRadio = report.Station ?? "";
                         if (!string.IsNullOrEmpty(report.ClientId)) clientID = report.ClientId;
+                        noteOwnClientIdReported(report.ClientId, "the radio's connected status");
                         _LocalPTT = report.LocalPtt;
                         _lastAuthoritativeLocalPtt = report.LocalPtt;
                         CanTransmit = true;
@@ -1582,6 +1583,9 @@ namespace Radios
                 radio.CommandConnectionChanged += connection;
                 radio.ClientReported += client;
             }
+            // The radio's one refusal of a presented GUI client id (#782);
+            // idempotent per radio object like the two above.
+            wireClientIdentityHandlers(radio);
         }
 
         /// <summary>
@@ -1595,6 +1599,7 @@ namespace Radios
             if (radio == null) return;
             if (_connectionHandlers.Remove(radio, out var connection)) radio.CommandConnectionChanged -= connection;
             if (_clientReportHandlers.Remove(radio, out var client)) radio.ClientReported -= client;
+            unwireClientIdentityHandlers(radio);
         }
 
         private void apiRadioRemovedHandler(Radio r)
@@ -2856,7 +2861,10 @@ namespace Radios
             {
                 Tracing.TraceLine($"Connect: IsWan={theRadio.IsWan} RequiresHolePunch={theRadio.RequiresHolePunch} PublicTlsPort={theRadio.PublicTlsPort} NegotiatedHolePunchPort={theRadio.NegotiatedHolePunchPort} IP={theRadio.IP}", TraceLevel.Info);
                 ConnectionProfiler.Current?.RecordEvent("flexlib_connect_begin");
-                rv = theRadio.Connect();
+                // The stored GUI client id for this radio and instance, or null
+                // for "radio, mint one" (#782). FlexLib sends `client gui <id>`
+                // or a bare `client gui` accordingly.
+                rv = theRadio.Connect(prepareClientIdentityForConnect("Connect"));
                 ConnectionProfiler.Current?.RecordEvent("flexlib_connect_end", new Dictionary<string, object>
                 {
                     { "success", rv }
@@ -3384,7 +3392,9 @@ namespace Radios
 
                 if (rv)
                 {
-                    rv = theRadio.Connect();
+                    // The same stored id as the first attempt presented, unless
+                    // the radio refused it as a duplicate in between (#782).
+                    rv = theRadio.Connect(prepareClientIdentityForConnect("RetryConnect"));
                     Tracing.TraceLine($"RetryConnect: Radio.Connect returned {rv} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
 
                     if (rv)
@@ -5625,6 +5635,7 @@ namespace Radios
                 // Disconnected reports set them now (consumeClientReport).
                 // Never let a fabricated record blank the real client id.
                 if (!string.IsNullOrEmpty(client.ClientID)) clientID = client.ClientID;
+                noteOwnClientIdReported(client.ClientID, "GUIClientAdded");
                 clientHandle = client.ClientHandle;
                 //CanTransmit = PrimaryStation;
                 CanTransmit = true;
@@ -6090,6 +6101,7 @@ namespace Radios
                 && (client.IsThisClient || !string.IsNullOrEmpty(client.ClientID)))
             {
                 if (!string.IsNullOrEmpty(client.ClientID)) clientID = client.ClientID;
+                noteOwnClientIdReported(client.ClientID, "GUIClientUpdated");
                 _LocalPTT = client.IsLocalPtt;
                 _lastAuthoritativeLocalPtt = client.IsLocalPtt;
             }
@@ -11946,6 +11958,14 @@ namespace Radios
             /// the program name.
             /// </summary>
             public string ProgramName;
+            /// <summary>
+            /// Which running copy of the program this is: 1 for the first,
+            /// 2 for a second copy started while the first runs (the same
+            /// count that numbers the trace file). Keys the GUI client id
+            /// this copy presents to a radio, so two copies never present the
+            /// same one (#782).
+            /// </summary>
+            public int ProgramInstance = 1;
             public DCWText CWTextReceiver { get; set; }
             internal void safeCWTextReceiver(string txt)
             {
@@ -12237,6 +12257,9 @@ namespace Radios
 
             API.ProgramName = p.ProgramName;
             API.IsGUI = true;
+            // Which running copy this is, so two copies never present one GUI
+            // client id to the same radio (#782, FlexBase.ClientIdentity.cs).
+            _programInstance = p.ProgramInstance < 1 ? 1 : p.ProgramInstance;
 
             p.NextValue1 = setNextValue1;
             p.GetSWRText = SWRText;

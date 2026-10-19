@@ -123,7 +123,10 @@ namespace Radios.Tests.StationConnect
             var text = Read(FlexBase);
             int begin = IndexOf(text, "BeginStationAttempt(theRadio, \"Connect\");");
             int wired = IndexOf(text, "WireStationHandlers(theRadio);");
-            int connect = text.IndexOf("rv = theRadio.Connect();", begin, StringComparison.Ordinal);
+            // The vendor's Connect takes the GUI client id since #782; the
+            // identity is chosen in the call, after the wiring.
+            int connect = text.IndexOf("rv = theRadio.Connect(prepareClientIdentityForConnect(\"Connect\"));", begin, StringComparison.Ordinal);
+            Assert.True(connect > 0, "the Connect path no longer hands the client identity to the vendor's Connect where this test expects it");
             Assert.True(begin < wired && wired < connect,
                 "observation must be subscribed, through the attempt's binding, before any command is sent");
             // The retry mints a new attempt through the same entry, which
