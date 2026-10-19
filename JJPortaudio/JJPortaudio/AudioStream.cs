@@ -66,6 +66,9 @@ namespace JJPortaudio
         /// <see cref="ITxInputSource"/> — the test tone, the reference-voice
         /// player, or a <see cref="TxInputSourceMux"/> carrying several.
         /// </remarks>
+        /// <summary>The instance pipeline shared by capture and synthesized input.</summary>
+        public TxFramePipeline TransmitPipeline => aud?.TransmitPipeline;
+
         public ITxInputSource InputSource
         {
             get { return (aud != null) ? aud.ToneSource : null; }

@@ -142,7 +142,7 @@ public partial class AudioWorkshopDialog
         AddToSection(HearYourselfContent, _pcLevelNote);
 
         _listenMethodControl = MakeCycle("Listen method",
-            new[] { "Monitor", "Record and play back" });
+            new[] { "Monitor", "Record and play back", Lexicon.Get("audio.iq.listen_method") });
         _listenMethodControl.SelectionChanged += (s, idx) =>
         {
             if (_polling) return;
@@ -155,6 +155,7 @@ public partial class AudioWorkshopDialog
                     Lexicon.Get("audio.check.remote_monitor_advice"),
                     VerbosityLevel.Terse);
         };
+        JJFlexHelp.SetText(_listenMethodControl, Lexicon.Get("audio.iq.listen_method_help"));
         AddToSection(HearYourselfContent, _listenMethodControl);
 
         // Track C-2 (Noel at the radio, 2026-08-11: "you have it at 10
@@ -239,6 +240,7 @@ public partial class AudioWorkshopDialog
             Visibility = Visibility.Collapsed
         };
         AddToSection(HearYourselfContent, _loopbackInfo);
+        BuildListenbackControls();
     }
 
     /// <summary>
@@ -248,6 +250,7 @@ public partial class AudioWorkshopDialog
     /// </summary>
     private void UpdateLoopbackAvailability()
     {
+        UpdateIqAvailability();
         if (_loopbackButton == null || _loopbackInfo == null) return;
         bool supported = _rig?.LoopbackSupported == true;
         _loopbackButton.Visibility = supported ? Visibility.Visible : Visibility.Collapsed;
@@ -276,6 +279,7 @@ public partial class AudioWorkshopDialog
     /// </summary>
     private void StartLoopbackCheck()
     {
+        if (_iqBusy || _iqRun != null) { IqStatus(Lexicon.Get("audio.iq.stop_other"), true); return; }
         if (_session != null && _session.Active)
         {
             ScreenReaderOutput.Speak(Lexicon.Get("audio.check.stop_current_first"),
@@ -337,6 +341,7 @@ public partial class AudioWorkshopDialog
     /// </summary>
     public void ToggleAudioCheck()
     {
+        if (_iqBusy) { _iqCancellation?.Cancel(); return; }
         if (_session != null && _session.Active)
         {
             _session.StopCheck();
@@ -362,7 +367,9 @@ public partial class AudioWorkshopDialog
             return;
         }
 
+        if (_iqRun != null) { IqStatus(Lexicon.Get("audio.iq.stop_other"), true); return; }
         var method = (AudioCheckListenMethods)(_listenMethodControl?.SelectedIndex ?? 0);
+        if (method == AudioCheckListenMethods.OffAir) { _ = StartOffAirAsync(ptt); return; }
         var powerMode = (AudioCheckPowerModes)(_checkPowerControl?.SelectedIndex
             ?? (int)AudioCheckPowerModes.DummyLoad);
         int lowPowerWatts = Math.Clamp(_checkWattsControl?.Value ?? 10, 1, 100);
@@ -394,6 +401,7 @@ public partial class AudioWorkshopDialog
     private void OnSessionEnded()
     {
         SetStartButtonLabel("Start Audio Check");
+        if (_iqWasOffAir && _iqRun != null) { _ = FinishIqAsync("operator-stop"); return; }
         if (_rig != null && _rig.LoopbackArranged)
         {
             string trouble = _rig.EndLoopbackArrangement();
@@ -474,6 +482,7 @@ public partial class AudioWorkshopDialog
 
         bool radioHasTake = _rig?.SlicePlayEnabled == true;
         RecordingStore.RecordingFile? file = RecordingStore.Newest();
+        if (TryPlayNewestIq(file, radioHasTake)) return;
 
         if (!radioHasTake && file == null)
         {
@@ -532,6 +541,7 @@ public partial class AudioWorkshopDialog
     /// </summary>
     private void DetachTakePlayback()
     {
+        CloseListenback();
         RecordingPlayer.StateChanged -= OnTakePlaybackStateChanged;
         if (RecordingPlayer.IsPlaying) RecordingPlayer.Stop();
     }
@@ -716,6 +726,7 @@ public partial class AudioWorkshopDialog
             // complete utterance the operator hears is frequency, power,
             // source, and how to stop. Key-down is never silent even if this
             // class faults between the two.
+            if (_method == AudioCheckListenMethods.OffAir) _owner._iqRun?.OwnKeying(true);
             _ptt.ToggleLock();
             if (!_ptt.IsTransmitting)
             {
@@ -731,7 +742,11 @@ public partial class AudioWorkshopDialog
             }
 
             var line = new StringBuilder();
-            if (_loopback)
+            if (_method == AudioCheckListenMethods.OffAir)
+            {
+                line.Append(Lexicon.Get("audio.iq.keyed_line", ("freq", FormatMHz(rig.TXFrequency)), ("source", SourceFriendlyName(rig.MicSource))));
+            }
+            else if (_loopback)
             {
                 // HONESTY (ratified product framing): this is real RF through
                 // a massively overloaded receiver. It proves presence,
@@ -827,7 +842,11 @@ public partial class AudioWorkshopDialog
             var rig = Rig;
             if (_phase == Phase.Keyed)
             {
-                if (_ptt.IsTransmitting) _ptt.EscapeUnlock();
+                if (_ptt.IsTransmitting)
+                {
+                    if (_method == AudioCheckListenMethods.OffAir) _owner._iqRun?.OwnKeying(false);
+                    _ptt.EscapeUnlock();
+                }
                 ScreenReaderOutput.Speak(Lexicon.Get("audio.check.transmit_off"), VerbosityLevel.Critical);
                 if (rig != null && _method == AudioCheckListenMethods.RecordPlayback)
                     rig.SliceRecordOn = false;
@@ -860,7 +879,10 @@ public partial class AudioWorkshopDialog
         private void HandleUnkey(bool external)
         {
             if (!external && _ptt.IsTransmitting)
-                _ptt.EscapeUnlock(); // controller speaks its own key-up line
+            {
+                if (_method == AudioCheckListenMethods.OffAir) _owner._iqRun?.OwnKeying(false);
+                _ptt.EscapeUnlock();
+            } // controller speaks its own key-up line
 
             var rig = Rig;
             var msg = new StringBuilder(Lexicon.Get("audio.check.transmit_off"));
@@ -898,6 +920,7 @@ public partial class AudioWorkshopDialog
                     // The radio just took a take, so it is now the newer of the
                     // two stores Play last take chooses between (#455).
                     _owner._newestTakeIsAFile = false;
+                    _owner._radioTakeAt = DateTime.UtcNow;
                 }
 
                 // The verdict — the whole point of the check. Peak SC_MIC over
@@ -906,7 +929,7 @@ public partial class AudioWorkshopDialog
                 // The check is the longest deliberate transmit the operator
                 // makes, so it is also where the room observation is most
                 // likely to have enough audio to be worth saying.
-                if (rig.ScMicMaxDb > -140f)
+                if (_method != AudioCheckListenMethods.OffAir && rig.ScMicMaxDb > -140f)
                 {
                     string report = MicAudioReport.Compose(
                         rig, Lexicon.Get("audio.check.mic_audio_was"), rig.ScMicMaxDb, live: false);

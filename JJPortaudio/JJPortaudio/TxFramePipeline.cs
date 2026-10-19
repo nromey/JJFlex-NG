@@ -86,6 +86,11 @@ namespace JJPortaudio
         /// <summary>Where encoded frames go. In the app, FlexBase.sendOpusInput.</summary>
         public Audio.OpusCallback Handler { get; set; }
 
+        /// <summary>Borrowed post-conditioning stereo samples, immediately before Opus.
+        /// Observers must copy synchronously and must not block or change the buffer.</summary>
+        public event Action<float[], int, uint> BeforeEncode;
+        public long TapFailures { get; private set; }
+
         /// <summary>Frames encoded and sent since <see cref="ResetCounters"/>.</summary>
         public long FramesSent { get; private set; }
 
@@ -160,6 +165,9 @@ namespace JJPortaudio
 
             // Metering last, so it reads what the encoder is about to receive.
             Meter?.Process(buffer, floatCount, sampleRate);
+
+            try { BeforeEncode?.Invoke(buffer, floatCount, sampleRate); }
+            catch { TapFailures++; } // an observer must never interrupt transmit audio
 
             var encode = Encode;
             if (encode == null)

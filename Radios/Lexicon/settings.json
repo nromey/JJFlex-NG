@@ -1057,5 +1057,6 @@
   "settings.xit.off": "XIT off",
   "settings.xit.on": "XIT on",
   "settings.zerobeat.done": "Zerobeat",
-  "settings.zerobeat.requires_cw": "Zerobeat requires CW mode"
+  "settings.zerobeat.requires_cw": "Zerobeat requires CW mode",
+  "settings.guard.action.iq_take": { "text": "make an IQ take", "delivery": null }
 }

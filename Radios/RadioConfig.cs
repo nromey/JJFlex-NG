@@ -61,6 +61,9 @@ namespace Radios
         /// recommended path over remote (no delayed-self-hearing) — the
         /// recording carries the full processing chain.</summary>
         RecordPlayback = 1,
+
+        /// <summary>Receive raw IQ, then demodulate and play after unkey.</summary>
+        OffAir = 2,
     }
 
     /// <summary>

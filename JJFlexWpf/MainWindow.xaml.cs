@@ -4793,6 +4793,11 @@ public partial class MainWindow : UserControl
         bool wasOff = !_radioPowerOn;
         _radioPowerOn = true;
         Tracing.TraceLine($"MainWindow PowerNowOn wasOff={wasOff}", TraceLevel.Info);
+        if (wasOff && RigControl != null)
+        {
+            var recoveryRig = RigControl;
+            Dispatcher.BeginInvoke(new Action(async () => await Dialogs.ListenbackRecoveryPrompt.OfferOnConnectAsync(recoveryRig)));
+        }
 
         // Sprint 42 Track D (#395): tell the quiet scope a radio really
         // arrived, so its finish knows the connect narration owns the
