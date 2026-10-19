@@ -1201,6 +1201,8 @@ namespace Radios
                         Tracing.TraceLine($"clientReport: our handle is {report.Handle} (radio's own report)", TraceLevel.Info);
                     }
                     RosterTracker.OwnHandleEstablished(report.Handle, gen);
+                    // A held post-connect fence may now count our slices (#782).
+                    tryRecordConnectFence("our handle being established");
                     break;
 
                 case RadioClientReportKind.Connected:
@@ -1220,6 +1222,7 @@ namespace Radios
                         _ownClientReportedDeparture = false;
                         _ownStationReportedByRadio = report.Station ?? "";
                         if (!string.IsNullOrEmpty(report.ClientId)) clientID = report.ClientId;
+                        noteOwnClientIdReported(report.ClientId, "the radio's connected status");
                         _LocalPTT = report.LocalPtt;
                         _lastAuthoritativeLocalPtt = report.LocalPtt;
                         CanTransmit = true;
@@ -1582,6 +1585,9 @@ namespace Radios
                 radio.CommandConnectionChanged += connection;
                 radio.ClientReported += client;
             }
+            // The radio's one refusal of a presented GUI client id (#782);
+            // idempotent per radio object like the two above.
+            wireClientIdentityHandlers(radio);
         }
 
         /// <summary>
@@ -1595,6 +1601,7 @@ namespace Radios
             if (radio == null) return;
             if (_connectionHandlers.Remove(radio, out var connection)) radio.CommandConnectionChanged -= connection;
             if (_clientReportHandlers.Remove(radio, out var client)) radio.ClientReported -= client;
+            unwireClientIdentityHandlers(radio);
         }
 
         private void apiRadioRemovedHandler(Radio r)
@@ -2856,7 +2863,10 @@ namespace Radios
             {
                 Tracing.TraceLine($"Connect: IsWan={theRadio.IsWan} RequiresHolePunch={theRadio.RequiresHolePunch} PublicTlsPort={theRadio.PublicTlsPort} NegotiatedHolePunchPort={theRadio.NegotiatedHolePunchPort} IP={theRadio.IP}", TraceLevel.Info);
                 ConnectionProfiler.Current?.RecordEvent("flexlib_connect_begin");
-                rv = theRadio.Connect();
+                // The stored GUI client id for this radio and instance, or null
+                // for "radio, mint one" (#782). FlexLib sends `client gui <id>`
+                // or a bare `client gui` accordingly.
+                rv = theRadio.Connect(prepareClientIdentityForConnect("Connect"));
                 ConnectionProfiler.Current?.RecordEvent("flexlib_connect_end", new Dictionary<string, object>
                 {
                     { "success", rv }
@@ -2866,6 +2876,9 @@ namespace Radios
             if (rv)
             {
                 Tracing.TraceLine("Connect worked:" + theRadio.Serial, TraceLevel.Info);
+                // The post-connect fence: its reply marks the end of whatever
+                // the radio restored for a returning client (#782).
+                sendConnectFence("Connect");
 
                 // 4.1-line cache writer: seed radioConnectionCacheV1.xml so the
                 // 4.2-line discovery cascade (Rung 1a CachedLanIp) can short-circuit
@@ -3384,13 +3397,16 @@ namespace Radios
 
                 if (rv)
                 {
-                    rv = theRadio.Connect();
+                    // The same stored id as the first attempt presented, unless
+                    // the radio refused it as a duplicate in between (#782).
+                    rv = theRadio.Connect(prepareClientIdentityForConnect("RetryConnect"));
                     Tracing.TraceLine($"RetryConnect: Radio.Connect returned {rv} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
 
                     if (rv)
                     {
                         // Seed the 4.2-line discovery-chain cache on retry success too.
                         RecordConnectedRadioForCache();
+                        sendConnectFence("RetryConnect");
                     }
                 }
 
@@ -5038,6 +5054,17 @@ namespace Radios
                 case "PersistenceLoaded":
                     Tracing.TraceLine("PersistenceLoaded:" + r.PersistenceLoaded.ToString(), TraceLevel.Info);
                     break;
+                case "SliceList":
+                    // The vendor's list changed (a slice REPORTED, ready or
+                    // not, or removed): on a returning connect the arrival is
+                    // logged for the bench, and a held post-connect fence
+                    // re-counts (#782).
+                    noteArrivals();
+                    tryRecordConnectFence("the vendor's slice list changing");
+                    break;
+                case "PanadapterList":
+                    noteArrivals();
+                    break;
                 case "ProfileGlobalList":
                     {
                         // #579: this used to set globalProfileLoaded from
@@ -5625,6 +5652,7 @@ namespace Radios
                 // Disconnected reports set them now (consumeClientReport).
                 // Never let a fabricated record blank the real client id.
                 if (!string.IsNullOrEmpty(client.ClientID)) clientID = client.ClientID;
+                noteOwnClientIdReported(client.ClientID, "GUIClientAdded");
                 clientHandle = client.ClientHandle;
                 //CanTransmit = PrimaryStation;
                 CanTransmit = true;
@@ -6090,6 +6118,7 @@ namespace Radios
                 && (client.IsThisClient || !string.IsNullOrEmpty(client.ClientID)))
             {
                 if (!string.IsNullOrEmpty(client.ClientID)) clientID = client.ClientID;
+                noteOwnClientIdReported(client.ClientID, "GUIClientUpdated");
                 _LocalPTT = client.IsLocalPtt;
                 _lastAuthoritativeLocalPtt = client.IsLocalPtt;
             }
@@ -6276,6 +6305,11 @@ namespace Radios
                 // status and a ready panadapter, or explicitly headless), so
                 // the observation carries a resolved association.
                 ObserveOwnSliceAdded(binding, slc);
+                // On a returning connect the arrival log attributes the slice
+                // (its handle is parsed by now), and a held post-connect fence
+                // re-checks readiness here (#782).
+                noteArrivals();
+                tryRecordConnectFence("own slice " + slc.Index + " becoming ready");
                 SliceCountChanged?.Invoke();
                 // #58: opens the bulk window and restarts the settle timer, so
                 // a connect that delivers four slices produces ONE census
@@ -6408,6 +6442,7 @@ namespace Radios
                 }
                 ObserveOwnPanadapterAdded(binding, pan);
                 Tracing.TraceLine("panadapterAdded:mine " + ct.ToString() + ':' + pan.ToString(), TraceLevel.Info);
+                noteArrivals(); // attribute this pan's arrival on a returning connect (#782)
             }
             else Tracing.TraceLine("panadapterAdded:not mine " + pan.ToString(), TraceLevel.Info);
         }

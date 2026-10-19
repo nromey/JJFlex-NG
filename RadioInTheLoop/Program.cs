@@ -322,6 +322,10 @@ internal static class Program
         {
             rig = new FlexBase(BuildOpenParms(scratch));
             rig.SuppressSpeech = true;   // belt and braces; speech is never initialized in this process
+            // #782: never present the operator's stored client id. If the app is
+            // connected too, the radio refuses the duplicate by dropping one of the
+            // two connections, and nothing says which.
+            rig.UseStoredGuiClientId = false;
             rig.LocalRadios();
         }, 30000, () => _abort);
         ThrowIfStopping();
@@ -643,6 +647,7 @@ internal static class Program
         {
             rig = new FlexBase(BuildOpenParms(scratch));
             rig.SuppressSpeech = true;
+            rig.UseStoredGuiClientId = false;   // #782, as above
             rig.LocalRadios();
         }, 30000, () => _abort);
         ThrowIfStopping();

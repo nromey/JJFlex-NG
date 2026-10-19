@@ -1021,7 +1021,7 @@ namespace Radios
             {
                 var coordinator = new StationCoordinator(
                     new FlexStationPort(this), RosterTracker, StationTracker, ProfileEvidence,
-                    StationPolicies.Current, _stationClock, operation, StationDeadlines.Default(), waiter, previous);
+                    StationPolicies.ForConnect(PresentedStoredIdThisConnect), _stationClock, operation, StationDeadlines.Default(), waiter, previous);
                 result = coordinator.Run();
             }
             LastStationResult = result;

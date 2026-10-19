@@ -384,6 +384,9 @@ namespace Radios.Tests.StationConnect
 
         public void PersistenceLoaded() => Profiles.PersistenceLoadedObserved(Gen);
 
+        /// <summary>The radio answered the post-connect fence (#782).</summary>
+        public void ConnectFence() => Profiles.ConnectFenceObserved(Gen);
+
         public void RadioEndBoundary(string token = "profile-load-complete") => Profiles.RadioEndBoundary(token, Gen);
 
         /// <summary>An own slice FlexLib reported ready. Returns its index.</summary>

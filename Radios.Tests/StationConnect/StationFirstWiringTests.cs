@@ -123,7 +123,10 @@ namespace Radios.Tests.StationConnect
             var text = Read(FlexBase);
             int begin = IndexOf(text, "BeginStationAttempt(theRadio, \"Connect\");");
             int wired = IndexOf(text, "WireStationHandlers(theRadio);");
-            int connect = text.IndexOf("rv = theRadio.Connect();", begin, StringComparison.Ordinal);
+            // The vendor's Connect takes the GUI client id since #782; the
+            // identity is chosen in the call, after the wiring.
+            int connect = text.IndexOf("rv = theRadio.Connect(prepareClientIdentityForConnect(\"Connect\"));", begin, StringComparison.Ordinal);
+            Assert.True(connect > 0, "the Connect path no longer hands the client identity to the vendor's Connect where this test expects it");
             Assert.True(begin < wired && wired < connect,
                 "observation must be subscribed, through the attempt's binding, before any command is sent");
             // The retry mints a new attempt through the same entry, which
@@ -541,8 +544,13 @@ namespace Radios.Tests.StationConnect
         public void ProductionReadsThePoliciesFromStationPoliciesCurrent()
         {
             var text = Read(FlexBaseStation);
+            // The operator-requested load reads Current directly.
             Assert.Contains("StationPolicies.Current, _stationClock, operation, StationDeadlines.Default(), waiter, previous", text, StringComparison.Ordinal);
             Assert.Contains("StationPolicies.Current.RosterAuthority", text, StringComparison.Ordinal);
+            // The connect's station phase reads Current through ForConnect,
+            // which swaps in the post-connect fence only for a connect that
+            // presented a stored GUI client id (#782).
+            Assert.Contains("StationPolicies.ForConnect(PresentedStoredIdThisConnect), _stationClock, operation, StationDeadlines.Default(), waiter, previous", text, StringComparison.Ordinal);
         }
     }
 }
