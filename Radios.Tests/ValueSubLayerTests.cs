@@ -1454,6 +1454,23 @@ namespace Radios.Tests
             Assert.Equal("Audio layer closed", h.LastSaid);
         }
 
+        [Theory]
+        [InlineData(Keys.Control | Keys.Space)]
+        [InlineData(Keys.Shift | Keys.Space)]
+        public void Audio_ptt_chords_leave_for_the_main_window_handler(Keys chord)
+        {
+            // These chords are handled by MainWindow_PreviewKeyDown, not the
+            // registry. AnyWindowPreviewKeyDown routes an armed layer first;
+            // ClosedPassThrough makes DoCommand(fromDialog: true) return false
+            // so the window can receive the chord. No PTT handler is invoked
+            // here: this is the pure engine's delivery contract only.
+            var (h, _) = OpenAudio(VerbosityLevel.Chatty);
+            h.Layer.HandleKey(Keys.M);
+
+            Assert.Equal(ValueLayerKeyResult.ClosedPassThrough, h.Layer.HandleKey(chord));
+            Assert.False(h.Layer.IsLive);
+        }
+
         [Fact]
         public void Audio_a_digit_with_nothing_picked_gets_the_letter_list()
         {
