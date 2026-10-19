@@ -83,10 +83,28 @@ namespace Radios.Tests.StationConnect
         }
 
         [Fact]
-        public void TheProductionDefault_IsTheFencePolicy()
+        public void TheDefaultStaysOwnHandle_AndOnlyAReturningConnectGetsTheFence()
         {
-            Assert.IsType<MaterializationEndsAtConnectFencePolicy>(StationPolicies.Defaults().InitialMaterialization);
-            Assert.Contains("post-connect fence", StationPolicies.Defaults().Describe());
+            // A fresh mint is the case bench D measured; it keeps the measured
+            // boundary and cannot be left with zero slices by a fence that
+            // never answers. A connect that presented a stored id may be
+            // handed a restored station, and waits for the fence.
+            Assert.IsType<MaterializationEndsAtOwnHandlePolicy>(StationPolicies.Defaults().InitialMaterialization);
+
+            var fresh = StationPolicies.ForConnect(presentedStoredClientId: false);
+            Assert.Same(StationPolicies.Current, fresh);
+            Assert.IsType<MaterializationEndsAtOwnHandlePolicy>(fresh.InitialMaterialization);
+
+            var returning = StationPolicies.ForConnect(presentedStoredClientId: true);
+            Assert.NotSame(StationPolicies.Current, returning);
+            Assert.IsType<MaterializationEndsAtConnectFencePolicy>(returning.InitialMaterialization);
+            Assert.Contains("post-connect fence", returning.Describe());
+            // The other three policies are the current ones, untouched.
+            Assert.Same(StationPolicies.Current.RosterAuthority, returning.RosterAuthority);
+            Assert.Same(StationPolicies.Current.LoadCompletion, returning.LoadCompletion);
+            Assert.Same(StationPolicies.Current.GuestSharedWriteAuthority, returning.GuestSharedWriteAuthority);
+            // And Current itself was not mutated by asking.
+            Assert.IsType<MaterializationEndsAtOwnHandlePolicy>(StationPolicies.Current.InitialMaterialization);
         }
 
         // ── the duplication the fence closes ──────────────────────────────

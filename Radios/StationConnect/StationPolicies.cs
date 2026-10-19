@@ -210,8 +210,11 @@ namespace Radios.StationConnect
 
     /// <summary>
     /// Initial materialization ends when our own handle is known AND the
-    /// radio has answered the post-connect fence (#782). <b>The default since
-    /// the GUI client id became stable.</b>
+    /// radio has answered the post-connect fence (#782). <b>Used for a
+    /// RETURNING connect only</b> — one that presented a stored GUI client
+    /// id, so the radio may be restoring a station of ours; a fresh mint
+    /// keeps <see cref="MaterializationEndsAtOwnHandlePolicy"/>, which bench D
+    /// measured. <see cref="StationPolicies.ForConnect"/> makes the choice.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -233,12 +236,17 @@ namespace Radios.StationConnect
     /// command) on the same ordered command channel. The radio answers it
     /// after every earlier command on that channel has been handled, the
     /// subscriptions included, so the reply sits AFTER every object the
-    /// radio reported on its own. Deterministic on LAN and WAN alike, and it
-    /// costs one round trip. What it assumes, and the bench must show: that
-    /// the radio reports a restored object while handling the subscription
-    /// rather than from a later background step. If a restored slice is
-    /// ever traced AFTER the fence reply, this boundary is early and must
-    /// move.
+    /// radio REPORTED on its own. FlexBase records the acknowledged reply as
+    /// evidence only once every own slice the vendor's list holds is also
+    /// READY (FlexLib raises <c>SliceAdded</c> only when the slice's
+    /// panadapter is ready, and the station tracker counts ready slices), so
+    /// "reported but not yet ready" holds the boundary rather than passing
+    /// it. A reply with a nonzero code is never evidence. Deterministic on
+    /// LAN and WAN alike, and it costs one round trip. What it assumes, and
+    /// the bench must show FIRST, on LAN and over SmartLink: that the radio
+    /// reports a restored object while handling the subscription rather
+    /// than from a later background step. If a restored slice is ever
+    /// traced AFTER the fence reply, this boundary is early and must move.
     /// </para>
     /// <para>
     /// <b>Fail-closed, as before.</b> Pending until both facts are in; the
@@ -288,14 +296,17 @@ namespace Radios.StationConnect
         ///
         /// THE CLIENT ID BECAME STABLE ON 2026-10-19 (#782), WHICH IS THE ONE
         /// THING THE PARAGRAPH BELOW SAID WOULD INVALIDATE THE OWN-HANDLE
-        /// BOUNDARY — so the default is now
-        /// <see cref="MaterializationEndsAtConnectFencePolicy"/>: our own handle
-        /// AND the radio's reply to a post-connect fence, which sits after
-        /// every object the radio restored for a returning client. The
-        /// own-handle policy stays as the positive control that reproduces
-        /// the duplication in a test. The note that follows is kept as the
-        /// record of why the fence exists; "come back to Unknown" was the
-        /// zero-slices regression and is not the answer.
+        /// BOUNDARY. The answer is not a new default here: this field stays
+        /// the own-handle policy for a connect that presented NO stored id
+        /// (a fresh mint, the case bench D measured), and
+        /// <see cref="ForConnect"/> swaps in
+        /// <see cref="MaterializationEndsAtConnectFencePolicy"/> for a connect
+        /// that presented a stored id and may be handed a restored station.
+        /// A fresh connect therefore behaves exactly as it did on 2026-10-03,
+        /// and cannot be left with zero slices by a fence that never answers.
+        /// The note that follows is kept as the record of why the fence
+        /// exists; "come back to Unknown" was the zero-slices regression and
+        /// is not the answer.
         ///
         /// (Original note:) CONDITIONAL ON NOBODY MAKING THE CLIENT ID STABLE.
         /// That is the one thing that would invalidate this: a persisted or
@@ -324,7 +335,7 @@ namespace Radios.StationConnect
         /// placeholders were answered on 2026-10-02; only ONE of them was a
         /// one-line swap.
         /// </summary>
-        public IInitialMaterializationPolicy InitialMaterialization = MaterializationEndsAtConnectFencePolicy.Instance;
+        public IInitialMaterializationPolicy InitialMaterialization = MaterializationEndsAtOwnHandlePolicy.Instance;
 
         /// <summary>
         /// The authority a GUEST'S shared write (the UseMyTransmitAudio
@@ -341,10 +352,10 @@ namespace Radios.StationConnect
         /// </summary>
         public IRosterAuthorityPolicy GuestSharedWriteAuthority = RosterAuthorityUnknownPolicy.Instance;
 
-        /// <summary>The production defaults, as of 2026-10-19: the ruled owner
-        /// roster authority; materialization ending at the post-connect fence
-        /// with our own handle known (#782; own handle alone from 2026-10-03
-        /// to 2026-10-19); load completion and the GUEST shared-write
+        /// <summary>The production defaults, as of 2026-10-03: the ruled owner
+        /// roster authority; materialization ending at our own handle (bench D,
+        /// answered 2026-10-02; a RETURNING connect gets the fence through
+        /// <see cref="ForConnect"/>, #782); load completion and the GUEST shared-write
         /// authority still fail-closed. Materialization was fail-closed until
         /// 2026-10-03, and that default was the whole of the zero-slices
         /// report — see the note on the field.</summary>
@@ -366,6 +377,33 @@ namespace Radios.StationConnect
         public string Describe() =>
             "roster: " + RosterAuthority.Name + "; guest shared write: " + GuestSharedWriteAuthority.Name
             + "; completion: " + LoadCompletion.Name + "; materialization: " + InitialMaterialization.Name;
+
+        /// <summary>A copy of these policies with another initial-materialization
+        /// policy; the other three are shared, as they are immutable singletons.</summary>
+        public StationPolicies WithInitialMaterialization(IInitialMaterializationPolicy policy) => new StationPolicies
+        {
+            RosterAuthority = RosterAuthority,
+            LoadCompletion = LoadCompletion,
+            InitialMaterialization = policy ?? InitialMaterialization,
+            GuestSharedWriteAuthority = GuestSharedWriteAuthority,
+        };
+
+        /// <summary>
+        /// The policies for ONE connect (#782). <see cref="Current"/> as it
+        /// stands, except that a connect which presented a stored GUI client
+        /// id — so the radio may be restoring a station of ours — judges
+        /// initial materialization at the post-connect fence
+        /// (<see cref="MaterializationEndsAtConnectFencePolicy"/>) instead of
+        /// at our own handle. A fresh mint is exactly the case bench D
+        /// measured and keeps <see cref="Current"/> untouched.
+        /// </summary>
+        public static StationPolicies ForConnect(bool presentedStoredClientId)
+        {
+            var current = Current;
+            return presentedStoredClientId
+                ? current.WithInitialMaterialization(MaterializationEndsAtConnectFencePolicy.Instance)
+                : current;
+        }
     }
 
     /// <summary>

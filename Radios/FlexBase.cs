@@ -1201,6 +1201,8 @@ namespace Radios
                         Tracing.TraceLine($"clientReport: our handle is {report.Handle} (radio's own report)", TraceLevel.Info);
                     }
                     RosterTracker.OwnHandleEstablished(report.Handle, gen);
+                    // A held post-connect fence may now count our slices (#782).
+                    tryRecordConnectFence("our handle being established");
                     break;
 
                 case RadioClientReportKind.Connected:
@@ -5052,6 +5054,11 @@ namespace Radios
                 case "PersistenceLoaded":
                     Tracing.TraceLine("PersistenceLoaded:" + r.PersistenceLoaded.ToString(), TraceLevel.Info);
                     break;
+                case "SliceList":
+                    // The vendor's list changed (a slice REPORTED, ready or
+                    // not, or removed): a held post-connect fence re-counts (#782).
+                    tryRecordConnectFence("the vendor's slice list changing");
+                    break;
                 case "ProfileGlobalList":
                     {
                         // #579: this used to set globalProfileLoaded from
@@ -6292,6 +6299,8 @@ namespace Radios
                 // status and a ready panadapter, or explicitly headless), so
                 // the observation carries a resolved association.
                 ObserveOwnSliceAdded(binding, slc);
+                // A held post-connect fence re-checks readiness here (#782).
+                tryRecordConnectFence("own slice " + slc.Index + " becoming ready");
                 SliceCountChanged?.Invoke();
                 // #58: opens the bulk window and restarts the settle timer, so
                 // a connect that delivers four slices produces ONE census
@@ -11962,14 +11971,6 @@ namespace Radios
             /// the program name.
             /// </summary>
             public string ProgramName;
-            /// <summary>
-            /// Which running copy of the program this is: 1 for the first,
-            /// 2 for a second copy started while the first runs (the same
-            /// count that numbers the trace file). Keys the GUI client id
-            /// this copy presents to a radio, so two copies never present the
-            /// same one (#782).
-            /// </summary>
-            public int ProgramInstance = 1;
             public DCWText CWTextReceiver { get; set; }
             internal void safeCWTextReceiver(string txt)
             {
@@ -12261,9 +12262,6 @@ namespace Radios
 
             API.ProgramName = p.ProgramName;
             API.IsGUI = true;
-            // Which running copy this is, so two copies never present one GUI
-            // client id to the same radio (#782, FlexBase.ClientIdentity.cs).
-            _programInstance = p.ProgramInstance < 1 ? 1 : p.ProgramInstance;
 
             p.NextValue1 = setNextValue1;
             p.GetSWRText = SWRText;

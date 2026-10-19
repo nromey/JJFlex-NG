@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Text.Json;
 using JJTrace;
@@ -7,7 +8,7 @@ namespace Radios
 {
     /// <summary>
     /// The GUI client id JJ Flexible presents to ONE radio from ONE running
-    /// instance, and what the radio said back (#782).
+    /// copy of the program, and what the radio said back (#782).
     /// </summary>
     /// <remarks>
     /// <para>
@@ -23,28 +24,39 @@ namespace Radios
     /// <para>
     /// <b>What is stored, and where.</b> The RADIO'S OWN answer to the first
     /// bare <c>client gui</c>, exactly as the wiki prescribes — never an id we
-    /// invent. One per (radio serial, program instance), under the per-radio
-    /// serial-keyed store (<c>radios\{serial}\gui-client-id.json</c>, with an
-    /// instance suffix for a second running copy of the program), so it
-    /// follows <c>JJFLEX_CONFIG_DIR</c> like every other store. SmartSDR keeps
-    /// one id per Windows user for every radio; ours is per radio because
-    /// Noel ruled per-radio configuration is keyed by serial.
+    /// invent. One per (radio serial, <see cref="GuiClientSlot"/>), under the
+    /// per-radio serial-keyed store (<c>radios\{serial}\gui-client-id.json</c>,
+    /// with the slot number suffixed for a second running copy), so it follows
+    /// <c>JJFLEX_CONFIG_DIR</c> like every other store. SmartSDR keeps one id
+    /// per Windows user for every radio; ours is per radio because Noel ruled
+    /// per-radio configuration is keyed by serial.
     /// </para>
     /// <para>
-    /// <b>Two instances must never present the same id.</b> The radio refuses
-    /// a duplicate by disconnecting one of the two connections, and nothing
-    /// says which. The instance number the program already computes for its
-    /// trace file name is the key here too, so each concurrent copy has its
-    /// own file.
+    /// <b>Two copies must never present the same id.</b> The radio refuses a
+    /// duplicate by disconnecting one of the two connections, and nothing says
+    /// which. The slot is a named mutex held for the life of the process (see
+    /// <see cref="GuiClientSlot"/>), NOT the process count: the count let a
+    /// later copy inherit a live copy's number after an earlier copy closed.
     /// </para>
     /// <para>
-    /// <b>Refusal keeps the stored id.</b> When the radio reports
-    /// <c>duplicate_client_id=1</c> for our handle, the id is in use by a
-    /// live connection — ours from an earlier session the radio has not
-    /// timed out, or another copy of the program. The rest of this run
-    /// presents no id so the radio mints a session-only one, which is NOT
-    /// stored; the file keeps the id that was refused, because next time
-    /// the other holder will probably be gone.
+    /// <b>Refusal keeps the stored id, and the memory of it outlives the rig.</b>
+    /// When the radio reports <c>duplicate_client_id=1</c> for our handle, the
+    /// id is in use by a live connection — ours from an earlier session the
+    /// radio has not timed out, or another copy of the program. The rest of
+    /// this run presents no id for that radio and slot so the radio mints a
+    /// session-only one, which is NOT stored; the file keeps the id that was
+    /// refused. The application REPLACES its FlexBase on reconnect and retry,
+    /// so that memory lives in <see cref="GuiClientIdentityRefusals"/>, keyed
+    /// by (serial, slot), for the process, not in any rig.
+    /// </para>
+    /// <para>
+    /// <b>Two different questions about an id.</b>
+    /// <see cref="IsThisConnectionsId"/> is OWNERSHIP: the id the radio
+    /// reported for OUR client on THIS connection, not refused. That is the
+    /// one a feature deciding what to remove or restore may use.
+    /// <see cref="IsAnIdThisCopyHasPresentedOrStored"/> is HISTORY: an id we
+    /// stored or presented, which after a refusal may be another live copy's.
+    /// It correlates; it never authorises.
     /// </para>
     /// </remarks>
     public sealed class GuiClientIdentity
@@ -56,12 +68,13 @@ namespace Radios
         private bool _storedThisAttempt;
         private readonly bool _persist;
 
-        private GuiClientIdentity(string serial, int instance, string storedId, bool duplicateRefusedThisRun, bool persist)
+        private GuiClientIdentity(string serial, int slot, string storedId, bool duplicateRefusedThisRun, bool persist)
         {
             Serial = serial ?? "";
-            Instance = instance < 1 ? 1 : instance;
-            _persist = persist;
-            StoredId = !persist || string.IsNullOrWhiteSpace(storedId) ? null : storedId.Trim();
+            Slot = slot < 0 ? 0 : slot;
+            // No slot means no file: a session-only identity whatever the caller asked.
+            _persist = persist && Slot > 0;
+            StoredId = !_persist || string.IsNullOrWhiteSpace(storedId) ? null : storedId.Trim();
             DuplicateRefusedEarlierThisRun = duplicateRefusedThisRun;
             // Present the stored id unless this run has already had it refused.
             _presentedId = duplicateRefusedThisRun ? null : StoredId;
@@ -70,23 +83,26 @@ namespace Radios
         /// <summary>
         /// False for a SESSION-ONLY identity: nothing is read from the store,
         /// nothing is presented, and the radio's mint is not written back.
-        /// The Connection Tester's throwaway rigs use this, because they run
-        /// in the same process as — and possibly at the same time as — the
-        /// operator's live connection, which holds the stored id.
+        /// The Connection Tester's and the radio-in-the-loop harness's rigs
+        /// ask for this because they run beside the operator's live
+        /// connection, which holds the stored id; a copy with no free slot
+        /// gets it whether it asked or not.
         /// </summary>
         public bool Persistent => _persist;
 
         /// <summary>The radio this identity is for.</summary>
         public string Serial { get; }
 
-        /// <summary>The program instance (1 for the first running copy).</summary>
-        public int Instance { get; }
+        /// <summary>This copy's <see cref="GuiClientSlot"/> number (1-based); 0
+        /// when none was held, which makes the identity session-only.</summary>
+        public int Slot { get; }
 
         /// <summary>The id on disk when this attempt began, or null.</summary>
         public string StoredId { get; }
 
         /// <summary>True when an earlier attempt in this run had the stored id
-        /// refused as a duplicate, so this attempt presented none.</summary>
+        /// refused as a duplicate for this radio and slot, so this attempt
+        /// presented none.</summary>
         public bool DuplicateRefusedEarlierThisRun { get; }
 
         /// <summary>The id handed to <c>Radio.Connect</c>, or null when the radio
@@ -102,7 +118,8 @@ namespace Radios
         public bool RefusedAsDuplicate { get { lock (_sync) return _refusedAsDuplicate; } }
 
         /// <summary>A stored id was presented, so the radio had the chance to
-        /// recognise this client and restore its own panadapters and slices.</summary>
+        /// recognise this client and restore its own panadapters and slices.
+        /// The station phase uses this to choose its materialization boundary.</summary>
         public bool PresentedStoredId => PresentedId != null;
 
         /// <summary>The radio reported the very id we presented: this connection
@@ -119,21 +136,37 @@ namespace Radios
 
         /// <summary>The id in force for this connection: the radio's report,
         /// else what we presented, else what is stored. Null before any of
-        /// those exist.</summary>
+        /// those exist. Correlation only; see <see cref="IsThisConnectionsId"/>.</summary>
         public string EffectiveId
         {
             get { lock (_sync) return _radioReportedId ?? _presentedId ?? StoredId; }
         }
 
         /// <summary>
-        /// Whether a client id the radio attributes something to is THIS
-        /// client — this connection's id, the one we presented, or the one
-        /// stored for this radio and instance. This is the question the
-        /// listen-back recorder (#456) needs answered after a reconnect: an
-        /// object stamped with any of these was created by us, in this
-        /// session or an earlier one.
+        /// OWNERSHIP, for this connection: true only when the radio has
+        /// reported <paramref name="clientId"/> as OUR client's id on this
+        /// connection and has not since refused it. This is the question a
+        /// feature deciding whether to remove or restore a radio object may
+        /// ask (the #456 recorder), and it must still check the object's own
+        /// facts — handle, fingerprint, current state — because a stable id
+        /// says who connected, not what a slice index denotes today.
         /// </summary>
-        public bool IsOurs(string clientId)
+        public bool IsThisConnectionsId(string clientId)
+        {
+            if (string.IsNullOrEmpty(clientId)) return false;
+            lock (_sync)
+                return !_refusedAsDuplicate && _radioReportedId != null
+                    && string.Equals(clientId, _radioReportedId, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// HISTORY, not ownership: true when <paramref name="clientId"/> is an
+        /// id this copy stored for this radio and slot, presented on this
+        /// attempt, or was reported on this connection. After a refusal the
+        /// stored id may belong to another live copy, so this correlates an
+        /// object with an earlier session of ours and authorises nothing.
+        /// </summary>
+        public bool IsAnIdThisCopyHasPresentedOrStored(string clientId)
         {
             if (string.IsNullOrEmpty(clientId)) return false;
             lock (_sync)
@@ -144,18 +177,19 @@ namespace Radios
             }
         }
 
-        /// <summary>Where this identity is (or would be) stored.</summary>
-        public string FilePath => GuiClientIdentityStore.FilePathFor(Serial, Instance);
+        /// <summary>Where this identity is (or would be) stored; null for a
+        /// session-only identity or a malformed serial.</summary>
+        public string FilePath => _persist ? GuiClientIdentityStore.FilePathFor(Serial, Slot) : null;
 
         /// <summary>
-        /// Build the identity for one connect attempt: reads the store once.
-        /// <paramref name="duplicateRefusedThisRun"/> is the process-wide memory
-        /// that an earlier attempt had the stored id refused.
+        /// Build the identity for one connect attempt: reads the store once,
+        /// and the process-wide refusal memory for this radio and slot.
         /// </summary>
-        public static GuiClientIdentity ForConnect(string serial, int instance, bool duplicateRefusedThisRun, bool useStore = true)
+        public static GuiClientIdentity ForConnect(string serial, int slot, bool useStore = true)
         {
-            string stored = useStore ? GuiClientIdentityStore.Read(serial, instance) : null;
-            return new GuiClientIdentity(serial, instance, stored, duplicateRefusedThisRun, useStore);
+            bool refused = GuiClientIdentityRefusals.IsRefused(serial, slot);
+            string stored = useStore && slot > 0 ? GuiClientIdentityStore.Read(serial, slot) : null;
+            return new GuiClientIdentity(serial, slot, stored, refused, useStore);
         }
 
         /// <summary>One sentence for the trace, written before <c>Radio.Connect</c>.</summary>
@@ -165,15 +199,17 @@ namespace Radios
             lock (_sync)
             {
                 if (!_persist)
-                    return "session-only identity for radio " + Serial + ": presenting no id and storing none; the radio mints one for this connection only"
-                        + " (a throwaway rig, such as the connection tester's, must not present the id the operator's live connection may hold)";
+                    return Slot > 0
+                        ? "session-only identity for radio " + Serial + ": presenting no id and storing none; the radio mints one for this connection only"
+                          + " (a throwaway rig, such as the connection tester's, must not present the id the operator's live connection may hold)"
+                        : "session-only identity for radio " + Serial + ": this copy holds no client-id slot (every slot is held by another copy), so it presents no id and stores none";
                 if (_presentedId != null)
-                    return "presenting stored id " + _presentedId + " for radio " + Serial + ", instance " + Instance
+                    return "presenting stored id " + _presentedId + " for radio " + Serial + ", slot " + Slot
                         + " (from " + where + "); the radio should recognise this client and restore its own panadapters and slices";
                 if (StoredId != null && DuplicateRefusedEarlierThisRun)
-                    return "the stored id " + StoredId + " for radio " + Serial + ", instance " + Instance
+                    return "the stored id " + StoredId + " for radio " + Serial + ", slot " + Slot
                         + " was refused as a duplicate earlier in this run; presenting no id so the radio mints a fresh one for this session only; the stored id is kept at " + where;
-                return "no stored id for radio " + Serial + ", instance " + Instance
+                return "no stored id for radio " + Serial + ", slot " + Slot
                     + "; asking the radio to mint one; it will be stored at " + where + " when the radio reports it";
             }
         }
@@ -195,7 +231,7 @@ namespace Radios
                 if (string.Equals(_radioReportedId, clientId, StringComparison.Ordinal)) return null;
                 _radioReportedId = clientId;
                 presented = _presentedId;
-                // Store only a fresh mint for a radio and instance with nothing
+                // Store only a fresh mint for a radio and slot with nothing
                 // stored, once per attempt. A session-only id after a refusal is
                 // not stored: the stored id is kept.
                 store = _persist && presented == null && StoredId == null && !_storedThisAttempt;
@@ -212,10 +248,10 @@ namespace Radios
 
             if (store)
             {
-                bool written = GuiClientIdentityStore.Write(Serial, Instance, clientId);
+                string refusal = GuiClientIdentityStore.Write(Serial, Slot, clientId);
                 return "the radio reports our client_id=" + clientId + " — freshly minted; "
-                    + (written ? "stored at " + FilePath + " for the next connect to radio " + Serial + ", instance " + Instance
-                               : "it could NOT be stored (see the RadioConfig line above), so the next connect will be minted afresh too");
+                    + (refusal == null ? "stored at " + FilePath + " for the next connect to radio " + Serial + ", slot " + Slot
+                                       : "NOT stored (" + refusal + "), so the next connect will be minted afresh too");
             }
 
             return "the radio reports our client_id=" + clientId + " — freshly minted for this session only"
@@ -223,28 +259,64 @@ namespace Radios
                    : !_persist ? " (session-only identity; nothing is stored)" : "");
         }
 
-        /// <summary>The radio refused the presented id as a duplicate.</summary>
+        /// <summary>The radio refused the presented id as a duplicate. Records
+        /// it for the process (this radio and slot), so a replacement rig's
+        /// next attempt presents none.</summary>
         public void MarkRefusedAsDuplicate()
         {
             lock (_sync) _refusedAsDuplicate = true;
+            GuiClientIdentityRefusals.Record(Serial, Slot);
         }
 
         public override string ToString()
         {
             lock (_sync)
-                return "GuiClientIdentity(serial=" + Serial + ", instance=" + Instance
+                return "GuiClientIdentity(serial=" + Serial + ", slot=" + Slot
                     + ", stored=" + (StoredId ?? "none") + ", presented=" + (_presentedId ?? "none")
                     + ", radio=" + (_radioReportedId ?? "not yet reported")
-                    + (_refusedAsDuplicate ? ", REFUSED as duplicate" : "") + ")";
+                    + (_refusedAsDuplicate ? ", REFUSED as duplicate" : "") + (_persist ? "" : ", session-only") + ")";
         }
     }
 
-    /// <summary>What the store writes: the id, and enough to read the file by hand.</summary>
+    /// <summary>
+    /// Process-lifetime memory of duplicate refusals, keyed by (radio serial,
+    /// slot). Lives outside any rig because the application disposes and
+    /// recreates its FlexBase on reconnect and on retry (<c>CloseTheRadio</c>,
+    /// <c>wpfSelectorProc</c>, <c>TryAutoConnectOnStartup</c>,
+    /// <c>openTheRadio</c>); a flag on the rig was lost with it, and the next
+    /// connect presented the refused id again. Keyed rather than a single
+    /// Boolean so a refusal on one radio does not switch off identity on
+    /// every other radio.
+    /// </summary>
+    public static class GuiClientIdentityRefusals
+    {
+        private static readonly ConcurrentDictionary<string, DateTime> _refused =
+            new ConcurrentDictionary<string, DateTime>(StringComparer.Ordinal);
+
+        private static string Key(string serial, int slot) => (serial ?? "").Trim() + "|" + slot;
+
+        /// <summary>The radio refused this radio-and-slot's stored id in this run.</summary>
+        public static void Record(string serial, int slot) => _refused[Key(serial, slot)] = DateTime.UtcNow;
+
+        /// <summary>Whether this run has had the stored id for this radio and slot refused.</summary>
+        public static bool IsRefused(string serial, int slot) => _refused.ContainsKey(Key(serial, slot));
+
+        /// <summary>Every radio-and-slot refused this run, for the trace.</summary>
+        public static int Count => _refused.Count;
+
+        /// <summary>Forget one refusal. Tests, and a future "try my stored id again" action.</summary>
+        public static bool Forget(string serial, int slot) => _refused.TryRemove(Key(serial, slot), out _);
+
+        /// <summary>Forget everything. Tests only.</summary>
+        internal static void ClearForTests() => _refused.Clear();
+    }
+
+    /// <summary>What the store writes: the id, and the key it was written under.</summary>
     public sealed class GuiClientIdentityRecord
     {
         public string ClientId { get; set; } = "";
         public string Serial { get; set; } = "";
-        public int Instance { get; set; } = 1;
+        public int Slot { get; set; } = 1;
         public DateTime StoredUtc { get; set; }
         /// <summary>Always "radio-assigned": the id is the radio's own mint,
         /// recorded so a reader of the file knows nothing here was invented.</summary>
@@ -252,33 +324,73 @@ namespace Radios
     }
 
     /// <summary>
-    /// The per-radio, per-instance file behind <see cref="GuiClientIdentity"/>.
+    /// The per-radio, per-slot file behind <see cref="GuiClientIdentity"/>.
     /// Resolves through <see cref="RadioConfig.RadioDirectory"/>, so it lives
     /// beside the radio's <c>config.xml</c> and follows the settings root
     /// wherever startup put it. Never throws: a store that cannot be read or
     /// written is traced and the connect proceeds with a radio-minted id.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A record is only believed for the key it was written under.</b>
+    /// <see cref="Read"/> checks the file's serial, slot and source against
+    /// the request and the id's shape against what the protocol can carry; a
+    /// file that is valid JSON but says the wrong radio or slot, or holds an
+    /// id with a space in it, reads as nothing stored. Codex Astra's
+    /// 2026-10-19 review: a misfiled but parseable id used to be presented.
+    /// </para>
+    /// <para>
+    /// <b>Writes are atomic</b> (temporary file, then replace), so an
+    /// interrupted write leaves the previous record rather than a torn one.
+    /// And a write REFUSES to replace a readable record for the same key that
+    /// holds a different id: the only writer is a first mint for a key the
+    /// reader found empty, so a different id there means the reader could not
+    /// read the file at the time (an IO failure, not an empty store), and
+    /// replacing it would throw away the identity the radio knows.
+    /// </para>
+    /// </remarks>
     public static class GuiClientIdentityStore
     {
         private static readonly object _sync = new object();
+        public const string Source = "radio-assigned";
 
         /// <summary>
-        /// <c>radios\{serial}\gui-client-id.json</c> for the first instance,
-        /// <c>gui-client-id-N.json</c> for instance N. Null when the serial is
-        /// malformed or there is no settings root.
+        /// <c>radios\{serial}\gui-client-id.json</c> for slot 1,
+        /// <c>gui-client-id-N.json</c> for slot N. Null when the serial is
+        /// malformed, the slot is not held (0), or there is no settings root.
         /// </summary>
-        public static string FilePathFor(string serial, int instance)
+        public static string FilePathFor(string serial, int slot)
         {
+            if (slot < 1) return null;
             var dir = RadioConfig.RadioDirectory(serial ?? "");
             if (string.IsNullOrEmpty(dir)) return null;
-            string name = instance <= 1 ? "gui-client-id.json" : "gui-client-id-" + instance + ".json";
+            string name = slot == 1 ? "gui-client-id.json" : "gui-client-id-" + slot + ".json";
             return Path.Combine(dir, name);
         }
 
-        /// <summary>The stored id, or null when none, unreadable, or malformed.</summary>
-        public static string Read(string serial, int instance)
+        /// <summary>
+        /// Whether <paramref name="clientId"/> has the shape of a token the
+        /// protocol can carry in <c>client gui &lt;id&gt;</c>: one word of
+        /// printable ASCII, no whitespace, 8 to 64 characters. The radio has
+        /// minted GUIDs so far; this is the loosest check that still refuses
+        /// anything that would break the command line it is sent on.
+        /// </summary>
+        public static bool IsWellFormedClientId(string clientId)
         {
-            string file = FilePathFor(serial, instance);
+            if (string.IsNullOrEmpty(clientId)) return false;
+            if (clientId.Length < 8 || clientId.Length > 64) return false;
+            foreach (char c in clientId)
+            {
+                if (c <= ' ' || c > '~') return false;
+            }
+            return true;
+        }
+
+        /// <summary>The stored id for this exact key, or null when none,
+        /// unreadable, misfiled or malformed.</summary>
+        public static string Read(string serial, int slot)
+        {
+            string file = FilePathFor(serial, slot);
             if (file == null) return null;
             try
             {
@@ -286,50 +398,85 @@ namespace Radios
                 {
                     if (!File.Exists(file)) return null;
                     var record = JsonSerializer.Deserialize<GuiClientIdentityRecord>(File.ReadAllText(file));
-                    string id = record?.ClientId;
-                    return string.IsNullOrWhiteSpace(id) ? null : id.Trim();
+                    string why = Validate(record, serial, slot);
+                    if (why != null)
+                    {
+                        Tracing.TraceLine("GuiClientIdentityStore.Read(" + serial + ", slot " + slot + "): " + file + " is not believed — " + why
+                            + "; treating the store as empty; the radio will mint an id", System.Diagnostics.TraceLevel.Warning);
+                        return null;
+                    }
+                    return record.ClientId.Trim();
                 }
             }
             catch (Exception ex)
             {
-                Tracing.TraceLine("GuiClientIdentityStore.Read(" + serial + ", " + instance + "): " + ex.Message
+                Tracing.TraceLine("GuiClientIdentityStore.Read(" + serial + ", slot " + slot + "): " + ex.Message
                     + " — treating the store as empty; the radio will mint an id", System.Diagnostics.TraceLevel.Warning);
                 return null;
             }
         }
 
-        /// <summary>Write the id. True when it landed.</summary>
-        public static bool Write(string serial, int instance, string clientId)
+        /// <summary>Null when the record is believable for this key, else why not.</summary>
+        internal static string Validate(GuiClientIdentityRecord record, string serial, int slot)
         {
-            if (string.IsNullOrWhiteSpace(clientId)) return false;
-            string file = FilePathFor(serial, instance);
-            if (file == null)
-            {
-                Tracing.TraceLine("GuiClientIdentityStore.Write(" + serial + ", " + instance + "): no per-radio store to write to",
-                    System.Diagnostics.TraceLevel.Warning);
-                return false;
-            }
+            if (record == null) return "the file holds no record";
+            string id = record.ClientId?.Trim();
+            if (string.IsNullOrEmpty(id)) return "the record has no client id";
+            if (!IsWellFormedClientId(id)) return "the client id is not a protocol token (whitespace, control or non-ASCII characters, or an odd length)";
+            if (!string.Equals(record.Serial?.Trim(), (serial ?? "").Trim(), StringComparison.Ordinal))
+                return "it was written for radio '" + record.Serial + "', not '" + serial + "'";
+            if (record.Slot != slot) return "it was written for slot " + record.Slot + ", not slot " + slot;
+            if (!string.Equals(record.Source, Source, StringComparison.Ordinal)) return "its source is '" + record.Source + "', not '" + Source + "'";
+            return null;
+        }
+
+        /// <summary>
+        /// Write the id. Returns null when it landed, else one sentence for
+        /// the trace saying why not.
+        /// </summary>
+        public static string Write(string serial, int slot, string clientId)
+        {
+            clientId = clientId?.Trim();
+            if (!IsWellFormedClientId(clientId)) return "the id '" + clientId + "' is not a protocol token, so it is not stored";
+            string file = FilePathFor(serial, slot);
+            if (file == null) return "there is no per-radio store to write to (malformed serial, no slot, or no settings root)";
             try
             {
-                var record = new GuiClientIdentityRecord
-                {
-                    ClientId = clientId.Trim(),
-                    Serial = serial ?? "",
-                    Instance = instance < 1 ? 1 : instance,
-                    StoredUtc = DateTime.UtcNow,
-                };
                 lock (_sync)
                 {
+                    if (File.Exists(file))
+                    {
+                        // Never replace a readable record for this key that
+                        // names a different id; see the class remarks.
+                        GuiClientIdentityRecord existing = null;
+                        try { existing = JsonSerializer.Deserialize<GuiClientIdentityRecord>(File.ReadAllText(file)); } catch { }
+                        if (existing != null && Validate(existing, serial, slot) == null
+                            && !string.Equals(existing.ClientId.Trim(), clientId, StringComparison.Ordinal))
+                        {
+                            return "the store already holds id " + existing.ClientId.Trim() + " for radio " + serial + ", slot " + slot
+                                + ", which the connect could not read at the time; the existing id is kept";
+                        }
+                    }
+                    var record = new GuiClientIdentityRecord
+                    {
+                        ClientId = clientId,
+                        Serial = serial ?? "",
+                        Slot = slot,
+                        StoredUtc = DateTime.UtcNow,
+                        Source = Source,
+                    };
                     Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-                    File.WriteAllText(file, JsonSerializer.Serialize(record, new JsonSerializerOptions { WriteIndented = true }));
+                    string temp = file + ".tmp";
+                    File.WriteAllText(temp, JsonSerializer.Serialize(record, new JsonSerializerOptions { WriteIndented = true }));
+                    File.Move(temp, file, overwrite: true);
                 }
-                return true;
+                return null;
             }
             catch (Exception ex)
             {
-                Tracing.TraceLine("GuiClientIdentityStore.Write(" + serial + ", " + instance + "): " + ex.Message,
+                Tracing.TraceLine("GuiClientIdentityStore.Write(" + serial + ", slot " + slot + "): " + ex.Message,
                     System.Diagnostics.TraceLevel.Warning);
-                return false;
+                return "writing " + file + " failed: " + ex.Message;
             }
         }
     }

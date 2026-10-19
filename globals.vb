@@ -5321,9 +5321,6 @@ Module globals
             Radios.ConnectionHistory.DiscardPendingOutcome()
             OpenParms = New FlexBase.OpenParms()
             OpenParms.ProgramName = ProgramName
-            ' The instance count that numbers the trace file keys the GUI
-            ' client id this copy presents to the radio (#782).
-            OpenParms.ProgramInstance = ProgramInstance
             OpenParms.ParentWindow = AppShellForm
             OpenParms.CWTextReceiver = AddressOf Commands.DisplayDecodedText
             OpenParms.FormatFreqForRadio = AddressOf UlongFreq

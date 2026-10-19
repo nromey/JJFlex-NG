@@ -207,13 +207,15 @@ namespace Radios.Tests.StationConnect
 
             // MATERIALIZATION IS NO LONGER CLOSED, as of 2026-10-03: bench D
             // answered it (nine connects, nine distinct client handles), so
-            // the production default became the own-handle policy. That
-            // policy's own note said a STABLE client id would invalidate it,
-            // and #782 made the id stable on 2026-10-19, so the default is now
-            // the post-connect fence: own handle AND the radio's fence reply.
-            // This line has pinned Unknown, then OwnHandle, and now the fence;
-            // it is the only test pinning the default, so it moves with it.
-            Assert.IsType<MaterializationEndsAtConnectFencePolicy>(StationPolicies.Defaults().InitialMaterialization);
+            // the production default is the own-handle policy. That policy's
+            // own note said a STABLE client id would invalidate it, and #782
+            // made the id stable on 2026-10-19 — the default STAYS own-handle
+            // for a fresh mint (the case bench D measured) and a connect that
+            // presented a stored id gets the post-connect fence through
+            // StationPolicies.ForConnect (pinned in
+            // ConnectFenceMaterializationTests). This line asserted
+            // MaterializationUnknownPolicy until 2026-10-03.
+            Assert.IsType<MaterializationEndsAtOwnHandlePolicy>(StationPolicies.Defaults().InitialMaterialization);
 
             // Still closed, and for two different reasons. Load completion
             // waits on bench B. The GUEST shared-write authority waits on a

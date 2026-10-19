@@ -11,10 +11,11 @@ namespace Radios.Tests
 {
     /// <summary>
     /// The GUI client id JJ Flexible presents to a radio (#782): where it is
-    /// stored, that it is stored once and presented again, that two
-    /// instances and two radios never share one, that a refusal keeps the
-    /// stored id and makes the rest of the run present none, and that both
-    /// connect paths hand it to the vendor's <c>Radio.Connect</c>.
+    /// stored, that it is stored once and presented again, that two slots and
+    /// two radios never share one, that a refusal keeps the stored id and
+    /// outlives the rig that saw it, that the store believes a record only
+    /// for its own key, and that both connect paths hand the id to the
+    /// vendor's <c>Radio.Connect</c>.
     /// </summary>
     /// <remarks>
     /// The vendor's <c>Radio.Connect</c> itself is not driven here: its
@@ -32,8 +33,16 @@ namespace Radios.Tests
         private readonly RadioConfigStaticsScope _scope = new(nameof(GuiClientIdentityTests));
         private const string Serial = "0638-0000-8600-0001";
         private const string OtherSerial = "0638-0000-8600-0002";
+        private const string Id = "1F2E3D4C-0000-4000-8000-0000000000AB";
+        private const string OtherId = "7A7A7A7A-0000-4000-8000-0000000000CD";
 
-        public void Dispose() => _scope.Dispose();
+        public GuiClientIdentityTests() => GuiClientIdentityRefusals.ClearForTests();
+
+        public void Dispose()
+        {
+            GuiClientIdentityRefusals.ClearForTests();
+            _scope.Dispose();
+        }
 
         // ── the store ──────────────────────────────────────────────────────
 
@@ -47,38 +56,41 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void ASecondInstanceHasItsOwnFile_SoTwoCopiesNeverPresentOneId()
+        public void ASecondSlotHasItsOwnFile_SoTwoCopiesNeverPresentOneId()
         {
             string first = GuiClientIdentityStore.FilePathFor(Serial, 1);
             string second = GuiClientIdentityStore.FilePathFor(Serial, 2);
             Assert.NotEqual(first, second);
             Assert.EndsWith("gui-client-id-2.json", second);
             Assert.Equal(Path.GetDirectoryName(first), Path.GetDirectoryName(second));
+            Assert.Null(GuiClientIdentityStore.FilePathFor(Serial, 0));   // no slot, no file
 
-            Assert.True(GuiClientIdentityStore.Write(Serial, 1, "id-for-instance-one"));
-            Assert.True(GuiClientIdentityStore.Write(Serial, 2, "id-for-instance-two"));
-            Assert.Equal("id-for-instance-one", GuiClientIdentityStore.Read(Serial, 1));
-            Assert.Equal("id-for-instance-two", GuiClientIdentityStore.Read(Serial, 2));
+            Assert.Null(GuiClientIdentityStore.Write(Serial, 1, Id));
+            Assert.Null(GuiClientIdentityStore.Write(Serial, 2, OtherId));
+            Assert.Equal(Id, GuiClientIdentityStore.Read(Serial, 1));
+            Assert.Equal(OtherId, GuiClientIdentityStore.Read(Serial, 2));
         }
 
         [Fact]
         public void EachRadioSerialHasItsOwnId()
         {
-            Assert.True(GuiClientIdentityStore.Write(Serial, 1, "id-for-the-8600"));
+            Assert.Null(GuiClientIdentityStore.Write(Serial, 1, Id));
             Assert.Null(GuiClientIdentityStore.Read(OtherSerial, 1));
-            Assert.True(GuiClientIdentityStore.Write(OtherSerial, 1, "id-for-the-other-8600"));
-            Assert.Equal("id-for-the-8600", GuiClientIdentityStore.Read(Serial, 1));
-            Assert.Equal("id-for-the-other-8600", GuiClientIdentityStore.Read(OtherSerial, 1));
+            Assert.Null(GuiClientIdentityStore.Write(OtherSerial, 1, OtherId));
+            Assert.Equal(Id, GuiClientIdentityStore.Read(Serial, 1));
+            Assert.Equal(OtherId, GuiClientIdentityStore.Read(OtherSerial, 1));
         }
 
         [Fact]
-        public void TheFileRecordsThatTheIdWasTheRadios_NotInvented()
+        public void TheFileRecordsItsKeyAndThatTheIdWasTheRadios()
         {
-            Assert.True(GuiClientIdentityStore.Write(Serial, 1, "8E1C2C19-0000-4000-8000-000000000001"));
+            Assert.Null(GuiClientIdentityStore.Write(Serial, 1, Id));
             string text = File.ReadAllText(GuiClientIdentityStore.FilePathFor(Serial, 1)!);
-            Assert.Contains("\"ClientId\": \"8E1C2C19-0000-4000-8000-000000000001\"", text);
+            Assert.Contains("\"ClientId\": \"" + Id + "\"", text);
             Assert.Contains("\"Source\": \"radio-assigned\"", text);
             Assert.Contains("\"Serial\": \"" + Serial + "\"", text);
+            Assert.Contains("\"Slot\": 1", text);
+            Assert.False(File.Exists(GuiClientIdentityStore.FilePathFor(Serial, 1) + ".tmp"), "the temporary file of the atomic write was left behind");
         }
 
         [Theory]
@@ -89,7 +101,7 @@ namespace Radios.Tests
         {
             Assert.Null(GuiClientIdentityStore.FilePathFor(serial, 1));
             Assert.Null(GuiClientIdentityStore.Read(serial, 1));
-            Assert.False(GuiClientIdentityStore.Write(serial, 1, "anything"));
+            Assert.NotNull(GuiClientIdentityStore.Write(serial, 1, Id));
         }
 
         [Fact]
@@ -101,6 +113,64 @@ namespace Radios.Tests
             Assert.Null(GuiClientIdentityStore.Read(Serial, 1));
             File.WriteAllText(path, "{ \"ClientId\": \"   \" }");
             Assert.Null(GuiClientIdentityStore.Read(Serial, 1));
+        }
+
+        [Fact]
+        public void ARecordIsBelievedOnlyForTheKeyItWasWrittenUnder()
+        {
+            // Written for another radio, another slot, another source, or
+            // carrying an id the protocol cannot send: valid JSON, not believed.
+            string path = GuiClientIdentityStore.FilePathFor(Serial, 1)!;
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+
+            File.WriteAllText(path, "{ \"ClientId\": \"" + Id + "\", \"Serial\": \"" + OtherSerial + "\", \"Slot\": 1, \"Source\": \"radio-assigned\" }");
+            Assert.Null(GuiClientIdentityStore.Read(Serial, 1));
+
+            File.WriteAllText(path, "{ \"ClientId\": \"" + Id + "\", \"Serial\": \"" + Serial + "\", \"Slot\": 2, \"Source\": \"radio-assigned\" }");
+            Assert.Null(GuiClientIdentityStore.Read(Serial, 1));
+
+            File.WriteAllText(path, "{ \"ClientId\": \"" + Id + "\", \"Serial\": \"" + Serial + "\", \"Slot\": 1, \"Source\": \"typed-by-hand\" }");
+            Assert.Null(GuiClientIdentityStore.Read(Serial, 1));
+
+            File.WriteAllText(path, "{ \"ClientId\": \"has a space\", \"Serial\": \"" + Serial + "\", \"Slot\": 1, \"Source\": \"radio-assigned\" }");
+            Assert.Null(GuiClientIdentityStore.Read(Serial, 1));
+
+            // Positive control: the same record with the right key reads back.
+            File.WriteAllText(path, "{ \"ClientId\": \"" + Id + "\", \"Serial\": \"" + Serial + "\", \"Slot\": 1, \"Source\": \"radio-assigned\" }");
+            Assert.Equal(Id, GuiClientIdentityStore.Read(Serial, 1));
+        }
+
+        [Theory]
+        [InlineData("short")]
+        [InlineData("has a space in it")]
+        [InlineData("tab\there-and-long-enough")]
+        [InlineData("über-long-enough-but-not-ascii")]
+        [InlineData("")]
+        public void AnIdTheProtocolCannotCarryIsNeitherStoredNorBelieved(string bad)
+        {
+            Assert.False(GuiClientIdentityStore.IsWellFormedClientId(bad));
+            Assert.NotNull(GuiClientIdentityStore.Write(Serial, 1, bad));
+            Assert.Null(GuiClientIdentityStore.Read(Serial, 1));
+            Assert.True(GuiClientIdentityStore.IsWellFormedClientId(Id));
+        }
+
+        [Fact]
+        public void AWriteNeverReplacesAReadableRecordHoldingADifferentId()
+        {
+            // The only writer is a first mint for a key the reader found
+            // empty. A different valid id already there means the reader
+            // could not read the file at the time; replacing it would throw
+            // away the identity the radio knows.
+            Assert.Null(GuiClientIdentityStore.Write(Serial, 1, Id));
+            string refusal = GuiClientIdentityStore.Write(Serial, 1, OtherId);
+            Assert.NotNull(refusal);
+            Assert.Contains("already holds id " + Id, refusal);
+            Assert.Equal(Id, GuiClientIdentityStore.Read(Serial, 1));
+            // The same id again is fine, and a corrupt file is replaced.
+            Assert.Null(GuiClientIdentityStore.Write(Serial, 1, Id));
+            File.WriteAllText(GuiClientIdentityStore.FilePathFor(Serial, 1)!, "{ not json");
+            Assert.Null(GuiClientIdentityStore.Write(Serial, 1, OtherId));
+            Assert.Equal(OtherId, GuiClientIdentityStore.Read(Serial, 1));
         }
 
         [Fact]
@@ -119,7 +189,7 @@ namespace Radios.Tests
                 "the scope did not relocate the settings root, so this test would be writing the operator's live folder");
             string path = GuiClientIdentityStore.FilePathFor(Serial, 1)!;
             Assert.StartsWith(root, path, StringComparison.OrdinalIgnoreCase);
-            Assert.True(GuiClientIdentityStore.Write(Serial, 1, "relocated-id"));
+            Assert.Null(GuiClientIdentityStore.Write(Serial, 1, Id));
             Assert.True(File.Exists(path));
             Assert.False(path.StartsWith(appData, StringComparison.OrdinalIgnoreCase));
 
@@ -137,113 +207,153 @@ namespace Radios.Tests
         [Fact]
         public void TheFirstConnectPresentsNothing_AndStoresWhatTheRadioMints()
         {
-            var identity = GuiClientIdentity.ForConnect(Serial, 1, duplicateRefusedThisRun: false);
+            var identity = GuiClientIdentity.ForConnect(Serial, 1);
             Assert.Null(identity.StoredId);
             Assert.Null(identity.PresentedId);
             Assert.False(identity.PresentedStoredId);
+            Assert.True(identity.Persistent);
             Assert.Contains("asking the radio to mint one", identity.DescribePresentation());
 
-            string line = identity.RadioReported("minted-by-the-radio");
+            string line = identity.RadioReported(Id);
             Assert.Contains("freshly minted", line);
             Assert.Contains("stored at", line);
-            Assert.Equal("minted-by-the-radio", GuiClientIdentityStore.Read(Serial, 1));
-            Assert.Equal("minted-by-the-radio", identity.EffectiveId);
+            Assert.Equal(Id, GuiClientIdentityStore.Read(Serial, 1));
+            Assert.Equal(Id, identity.EffectiveId);
             Assert.False(identity.IsReturning);
-            Assert.True(identity.IsOurs("minted-by-the-radio"));
-            Assert.False(identity.IsOurs("somebody-else"));
 
             // The same report again says nothing new.
-            Assert.Null(identity.RadioReported("minted-by-the-radio"));
+            Assert.Null(identity.RadioReported(Id));
         }
 
         [Fact]
         public void TheNextConnect_AndAReconnect_AndAFreshStart_AllPresentTheSameStoredId()
         {
-            GuiClientIdentity.ForConnect(Serial, 1, false).RadioReported("minted-by-the-radio");
+            GuiClientIdentity.ForConnect(Serial, 1).RadioReported(Id);
 
-            var reconnect = GuiClientIdentity.ForConnect(Serial, 1, false);      // RetryConnect in the same run
-            var freshStart = GuiClientIdentity.ForConnect(Serial, 1, false);     // a new process reading the file
-            Assert.Equal("minted-by-the-radio", reconnect.PresentedId);
-            Assert.Equal("minted-by-the-radio", freshStart.PresentedId);
+            var reconnect = GuiClientIdentity.ForConnect(Serial, 1);      // RetryConnect, or a replacement rig, in the same run
+            var freshStart = GuiClientIdentity.ForConnect(Serial, 1);     // a new process reading the file
+            Assert.Equal(Id, reconnect.PresentedId);
+            Assert.Equal(Id, freshStart.PresentedId);
             Assert.True(reconnect.PresentedStoredId);
-            Assert.Contains("presenting stored id minted-by-the-radio", reconnect.DescribePresentation());
+            Assert.Contains("presenting stored id " + Id, reconnect.DescribePresentation());
 
-            string line = reconnect.RadioReported("minted-by-the-radio");
+            string line = reconnect.RadioReported(Id);
             Assert.Contains("RETURNING client", line);
             Assert.True(reconnect.IsReturning);
         }
 
         [Fact]
-        public void AnInstanceTwoConnect_PresentsItsOwnId_NeverInstanceOnes()
+        public void ASlotTwoConnect_PresentsItsOwnId_NeverSlotOnes()
         {
-            GuiClientIdentity.ForConnect(Serial, 1, false).RadioReported("instance-one-id");
-            var second = GuiClientIdentity.ForConnect(Serial, 2, false);
+            GuiClientIdentity.ForConnect(Serial, 1).RadioReported(Id);
+            var second = GuiClientIdentity.ForConnect(Serial, 2);
             Assert.Null(second.PresentedId);
-            second.RadioReported("instance-two-id");
-            Assert.Equal("instance-one-id", GuiClientIdentityStore.Read(Serial, 1));
-            Assert.Equal("instance-two-id", GuiClientIdentityStore.Read(Serial, 2));
-            Assert.Equal("instance-two-id", GuiClientIdentity.ForConnect(Serial, 2, false).PresentedId);
-            Assert.Equal("instance-one-id", GuiClientIdentity.ForConnect(Serial, 1, false).PresentedId);
+            second.RadioReported(OtherId);
+            Assert.Equal(Id, GuiClientIdentityStore.Read(Serial, 1));
+            Assert.Equal(OtherId, GuiClientIdentityStore.Read(Serial, 2));
+            Assert.Equal(OtherId, GuiClientIdentity.ForConnect(Serial, 2).PresentedId);
+            Assert.Equal(Id, GuiClientIdentity.ForConnect(Serial, 1).PresentedId);
         }
 
         [Fact]
-        public void ARefusal_KeepsTheStoredId_AndTheRestOfTheRunPresentsNone()
+        public void ARefusal_KeepsTheStoredId_IsRememberedForTheProcess_AndIsPerRadioAndSlot()
         {
-            GuiClientIdentity.ForConnect(Serial, 1, false).RadioReported("stored-id");
+            GuiClientIdentity.ForConnect(Serial, 1).RadioReported(Id);
+            GuiClientIdentity.ForConnect(OtherSerial, 1).RadioReported(OtherId);
 
-            var refused = GuiClientIdentity.ForConnect(Serial, 1, false);
-            Assert.Equal("stored-id", refused.PresentedId);
+            var refused = GuiClientIdentity.ForConnect(Serial, 1);
+            Assert.Equal(Id, refused.PresentedId);
             refused.MarkRefusedAsDuplicate();
             Assert.True(refused.RefusedAsDuplicate);
+            Assert.True(GuiClientIdentityRefusals.IsRefused(Serial, 1));
 
-            // The next attempt in this run: nothing presented, the file untouched.
-            var fallback = GuiClientIdentity.ForConnect(Serial, 1, duplicateRefusedThisRun: true);
+            // The next attempt in this run — a NEW identity object, as a
+            // replacement rig would build: nothing presented, the file untouched.
+            var fallback = GuiClientIdentity.ForConnect(Serial, 1);
             Assert.Null(fallback.PresentedId);
-            Assert.Equal("stored-id", fallback.StoredId);
+            Assert.True(fallback.DuplicateRefusedEarlierThisRun);
+            Assert.Equal(Id, fallback.StoredId);
             Assert.Contains("refused as a duplicate earlier in this run", fallback.DescribePresentation());
-            string line = fallback.RadioReported("session-only-id");
+            string line = fallback.RadioReported("5E5E5E5E-0000-4000-8000-0000000000EF");
             Assert.Contains("for this session only", line);
-            Assert.Contains("stored id stored-id is kept", line);
-            Assert.Equal("stored-id", GuiClientIdentityStore.Read(Serial, 1));
-            Assert.Equal("session-only-id", fallback.EffectiveId);
-            // Both are ours: the session's id and the stored one.
-            Assert.True(fallback.IsOurs("session-only-id"));
-            Assert.True(fallback.IsOurs("stored-id"));
+            Assert.Contains("stored id " + Id + " is kept", line);
+            Assert.Equal(Id, GuiClientIdentityStore.Read(Serial, 1));
+
+            // Per radio and slot: another radio, and another slot of this one, are untouched.
+            Assert.Equal(OtherId, GuiClientIdentity.ForConnect(OtherSerial, 1).PresentedId);
+            Assert.False(GuiClientIdentityRefusals.IsRefused(Serial, 2));
+
+            // Forgetting it restores the stored id to the next attempt.
+            Assert.True(GuiClientIdentityRefusals.Forget(Serial, 1));
+            Assert.Equal(Id, GuiClientIdentity.ForConnect(Serial, 1).PresentedId);
+        }
+
+        [Fact]
+        public void OwnershipAndHistoryAreTwoDifferentQuestions()
+        {
+            GuiClientIdentity.ForConnect(Serial, 1).RadioReported(Id);
+            var identity = GuiClientIdentity.ForConnect(Serial, 1);
+
+            // Before the radio has spoken on THIS connection: history yes, ownership no.
+            Assert.True(identity.IsAnIdThisCopyHasPresentedOrStored(Id));
+            Assert.False(identity.IsThisConnectionsId(Id));
+
+            identity.RadioReported(Id);
+            Assert.True(identity.IsThisConnectionsId(Id));
+            Assert.False(identity.IsThisConnectionsId(OtherId));
+            Assert.False(identity.IsThisConnectionsId(null));
+
+            // A refusal withdraws ownership; history remains.
+            identity.MarkRefusedAsDuplicate();
+            Assert.False(identity.IsThisConnectionsId(Id));
+            Assert.True(identity.IsAnIdThisCopyHasPresentedOrStored(Id));
+
+            // After the refusal, the session-only id is this connection's; the stored one is only history.
+            var fallback = GuiClientIdentity.ForConnect(Serial, 1);
+            fallback.RadioReported(OtherId);
+            Assert.True(fallback.IsThisConnectionsId(OtherId));
+            Assert.False(fallback.IsThisConnectionsId(Id));
+            Assert.True(fallback.IsAnIdThisCopyHasPresentedOrStored(Id));
+            Assert.True(fallback.IsAnIdThisCopyHasPresentedOrStored(OtherId));
         }
 
         [Fact]
         public void ARadioThatReportsADifferentIdThanPresented_IsAMismatch_AndTheStoredIdIsKept()
         {
-            GuiClientIdentity.ForConnect(Serial, 1, false).RadioReported("stored-id");
-            var identity = GuiClientIdentity.ForConnect(Serial, 1, false);
-            string line = identity.RadioReported("something-the-radio-chose");
+            GuiClientIdentity.ForConnect(Serial, 1).RadioReported(Id);
+            var identity = GuiClientIdentity.ForConnect(Serial, 1);
+            string line = identity.RadioReported(OtherId);
             Assert.Contains("MISMATCH", line);
-            Assert.Equal("stored-id", GuiClientIdentityStore.Read(Serial, 1));
-            Assert.Equal("something-the-radio-chose", identity.EffectiveId);
+            Assert.Equal(Id, GuiClientIdentityStore.Read(Serial, 1));
+            Assert.Equal(OtherId, identity.EffectiveId);
             Assert.False(identity.IsReturning);
-            Assert.True(identity.IsOurs("something-the-radio-chose"));
-            Assert.True(identity.IsOurs("stored-id"));
+            Assert.True(identity.IsThisConnectionsId(OtherId));
+            Assert.False(identity.IsThisConnectionsId(Id));
+            Assert.True(identity.IsAnIdThisCopyHasPresentedOrStored(Id));
         }
 
         [Fact]
         public void ASessionOnlyIdentity_PresentsNothingAndStoresNothing_EvenWhenAnIdIsStored()
         {
-            // The Connection Tester's rigs: in the operator's process, possibly
-            // beside the live connection that holds the stored id.
-            GuiClientIdentityStore.Write(Serial, 1, "the-live-connections-id");
-            var tester = GuiClientIdentity.ForConnect(Serial, 1, duplicateRefusedThisRun: false, useStore: false);
+            // The Connection Tester's and the harness's rigs: in the operator's
+            // process, possibly beside the live connection that holds the stored id.
+            Assert.Null(GuiClientIdentityStore.Write(Serial, 1, Id));
+            var tester = GuiClientIdentity.ForConnect(Serial, 1, useStore: false);
             Assert.False(tester.Persistent);
             Assert.Null(tester.StoredId);
             Assert.Null(tester.PresentedId);
+            Assert.Null(tester.FilePath);
             Assert.Contains("session-only", tester.DescribePresentation());
 
-            string line = tester.RadioReported("minted-for-the-tester");
+            string line = tester.RadioReported(OtherId);
             Assert.Contains("session only", line);
-            Assert.Equal("the-live-connections-id", GuiClientIdentityStore.Read(Serial, 1));
-            Assert.Equal("minted-for-the-tester", tester.EffectiveId);
-            // And the tester's rig is told so.
+            Assert.Equal(Id, GuiClientIdentityStore.Read(Serial, 1));
+            Assert.Equal(OtherId, tester.EffectiveId);
+            // And both throwaway-rig builders are told so.
             Assert.Contains("rig.UseStoredGuiClientId = false;",
                 File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "ConnectionTester.cs")), StringComparison.Ordinal);
+            Assert.Contains("rig.UseStoredGuiClientId = false;",
+                File.ReadAllText(Path.Combine(RepoRoot(), "RadioInTheLoop", "Program.cs")), StringComparison.Ordinal);
         }
 
         // ── the FlexBase seam, driven through the vendored Radio ───────────
@@ -258,18 +368,21 @@ namespace Radios.Tests
                 string presented = rig.Rig.prepareClientIdentityForConnect("test");
                 Assert.Null(presented);
                 Assert.NotNull(rig.Rig.ClientIdentity);
+                int slot = rig.Rig.ClientIdentity.Slot;
+                Assert.Equal(GuiClientSlot.Current.Number, slot);
+                Assert.True(slot > 0, "the test process holds no client-id slot");
 
                 // The radio's own status for OUR handle, parsed by the vendor
                 // and raised through GUIClientAdded into guiClientAdded.
                 rig.Vendor.Status("client 0x" + RigOnVendorRadio.OurHandle.ToString("X")
-                    + " connected client_id=1F2E3D4C-0000-4000-8000-0000000000AB program=JJFlex station=K5TEST local_ptt=1");
+                    + " connected client_id=" + Id + " program=JJFlex station=K5TEST local_ptt=1");
 
-                Assert.Equal("1F2E3D4C-0000-4000-8000-0000000000AB", rig.Rig.ClientIdentity.RadioReportedId);
-                Assert.Equal("1F2E3D4C-0000-4000-8000-0000000000AB", GuiClientIdentityStore.Read(Serial, 1));
-                Assert.True(rig.Rig.ClientIdentity.IsOurs("1F2E3D4C-0000-4000-8000-0000000000AB"));
+                Assert.Equal(Id, rig.Rig.ClientIdentity.RadioReportedId);
+                Assert.Equal(Id, GuiClientIdentityStore.Read(Serial, slot));
+                Assert.True(rig.Rig.ClientIdentity.IsThisConnectionsId(Id));
 
                 // The next attempt presents it.
-                Assert.Equal("1F2E3D4C-0000-4000-8000-0000000000AB", rig.Rig.prepareClientIdentityForConnect("test again"));
+                Assert.Equal(Id, rig.Rig.prepareClientIdentityForConnect("test again"));
             }
             finally
             {
@@ -278,45 +391,51 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void TheRadiosDuplicateRefusal_MarksTheIdentityRefused_AndTheNextAttemptPresentsNone()
+        public void TheRadiosDuplicateRefusal_OutlivesTheRigThatSawIt()
         {
-            GuiClientIdentityStore.Write(Serial, 1, "stored-id");
-            using var rig = new RigOnVendorRadio(Serial);
-            // Wire the producer seam the way Connect does; the duplicate-id
-            // handler rides with it.
-            typeof(FlexBase).GetMethod("wireProducerHandlers", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .Invoke(rig.Rig, new object[] { rig.Vendor.Radio });
-            // FlexLib raises the refusal only for ITS OWN handle.
+            int slot = GuiClientSlot.Current.Number;
+            Assert.Null(GuiClientIdentityStore.Write(Serial, slot, Id));
+            Assert.Null(GuiClientIdentityStore.Write(OtherSerial, slot, OtherId));
+
+            // Rig A sees the refusal...
+            var a = new RigOnVendorRadio(Serial);
+            WireProducer(a);
             typeof(Radio).GetField("_clientHandle", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .SetValue(rig.Vendor.Radio, RigOnVendorRadio.OurHandle);
+                .SetValue(a.Vendor.Radio, RigOnVendorRadio.OurHandle);
             try
             {
-                Assert.Equal("stored-id", rig.Rig.prepareClientIdentityForConnect("test"));
+                Assert.Equal(Id, a.Rig.prepareClientIdentityForConnect("test"));
 
-                // Positive control first: a disconnect WITHOUT the duplicate flag
-                // does not refuse anything.
-                rig.Vendor.Status("client 0x" + RigOnVendorRadio.OurHandle.ToString("X") + " disconnected forced=0 wan_validation_failed=0 duplicate_client_id=0");
-                Assert.False(rig.Rig.ClientIdentity.RefusedAsDuplicate);
+                // Positive control first: a disconnect WITHOUT the duplicate flag refuses nothing.
+                a.Vendor.Status("client 0x" + RigOnVendorRadio.OurHandle.ToString("X") + " disconnected forced=0 wan_validation_failed=0 duplicate_client_id=0");
+                Assert.False(a.Rig.ClientIdentity.RefusedAsDuplicate);
 
-                rig.Vendor.Status("client 0x" + RigOnVendorRadio.OurHandle.ToString("X") + " disconnected forced=0 wan_validation_failed=0 duplicate_client_id=1");
-                Assert.True(rig.Rig.ClientIdentity.RefusedAsDuplicate);
-
-                // The next attempt in this run presents nothing; the file keeps the id.
-                Assert.Null(rig.Rig.prepareClientIdentityForConnect("retry"));
-                Assert.True(rig.Rig.ClientIdentity.DuplicateRefusedEarlierThisRun);
-                Assert.Equal("stored-id", GuiClientIdentityStore.Read(Serial, 1));
+                a.Vendor.Status("client 0x" + RigOnVendorRadio.OurHandle.ToString("X") + " disconnected forced=0 wan_validation_failed=0 duplicate_client_id=1");
+                Assert.True(a.Rig.ClientIdentity.RefusedAsDuplicate);
+                Assert.Null(a.Rig.prepareClientIdentityForConnect("retry on the same rig"));
             }
             finally
             {
-                typeof(FlexBase).GetMethod("unwireProducerHandlers", BindingFlags.Instance | BindingFlags.NonPublic)!
-                    .Invoke(rig.Rig, new object[] { rig.Vendor.Radio });
+                UnwireProducer(a);
+                a.Dispose();   // ...and the application disposes it, as CloseTheRadio does...
             }
+
+            // ...then builds a replacement, which must still present nothing for this radio.
+            using var b = new RigOnVendorRadio(Serial);
+            Assert.Null(b.Rig.prepareClientIdentityForConnect("replacement rig"));
+            Assert.True(b.Rig.ClientIdentity.DuplicateRefusedEarlierThisRun);
+            Assert.Equal(Id, GuiClientIdentityStore.Read(Serial, slot));
+
+            // And a rig for ANOTHER radio is untouched by it.
+            using var other = new RigOnVendorRadio(OtherSerial);
+            Assert.Equal(OtherId, other.Rig.prepareClientIdentityForConnect("another radio"));
         }
 
         [Fact]
         public void ARefusalOnAnotherRadioObject_IsIgnored()
         {
-            GuiClientIdentityStore.Write(Serial, 1, "stored-id");
+            int slot = GuiClientSlot.Current.Number;
+            Assert.Null(GuiClientIdentityStore.Write(Serial, slot, Id));
             using var rig = new RigOnVendorRadio(Serial);
             var stranger = new VendorRadioFixture(OtherSerial);
             typeof(FlexBase).GetMethod("wireProducerHandlers", BindingFlags.Instance | BindingFlags.NonPublic)!
@@ -328,13 +447,70 @@ namespace Radios.Tests
                 rig.Rig.prepareClientIdentityForConnect("test");
                 stranger.Status("client 0x" + RigOnVendorRadio.OurHandle.ToString("X") + " disconnected forced=0 wan_validation_failed=0 duplicate_client_id=1");
                 Assert.False(rig.Rig.ClientIdentity.RefusedAsDuplicate);
-                Assert.Equal("stored-id", rig.Rig.prepareClientIdentityForConnect("again"));
+                Assert.False(GuiClientIdentityRefusals.IsRefused(Serial, slot));
+                Assert.Equal(Id, rig.Rig.prepareClientIdentityForConnect("again"));
             }
             finally
             {
                 typeof(FlexBase).GetMethod("unwireProducerHandlers", BindingFlags.Instance | BindingFlags.NonPublic)!
                     .Invoke(rig.Rig, new object[] { stranger.Radio });
             }
+        }
+
+        // ── the post-connect fence, through the real transport callback ────
+
+        [Fact]
+        public void TheFence_IsSentOnlyForAReturningConnect_AndHoldsUntilEveryReportedOwnSliceIsReady()
+        {
+            int slot = GuiClientSlot.Current.Number;
+            using var rig = new RigOnVendorRadio(Serial);
+            var sendFence = typeof(FlexBase).GetMethod("sendConnectFence", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var tryRecord = typeof(FlexBase).GetMethod("tryRecordConnectFence", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var addSlice = typeof(Radio).GetMethod("AddSlice", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            Assert.True(sendFence != null && tryRecord != null && addSlice != null, "the fence's seams moved; this test would be vacuous");
+
+            // A FRESH mint: no stored id, so no fence is sent at all.
+            Assert.Null(rig.Rig.prepareClientIdentityForConnect("fresh"));
+            int before = rig.Vendor.Transport.Commands.Count;
+            sendFence.Invoke(rig.Rig, new object[] { "fresh" });
+            Assert.Equal(before, rig.Vendor.Transport.Commands.Count);
+            Assert.DoesNotContain(rig.Vendor.Transport.Commands, c => c == "ping");
+
+            // A RETURNING connect: the stored id is presented and the fence goes out.
+            Assert.Null(GuiClientIdentityStore.Write(Serial, slot, Id));
+            Assert.Equal(Id, rig.Rig.prepareClientIdentityForConnect("returning"));
+            sendFence.Invoke(rig.Rig, new object[] { "returning" });
+            Assert.Equal("ping", rig.Vendor.LastCommand);
+            int pingSeq = rig.Vendor.LastSequence;
+
+            // The radio REPORTS one of our slices (it is in the vendor's list)
+            // but it is not READY (no SliceAdded, so not in ours).
+            var reported = rig.Vendor.NewSlice(0, RigOnVendorRadio.OurHandle, 14.250, "USB");
+            addSlice.Invoke(rig.Vendor.Radio, new object[] { reported });
+
+            // A rejected ping is not evidence.
+            rig.Vendor.Reply(pingSeq, 0x50000001, "no");
+            Assert.Equal(0, rig.Profiles.Snapshot().ConnectFenceAtSequence);
+
+            // Send again; the radio acknowledges; the fence is HELD on the not-ready slice.
+            sendFence.Invoke(rig.Rig, new object[] { "returning" });
+            rig.Vendor.ReplyOk(rig.Vendor.LastSequence);
+            Assert.Equal(0, rig.Profiles.Snapshot().ConnectFenceAtSequence);
+
+            // The slice becomes ready (what sliceAdded does for ours) and the
+            // re-check records the fence.
+            rig.AddOwnSlice(0, 14.250, "USB");
+            tryRecord.Invoke(rig.Rig, new object[] { "test readiness" });
+            Assert.True(rig.Profiles.Snapshot().ConnectFenceAtSequence > 0, "the acknowledged fence was not recorded once every reported own slice was ready");
+
+            // Positive control for the hold: with nothing reported and nothing
+            // ready, an acknowledged fence records at once.
+            using var quick = new RigOnVendorRadio(OtherSerial);
+            Assert.Null(GuiClientIdentityStore.Write(OtherSerial, slot, OtherId));
+            Assert.Equal(OtherId, quick.Rig.prepareClientIdentityForConnect("returning"));
+            sendFence.Invoke(quick.Rig, new object[] { "returning" });
+            quick.Vendor.ReplyOk(quick.Vendor.LastSequence);
+            Assert.True(quick.Profiles.Snapshot().ConnectFenceAtSequence > 0);
         }
 
         // ── the wire, pinned at both ends by source ────────────────────────
@@ -357,6 +533,12 @@ namespace Radios.Tests
             // `theRadio.Connect(clientID)` under #if zero is a different text
             // and is deliberately not asserted on either way.
             Assert.Equal(0, Regex.Matches(source, @"theRadio\.Connect\(\s*\)").Count);
+
+            // The slot, not the process count, keys the id: nothing hands
+            // ProgramInstance into the identity any more.
+            Assert.DoesNotContain("ProgramInstance", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("OpenParms.ProgramInstance", File.ReadAllText(Path.Combine(RepoRoot(), "globals.vb")), StringComparison.Ordinal);
+            Assert.Contains("GuiClientSlot.Current.Number", source, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -374,6 +556,14 @@ namespace Radios.Tests
             Assert.Contains("if (handle_uint == _clientHandle && duplicate_client_id)", radio, StringComparison.Ordinal);
             Assert.Contains("OnDuplicateClientIdDisconnectReq();", radio, StringComparison.Ordinal);
         }
+
+        private static void WireProducer(RigOnVendorRadio rig) =>
+            typeof(FlexBase).GetMethod("wireProducerHandlers", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(rig.Rig, new object[] { rig.Vendor.Radio });
+
+        private static void UnwireProducer(RigOnVendorRadio rig) =>
+            typeof(FlexBase).GetMethod("unwireProducerHandlers", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(rig.Rig, new object[] { rig.Vendor.Radio });
 
         private static string RepoRoot()
         {

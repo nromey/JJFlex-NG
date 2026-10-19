@@ -301,10 +301,6 @@ namespace Radios.Tests.StationConnect
             // What has NOT changed, and is the point of the test: the global
             // load is still never sent over the other operator.
             var h = OwnerWithCompany(StationPolicies.Defaults());
-            // The production default waits for the post-connect fence (#782),
-            // which FlexBase sends right after the vendor's Connect; the radio
-            // has answered it here, as it does on every live connect.
-            h.ConnectFence();
 
             var r = h.Run();
 
@@ -481,7 +477,6 @@ namespace Radios.Tests.StationConnect
         public void TheRequestedLoad_UnderTheProductionDefaults_IsSentAndLeftHonestlyUnconfirmed()
         {
             var h = OwnerWithCompany(StationPolicies.Defaults());
-            h.ConnectFence(); // the production default's materialization boundary (#782)
             var connect = h.Run();
             h.ClientRemoved(StationHarness.OtherHandle);
             h.Port.OnGlobalLoadSent = _ => h.DeliverGenuineCompletion();

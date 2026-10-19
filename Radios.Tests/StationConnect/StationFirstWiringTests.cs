@@ -544,8 +544,13 @@ namespace Radios.Tests.StationConnect
         public void ProductionReadsThePoliciesFromStationPoliciesCurrent()
         {
             var text = Read(FlexBaseStation);
+            // The operator-requested load reads Current directly.
             Assert.Contains("StationPolicies.Current, _stationClock, operation, StationDeadlines.Default(), waiter, previous", text, StringComparison.Ordinal);
             Assert.Contains("StationPolicies.Current.RosterAuthority", text, StringComparison.Ordinal);
+            // The connect's station phase reads Current through ForConnect,
+            // which swaps in the post-connect fence only for a connect that
+            // presented a stored GUI client id (#782).
+            Assert.Contains("StationPolicies.ForConnect(PresentedStoredIdThisConnect), _stationClock, operation, StationDeadlines.Default(), waiter, previous", text, StringComparison.Ordinal);
         }
     }
 }
