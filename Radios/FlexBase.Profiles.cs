@@ -895,9 +895,11 @@ namespace Radios
         public bool SaveProfile(Profile_t p, bool immediately = false)
         {
             Tracing.TraceLine("SaveProfile:" + p.ToString(), TraceLevel.Info);
-            // The funnel for every global-profile write: the Profiles dialog,
-            // SaveCurrentStationLayout, and the disconnect-time
-            // saveNewGlobalProfile all arrive here.
+            // The funnel for every operator-pressed global-profile write: the
+            // Profiles dialog, SaveCurrentStationLayout and the WinForms form.
+            // Whose radio it is first (#777), then the hold — the blocker's
+            // order, for StationLayoutSaveGuard.Decide's reason.
+            if (p.ProfileType == ProfileTypes.global && OwnershipRefusesGlobalProfileWrite(p.Name)) return false;
             if (GuardRefuses("settings.guard.action.profile_save")) return false;
             bool commandDone = false;
             bool rv = false;
@@ -2917,12 +2919,15 @@ namespace Radios
             // become the trap it exists to avoid.
             if (StationLayoutSaveBlocker() != null) return false;
 
-            // Ownership, and this gate belongs on the OFFER but not on the menu
-            // item. RadioConfig.MayCreateRadioSideState governs writes "the
-            // operator did not individually request" — a proactive prompt at
-            // disconnect is exactly that, while choosing Save Station Setup
-            // from a menu is the individual request itself. On a radio never
-            // declared as theirs, JJ Flexible does not raise the subject.
+            // Ownership. Until #777 this was the ONLY ownership gate on the
+            // layout save, on the reasoning that a proactive prompt is a write
+            // "the operator did not individually request" while the menu item
+            // is the request itself. #777 overturned the second half: whose
+            // radio it is decides whether the write may happen at all, not
+            // whether it was asked for, so the blocker above now refuses a
+            // radio not declared Mine and this line cannot be reached with
+            // any other answer. Kept as the second lock on a door that should
+            // already be shut, with its trace.
             var radio = theRadio;
             if (radio == null) return false;
             if (RadioConfig.OwnershipOf(radio.Serial) != RadioOwnership.Mine)

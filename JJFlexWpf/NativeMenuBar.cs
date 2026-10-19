@@ -3805,10 +3805,18 @@ public class NativeMenuBar : IDisposable
             },
             OnSave = (profileData) =>
             {
+                if (Rig == null) { SpeakNoRadio(); return; }
                 if (profileData is Radios.Profile_t profile)
                 {
-                    Rig.SaveProfile(profile, immediately: true);
-                    SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile.saved", ("profile", profile.Name)));
+                    // #777, and the #486 shape before it: SaveProfile refuses
+                    // for the change-nothing hold and for a radio that is not
+                    // declared the operator's, and it has ALREADY spoken the
+                    // reason when it does. Until now the receipt below was
+                    // spoken unconditionally, so a refusal was heard and then
+                    // overwritten by "saved" for a save that never went out.
+                    // A false return means refused, and the rig said why.
+                    if (Rig.SaveProfile(profile, immediately: true))
+                        SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile.saved", ("profile", profile.Name)));
                 }
             },
             IsGlobalProfile = (profileData) =>
