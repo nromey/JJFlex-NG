@@ -10973,7 +10973,7 @@ namespace Radios
         private string _lbSavedTxAnt = "";
         private bool _lbSavedMonitor;
         private int _lbSavedPower;
-        private int _lbEarsVfo = -1;
+        private LoopbackSliceResources _lbResources;
         private Xvtr _lbDriveBand;
         private double _lbSavedDriveDbm;
 
@@ -11030,7 +11030,11 @@ namespace Radios
             _lbSavedTxAnt = TXAntennaName;
             _lbSavedMonitor = theRadio.TXMonitor;
             _lbSavedPower = XmitPower;
-            int preCount = MyNumSlices;
+            var arrangementRadio = theRadio;
+            LoopbackSliceResources resources;
+            lock (mySlices)
+                resources = new LoopbackSliceResources(mySlices, arrangementRadio.PanadapterList);
+            _lbResources = resources;
 
             // Apply the recipe (queue-sequenced).
             FullDuplexEnabled = true;
@@ -11058,27 +11062,20 @@ namespace Radios
                 rollbackLoopback();
                 return false;
             }
-            _lbEarsVfo = preCount;
             q.Enqueue((FunctionDel)(() =>
             {
-                Slice ears = null;
+                if (!ReferenceEquals(theRadio, arrangementRadio)) return;
                 lock (mySlices)
                 {
-                    if (mySlices.Count > preCount) ears = mySlices[preCount];
+                    if (!resources.Capture(mySlices, arrangementRadio.PanadapterList) ||
+                        !resources.Configure(mySlices, arrangementRadio.PanadapterList,
+                            SliceForTransmitSetting(), xvt))
+                        Tracing.TraceLine("Loopback ears slice config: slice missing", TraceLevel.Error);
                 }
-                var tx = SliceForTransmitSetting(); // the transmit slice, not the selected one (#496)
-                if (ears == null || tx == null || ReferenceEquals(ears, tx))
-                {
-                    Tracing.TraceLine("Loopback ears slice config: slice missing", TraceLevel.Error);
-                    return;
-                }
-                ears.Freq = tx.Freq;
-                ears.DemodMode = tx.DemodMode;
-                ears.RXAnt = xvt;   // same port worked at this power, verified
             }), "LoopbackEars");
 
             _loopbackArranged = true;
-            Tracing.TraceLine($"Loopback arranged: xvt={xvt} savedFdx={_lbSavedFdx} savedAnt={_lbSavedTxAnt} savedPwr={_lbSavedPower} earsVfo={_lbEarsVfo}", TraceLevel.Info);
+            Tracing.TraceLine($"Loopback arranged: xvt={xvt} savedFdx={_lbSavedFdx} savedAnt={_lbSavedTxAnt} savedPwr={_lbSavedPower} earsSlice={resources.Slice?.Index}", TraceLevel.Info);
             return true;
         }
 
@@ -11095,13 +11092,28 @@ namespace Radios
             string trouble = "";
             if (theRadio != null)
             {
-                // Ears slice out first (can't remove the active VFO — if the
-                // operator moved onto it, leave it and say so).
-                if (_lbEarsVfo >= 0 && _lbEarsVfo < MyNumSlices)
+                // Retain this arrangement's objects even when End arrives
+                // before its queued creation/configuration has completed.
+                var resources = _lbResources;
+                var arrangementRadio = theRadio;
+                if (resources?.Slice != null &&
+                    (ReferenceEquals(resources.Slice, VFOToSlice(RXVFO)) ||
+                     ReferenceEquals(resources.Slice, SliceForTransmitSetting())))
+                    trouble = "The listening slice is your active slice, so it was kept. ";
+                q.Enqueue((FunctionDel)(() =>
                 {
-                    if (!RemoveSlice(_lbEarsVfo))
-                        trouble = "The listening slice is your active slice, so it was kept. ";
-                }
+                    if (!ReferenceEquals(theRadio, arrangementRadio) || resources == null) return;
+                    lock (mySlices)
+                    {
+                        if (!resources.IsPresent(mySlices, arrangementRadio.PanadapterList)) return;
+                        mySliceRemoved = false;
+                        if (!resources.Release(mySlices, arrangementRadio.PanadapterList,
+                            VFOToSlice(RXVFO), SliceForTransmitSetting())) return;
+                    }
+                    NoteOperatorChangedSliceSet();
+                    if (!await(() => mySliceRemoved, 3000))
+                        Tracing.TraceLine("Loopback ears removal: radio confirmation timed out", TraceLevel.Error);
+                }), "LoopbackEarsRemove");
                 TXAntennaName = _lbSavedTxAnt;
                 XmitPower = _lbSavedPower;
                 Monitor = _lbSavedMonitor ? OffOnValues.on : OffOnValues.off;
@@ -11113,7 +11125,7 @@ namespace Radios
                     q.Enqueue((FunctionDel)(() => { band.MaxPower = dbm; }), "LoopbackDriveRestore");
                 }
             }
-            _lbEarsVfo = -1;
+            _lbResources = null;
             _lbDriveBand = null;
             Tracing.TraceLine("Loopback arrangement ended: " + (trouble == "" ? "clean" : trouble), TraceLevel.Info);
             return trouble;
