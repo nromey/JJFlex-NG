@@ -123,6 +123,9 @@ namespace Radios.Tests
 
         private static string Read(string relative)
         {
+            // The FlexBase class, read whole: FlexBase.cs and every partial.
+            if (relative == FlexBase) return FlexBasePartials.JoinedText();
+
             string path = Path.Combine(RepoRoot(), relative.Replace('/', Path.DirectorySeparatorChar));
             Assert.True(File.Exists(path), path + " is missing");
             return File.ReadAllText(path);

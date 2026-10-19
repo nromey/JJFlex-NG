@@ -109,7 +109,7 @@ namespace Radios.Tests
         [Fact]
         public void Production_binds_the_report_identity_and_passes_its_token_to_the_archive()
         {
-            string source = File.ReadAllText(Path.Combine(CaptureMeterSetTests.RepoRoot(), "Radios", "FlexBase.cs"));
+            string source = FlexBasePartials.JoinedText();   // every FlexBase partial
             Assert.Contains("ConnectionLifetime.Bind(report.Connection,", source);
             Assert.DoesNotContain("ConnectionLifetime.Bind(\r\n                theRadio,", source);
             Assert.Contains("token, r.Nickname", CaptureArchiveTests.ArchiveMethodBody(source));

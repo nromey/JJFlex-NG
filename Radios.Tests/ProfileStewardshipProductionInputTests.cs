@@ -24,8 +24,11 @@ namespace Radios.Tests
             return dir!.FullName;
         }
 
+        // The FlexBase class is read whole: FlexBase.cs and every partial.
         private static string Read(string relative) =>
-            File.ReadAllText(Path.Combine(RepoRoot(), relative.Replace('/', Path.DirectorySeparatorChar)));
+            relative == FlexBase
+                ? FlexBasePartials.JoinedText()
+                : File.ReadAllText(Path.Combine(RepoRoot(), relative.Replace('/', Path.DirectorySeparatorChar)));
 
         private static string BracedBlock(string text, string marker)
         {

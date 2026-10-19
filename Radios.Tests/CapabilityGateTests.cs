@@ -225,9 +225,11 @@ namespace Radios.Tests
         [Fact]
         public void DiversityFeedbackUsesTheQueuedTargetNotTheStateItJustLeft()
         {
-            string rigSource = ReadRepoFile("Radios/FlexBase.cs");
-            var root = CSharpSyntaxTree.ParseText(rigSource).GetRoot();
-            var toggle = root.DescendantNodes().OfType<MethodDeclarationSyntax>()
+            // Every FlexBase partial, each parsed on its own (a #define is
+            // file-scoped, so glued files would parse differently).
+            var toggle = FlexBasePartials.Files()
+                .SelectMany(f => CSharpSyntaxTree.ParseText(f.Text).GetRoot()
+                    .DescendantNodes().OfType<MethodDeclarationSyntax>())
                 .Single(m => m.Identifier.ValueText == "ToggleDiversity");
 
             Assert.Equal("bool", toggle.ReturnType.ToString());

@@ -105,7 +105,7 @@ namespace Radios.Tests
             // One fact, one vocabulary. The slice settle and the radio-setting
             // settle both speak this, and if either grows its own sentence the
             // rule above would be pinned on a line nobody speaks any more.
-            string src = Read("Radios/FlexBase.cs");
+            string src = FlexBasePartials.JoinedText();   // every FlexBase partial
             int uses = CountOf(src, "ProvisionalSliceChangeReceipt,");
 
             Assert.True(uses >= 2,

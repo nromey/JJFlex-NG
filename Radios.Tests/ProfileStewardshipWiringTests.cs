@@ -45,15 +45,14 @@ namespace Radios.Tests
 
         private static string Read(string relative)
         {
-            string text = File.ReadAllText(Path.Combine(RepoRoot(), relative.Replace('/', Path.DirectorySeparatorChar)));
             // FlexBase is a partial class; the station-first connect half
-            // (Sprint 45 Track G, 2026-09-21) lives beside it. The wiring
-            // under test spans both files.
-            if (relative == FlexBase)
-            {
-                text += File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "FlexBase.StationConnect.cs"));
-            }
-            return text;
+            // (Sprint 45 Track G, 2026-09-21) lives beside it, and the wiring
+            // under test spans the files. Read the whole class: FlexBase.cs and
+            // every partial, FlexBase.StationConnect.cs included exactly once
+            // (two tests below COUNT occurrences, so a file read twice would
+            // count its sites twice).
+            if (relative == FlexBase) return FlexBasePartials.JoinedText();
+            return File.ReadAllText(Path.Combine(RepoRoot(), relative.Replace('/', Path.DirectorySeparatorChar)));
         }
 
         // ------------------------------------------------------------------

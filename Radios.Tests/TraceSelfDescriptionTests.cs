@@ -632,7 +632,7 @@ namespace Radios.Tests
         public void The_writers_declare_their_kinds()
         {
             string root = CaptureMeterSetTests.RepoRoot();
-            string flexBase = File.ReadAllText(Path.Combine(root, "Radios", "FlexBase.cs"));
+            string flexBase = FlexBasePartials.JoinedText();   // every FlexBase partial
             Assert.Contains("private void traceTxMeters(", flexBase, StringComparison.Ordinal);   // control
             Assert.Contains("Tracing.TraceRecord(CaptureMeterSet.TxMetersRecord, \"txMeters: state=\"", flexBase, StringComparison.Ordinal);
             Assert.Contains("Tracing.TraceRecord(CaptureMeterSet.TxMetersRecord, \"txMeters: \" + census", flexBase, StringComparison.Ordinal);

@@ -205,9 +205,9 @@ namespace Radios.Tests
 
         private static string ReceiveBranch(out string src)
         {
-            string path = Path.Combine(IntegrationPassTree.Root, "Radios", "FlexBase.cs");
-            Assert.True(File.Exists(path), "Radios/FlexBase.cs has moved; this rule is scanning nothing.");
-            src = File.ReadAllText(path);
+            // Every FlexBase partial, not FlexBase.cs alone (FlexBasePartials
+            // throws if FlexBase.cs itself is missing).
+            src = FlexBasePartials.JoinedText();
 
             // Anchor on the inner gate's distinctive comment, then look at
             // the else branch that follows it.

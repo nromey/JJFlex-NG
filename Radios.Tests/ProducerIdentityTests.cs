@@ -364,7 +364,7 @@ public sealed class ProducerIdentityTests
         Assert.Contains("RadioClientReportKind.Handle, handle_uint", radio);
         Assert.Contains("RadioClientReportKind.Connected,", radio);
         Assert.Contains("RadioClientReportKind.Disconnected, handle_uint", radio);
-        string flex = Read("Radios/FlexBase.cs");
+        string flex = FlexBasePartials.JoinedText();   // every FlexBase partial
         Assert.Contains("rememberCommandRoute(r, handle, session.AccountId);", flex);
         Assert.Contains("ConnectionLifetime.Bind(report.Connection,", flex);
     }

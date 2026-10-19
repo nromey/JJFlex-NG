@@ -2059,7 +2059,7 @@ namespace Radios.Tests
             Assert.Contains("RigControl.RadioAvailability(serial, wanSighting)", globals, StringComparison.Ordinal);
             Assert.Contains("Return (avail.lan, avail.wan, wanSighting)", globals, StringComparison.Ordinal);
 
-            string flexBase = ReadRepoFile("Radios/FlexBase.cs");
+            string flexBase = FlexBasePartials.JoinedText();   // every FlexBase partial
             string reconnect = Body(flexBase, "public bool ReconnectRemote(");
             Assert.Contains("foundRadio = findRadioForConnect(serial, forceWanPath);", reconnect, StringComparison.Ordinal);
             Assert.DoesNotContain("findCurrentWanRadio(serial)", reconnect, StringComparison.Ordinal);
