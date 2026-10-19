@@ -233,7 +233,7 @@ The compander is not in this room, on purpose. It shapes your voice on transmit 
 
 ### Tracking notch filters — Ctrl+J, then Alt+N
 
-N for Notch, with Alt on it because it opens something rather than switching something on and off. Plain `N` is the old Noise Reduction toggle and isn't moving.
+N for Notch, with Alt on it because it opens something rather than switching something on and off. Plain `N` opens the noise layer, described above, so the Alt is the whole difference between the two.
 
 A tracking notch is the tool for one specific misery: the steady carrier. A birdie from a switching supply, a heterodyne from a station a little off frequency, the whistle that appears on 40 at the same spot every evening. Auto Notch goes hunting for that on its own, and when it works it's lovely. When it doesn't — when it keeps grabbing the wrong tone, or lets go every time the signal fades — this is where you point at the thing yourself and tell the radio to leave it alone.
 
