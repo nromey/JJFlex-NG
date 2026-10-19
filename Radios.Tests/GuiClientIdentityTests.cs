@@ -225,6 +225,27 @@ namespace Radios.Tests
             Assert.True(identity.IsOurs("stored-id"));
         }
 
+        [Fact]
+        public void ASessionOnlyIdentity_PresentsNothingAndStoresNothing_EvenWhenAnIdIsStored()
+        {
+            // The Connection Tester's rigs: in the operator's process, possibly
+            // beside the live connection that holds the stored id.
+            GuiClientIdentityStore.Write(Serial, 1, "the-live-connections-id");
+            var tester = GuiClientIdentity.ForConnect(Serial, 1, duplicateRefusedThisRun: false, useStore: false);
+            Assert.False(tester.Persistent);
+            Assert.Null(tester.StoredId);
+            Assert.Null(tester.PresentedId);
+            Assert.Contains("session-only", tester.DescribePresentation());
+
+            string line = tester.RadioReported("minted-for-the-tester");
+            Assert.Contains("session only", line);
+            Assert.Equal("the-live-connections-id", GuiClientIdentityStore.Read(Serial, 1));
+            Assert.Equal("minted-for-the-tester", tester.EffectiveId);
+            // And the tester's rig is told so.
+            Assert.Contains("rig.UseStoredGuiClientId = false;",
+                File.ReadAllText(Path.Combine(RepoRoot(), "Radios", "ConnectionTester.cs")), StringComparison.Ordinal);
+        }
+
         // ── the FlexBase seam, driven through the vendored Radio ───────────
 
         [Fact]

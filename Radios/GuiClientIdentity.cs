@@ -54,16 +54,27 @@ namespace Radios
         private string _radioReportedId;
         private bool _refusedAsDuplicate;
         private bool _storedThisAttempt;
+        private readonly bool _persist;
 
-        private GuiClientIdentity(string serial, int instance, string storedId, bool duplicateRefusedThisRun)
+        private GuiClientIdentity(string serial, int instance, string storedId, bool duplicateRefusedThisRun, bool persist)
         {
             Serial = serial ?? "";
             Instance = instance < 1 ? 1 : instance;
-            StoredId = string.IsNullOrWhiteSpace(storedId) ? null : storedId.Trim();
+            _persist = persist;
+            StoredId = !persist || string.IsNullOrWhiteSpace(storedId) ? null : storedId.Trim();
             DuplicateRefusedEarlierThisRun = duplicateRefusedThisRun;
             // Present the stored id unless this run has already had it refused.
             _presentedId = duplicateRefusedThisRun ? null : StoredId;
         }
+
+        /// <summary>
+        /// False for a SESSION-ONLY identity: nothing is read from the store,
+        /// nothing is presented, and the radio's mint is not written back.
+        /// The Connection Tester's throwaway rigs use this, because they run
+        /// in the same process as — and possibly at the same time as — the
+        /// operator's live connection, which holds the stored id.
+        /// </summary>
+        public bool Persistent => _persist;
 
         /// <summary>The radio this identity is for.</summary>
         public string Serial { get; }
@@ -141,10 +152,10 @@ namespace Radios
         /// <paramref name="duplicateRefusedThisRun"/> is the process-wide memory
         /// that an earlier attempt had the stored id refused.
         /// </summary>
-        public static GuiClientIdentity ForConnect(string serial, int instance, bool duplicateRefusedThisRun)
+        public static GuiClientIdentity ForConnect(string serial, int instance, bool duplicateRefusedThisRun, bool useStore = true)
         {
-            string stored = GuiClientIdentityStore.Read(serial, instance);
-            return new GuiClientIdentity(serial, instance, stored, duplicateRefusedThisRun);
+            string stored = useStore ? GuiClientIdentityStore.Read(serial, instance) : null;
+            return new GuiClientIdentity(serial, instance, stored, duplicateRefusedThisRun, useStore);
         }
 
         /// <summary>One sentence for the trace, written before <c>Radio.Connect</c>.</summary>
@@ -153,6 +164,9 @@ namespace Radios
             string where = FilePath ?? "(no per-radio store: the serial is malformed or there is no settings root)";
             lock (_sync)
             {
+                if (!_persist)
+                    return "session-only identity for radio " + Serial + ": presenting no id and storing none; the radio mints one for this connection only"
+                        + " (a throwaway rig, such as the connection tester's, must not present the id the operator's live connection may hold)";
                 if (_presentedId != null)
                     return "presenting stored id " + _presentedId + " for radio " + Serial + ", instance " + Instance
                         + " (from " + where + "); the radio should recognise this client and restore its own panadapters and slices";
@@ -184,7 +198,7 @@ namespace Radios
                 // Store only a fresh mint for a radio and instance with nothing
                 // stored, once per attempt. A session-only id after a refusal is
                 // not stored: the stored id is kept.
-                store = presented == null && StoredId == null && !_storedThisAttempt;
+                store = _persist && presented == null && StoredId == null && !_storedThisAttempt;
                 if (store) _storedThisAttempt = true;
             }
 
@@ -205,7 +219,8 @@ namespace Radios
             }
 
             return "the radio reports our client_id=" + clientId + " — freshly minted for this session only"
-                + (StoredId != null ? " (the stored id " + StoredId + " is kept after the duplicate refusal)" : "");
+                + (StoredId != null ? " (the stored id " + StoredId + " is kept after the duplicate refusal)"
+                   : !_persist ? " (session-only identity; nothing is stored)" : "");
         }
 
         /// <summary>The radio refused the presented id as a duplicate.</summary>

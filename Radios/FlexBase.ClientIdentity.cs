@@ -51,6 +51,16 @@ namespace Radios
         public GuiClientIdentity ClientIdentity { get; private set; }
 
         /// <summary>
+        /// Whether this rig presents the stored GUI client id and stores the
+        /// radio's mint. True for the operator's rig. False makes every
+        /// connect a session-only identity: the Connection Tester builds
+        /// throwaway rigs in the same process as the live connection, and a
+        /// second rig presenting the live one's id would make the radio
+        /// refuse one of the two as a duplicate — and nothing says which.
+        /// </summary>
+        public bool UseStoredGuiClientId { get; set; } = true;
+
+        /// <summary>
         /// Choose the id for this attempt and say so in the trace. Returns
         /// what <c>Radio.Connect</c> is handed: the stored id, or null for
         /// "radio, mint one".
@@ -59,7 +69,7 @@ namespace Radios
         {
             var radio = theRadio;
             string serial = radio?.Serial ?? "";
-            var identity = GuiClientIdentity.ForConnect(serial, _programInstance, _clientIdRefusedThisRun);
+            var identity = GuiClientIdentity.ForConnect(serial, _programInstance, _clientIdRefusedThisRun, UseStoredGuiClientId);
             ClientIdentity = identity;
             Tracing.TraceLine("GuiClientIdentity: " + why + " — " + identity.DescribePresentation(), TraceLevel.Info);
             return identity.PresentedId;
