@@ -1042,6 +1042,10 @@ namespace Radios.Tests
                 "audio.iq.reason.sent-checksum",
                 "audio.iq.reason.arrangement-not-confirmed",
                 "settings.guard.action.iq_take",
+                "audio.iq.reason.command-queue-stalled",
+                "audio.iq.unreadable_offer",
+                "audio.iq.unreadable_acknowledge",
+                "audio.iq.unreadable_archived",
             };
 
             Assert.Equal(3152, unclassified);

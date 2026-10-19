@@ -37,6 +37,17 @@ public static class TakeAudio
         }
         throw new InvalidDataException("wav-data-missing");
     }
+    public static float[] KeepOnlySpans(float[] samples, System.Collections.Generic.IEnumerable<TakeSpan> spans)
+    {
+        var selected = new float[samples.Length];
+        foreach (var span in spans)
+        {
+            int from = (int)Math.Clamp(span.Start, 0, samples.Length);
+            int to = (int)Math.Clamp(span.End, from, samples.Length);
+            Array.Copy(samples, from, selected, from, to - from);
+        }
+        return selected;
+    }
     public static float[] Resample(float[] samples, int fromRate, int toRate)
     {
         if (fromRate == toRate) return samples;

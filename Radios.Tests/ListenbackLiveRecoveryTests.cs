@@ -31,6 +31,7 @@ public sealed class ListenbackLiveRecoveryTests : IDisposable
         }
         var store = new RadioRecoveryStore(Path.Combine(RadioConfig.AppDataRoot, "listenback-recovery"));
         store.Save(snapshot);
+        fixture.Vendor.Status("radio full_duplex_enabled=1"); // a real restore, not an already-correct no-op
         fixture.Vendor.Transport.Written.Clear();
         Assert.False(await fixture.Rig.RestoreListenbackSnapshotAsync(snapshot, false));
         Assert.Empty(fixture.Vendor.Transport.Commands);

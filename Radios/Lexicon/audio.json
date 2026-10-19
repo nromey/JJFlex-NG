@@ -918,5 +918,9 @@
   "audio.iq.unlike_or_unaligned": {"text": "These takes have different receiving conditions, or their content does not align confidently. Use the same reference recording and receiving setup; no numerical comparison was made.", "delivery": null},
   "audio.iq.reason.sent-checksum": {"text": "the sent reference checksum failed.", "delivery": null},
   "audio.iq.reason.arrangement-not-confirmed": {"text": "the radio did not confirm the transverter antenna, one-watt power, full duplex and monitor-off arrangement. No automatic keying was attempted.", "delivery": null},
-  "audio.iq.listen_method_help": {"text": "Monitor plays the radio monitor. Record and play back records processed audio. Off the air, then play back receives your signal as IQ and plays it after you stop, using the two-receiver transverter arrangement. It requires one watt; Dummy Load mode must be off.", "delivery": null}
+  "audio.iq.listen_method_help": {"text": "Monitor plays the radio monitor. Record and play back records processed audio. Off the air, then play back receives your signal as IQ and plays it after you stop, using the two-receiver transverter arrangement. It requires one watt; Dummy Load mode must be off.", "delivery": null},
+  "audio.iq.reason.command-queue-stalled": {"text": "The radio command queue did not run the request within ten seconds. Preparation stopped; this was not an operator cancellation.", "delivery": null},
+  "audio.iq.unreadable_offer": {"text": "The saved take recovery record cannot be read or does not match this radio. No saved commands can be trusted. Inspect and restore the radio settings yourself before acknowledging. Acknowledging preserves this exact file for review and allows new takes; it does not claim that the radio was restored.", "delivery": null},
+  "audio.iq.unreadable_acknowledge": {"text": "I inspected the radio; preserve the unreadable record and allow new takes", "delivery": null},
+  "audio.iq.unreadable_archived": {"text": "The unreadable record was preserved for review. New takes are allowed. No radio settings were restored by this action.", "delivery": null}
 }

@@ -104,7 +104,9 @@ namespace Radios
         /// <summary>
         /// Add a pan and slice.
         /// </summary>
-        public bool NewSlice()
+        public bool NewSlice() => NewSlice(null);
+
+        private bool NewSlice(LoopbackSliceResources resources)
         {
             // Use model-based TotalMaxSlices (always correct) instead of theRadio.MaxSlices
             // which reports available-remaining (can be 0 at startup when profile fills all slots).
@@ -119,16 +121,23 @@ namespace Radios
             // wrong slice. (QB Track J)
             int myRXSliceIndex = VFOToSliceIndex(RXVFO);
             int myTXSliceIndex = VFOToSliceIndex(TXVFO);
+            resources?.ExpectCreationReply();
             mySliceAdded = false; // need to know when slice added.
             // #117: this application asked, so the resulting layout is
             // provisional and the operator gets told so once it settles.
             NoteOperatorChangedSliceSet();
             q.Enqueue((FunctionDel)(() =>
             {
-                theRadio.RequestPanafall();
+                if (resources == null) theRadio.RequestPanafall();
+                else theRadio.SendReplyCommand((sequence, code, reply) => resources.CreatedPanReply(code, reply),
+                    "display panafall create x=100 y=100");
                 if (await(() =>
                 {
                     // await both slice and panadapter.
+                    if (resources != null)
+                    {
+                        lock (mySlices) return resources.Capture(mySlices, theRadio.PanadapterList);
+                    }
                     return mySliceAdded & (MyNumPanadapters == MyNumSlices);
                 }, 3000))
                 {

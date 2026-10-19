@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -10,6 +11,8 @@ namespace Radios.Listenback;
 
 public sealed record SavedRadioSetting(string Name, string Value, string RestoreCommand,
     string StatusPrefix = "", string StatusKey = "", string ResourceKind = "", uint ResourceId = 0);
+public sealed record RecoveryResource(string Kind, uint Id, uint Owner, uint PanId, double Frequency,
+    string Mode, string Antenna);
 public sealed class RadioRecoverySnapshot
 {
     public int Format { get; set; } = 1;
@@ -21,6 +24,11 @@ public sealed class RadioRecoverySnapshot
     public List<SavedRadioSetting> Settings { get; set; } = new();
     public List<string> ResourceNotes { get; set; } = new();
     public bool ResourceCreationPending { get; set; }
+    public string GuiClientId { get; set; }
+    public int? PriorActiveSlice { get; set; }
+    public List<RecoveryResource> Resources { get; set; } = new();
+    public string UnreadableHash { get; set; }
+    public string ReadProblem { get; set; }
 }
 
 /// <summary>
@@ -38,10 +46,33 @@ public sealed class RadioRecoveryStore
     {
         string path = PathFor(serial);
         if (!File.Exists(path)) return null;
-        var saved = JsonSerializer.Deserialize<RadioRecoverySnapshot>(File.ReadAllText(path))
-            ?? throw new InvalidDataException("recovery-empty");
-        if (saved.Format != 1 || saved.Serial != serial) throw new InvalidDataException("recovery-identity");
-        return saved;
+        byte[] bytes = File.ReadAllBytes(path);
+        try
+        {
+            var saved = JsonSerializer.Deserialize<RadioRecoverySnapshot>(bytes)
+                ?? throw new InvalidDataException("recovery-empty");
+            if (saved.Format != 1 || saved.Serial != serial || saved.Settings == null || saved.ResourceNotes == null ||
+                saved.Resources == null || string.IsNullOrEmpty(saved.TakeDirectory) || saved.UnreadableHash != null ||
+                saved.Settings.Any(s => s == null || string.IsNullOrEmpty(s.Name) || s.RestoreCommand == null || s.Value == null || s.ResourceKind == null || s.StatusPrefix == null || s.StatusKey == null) ||
+                saved.Resources.Any(r => r == null) || saved.ResourceNotes.Any(n => n == null))
+                throw new InvalidDataException("recovery-identity");
+            return saved;
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidDataException)
+        {
+            return new() { Serial = serial, UnreadableHash = Convert.ToHexString(SHA256.HashData(bytes)), ReadProblem = ex.GetType().Name };
+        }
+    }
+    // This is an explicit acknowledgement after manual inspection, never a
+    // successful restoration. Preserve the exact evidence, including wrong-radio files.
+    public bool ArchiveUnreadable(RadioRecoverySnapshot offered, bool operatorApproved)
+    {
+        if (!operatorApproved || offered.UnreadableHash == null) return false;
+        var current = Find(offered.Serial);
+        if (current?.UnreadableHash != offered.UnreadableHash) return false;
+        string path = PathFor(offered.Serial);
+        File.Move(path, path + ".unreadable-" + Guid.NewGuid().ToString("N"));
+        return true;
     }
     public void Save(RadioRecoverySnapshot snapshot)
     {
@@ -58,6 +89,7 @@ public sealed class RadioRecoveryStore
         Func<SavedRadioSetting, Task<bool>> restoreAndConfirm, bool operatorApproved)
     {
         if (!operatorApproved) return false;
+        if (snapshot.UnreadableHash != null) return false;
         // Snapshot creation is serialized by the owning radio session. Never
         // clear a newer take's recovery record from an old asynchronous cleanup.
         var current = Find(snapshot.Serial);

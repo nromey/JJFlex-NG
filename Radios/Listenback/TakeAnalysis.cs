@@ -94,6 +94,8 @@ public static class TakeAnalysis
                 sentGaps.Add(new(offset + at * rate / sentRate, offset + (at + length) * rate / sentRate));
             }
             spans = TakeTimeline.WithoutGaps(spans, sentGaps);
+            reference = TakeAudio.KeepOnlySpans(reference, spans);
+            analysis.Write("reference-scope", "radio-keyed gap-free spans only; unkeyed room audio excluded");
             alignment = AudioAlignment.Measure(reference, heard, rate, spans);
             // Boundary evidence is independent of content; a gross conflict is
             // retained and prevents a numerical differential being promoted.

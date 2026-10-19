@@ -88,6 +88,9 @@ public sealed class ListenbackAlignmentTests
             var samples = new float[960];
             for (int i = 0; i < 20; ++i) Assert.True(pipeline.Emit(samples, samples.Length, 48000));
             await sent.StopAsync(header, true);
+            var facts = TakeHeader.Read(Path.Combine(root, "sent.txt"));
+            Assert.Contains("receive-time PC microphone and room audio", facts.Single(p => p.Key == "capture-scope").Value);
+            Assert.Contains("unkeyed samples excluded", facts.Single(p => p.Key == "analysis-scope").Value);
             var wav = TakeAudio.ReadMono(Path.Combine(root, "sent.wav"));
             Assert.Equal(48000, wav.Rate); Assert.Equal(20 * 480, wav.Samples.Length);
             Assert.Equal(0, conditioned); Assert.Contains(wav.Samples, s => Math.Abs(s) > .1);

@@ -41,7 +41,12 @@ namespace Radios.Tests.StationConnect
             return true;
         }
         public override void Disconnect() { }
-        public override void Write(string msg) { lock (Written) Written.Add(msg ?? ""); }
+        public Action<string>? CommandWritten;
+        public override void Write(string msg)
+        {
+            lock (Written) Written.Add(msg ?? "");
+            CommandWritten?.Invoke(CommandText(msg ?? ""));
+        }
 
         /// <summary>The commands as text, without the "C&lt;seq&gt;|" prefix or the newline.</summary>
         public List<string> Commands

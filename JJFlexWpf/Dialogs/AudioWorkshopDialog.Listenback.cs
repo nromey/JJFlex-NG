@@ -90,10 +90,24 @@ public partial class AudioWorkshopDialog
     }
     private void IqStatus(string text, bool failure = false)
     {
-        if (_iqClosing) return;
+        if (_iqClosing)
+        {
+            if (failure) AnnounceClosedRecovery(false);
+            return;
+        }
         if (_takeStatus != null) _takeStatus.Text = text;
         if (failure) EarconPlayer.LeaderInvalidTone();
         ScreenReaderOutput.Speak(text, failure ? VerbosityLevel.Critical : VerbosityLevel.Terse);
+    }
+    private void AnnounceClosedRecovery(bool restored)
+    {
+        // Deliver after the closing window's focus transition, not into the
+        // speech that the screen reader discards with that window.
+        Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() =>
+        {
+            if (restored) EarconPlayer.ConfirmTone(); else EarconPlayer.LeaderInvalidTone();
+            ScreenReaderOutput.Speak(Lexicon.Get(restored ? "audio.iq.restored" : "audio.iq.recovery_pending"), VerbosityLevel.Critical);
+        }));
     }
     private void IqFailure(Exception ex)
     {
@@ -149,6 +163,7 @@ public partial class AudioWorkshopDialog
         try
         {
             await run.StopAsync(reason);
+            if (_iqClosing) { AnnounceClosedRecovery(run.Restored); return; }
             _lastIqDirectory = run.DirectoryPath;
             var take = TakeReader.Inspect(run.DirectoryPath);
             if (!run.Restored) IqStatus(Lexicon.Get("audio.iq.recovery_pending"), true);
@@ -197,6 +212,7 @@ public partial class AudioWorkshopDialog
         IqStatus(Lexicon.Get("audio.iq.preparing"));
         try
         {
+            if (!rig.OffAirListenbackSupported) throw new InvalidOperationException("one-scu-not-confirmed");
             if (rig.RemoteRig && !rig.HasCleanListenbackPreflight)
             {
                 IqStatus(Lexicon.Get("audio.iq.preflight_running"));
@@ -328,6 +344,12 @@ public partial class AudioWorkshopDialog
             bool approved = ListenbackRecoveryPrompt.Confirm(snapshot);
             if (!approved) return;
             _iqBusy = true;
+            if (snapshot.UnreadableHash != null)
+            {
+                bool archived = _rig.AcknowledgeUnreadableListenbackRecovery(snapshot, true);
+                IqStatus(Lexicon.Get(archived ? "audio.iq.unreadable_archived" : "audio.iq.recovery_pending"), !archived);
+                return;
+            }
             bool restored = await _rig.RestoreListenbackSnapshotAsync(snapshot, true);
             IqStatus(Lexicon.Get(restored ? "audio.iq.restored" : "audio.iq.recovery_pending"), !restored);
         }

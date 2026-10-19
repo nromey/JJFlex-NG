@@ -11056,7 +11056,7 @@ namespace Radios
             // Ears slice: create, then configure once it exists (the NewSlice
             // queue item awaits creation internally, so this enqueued config
             // runs after it).
-            if (!NewSlice())
+            if (!NewSlice(resources))
             {
                 Tracing.TraceLine("StartLoopbackArrangement: NewSlice refused", TraceLevel.Error);
                 rollbackLoopback();
@@ -11100,19 +11100,25 @@ namespace Radios
                     (ReferenceEquals(resources.Slice, VFOToSlice(RXVFO)) ||
                      ReferenceEquals(resources.Slice, SliceForTransmitSetting())))
                     trouble = "The listening slice is your active slice, so it was kept. ";
+                bool reservedRemoval = resources != null && (resources.Slice == null ||
+                    (!ReferenceEquals(resources.Slice, VFOToSlice(RXVFO)) && !ReferenceEquals(resources.Slice, SliceForTransmitSetting())));
+                if (reservedRemoval) System.Threading.Interlocked.Increment(ref _pendingRemovals);
                 q.Enqueue((FunctionDel)(() =>
                 {
-                    if (!ReferenceEquals(theRadio, arrangementRadio) || resources == null) return;
-                    lock (mySlices)
+                    try
                     {
-                        if (!resources.IsPresent(mySlices, arrangementRadio.PanadapterList)) return;
-                        mySliceRemoved = false;
-                        if (!resources.Release(mySlices, arrangementRadio.PanadapterList,
-                            VFOToSlice(RXVFO), SliceForTransmitSetting())) return;
+                        if (!ReferenceEquals(theRadio, arrangementRadio) || resources == null) return;
+                        lock (mySlices)
+                        {
+                            mySliceRemoved = false;
+                            if (!resources.Release(mySlices, arrangementRadio.PanadapterList,
+                                VFOToSlice(RXVFO), SliceForTransmitSetting())) return;
+                        }
+                        NoteOperatorChangedSliceSet();
+                        if (!await(() => mySliceRemoved, 3000))
+                            Tracing.TraceLine("Loopback ears removal: radio confirmation timed out", TraceLevel.Error);
                     }
-                    NoteOperatorChangedSliceSet();
-                    if (!await(() => mySliceRemoved, 3000))
-                        Tracing.TraceLine("Loopback ears removal: radio confirmation timed out", TraceLevel.Error);
+                    finally { if (reservedRemoval) System.Threading.Interlocked.Decrement(ref _pendingRemovals); }
                 }), "LoopbackEarsRemove");
                 TXAntennaName = _lbSavedTxAnt;
                 XmitPower = _lbSavedPower;

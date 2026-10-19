@@ -25,6 +25,8 @@ public sealed class SentAudioWriter
     {
         _directory = directory; _pipeline = pipeline;
         _header = new TakeHeader(Path.Combine(directory, "sent.txt"), "jjflex-sent-1");
+        _header.Write("capture-scope", "whole take, including receive-time PC microphone and room audio; not only transmitted audio");
+        _header.Write("analysis-scope", "radio-keyed gap-free spans only; unkeyed samples excluded without closing time gaps");
         _subscription = _feed.Subscribe(Accept);
         pipeline.BeforeEncode += Copy;
     }
