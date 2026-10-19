@@ -271,6 +271,8 @@
   "settings.guard.connected": "Change nothing is on for this radio. Its own settings and profiles stay as they are.",
   "settings.guard.firmware_blocked": "Change nothing is on for this radio. Turn it off in Settings, under Radios, before sending firmware.",
   "settings.guard.layout_save_blocked": "Change nothing is on for this radio, so nothing can be saved to it. The setting is in Settings, under Radios.",
+  "settings.guard.layout_save_not_our_radio": { "text": "This radio is marked as someone else's, so JJ Flexible did not save the station to it. Saving would replace its owner's profile. If the radio is yours after all, change that under Whose radio is this, in Settings, under Radios.", "delivery": null },
+  "settings.guard.layout_save_ownership_unknown": { "text": "JJ Flexible does not know yet whether this radio is yours, so it did not save the station to it. Saving would replace its owner's profile. Answer under Whose radio is this, in Settings, under Radios, then save again.", "delivery": null },
   "settings.guard.layout_save_roster_unknown": "JJ Flexible cannot tell yet whether another operator is on this radio, so it will not save the station layout. Try again in a moment.",
   "settings.guard.mic_stays": "Change nothing is on for this radio, so its microphone source stays as it is. Audio from this computer will not be transmitted.",
   "settings.guard.refused": "Change nothing is on for this radio, so JJ Flex did not {action}. The setting is in Settings, under Radios.",

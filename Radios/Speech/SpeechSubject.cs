@@ -499,5 +499,18 @@ namespace Radios.Speech
         /// next clear.
         /// </summary>
         public const string AtuMemories = "atu-memories";
+
+        /// <summary>
+        /// A global-profile write refused because the radio is not declared
+        /// the operator's, or its ownership is not yet answered (junkbox
+        /// #777). Spoken from the funnel every global save passes through,
+        /// in answer to the operator's own press on the Profiles dialog's
+        /// Save, so the next such press covers it. Its own subject because it
+        /// is a statement about WHOSE radio this is, not about the hold or the
+        /// roster, and the operator's remedy — Settings, under Radios — is
+        /// different from either. The menu route speaks the same sentence
+        /// through the menu-close path, which carries no subject today.
+        /// </summary>
+        public const string GlobalProfileWriteRefusal = "global-profile-write-refusal";
     }
 }

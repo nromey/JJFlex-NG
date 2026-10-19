@@ -2695,42 +2695,102 @@ namespace Radios
         /// </summary>
         public string StationLayoutSaveBlocker()
         {
-            if (theRadio == null || !IsConnected)
-                return "There is no radio connected to save to.";
+            // Decision and ORDER: StationLayoutSaveGuard.Decide (#777). This
+            // gathers the facts and owns the sentences.
+            var radio = theRadio;
+            bool connected = radio != null && IsConnected;
+            var ownership = RadioConfig.OwnershipOf(radio?.Serial);
+            var refusal = StationLayoutSaveGuard.Decide(
+                connected: connected,
+                ownership: ownership,
+                holdArmed: ChangeNothingActive,
+                presence: connected ? OtherOperatorPresence : RosterVerdict.Unknown,
+                hasGlobalProfile: CurrentGlobalProfileName != null);
 
-            // The change-nothing hold. Ahead of the MultiFlex refusal because
-            // it is the operator's own standing order about THIS radio, and
-            // the sentence they should hear is the one that names it.
-            if (ChangeNothingActive)
-                return Lexicon.Get("settings.guard.layout_save_blocked");
+            switch (refusal)
+            {
+                case StationLayoutSaveRefusal.NoRadio:
+                    return "There is no radio connected to save to.";
 
-            // The MultiFlex refusal, and it is the load-bearing one.
-            //
-            // A global profile is STATION state: one per radio, shared by
-            // everyone who connects. Saving it captures the whole station as it
-            // looks at this instant — including slices belonging to another
-            // operator who is on the radio right now and did not ask for their
-            // layout to be written into the owner's profile. There is no way to
-            // save "only my part", because the radio has no such concept.
-            //
-            // Note the fail-safe direction: the roster verdict is Unknown
-            // until our own handle is in the live roster, so an early call
-            // refuses rather than guesses. Refusing costs the operator one
-            // retry; guessing wrong costs somebody their layout. Unknown is
-            // NAMED as uncertainty (design section 5), never announced as a
-            // person being connected.
-            var presence = OtherOperatorPresence;
-            if (presence == RosterVerdict.OthersPresent)
-                return "Another operator is connected to this radio. "
-                     + "Saving now would store their setup as well as yours.";
-            if (presence == RosterVerdict.Unknown)
-                return Lexicon.Get("settings.guard.layout_save_roster_unknown");
+                case StationLayoutSaveRefusal.NotOurRadio:
+                case StationLayoutSaveRefusal.OwnershipUnknown:
+                    return OwnershipRefusalSentence(refusal);
 
-            if (CurrentGlobalProfileName == null)
-                return "This radio has no global profile loaded, so there is "
-                     + "nothing to save into. Use Radio, then Profiles, to make one.";
+                case StationLayoutSaveRefusal.ChangeNothing:
+                    return Lexicon.Get("settings.guard.layout_save_blocked");
 
-            return null;
+                // The MultiFlex refusal. Saving captures the whole station as
+                // it looks at this instant, including another operator's
+                // slices; the radio has no "only my part". Unknown is NAMED as
+                // uncertainty (design section 5), never announced as a person
+                // being connected.
+                case StationLayoutSaveRefusal.OthersPresent:
+                    return "Another operator is connected to this radio. "
+                         + "Saving now would store their setup as well as yours.";
+                case StationLayoutSaveRefusal.RosterUnknown:
+                    return Lexicon.Get("settings.guard.layout_save_roster_unknown");
+
+                case StationLayoutSaveRefusal.NoGlobalProfile:
+                    return "This radio has no global profile loaded, so there is "
+                         + "nothing to save into. Use Radio, then Profiles, to make one.";
+
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>
+        /// The sentence for an ownership refusal — the radio is declared
+        /// someone else's, or the question was never answered. Both name where
+        /// the answer is given (Settings, under Radios), because #638 showed an
+        /// owner can sit at an unanswered question for weeks without knowing
+        /// one was asked, and a refusal he cannot act on is a dead end. Neither
+        /// promises a local copy: RecordOwnStationLayout records the station
+        /// only for a radio declared Mine, so on these radios nothing is saved
+        /// anywhere, and the sentence says only what is true.
+        /// </summary>
+        private static string OwnershipRefusalSentence(StationLayoutSaveRefusal refusal)
+        {
+            // DRAFT PROSE (#777): awaiting Noel — both keys.
+            return refusal == StationLayoutSaveRefusal.NotOurRadio
+                ? Lexicon.Get("settings.guard.layout_save_not_our_radio")
+                : Lexicon.Get("settings.guard.layout_save_ownership_unknown");
+        }
+
+        /// <summary>
+        /// The ownership gate on the funnel every global-profile write passes
+        /// through. True, having traced and spoken the refusal, when the radio
+        /// is not declared the operator's. False when it is — or when there is
+        /// no radio at all, which is not this gate's question and is left to
+        /// the caller's own no-radio handling exactly as before #777.
+        /// </summary>
+        /// <remarks>
+        /// Needed because <see cref="StationLayoutSaveBlocker"/> is asked only
+        /// by the layout save; the Profiles dialog's Save button and the
+        /// WinForms form's Save button reach <see cref="SaveProfile"/> directly
+        /// with a NAMED global profile, and until #777 nothing on that route
+        /// asked whose radio it was. Speaks here, like <c>GuardRefuses</c>,
+        /// because not every caller honours the return value.
+        /// </remarks>
+        private bool OwnershipRefusesGlobalProfileWrite(string profileName)
+        {
+            var radio = theRadio;
+            if (radio == null) return false;
+            var refusal = StationLayoutSaveGuard.OwnershipRefusal(RadioConfig.OwnershipOf(radio.Serial));
+            if (refusal == StationLayoutSaveRefusal.None) return false;
+
+            Tracing.TraceLine(
+                "SaveProfile: refused global write of '" + profileName + "' on radio " + radio.Serial
+                + " — " + refusal + " (#777)", TraceLevel.Warning);
+            if (!SuppressSpeech)
+            {
+                ScreenReaderOutput.Speak(
+                    OwnershipRefusalSentence(refusal),
+                    Speech.SpeechIntent.Interrupt,
+                    VerbosityLevel.Critical,
+                    subject: Speech.SpeechSubject.GlobalProfileWriteRefusal);
+            }
+            return true;
         }
 
         /// <summary>

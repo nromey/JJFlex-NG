@@ -941,6 +941,22 @@ namespace Radios.Tests
                 // a value layer now refuses before asking the registry because
                 // forwarded it would start frequency entry. DRAFT awaiting Noel.
                 "audio.value_layer.typed_number",
+
+                // Junkbox #777, 2026-10-19: the station-layout save refused
+                // because the radio is declared someone else's, or its
+                // ownership was never answered. Classified rather than frozen
+                // (#720). delivery: null - TextOnly - on the #726 reasoning:
+                // each is spoken ONLY in answer to the operator's own press
+                // (the menu's Save Station Setup to Radio, or the Profiles
+                // dialog's Save), the application never says either on its
+                // own account, and a refusal whose sentence names the remedy
+                // must not be shortened by the verbosity machinery. Their
+                // siblings settings.guard.layout_save_blocked and
+                // .layout_save_roster_unknown are legacy and still frozen;
+                // WHEN THE PASS REACHES THEM, DECIDE ALL FOUR TOGETHER. Both
+                // wordings are DRAFTS awaiting Noel.
+                "settings.guard.layout_save_not_our_radio",
+                "settings.guard.layout_save_ownership_unknown",
             };
 
             Assert.Equal(3152, unclassified);
