@@ -5525,24 +5525,28 @@ public class KeyCommands
     /// </summary>
     /// <remarks>
     /// <para>
-    /// It answers for OUR vocabulary and makes no claim about Windows'. Until
-    /// #778 that was safe because the answer decided nothing on its own — it
-    /// was consulted alongside <see cref="LayerNearMiss"/>, letters-only, so
-    /// Tab, Space and the navigation keys, whose meanings live below us where
-    /// the registry cannot see them, left exactly as they did. Since #778 a
-    /// "no" from here KEEPS the key inside the layer, so those keys now stay
-    /// too: a value layer is modal, and its exits are Enter and Escape. That
-    /// is reported under #778 as a consequence for Noel to rule on, and this
-    /// method deliberately does not try to second-guess Windows to soften it
-    /// — a guess here would reopen the fall-through for whichever key it
-    /// guessed wrong.
+    /// It answers for OUR vocabulary — the key table — and makes no claim
+    /// about anything else, and THE KEY TABLE IS NOT THE WHOLE KEY MAP.
+    /// <c>MainWindow_PreviewKeyDown</c> handles Ctrl+Space (hold to talk),
+    /// Shift+Space (the transmit lock, which also unlocks), Escape while
+    /// transmitting, and the bare, Shift and Ctrl bracket filter keys in
+    /// branches of its own with no registry rows; Tab, Space and the page keys
+    /// mean things below us. So the engine consults this ONLY for a letter
+    /// with no Ctrl or Alt, and for the near-miss check — the two places
+    /// where a "no" is evidence — and lets everything else travel. #778's
+    /// first round consulted it for every key and swallowed push-to-talk
+    /// inside a live layer (Codex, 2026-10-19, blocker B1); that is why the
+    /// engine, not this method, draws the line, and why this method does not
+    /// try to enumerate the main window's branches — a second hand-kept list
+    /// of them would drift the day someone added one.
     /// </para>
     /// <para>
     /// Within letters the answer is sound: no bare letter is bound anywhere in
     /// the default table, in any scope, so a bare letter this says no to
-    /// genuinely has nowhere to go. Bare digits are likewise unbound (the
-    /// Ctrl+digit message slots are chords), and the engine consumes them
-    /// before asking this anyway.
+    /// genuinely has nowhere to go; the Shift-only letter chords Home owns
+    /// universally (Shift+M, mute all slices) ARE rows here and travel. Bare
+    /// digits are likewise unbound (the Ctrl+digit message slots are chords),
+    /// and the engine consumes them before asking this anyway.
     /// </para>
     /// </remarks>
     private bool MeansSomethingOutsideTheLayer(Keys k) => Lookup(k) != null;

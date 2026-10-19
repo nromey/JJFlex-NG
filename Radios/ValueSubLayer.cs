@@ -129,11 +129,15 @@ namespace Radios
     public enum ValueLayerRefusal
     {
         /// <summary>
-        /// The key means nothing outside the layer — the host's registry has
-        /// no chord for it — so leaving would have been a mode change bought
-        /// for no gain, and the next keystroke would land somewhere the
-        /// operator did not believe they were (#547's principle, applied to
-        /// every such key and not only to near misses).
+        /// A LETTER, with no Ctrl or Alt, that this layer does not bind and the
+        /// host's registry has no chord for — Noel's Z. Leaving on it would be
+        /// a mode change bought for no gain, and the next keystroke would land
+        /// somewhere the operator did not believe they were (#547's principle,
+        /// applied to every unbound letter and not only to near misses). Only
+        /// letters: the main window handles push-to-talk, the transmit lock
+        /// and the bracket filter keys in branches of its own that the
+        /// registry never lists, so for anything but a letter a registry "no"
+        /// proves nothing and the key travels as it always did.
         /// </summary>
         NowhereToGo,
 
@@ -141,8 +145,9 @@ namespace Radios
         /// The key is one that STARTS TYPED ENTRY on the main window — a bare
         /// digit on either row. Forwarded, it begins frequency entry on the
         /// frequency field, jumps a slice on the pan field, or begins number
-        /// entry on a value box; "14, Enter" meant as a gain becomes a
-        /// retune. Consumed here whatever the registry says about it.
+        /// entry on a value box; "4, 0, 0, Enter" meant as a 400 millisecond
+        /// VOX delay is 400 kilohertz. Consumed here whatever the registry
+        /// says about it.
         /// </summary>
         TypedEntry,
     }
@@ -168,14 +173,15 @@ namespace Radios
         Closed,
 
         /// <summary>
-        /// The layer confirmed and closed, and the key was NOT consumed: an
-        /// unhandled key that MEANS SOMETHING OUTSIDE — a chord the host's
-        /// registry answers for — keeps the value and travels on to mean what
-        /// it always means, because the operator who pressed it meant to go
-        /// there. A key with nowhere to go, or one that would start typed
-        /// entry, is refused and stays instead (#778); the stuck-modal answer
-        /// is Escape and Enter, which no key can take away, not "every key
-        /// leaves".
+        /// The layer confirmed and closed, and the key was NOT consumed: it
+        /// keeps the value and travels on to mean what it always means — a
+        /// registry chord, a main-window chord the registry never lists
+        /// (push-to-talk, the transmit lock, the bracket filter keys), Tab,
+        /// Space, the page keys, anything the layer cannot KNOW to be
+        /// meaningless. Two classes are refused and kept instead (#778): a
+        /// bare digit, which would start typed entry, and an unbound letter
+        /// with no Ctrl or Alt, which has nowhere to go. The stuck-modal
+        /// answer is Escape and Enter, which no key can take away.
         /// </summary>
         ClosedPassThrough,
 
@@ -571,30 +577,32 @@ namespace Radios
         /// </summary>
         /// <remarks>
         /// <para>
-        /// #547. The engine's unhandled-key rule WAS "keep the value, close out
+        /// #547. The engine's unhandled-key rule is "keep the value, close out
         /// loud, and travel on to mean what it always means" — and the last
         /// clause is a promise the engine cannot keep on its own. A key with
         /// no meaning to travel to leaves the layer and then does nothing,
-        /// which is a mode change bought for no gain. Since #778 that is the
-        /// whole rule: a key this answers false for is refused and STAYS,
-        /// whether or not it is a near miss; only a key this answers true for
-        /// leaves.
+        /// which is a mode change bought for no gain. #547 used this to keep a
+        /// near miss inside; #778 uses it to keep every unbound LETTER inside.
         /// </para>
         /// <para>
         /// Null, or a host that answers false, means "no meaning out there",
-        /// and that is the deliberate DEFAULT: it is the answer under which
-        /// the key is kept inside. Defaulting the other way would make every
-        /// key leave in any layer that forgot to wire it — the invisible
+        /// and that is the deliberate DEFAULT: it is the answer under which a
+        /// letter is kept inside. Defaulting the other way would make every
+        /// letter leave in any layer that forgot to wire it — the invisible
         /// failure this exists to close.
         /// </para>
         /// <para>
-        /// The host answers for ITS vocabulary, the key registry, and makes no
-        /// claim about Windows'. Tab, Space, the page keys and an unbound
-        /// function key therefore read as "nowhere to go" and are kept inside
-        /// too — a value layer is modal, and its exits are Enter and Escape.
-        /// Whether those navigation keys should instead be treated as
-        /// deliberate exits is reported under #778 as a ruling for Noel, not
-        /// decided here.
+        /// THE REGISTRY IS NOT THE WHOLE KEY MAP, so the engine asks this only
+        /// about letters and near misses, never about a key in general. The
+        /// main window handles Ctrl+Space (hold to talk), Shift+Space (the
+        /// transmit lock, which also UNLOCKS) and the bare, Shift and Ctrl
+        /// bracket filter keys in branches of its own, with no registry rows;
+        /// Tab, Space and the page keys mean things below us that the
+        /// registry cannot see. #778's first round treated a registry "no" as
+        /// "nowhere to go" for every key and swallowed push-to-talk inside a
+        /// live layer (Codex, 2026-10-19, blocker B1). A "no" from here is
+        /// evidence only where the main window has no branch of its own, and
+        /// that is letters: it has none for an unmodified or Shift-only letter.
         /// </para>
         /// </remarks>
         public Func<Keys, bool>? MeansSomethingOutside;
@@ -700,18 +708,21 @@ namespace Radios
     /// <para><b>How you get out.</b> Enter confirms and closes. Escape cancels:
     /// everything the layer moved is written back, out loud, and the layer
     /// closes. Ctrl+J confirms silently and hands off to a fresh leader
-    /// chord. Any UNHANDLED key that MEANS something outside — a chord the
-    /// host's registry answers for — confirms, announces the close, and
-    /// travels on to mean what it always means: the operator who pressed it
-    /// meant to go there. Any unhandled key that means NOTHING outside is
-    /// refused and the layer STAYS (#778): a near miss names its neighbour
-    /// (#547, the leader's answer since #206); a letter pressed before any
-    /// target is picked gets the layer's list of letters; anything else gets
-    /// the layer's own recovery line. A bare digit is refused and kept
-    /// whatever the registry says, because forwarded it would START TYPED
-    /// ENTRY on the main window — "14, Enter" meant as a gain was 14 MHz.
-    /// The layer cannot strand anyone, because Enter and Escape are always
-    /// its exits; it was never necessary that every other key leaves.
+    /// chord. Any UNHANDLED key confirms, announces the close, and travels on
+    /// to mean what it always means — the operator who pressed it meant to go
+    /// there, and the layer cannot know otherwise: the registry is not the
+    /// whole key map (push-to-talk, the transmit lock and the bracket keys
+    /// live in the main window's own branches), and Tab, Space and the page
+    /// keys mean things below us. Two classes are the exception and are
+    /// refused with the layer STAYING (#778), because for them the layer CAN
+    /// know: a bare digit, which forwarded would START TYPED ENTRY on the
+    /// main window ("4, 0, 0, Enter" meant as a 400 millisecond VOX delay is
+    /// 400 kilohertz), and a letter with no Ctrl or Alt that this layer does
+    /// not bind and the registry has no chord for — Noel's Z — which has
+    /// nowhere to go. A near miss names its neighbour (#547, the leader's
+    /// answer since #206); a letter pressed before any target is picked gets
+    /// the layer's list of letters; anything else refused gets the layer's
+    /// own recovery line. Enter and Escape are always the exits.
     /// Alt chords, F1 and the host's whitelist
     /// (the verbosity cycle) travel on with the layer still live,
     /// so the operator can flip words-versus-numbers mid-hunt. Confirm never
@@ -1174,66 +1185,109 @@ namespace Radios
                 return ValueLayerKeyResult.Handled;
             }
 
-            // A KEY WITH NOWHERE TO GO STAYS IN THE LAYER (#778, extending
-            // #547). The rule at the bottom — close out loud and travel on to
-            // mean what it always means — is right exactly when the key HAS a
-            // meaning to travel to. #547 drew that line for a slipped
-            // modifier: a bare B is one modifier from Ctrl+B, this layer's
-            // binaural switch, and nothing at all outside, so closing on it
-            // dropped the operator out of the mode for a typo. But the
-            // reasoning never depended on the near neighbour. Noel pressed Z
-            // in the audio layer (2026-10-19 07:46:03): Z is nothing here and
-            // nothing outside, the layer closed, Z was forwarded, and the
-            // frequency field said "Z does nothing on the Frequency field" —
-            // sixteen milliseconds after "Audio layer closed", which it cut
-            // off. From the chair the layer sounded open while the app had
-            // closed it, a state the operator cannot know they are in.
+            // WHAT THE LAYER CAN KNOW, AND ONLY THAT (#778). The rule at the
+            // bottom — close out loud and travel on to mean what it always
+            // means — is right exactly when the key HAS a meaning to travel
+            // to, and the layer is badly placed to say when that is: the
+            // registry is NOT the whole key map. The main window handles
+            // Ctrl+Space (hold to talk), Shift+Space (the transmit lock, which
+            // also unlocks) and the bare, Shift and Ctrl bracket filter keys
+            // in branches of its own with no registry rows, and Tab, Space and
+            // the page keys mean things below us. #778's first round treated
+            // a registry "no" as "nowhere to go" for every key and swallowed
+            // push-to-talk inside a live layer (Codex, 2026-10-19, B1). So a
+            // key is refused only where the layer can know it is harmful or
+            // meaningless, and everything else travels as it did before.
             //
-            // So the distinction is "is there anywhere for it to go", and
-            // only that. A key that means something elsewhere still leaves,
-            // because the operator who pressed it meant to. A key that means
-            // nothing out there is refused and the layer stays, with the best
-            // sentence available: the near neighbour when there is one, the
-            // layer's list of letters when nothing is picked yet, the layer's
-            // own recovery line otherwise. Escape is the exit, as it is in the
-            // leader layer, which has consumed every unknown key since #303.
+            // Precedence, because the host's whitelist runs FIRST: a key the
+            // host passes through (the verbosity cycle, looked up from the
+            // registry) has already left this method by now with the layer
+            // live, and a digit remapped onto that chord cycles verbosity
+            // rather than reaching the refusal below. After that: Ctrl+J,
+            // Escape, Enter, the host's keys, groups, arrows, the placing
+            // keys, anchors, the speak verb, letter picks, toggles, H and the
+            // slash key — then the two refusals here, then the near miss, then
+            // travel.
             //
-            // The host answers the registry question and owns every sentence:
-            // only it knows the live registry, and only it holds the inventory
-            // rows that say what a chord does in the words H already uses.
-            // The engine owns what HAPPENS — refuse, and stay live — and
-            // Refuse() carries the #528 voice rule for free.
-            //
-            // A KEY THAT WOULD START TYPED ENTRY IS CONSUMED FIRST, whatever
-            // the registry says (#778's case in hand). Noel picked VOX gain
+            // FIRST, A KEY THAT WOULD START TYPED ENTRY. Noel picked VOX gain
             // and typed 4, 0 (07:41:58): the layer closed on the 4, both
             // digits were forwarded to the frequency field, and quick-type
             // frequency entry said "Invalid frequency" — only because 40 kHz
-            // is below the parser's floor. "14, Enter" meant as a gain would
-            // have been accepted as a frequency. So a bare digit never leaves
-            // a value layer: it is refused and the layer stays. The registry
-            // is not asked, because a digit's forwarded meaning is typed entry
-            // on whatever field has focus, and a future bare-digit chord in
-            // the registry must not reopen the fall-through.
+            // is below the parser's floor (a no-decimal entry is kilohertz;
+            // "400", meant as a 400 ms VOX delay, would have been set as 400
+            // kilohertz). So a bare digit never leaves a value layer: it is
+            // refused and the layer stays. The registry is not asked, because
+            // a digit's forwarded meaning is typed entry on whatever field has
+            // focus, and a future bare-digit chord in the registry must not
+            // reopen the fall-through.
             if (IsTypedEntryKey(k))
             {
                 RefuseAndStay(k, ValueLayerRefusal.TypedEntry);
                 return ValueLayerKeyResult.Handled;
             }
 
-            if (!(_def.MeansSomethingOutside?.Invoke(k) ?? false))
+            // SECOND, AN UNBOUND LETTER WITH NO CTRL OR ALT — Noel's Z
+            // (07:46:03): nothing in the layer, nothing in the registry; the
+            // layer closed, Z was forwarded, and the frequency field said "Z
+            // does nothing on the Frequency field" sixteen milliseconds after
+            // "Audio layer closed", which it cut off. From the chair the layer
+            // sounded open while the app had closed it. Letters are the one
+            // class where a registry "no" IS evidence: the main window has no
+            // unmodified or Shift-only letter branch of its own (its universal
+            // Home-key guard fires only with no radio, and a layer cannot be
+            // live without one), so an unbound letter genuinely has nowhere to
+            // go. Shift is allowed because the grammar's slips are Shift-tier
+            // too (#547); Shift+M and the other universal Home chords ARE
+            // registry rows and travel through the check. The Home FIELD
+            // handlers do bind letters (U and D tune, M mutes, S picks a step);
+            // those are swallowed while a layer is live, which is #778's
+            // ruling text — "a key pressed inside a layer should stay inside
+            // it" — and is reported as such.
+            if (IsUnboundLetterKey(k) && !(_def.MeansSomethingOutside?.Invoke(k) ?? false))
             {
                 RefuseAndStay(k, ValueLayerRefusal.NowhereToGo);
                 return ValueLayerKeyResult.Handled;
             }
 
-            // A key that means a deliberate command outside — a registry
-            // chord in the current scope — keeps the value, closes out loud,
-            // and travels on to mean what it always means. Whether a command
-            // key should also stay inside is #778's open ruling, not the
-            // engine's call.
+            // THIRD, A SLIPPED MODIFIER IS NOT AN EXIT (#547): a Ctrl+letter
+            // that is nothing out there and one modifier from a chord in here
+            // (Ctrl+V when V picks slice volume) names the neighbour and
+            // stays. The bare and Shift forms were caught above; this is the
+            // Ctrl tier's door.
+            if (!(_def.MeansSomethingOutside?.Invoke(k) ?? false))
+            {
+                string? nearMiss = _def.DescribeNearMiss?.Invoke(k);
+                if (!string.IsNullOrEmpty(nearMiss))
+                {
+                    Tracing.TraceLine("ValueSubLayer(" + _def.Id + "): near miss on " + k
+                        + ", staying open", TraceLevel.Info);
+                    Refuse(nearMiss);
+                    return ValueLayerKeyResult.Handled;
+                }
+            }
+
+            // Everything else: keep the value, close out loud, and let the
+            // key travel on to mean what it always means — the base
+            // behaviour, kept on purpose for everything the layer cannot
+            // know. Whether a real command should also stay inside, and
+            // whether its "layer closed" is ever heard before the command
+            // speaks, is #778's open ruling, not the engine's call.
             Confirm(speak: true);
             return ValueLayerKeyResult.ClosedPassThrough;
+        }
+
+        /// <summary>
+        /// A letter key with no Ctrl or Alt — bare, or with Shift only. The
+        /// class #778 refuses when the layer does not bind it and the registry
+        /// has no chord for it, because for letters alone the main window has
+        /// no branch the registry would miss. Ctrl+letter is the near-miss
+        /// tier (#547) and is not here; Alt+letter left long before this.
+        /// </summary>
+        internal static bool IsUnboundLetterKey(Keys k)
+        {
+            if ((k & (Keys.Control | Keys.Alt)) != 0) return false;
+            Keys code = k & Keys.KeyCode;
+            return code >= Keys.A && code <= Keys.Z;
         }
 
         /// <summary>
@@ -1251,12 +1305,27 @@ namespace Radios
         /// are kept inside by the nowhere-to-go rule anyway.
         /// </summary>
         /// <remarks>
+        /// <para>
         /// Bare <c>0</c> never reaches this — it is the centre jump (#522) and
         /// is handled above. <c>NumPad0</c> does reach it, deliberately: there
         /// is no numpad binding in a value layer, because both NVDA and JAWS own
-        /// the pad in their desktop layouts. When typed values arrive in value
-        /// layers (#778's second half, not ruled) this is the set that will
-        /// mean "type a value", which is why it is one list and not two.
+        /// the pad in their desktop layouts. Only keypad DIGIT key events are
+        /// meant: with NumLock off the pad reports arrows, Home and End, which
+        /// do their layer jobs, and keypad Enter confirms. When typed values
+        /// arrive in value layers (#778's second half, not ruled) this is the
+        /// set that will mean "type a value", which is why it is one list and
+        /// not two.
+        /// </para>
+        /// <para>
+        /// "Before the registry is asked" is true of <see cref="ValueSubLayerDefinition.MeansSomethingOutside"/>
+        /// and NOT of <see cref="ValueSubLayerDefinition.PassThroughKeys"/>,
+        /// which <see cref="HandleKey"/> consults first: a digit the operator
+        /// has remapped onto the verbosity-cycle chord cycles verbosity with
+        /// the layer live and never reaches this. That command consumes the
+        /// key, so it cannot start an entry; the guarantee is "a digit never
+        /// leaves the layer to start typed entry", not "a digit is always
+        /// refused".
+        /// </para>
         /// </remarks>
         internal static bool IsTypedEntryKey(Keys k)
         {
