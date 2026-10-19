@@ -4790,6 +4790,10 @@ namespace Radios
 
             switch (e.PropertyName)
             {
+                case "FullDuplexEnabled":
+                    _fullDuplexReportedRadio = r;
+                    _fullDuplexReportedConnection = r.CurrentCommandConnection?.Id ?? Guid.Empty;
+                    break;
                 case "FeatureLicense":
                     HookFeatureLicense(r);
                     break;
@@ -10947,7 +10951,7 @@ namespace Radios
         public bool FullDuplexEnabled
         {
             get { return theRadio?.FullDuplexEnabled ?? false; }
-            set { q.Enqueue((FunctionDel)(() => { theRadio.FullDuplexEnabled = value; }), "FullDuplexEnabled"); }
+            set { _ = RequestFullDuplexAsync(value, null); }
         }
 
         /// <summary>

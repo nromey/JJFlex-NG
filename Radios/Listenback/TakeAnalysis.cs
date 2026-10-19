@@ -72,7 +72,13 @@ public static class TakeAnalysis
                 (lastPacket.ArrivalTicks - firstPacket.ArrivalTicks) / (double)Stopwatch.Frequency));
         AudioAlignmentResult alignment = new(false, "sent-unavailable", Array.Empty<SpanAlignment>());
         AudioDifference difference = new(false, "sent-unavailable");
-        if (take.Get("sent-status") == "clean" && File.Exists(Path.Combine(directory, "sent.wav")))
+        if (keyedSpans.Count == 0)
+        {
+            alignment = new(false, "not-keyed", Array.Empty<SpanAlignment>());
+            difference = new(false, "not-keyed");
+            File.WriteAllText(Path.Combine(directory, "align.txt"), "aligned=not-applicable\nreason=not-keyed\n");
+        }
+        else if (take.Get("sent-status") == "clean" && File.Exists(Path.Combine(directory, "sent.wav")))
         {
             var sentInfo = TakeHeader.Read(Path.Combine(directory, "sent.txt"));
             string sum = sentInfo.LastOrDefault(p => p.Key == "sha256").Value;

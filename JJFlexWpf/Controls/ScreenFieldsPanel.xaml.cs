@@ -125,6 +125,7 @@ public partial class ScreenFieldsPanel : UserControl
     // QB Track I — true while the TX power field is in transverter-drive
     // personality (dBm, hundredths) because the TX antenna is the XVTR port.
     private bool _txPowerXvtrMode;
+    private Button _fullDuplexButton = null!;
     private CheckBox _voxCheck = null!;
     private ValueFieldControl _voxGainControl = null!;
     private ValueFieldControl _voxDelayControl = null!;
@@ -982,6 +983,12 @@ public partial class ScreenFieldsPanel : UserControl
         };
         TxContent.Children.Add(_txPowerControl);
 
+        _fullDuplexButton = new Button { Content = Lexicon.Get("audio.full_duplex.not_reported"), Margin = new Thickness(4) };
+        System.Windows.Automation.AutomationProperties.SetName(_fullDuplexButton, Lexicon.Get("audio.full_duplex.not_reported"));
+        JJFlexHelp.SetText(_fullDuplexButton, Lexicon.Get("audio.full_duplex.help"));
+        _fullDuplexButton.Click += (_, _) => { if (!_polling) _ = FullDuplexControl.ToggleAsync(_rig); };
+        TxContent.Children.Add(_fullDuplexButton);
+
         _voxCheck = MakeToggle(Lexicon.Get("audio.fields.vox"));
         _voxCheck.Checked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.vox"), v => { if (_rig != null) _rig.Vox = v; }, true);
         _voxCheck.Unchecked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.vox"), v => { if (_rig != null) _rig.Vox = v; }, false);
@@ -1682,6 +1689,12 @@ public partial class ScreenFieldsPanel : UserControl
         }
 
         _txPowerControl.Value = xvtrNow ? _rig.XvtrDrivePowerCentiDbm : _rig.XmitPower;
+        string fullDuplexText = Lexicon.Get(_rig.FullDuplexAvailable == true ?
+            (_rig.FullDuplexEnabled ? "audio.full_duplex.on" : "audio.full_duplex.off") : "audio.full_duplex.not_reported");
+        _fullDuplexButton.Content = fullDuplexText;
+        System.Windows.Automation.AutomationProperties.SetName(_fullDuplexButton, fullDuplexText);
+        _fullDuplexButton.IsEnabled = _rig.FullDuplexAvailable == true;
+        _fullDuplexButton.IsTabStop = _fullDuplexButton.IsEnabled;
         _voxCheck.IsChecked = _rig.Vox == FlexBase.OffOnValues.on;
 
         // VOX gain and delay: always shown in voice and digital modes whether

@@ -32,8 +32,8 @@ public partial class AudioWorkshopDialog
         string key = "audio.iq.state." + state;
         return Lexicon.Get(key);
     }
-    private static string UnalignedKey(string reason) => reason == "sent-unavailable"
-        ? "audio.iq.sent_unavailable" : "audio.iq.not_aligned";
+    private static string UnalignedKey(string reason) => reason == "not-keyed" ? "audio.iq.no_transmission" :
+        reason == "sent-unavailable" ? "audio.iq.sent_unavailable" : "audio.iq.not_aligned";
     private Button IqButton(string key, Action click)
     {
         string fullKey = "audio.iq." + key;
@@ -47,6 +47,7 @@ public partial class AudioWorkshopDialog
     }
     private void BuildListenbackControls()
     {
+        AddSectionHeader(HearYourselfContent, Lexicon.Get("audio.iq.heading"));
         _takeStatus = new TextBox { IsReadOnly = true, IsReadOnlyCaretVisible = true,
             TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2), Text = Lexicon.Get("audio.iq.idle") };
         AutomationProperties.SetName(_takeStatus, Lexicon.Get("audio.iq.status_label"));
@@ -98,7 +99,17 @@ public partial class AudioWorkshopDialog
         }
         if (_takeStatus != null) _takeStatus.Text = text;
         if (failure) EarconPlayer.LeaderInvalidTone();
-        ScreenReaderOutput.Speak(text, failure ? VerbosityLevel.Critical : VerbosityLevel.Terse);
+        if (failure)
+        {
+            // Let label/focus updates finish first; keep the copyable status
+            // immediately, then interrupt incidental slice-count chatter.
+            Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() =>
+            {
+                if (_iqClosing) PostClosedIqStatus(text, true);
+                else ScreenReaderOutput.Speak(text, VerbosityLevel.Critical, interrupt: true);
+            }));
+        }
+        else ScreenReaderOutput.Speak(text, VerbosityLevel.Terse);
     }
     private void AnnounceClosedRecovery(bool restored) => PostClosedIqStatus(
         Lexicon.Get(restored ? "audio.iq.restored" : "audio.iq.no_recovery"), !restored);
@@ -197,7 +208,7 @@ public partial class AudioWorkshopDialog
                     ("seconds", (double.Parse(take.Get("pairs-written") ?? "0", System.Globalization.CultureInfo.InvariantCulture) /
                         int.Parse(take.Get("rate-requested"), System.Globalization.CultureInfo.InvariantCulture)).ToString("F1")),
                     ("antenna", take.Get("receive-antenna")), ("gain", take.Get("rf-gain")),
-                    ("ratio", take.Get("pairs-per-arrival-span") ?? "0"), ("gaps", take.Get("gaps") ?? "0"),
+                    ("ratio", ListenbackResultText.Ratio(take.Get("pairs-per-arrival-span"))), ("gaps", take.Get("gaps") ?? "0"),
                     ("classifier", take.Get("classifier") ?? Lexicon.Get("audio.iq.unknown"))));
                 if (measured != null && _takeStatus != null && !_iqClosing)
                 {

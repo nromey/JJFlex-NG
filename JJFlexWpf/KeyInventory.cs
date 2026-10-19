@@ -529,6 +529,8 @@ public static class KeyInventory
         // whose level it already holds. The AudioLayerCommands row carries it.
         // Audio Arc Keys Track (2026-08-11) — the tone generator; a toggle on
         // its own initial since Sprint 48 Track C (it was plain G).
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+X", Radios.Lexicon.Get("audio.full_duplex.command"),
+            new[] { "full", "duplex", "fdx", "toggle", "switch", "enable", "disable", "on", "off", "receive", "transmit" }, "Radio", "Audio"),
         new("Leader", "JJ key", "Ctrl+J, Ctrl+G", "Arm or disarm the TX test tone (replaces your microphone while transmitting)",
             new[] { "tone", "test", "generator", "arm", "disarm", "440", "transmit", "tx",
                     "audio", "check", "calibrate", "leader", "toggle" }, "Radio", "Audio"),

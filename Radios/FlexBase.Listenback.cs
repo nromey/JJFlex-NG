@@ -196,7 +196,8 @@ public partial class FlexBase
             await IqQueue(() =>
             {
                 if (!SameConnection()) throw new InvalidOperationException("connection-ended");
-                if (options.FullDuplex) radio.FullDuplexEnabled = true;
+                if (options.FullDuplex) radio.SendReplyCommand((sequence, code, text) =>
+                    JJTrace.Tracing.TraceLine($"Listenback full duplex request reply {sequence}: {code:X8} {text}", System.Diagnostics.TraceLevel.Info), "radio set full_duplex_enabled=1");
                 if (created != null)
                 {
                     created.Freq = receiveFrequency;
@@ -259,20 +260,36 @@ public partial class FlexBase
                 // The pan setter does not update Slice.RXAnt. Wait for both
                 // resources' reported state, including partial status lines.
                 using var confirmation = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
-                confirmation.CancelAfter(TimeSpan.FromSeconds(4));
+                confirmation.CancelAfter(ListenbackConfirmationWait);
+                string lastObservation = null;
                 while (true)
                 {
                     if (!SameConnection()) throw new InvalidOperationException("connection-ended");
                     RecoveryResource sliceReport, panReport;
+                    string sliceProblem, panProblem;
+                    string[] sliceLines, panLines;
                     lock (setupEvidence)
                     {
-                        sliceReport = ListenbackCreationEvidence.Read("slice", (uint)created.Index, setupEvidence);
-                        panReport = ListenbackCreationEvidence.Read("pan", pan.StreamID, setupEvidence);
+                        sliceReport = ListenbackCreationEvidence.Read("slice", (uint)created.Index, setupEvidence, out sliceProblem, out sliceLines);
+                        panReport = ListenbackCreationEvidence.Read("pan", pan.StreamID, setupEvidence, out panProblem, out panLines);
                     }
-                    bool Matches(RecoveryResource r) => r != null && r.Owner == radio.ClientHandle &&
-                        r.PanId == pan.StreamID && Math.Abs(r.Frequency - receiveFrequency) < .0000001 &&
-                        (string.IsNullOrEmpty(rxAnt) || r.Antenna == rxAnt);
-                    if (Matches(sliceReport) && sliceReport.Mode == receiveMode && Matches(panReport))
+                    string Mismatch(RecoveryResource r, string problem)
+                    {
+                        if (r == null) return problem;
+                        var clauses = new List<string>();
+                        if (r.Owner != radio.ClientHandle) clauses.Add("owner");
+                        if (r.PanId != pan.StreamID) clauses.Add("pan-id");
+                        if (Math.Abs(r.Frequency - receiveFrequency) >= .0000001) clauses.Add("frequency");
+                        if (!string.IsNullOrEmpty(rxAnt) && r.Antenna != rxAnt) clauses.Add("receive-antenna");
+                        if (r.Kind == "slice" && r.Mode != receiveMode) clauses.Add("mode");
+                        return string.Join(",", clauses);
+                    }
+                    sliceProblem = Mismatch(sliceReport, sliceProblem); panProblem = Mismatch(panReport, panProblem);
+                    string observation = System.Text.Json.JsonSerializer.Serialize(new { Expected = snapshot.ListenerRequest,
+                        Owner = radio.ClientHandle, Slice = sliceReport, Pan = panReport, SliceMismatch = sliceProblem,
+                        PanMismatch = panProblem, SliceLines = sliceLines, PanLines = panLines });
+                    if (observation != lastObservation) { writer.Header.Write("listener-confirmation", observation); lastObservation = observation; }
+                    if (sliceProblem.Length == 0 && panProblem.Length == 0)
                     {
                         snapshot.Resources.Add(sliceReport); snapshot.Resources.Add(panReport);
                         store.Save(snapshot);
@@ -281,7 +298,7 @@ public partial class FlexBase
                     }
                     try { await Task.Delay(20, confirmation.Token).ConfigureAwait(false); }
                     catch (OperationCanceledException) when (!cancellation.IsCancellationRequested)
-                    { throw new InvalidOperationException("listening-state-not-confirmed"); }
+                    { writer.Header.Write("listener-confirmation-timeout", lastObservation); throw new InvalidOperationException("listening-state-not-confirmed"); }
                 }
             }
             if (options.OffAir)
@@ -338,6 +355,7 @@ public partial class FlexBase
         finally { if (!leaseTransferred) _iqLease.Release(); }
     }
 
+    internal TimeSpan ListenbackConfirmationWait { get; set; } = TimeSpan.FromSeconds(4);
     internal TimeSpan ListenbackUnkeyWait { get; set; } = TimeSpan.FromSeconds(5);
     public bool AcknowledgeUnreadableListenbackRecovery(RadioRecoverySnapshot snapshot, bool operatorApproved) =>
         IqRecovery.ArchiveUnreadable(snapshot, operatorApproved);
@@ -353,18 +371,24 @@ public partial class FlexBase
     private async Task<bool> RestoreListenbackSnapshotAsync(RadioRecoverySnapshot snapshot, bool operatorApproved,
         Dictionary<string, object> identities)
     {
-        if (!operatorApproved || snapshot.UnreadableHash != null) return false;
+        var trace = new ListenbackRestoreTrace(snapshot);
+        bool Refuse(string reason)
+        {
+            foreach (var item in snapshot.Settings) trace.Write("verdict", new { item.Name, Sent = false, Confirmed = false, Reason = reason });
+            return false;
+        }
+        if (!operatorApproved || snapshot.UnreadableHash != null) return Refuse("not-approved-or-unreadable");
         var radio = theRadio;
         var connection = radio?.CurrentCommandConnection;
         bool Connected() => radio != null && radio.Connected && snapshot.Serial == radio.Serial &&
             ReferenceEquals(radio, theRadio) && ReferenceEquals(connection, radio.CurrentCommandConnection) &&
             connection?.State == CommandConnectionState.Connected;
-        if (!Connected()) return false;
+        if (!Connected()) return Refuse("connection-ended");
         // ForceEnd sends unkey but cannot synchronously receive its status.
         // Wait only for radio-reported state; never send another keying command.
         long deadline = Environment.TickCount64 + (long)ListenbackUnkeyWait.TotalMilliseconds;
         while (Transmit && Connected() && Environment.TickCount64 < deadline) await Task.Delay(20).ConfigureAwait(false);
-        if (!Connected() || Transmit) return false;
+        if (!Connected() || Transmit) return Refuse("connection-ended-or-still-transmitting");
         bool Live() => Connected() && !Transmit;
         using var status = new RadioStatusTap(radio);
         bool WasPreexisting(string kind, uint id)
@@ -431,54 +455,96 @@ public partial class FlexBase
         }
         async Task<bool> SendAndConfirm(SavedRadioSetting setting, Func<bool> stillSafe)
         {
-            var confirmed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            void Seen(string raw) { if (Live() && ListenbackRestoreEvidence.Matches(setting, raw)) confirmed.TrySetResult(true); }
+            var evidence = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var reply = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            void Seen(string raw)
+            {
+                if (!raw.Contains("|" + setting.StatusPrefix, StringComparison.OrdinalIgnoreCase)) return;
+                bool matches = Live() && ListenbackRestoreEvidence.Matches(setting, raw);
+                trace.Write("evidence", new { setting.Name, Raw = raw, Matches = matches });
+                if (matches) evidence.TrySetResult(true);
+            }
             status.Status += Seen;
             try
             {
                 await IqQueue(() =>
                 {
-                    if (!Live() || !stillSafe()) { confirmed.TrySetResult(false); return; }
-                    radio.SendReplyCommand((sequence, code, text) => { if (code != 0) confirmed.TrySetResult(false); }, setting.RestoreCommand);
+                    if (!Live()) { reply.TrySetResult(false); return; }
+                    if (AlreadyRestored(setting, Current(setting)))
+                    {
+                        trace.Write("no-command", new { setting.Name, Reason = "already-restored-at-send" });
+                        evidence.TrySetResult(true); reply.TrySetResult(true); return;
+                    }
+                    if (!stillSafe()) { trace.Write("no-command", new { setting.Name, Reason = "identity-or-dependency-changed" }); reply.TrySetResult(false); return; }
+                    trace.Write("sending", new { setting.Name, Command = setting.RestoreCommand });
+                    int sequence = radio.SendReplyCommand((sequence, code, text) =>
+                    {
+                        trace.Write("reply", new { setting.Name, Sequence = sequence, Code = code.ToString("X8"), Text = text });
+                        reply.TrySetResult(code == 0);
+                    }, setting.RestoreCommand);
+                    trace.Write("sent", new { setting.Name, Sequence = sequence, Command = setting.RestoreCommand });
                 }).ConfigureAwait(false);
-                return await confirmed.Task.WaitAsync(TimeSpan.FromSeconds(4)).ConfigureAwait(false);
+                using var timeout = new CancellationTokenSource(ListenbackConfirmationWait);
+                if (!await reply.Task.WaitAsync(timeout.Token).ConfigureAwait(false)) return false;
+                return await evidence.Task.WaitAsync(timeout.Token).ConfigureAwait(false);
             }
-            catch (TimeoutException) { return false; }
+            catch (OperationCanceledException)
+            {
+                trace.Write("timeout", new { setting.Name, ReplySeen = reply.Task.IsCompleted, EvidenceSeen = evidence.Task.IsCompleted });
+                return false;
+            }
+            catch (Exception ex) { trace.Write("exception", new { setting.Name, Error = ex.ToString() }); return false; }
             finally { status.Status -= Seen; }
         }
-        return await IqRecovery.RestoreAsync(snapshot, async setting =>
+        bool streamRemovalConfirmed = true;
+        bool PanBusy(Panadapter pan) => !streamRemovalConfirmed || radio.DAXIQStreamList.Any(s =>
+            ReferenceEquals(s.Pan, pan) || (pan.DAXIQChannel != 0 && s.DAXIQChannel == pan.DAXIQChannel));
+        bool restored = await IqRecovery.RestoreAsync(snapshot, async setting =>
         {
-            if (!Live()) return false;
+            bool Verdict(bool result, string reason)
+            {
+                if (setting.Name == "created-stream") streamRemovalConfirmed &= result;
+                trace.Write("verdict", new { setting.Name, Confirmed = result, Reason = reason });
+                return result;
+            }
+            trace.Write("item", new { setting.Name, setting.RestoreCommand, setting.Value, setting.ResourceKind, setting.ResourceId });
+            if (!Live()) return Verdict(false, "connection-ended-or-transmitting");
             object current = Current(setting);
             // A no-op needs no command/echo. In particular, a removed pan has
             // no surviving IQ binding, and a prior antenna already in place
             // can be confirmed without claiming ownership of a replacement.
-            if (AlreadyRestored(setting, current)) return true;
-            if (setting.ResourceKind != "" && !Ours(setting, current)) return false;
+            if (AlreadyRestored(setting, current)) return Verdict(true, "already-restored-or-absent; no command");
+            if (setting.ResourceKind != "" && !Ours(setting, current)) return Verdict(false, "ownership-unproven; no command");
             if (current is Slice slice && setting.Name == "created-slice")
             {
-                if (ReferenceEquals(slice, SliceForTransmitSetting()) || slice.IsTransmitSlice) return false;
+                if (slice.Panadapter != null && PanBusy(slice.Panadapter)) return Verdict(false, "stream-still-present-or-unconfirmed; no command");
+                if (ReferenceEquals(slice, SliceForTransmitSetting()) || slice.IsTransmitSlice) return Verdict(false, "transmit-slice; no command");
                 if (ReferenceEquals(slice, VFOToSlice(RXVFO)) || slice.Active)
                 {
                     var prior = radio.SliceList.FirstOrDefault(s => s.ClientHandle == radio.ClientHandle &&
                         !ReferenceEquals(s, slice) && WasPreexisting("slice", (uint)s.Index) &&
                         (snapshot.PriorActiveSlice == null || s.Index == snapshot.PriorActiveSlice));
-                    if (prior == null) return false;
+                    if (prior == null) return Verdict(false, "prior-active-slice-unavailable; no command");
                     var active = new SavedRadioSetting("active", "1", $"slice set {prior.Index} active=1", $"slice {prior.Index}", "active");
-                    if (!await SendAndConfirm(active, () => radio.SliceList.Contains(prior)).ConfigureAwait(false)) return false;
+                    if (!await SendAndConfirm(active, () => radio.SliceList.Contains(prior)).ConfigureAwait(false)) return Verdict(false, "prior-active-not-confirmed");
                     if (slice.Active)
                     {
                         var inactive = new SavedRadioSetting("inactive", "0", $"slice set {slice.Index} active=0", $"slice {slice.Index}", "active");
-                        if (!await SendAndConfirm(inactive, () => radio.SliceList.Contains(slice) && prior.Active && !slice.IsTransmitSlice).ConfigureAwait(false)) return false;
+                        if (!await SendAndConfirm(inactive, () => radio.SliceList.Contains(slice) && prior.Active && !slice.IsTransmitSlice).ConfigureAwait(false)) return Verdict(false, "listener-inactive-not-confirmed");
                     }
                 }
             }
             if (current is Panadapter pan && setting.Name == "created-pan" &&
-                radio.SliceList.Any(s => ReferenceEquals(s.Panadapter, pan))) return false;
-            return await SendAndConfirm(setting, () => setting.ResourceKind == "" ||
+                (PanBusy(pan) || pan.DAXIQChannel != 0 || radio.SliceList.Any(s => ReferenceEquals(s.Panadapter, pan))))
+                return Verdict(false, "pan-has-stream-binding-or-slice; no command");
+            bool confirmed = await SendAndConfirm(setting, () => setting.ResourceKind == "" ||
                 (ReferenceEquals(current, Current(setting)) && Ours(setting, current) &&
                  !(setting.Name == "created-slice" && current is Slice target && (target.Active || target.IsTransmitSlice)) &&
-                 !(setting.Name == "created-pan" && radio.SliceList.Any(s => ReferenceEquals(s.Panadapter, current))))).ConfigureAwait(false);
+                 !(setting.Name == "created-pan" && current is Panadapter targetPan &&
+                    (PanBusy(targetPan) || targetPan.DAXIQChannel != 0 || radio.SliceList.Any(s => ReferenceEquals(s.Panadapter, current)))))).ConfigureAwait(false);
+            return Verdict(confirmed, confirmed ? "reply-and-status-confirmed" : "command-not-confirmed");
         }, true).ConfigureAwait(false);
+        trace.Write("complete", new { Confirmed = restored, snapshot.ResourceCreationPending });
+        return restored;
     }
 }

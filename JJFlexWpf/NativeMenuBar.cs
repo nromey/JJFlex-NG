@@ -1749,6 +1749,12 @@ public class NativeMenuBar : IDisposable
             return;
         }
 
+        if (Rig.FullDuplexAvailable == true)
+            AddChecked(parent, Radios.Lexicon.Get("audio.full_duplex.label") + "\tCtrl+J, Ctrl+X",
+                () => _ = FullDuplexControl.ToggleAsync(Rig), () => Rig?.FullDuplexEnabled == true);
+        else AddWired(parent, Radios.Lexicon.Get("audio.full_duplex.not_reported"),
+                () => SpeakAfterMenuClose(Radios.Lexicon.Get("audio.full_duplex.not_reported")));
+
         // --- Power cluster ---
         AddWired(parent, "&Power...", () =>
         {

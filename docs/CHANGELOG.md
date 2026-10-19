@@ -31,6 +31,8 @@ Jim Shaffer's changelog for the 1.x, 2.x, and 3.x versions lives in a separate a
 
 ## Unreleased / Foundation Phase — staging for 4.2.0 {#unreleased}
 
+- **Full duplex now has its own control.** You can see and toggle it in Home, Transmit, in the Transmit menu, or with the JJ key followed by Ctrl+X. The state comes from the radio; if it has not reported one, the control says so.
+
 > **Note:** 4.1.17 was officially skipped on 2026-05-09 in favor of going directly to 4.2.0 with the FlexLib 4.2.18 upgrade. This section accumulates user-facing work landing on main as foundation-phase content; it will fold into 4.2.0's release notes when that release cuts. Per `memory/project_flexlib_4218_merge_sequencing.md` and the 2026-05-09 confirmation.
 
 

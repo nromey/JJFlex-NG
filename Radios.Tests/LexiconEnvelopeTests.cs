@@ -1063,6 +1063,25 @@ namespace Radios.Tests
                 "audio.iq.ack.not_recorded",
                 "audio.iq.ack.listener_request",
                 "audio.iq.ack.antenna_unchanged",
+                "audio.iq.heading",
+                "audio.iq.no_transmission",
+                "audio.iq.ack.present",
+                "audio.iq.ack.absent",
+                "audio.iq.review_absent",
+                "audio.iq.review_present",
+                "audio.iq.review_unknown",
+                "settings.guard.action.full_duplex",
+                "audio.full_duplex.label",
+                "audio.full_duplex.command",
+                "audio.full_duplex.on",
+                "audio.full_duplex.off",
+                "audio.full_duplex.not_reported",
+                "audio.full_duplex.help",
+                "audio.full_duplex.blocked",
+                "audio.full_duplex.pending",
+                "audio.full_duplex.refused",
+                "audio.full_duplex.unconfirmed",
+
             };
 
             Assert.Equal(3152, unclassified);

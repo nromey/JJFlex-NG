@@ -1058,5 +1058,6 @@
   "settings.xit.on": "XIT on",
   "settings.zerobeat.done": "Zerobeat",
   "settings.zerobeat.requires_cw": "Zerobeat requires CW mode",
-  "settings.guard.action.iq_take": { "text": "make an IQ take", "delivery": null }
+  "settings.guard.action.iq_take": { "text": "make an IQ take", "delivery": null },
+  "settings.guard.action.full_duplex": {"text": "changing full duplex", "delivery": null}
 }

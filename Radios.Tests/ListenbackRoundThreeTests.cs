@@ -65,6 +65,10 @@ public sealed class ListenbackRoundThreeTests : IDisposable
                     packet.ClassId.PacketClassCode = 0x02e3;
                     typeof(RXAudioStream).GetMethod("AddRXData", BindingFlags.Instance | BindingFlags.NonPublic, null,
                         new[] { typeof(VitaIFDataPacket) }, null)!.Invoke(stream, new object[] { packet });
+                    packet.Header.packet_count = 1;
+                    packet.TimestampFrac += (ulong)Math.Round(8192 * 1e12 / 24000);
+                    typeof(RXAudioStream).GetMethod("AddRXData", BindingFlags.Instance | BindingFlags.NonPublic, null,
+                        new[] { typeof(VitaIFDataPacket) }, null)!.Invoke(stream, new object[] { packet });
                     packets.TrySetResult(true);
                 }
             }

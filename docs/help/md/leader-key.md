@@ -46,6 +46,7 @@ A plain letter after the JJ key opens a layer: a set of keys about one subject, 
 
 Ctrl plus a letter switches something on or off, and the letter is the thing's own initial. Each one says which way it went.
 
+- **Ctrl+X** — Toggle full duplex for the whole radio; X for dupleX. The new state is announced after the radio reports it. The same control is in Home, Transmit and the Transmit menu.
 - **Ctrl+G** — Arm or disarm the TX test tone (replaces your microphone while transmitting)
 - **Ctrl+T** — Toggle meter tones on or off
 - **Ctrl+E** — Toggle alert sounds (earcons) on or off — E for earcons. It was `Shift+T`

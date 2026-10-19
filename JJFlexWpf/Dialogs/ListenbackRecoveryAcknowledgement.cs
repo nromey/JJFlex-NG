@@ -9,7 +9,7 @@ internal static class ListenbackRecoveryAcknowledgement
 {
     internal static string Offer(FlexBase rig, RadioRecoverySnapshot offered)
     {
-        string body = ListenbackInspectionSummary.Describe(offered);
+        string body = ListenbackInspectionSummary.Describe(offered, s => rig.ListenbackResourcePresent(offered, s));
         bool approved = false;
         AdvisoryDialog.Show(Lexicon.Get("audio.iq.ack.title"), body, null,
             new AdvisoryDialog.AdvisoryAction(Lexicon.Get("audio.iq.ack.clear"), () => approved = true));

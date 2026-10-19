@@ -43,6 +43,10 @@ public sealed class ListenbackCaptureTests
             packet.ClassId.PacketClassCode = 0x02e3;
             typeof(RXAudioStream).GetMethod("AddRXData", BindingFlags.Instance | BindingFlags.NonPublic, null,
                 new[] { typeof(VitaIFDataPacket) }, null)!.Invoke(stream, new object[] { packet });
+            packet.Header.packet_count++;
+            packet.TimestampFrac += (ulong)Math.Round(8192 * 1e12 / 24000);
+            typeof(RXAudioStream).GetMethod("AddRXData", BindingFlags.Instance | BindingFlags.NonPublic, null,
+                new[] { typeof(VitaIFDataPacket) }, null)!.Invoke(stream, new object[] { packet });
             await start.WaitAsync(TimeSpan.FromSeconds(3));
             Assert.True(capture.Writer.IsReady);
             await Task.WhenAll(capture.StopAsync("operator-stop"), capture.StopAsync("operator-stop"));
@@ -63,6 +67,9 @@ public sealed class ListenbackCaptureTests
                 new[] { typeof(VitaIFDataPacket) }, null)!;
             dispatch.Invoke(stream, new object[] { packet });
             Assert.Equal(0, replacement.Writer.PairsWritten);
+            dispatch.Invoke(nextStream, new object[] { packet });
+            packet.Header.packet_count++;
+            packet.TimestampFrac += (ulong)Math.Round(8192 * 1e12 / 24000);
             dispatch.Invoke(nextStream, new object[] { packet });
             await restart.WaitAsync(TimeSpan.FromSeconds(3));
             vendor.Status("stream 0x11 removed");

@@ -3876,6 +3876,11 @@ public class KeyCommands
             // Arm-or-disarm is a toggle, G is its initial, so the Ctrl tier
             // (Sprint 48 Track C; it was plain G). Noel's own press of
             // 2026-08-23 — Ctrl+G, meaning the tone — is now simply the chord.
+            // F and D are occupied; X for dupleX is free on the toggle tier.
+            case Keys.X | Keys.Control:
+                _ = FullDuplexControl.ToggleAsync(rig as FlexBase);
+                break;
+
             case Keys.G | Keys.Control:
                 ToggleTxTone();
                 break;

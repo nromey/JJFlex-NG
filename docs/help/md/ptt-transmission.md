@@ -6,6 +6,10 @@ JJ Flexible Radio Access includes safety features designed to help you stay in c
 
 PTT works through your radio's standard PTT input — a footswitch, a hand microphone's PTT button, or VOX (voice-operated transmit). The application monitors the PTT state and announces when you key up and when you unkey.
 
+## Full duplex
+
+Full duplex has a button in Home's Transmission group, beside transmit power, and a matching item in the Transmit menu. Press the button, or press the JJ key `Ctrl+J` followed by `Ctrl+X`, to toggle it for the whole radio. The displayed state comes from the radio, and the new state is announced after the radio reports it. If no state has been reported, the control says "Full duplex: not reported by the radio" and does not send a request. A refused or unconfirmed request is announced without claiming that the setting changed.
+
 ## VOX (Voice-Operated Transmit)
 
 VOX keys the radio when it hears you talk and unkeys it when you stop. Whether it works for you comes down to two numbers, and both live in the Transmission group of Home's fields (`Ctrl+Shift+X`), right after the VOX checkbox:

@@ -82,6 +82,7 @@ Plain `M` is spoken for: it is the mode layer, ruled and not yet built. Until it
 
 ### Toggles — Ctrl plus the initial
 
+- **Ctrl+X** — Toggle full duplex for the whole radio. The new state is announced when the radio reports it. Home, Transmit and the Transmit menu show the same control. If the radio has not reported full duplex, the control says so.
 - **Ctrl+G** — Arm or disarm the TX test tone (it replaces your microphone while transmitting)
 - **Ctrl+T** — Toggle meter tones on/off
 - **Ctrl+E** — Toggle alert sounds (earcons) on/off — E for earcons; it was `Shift+T`
