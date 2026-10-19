@@ -31,26 +31,39 @@ internal static class ListenbackRecoveryPrompt
             new AdvisoryDialog.AdvisoryAction(Lexicon.Get("audio.iq.restore_now"), () => approved = true));
         return approved;
     }
+    internal static async Task<(string Key, bool Failure)?> ReviewAsync(FlexBase rig)
+    {
+        var saved = rig.PendingListenbackRecovery;
+        if (saved == null) return ("audio.iq.no_recovery", false);
+        if (!Confirm(saved)) return null;
+        if (saved.UnreadableHash != null)
+        {
+            bool archived = rig.AcknowledgeUnreadableListenbackRecovery(saved, true);
+            return (archived ? "audio.iq.unreadable_archived" : "audio.iq.recovery_pending", !archived);
+        }
+        bool restored;
+        try { restored = await rig.RestoreListenbackSnapshotAsync(saved, true); }
+        catch (Exception ex)
+        {
+            JJTrace.Tracing.TraceLine("Listenback restore: " + ex, System.Diagnostics.TraceLevel.Error);
+            restored = false;
+        }
+        if (restored) return ("audio.iq.restored", false);
+        string key = ListenbackRecoveryAcknowledgement.Offer(rig, saved);
+        return (key, key != "audio.iq.ack.cleared");
+    }
     internal static async Task OfferOnConnectAsync(FlexBase rig)
     {
         try
         {
-            var saved = rig.PendingListenbackRecovery;
-            if (saved == null || !Confirm(saved)) return;
-            if (saved.UnreadableHash != null)
-            {
-                bool archived = rig.AcknowledgeUnreadableListenbackRecovery(saved, true);
-                AdvisoryDialog.Show(Lexicon.Get("audio.iq.recovery_title"), Lexicon.Get(archived ? "audio.iq.unreadable_archived" : "audio.iq.recovery_pending"));
-                return;
-            }
-            bool restored = await rig.RestoreListenbackSnapshotAsync(saved, true);
-            AdvisoryDialog.Show(Lexicon.Get("audio.iq.recovery_title"),
-                Lexicon.Get(restored ? "audio.iq.restored" : "audio.iq.recovery_pending"));
+            if (rig.PendingListenbackRecovery == null) return;
+            var result = await ReviewAsync(rig);
+            if (result is { } notice) AdvisoryDialog.Show(Lexicon.Get("audio.iq.recovery_title"), Lexicon.Get(notice.Key));
         }
         catch (Exception ex)
         {
             JJTrace.Tracing.TraceLine("Listenback recovery: " + ex, System.Diagnostics.TraceLevel.Error);
-            AdvisoryDialog.Show(Lexicon.Get("audio.iq.recovery_title"), Lexicon.Get("audio.iq.recovery_pending"));
+            AdvisoryDialog.Show(Lexicon.Get("audio.iq.recovery_title"), Lexicon.Get("audio.iq.recovery_state_unknown"));
         }
     }
 }

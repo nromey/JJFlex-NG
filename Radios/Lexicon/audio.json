@@ -922,5 +922,22 @@
   "audio.iq.reason.command-queue-stalled": {"text": "The radio command queue did not run the request within ten seconds. Preparation stopped; this was not an operator cancellation.", "delivery": null},
   "audio.iq.unreadable_offer": {"text": "The saved take recovery record cannot be read or does not match this radio. No saved commands can be trusted. Inspect and restore the radio settings yourself before acknowledging. Acknowledging preserves this exact file for review and allows new takes; it does not claim that the radio was restored.", "delivery": null},
   "audio.iq.unreadable_acknowledge": {"text": "I inspected the radio; preserve the unreadable record and allow new takes", "delivery": null},
-  "audio.iq.unreadable_archived": {"text": "The unreadable record was preserved for review. New takes are allowed. No radio settings were restored by this action.", "delivery": null}
+  "audio.iq.unreadable_archived": {"text": "The unreadable record was preserved for review. New takes are allowed. No radio settings were restored by this action.", "delivery": null},
+  "audio.iq.reason.listening-state-not-confirmed": {"text": "the radio did not confirm the listening slice and pan settings. Preparation stopped.", "delivery": null},
+  "audio.iq.recovery_state_unknown": {"text": "The saved recovery state could not be read. Review unrestored take settings; no claim of restoration can be made.", "delivery": null},
+  "audio.iq.ack.title": {"text": "Check the unrestored take changes", "delivery": null},
+  "audio.iq.ack.offer": {"text": "Restoration could not be fully confirmed for radio {serial}. The take requested the changes listed below. Some may already have been restored. Inspect the radio and correct anything you want to change, then choose I've checked, clear it. This clears the recovery record without sending anything to the radio. It preserves the record for review and allows new takes; it does not confirm restoration.\n{changes}", "delivery": null},
+  "audio.iq.ack.clear": {"text": "I've checked, clear it", "delivery": null},
+  "audio.iq.ack.cleared": {"text": "The recovery record was cleared after your inspection and preserved for review. No commands were sent to the radio by this action. New takes are allowed; restoration was not confirmed.", "delivery": null},
+  "audio.iq.ack.changed": {"text": "The record changed or a take is still running. It was not cleared. Review the current unrestored take settings again.", "delivery": null},
+  "audio.iq.ack.creation_unknown": {"text": "A resource creation was requested but its identity was not recorded. Check for an extra slice, pan or IQ stream.", "delivery": null},
+  "audio.iq.ack.slice": {"text": "slice {id}", "delivery": null},
+  "audio.iq.ack.pan": {"text": "pan 0x{id}", "delivery": null},
+  "audio.iq.ack.stream": {"text": "IQ stream 0x{id}", "delivery": null},
+  "audio.iq.ack.radio": {"text": "radio", "delivery": null},
+  "audio.iq.ack.created": {"text": "The take requested an extra {target}. Recovery would remove it.", "delivery": null},
+  "audio.iq.ack.setting": {"text": "{setting} ({target}): {prior}. The take requested {requested}.", "delivery": null},
+  "audio.iq.ack.not_recorded": {"text": "a value not recorded in this older recovery file", "delivery": null},
+  "audio.iq.ack.listener_request": {"text": "The extra listener was requested as slice {slice}, pan 0x{pan}, at {frequency} MHz in {mode}, receive antenna {antenna}.", "delivery": null},
+  "audio.iq.ack.antenna_unchanged": {"text": "unchanged", "delivery": null}
 }

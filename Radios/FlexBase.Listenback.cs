@@ -15,6 +15,14 @@ public partial class FlexBase
     private readonly SemaphoreSlim _iqLease = new(1, 1);
     private RadioRecoveryStore IqRecovery => new(Path.Combine(RadioConfig.AppDataRoot, "listenback-recovery"));
     public RadioRecoverySnapshot PendingListenbackRecovery => theRadio == null ? null : IqRecovery.Find(theRadio.Serial);
+    public Func<RadioRecoverySnapshot> CaptureListenbackRecoveryReader()
+    {
+        string serial = theRadio?.Serial;
+        var store = IqRecovery;
+        // A close can be delivered after the radio reference has been cleared.
+        // Pin the store/serial, then read the file when the notice is delivered.
+        return () => serial == null ? null : store.Find(serial);
+    }
     public string[] ListenbackReceiveAntennas => SliceForTransmitSetting()?.Panadapter?.RXAntennaList ?? Array.Empty<string>();
     public bool OffAirListenbackSupported => theRadio?.DiversityIsAllowed == true && LoopbackSupported;
 
@@ -109,23 +117,21 @@ public partial class FlexBase
                 DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff", CultureInfo.InvariantCulture) + "-" + Guid.NewGuid().ToString("N")[..8]);
             snapshot = new RadioRecoverySnapshot { Serial = radio.Serial, ClientHandle = radio.ClientHandle,
                 TakeDirectory = directory, ResourceCreationPending = separate, ConnectionId = connection.Id,
-                GuiClientId = radio.GUIClientID, PriorActiveSlice = VFOToSlice(RXVFO)?.Index };
+                GuiClientId = radio.GUIClientID, PriorActiveSlice = VFOToSlice(RXVFO)?.Index, CreationEvidenceVersion = 1 };
             if (options.FullDuplex || options.OffAir) snapshot.Settings.Add(new("full-duplex", radio.FullDuplexEnabled ? "1" : "0",
-                "radio set full_duplex_enabled=" + (radio.FullDuplexEnabled ? "1" : "0"), "radio", "full_duplex_enabled"));
+                "radio set full_duplex_enabled=" + (radio.FullDuplexEnabled ? "1" : "0"), "radio", "full_duplex_enabled", RequestedValue: "1"));
             if (options.OffAir)
             {
-                snapshot.Settings.Add(new("tx-antenna", tx.TXAnt, $"slice set {tx.Index} txant={tx.TXAnt}", $"slice {tx.Index}", "txant", "slice", (uint)tx.Index))
+                snapshot.Settings.Add(new("tx-antenna", tx.TXAnt, $"slice set {tx.Index} txant={tx.TXAnt}", $"slice {tx.Index}", "txant", "slice", (uint)tx.Index, RequestedValue: expectedLoopbackAntenna))
                 ; identities["tx-antenna"] = tx;
-                snapshot.Settings.Add(new("rf-power", radio.RFPower.ToString(CultureInfo.InvariantCulture), $"transmit set rfpower={radio.RFPower}", "transmit", "rfpower"));
-                snapshot.Settings.Add(new("monitor", radio.TXMonitor ? "1" : "0", "transmit set mon=" + (radio.TXMonitor ? "1" : "0"), "transmit", "sb_monitor"));
+                snapshot.Settings.Add(new("rf-power", radio.RFPower.ToString(CultureInfo.InvariantCulture), $"transmit set rfpower={radio.RFPower}", "transmit", "rfpower", RequestedValue: "1"));
+                snapshot.Settings.Add(new("monitor", radio.TXMonitor ? "1" : "0", "transmit set mon=" + (radio.TXMonitor ? "1" : "0"), "transmit", "sb_monitor", RequestedValue: "0"));
                 var band = findAnyValidXvtr();
                 if (band != null) snapshot.Settings.Add(new("xvtr-drive", band.MaxPower.ToString(CultureInfo.InvariantCulture),
-                    $"xvtr set {band.Index} max_power={band.MaxPower.ToString(CultureInfo.InvariantCulture)}", $"xvtr {band.Index}", "max_power"));
+                    $"xvtr set {band.Index} max_power={band.MaxPower.ToString(CultureInfo.InvariantCulture)}", $"xvtr {band.Index}", "max_power", RequestedValue: "-10"));
             }
             snapshot.ResourceNotes.Add("preexisting-pan-ids=" + string.Join(",", radio.PanadapterList.Select(p => p.StreamID)));
             snapshot.ResourceNotes.Add("preexisting-slice-indices=" + string.Join(",", radio.SliceList.Select(s => s.Index)));
-            snapshot.Resources.Add(DescribeRecoveryResource(tx));
-            snapshot.Resources.Add(DescribeRecoveryResource(tx.Panadapter));
             store.Save(snapshot); // No mutating command precedes this durable write.
             writer = new IqTakeWriter(directory, options.Rate, new Dictionary<string, string> {
                 ["serial"] = radio.Serial, ["kind"] = options.OffAir ? "off-air" : "receive-only-diagnostic" });
@@ -165,16 +171,14 @@ public partial class FlexBase
             {
                 // Restore in reverse: unbind, remove slice, then its pan.
                 snapshot.Settings.Add(new("created-pan", "removed", $"display pan remove 0x{pan.StreamID:X}",
-                    $"display pan 0x{pan.StreamID:X}", "", "pan", pan.StreamID));
+                    $"display pan 0x{pan.StreamID:X}", "", "pan", pan.StreamID, RequestedValue: "created"));
                 snapshot.Settings.Add(new("created-slice", "removed", $"slice remove {created.Index}",
-                    $"slice {created.Index}", "", "slice", (uint)created.Index));
-                snapshot.Resources.Add(DescribeRecoveryResource(created));
-                snapshot.Resources.Add(DescribeRecoveryResource(pan));
+                    $"slice {created.Index}", "", "slice", (uint)created.Index, RequestedValue: "created"));
                 identities["created-pan"] = pan;
                 identities["created-slice"] = created;
             }
             snapshot.Settings.Add(new("pan-iq-channel", pan.DAXIQChannel.ToString(CultureInfo.InvariantCulture),
-                $"display pan set 0x{pan.StreamID:X} daxiq_channel={pan.DAXIQChannel}", $"display pan 0x{pan.StreamID:X}", "daxiq_channel", "pan", pan.StreamID))
+                $"display pan set 0x{pan.StreamID:X} daxiq_channel={pan.DAXIQChannel}", $"display pan 0x{pan.StreamID:X}", "daxiq_channel", "pan", pan.StreamID, RequestedValue: channel.ToString(CultureInfo.InvariantCulture)))
             ; identities["pan-iq-channel"] = pan;
             store.Save(snapshot);
             string rxAnt = options.ReceiveAntenna;
@@ -182,24 +186,25 @@ public partial class FlexBase
                 rxAnt = pan.RXAntennaList?.FirstOrDefault(a => a.StartsWith("XVT", StringComparison.OrdinalIgnoreCase) && a != tx.TXAnt);
             if (options.OffAir && string.IsNullOrEmpty(rxAnt)) throw new InvalidOperationException("no-other-transverter-input");
             if (!string.IsNullOrEmpty(rxAnt) && !(pan.RXAntennaList?.Contains(rxAnt) ?? false)) throw new InvalidOperationException("receive-antenna-unavailable");
+            double receiveFrequency = tx.Freq;
+            string receiveMode = tx.DemodMode;
+            if (created != null)
+            {
+                snapshot.ListenerRequest = new((uint)created.Index, pan.StreamID, receiveFrequency, receiveMode, rxAnt);
+                store.Save(snapshot); // Requested details are not identity evidence.
+            }
             await IqQueue(() =>
             {
                 if (!SameConnection()) throw new InvalidOperationException("connection-ended");
                 if (options.FullDuplex) radio.FullDuplexEnabled = true;
                 if (created != null)
                 {
-                    created.Freq = tx.Freq;
-                    created.DemodMode = tx.DemodMode;
+                    created.Freq = receiveFrequency;
+                    created.DemodMode = receiveMode;
                     if (!string.IsNullOrEmpty(rxAnt)) pan.RXAnt = rxAnt;
-                    pan.CenterFreq = tx.Freq;
+                    pan.CenterFreq = receiveFrequency;
                 }
             }).ConfigureAwait(false);
-            if (created != null)
-            {
-                snapshot.Resources.RemoveAll(r => (r.Kind == "slice" && r.Id == (uint)created.Index) || (r.Kind == "pan" && r.Id == pan.StreamID));
-                snapshot.Resources.Add(DescribeRecoveryResource(created));
-                snapshot.Resources.Add(DescribeRecoveryResource(pan));
-            }
             var provenance = new Dictionary<string, string>
             {
                 ["model"] = radio.Model, ["serial"] = radio.Serial, ["nickname"] = radio.Nickname,
@@ -240,8 +245,8 @@ public partial class FlexBase
             capture = new IqRadioCapture(radio, pan, channel, options.Rate, directory, provenance, IqQueue, writer, stream =>
             {
                 snapshot.Settings.Add(new("created-stream", "removed", $"stream remove 0x{stream.StreamID:X}",
-                    $"stream 0x{stream.StreamID:X}", "", "stream", stream.StreamID));
-                snapshot.Resources.Add(new("stream", stream.StreamID, stream.ClientHandle, pan.StreamID, 0, "", ""));
+                    $"stream 0x{stream.StreamID:X}", "", "stream", stream.StreamID, RequestedValue: "created"));
+                snapshot.Resources.Add(new("stream", stream.StreamID, stream.ClientHandle, stream.Pan?.StreamID ?? 0, 0, "", ""));
                 identities["created-stream"] = stream;
                 snapshot.ResourceCreationPending = false;
                 store.Save(snapshot);
@@ -249,6 +254,36 @@ public partial class FlexBase
             }, manageRadioResources: false, beforeFinish: () => sent?.StopAsync(writer.Header,
                 ReferenceEquals(pipeline, opusInputChannel?.PortAudioStream?.TransmitPipeline)) ?? Task.CompletedTask);
             await capture.StartAsync(cancellation).ConfigureAwait(false);
+            if (created != null)
+            {
+                // The pan setter does not update Slice.RXAnt. Wait for both
+                // resources' reported state, including partial status lines.
+                using var confirmation = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+                confirmation.CancelAfter(TimeSpan.FromSeconds(4));
+                while (true)
+                {
+                    if (!SameConnection()) throw new InvalidOperationException("connection-ended");
+                    RecoveryResource sliceReport, panReport;
+                    lock (setupEvidence)
+                    {
+                        sliceReport = ListenbackCreationEvidence.Read("slice", (uint)created.Index, setupEvidence);
+                        panReport = ListenbackCreationEvidence.Read("pan", pan.StreamID, setupEvidence);
+                    }
+                    bool Matches(RecoveryResource r) => r != null && r.Owner == radio.ClientHandle &&
+                        r.PanId == pan.StreamID && Math.Abs(r.Frequency - receiveFrequency) < .0000001 &&
+                        (string.IsNullOrEmpty(rxAnt) || r.Antenna == rxAnt);
+                    if (Matches(sliceReport) && sliceReport.Mode == receiveMode && Matches(panReport))
+                    {
+                        snapshot.Resources.Add(sliceReport); snapshot.Resources.Add(panReport);
+                        store.Save(snapshot);
+                        writer.Header.Event("confirmed-created-resources", snapshot.Resources);
+                        break;
+                    }
+                    try { await Task.Delay(20, confirmation.Token).ConfigureAwait(false); }
+                    catch (OperationCanceledException) when (!cancellation.IsCancellationRequested)
+                    { throw new InvalidOperationException("listening-state-not-confirmed"); }
+                }
+            }
             if (options.OffAir)
             {
                 var desired = new[] {
@@ -353,12 +388,20 @@ public partial class FlexBase
             if (owner != radio.ClientHandle) return false;
             bool sameConnection = snapshot.ConnectionId == connection.Id && snapshot.ClientHandle == radio.ClientHandle;
             if (!sameConnection && (string.IsNullOrEmpty(snapshot.GuiClientId) || snapshot.GuiClientId != radio.GUIClientID)) return false;
+            // The operator may tune or change mode/receive antenna freely.
+            // Their existing TX resources are identified by role and ownership,
+            // not the mutable signal settings of a take-created listener.
+            if (setting.Name == "tx-antenna")
+                return current is Slice tx && tx.IsTransmitSlice && WasPreexisting("slice", (uint)tx.Index);
+            if (setting.Name == "pan-iq-channel" && WasPreexisting("pan", setting.ResourceId))
+                return current is Panadapter txPan && radio.SliceList.Any(s => s.ClientHandle == radio.ClientHandle &&
+                    s.IsTransmitSlice && ReferenceEquals(s.Panadapter, txPan));
             var guard = snapshot.Resources.FirstOrDefault(r => r.Kind == setting.ResourceKind && r.Id == setting.ResourceId);
             if (guard == null)
             {
                 // Compatibility with round-one records on their original
                 // connection. The recorded roster distinguishes old/new IDs.
-                if (!sameConnection) return false;
+                if (!sameConnection || snapshot.CreationEvidenceVersion > 0) return false;
                 if (setting.Name == "tx-antenna") return WasPreexisting("slice", setting.ResourceId);
                 if (setting.Name.StartsWith("created-", StringComparison.Ordinal))
                     return setting.ResourceKind == "stream" || !WasPreexisting(setting.ResourceKind, setting.ResourceId);

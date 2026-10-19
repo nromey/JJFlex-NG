@@ -19,6 +19,7 @@ public partial class AudioWorkshopDialog
     private CheckBox? _iqSeparate, _iqFdx;
     private Button? _iqDiagnostic, _iqPreflight;
     private ListenbackRun? _iqRun;
+    private Func<RadioRecoverySnapshot>? _iqRecoveryReader;
     private CancellationTokenSource? _iqCancellation;
     private bool _iqBusy, _iqClosing;
     private readonly DispatcherTimer _iqWatch = new() { Interval = TimeSpan.FromSeconds(1) };
@@ -92,21 +93,32 @@ public partial class AudioWorkshopDialog
     {
         if (_iqClosing)
         {
-            if (failure) AnnounceClosedRecovery(false);
+            if (failure) PostClosedIqStatus(text, true);
             return;
         }
         if (_takeStatus != null) _takeStatus.Text = text;
         if (failure) EarconPlayer.LeaderInvalidTone();
         ScreenReaderOutput.Speak(text, failure ? VerbosityLevel.Critical : VerbosityLevel.Terse);
     }
-    private void AnnounceClosedRecovery(bool restored)
+    private void AnnounceClosedRecovery(bool restored) => PostClosedIqStatus(
+        Lexicon.Get(restored ? "audio.iq.restored" : "audio.iq.no_recovery"), !restored);
+
+    private void PostClosedIqStatus(string text, bool failure)
     {
-        // Deliver after the closing window's focus transition, not into the
-        // speech that the screen reader discards with that window.
+        var readRecovery = _iqRecoveryReader ?? _rig?.CaptureListenbackRecoveryReader();
+        // Query at delivery, after the closing focus transition and after
+        // cleanup. Cancellation or playback failure does not imply a record.
         Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() =>
         {
-            if (restored) EarconPlayer.ConfirmTone(); else EarconPlayer.LeaderInvalidTone();
-            ScreenReaderOutput.Speak(Lexicon.Get(restored ? "audio.iq.restored" : "audio.iq.recovery_pending"), VerbosityLevel.Critical);
+            ListenbackCloseNotice notice;
+            try { notice = ListenbackCloseNotice.ForCurrentRecord(readRecovery?.Invoke(), text, failure); }
+            catch (Exception ex)
+            {
+                JJTrace.Tracing.TraceLine("Listenback close record read: " + ex, System.Diagnostics.TraceLevel.Error);
+                notice = new(Lexicon.Get("audio.iq.recovery_state_unknown"), true);
+            }
+            if (notice.Failure) EarconPlayer.LeaderInvalidTone(); else EarconPlayer.ConfirmTone();
+            ScreenReaderOutput.Speak(notice.Text, VerbosityLevel.Critical);
         }));
     }
     private void IqFailure(Exception ex)
@@ -133,6 +145,7 @@ public partial class AudioWorkshopDialog
         if (_rig == null || _session?.Active == true) { IqStatus(Lexicon.Get("audio.iq.stop_other"), true); return; }
         _iqBusy = true;
         _iqWasOffAir = false;
+        _iqRecoveryReader = _rig?.CaptureListenbackRecoveryReader();
         _iqCancellation = new CancellationTokenSource();
         DiagnosticLabel("cancel_start");
         IqStatus(Lexicon.Get("audio.iq.preparing"));
@@ -143,7 +156,12 @@ public partial class AudioWorkshopDialog
             _iqRun = await _rig.StartListenbackAsync(new(rate, _iqSeparate?.IsChecked == true,
                 _iqFdx?.IsChecked == true, antenna), _iqCancellation.Token);
             if (_iqClosing || _iqCancellation.IsCancellationRequested)
-            { await _iqRun.StopAsync("cancelled"); _iqRun = null; return; }
+            {
+                await _iqRun.StopAsync("cancelled");
+                if (_iqClosing) AnnounceClosedRecovery(_iqRun.Restored);
+                else IqStatus(Lexicon.Get(_iqRun.Restored ? "audio.iq.restored" : "audio.iq.recovery_pending"), !_iqRun.Restored);
+                _iqRun = null; return;
+            }
             DiagnosticLabel("diagnostic_stop");
             EarconPlayer.FeatureOnTone();
             IqStatus(Lexicon.Get("audio.iq.recording_diagnostic"));
@@ -206,7 +224,7 @@ public partial class AudioWorkshopDialog
     {
         var rig = _rig;
         if (rig == null || _iqBusy || _iqRun != null) return;
-        _iqBusy = true; _iqWasOffAir = true;
+        _iqBusy = true; _iqWasOffAir = true; _iqRecoveryReader = rig.CaptureListenbackRecoveryReader();
         _iqCancellation = new CancellationTokenSource();
         SetStartButtonLabel(Lexicon.Get("audio.iq.cancel_start"));
         IqStatus(Lexicon.Get("audio.iq.preparing"));
@@ -324,7 +342,7 @@ public partial class AudioWorkshopDialog
     {
         if (_iqBusy) { _iqCancellation?.Cancel(); return; }
         if (_rig == null || _iqRun != null || _session?.Active == true) { IqStatus(Lexicon.Get("audio.iq.stop_other"), true); return; }
-        _iqBusy = true; _iqCancellation = new CancellationTokenSource();
+        _iqBusy = true; _iqRecoveryReader = _rig?.CaptureListenbackRecoveryReader(); _iqCancellation = new CancellationTokenSource();
         IqStatus(Lexicon.Get("audio.iq.preflight_running"));
         try
         {
@@ -339,19 +357,9 @@ public partial class AudioWorkshopDialog
         if (_rig == null || _iqBusy || _iqRun != null) return;
         try
         {
-            var snapshot = _rig.PendingListenbackRecovery;
-            if (snapshot == null) { IqStatus(Lexicon.Get("audio.iq.no_recovery")); return; }
-            bool approved = ListenbackRecoveryPrompt.Confirm(snapshot);
-            if (!approved) return;
             _iqBusy = true;
-            if (snapshot.UnreadableHash != null)
-            {
-                bool archived = _rig.AcknowledgeUnreadableListenbackRecovery(snapshot, true);
-                IqStatus(Lexicon.Get(archived ? "audio.iq.unreadable_archived" : "audio.iq.recovery_pending"), !archived);
-                return;
-            }
-            bool restored = await _rig.RestoreListenbackSnapshotAsync(snapshot, true);
-            IqStatus(Lexicon.Get(restored ? "audio.iq.restored" : "audio.iq.recovery_pending"), !restored);
+            var result = await ListenbackRecoveryPrompt.ReviewAsync(_rig);
+            if (result is { } notice) IqStatus(Lexicon.Get(notice.Key), notice.Failure);
         }
         catch (Exception ex) { IqFailure(ex); }
         finally { _iqBusy = false; }

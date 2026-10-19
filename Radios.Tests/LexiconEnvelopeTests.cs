@@ -1046,6 +1046,23 @@ namespace Radios.Tests
                 "audio.iq.unreadable_offer",
                 "audio.iq.unreadable_acknowledge",
                 "audio.iq.unreadable_archived",
+                "audio.iq.reason.listening-state-not-confirmed",
+                "audio.iq.recovery_state_unknown",
+                "audio.iq.ack.title",
+                "audio.iq.ack.offer",
+                "audio.iq.ack.clear",
+                "audio.iq.ack.cleared",
+                "audio.iq.ack.changed",
+                "audio.iq.ack.creation_unknown",
+                "audio.iq.ack.slice",
+                "audio.iq.ack.pan",
+                "audio.iq.ack.stream",
+                "audio.iq.ack.radio",
+                "audio.iq.ack.created",
+                "audio.iq.ack.setting",
+                "audio.iq.ack.not_recorded",
+                "audio.iq.ack.listener_request",
+                "audio.iq.ack.antenna_unchanged",
             };
 
             Assert.Equal(3152, unclassified);

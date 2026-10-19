@@ -10,9 +10,10 @@ using System.Threading.Tasks;
 namespace Radios.Listenback;
 
 public sealed record SavedRadioSetting(string Name, string Value, string RestoreCommand,
-    string StatusPrefix = "", string StatusKey = "", string ResourceKind = "", uint ResourceId = 0);
+    string StatusPrefix = "", string StatusKey = "", string ResourceKind = "", uint ResourceId = 0, string RequestedValue = null);
 public sealed record RecoveryResource(string Kind, uint Id, uint Owner, uint PanId, double Frequency,
     string Mode, string Antenna);
+public sealed record SavedListenerRequest(uint SliceId, uint PanId, double Frequency, string Mode, string ReceiveAntenna);
 public sealed class RadioRecoverySnapshot
 {
     public int Format { get; set; } = 1;
@@ -24,11 +25,15 @@ public sealed class RadioRecoverySnapshot
     public List<SavedRadioSetting> Settings { get; set; } = new();
     public List<string> ResourceNotes { get; set; } = new();
     public bool ResourceCreationPending { get; set; }
+    public SavedListenerRequest ListenerRequest { get; set; }
+    public int CreationEvidenceVersion { get; set; }
     public string GuiClientId { get; set; }
     public int? PriorActiveSlice { get; set; }
     public List<RecoveryResource> Resources { get; set; } = new();
     public string UnreadableHash { get; set; }
     public string ReadProblem { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string ContentHash { get; set; }
 }
 
 /// <summary>
@@ -36,7 +41,7 @@ public sealed class RadioRecoverySnapshot
 /// only confirmed restoration removes it. Reconnection is a discovery operation,
 /// never implicit permission to replay commands.
 /// </summary>
-public sealed class RadioRecoveryStore
+public sealed partial class RadioRecoveryStore
 {
     private readonly string _root;
     public RadioRecoveryStore(string root) => _root = root;
@@ -56,6 +61,7 @@ public sealed class RadioRecoveryStore
                 saved.Settings.Any(s => s == null || string.IsNullOrEmpty(s.Name) || s.RestoreCommand == null || s.Value == null || s.ResourceKind == null || s.StatusPrefix == null || s.StatusKey == null) ||
                 saved.Resources.Any(r => r == null) || saved.ResourceNotes.Any(n => n == null))
                 throw new InvalidDataException("recovery-identity");
+            saved.ContentHash = Convert.ToHexString(SHA256.HashData(bytes));
             return saved;
         }
         catch (Exception ex) when (ex is JsonException or InvalidDataException)
