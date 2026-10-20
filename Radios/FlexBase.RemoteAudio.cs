@@ -1707,9 +1707,28 @@ namespace Radios
                     // guarded radio it never captured anything, and writing a
                     // null here would be the guard's own teardown breaking
                     // the promise it made.
+                    //
+                    // And only while the input is still the PC this app set
+                    // (#686, Noel 2026-10-20: "then you'd need to restore
+                    // back"). If anyone moved it since - the owner at the
+                    // radio, another client, the operator through the Audio
+                    // Workshop - that is a newer choice than the one captured
+                    // at start, and writing the old value over it would undo
+                    // it unasked. The Audio Workshop's RestoreInjectionPath
+                    // has always restored on the same condition.
                     if (oldMicInput != null)
                     {
-                        theRadio.MicInput = oldMicInput;
+                        string nowInput = theRadio.MicInput ?? "";
+                        if (string.Equals(nowInput, "PC", StringComparison.OrdinalIgnoreCase))
+                        {
+                            theRadio.MicInput = oldMicInput;
+                        }
+                        else
+                        {
+                            Tracing.TraceLine("stopOpusOutputChannel: mic input is now '" + nowInput
+                                + "', not the PC this app set, so it is left there rather than"
+                                + " restored to '" + oldMicInput + "' (#686)", TraceLevel.Info);
+                        }
                         oldMicInput = null;
                     }
                 }

@@ -33,6 +33,9 @@ namespace Radios.Tests
         private static readonly FieldInfo ExpectedField = typeof(FlexBase).GetField("_pcMicExpected", Private)!;
         private static readonly FieldInfo ClockField = typeof(FlexBase).GetField("_pcMicCheckClock", Private)!;
         private static readonly MethodInfo CheckMethod = typeof(FlexBase).GetMethod("checkPcMicSelection", Private)!;
+        private static readonly MethodInfo StartMethod = typeof(FlexBase).GetMethod("startOpusOutputChannel", Private)!;
+        private static readonly MethodInfo StopMethod = typeof(FlexBase).GetMethod("stopOpusOutputChannel", Private)!;
+        private static readonly FieldInfo OutputChannelField = typeof(FlexBase).GetField("opusOutputChannel", Private)!;
 
         /// <summary>A start well past one second, so nothing here leans on
         /// the very first comparison.</summary>
@@ -55,16 +58,58 @@ namespace Radios.Tests
             public readonly RigOnVendorRadio Fixture;
             public long Clock;
 
-            public PcAudioRig(long clock)
+            public PcAudioRig(long clock, string? beforePcAudio = null)
             {
-                Assert.True(ExpectedField != null && ClockField != null && CheckMethod != null,
+                Assert.True(ExpectedField != null && ClockField != null && CheckMethod != null
+                    && StartMethod != null && StopMethod != null && OutputChannelField != null,
                     "checkPcMicSelection, _pcMicExpected or _pcMicCheckClock is not where this test reaches it; "
                     + "every assertion below would be vacuous");
                 Clock = clock;
                 Fixture = new RigOnVendorRadio(Serial);
                 ClockField.SetValue(Fixture.Rig, (Func<long>)(() => Clock));
+                if (beforePcAudio != null)
+                {
+                    // PC audio not started yet: the radio is wherever its
+                    // owner left it, and nothing has asked for PC.
+                    RadioReports(beforePcAudio);
+                    return;
+                }
                 ExpectedField.SetValue(Fixture.Rig, true);
                 RadioReports("PC");
+            }
+
+            /// <summary>
+            /// The real <c>startOpusOutputChannel</c>, as <c>remoteAudioProc</c>
+            /// calls it when receive audio comes up. The channel carries a real
+            /// FlexLib receive stream on the vendored Radio and a PortAudio
+            /// stream that was never constructed, so it holds no audio device
+            /// and makes no sound: its <c>StartAudio</c> throws a
+            /// NullReferenceException on its first line, which is AFTER every
+            /// mic-input decision the start path makes. The test then marks the
+            /// channel started, which is what a successful StartAudio would
+            /// have done.
+            /// </summary>
+            public void StartPcAudio()
+            {
+                var channel = new FlexBase.audioChannelData(
+                    new Flex.Smoothlake.FlexLib.RXRemoteAudioStream(Fixture.Vendor.Radio), "test.OpusOutputChan");
+                channel.PortAudioStream = (JJPortaudio.JJAudioStream)
+                    System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(JJPortaudio.JJAudioStream));
+                OutputChannelField.SetValue(Rig, channel);
+                var thrown = Assert.Throws<TargetInvocationException>(() => StartMethod.Invoke(Rig, null));
+                Assert.IsType<NullReferenceException>(thrown.InnerException);
+                Assert.Contains("StartAudio", thrown.InnerException!.StackTrace);
+                channel.Started = true;
+            }
+
+            /// <summary>The real <c>stopOpusOutputChannel</c>. Its
+            /// <c>StopAudio</c> throws the same way, after the restore and
+            /// after the channel is marked stopped.</summary>
+            public void StopPcAudio()
+            {
+                var thrown = Assert.Throws<TargetInvocationException>(() => StopMethod.Invoke(Rig, null));
+                Assert.IsType<NullReferenceException>(thrown.InnerException);
+                Assert.Contains("StopAudio", thrown.InnerException!.StackTrace);
             }
 
             public FlexBase Rig => Fixture.Rig;
@@ -173,6 +218,48 @@ namespace Radios.Tests
 
             // Through all of it, nothing was ever written to the owner's radio.
             Assert.Empty(rig.MicWrites);
+        }
+
+        // ------------------------------------------------------------------
+        // #686 repair round one: the put-back at stop
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void StopPutsTheSavedInputBackWhileTheInputIsStillThePcWeSet()
+        {
+            // The control for the theory below: nobody touched the input, so
+            // the start's PC goes and the owner's MIC comes back.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+
+            rig.StartPcAudio();
+            Assert.Equal(new[] { "mic input PC" }, rig.MicWrites);
+
+            rig.StopPcAudio();
+            Assert.Equal(new[] { "mic input PC", "mic input MIC" }, rig.MicWrites);
+            Assert.Equal("MIC", rig.MicInput);
+        }
+
+        [Theory]
+        [InlineData(RadioOwnership.Mine)]
+        [InlineData(RadioOwnership.Unset)]
+        [InlineData(RadioOwnership.SomeoneElses)]
+        public void StopLeavesAMidSessionChangeAloneInsteadOfRestoringOverIt(RadioOwnership ownership)
+        {
+            // Started with the input on MIC; somebody - the owner at the
+            // radio, another client - moved it to BAL while PC audio ran.
+            // Putting MIC back at stop would overrule that choice with a value
+            // nobody has asked for since the session began.
+            Declare(ownership);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            int writesAtStart = rig.MicWrites.Length;
+
+            rig.RadioReports("BAL");
+            rig.StopPcAudio();
+
+            Assert.Equal(writesAtStart, rig.MicWrites.Length);
+            Assert.Equal("BAL", rig.MicInput);
         }
 
         // ------------------------------------------------------------------
