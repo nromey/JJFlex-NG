@@ -580,11 +580,14 @@ namespace Radios
         /// which the registry never lists and which #778's first round
         /// swallowed (Codex, 2026-10-19, B1). A host that forgot one would
         /// refuse it, out loud; the routing tests in JJFlexWpf.Tests pin the
-        /// shipped list through the real dispatcher. The answer may depend on
-        /// the route the press came by: the shipped hosts let push to talk
-        /// and the plain brackets go only where the main window's handlers
-        /// are, and answer <see cref="DescribeUnavailableHere"/> for them on
-        /// the dialog route (#778b round two).
+        /// shipped list through the real dispatcher. Since #778b round three
+        /// the shipped hosts answer true only for a key their OWN table has a
+        /// row for (the verbosity cycle, Ctrl+Shift+bracket in the main
+        /// table), because only then does the host's dispatcher act on it. Push
+        /// to talk, the lock and the plain brackets are handled by the main
+        /// window BEFORE any layer is asked, so when a layer is asked about one
+        /// nothing would act on it, and the host answers
+        /// <see cref="DescribeUnavailableHere"/> instead.
         /// </para>
         /// <para>
         /// Asked AFTER every key the layer binds itself, so a layer's own use
@@ -689,9 +692,11 @@ namespace Radios
         /// the one this press arrived by: the sentence that says so, or null
         /// for every other key (#778b round two). Asked right after
         /// <see cref="PassThroughKeys"/> answered no. A non-null answer refuses
-        /// the key, keeps the layer, and is spoken at EVERY verbosity, because
-        /// it is a fact about the radio (push to talk did not key it), not a
-        /// hint the operator can do without.
+        /// the key and keeps the layer, as an ordinary #528 refusal: the low
+        /// refusal tone at every verbosity, the sentence at Chatty only. Ruled
+        /// by Noel 2026-10-19 20:55, on the model of a DMR radio's beep when it
+        /// cannot transmit: the tone should be enough, and the words, when
+        /// spoken, very short.
         /// </summary>
         /// <remarks>
         /// The host decides both questions from ONE verdict per key, so
@@ -1255,23 +1260,30 @@ namespace Radios
             if (_def.PassThroughKeys != null && _def.PassThroughKeys(k))
                 return ValueLayerKeyResult.PassThrough;
 
-            // A key that acts in place where its handler is, and has none on
-            // the route this press arrived by (#778b round two, Codex B1): push
-            // to talk pressed in a dialog, where the main window's transmit
-            // handler is not on the route. Letting it go would hand a transmit
-            // chord to whatever control has focus there, with the layer still
-            // open, while the help promised it keys the radio. So it is refused
-            // and the layer stays, and the sentence says the TRUTH about it —
-            // not "not a key in this layer", which is false for push to talk.
-            // Spoken at every verbosity: a transmit key that did not transmit
-            // is a fact about the radio, which this app always says (the rule
-            // the key reference states for an unavailable key), not a hint.
+            // A key that acts in place where its handler is, and that nothing
+            // here would act on (#778b rounds two and three, Codex B1 and B2):
+            // push to talk pressed in a dialog or the log form, where the main
+            // window's transmit handler is not on the route, or on the main
+            // window when that handler has already passed on it. Letting it go
+            // would hand a transmit chord to whatever control has focus, with
+            // the layer still open, while the help promised it keys the radio.
+            // So it is refused and the layer stays, and the sentence says the
+            // TRUTH about it — not "not a key in this layer", which is false for
+            // push to talk.
+            // Ruled by Noel 2026-10-19 20:55: "I would speak it if on chatty,
+            // play a low tone otherwise. If we speak it, make it a very short
+            // message, the tone really should be enough, similar to the DMR
+            // radios that beep when they can't transmit." So this is the
+            // ordinary #528 refusal: the low refusal tone at every verbosity
+            // (the earcon gate is the operator's sound switches, not the speech
+            // verbosity, so it sounds at Off too) and the very short sentence
+            // at Chatty only.
             string? unavailable = _def.DescribeUnavailableHere?.Invoke(k);
             if (!string.IsNullOrEmpty(unavailable))
             {
                 Tracing.TraceLine("ValueSubLayer(" + _def.Id + "): refused " + k
-                    + " (acts in place, but not from this route), staying open", TraceLevel.Info);
-                Refuse(unavailable, alwaysSpeak: true);
+                    + " (acts in place, but nothing here would act on it), staying open", TraceLevel.Info);
+                Refuse(unavailable);
                 return ValueLayerKeyResult.Handled;
             }
 
@@ -1515,12 +1527,12 @@ namespace Radios
         /// open either way; verbosity changes what is said, never what
         /// happens.
         /// </summary>
-        private void Refuse(string? hint, bool alwaysSpeak = false)
+        private void Refuse(string? hint)
         {
             bool toneWillSound = _def.Cues.Invalid != null && (_def.Cues.Audible?.Invoke() ?? true);
             _def.Cues.Invalid?.Invoke();
             if (string.IsNullOrEmpty(hint)) return;
-            if (!alwaysSpeak && Speech.RefusalVoice.ToneStandsAlone(VerbosityNow(), toneWillSound)) return;
+            if (Speech.RefusalVoice.ToneStandsAlone(VerbosityNow(), toneWillSound)) return;
             EmitSay(hint!);
         }
 

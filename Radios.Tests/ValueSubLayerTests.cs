@@ -1522,13 +1522,17 @@ namespace Radios.Tests
         [Theory]
         [InlineData(VerbosityLevel.Chatty)]
         [InlineData(VerbosityLevel.Terse)]
-        public void A_key_with_no_handler_on_this_route_is_refused_with_the_hosts_true_sentence_at_every_level(VerbosityLevel level)
+        [InlineData(VerbosityLevel.Critical)]   // Off
+        public void A_key_nothing_here_would_act_on_is_the_low_tone_at_every_level_and_words_only_at_chatty(VerbosityLevel level)
         {
-            // #778b round two. The host says a key would act in place on another
-            // route but has no handler on this one (push to talk pressed in a
-            // dialog). The engine refuses it, keeps the layer, and speaks the
-            // host's sentence even at Terse: a transmit key that did not transmit
-            // is a fact about the radio, not a hint. The tone still plays.
+            // #778b, ruled by Noel 2026-10-19 20:55: "I would speak it if on
+            // chatty, play a low tone otherwise. If we speak it, make it a very
+            // short message, the tone really should be enough, similar to the
+            // DMR radios that beep when they can't transmit." The host says a
+            // key would act in place elsewhere but nothing here would act on it
+            // (push to talk pressed in a dialog). The engine refuses it, keeps
+            // the layer, plays the refusal tone at EVERY level, Off included,
+            // and says the host's sentence at Chatty only.
             var tones = new ToneCounter();
             var h = new Harness { Verbosity = level };
             int value = 40;
@@ -1540,19 +1544,34 @@ namespace Radios.Tests
                 Number = v => "Power " + v,
                 DescribeEntry = (cur, entry) => "Power layer.",
                 DescribeClosed = () => "Power layer closed",
-                DescribeUnknownKey = (k, why) => "not a key",
-                DescribeUnavailableHere = k => k == (Keys.Space | Keys.Control) ? "Push to talk does not work from this window." : null,
+                DescribeUnavailableHere = k => k == (Keys.Space | Keys.Control) ? "No push to talk here." : null,
                 Cues = tones.Cues,
             });
+            int saidBefore = h.Said.Count;
 
             Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.Space | Keys.Control));
             Assert.True(h.Layer.IsLive);
             Assert.Equal(1, tones.Invalid);
-            Assert.Equal("Push to talk does not work from this window.", h.LastSaid);
+            if (level == VerbosityLevel.Chatty)
+                Assert.Equal("No push to talk here.", h.LastSaid);
+            else
+                Assert.Equal(saidBefore, h.Said.Count);
+        }
 
-            // Every other key is unaffected by the hook.
-            h.Layer.HandleKey(Keys.Z);
-            Assert.Equal(level == VerbosityLevel.Chatty ? "not a key" : "Push to talk does not work from this window.", h.LastSaid);
+        [Fact]
+        public void The_earcon_gate_is_the_sound_switches_and_not_the_speech_verbosity()
+        {
+            // Why the low tone above sounds at Off in the real app: every gated
+            // earcon, the refusal tone (LeaderInvalidTone) among them, passes
+            // only EarconPlayer.On, which is the master switch and the category
+            // switch. Nothing in EarconPlayer consults the speech verbosity.
+            string source = ReadSource("JJFlexWpf/EarconPlayer.cs");
+            Assert.Contains("EarconsEnabled && _categoryEnabled[(int)category];", source);
+            Assert.DoesNotContain("CurrentVerbosity", source);
+            Assert.DoesNotContain("VerbosityLevel", source);
+            Assert.Contains("public static void LeaderInvalidTone()", source);
+            string commands = ReadSource("JJFlexWpf/KeyCommands.cs");
+            Assert.Equal(3, Regex.Matches(commands, @"Invalid = EarconPlayer\.LeaderInvalidTone,").Count);
         }
 
         [Fact]
@@ -2794,13 +2813,14 @@ namespace Radios.Tests
             // mirror's InPlaceChord is held to the shipped body here.
             Assert.Equal(3, Regex.Matches(source, @"PassThroughKeys = ActsInPlaceInsideALayer,").Count);
             Assert.DoesNotContain("PassThroughKeys = key => Lookup(key)?.KeyDef.Id == CommandValues.CycleVerbosity", source);
-            Assert.Contains("=> InPlaceVerdictFor(k, _layerKeyFromDialog) == InPlaceVerdict.ActsHere;", source);
-            // #778b round two: ONE verdict per key decides both the pass-through
-            // and the dialog-route refusal, so they cannot drift apart; and the
-            // route is the one DoCommand was called on.
-            Assert.Contains("if (!fromDialog || row != null) return InPlaceVerdict.ActsHere;", source);
-            Assert.Contains("_layerKeyFromDialog = fromDialog;", source);
-            Assert.Equal(3, Regex.Matches(source, @"DescribeUnavailableHere = key => LayerKeyUnavailableHere\(KeyInventory\.").Count);
+            Assert.Contains("=> InPlaceVerdictFor(k) == InPlaceVerdict.ActsHere;", source);
+            // #778b: ONE verdict per key decides both the pass-through and the
+            // refusal, so they cannot drift apart; since round three it asks
+            // only THIS instance's own table (Codex B2: the log form's reduced
+            // table), never the route.
+            Assert.Contains("return row != null ? InPlaceVerdict.ActsHere : InPlaceVerdict.NotFromHere;", source);
+            Assert.DoesNotContain("_layerKeyFromDialog", source);
+            Assert.Equal(3, Regex.Matches(source, @"DescribeUnavailableHere = LayerKeyUnavailableHere,").Count);
             Assert.Contains("return mods == Keys.Control || mods == Keys.Shift;", source);
             Assert.Contains("return code == Keys.OemOpenBrackets || code == Keys.OemCloseBrackets;", source);
             Assert.Equal(3, Regex.Matches(source, @"DescribeFineStep = LayerFineStep,").Count);
@@ -3045,20 +3065,19 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Only_the_dialog_window_handlers_ask_a_layer_on_the_dialog_route()
+        public void Only_the_dialog_window_handlers_pass_the_dialog_route_and_the_verdict_does_not_ask_it()
         {
-            // #778b round two, Codex F1. A live layer refuses push to talk and the
-            // plain brackets ONLY when the press came by the dialog route, and the
-            // route is the fromDialog argument DoCommand was called with, not the
-            // order the handlers ran in. So the question "can the shell's
-            // ProcessCmdKey reach the layer on Home before MainWindow's own
-            // handler, and hit the dialog refusal?" is answered by who passes
-            // fromDialog: true. Exactly two call sites do, both reached only from
-            // the Window class handlers (AnyWindowPreviewKeyDown and
-            // DispatchFromDialogWindow), which never run for the main window: it
-            // is a UserControl in the shell's ElementHost. The shell, the main
-            // window and the WinForms log form all call the public one-argument
-            // DoCommand, which is fromDialog: false.
+            // #778b, Codex F1 (round two) and B2 (round three). Which route a
+            // press comes by is the fromDialog argument: exactly two call sites
+            // pass true, both reached only from the Window class handlers
+            // (AnyWindowPreviewKeyDown and DispatchFromDialogWindow), which never
+            // run for the main window, a UserControl in the shell's ElementHost.
+            // The shell, the main window and the WinForms log form all call the
+            // public one-argument DoCommand, which is fromDialog: false. Round
+            // two decided "acts in place" from that flag, and the log form made
+            // it false (B2): main route, no main-window handler. So since round
+            // three the verdict does not ask the route at all; this pin records
+            // who is on which route so nobody is tempted to bring it back.
             string commands = ReadSource("JJFlexWpf/KeyCommands.cs");
             Assert.Equal(2, Regex.Matches(commands, @"fromDialog: true\)").Count);
             Assert.Contains("public bool DoCommand(Keys k) => DoCommand(k, fromDialog: false);", commands);

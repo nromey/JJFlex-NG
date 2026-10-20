@@ -81,7 +81,7 @@ public sealed class ValueLayerRoutingTests : IDisposable
     /// The real audio layer, opened the way JJ key, A opens it, with VOX gain
     /// picked (X) — Noel's exact path on 2026-10-19 at 07:41.
     /// </summary>
-    private KeyCommands OpenAudioLayerOnVoxGain(bool fromDialog)
+    private KeyCommands OpenAudioLayerOnVoxGain(bool fromDialog, bool logFormTable = false)
     {
         AssertTheDeskIsSafe();
         var context = new KeyCommandContext
@@ -90,7 +90,7 @@ public sealed class ValueLayerRoutingTests : IDisposable
             GetPower = () => true,
             WriteFreq = () => _writeFreqCalls++,
         };
-        var commands = new KeyCommands(context, setDefault: true);
+        var commands = logFormTable ? LogFormStyleCommands(context) : new KeyCommands(context, setDefault: true);
         commands.EnterAudioLayer(onPan: false);
         Assert.NotNull(commands.LiveValueLayer);
 
@@ -114,9 +114,35 @@ public sealed class ValueLayerRoutingTests : IDisposable
         return recent.First();
     }
 
-    // ── Keys that act in place: the layer lets them go and stays live ──
+    /// <summary>
+    /// The closest window-free equivalent of the WinForms full log form's
+    /// key table (<c>LogEntry.myKeyCommands</c>, LogEntry.vb), built by the
+    /// same rule: a KeyCommands with NO default table, then a copy of every
+    /// row of a full table that is a logging key, is marked UseWhenLogging, or
+    /// is one of the three named commands (new entry, finalize, search). The
+    /// log form replaces the copied handlers with its own field-ID setter; a
+    /// no-op stands in for that here. The form itself is VB and needs a window,
+    /// so it cannot be constructed; its rule can.
+    /// </summary>
+    private static KeyCommands LogFormStyleCommands(KeyCommandContext context)
+    {
+        var full = new KeyCommands(context, setDefault: true);
+        var named = new HashSet<CommandValues> { CommandValues.NewLogEntry, CommandValues.LogFinalize, CommandValues.SearchLog };
+        var log = new KeyCommands(context, setDefault: false);
+        foreach (var entries in full.KeyDictionary.Values)
+            foreach (var item in entries)
+                if (item.KeyType == KeyTypes.Log || item.UseWhenLogging || named.Contains(item.KeyDef.Id))
+                {
+                    var mine = new KeyTableEntry(item);
+                    if (!mine.UseWhenLogging) mine.Handler = () => { };
+                    log.AddToKeyDictionary(mine);
+                }
+        return log;
+    }
 
-    // The main window's in-place chords that the registry never lists.
+    // ── Push to talk, the lock and the plain brackets: refused wherever a layer is asked ──
+
+    // The main window's own chords, which no key table has a row for.
     private static readonly Keys[] MainWindowOnlyChords =
     {
         Keys.Space | Keys.Control,                   // hold to talk
@@ -128,81 +154,106 @@ public sealed class ValueLayerRoutingTests : IDisposable
         Keys.OemCloseBrackets | Keys.Control,        // pull
     };
 
-    public static TheoryData<Keys> MainWindowOnly()
-    {
-        var data = new TheoryData<Keys>();
-        foreach (var k in MainWindowOnlyChords) data.Add(k);
-        return data;
-    }
+    private const string Ptt = "No push to talk here.";
+    private const string LockLine = "No transmit lock here.";
+    private const string Bracket = "That filter key does nothing here.";
 
-    [Theory]
-    [MemberData(nameof(MainWindowOnly))]
-    public void On_the_main_route_an_in_place_key_is_not_consumed_and_the_layer_stays_live(Keys k)
-    {
-        // Ruling 2 as filed on #778 (to confirm at the radio): push to talk,
-        // the transmit lock and the bracket filter keys keep working inside a
-        // layer, because they do not leave it. On the main route (MainWindow's
-        // step 4, the shell's ProcessCmdKey) DoCommand returning FALSE is what
-        // lets the key go on to the main window's own handler; the layer still
-        // being there is what makes it "in place". (On Home with the radio
-        // powered and focus in the Home fields, MainWindow handles these at
-        // steps 2 and 3 before the layer is even asked.)
-        var commands = OpenAudioLayerOnVoxGain(fromDialog: false);
-        var layer = commands.LiveValueLayer;
+    private static string SentenceFor(Keys k)
+        => (k & Keys.KeyCode) != Keys.Space ? Bracket
+         : (k & Keys.Modifiers) == Keys.Control ? Ptt : LockLine;
 
-        Assert.False(commands.DoCommand(k, fromDialog: false));
-        Assert.Same(layer, commands.LiveValueLayer);
-        Assert.True(layer!.IsLive);
-        Assert.Equal("vox-gain", layer.CurrentTarget?.Id);
-    }
-
-    public static TheoryData<Keys, string> DialogRefusals()
+    public static TheoryData<Keys, bool, bool> NoHandlerHere()
     {
-        const string ptt = "Push to talk does not work from this window. The Audio layer is still open.";
-        const string lockLine = "The transmit lock does not work from this window. The Audio layer is still open.";
-        const string bracket = "This bracket key does not move the filter from this window. The Audio layer is still open.";
-        var data = new TheoryData<Keys, string>
+        var data = new TheoryData<Keys, bool, bool>();
+        foreach (var (fromDialog, logForm) in new[] { (true, false), (false, false), (false, true) })
         {
-            { Keys.Space | Keys.Control, ptt },
-            { Keys.Space | Keys.Shift, lockLine },
-        };
-        foreach (var k in MainWindowOnlyChords)
-            if ((k & Keys.KeyCode) != Keys.Space) data.Add(k, bracket);
+            foreach (var k in MainWindowOnlyChords) data.Add(k, fromDialog, logForm);
+            if (logForm)
+            {
+                // The log form's table has no transmit-filter rows, so
+                // Ctrl+Shift+bracket has nothing to run there either (Codex B2).
+                data.Add(Keys.OemOpenBrackets | Keys.Control | Keys.Shift, fromDialog, logForm);
+                data.Add(Keys.OemCloseBrackets | Keys.Control | Keys.Shift, fromDialog, logForm);
+            }
+        }
         return data;
     }
 
     [Theory]
-    [MemberData(nameof(DialogRefusals))]
-    public void In_a_dialog_an_in_place_key_with_no_handler_there_is_refused_out_loud(Keys k, string sentence)
+    [MemberData(nameof(NoHandlerHere))]
+    public void An_in_place_chord_nothing_here_would_act_on_is_refused_out_loud_and_the_layer_stays(
+        Keys k, bool fromDialog, bool logForm)
     {
-        // #778b round two, Codex B1. On the dialog route (the Window class
-        // handlers, so the Audio Workshop and every other WPF dialog) nothing
-        // handles these chords: MainWindow's branches are not on the route and
-        // DispatchFromDialogWindow routes only registry rows. Letting them go
-        // handed a transmit chord to the focused dialog control with the layer
-        // still open. Now they are CONSUMED, the layer stays, and the sentence
-        // says what did not happen. Dialogs do not key the radio; whether one
-        // should is Noel's to rule.
-        var commands = OpenAudioLayerOnVoxGain(fromDialog: true);
+        // #778b, Codex B1 (round two) and B2 (round three). These chords'
+        // only handler is MainWindow_PreviewKeyDown, steps 2 and 3, which run
+        // BEFORE the main window first asks a layer anything (step 4; pinned in
+        // Radios.Tests). So whenever a layer IS asked about one, nothing would
+        // act on it: a WPF dialog (fromDialog), the WinForms log form (main
+        // route, its own reduced table), or the main window after its own
+        // branch passed (focus outside the Home fields, radio off, Logging
+        // mode). Letting it go handed a transmit chord to the focused control
+        // with the layer open. Now it is CONSUMED, the layer stays, and the
+        // sentence says what did not happen.
+        var commands = OpenAudioLayerOnVoxGain(fromDialog, logForm);
         var layer = commands.LiveValueLayer;
+        Assert.Null(commands.Lookup(k));                 // no row in THIS table
 
-        string said = SpokenAfter(() => Assert.True(commands.DoCommand(k, fromDialog: true)));
+        string said = SpokenAfter(() => Assert.True(commands.DoCommand(k, fromDialog)));
 
         Assert.Same(layer, commands.LiveValueLayer);
         Assert.True(layer!.IsLive);
-        Assert.Equal(sentence, said);
+        Assert.Equal(SentenceFor(k), said);
     }
 
     [Fact]
-    public void In_a_dialog_the_push_to_talk_refusal_is_spoken_even_at_terse()
+    public void The_log_form_table_really_lacks_the_rows_the_main_table_has()
     {
-        // A transmit key that did not transmit is a fact about the radio, not a
-        // hint, so it is spoken at every verbosity — unlike an ordinary refusal,
-        // which below Chatty is the tone alone.
+        // Positive control for the theory above: the main table HAS a row for
+        // Ctrl+Shift+bracket and the log form's copied table does not, and the
+        // copied table is not empty (it carries the logging keys), so the
+        // refusal there is the table's answer, not a table that failed to copy.
+        var context = new KeyCommandContext { GetRigControl = () => _rig };
+        var full = new KeyCommands(context, setDefault: true);
+        var log = LogFormStyleCommands(context);
+        Keys chord = Keys.OemOpenBrackets | Keys.Control | Keys.Shift;
+        Assert.NotNull(full.Lookup(chord));
+        Assert.Null(log.Lookup(chord));
+        Assert.Contains(log.KeyDictionary.Values.SelectMany(v => v), e => e.KeyType == KeyTypes.Log);
+        Assert.Equal(KeyCommands.InPlaceVerdict.ActsHere, full.InPlaceVerdictFor(chord));
+        Assert.Equal(KeyCommands.InPlaceVerdict.NotFromHere, log.InPlaceVerdictFor(chord));
+
+        // And the verbosity cycle is not in the log form's table either, so
+        // the fragments may not promise it works in a layer there: it is
+        // refused with the layer's plain line, as it would do nothing there
+        // without a layer.
+        Keys verbosity = Keys.V | Keys.Control | Keys.Shift;
+        Assert.Equal(CommandValues.CycleVerbosity, full.Lookup(verbosity)?.KeyDef.Id);
+        Assert.Null(log.Lookup(verbosity));
+        Assert.Equal(KeyCommands.InPlaceVerdict.NotInPlace, log.InPlaceVerdictFor(verbosity));
+    }
+
+    [Theory]
+    [InlineData(VerbosityLevel.Terse)]
+    [InlineData(VerbosityLevel.Critical)]   // Off
+    public void Below_chatty_the_refusal_says_nothing_and_the_layer_stays(VerbosityLevel level)
+    {
+        // Ruled by Noel 2026-10-19 20:55: "I would speak it if on chatty, play
+        // a low tone otherwise." Below Chatty, including Off, no words: the
+        // refusal tone is the answer. (The tone itself is asserted at all three
+        // levels in Radios.Tests, where the cue can be counted; that it sounds
+        // at Off rests on the earcon gate being the sound switches and not the
+        // speech verbosity, pinned from source there too. This class runs with
+        // render off, so it can only show the words are absent.)
+        Assert.True(EarconPlayer.IsOn(EarconPlayer.EarconCategory.CommandsAndConfirmations),
+            "with the refusal tone switched off, #528 speaks the words at every level, and this test would be about something else");
         var commands = OpenAudioLayerOnVoxGain(fromDialog: true);
-        ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Terse;
-        string said = SpokenAfter(() => Assert.True(commands.DoCommand(Keys.Space | Keys.Control, fromDialog: true)));
-        Assert.Equal("Push to talk does not work from this window. The Audio layer is still open.", said);
+        ScreenReaderOutput.CurrentVerbosity = level;
+
+        string marker = "marker " + Guid.NewGuid().ToString("N");
+        ScreenReaderOutput.Speak(marker, VerbosityLevel.Critical, true);
+        Assert.True(commands.DoCommand(Keys.Space | Keys.Control, fromDialog: true));
+
+        Assert.Equal(marker, ScreenReaderOutput.RecentMessages.FirstOrDefault());
         Assert.NotNull(commands.LiveValueLayer);
     }
 
