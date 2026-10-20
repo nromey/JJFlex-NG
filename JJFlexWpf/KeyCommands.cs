@@ -58,6 +58,14 @@ public class KeyCommands
     // Null when no layer is live. ──
     private Radios.ValueSubLayer? _valueLayer;
 
+    /// <summary>
+    /// The live value layer, or null — for the window-free routing tests
+    /// (#778), which drive <see cref="DoCommand(Keys, bool)"/> and must be
+    /// able to say whether a key left the layer or acted with it still open.
+    /// Read-only on purpose: nothing outside this class opens or closes one.
+    /// </summary>
+    internal Radios.ValueSubLayer? LiveValueLayer => _valueLayer;
+
     // ── Command ID tracking — handlers can read this to know which command triggered them. ──
     public CommandValues CommandId { get; set; }
 
@@ -3015,13 +3023,30 @@ public class KeyCommands
             switch (DoValueLayerKey(k))
             {
                 case Radios.ValueLayerKeyResult.PassThrough:
-                    // Alt chords, F1, the verbosity cycle: fall through to
-                    // the rest of this dispatch with the layer still live, so
-                    // a whitelisted chord does its normal job (and the next
-                    // nudge speaks in the other form).
+                    // Alt chords, F1, and an in-place key THIS table can run
+                    // (#778b, InPlaceVerdictFor): the verbosity cycle, and
+                    // Ctrl+Shift+[ or ] where the table has the transmit
+                    // filter rows. They fall through to the rest of this
+                    // dispatch with the layer still live and run from their
+                    // row below.
+                    //
+                    // An in-place key with NO row in this table never comes
+                    // back here: push to talk, the transmit lock and the
+                    // bare, Shift and Ctrl brackets in the shipped tables, and
+                    // Ctrl+Shift+[ or ] in the log form's copy. The engine
+                    // refuses it (LayerKeyUnavailableHere), consumes it and
+                    // keeps the layer open. On Home, with its own gates met,
+                    // MainWindow_PreviewKeyDown acts on push to talk, the lock
+                    // and the brackets before it asks a layer anything, so a
+                    // layer is only asked when nothing would act on them: a
+                    // dialog, the log form, or Home with focus outside the
+                    // fields, the radio off, or Logging mode for the brackets.
                     break;
 
                 case Radios.ValueLayerKeyResult.ClosedPassThrough:
+                    // Not returned by the engine since #778b (the only ways
+                    // out of a layer are Enter, Escape and the JJ key); kept
+                    // so the route stays whole for anything that ever does.
                     // The layer confirmed and closed; the key now means what
                     // it always means. From a dialog, returning false lets
                     // the dialog and then the bubble handler take it (Global
@@ -4702,10 +4727,12 @@ public class KeyCommands
                     ? "audio.audio_layer.restored_nothing"
                     : "audio.audio_layer.restored"),
             PickTargetHint = () => Radios.Lexicon.Get("audio.audio_layer.pick_target_first"),
-            // The verbosity cycle travels through the live layer, looked up
-            // from the registry so a remapped chord is still honoured — an
-            // operator can flip words-versus-numbers mid-hunt.
-            PassThroughKeys = key => Lookup(key)?.KeyDef.Id == CommandValues.CycleVerbosity,
+            // #778: the keys that act with the layer still open — the
+            // verbosity cycle, push to talk, the transmit lock and the
+            // bracket filter keys. Everything else the layer does not bind is
+            // refused; the only ways out are Enter, Escape and the JJ key.
+            PassThroughKeys = ActsInPlaceInsideALayer,
+            DescribeUnavailableHere = LayerKeyUnavailableHere,
             HostKeys = LayerSliceJump,
             // #547: a letter that means nothing out there and sits one
             // modifier from a chord in here is a slip, and the layer says so
@@ -4713,9 +4740,11 @@ public class KeyCommands
             // the report.
             MeansSomethingOutside = MeansSomethingOutsideTheLayer,
             DescribeNearMiss = key => LayerNearMiss(KeyInventory.AudioLayerContext, key),
-            // #778: a key with nowhere to go stays, and this is what it hears
-            // when it is no near miss and a target is already picked.
+            // #778: a key the layer does not take stays, and this is what it
+            // hears when it is no near miss and a target is already picked;
+            // a typed number also hears the fine step where that is true.
             DescribeUnknownKey = (key, why) => LayerUnknownKey(KeyInventory.AudioLayerContext, key, why),
+            DescribeFineStep = LayerFineStep,
             ListCommands = () => TryShowLayerCommandList(KeyInventory.AudioLayerContext),
             OpenExplorer = () => TryOpenLayerExplorer(KeyInventory.AudioLayerContext),
             Exited = why => { if (pcTouched) _context.GetMainWindow()?.PersistPcOutputVolume(); },
@@ -5057,7 +5086,8 @@ public class KeyCommands
             WhichShiftHint = () => Radios.Lexicon.Get("audio.filter_layer.which_shift"),
             NoVerbHint = () => Radios.Lexicon.Get("audio.filter_layer.no_verb"),
             WrongAxisHint = () => Radios.Lexicon.Get("audio.filter_layer.no_verb"),
-            PassThroughKeys = key => Lookup(key)?.KeyDef.Id == CommandValues.CycleVerbosity,
+            PassThroughKeys = ActsInPlaceInsideALayer,
+            DescribeUnavailableHere = LayerKeyUnavailableHere,
             HostKeys = LayerSliceJump,
             // #547, the same rule as the audio layer. This layer's letters are
             // S, T and R, so a Ctrl+S or a Shift+T recovers here instead of
@@ -5065,8 +5095,11 @@ public class KeyCommands
             MeansSomethingOutside = MeansSomethingOutsideTheLayer,
             DescribeNearMiss = key => LayerNearMiss(KeyInventory.FilterLayerContext, key),
             // #778: nothing is ever "picked" in a ByModifier layer, so this is
-            // the answer for every unknown key here that is not a near miss.
+            // the answer for every refused key here that is not a near miss.
+            // The fine step is wired like the other layers' and the engine
+            // never says it here: Shift chooses an edge in this layer.
             DescribeUnknownKey = (key, why) => LayerUnknownKey(KeyInventory.FilterLayerContext, key, why),
+            DescribeFineStep = LayerFineStep,
             ListCommands = () => TryShowLayerCommandList(KeyInventory.FilterLayerContext),
             OpenExplorer = () => TryOpenLayerExplorer(KeyInventory.FilterLayerContext),
             Exited = why => { _filterRx = null; },
@@ -5325,7 +5358,8 @@ public class KeyCommands
             // and the layer stays.
             PickTargetHint = () => Radios.Lexicon.Get("audio.noise_layer.switches_only"),
             WrongAxisHint = () => Radios.Lexicon.Get("audio.noise_layer.switches_only"),
-            PassThroughKeys = key => Lookup(key)?.KeyDef.Id == CommandValues.CycleVerbosity,
+            PassThroughKeys = ActsInPlaceInsideALayer,
+            DescribeUnavailableHere = LayerKeyUnavailableHere,
             HostKeys = LayerSliceJump,
             // #547, the same rule as the other two layers: a letter that means
             // nothing out there and sits one modifier from a chord in here is
@@ -5336,6 +5370,7 @@ public class KeyCommands
             // answers an unknown key with the switches_only line above first;
             // this is the fallback should that ever be null.
             DescribeUnknownKey = (key, why) => LayerUnknownKey(KeyInventory.NoiseLayerContext, key, why),
+            DescribeFineStep = LayerFineStep,
             ListCommands = () => TryShowLayerCommandList(KeyInventory.NoiseLayerContext),
             OpenExplorer = () => TryOpenLayerExplorer(KeyInventory.NoiseLayerContext),
             Cues = new Radios.ValueLayerCues
@@ -5496,57 +5531,205 @@ public class KeyCommands
     /// names.
     /// </summary>
     /// <remarks>
-    /// The engine says WHY it refused — nowhere to go, or a key that would
-    /// start typed entry — and the words follow the reason. Like the
-    /// near-miss, this says the recovery and does not restate the key or the
-    /// fact that it did nothing: the refusal earcon has already said that,
-    /// and the leader layer's own unknown-key line ("Unknown key. H for the
-    /// list, Escape to cancel.") is the vocabulary it mirrors. A key that
-    /// stays in the layer is answered in the layer's voice, which is what
-    /// lets an operator tell "still in the audio layer" from Home's
+    /// <para>
+    /// The engine says WHY it refused — a key that is not one of this
+    /// layer's, or a digit, which would start typed entry — and the words
+    /// follow the reason. Both sentences are Noel's, ruled 2026-10-19 14:33
+    /// and 14:34 (<c>audio.value_layer.unknown_key</c>,
+    /// <c>audio.value_layer.typed_number</c>); the lexicon's <c>{layer}</c>
+    /// is the layer's title ("Audio layer"), so the assembled sentence reads
+    /// "Not a key in the Audio layer. Press H to list available keys for
+    /// this layer." exactly as he gave it.
+    /// </para>
+    /// <para>
+    /// Since #778b a refused key includes a real hotkey such as Ctrl+F: the
+    /// only ways out of a layer are Enter, Escape and the JJ key. A key
+    /// that stays in the layer is answered in the layer's voice, which is
+    /// what lets an operator tell "still in the audio layer" from Home's
     /// "Z does nothing on the Frequency field" — the two sentences Noel could
     /// not tell apart on 2026-10-19 because the first was never spoken.
+    /// </para>
     /// </remarks>
     private static string LayerUnknownKey(string context, Keys pressed, Radios.ValueLayerRefusal why)
     {
-        // A digit says what the operator was probably trying to do and what
-        // does it instead; anything else points at H. Both DRAFT PROSE (#778):
-        // awaiting Noel.
         string key = why == Radios.ValueLayerRefusal.TypedEntry
-            ? "audio.value_layer.typed_number"   // DRAFT PROSE (#778): awaiting Noel
-            : "audio.value_layer.unknown_key";   // DRAFT PROSE (#778): awaiting Noel
+            ? "audio.value_layer.typed_number"
+            : "audio.value_layer.unknown_key";
         return Radios.Lexicon.Get(key, ("layer", KeyLayerHelp.LayerName(context)));
     }
 
     /// <summary>
-    /// Does a key mean anything once a layer lets go of it? The live
-    /// registry, so a remap is honoured — the same question and the same
-    /// source as <see cref="Lookup(Keys)"/>'s own dispatch (#547).
+    /// The fine-step sentence a typed number hears after the ruled one
+    /// (#778): Shift with the arrows is the fine step in a layer that picks
+    /// by letter. The engine appends it only where that is true of what is
+    /// picked, so this owns the words and nothing else.
+    /// </summary>
+    private static string LayerFineStep()
+        // DRAFT PROSE (#778): awaiting Noel. His 14:33 ruling asked for "a
+        // fine-step sentence"; this is the brief's draft wording, appended to
+        // the typed-number sentence because that is the sentence that is
+        // already telling the operator to use the arrows.
+        => Radios.Lexicon.Get("audio.value_layer.fine_step");
+
+    /// <summary>
+    /// What a live value layer should do with a key that is not one of its
+    /// own, as far as acting in place goes (#778, #778b round two).
+    /// </summary>
+    internal enum InPlaceVerdict
+    {
+        /// <summary>Not an in-place key: the layer refuses it like any other.</summary>
+        NotInPlace,
+
+        /// <summary>
+        /// THIS KeyCommands instance dispatches it itself, from a row in its
+        /// own table: let it go, layer kept, and DoCommand runs the row.
+        /// </summary>
+        ActsHere,
+
+        /// <summary>
+        /// An in-place chord with no row in this instance's table. Its only
+        /// handler is the main window's own branch, and by the time a layer is
+        /// asked about it that branch has already passed on it: refuse it,
+        /// layer kept, and say why.
+        /// </summary>
+        NotFromHere,
+    }
+
+    /// <summary>
+    /// ONE verdict per key, so the pass-through and the refusal sentence
+    /// cannot disagree, and it asks only what THIS instance can deliver.
+    /// Everything else the layer does not bind is refused (Noel, 2026-10-19
+    /// 14:35: the only ways out are Enter, Escape and the JJ key).
     /// </summary>
     /// <remarks>
     /// <para>
-    /// It answers for OUR vocabulary — the key table — and makes no claim
-    /// about anything else, and THE KEY TABLE IS NOT THE WHOLE KEY MAP.
-    /// <c>MainWindow_PreviewKeyDown</c> handles Ctrl+Space (hold to talk),
-    /// Shift+Space (the transmit lock, which also unlocks), Escape while
-    /// transmitting, and the bare, Shift and Ctrl bracket filter keys in
-    /// branches of its own with no registry rows; Tab, Space and the page keys
-    /// mean things below us. So the engine consults this ONLY for a letter
-    /// with no Ctrl or Alt, and for the near-miss check — the two places
-    /// where a "no" is evidence — and lets everything else travel. #778's
-    /// first round consulted it for every key and swallowed push-to-talk
-    /// inside a live layer (Codex, 2026-10-19, blocker B1); that is why the
-    /// engine, not this method, draws the line, and why this method does not
-    /// try to enumerate the main window's branches — a second hand-kept list
-    /// of them would drift the day someone added one.
+    /// A key acts in place only if this instance's OWN key table has a row for
+    /// it, because then <see cref="DoCommand(Keys, bool)"/> runs that row
+    /// itself, on whichever route the press came by. That covers the verbosity
+    /// cycle (looked up live, so a remap is honoured) and, in the main table,
+    /// Ctrl+Shift+bracket, the transmit filter's low edge. The WinForms log
+    /// form's instance copies a reduced table with no transmit-filter rows, so
+    /// there Ctrl+Shift+bracket has no row and is refused like the rest
+    /// (#778b round three, Codex B2). No form is named here; the table is the
+    /// answer.
     /// </para>
     /// <para>
-    /// Within letters the answer is sound: no bare letter is bound anywhere in
-    /// the default table, in any scope, so a bare letter this says no to
-    /// genuinely has nowhere to go; the Shift-only letter chords Home owns
-    /// universally (Shift+M, mute all slices) ARE rows here and travel. Bare
-    /// digits are likewise unbound (the Ctrl+digit message slots are chords),
-    /// and the engine consumes them before asking this anyway.
+    /// Ctrl+Space, Shift+Space and the bare, Shift and Ctrl brackets have no
+    /// row in any table. Their only handler is <c>MainWindow_PreviewKeyDown</c>,
+    /// steps 2 and 3, and those run BEFORE the main window first asks a layer
+    /// anything (step 4); the shell's ProcessCmdKey sees only what WPF left
+    /// unhandled. So on Home, with the radio on and focus in the Home fields,
+    /// those chords key the radio or move the filter without the layer ever
+    /// being asked, and the layer stays open: that is the in-place behaviour.
+    /// When a layer IS asked about one, the main window's branch has already
+    /// passed on it (focus outside the Home fields, radio power off, Logging
+    /// mode for the brackets), or the press came from a WPF dialog or the log
+    /// form, where that branch is not on the route at all. In every one of
+    /// those cases nothing downstream would act on it, so letting it go would
+    /// only hand a transmit chord to the focused control (Codex, #778b, B1 and
+    /// B2). It is refused out loud instead. Dialogs do NOT key the radio:
+    /// whether one should is queued for Noel.
+    /// </para>
+    /// <para>
+    /// Round two asked the ROUTE (fromDialog) instead. That was true for WPF
+    /// dialogs and false for the log form, which calls the main route's
+    /// one-argument DoCommand from a table without the main window's
+    /// handlers. The table cannot be wrong about what this instance dispatches.
+    /// </para>
+    /// </remarks>
+    internal InPlaceVerdict InPlaceVerdictFor(Keys k)
+    {
+        var row = Lookup(k);
+        if (row?.KeyDef.Id == CommandValues.CycleVerbosity) return InPlaceVerdict.ActsHere;
+        if (!IsInPlaceChord(k)) return InPlaceVerdict.NotInPlace;
+        return row != null ? InPlaceVerdict.ActsHere : InPlaceVerdict.NotFromHere;
+    }
+
+    /// <summary>The engine's pass-through question (#778): does this key act in place here?</summary>
+    private bool ActsInPlaceInsideALayer(Keys k)
+        => InPlaceVerdictFor(k) == InPlaceVerdict.ActsHere;
+
+    /// <summary>
+    /// The very short true sentence for an in-place key a layer is asked
+    /// about when nothing here would act on it (#778b): push to talk, the
+    /// transmit lock or a bracket key. Spoken at Chatty after the low refusal
+    /// tone; below Chatty the tone is the whole answer (Noel, 2026-10-19
+    /// 20:55: "the tone really should be enough, similar to the DMR radios
+    /// that beep when they can't transmit"). When the tone cannot sound
+    /// (earcons off, or the Commands and confirmations category off) it is
+    /// spoken at every level, Off included, so the refusal is never silent
+    /// (Noel, 21:18: "yes, we'd need to let the user know somehow"). It does
+    /// NOT say "not a key in this layer", which is false for push to talk.
+    /// </summary>
+    private string? LayerKeyUnavailableHere(Keys k)
+    {
+        if (InPlaceVerdictFor(k) != InPlaceVerdict.NotFromHere) return null;
+        Keys code = k & Keys.KeyCode;
+        Keys mods = k & Keys.Modifiers;
+        // DRAFT PROSE (#778): awaiting Noel. Very short, by his ruling; "here"
+        // rather than "this window", because on the main window it is focus,
+        // not the window, that decides.
+        string key = code == Keys.Space
+            ? (mods == Keys.Control ? "audio.value_layer.ptt_not_here" : "audio.value_layer.lock_not_here")
+            : "audio.value_layer.bracket_not_here";
+        return Radios.Lexicon.Get(key);
+    }
+
+    /// <summary>
+    /// The main window's own in-place chords, as <c>MainWindow_PreviewKeyDown</c>
+    /// handles them ahead of the key registry: Ctrl+Space (hold to talk; its
+    /// release is a key-UP and never reaches a layer), Shift+Space (the
+    /// transmit lock, which also unlocks), and the bracket filter keys.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The brackets are taken in every form the app binds, not only the
+    /// bare, Shift and Ctrl forms the main window handles itself: Ctrl+Shift
+    /// moves the transmit filter's low edge through the registry, and the
+    /// Alt forms (presets, and the transmit filter's high edge with Ctrl)
+    /// already pass every layer as Alt chords. Noel's 14:36 words were
+    /// "brackets move the filter inside a layer", and a split where
+    /// Ctrl+Alt+bracket works in a layer and Ctrl+Shift+bracket is refused
+    /// would be neither that nor derivable.
+    /// </para>
+    /// <para>
+    /// Escape while transmitting is not here because it never reaches the
+    /// layer: the main window unkeys on it before asking the registry, and
+    /// the dialog route drops the layer and lets it through
+    /// (<c>AnyWindowPreviewKeyDown</c>).
+    /// </para>
+    /// </remarks>
+    internal static bool IsInPlaceChord(Keys k)
+    {
+        Keys code = k & Keys.KeyCode;
+        Keys mods = k & Keys.Modifiers;
+        if (code == Keys.Space)
+            return mods == Keys.Control || mods == Keys.Shift;
+        return code == Keys.OemOpenBrackets || code == Keys.OemCloseBrackets;
+    }
+
+    /// <summary>
+    /// Is a key a command once a layer lets go of it? The live registry, so a
+    /// remap is honoured — the same question and the same source as
+    /// <see cref="Lookup(Keys)"/>'s own dispatch (#547).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Since #778b this decides only WHICH SENTENCE a refused key hears, never
+    /// whether it leaves: every key a layer does not take is refused. A key
+    /// that is a command out here (Shift+M, mute all slices) was pressed on
+    /// purpose, so it is not offered a near miss inside the layer; one that
+    /// is not, and sits a modifier from a key the layer binds, is.
+    /// </para>
+    /// <para>
+    /// It answers for OUR vocabulary — the key table — and THE KEY TABLE IS
+    /// NOT THE WHOLE KEY MAP. <c>MainWindow_PreviewKeyDown</c> handles push to
+    /// talk, the transmit lock, Escape while transmitting and the bracket
+    /// filter keys in branches of its own with no registry rows, and the Home
+    /// field handlers bind most of the alphabet per field. So a "no" from here
+    /// is not evidence that a key means nothing, and nothing uses it as such:
+    /// the keys that must keep working inside a layer are named in
+    /// <see cref="IsInPlaceChord"/>.
     /// </para>
     /// </remarks>
     private bool MeansSomethingOutsideTheLayer(Keys k) => Lookup(k) != null;

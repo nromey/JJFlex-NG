@@ -129,15 +129,13 @@ namespace Radios
     public enum ValueLayerRefusal
     {
         /// <summary>
-        /// A LETTER, with no Ctrl or Alt, that this layer does not bind and the
-        /// host's registry has no chord for — Noel's Z. Leaving on it would be
-        /// a mode change bought for no gain, and the next keystroke would land
-        /// somewhere the operator did not believe they were (#547's principle,
-        /// applied to every unbound letter and not only to near misses). Only
-        /// letters: the main window handles push-to-talk, the transmit lock
-        /// and the bracket filter keys in branches of its own that the
-        /// registry never lists, so for anything but a letter a registry "no"
-        /// proves nothing and the key travels as it always did.
+        /// Any key this layer does not bind that is not a digit and that the
+        /// host does not name as acting in place: Noel's Z, a real hotkey
+        /// such as Ctrl+F, Tab. Since #778b the only ways out of a layer are
+        /// Enter, Escape and the JJ key (Noel, 2026-10-19 14:35), so such a key
+        /// is refused and the layer stays. The name predates that ruling, when
+        /// only keys with nowhere to go were kept; the meaning is now "not a key
+        /// in this layer".
         /// </summary>
         NowhereToGo,
 
@@ -146,8 +144,9 @@ namespace Radios
         /// digit on either row. Forwarded, it begins frequency entry on the
         /// frequency field, jumps a slice on the pan field, or begins number
         /// entry on a value box; "4, 0, 0, Enter" meant as a 400 millisecond
-        /// VOX delay is 400 kilohertz. Consumed here whatever the registry
-        /// says about it.
+        /// VOX delay is 400 kilohertz. Refused like any other key the layer
+        /// does not take, and kept separate only so the operator hears a
+        /// sentence about numbers rather than the generic one.
         /// </summary>
         TypedEntry,
     }
@@ -163,9 +162,10 @@ namespace Radios
         Handled,
 
         /// <summary>
-        /// Not consumed and the layer is STILL LIVE. Alt chords, F1 and any
-        /// host-whitelisted key (the verbosity cycle) travel on so the app
-        /// keeps working under the layer — the volume-mode precedent.
+        /// Not consumed and the layer is STILL LIVE. Alt chords, F1 and the
+        /// keys the host names as acting in place (the verbosity cycle, push
+        /// to talk, the transmit lock, the bracket filter keys) travel on so
+        /// the app keeps working under the layer — the volume-mode precedent.
         /// </summary>
         PassThrough,
 
@@ -174,14 +174,12 @@ namespace Radios
 
         /// <summary>
         /// The layer confirmed and closed, and the key was NOT consumed: it
-        /// keeps the value and travels on to mean what it always means — a
-        /// registry chord, a main-window chord the registry never lists
-        /// (push-to-talk, the transmit lock, the bracket filter keys), Tab,
-        /// Space, the page keys, anything the layer cannot KNOW to be
-        /// meaningless. Two classes are refused and kept instead (#778): a
-        /// bare digit, which would start typed entry, and an unbound letter
-        /// with no Ctrl or Alt, which has nowhere to go. The stuck-modal
-        /// answer is Escape and Enter, which no key can take away.
+        /// keeps the value and travels on to mean what it always means.
+        /// <see cref="ValueSubLayer.HandleKey"/> NO LONGER RETURNS THIS since
+        /// #778b (the only ways out are Enter, Escape and the JJ key; Noel,
+        /// 2026-10-19 14:35). It is kept because the host's dispatcher still
+        /// routes it and removing an enum member is a shared-symbol change for
+        /// the merge to decide, not this track.
         /// </summary>
         ClosedPassThrough,
 
@@ -564,11 +562,39 @@ namespace Radios
         public Func<Keys, bool>? HostKeys;
 
         /// <summary>
-        /// Host whitelist for keys that must travel on while the layer stays
-        /// live — the verbosity cycle chord, looked up from the live registry
-        /// so remaps are honoured. Alt chords and F1 pass through without
+        /// The keys that ACT IN PLACE: the host's list of keys that do their
+        /// normal job while the layer stays live. Returning true lets the key
+        /// travel on unconsumed (<see cref="ValueLayerKeyResult.PassThrough"/>)
+        /// with the layer still open. Alt chords and F1 pass through without
         /// being asked.
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Since #778b this is the ONLY way a key other than Enter, Escape,
+        /// the JJ key, Alt and F1 gets past a live layer: everything the layer
+        /// does not bind and the host does not name here is refused and the
+        /// layer stays (Noel, 2026-10-19 14:35). The shipped hosts name the
+        /// verbosity cycle (looked up from the live registry so a remap is
+        /// honoured), push to talk, the transmit lock and the bracket filter
+        /// keys — the keys the main window handles in branches of its own,
+        /// which the registry never lists and which #778's first round
+        /// swallowed (Codex, 2026-10-19, B1). A host that forgot one would
+        /// refuse it, out loud; the routing tests in JJFlexWpf.Tests pin the
+        /// shipped list through the real dispatcher. Since #778b round three
+        /// the shipped hosts answer true only for a key their OWN table has a
+        /// row for (the verbosity cycle, Ctrl+Shift+bracket in the main
+        /// table), because only then does the host's dispatcher act on it. Push
+        /// to talk, the lock and the plain brackets are handled by the main
+        /// window BEFORE any layer is asked, so when a layer is asked about one
+        /// nothing would act on it, and the host answers
+        /// <see cref="DescribeUnavailableHere"/> instead.
+        /// </para>
+        /// <para>
+        /// Asked AFTER every key the layer binds itself, so a layer's own use
+        /// of a key always wins (Noel, 14:36): a layer that binds the brackets
+        /// gets them, even though the host names them here.
+        /// </para>
+        /// </remarks>
         public Func<Keys, bool>? PassThroughKeys;
 
         /// <summary>
@@ -577,32 +603,21 @@ namespace Radios
         /// </summary>
         /// <remarks>
         /// <para>
-        /// #547. The engine's unhandled-key rule is "keep the value, close out
-        /// loud, and travel on to mean what it always means" — and the last
-        /// clause is a promise the engine cannot keep on its own. A key with
-        /// no meaning to travel to leaves the layer and then does nothing,
-        /// which is a mode change bought for no gain. #547 used this to keep a
-        /// near miss inside; #778 uses it to keep every unbound LETTER inside.
+        /// Since #778b this decides NOTHING about whether the layer stays —
+        /// every key the layer does not take is refused, meaning or not. It
+        /// decides only which sentence a refused key hears: a near miss
+        /// (#547) is named only for a key with no meaning out there, because
+        /// a key that is a command outside (Shift+M, mute all slices) was
+        /// pressed on purpose and "M: Mic level" would guess wrong about what
+        /// the operator meant.
         /// </para>
         /// <para>
-        /// Null, or a host that answers false, means "no meaning out there",
-        /// and that is the deliberate DEFAULT: it is the answer under which a
-        /// letter is kept inside. Defaulting the other way would make every
-        /// letter leave in any layer that forgot to wire it — the invisible
-        /// failure this exists to close.
-        /// </para>
-        /// <para>
-        /// THE REGISTRY IS NOT THE WHOLE KEY MAP, so the engine asks this only
-        /// about letters and near misses, never about a key in general. The
-        /// main window handles Ctrl+Space (hold to talk), Shift+Space (the
-        /// transmit lock, which also UNLOCKS) and the bare, Shift and Ctrl
-        /// bracket filter keys in branches of its own, with no registry rows;
-        /// Tab, Space and the page keys mean things below us that the
-        /// registry cannot see. #778's first round treated a registry "no" as
-        /// "nowhere to go" for every key and swallowed push-to-talk inside a
-        /// live layer (Codex, 2026-10-19, blocker B1). A "no" from here is
-        /// evidence only where the main window has no branch of its own, and
-        /// that is letters: it has none for an unmodified or Shift-only letter.
+        /// THE REGISTRY IS NOT THE WHOLE KEY MAP — the main window handles push
+        /// to talk, the transmit lock and the bracket filter keys in branches
+        /// of its own with no registry rows — which is why the keys that must
+        /// keep working inside a layer are named in
+        /// <see cref="PassThroughKeys"/> rather than inferred from this.
+        /// #778's first round inferred them, and swallowed push to talk.
         /// </para>
         /// </remarks>
         public Func<Keys, bool>? MeansSomethingOutside;
@@ -621,9 +636,10 @@ namespace Radios
         /// Spoken through the engine's own refusal path, so #528 governs it
         /// like every other refusal: the tone alone below Chatty, the words at
         /// every level when the tone cannot sound. Since #778 a non-null
-        /// answer no longer decides whether the layer stays — every key with
-        /// nowhere to go stays — it only picks the sentence, ahead of
-        /// <see cref="DescribeUnknownKey"/>.
+        /// answer no longer decides whether the layer stays — every key the
+        /// layer does not take stays — it only picks the sentence, ahead of
+        /// <see cref="DescribeUnknownKey"/>, and only for a key that means
+        /// nothing outside the layer.
         /// </remarks>
         public Func<Keys, string?>? DescribeNearMiss;
 
@@ -658,6 +674,36 @@ namespace Radios
         /// </para>
         /// </remarks>
         public Func<Keys, ValueLayerRefusal, string?>? DescribeUnknownKey;
+
+        /// <summary>
+        /// The sentence that tells an operator who typed a number that Shift
+        /// with the arrows moves the value in fine steps, or null for none
+        /// (#778, Noel 2026-10-19 14:33: "plus a fine-step sentence"). The
+        /// engine appends it to the <see cref="ValueLayerRefusal.TypedEntry"/>
+        /// line, and only when it is TRUE of what is picked: a layer whose
+        /// Shift chooses an edge, or a target with no finer step than its
+        /// ordinary one, never hears it. The host owns the words; the engine
+        /// owns whether they are true.
+        /// </summary>
+        public Func<string?>? DescribeFineStep;
+
+        /// <summary>
+        /// For a key that acts in place on another route but has no handler on
+        /// the one this press arrived by: the sentence that says so, or null
+        /// for every other key (#778b round two). Asked right after
+        /// <see cref="PassThroughKeys"/> answered no. A non-null answer refuses
+        /// the key and keeps the layer, as an ordinary #528 refusal: the low
+        /// refusal tone at every verbosity, the sentence at Chatty only. Ruled
+        /// by Noel 2026-10-19 20:55, on the model of a DMR radio's beep when it
+        /// cannot transmit: the tone should be enough, and the words, when
+        /// spoken, very short.
+        /// </summary>
+        /// <remarks>
+        /// The host decides both questions from ONE verdict per key, so
+        /// "acts in place here" and "would act in place, but not from here"
+        /// cannot drift apart: see <c>KeyCommands.InPlaceVerdictFor</c>.
+        /// </remarks>
+        public Func<Keys, string?>? DescribeUnavailableHere;
 
         /// <summary>
         /// H: show this layer's commands as a NAVIGABLE LIST (#519). Returns
@@ -708,28 +754,28 @@ namespace Radios
     /// <para><b>How you get out.</b> Enter confirms and closes. Escape cancels:
     /// everything the layer moved is written back, out loud, and the layer
     /// closes. Ctrl+J confirms silently and hands off to a fresh leader
-    /// chord. Any UNHANDLED key confirms, announces the close, and travels on
-    /// to mean what it always means — the operator who pressed it meant to go
-    /// there, and the layer cannot know otherwise: the registry is not the
-    /// whole key map (push-to-talk, the transmit lock and the bracket keys
-    /// live in the main window's own branches), and Tab, Space and the page
-    /// keys mean things below us. Two classes are the exception and are
-    /// refused with the layer STAYING (#778), because for them the layer CAN
-    /// know: a bare digit, which forwarded would START TYPED ENTRY on the
-    /// main window ("4, 0, 0, Enter" meant as a 400 millisecond VOX delay is
-    /// 400 kilohertz), and a letter with no Ctrl or Alt that this layer does
-    /// not bind and the registry has no chord for — Noel's Z — which has
-    /// nowhere to go. A near miss names its neighbour (#547, the leader's
-    /// answer since #206); a letter pressed before any target is picked gets
-    /// the layer's list of letters; anything else refused gets the layer's
-    /// own recovery line. Enter and Escape are always the exits.
-    /// Alt chords, F1 and the host's whitelist
-    /// (the verbosity cycle) travel on with the layer still live,
-    /// so the operator can flip words-versus-numbers mid-hunt. Confirm never
-    /// writes; only cancel writes. (Volume mode predated this pattern and
-    /// differed — its Escape kept the adjustments and its unknown keys were
-    /// swallowed with a hint. That divergence was named as debt in #305 and
-    /// is closed: volume is now the audio layer, on this contract.)</para>
+    /// chord. THOSE ARE THE ONLY WAYS OUT (#778, ruled by Noel 2026-10-19
+    /// 14:35). Every other key the layer does not bind is refused and the
+    /// layer stays: a stray letter, a digit, Tab, Space, and a real hotkey
+    /// such as Ctrl+F alike. Until #778b an unhandled key confirmed,
+    /// announced the close and travelled on, and the close was cut off by
+    /// whatever the key said next, so from the chair the layer sounded open
+    /// while the app had closed it. A near miss names its neighbour (#547,
+    /// the leader's answer since #206); a key pressed before any target is
+    /// picked gets the layer's list of letters; a digit says the arrows
+    /// change the value; anything else gets the layer's own recovery line.
+    /// Two kinds of key work with the layer still live: Alt chords and F1,
+    /// left as they were pending Noel's answer, and the keys the host names
+    /// as ACTING IN PLACE (<see cref="ValueSubLayerDefinition.PassThroughKeys"/>)
+    /// — the verbosity cycle, so the operator can flip words-versus-numbers
+    /// mid-hunt, and push to talk, the transmit lock and the bracket filter
+    /// keys, which the main window handles in branches the key registry
+    /// never lists. A layer's own use of a key always beats that list.
+    /// Confirm never writes; only cancel writes. (Volume mode predated this
+    /// pattern and differed — its Escape kept the adjustments and its unknown
+    /// keys were swallowed with a hint. That divergence was named as debt in
+    /// #305 and is closed: volume is now the audio layer, on this
+    /// contract.)</para>
     ///
     /// <para><b>Cancel restores.</b> The layer holds each touched target's
     /// entry value for as long as it is live. An operator who overshoots
@@ -850,6 +896,7 @@ namespace Radios
         internal Action<string, string> EmitMove;    // (text, subject) — a sweep, tail wins
         internal Action<string, string> EmitAnswer;  // (text, subject) — a question, answers now
         internal Action<string> EmitSay;             // interrupting one-shot on the layer's status subject
+        internal Action<string> EmitRefusal;         // a refusal's words, which pass the verbosity gate (#778b)
         internal Func<VerbosityLevel> VerbosityNow;
 
         private ValueSubLayer(ValueSubLayerDefinition def)
@@ -892,6 +939,32 @@ namespace Radios
                 Speech.SpeechIntent.Interrupt,
                 VerbosityLevel.Terse,
                 subject: Speech.SpeechSubject.ValueLayerStatus(_def.Id));
+            // A refusal's words have their own route because the verbosity
+            // decision for them is already made, in Refuse, by the #528 rule:
+            // when they reach here they are either the Chatty teaching
+            // sentence or the stand-in for a tone that cannot sound. In the
+            // second case they MUST be heard at Off, and EmitSay's Terse tag
+            // is exactly what ScreenReaderOutput drops at Off (Codex B4,
+            // 2026-10-19: a refused push to talk at Off with sounds off was
+            // wholly silent). So they are tagged Critical, past the gate,
+            // which is what the leader's own refusal has always done for the
+            // same reason (DoLeaderCommand's unknown-key arm). Tagging Critical
+            // cannot make a lower level say more: below Chatty, with the tone
+            // audible, Refuse returns before it gets here.
+            //
+            // And it WAITS for the safety turn rather than cutting it (#778b
+            // round five). Critical is a verbosity level, not a priority: as a
+            // plain interrupt this took the reader from a transmit-safety
+            // sentence or an alarm mid-word (Codex, round-four re-verify). Noel
+            // ruled that the refusal waits behind safety speech. With nothing
+            // safety-shaped speaking or waiting it is spoken at once, exactly
+            // as before; otherwise it is said after the last of it. That holds
+            // at every level, Chatty included, since the Chatty sentence had
+            // the same interrupt.
+            EmitRefusal = text => ScreenReaderOutput.SpeakYieldingToSafety(
+                text,
+                VerbosityLevel.Critical,
+                subject: Speech.SpeechSubject.ValueLayerStatus(_def.Id));
             VerbosityNow = () => ScreenReaderOutput.CurrentVerbosity;
 
             _restore = def.Snapshot?.Invoke();
@@ -928,6 +1001,11 @@ namespace Radios
             layer.EmitMove = emitMove;
             layer.EmitAnswer = emitAnswer;
             layer.EmitSay = emitSay;
+            // The engine tests read refusals with everything else the layer
+            // says. Whether those words pass the PRODUCTION gate is not
+            // something a seam can show; ValueLayerRefusalDeliveryTests drives
+            // the real route for that.
+            layer.EmitRefusal = emitSay;
             layer.VerbosityNow = verbosityNow;
             layer.AnnounceEntry();
             return layer;
@@ -1032,13 +1110,11 @@ namespace Radios
 
             // System chords travel on with the layer live: Alt combos
             // (Alt+F4, menu accelerators) and F1 help — the volume-mode rule.
+            // Left exactly as they were by #778b on purpose: whether the menu
+            // bar and help should be refused inside a layer too is a question
+            // put to Noel, not a ruling anyone has made, and refusing them by
+            // guesswork could trap an operator.
             if ((k & Keys.Alt) != 0 || code == Keys.F1)
-                return ValueLayerKeyResult.PassThrough;
-
-            // Host whitelist — the verbosity cycle, looked up from the live
-            // registry so a remap is honoured. Travels on, layer stays, and
-            // the next nudge speaks in the other form.
-            if (_def.PassThroughKeys != null && _def.PassThroughKeys(k))
                 return ValueLayerKeyResult.PassThrough;
 
             // Ctrl+J hands off to a fresh leader chord: confirm silently, the
@@ -1185,109 +1261,78 @@ namespace Radios
                 return ValueLayerKeyResult.Handled;
             }
 
-            // WHAT THE LAYER CAN KNOW, AND ONLY THAT (#778). The rule at the
-            // bottom — close out loud and travel on to mean what it always
-            // means — is right exactly when the key HAS a meaning to travel
-            // to, and the layer is badly placed to say when that is: the
-            // registry is NOT the whole key map. The main window handles
-            // Ctrl+Space (hold to talk), Shift+Space (the transmit lock, which
-            // also unlocks) and the bare, Shift and Ctrl bracket filter keys
-            // in branches of its own with no registry rows, and Tab, Space and
-            // the page keys mean things below us. #778's first round treated
-            // a registry "no" as "nowhere to go" for every key and swallowed
-            // push-to-talk inside a live layer (Codex, 2026-10-19, B1). So a
-            // key is refused only where the layer can know it is harmful or
-            // meaningless, and everything else travels as it did before.
+            // THE LAYER IS MODAL: ENTER, ESCAPE AND THE JJ KEY ARE THE ONLY
+            // WAYS OUT (#778, ruled by Noel 2026-10-19 14:35 — "keep it so
+            // that only [the way out] is enter, esc, and the jj key"). Every
+            // key the layer has not taken by now is refused and the layer
+            // stays, with two kinds of exception, both of which also keep the
+            // layer: Alt chords and F1 above, untouched pending Noel's answer,
+            // and the host's keys that ACT IN PLACE just below.
             //
-            // Precedence, because the host's whitelist runs FIRST: a key the
-            // host passes through (the verbosity cycle, looked up from the
-            // registry) has already left this method by now with the layer
-            // live, and a digit remapped onto that chord cycles verbosity
-            // rather than reaching the refusal below. After that: Ctrl+J,
-            // Escape, Enter, the host's keys, groups, arrows, the placing
-            // keys, anchors, the speak verb, letter picks, toggles, H and the
-            // slash key — then the two refusals here, then the near miss, then
-            // travel.
+            // Why not "travel on to mean what it always means", which is what
+            // this tail did until #778b: a key that closes the layer and acts
+            // says "Audio layer closed" and is then cut off by whatever the
+            // key says next — sixteen milliseconds later in Noel's capture —
+            // so from the chair the layer sounds open while the app has closed
+            // it, and the next key lands somewhere the operator did not believe
+            // they were. A real hotkey (Ctrl+F, a band jump on F5) is the same
+            // hazard as a stray letter, just with a meaning attached; Tab,
+            // Space and the page keys mean things to the focused Home field.
             //
-            // FIRST, A KEY THAT WOULD START TYPED ENTRY. Noel picked VOX gain
-            // and typed 4, 0 (07:41:58): the layer closed on the 4, both
-            // digits were forwarded to the frequency field, and quick-type
-            // frequency entry said "Invalid frequency" — only because 40 kHz
-            // is below the parser's floor (a no-decimal entry is kilohertz;
-            // "400", meant as a 400 ms VOX delay, would have been set as 400
-            // kilohertz). So a bare digit never leaves a value layer: it is
-            // refused and the layer stays. The registry is not asked, because
-            // a digit's forwarded meaning is typed entry on whatever field has
-            // focus, and a future bare-digit chord in the registry must not
-            // reopen the fall-through.
+            // THE ROUND-ONE FAILURE MUST NOT COME BACK, and this is how it is
+            // kept out. #778's first round refused every key the registry did
+            // not list and so swallowed push-to-talk (Codex, 2026-10-19, B1),
+            // because the registry is not the whole key map. Refusing "the
+            // rest" is safe now only because the keys that work while a layer
+            // is open are NAMED by the host, as acting in place, and are asked
+            // about here — after every key the layer itself binds, so a
+            // layer's own use of a key always wins (Noel 14:36: the planned
+            // mode layer will take the brackets for next and previous mode),
+            // and before either refusal.
+            if (_def.PassThroughKeys != null && _def.PassThroughKeys(k))
+                return ValueLayerKeyResult.PassThrough;
+
+            // A key that acts in place where its handler is, and that nothing
+            // here would act on (#778b rounds two and three, Codex B1 and B2):
+            // push to talk pressed in a dialog or the log form, where the main
+            // window's transmit handler is not on the route, or on the main
+            // window when that handler has already passed on it. Letting it go
+            // would hand a transmit chord to whatever control has focus, with
+            // the layer still open, while the help promised it keys the radio.
+            // So it is refused and the layer stays, and the sentence says the
+            // TRUTH about it — not "not a key in this layer", which is false for
+            // push to talk.
+            // Ruled by Noel 2026-10-19 20:55: "I would speak it if on chatty,
+            // play a low tone otherwise. If we speak it, make it a very short
+            // message, the tone really should be enough, similar to the DMR
+            // radios that beep when they can't transmit." So this is the
+            // ordinary #528 refusal: the low refusal tone at every verbosity
+            // (the earcon gate is the operator's sound switches, not the speech
+            // verbosity, so it sounds at Off too) and the very short sentence
+            // at Chatty only.
+            string? unavailable = _def.DescribeUnavailableHere?.Invoke(k);
+            if (!string.IsNullOrEmpty(unavailable))
+            {
+                Tracing.TraceLine("ValueSubLayer(" + _def.Id + "): refused " + k
+                    + " (acts in place, but nothing here would act on it), staying open", TraceLevel.Info);
+                Refuse(unavailable);
+                return ValueLayerKeyResult.Handled;
+            }
+
+            // A bare digit gets its own sentence, because the operator who
+            // typed one was trying to enter a value (#778's capture: VOX gain
+            // picked, then 4, 0). Forwarded, it would START TYPED ENTRY on the
+            // main window — "4, 0, 0, Enter" meant as a 400 millisecond VOX
+            // delay is 400 kilohertz — so it is refused like everything else,
+            // and says what does work instead.
             if (IsTypedEntryKey(k))
             {
                 RefuseAndStay(k, ValueLayerRefusal.TypedEntry);
                 return ValueLayerKeyResult.Handled;
             }
 
-            // SECOND, AN UNBOUND LETTER WITH NO CTRL OR ALT — Noel's Z
-            // (07:46:03): nothing in the layer, nothing in the registry; the
-            // layer closed, Z was forwarded, and the frequency field said "Z
-            // does nothing on the Frequency field" sixteen milliseconds after
-            // "Audio layer closed", which it cut off. From the chair the layer
-            // sounded open while the app had closed it. Letters are the one
-            // class where a registry "no" IS evidence: the main window has no
-            // unmodified or Shift-only letter branch of its own (its universal
-            // Home-key guard fires only with no radio, and a layer cannot be
-            // live without one), so an unbound letter genuinely has nowhere to
-            // go. Shift is allowed because the grammar's slips are Shift-tier
-            // too (#547); Shift+M and the other universal Home chords ARE
-            // registry rows and travel through the check. The Home FIELD
-            // handlers do bind letters (U and D tune, M mutes, S picks a step);
-            // those are swallowed while a layer is live, which is #778's
-            // ruling text — "a key pressed inside a layer should stay inside
-            // it" — and is reported as such.
-            if (IsUnboundLetterKey(k) && !(_def.MeansSomethingOutside?.Invoke(k) ?? false))
-            {
-                RefuseAndStay(k, ValueLayerRefusal.NowhereToGo);
-                return ValueLayerKeyResult.Handled;
-            }
-
-            // THIRD, A SLIPPED MODIFIER IS NOT AN EXIT (#547): a Ctrl+letter
-            // that is nothing out there and one modifier from a chord in here
-            // (Ctrl+V when V picks slice volume) names the neighbour and
-            // stays. The bare and Shift forms were caught above; this is the
-            // Ctrl tier's door.
-            if (!(_def.MeansSomethingOutside?.Invoke(k) ?? false))
-            {
-                string? nearMiss = _def.DescribeNearMiss?.Invoke(k);
-                if (!string.IsNullOrEmpty(nearMiss))
-                {
-                    Tracing.TraceLine("ValueSubLayer(" + _def.Id + "): near miss on " + k
-                        + ", staying open", TraceLevel.Info);
-                    Refuse(nearMiss);
-                    return ValueLayerKeyResult.Handled;
-                }
-            }
-
-            // Everything else: keep the value, close out loud, and let the
-            // key travel on to mean what it always means — the base
-            // behaviour, kept on purpose for everything the layer cannot
-            // know. Whether a real command should also stay inside, and
-            // whether its "layer closed" is ever heard before the command
-            // speaks, is #778's open ruling, not the engine's call.
-            Confirm(speak: true);
-            return ValueLayerKeyResult.ClosedPassThrough;
-        }
-
-        /// <summary>
-        /// A letter key with no Ctrl or Alt — bare, or with Shift only. The
-        /// class #778 refuses when the layer does not bind it and the registry
-        /// has no chord for it, because for letters alone the main window has
-        /// no branch the registry would miss. Ctrl+letter is the near-miss
-        /// tier (#547) and is not here; Alt+letter left long before this.
-        /// </summary>
-        internal static bool IsUnboundLetterKey(Keys k)
-        {
-            if ((k & (Keys.Control | Keys.Alt)) != 0) return false;
-            Keys code = k & Keys.KeyCode;
-            return code >= Keys.A && code <= Keys.Z;
+            RefuseAndStay(k, ValueLayerRefusal.NowhereToGo);
+            return ValueLayerKeyResult.Handled;
         }
 
         /// <summary>
@@ -1301,8 +1346,9 @@ namespace Radios
         /// the Classic and the Modern tuning handler. The same bare digit jumps
         /// to a slice on the pan field and begins number entry on a value box.
         /// The decimal point and minus are NOT here: neither starts frequency
-        /// entry (the point is accepted only once an entry is open), and both
-        /// are kept inside by the nowhere-to-go rule anyway.
+        /// entry (the point is accepted only once an entry is open). Since
+        /// #778b they are refused anyway, with the layer's ordinary line,
+        /// because every key the layer does not take is.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -1317,14 +1363,12 @@ namespace Radios
         /// not two.
         /// </para>
         /// <para>
-        /// "Before the registry is asked" is true of <see cref="ValueSubLayerDefinition.MeansSomethingOutside"/>
-        /// and NOT of <see cref="ValueSubLayerDefinition.PassThroughKeys"/>,
-        /// which <see cref="HandleKey"/> consults first: a digit the operator
-        /// has remapped onto the verbosity-cycle chord cycles verbosity with
-        /// the layer live and never reaches this. That command consumes the
-        /// key, so it cannot start an entry; the guarantee is "a digit never
-        /// leaves the layer to start typed entry", not "a digit is always
-        /// refused".
+        /// The host's in-place list (<see cref="ValueSubLayerDefinition.PassThroughKeys"/>)
+        /// is consulted before this: a digit the operator has remapped onto
+        /// the verbosity-cycle chord cycles verbosity with the layer live and
+        /// never reaches the digit refusal. That command consumes the key, so
+        /// it cannot start an entry; the guarantee is "a digit never leaves
+        /// the layer to start typed entry", not "a digit is always refused".
         /// </para>
         /// </remarks>
         internal static bool IsTypedEntryKey(Keys k)
@@ -1338,17 +1382,35 @@ namespace Radios
         /// <summary>
         /// Refuse a key the layer did not take and keep the layer live (#778),
         /// choosing the recovery sentence in a fixed order: the near-miss line
-        /// when the key is one modifier from a chord in here (#547); the
-        /// pick-a-target list when the layer selects by letter and nothing is
-        /// picked yet, because that list is the recovery and is the sentence
-        /// Noel's "JJ key, A, Z" should have heard; the host's own line for
-        /// the given reason otherwise. <see cref="Refuse"/> then applies
-        /// #528: the tone alone below Chatty, the words at every level when
-        /// the tone cannot sound.
+        /// when the key is one modifier from a chord in here and means nothing
+        /// out there (#547); the pick-a-target list when the layer selects by
+        /// letter and nothing is picked yet, because that list is the recovery
+        /// and is the sentence Noel's "JJ key, A, Z" should have heard; the
+        /// host's own line for the given reason otherwise. <see cref="Refuse"/>
+        /// then applies #528: the tone alone below Chatty, the words at every
+        /// level when the tone cannot sound.
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The near miss is offered only for a key with no meaning outside
+        /// the layer, as #547 has always had it. A key that IS a command out
+        /// there (Shift+M, mute all slices, one modifier from M) was pressed on
+        /// purpose; telling the operator "M: Mic level" would guess wrong
+        /// about what they meant, so it gets the layer's plain line instead.
+        /// </para>
+        /// <para>
+        /// A typed number may also be told how to move in fine steps
+        /// (<see cref="ValueSubLayerDefinition.DescribeFineStep"/>), but only
+        /// when that is true of what is picked: see
+        /// <see cref="FineStepIsReal"/>.
+        /// </para>
+        /// </remarks>
         private void RefuseAndStay(Keys k, ValueLayerRefusal why)
         {
-            string? hint = why == ValueLayerRefusal.NowhereToGo ? _def.DescribeNearMiss?.Invoke(k) : null;
+            string? hint = why == ValueLayerRefusal.NowhereToGo
+                && !(_def.MeansSomethingOutside?.Invoke(k) ?? false)
+                ? _def.DescribeNearMiss?.Invoke(k)
+                : null;
             string chosen = "near miss";
             if (string.IsNullOrEmpty(hint) && _current == null)
             {
@@ -1359,12 +1421,45 @@ namespace Radios
             {
                 hint = _def.DescribeUnknownKey?.Invoke(k, why);
                 chosen = "layer's own line";
+
+                if (!string.IsNullOrEmpty(hint) && why == ValueLayerRefusal.TypedEntry && FineStepIsReal(_current))
+                {
+                    string? fine = _def.DescribeFineStep?.Invoke();
+                    if (!string.IsNullOrEmpty(fine))
+                    {
+                        hint = hint + " " + fine;
+                        chosen = "layer's own line and the fine step";
+                    }
+                }
             }
             if (string.IsNullOrEmpty(hint)) chosen = "tone alone";
 
             Tracing.TraceLine("ValueSubLayer(" + _def.Id + "): refused " + k + " (" + why
                 + "), staying open, " + chosen, TraceLevel.Info);
             Refuse(hint);
+        }
+
+        /// <summary>
+        /// Is "Shift with the arrows moves it in fine steps" TRUE of this
+        /// target, in this layer? Only where the arrow handler gives Shift the
+        /// fine step (<see cref="HandleArrow"/>: a single-value layer, or one
+        /// that selects by letter, where Shift with any arrow the target takes
+        /// is <c>NudgeSlot(..., fine: true)</c>), and only where the fine step
+        /// is actually smaller than the ordinary one. The filter layer spends
+        /// Shift on choosing an edge, a left-right layer refuses Shift with Left
+        /// and Right, and a target whose step is already one (the speech
+        /// processor's three modes, the PC output in decibels) has no finer
+        /// step to offer — saying so there would be a sentence the next press
+        /// contradicts.
+        /// </summary>
+        private bool FineStepIsReal(Slot? s)
+        {
+            if (s == null) return false;
+            if (_def.Selection != ValueLayerSelection.Single && _def.Selection != ValueLayerSelection.ByLetter)
+                return false;
+            if (s.Def.Axes == ValueLayerAxes.None) return false;
+            int coarse = s.Def.StepNow?.Invoke() ?? s.Def.Step;
+            return s.Def.FineStep > 0 && s.Def.FineStep < coarse;
         }
 
         private void HandleArrow(Keys code, Keys mods)
@@ -1458,19 +1553,36 @@ namespace Radios
         /// Answer a key the layer did not accept: the invalid tone, always,
         /// and the hint only where verbosity asks for hints (#528). Below
         /// Chatty the tone is the whole answer — unless the host says the
-        /// tone cannot sound, in which case the hint is spoken at every level
-        /// so the refusal is never silent. A layer that wires no tone at all
-        /// gets the words at every level for the same reason. The layer stays
-        /// open either way; verbosity changes what is said, never what
-        /// happens.
+        /// tone cannot sound, in which case the hint is spoken at every level,
+        /// Off included, so the refusal is never silent. A layer that wires no
+        /// tone at all gets the words at every level for the same reason. The
+        /// layer stays open either way; verbosity changes what is said, never
+        /// what happens.
         /// </summary>
+        /// <remarks>
+        /// The words go out through <see cref="EmitRefusal"/>, not
+        /// <see cref="EmitSay"/>: the level decision is made HERE, so the
+        /// route must not make a second one. Until #778b round four it went
+        /// through EmitSay, whose Terse tag the speech gate drops at Off, and
+        /// "spoken at every level" was false at the one level where nothing
+        /// else could be heard. Noel, 2026-10-19 21:18, on a refused push to
+        /// talk at Off with sounds off: "yes, we'd need to let the user know
+        /// somehow". Every refusal in this class comes through here: the
+        /// in-place keys nothing here would act on (push to talk, the
+        /// transmit lock, the brackets), a key the layer does not bind and
+        /// its near miss, a typed number, an arrow before a target is picked,
+        /// the wrong arrow pair, a Shift whose side cannot be read, a
+        /// modifier that names no target, and Home, End or 0 before a pick.
+        /// A refusal whose host supplies no sentence at all is still the
+        /// tone alone; there are no words to stand in.
+        /// </remarks>
         private void Refuse(string? hint)
         {
             bool toneWillSound = _def.Cues.Invalid != null && (_def.Cues.Audible?.Invoke() ?? true);
             _def.Cues.Invalid?.Invoke();
             if (string.IsNullOrEmpty(hint)) return;
             if (Speech.RefusalVoice.ToneStandsAlone(VerbosityNow(), toneWillSound)) return;
-            EmitSay(hint!);
+            EmitRefusal(hint!);
         }
 
         private string? HintFor(Slot? s)
