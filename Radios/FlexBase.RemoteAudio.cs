@@ -684,6 +684,7 @@ namespace Radios
             try
             {
             Tracing.TraceLine("remoteAudioProc is WAN=" + RemoteRig.ToString(), TraceLevel.Info);
+            ResetPcMicSession("remote-audio run " + run + " starting");
             opusOutputChannel = null;
             opusInputChannel = null;
             opusInputAvailable = false;
@@ -1639,7 +1640,123 @@ namespace Radios
         // commented out, and a debug tap that writes to another machine's
         // home directory is not coming back.
 
-        private string oldMicInput;
+        /// <summary>
+        /// What the start path changed the mic input FROM, and where (#686,
+        /// repair round two). Until then this was a bare <c>string
+        /// oldMicInput</c>, and three things went wrong with it, all one
+        /// class - per-session mic state outliving its session:
+        /// <list type="bullet">
+        /// <item>a start whose PortAudio stream never started left it set,
+        /// and the owner's radio on PC, because the stop returns early when
+        /// the channel never started;</item>
+        /// <item>nothing cleared it at a new run or a new connection, so a
+        /// later session's stop could write it to a different radio;</item>
+        /// <item>(the healer's latch, which had the same lifetime fault; see
+        /// <see cref="ResetPcMicSession"/>).</item>
+        /// </list>
+        /// So the value now carries the Radio object it was read from (which
+        /// a reconnect replaces), that radio's serial, and the remote-audio
+        /// run it belongs to, and <see cref="PutBackSavedMicInput"/> writes it
+        /// only to that radio in that run.
+        /// </summary>
+        private sealed class MicInputSwap
+        {
+            public MicInputSwap(string saved, Radio radio, long run)
+            {
+                Saved = saved;
+                Radio = radio;
+                Serial = radio?.Serial ?? "";
+                Run = run;
+            }
+            public string Saved { get; }
+            public Radio Radio { get; }
+            public string Serial { get; }
+            public long Run { get; }
+        }
+
+        private MicInputSwap _micInputSwap;
+
+        /// <summary>
+        /// Put the saved mic input back, at most once, and only where it came
+        /// from: the same Radio object, in the same remote-audio run, and only
+        /// while the radio still reports the PC this app set. Anything else
+        /// is a newer choice or a different station, and is left alone with a
+        /// trace. Always clears the saved value. Never throws: it runs from a
+        /// stop and from a failed start's finally.
+        /// </summary>
+        private void PutBackSavedMicInput(string when)
+        {
+            var swap = _micInputSwap;
+            _micInputSwap = null;
+            if (swap == null) return;
+            try
+            {
+                var radio = theRadio;
+                long run = Interlocked.Read(ref _remoteAudioRun);
+                if (radio == null || !ReferenceEquals(radio, swap.Radio) || swap.Run != run)
+                {
+                    Tracing.TraceLine("PutBackSavedMicInput (" + when + "): NOT writing '" + swap.Saved
+                        + "' - it was saved from radio " + swap.Serial + " in run " + swap.Run
+                        + ", and this is radio " + (radio?.Serial ?? "(none)") + " in run " + run
+                        + "; a value saved from another radio or an earlier run is never written (#686)",
+                        TraceLevel.Warning);
+                    return;
+                }
+                string nowInput = radio.MicInput ?? "";
+                if (string.Equals(nowInput, "PC", StringComparison.OrdinalIgnoreCase))
+                {
+                    radio.MicInput = swap.Saved;
+                    Tracing.TraceLine("PutBackSavedMicInput (" + when + "): mic input put back to '"
+                        + swap.Saved + "' (#686)", TraceLevel.Info);
+                }
+                else
+                {
+                    Tracing.TraceLine("PutBackSavedMicInput (" + when + "): mic input is now '" + nowInput
+                        + "', not the PC this app set, so it is left there rather than"
+                        + " restored to '" + swap.Saved + "' (#686)", TraceLevel.Info);
+                }
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("PutBackSavedMicInput (" + when + "): " + ex.Message, TraceLevel.Error);
+            }
+        }
+
+        /// <summary>
+        /// A PC-audio session boundary: forget every piece of mic state that
+        /// belongs to the session before (#686, repair round two). Called at
+        /// the start of every remote-audio run and on connect. The saved value
+        /// is DISCARDED, not written - at a run start or a connect there is no
+        /// way to know it still belongs to the radio in front of us, and a
+        /// stop that should have put it back has already had its chance - and
+        /// the discard is traced. The healer's episode latch and our record
+        /// of having asked for PC go with it, so a new session's divergence
+        /// is reported as new.
+        /// </summary>
+        internal void ResetPcMicSession(string why)
+        {
+            var swap = _micInputSwap;
+            _micInputSwap = null;
+            if (swap != null)
+            {
+                Tracing.TraceLine("ResetPcMicSession (" + why + "): discarding the mic input '" + swap.Saved
+                    + "' saved from radio " + swap.Serial + " in run " + swap.Run + " without writing it (#686)",
+                    TraceLevel.Warning);
+            }
+            _pcMicExpected = false;
+            _pcMicDiverged = false;
+        }
+
+        /// <summary>
+        /// How the receive channel's PortAudio stream is started and stopped.
+        /// Fields only so a test can stand in for the device: a start that
+        /// returns false, as <c>Audio.Start</c> does on its one-second
+        /// timeout, without opening anything or making a sound (#686, repair
+        /// round two). Production is exactly the call that stood here.
+        /// </summary>
+        private Func<audioChannelData, bool> _startOutputAudio = ch => ch.PortAudioStream.StartAudio();
+        private Action<audioChannelData> _stopOutputAudio = ch => ch.PortAudioStream.StopAudio();
+
         private bool startOpusOutputChannel()
         {
             Tracing.TraceLine("startOpusOutputChannel:" +
@@ -1649,14 +1766,17 @@ namespace Radios
                 opusOutputChannel.JustStarted = true; // set on each call
                 opusOutputChannel.OpusChannel.RxMute = false;
                 if (opusOutputChannel.Started) return true;
+                // A new PC-audio session: whatever the healer reported in the
+                // last one does not silence it in this one (#686, round two).
+                _pcMicDiverged = false;
                 if (GuardSkips("MicInput=PC for computer transmit audio"))
                 {
                     // mic_input is station-global and persists (audit 1.6),
                     // so a guarded radio keeps its own microphone — which
                     // means audio from this computer will NOT modulate. That
                     // is the silent-transmit shape, so it is SAID, Critical,
-                    // at the moment PC audio comes up. oldMicInput stays
-                    // null: the stop path restores only what we swapped.
+                    // at the moment PC audio comes up. Nothing is saved: the
+                    // stop path restores only what we swapped.
                     if (!SuppressSpeech)
                     {
                         ScreenReaderOutput.Speak(
@@ -1671,7 +1791,7 @@ namespace Radios
                     // network with no declaration that they are away from it,
                     // so they have a microphone at the radio. The owner's mic
                     // input is station-global and theirs; it is left alone.
-                    // oldMicInput stays null, so the stop path puts nothing
+                    // Nothing is saved, so the stop path puts nothing
                     // back, and _pcMicExpected stays false, because we asked
                     // for nothing. If the input is not already PC, computer
                     // audio will not modulate, which is the silent-transmit
@@ -1695,7 +1815,8 @@ namespace Radios
                 }
                 else
                 {
-                    oldMicInput = theRadio.MicInput;
+                    _micInputSwap = new MicInputSwap(theRadio.MicInput, theRadio,
+                        Interlocked.Read(ref _remoteAudioRun));
                     theRadio.MicInput = "PC";
                     // Remember that WE asked for PC, so the loop can tell a silent
                     // revert from a deliberate operator choice. See
@@ -1712,7 +1833,25 @@ namespace Radios
                 // kept, because a line that reads like a volume control and
                 // controls nothing is exactly the description drift this
                 // codebase hunts.
-                opusOutputChannel.Started = opusOutputChannel.PortAudioStream.StartAudio();
+                // A start that fails - Audio.Start's one-second timeout, or a
+                // throw - leaves no PC-audio session, and the stop that
+                // remoteDone runs returns early for a channel that never
+                // started. So the put-back happens HERE, on the stop's own
+                // terms, or the owner's radio is left on PC (#686, round two).
+                bool started = false;
+                try
+                {
+                    started = _startOutputAudio(opusOutputChannel);
+                }
+                finally
+                {
+                    opusOutputChannel.Started = started;
+                    if (!started)
+                    {
+                        _pcMicExpected = false;
+                        PutBackSavedMicInput("PC audio did not start");
+                    }
+                }
                 if (!opusOutputChannel.Started)
                 {
                     Tracing.TraceLine("startOpusOutputChannel portAudio didn't start", TraceLevel.Error);
@@ -1779,6 +1918,9 @@ namespace Radios
             lock (opusOutputChannel)
             {
                 opusOutputChannel.OpusChannel.RxMute = true;
+                // The session's episode ends with it, started or not (#686,
+                // round two). A failed start already put its saved value back.
+                _pcMicDiverged = false;
                 if (!opusOutputChannel.Started) return;
                 _pcMicExpected = false; // we no longer own the mic selection
                 try
@@ -1795,27 +1937,14 @@ namespace Radios
                     // Workshop - that is a newer choice than the one captured
                     // at start, and writing the old value over it would undo
                     // it unasked. The Audio Workshop's RestoreInjectionPath
-                    // has always restored on the same condition.
-                    if (oldMicInput != null)
-                    {
-                        string nowInput = theRadio.MicInput ?? "";
-                        if (string.Equals(nowInput, "PC", StringComparison.OrdinalIgnoreCase))
-                        {
-                            theRadio.MicInput = oldMicInput;
-                        }
-                        else
-                        {
-                            Tracing.TraceLine("stopOpusOutputChannel: mic input is now '" + nowInput
-                                + "', not the PC this app set, so it is left there rather than"
-                                + " restored to '" + oldMicInput + "' (#686)", TraceLevel.Info);
-                        }
-                        oldMicInput = null;
-                    }
+                    // has always restored on the same condition. And only to
+                    // the radio, and in the run, it was saved from (round two).
+                    PutBackSavedMicInput("PC audio stopped");
                 }
                 // ignore error.
                 catch { }
                 opusOutputChannel.Started = false;
-                opusOutputChannel.PortAudioStream.StopAudio();
+                _stopOutputAudio(opusOutputChannel);
             }
         }
 

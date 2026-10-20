@@ -2657,6 +2657,11 @@ namespace Radios
             // this connection falling is a drop again.
             _firmwareUpdateSent = false;
 
+            // Fresh connection: no mic input saved from an earlier session is
+            // ever put back on this one, and the healer starts a new episode
+            // (#686, repair round two; see FlexBase.RemoteAudio.cs).
+            ResetPcMicSession("connect to " + serial);
+
             ConnectionProfiler.Current?.RecordEvent("connect_begin", new Dictionary<string, object>
             {
                 { "serial", serial },

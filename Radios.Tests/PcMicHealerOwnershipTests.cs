@@ -36,6 +36,10 @@ namespace Radios.Tests
         private static readonly MethodInfo StartMethod = typeof(FlexBase).GetMethod("startOpusOutputChannel", Private)!;
         private static readonly MethodInfo StopMethod = typeof(FlexBase).GetMethod("stopOpusOutputChannel", Private)!;
         private static readonly FieldInfo OutputChannelField = typeof(FlexBase).GetField("opusOutputChannel", Private)!;
+        private static readonly FieldInfo StartAudioSeam = typeof(FlexBase).GetField("_startOutputAudio", Private)!;
+        private static readonly FieldInfo StopAudioSeam = typeof(FlexBase).GetField("_stopOutputAudio", Private)!;
+        private static readonly FieldInfo TheRadioField = typeof(FlexBase).GetField("theRadio", Private)!;
+        private static readonly FieldInfo RunField = typeof(FlexBase).GetField("_remoteAudioRun", Private)!;
 
         /// <summary>A start well past one second, so nothing here leans on
         /// the very first comparison.</summary>
@@ -47,8 +51,10 @@ namespace Radios.Tests
 
         public void Dispose() => _scope.Dispose();
 
-        private static void Declare(RadioOwnership ownership) =>
-            Assert.True(new RadioConfig { Ownership = ownership }.SaveForRadio(Serial));
+        private static void Declare(RadioOwnership ownership, string serial = Serial) =>
+            Assert.True(new RadioConfig { Ownership = ownership }.SaveForRadio(serial));
+
+        private const string SecondSerial = "0686-0649-8600-0002";
 
         /// <summary>A rig with PC transmit audio up, as
         /// <c>startOpusOutputChannel</c> leaves it: it asked for PC and the
@@ -61,11 +67,13 @@ namespace Radios.Tests
             public PcAudioRig(long clock, string? beforePcAudio = null)
             {
                 Assert.True(ExpectedField != null && ClockField != null && CheckMethod != null
-                    && StartMethod != null && StopMethod != null && OutputChannelField != null,
+                    && StartMethod != null && StopMethod != null && OutputChannelField != null
+                    && StartAudioSeam != null && StopAudioSeam != null && TheRadioField != null && RunField != null,
                     "checkPcMicSelection, _pcMicExpected or _pcMicCheckClock is not where this test reaches it; "
                     + "every assertion below would be vacuous");
                 Clock = clock;
                 Fixture = new RigOnVendorRadio(Serial);
+                Vendor = Fixture.Vendor;
                 ClockField.SetValue(Fixture.Rig, (Func<long>)(() => Clock));
                 if (beforePcAudio != null)
                 {
@@ -81,36 +89,60 @@ namespace Radios.Tests
             /// <summary>
             /// The real <c>startOpusOutputChannel</c>, as <c>remoteAudioProc</c>
             /// calls it when receive audio comes up. The channel carries a real
-            /// FlexLib receive stream on the vendored Radio and a PortAudio
-            /// stream that was never constructed, so it holds no audio device
-            /// and makes no sound: its <c>StartAudio</c> throws a
-            /// NullReferenceException on its first line, which is AFTER every
-            /// mic-input decision the start path makes. The test then marks the
-            /// channel started, which is what a successful StartAudio would
-            /// have done.
+            /// FlexLib receive stream on the radio in use. The PortAudio start
+            /// and stop are the production seams <c>_startOutputAudio</c> and
+            /// <c>_stopOutputAudio</c>, standing in for the device: nothing is
+            /// opened and nothing is heard. <paramref name="deviceStarts"/>
+            /// false is <c>Audio.Start</c> returning false on its one-second
+            /// timeout, so the channel is left not started, as in production.
             /// </summary>
-            public void StartPcAudio()
+            public void StartPcAudio(bool deviceStarts = true)
             {
-                var channel = new FlexBase.audioChannelData(
-                    new Flex.Smoothlake.FlexLib.RXRemoteAudioStream(Fixture.Vendor.Radio), "test.OpusOutputChan");
-                channel.PortAudioStream = (JJPortaudio.JJAudioStream)
-                    System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(JJPortaudio.JJAudioStream));
-                OutputChannelField.SetValue(Rig, channel);
-                var thrown = Assert.Throws<TargetInvocationException>(() => StartMethod.Invoke(Rig, null));
-                Assert.IsType<NullReferenceException>(thrown.InnerException);
-                Assert.Contains("StartAudio", thrown.InnerException!.StackTrace);
-                channel.Started = true;
+                if (OutputChannelField.GetValue(Rig) == null) PlantChannel(started: false);
+                StartAudioSeam.SetValue(Rig, (Func<FlexBase.audioChannelData, bool>)(_ => deviceStarts));
+                StopAudioSeam.SetValue(Rig, (Action<FlexBase.audioChannelData>)(_ => { }));
+                bool started = (bool)StartMethod.Invoke(Rig, null)!;
+                Assert.Equal(deviceStarts, started);
             }
 
-            /// <summary>The real <c>stopOpusOutputChannel</c>. Its
-            /// <c>StopAudio</c> throws the same way, after the restore and
-            /// after the channel is marked stopped.</summary>
-            public void StopPcAudio()
+            /// <summary>A receive channel on the radio in use.</summary>
+            public FlexBase.audioChannelData PlantChannel(bool started)
             {
-                var thrown = Assert.Throws<TargetInvocationException>(() => StopMethod.Invoke(Rig, null));
-                Assert.IsType<NullReferenceException>(thrown.InnerException);
-                Assert.Contains("StopAudio", thrown.InnerException!.StackTrace);
+                var channel = new FlexBase.audioChannelData(
+                    new Flex.Smoothlake.FlexLib.RXRemoteAudioStream(Vendor.Radio), "test.OpusOutputChan")
+                { Started = started };
+                OutputChannelField.SetValue(Rig, channel);
+                StopAudioSeam.SetValue(Rig, (Action<FlexBase.audioChannelData>)(_ => { }));
+                return channel;
             }
+
+            /// <summary>The real <c>stopOpusOutputChannel</c>, as
+            /// <c>remoteDone</c> calls it, whether or not the start
+            /// succeeded.</summary>
+            public void StopPcAudio() => StopMethod.Invoke(Rig, null);
+
+            /// <summary>
+            /// The same FlexBase is now talking to a different radio: what a
+            /// reconnect does to <c>theRadio</c>, and nothing else, so the
+            /// stale-state guards are tested without the clears that connect
+            /// and run start also make. The receive channel goes, as
+            /// <c>remoteAudioProc</c> drops it at the start of every run.
+            /// </summary>
+            public void ReconnectTo(string serial, string micInput)
+            {
+                Vendor = new VendorRadioFixture(serial);
+                TheRadioField.SetValue(Rig, Vendor.Radio);
+                OutputChannelField.SetValue(Rig, null);
+                RadioReports(micInput);
+            }
+
+            /// <summary>A new remote-audio run on the same radio, without the
+            /// clear the run's start makes.</summary>
+            public void NextRunWithoutClearing() =>
+                RunField.SetValue(Rig, (long)RunField.GetValue(Rig)! + 1);
+
+            /// <summary>The radio this FlexBase is talking to now.</summary>
+            public VendorRadioFixture Vendor;
 
             public FlexBase Rig => Fixture.Rig;
 
@@ -119,7 +151,7 @@ namespace Radios.Tests
             /// way FlexLib's discovery sets it.</summary>
             public void OverSmartLink() =>
                 typeof(Flex.Smoothlake.FlexLib.Radio).GetProperty(nameof(Flex.Smoothlake.FlexLib.Radio.IsWan))!
-                    .GetSetMethod(nonPublic: true)!.Invoke(Fixture.Vendor.Radio, new object[] { true });
+                    .GetSetMethod(nonPublic: true)!.Invoke(Vendor.Radio, new object[] { true });
 
             public bool PcMicExpected => (bool)ExpectedField.GetValue(Rig)!;
 
@@ -127,17 +159,19 @@ namespace Radios.Tests
             /// client moving it, or the owner picking up the hand mic, looks
             /// like from here.</summary>
             public void RadioReports(string input) =>
-                Fixture.Vendor.Status("transmit mic_selection=" + input);
+                Vendor.Status("transmit mic_selection=" + input);
 
-            public string MicInput => Fixture.Vendor.Radio.MicInput;
+            public string MicInput => Vendor.Radio.MicInput;
 
             /// <summary>One pass of the check, as the transmit branch of the
             /// remote-audio loop makes it.</summary>
             public void Check() => CheckMethod.Invoke(Rig, null);
 
             /// <summary>Every <c>mic input</c> command FlexLib sent.</summary>
-            public string[] MicWrites =>
-                Fixture.Vendor.Transport.Commands
+            public string[] MicWrites => MicWritesOn(Vendor);
+
+            public static string[] MicWritesOn(VendorRadioFixture radio) =>
+                radio.Transport.Commands
                     .Where(c => c.StartsWith("mic input", StringComparison.OrdinalIgnoreCase))
                     .ToArray();
 
@@ -383,6 +417,140 @@ namespace Radios.Tests
             rig.StopPcAudio();
             Assert.Single(rig.MicWrites);
             Assert.Equal("MIC", rig.MicInput);
+        }
+
+        // ------------------------------------------------------------------
+        // #686 repair round two: mic state that outlives its session
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void AStartWhoseDeviceNeverStartsPutsTheOwnersInputBack()
+        {
+            // A remote guest's start is allowed to switch the owner's radio to
+            // PC. If PortAudio then fails to start (Audio.Start's one-second
+            // timeout), there is no PC audio session, so the owner's radio must
+            // not be left on PC.
+            Arrange(RadioOwnership.SomeoneElses, Where.SmartLink);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.OverSmartLink();
+
+            rig.StartPcAudio(deviceStarts: false);
+            rig.StopPcAudio();   // remoteDone runs the stop either way
+
+            Assert.Equal(new[] { "mic input PC", "mic input MIC" }, rig.MicWrites);
+            Assert.Equal("MIC", rig.MicInput);
+            Assert.False(rig.PcMicExpected);
+        }
+
+        [Fact]
+        public void AFailedStartPutsBackOnlyWhileTheInputIsStillThePcWeSet()
+        {
+            // Same terms as a stop: if somebody moved it while the device was
+            // trying to start, their choice stands.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.PlantChannel(started: false);
+            bool deviceAsked = false;
+            StartAudioSeam.SetValue(rig.Rig, (Func<FlexBase.audioChannelData, bool>)(_ =>
+            {
+                deviceAsked = true;
+                rig.RadioReports("BAL");
+                return false;
+            }));
+
+            Assert.False((bool)StartMethod.Invoke(rig.Rig, null)!);
+            rig.StopPcAudio();
+
+            Assert.True(deviceAsked);
+            Assert.Equal(new[] { "mic input PC" }, rig.MicWrites);
+            Assert.Equal("BAL", rig.MicInput);
+        }
+
+        [Fact]
+        public void AfterAFailedStartAReconnectToAnotherRadioGetsNothingFromTheFirst()
+        {
+            Arrange(RadioOwnership.SomeoneElses, Where.SmartLink);
+            Declare(RadioOwnership.SomeoneElses, SecondSerial);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.OverSmartLink();
+            rig.StartPcAudio(deviceStarts: false);
+            rig.StopPcAudio();
+
+            // The second radio is local and someone else's, already on PC:
+            // its own start saves nothing and writes nothing there.
+            rig.ReconnectTo(SecondSerial, "PC");
+            rig.StartPcAudio();
+            rig.StopPcAudio();
+
+            Assert.Empty(rig.MicWrites);
+            Assert.Equal("PC", rig.MicInput);
+        }
+
+        [Fact]
+        public void AValueSavedFromOneRadioIsNeverWrittenToAnother()
+        {
+            // The binding itself, with no failed start to clear things first:
+            // a session saved MIC on the first radio and never stopped, and
+            // the same FlexBase is now on a second radio that reads PC.
+            Declare(RadioOwnership.Mine);
+            Declare(RadioOwnership.SomeoneElses, SecondSerial);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            Assert.Equal(new[] { "mic input PC" }, rig.MicWrites);
+
+            rig.ReconnectTo(SecondSerial, "PC");
+            rig.PlantChannel(started: true);
+            rig.StopPcAudio();
+
+            Assert.Empty(rig.MicWrites);
+            Assert.Equal("PC", rig.MicInput);
+        }
+
+        [Fact]
+        public void AValueSavedInAnEarlierRunIsNeverWrittenInALaterOne()
+        {
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+
+            rig.NextRunWithoutClearing();
+            rig.StopPcAudio();
+
+            Assert.Equal(new[] { "mic input PC" }, rig.MicWrites);
+            Assert.Equal("PC", rig.MicInput);
+        }
+
+        [Fact]
+        public void ANewPcAudioSessionReportsItsOwnDivergence()
+        {
+            // A remote guest is told the owner moved the input, stops PC audio
+            // while it is still on MIC, starts again (which switches to PC),
+            // and the owner moves it again before any check has seen the PC
+            // in between: the check runs only while transmitting. That is a
+            // new session's divergence and it is reported. Within a session
+            // it is still once per episode.
+            Arrange(RadioOwnership.SomeoneElses, Where.SmartLink);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.OverSmartLink();
+
+            rig.StartPcAudio();
+            rig.RadioReports("MIC");
+            rig.Check();
+            rig.Clock += 1_000;
+            rig.Check();
+            Assert.Equal(1, rig.Rig.PcMicNotOursReports);
+
+            rig.StopPcAudio();
+            rig.StartPcAudio();
+            Assert.Equal("PC", rig.MicInput);
+            rig.RadioReports("MIC");
+            rig.Clock += 1_000;
+            rig.Check();
+            rig.Clock += 1_000;
+            rig.Check();
+
+            Assert.Equal(2, rig.Rig.PcMicNotOursReports);
+            Assert.Equal(new[] { "mic input PC", "mic input PC" }, rig.MicWrites);
         }
 
         // ------------------------------------------------------------------
