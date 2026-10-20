@@ -947,6 +947,14 @@ namespace Radios.Tests
                 // is the fine step. Noel asked for one at 14:33; this wording
                 // is a DRAFT awaiting him.
                 "audio.value_layer.fine_step",
+                // #778b round two, same reasoning: the three sentences for push
+                // to talk, the transmit lock and a bracket key pressed in a
+                // dialog while a layer is open, where they have no handler and
+                // are refused. Spoken only in answer to that press. DRAFTS
+                // awaiting Noel.
+                "audio.value_layer.ptt_not_here",
+                "audio.value_layer.lock_not_here",
+                "audio.value_layer.bracket_not_here",
 
                 // Junkbox #777, 2026-10-19: a global-profile write (Save, or
                 // Delete since round two) refused because the radio is

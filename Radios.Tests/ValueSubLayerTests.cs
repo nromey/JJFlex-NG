@@ -1519,6 +1519,42 @@ namespace Radios.Tests
             Assert.Equal(40, rig.Mic);
         }
 
+        [Theory]
+        [InlineData(VerbosityLevel.Chatty)]
+        [InlineData(VerbosityLevel.Terse)]
+        public void A_key_with_no_handler_on_this_route_is_refused_with_the_hosts_true_sentence_at_every_level(VerbosityLevel level)
+        {
+            // #778b round two. The host says a key would act in place on another
+            // route but has no handler on this one (push to talk pressed in a
+            // dialog). The engine refuses it, keeps the layer, and speaks the
+            // host's sentence even at Terse: a transmit key that did not transmit
+            // is a fact about the radio, not a hint. The tone still plays.
+            var tones = new ToneCounter();
+            var h = new Harness { Verbosity = level };
+            int value = 40;
+            h.Open(new ValueSubLayerDefinition
+            {
+                Id = "power",
+                Read = () => value, Apply = v => value = v,
+                Min = 0, Max = 100, Step = 5, FineStep = 1,
+                Number = v => "Power " + v,
+                DescribeEntry = (cur, entry) => "Power layer.",
+                DescribeClosed = () => "Power layer closed",
+                DescribeUnknownKey = (k, why) => "not a key",
+                DescribeUnavailableHere = k => k == (Keys.Space | Keys.Control) ? "Push to talk does not work from this window." : null,
+                Cues = tones.Cues,
+            });
+
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.Space | Keys.Control));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal(1, tones.Invalid);
+            Assert.Equal("Push to talk does not work from this window.", h.LastSaid);
+
+            // Every other key is unaffected by the hook.
+            h.Layer.HandleKey(Keys.Z);
+            Assert.Equal(level == VerbosityLevel.Chatty ? "not a key" : "Push to talk does not work from this window.", h.LastSaid);
+        }
+
         [Fact]
         public void A_layer_that_binds_a_bracket_itself_takes_it_ahead_of_the_in_place_list()
         {
@@ -2758,7 +2794,13 @@ namespace Radios.Tests
             // mirror's InPlaceChord is held to the shipped body here.
             Assert.Equal(3, Regex.Matches(source, @"PassThroughKeys = ActsInPlaceInsideALayer,").Count);
             Assert.DoesNotContain("PassThroughKeys = key => Lookup(key)?.KeyDef.Id == CommandValues.CycleVerbosity", source);
-            Assert.Contains("=> IsInPlaceChord(k) || Lookup(k)?.KeyDef.Id == CommandValues.CycleVerbosity;", source);
+            Assert.Contains("=> InPlaceVerdictFor(k, _layerKeyFromDialog) == InPlaceVerdict.ActsHere;", source);
+            // #778b round two: ONE verdict per key decides both the pass-through
+            // and the dialog-route refusal, so they cannot drift apart; and the
+            // route is the one DoCommand was called on.
+            Assert.Contains("if (!fromDialog || row != null) return InPlaceVerdict.ActsHere;", source);
+            Assert.Contains("_layerKeyFromDialog = fromDialog;", source);
+            Assert.Equal(3, Regex.Matches(source, @"DescribeUnavailableHere = key => LayerKeyUnavailableHere\(KeyInventory\.").Count);
             Assert.Contains("return mods == Keys.Control || mods == Keys.Shift;", source);
             Assert.Contains("return code == Keys.OemOpenBrackets || code == Keys.OemCloseBrackets;", source);
             Assert.Equal(3, Regex.Matches(source, @"DescribeFineStep = LayerFineStep,").Count);
@@ -2769,6 +2811,9 @@ namespace Radios.Tests
                 "audio.value_layer.unknown_key",
                 "audio.value_layer.typed_number",
                 "audio.value_layer.fine_step",
+                "audio.value_layer.ptt_not_here",
+                "audio.value_layer.lock_not_here",
+                "audio.value_layer.bracket_not_here",
                 "audio.audio_layer.entered",
                 "audio.audio_layer.entered_on_pan",
                 "audio.audio_layer.closed",
@@ -2997,6 +3042,33 @@ namespace Radios.Tests
             // main window never sees Tab at all (reported for #778b).
             int tab = source.IndexOf("if (rawKey == Key.Tab)", start, StringComparison.Ordinal);
             Assert.True(tab > start && tab < step4);
+        }
+
+        [Fact]
+        public void Only_the_dialog_window_handlers_ask_a_layer_on_the_dialog_route()
+        {
+            // #778b round two, Codex F1. A live layer refuses push to talk and the
+            // plain brackets ONLY when the press came by the dialog route, and the
+            // route is the fromDialog argument DoCommand was called with, not the
+            // order the handlers ran in. So the question "can the shell's
+            // ProcessCmdKey reach the layer on Home before MainWindow's own
+            // handler, and hit the dialog refusal?" is answered by who passes
+            // fromDialog: true. Exactly two call sites do, both reached only from
+            // the Window class handlers (AnyWindowPreviewKeyDown and
+            // DispatchFromDialogWindow), which never run for the main window: it
+            // is a UserControl in the shell's ElementHost. The shell, the main
+            // window and the WinForms log form all call the public one-argument
+            // DoCommand, which is fromDialog: false.
+            string commands = ReadSource("JJFlexWpf/KeyCommands.cs");
+            Assert.Equal(2, Regex.Matches(commands, @"fromDialog: true\)").Count);
+            Assert.Contains("public bool DoCommand(Keys k) => DoCommand(k, fromDialog: false);", commands);
+            Assert.Contains("if (kc.DoCommand(WpfKeyConverter.ToWinFormsKeys(e), fromDialog: true))", commands);
+            Assert.Contains("return DoCommand(k, fromDialog: true);", commands);
+
+            foreach (string file in new[] { "BridgeForm.vb", "ApplicationEvents.vb", "LogEntry.vb", "JJFlexWpf/MainWindow.xaml.cs" })
+                Assert.DoesNotContain("fromDialog", ReadSource(file));
+            Assert.Contains("WpfContent.DoCommandHandler(keyData)", ReadSource("BridgeForm.vb"));
+            Assert.Contains("WpfMainWindow.DoCommandHandler = AddressOf Commands.DoCommand", ReadSource("ApplicationEvents.vb"));
         }
 
         // ────────────────────────────────────────────────────────────────

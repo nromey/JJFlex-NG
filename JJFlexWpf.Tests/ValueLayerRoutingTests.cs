@@ -116,40 +116,118 @@ public sealed class ValueLayerRoutingTests : IDisposable
 
     // ── Keys that act in place: the layer lets them go and stays live ──
 
-    public static TheoryData<Keys, bool> InPlaceKeys()
+    // The main window's in-place chords that the registry never lists.
+    private static readonly Keys[] MainWindowOnlyChords =
     {
-        var data = new TheoryData<Keys, bool>();
-        foreach (bool fromDialog in new[] { true, false })
-        {
-            data.Add(Keys.Space | Keys.Control, fromDialog);                     // hold to talk
-            data.Add(Keys.Space | Keys.Shift, fromDialog);                       // transmit lock
-            data.Add(Keys.OemOpenBrackets, fromDialog);                          // filter edges
-            data.Add(Keys.OemCloseBrackets, fromDialog);
-            data.Add(Keys.OemOpenBrackets | Keys.Shift, fromDialog);             // slide
-            data.Add(Keys.OemCloseBrackets | Keys.Shift, fromDialog);
-            data.Add(Keys.OemOpenBrackets | Keys.Control, fromDialog);           // squeeze
-            data.Add(Keys.OemCloseBrackets | Keys.Control, fromDialog);          // pull
-        }
+        Keys.Space | Keys.Control,                   // hold to talk
+        Keys.Space | Keys.Shift,                     // transmit lock
+        Keys.OemOpenBrackets, Keys.OemCloseBrackets, // filter edges
+        Keys.OemOpenBrackets | Keys.Shift,           // slide
+        Keys.OemCloseBrackets | Keys.Shift,
+        Keys.OemOpenBrackets | Keys.Control,         // squeeze
+        Keys.OemCloseBrackets | Keys.Control,        // pull
+    };
+
+    public static TheoryData<Keys> MainWindowOnly()
+    {
+        var data = new TheoryData<Keys>();
+        foreach (var k in MainWindowOnlyChords) data.Add(k);
         return data;
     }
 
     [Theory]
-    [MemberData(nameof(InPlaceKeys))]
-    public void A_key_that_acts_in_place_is_not_consumed_and_the_layer_stays_live(Keys k, bool fromDialog)
+    [MemberData(nameof(MainWindowOnly))]
+    public void On_the_main_route_an_in_place_key_is_not_consumed_and_the_layer_stays_live(Keys k)
     {
         // Ruling 2 as filed on #778 (to confirm at the radio): push to talk,
         // the transmit lock and the bracket filter keys keep working inside a
-        // layer, because they do not leave it. DoCommand returning FALSE is
-        // what lets the key go on to MainWindow's handler (main route) or the
-        // dialog (dialog route); the layer still being there is what makes it
-        // "in place". Before #778b these closed the layer on the way out.
-        var commands = OpenAudioLayerOnVoxGain(fromDialog);
+        // layer, because they do not leave it. On the main route (MainWindow's
+        // step 4, the shell's ProcessCmdKey) DoCommand returning FALSE is what
+        // lets the key go on to the main window's own handler; the layer still
+        // being there is what makes it "in place". (On Home with the radio
+        // powered and focus in the Home fields, MainWindow handles these at
+        // steps 2 and 3 before the layer is even asked.)
+        var commands = OpenAudioLayerOnVoxGain(fromDialog: false);
         var layer = commands.LiveValueLayer;
 
-        Assert.False(commands.DoCommand(k, fromDialog));
+        Assert.False(commands.DoCommand(k, fromDialog: false));
         Assert.Same(layer, commands.LiveValueLayer);
         Assert.True(layer!.IsLive);
         Assert.Equal("vox-gain", layer.CurrentTarget?.Id);
+    }
+
+    public static TheoryData<Keys, string> DialogRefusals()
+    {
+        const string ptt = "Push to talk does not work from this window. The Audio layer is still open.";
+        const string lockLine = "The transmit lock does not work from this window. The Audio layer is still open.";
+        const string bracket = "This bracket key does not move the filter from this window. The Audio layer is still open.";
+        var data = new TheoryData<Keys, string>
+        {
+            { Keys.Space | Keys.Control, ptt },
+            { Keys.Space | Keys.Shift, lockLine },
+        };
+        foreach (var k in MainWindowOnlyChords)
+            if ((k & Keys.KeyCode) != Keys.Space) data.Add(k, bracket);
+        return data;
+    }
+
+    [Theory]
+    [MemberData(nameof(DialogRefusals))]
+    public void In_a_dialog_an_in_place_key_with_no_handler_there_is_refused_out_loud(Keys k, string sentence)
+    {
+        // #778b round two, Codex B1. On the dialog route (the Window class
+        // handlers, so the Audio Workshop and every other WPF dialog) nothing
+        // handles these chords: MainWindow's branches are not on the route and
+        // DispatchFromDialogWindow routes only registry rows. Letting them go
+        // handed a transmit chord to the focused dialog control with the layer
+        // still open. Now they are CONSUMED, the layer stays, and the sentence
+        // says what did not happen. Dialogs do not key the radio; whether one
+        // should is Noel's to rule.
+        var commands = OpenAudioLayerOnVoxGain(fromDialog: true);
+        var layer = commands.LiveValueLayer;
+
+        string said = SpokenAfter(() => Assert.True(commands.DoCommand(k, fromDialog: true)));
+
+        Assert.Same(layer, commands.LiveValueLayer);
+        Assert.True(layer!.IsLive);
+        Assert.Equal(sentence, said);
+    }
+
+    [Fact]
+    public void In_a_dialog_the_push_to_talk_refusal_is_spoken_even_at_terse()
+    {
+        // A transmit key that did not transmit is a fact about the radio, not a
+        // hint, so it is spoken at every verbosity — unlike an ordinary refusal,
+        // which below Chatty is the tone alone.
+        var commands = OpenAudioLayerOnVoxGain(fromDialog: true);
+        ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Terse;
+        string said = SpokenAfter(() => Assert.True(commands.DoCommand(Keys.Space | Keys.Control, fromDialog: true)));
+        Assert.Equal("Push to talk does not work from this window. The Audio layer is still open.", said);
+        Assert.NotNull(commands.LiveValueLayer);
+    }
+
+    [Theory]
+    [InlineData(Keys.OemOpenBrackets | Keys.Control | Keys.Shift, CommandValues.TXFilterLowDown, true)]
+    [InlineData(Keys.OemCloseBrackets | Keys.Control | Keys.Shift, CommandValues.TXFilterLowUp, true)]
+    [InlineData(Keys.OemOpenBrackets | Keys.Control | Keys.Shift, CommandValues.TXFilterLowDown, false)]
+    [InlineData(Keys.OemCloseBrackets | Keys.Control | Keys.Shift, CommandValues.TXFilterLowUp, false)]
+    public void Ctrl_shift_bracket_is_a_registry_row_and_runs_on_both_routes_with_the_layer_live(
+        Keys k, CommandValues expected, bool fromDialog)
+    {
+        // Codex F3: the one bracket form with a registry row (the transmit
+        // filter's low edge). DoCommand dispatches it itself, so it acts in
+        // place from a dialog too. The rig has never connected, so the write
+        // it queues is dropped ("q:outside main loop") and nothing reaches a
+        // radio; CommandId is set by DoCommand just before the handler runs.
+        var commands = OpenAudioLayerOnVoxGain(fromDialog);
+        var layer = commands.LiveValueLayer;
+        Assert.Equal(expected, commands.Lookup(k)?.KeyDef.Id);
+        commands.CommandId = CommandValues.CycleVerbosity;
+
+        Assert.True(commands.DoCommand(k, fromDialog));
+        Assert.Equal(expected, commands.CommandId);
+        Assert.Same(layer, commands.LiveValueLayer);
+        Assert.True(layer!.IsLive);
     }
 
     [Theory]

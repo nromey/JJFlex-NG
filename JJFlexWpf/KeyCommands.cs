@@ -3020,7 +3020,12 @@ public class KeyCommands
         // The engine decides; this block only routes.
         if (_valueLayer != null)
         {
-            switch (DoValueLayerKey(k))
+            Radios.ValueLayerKeyResult layerResult;
+            bool routeBefore = _layerKeyFromDialog;
+            _layerKeyFromDialog = fromDialog;
+            try { layerResult = DoValueLayerKey(k); }
+            finally { _layerKeyFromDialog = routeBefore; }
+            switch (layerResult)
             {
                 case Radios.ValueLayerKeyResult.PassThrough:
                     // Alt chords, F1, and the keys that act in place (#778:
@@ -4723,6 +4728,7 @@ public class KeyCommands
             // bracket filter keys. Everything else the layer does not bind is
             // refused; the only ways out are Enter, Escape and the JJ key.
             PassThroughKeys = ActsInPlaceInsideALayer,
+            DescribeUnavailableHere = key => LayerKeyUnavailableHere(KeyInventory.AudioLayerContext, key),
             HostKeys = LayerSliceJump,
             // #547: a letter that means nothing out there and sits one
             // modifier from a chord in here is a slip, and the layer says so
@@ -5077,6 +5083,7 @@ public class KeyCommands
             NoVerbHint = () => Radios.Lexicon.Get("audio.filter_layer.no_verb"),
             WrongAxisHint = () => Radios.Lexicon.Get("audio.filter_layer.no_verb"),
             PassThroughKeys = ActsInPlaceInsideALayer,
+            DescribeUnavailableHere = key => LayerKeyUnavailableHere(KeyInventory.FilterLayerContext, key),
             HostKeys = LayerSliceJump,
             // #547, the same rule as the audio layer. This layer's letters are
             // S, T and R, so a Ctrl+S or a Shift+T recovers here instead of
@@ -5348,6 +5355,7 @@ public class KeyCommands
             PickTargetHint = () => Radios.Lexicon.Get("audio.noise_layer.switches_only"),
             WrongAxisHint = () => Radios.Lexicon.Get("audio.noise_layer.switches_only"),
             PassThroughKeys = ActsInPlaceInsideALayer,
+            DescribeUnavailableHere = key => LayerKeyUnavailableHere(KeyInventory.NoiseLayerContext, key),
             HostKeys = LayerSliceJump,
             // #547, the same rule as the other two layers: a letter that means
             // nothing out there and sits one modifier from a chord in here is
@@ -5560,29 +5568,95 @@ public class KeyCommands
         => Radios.Lexicon.Get("audio.value_layer.fine_step");
 
     /// <summary>
-    /// The keys that ACT IN PLACE inside a live value layer (#778): they do
-    /// their normal job and the layer stays open. Everything else the layer
-    /// does not bind is refused (Noel, 2026-10-19 14:35: the only ways out
-    /// are Enter, Escape and the JJ key).
+    /// What a live value layer should do with a key that is not one of its
+    /// own, as far as acting in place goes (#778, #778b round two).
+    /// </summary>
+    internal enum InPlaceVerdict
+    {
+        /// <summary>Not an in-place key: the layer refuses it like any other.</summary>
+        NotInPlace,
+
+        /// <summary>Its handler is on this route: let it go, layer kept.</summary>
+        ActsHere,
+
+        /// <summary>
+        /// It acts in place on the main window, but this press came by the
+        /// dialog route, where nothing handles it: refuse it, layer kept, and
+        /// say why.
+        /// </summary>
+        NotFromThisWindow,
+    }
+
+    /// <summary>
+    /// ONE verdict per key, so the pass-through and the refusal sentence
+    /// cannot disagree. Everything else the layer does not bind is refused
+    /// (Noel, 2026-10-19 14:35: the only ways out are Enter, Escape and the JJ
+    /// key).
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Two sources, because the key registry is not the whole key map. The
-    /// verbosity cycle IS a registry command, so it is looked up live and a
-    /// remap is honoured — an operator can flip words-versus-numbers
-    /// mid-hunt. Push to talk, the transmit lock and the bracket filter keys
-    /// are NOT registry rows: <c>MainWindow_PreviewKeyDown</c> handles them
-    /// in branches of its own, and that is exactly how #778's first round
-    /// came to swallow push to talk (Codex, 2026-10-19, B1). They are named
-    /// in <see cref="IsInPlaceChord"/>.
+    /// The verbosity cycle is a registry command, looked up live so a remap is
+    /// honoured, and <see cref="DoCommand(Keys, bool)"/> dispatches it itself,
+    /// so it acts in place on every route.
     /// </para>
     /// <para>
-    /// The engine asks this AFTER every key the layer binds itself, so a
-    /// layer's own use of a key always wins (Noel, 14:36).
+    /// The <see cref="IsInPlaceChord"/> keys are push to talk, the transmit
+    /// lock and the brackets. On the MAIN route (MainWindow's step 4, the
+    /// shell's ProcessCmdKey, the WinForms log form) the main window's own
+    /// branches handle the ones the registry never lists, and the registry
+    /// handles the rest (Ctrl+Shift+bracket, the transmit filter's low edge),
+    /// so they act here. On the DIALOG route (the Window class handlers, so a
+    /// WPF dialog such as the Audio Workshop) only what DoCommand itself
+    /// dispatches can act: Ctrl+Shift+bracket, which has a registry row, still
+    /// does; Ctrl+Space, Shift+Space and the bare, Shift and Ctrl brackets have
+    /// no handler there at all. Passing those through would hand a transmit
+    /// chord to the focused dialog control with the layer still open (Codex,
+    /// #778b, B1), so they are refused out loud instead. Dialogs do NOT key the
+    /// radio: whether one should is queued for Noel.
     /// </para>
     /// </remarks>
+    internal InPlaceVerdict InPlaceVerdictFor(Keys k, bool fromDialog)
+    {
+        var row = Lookup(k);
+        if (row?.KeyDef.Id == CommandValues.CycleVerbosity) return InPlaceVerdict.ActsHere;
+        if (!IsInPlaceChord(k)) return InPlaceVerdict.NotInPlace;
+        if (!fromDialog || row != null) return InPlaceVerdict.ActsHere;
+        return InPlaceVerdict.NotFromThisWindow;
+    }
+
+    /// <summary>
+    /// The route the key now being handed to the live layer arrived by: true
+    /// for the Window class handlers (a WPF dialog), false for the main
+    /// window and the shell. Set by <see cref="DoCommand(Keys, bool)"/> for
+    /// the duration of the layer's turn, and read by the two hooks below.
+    /// </summary>
+    private bool _layerKeyFromDialog;
+
+    /// <summary>The engine's pass-through question (#778): does this key act in place here?</summary>
     private bool ActsInPlaceInsideALayer(Keys k)
-        => IsInPlaceChord(k) || Lookup(k)?.KeyDef.Id == CommandValues.CycleVerbosity;
+        => InPlaceVerdictFor(k, _layerKeyFromDialog) == InPlaceVerdict.ActsHere;
+
+    /// <summary>
+    /// The true sentence for an in-place key pressed where it has no handler
+    /// (#778b round two): push to talk, the transmit lock or a bracket key
+    /// pressed in a dialog while a layer is open. It says what did not happen
+    /// and that the layer is still there; it does NOT say "not a key in this
+    /// layer", which is false for push to talk.
+    /// </summary>
+    private string? LayerKeyUnavailableHere(string context, Keys k)
+    {
+        if (InPlaceVerdictFor(k, _layerKeyFromDialog) != InPlaceVerdict.NotFromThisWindow) return null;
+        Keys code = k & Keys.KeyCode;
+        Keys mods = k & Keys.Modifiers;
+        // DRAFT PROSE (#778): awaiting Noel. "From this window" rather than
+        // "while the layer is open", because push to talk does not work from a
+        // dialog with or without a layer, and a sentence that implied closing
+        // the layer would fix it would be false.
+        string key = code == Keys.Space
+            ? (mods == Keys.Control ? "audio.value_layer.ptt_not_here" : "audio.value_layer.lock_not_here")
+            : "audio.value_layer.bracket_not_here";
+        return Radios.Lexicon.Get(key, ("layer", KeyLayerHelp.LayerName(context)));
+    }
 
     /// <summary>
     /// The main window's own in-place chords, as <c>MainWindow_PreviewKeyDown</c>

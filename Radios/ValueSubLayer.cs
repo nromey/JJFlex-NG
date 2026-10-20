@@ -580,7 +580,11 @@ namespace Radios
         /// which the registry never lists and which #778's first round
         /// swallowed (Codex, 2026-10-19, B1). A host that forgot one would
         /// refuse it, out loud; the routing tests in JJFlexWpf.Tests pin the
-        /// shipped list through the real dispatcher.
+        /// shipped list through the real dispatcher. The answer may depend on
+        /// the route the press came by: the shipped hosts let push to talk
+        /// and the plain brackets go only where the main window's handlers
+        /// are, and answer <see cref="DescribeUnavailableHere"/> for them on
+        /// the dialog route (#778b round two).
         /// </para>
         /// <para>
         /// Asked AFTER every key the layer binds itself, so a layer's own use
@@ -679,6 +683,22 @@ namespace Radios
         /// owns whether they are true.
         /// </summary>
         public Func<string?>? DescribeFineStep;
+
+        /// <summary>
+        /// For a key that acts in place on another route but has no handler on
+        /// the one this press arrived by: the sentence that says so, or null
+        /// for every other key (#778b round two). Asked right after
+        /// <see cref="PassThroughKeys"/> answered no. A non-null answer refuses
+        /// the key, keeps the layer, and is spoken at EVERY verbosity, because
+        /// it is a fact about the radio (push to talk did not key it), not a
+        /// hint the operator can do without.
+        /// </summary>
+        /// <remarks>
+        /// The host decides both questions from ONE verdict per key, so
+        /// "acts in place here" and "would act in place, but not from here"
+        /// cannot drift apart: see <c>KeyCommands.InPlaceVerdictFor</c>.
+        /// </remarks>
+        public Func<Keys, string?>? DescribeUnavailableHere;
 
         /// <summary>
         /// H: show this layer's commands as a NAVIGABLE LIST (#519). Returns
@@ -1235,6 +1255,26 @@ namespace Radios
             if (_def.PassThroughKeys != null && _def.PassThroughKeys(k))
                 return ValueLayerKeyResult.PassThrough;
 
+            // A key that acts in place where its handler is, and has none on
+            // the route this press arrived by (#778b round two, Codex B1): push
+            // to talk pressed in a dialog, where the main window's transmit
+            // handler is not on the route. Letting it go would hand a transmit
+            // chord to whatever control has focus there, with the layer still
+            // open, while the help promised it keys the radio. So it is refused
+            // and the layer stays, and the sentence says the TRUTH about it —
+            // not "not a key in this layer", which is false for push to talk.
+            // Spoken at every verbosity: a transmit key that did not transmit
+            // is a fact about the radio, which this app always says (the rule
+            // the key reference states for an unavailable key), not a hint.
+            string? unavailable = _def.DescribeUnavailableHere?.Invoke(k);
+            if (!string.IsNullOrEmpty(unavailable))
+            {
+                Tracing.TraceLine("ValueSubLayer(" + _def.Id + "): refused " + k
+                    + " (acts in place, but not from this route), staying open", TraceLevel.Info);
+                Refuse(unavailable, alwaysSpeak: true);
+                return ValueLayerKeyResult.Handled;
+            }
+
             // A bare digit gets its own sentence, because the operator who
             // typed one was trying to enter a value (#778's capture: VOX gain
             // picked, then 4, 0). Forwarded, it would START TYPED ENTRY on the
@@ -1475,12 +1515,12 @@ namespace Radios
         /// open either way; verbosity changes what is said, never what
         /// happens.
         /// </summary>
-        private void Refuse(string? hint)
+        private void Refuse(string? hint, bool alwaysSpeak = false)
         {
             bool toneWillSound = _def.Cues.Invalid != null && (_def.Cues.Audible?.Invoke() ?? true);
             _def.Cues.Invalid?.Invoke();
             if (string.IsNullOrEmpty(hint)) return;
-            if (Speech.RefusalVoice.ToneStandsAlone(VerbosityNow(), toneWillSound)) return;
+            if (!alwaysSpeak && Speech.RefusalVoice.ToneStandsAlone(VerbosityNow(), toneWillSound)) return;
             EmitSay(hint!);
         }
 
