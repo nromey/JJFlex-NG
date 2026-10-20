@@ -3094,6 +3094,7 @@ public partial class MainWindow : UserControl
         ExitRescueMode();
 
         SetupBoxes();
+        if (RigControl != null) Dialogs.AudioWorkshopDialog.NotifyRigReady(RigControl);
 
         // Wire memory dialog delegate
         if (RigControl != null)

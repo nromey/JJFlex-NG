@@ -5,6 +5,8 @@ using NAudio.Wave;
 using Radios;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using Xunit;
 
 namespace JJFlexWpf.Tests;
@@ -22,7 +24,7 @@ namespace JJFlexWpf.Tests;
 public sealed class EngineLatencyTests
 {
     /// <summary>
-    /// Noel's +20 dB ruling (2026-10-20 06:21) is for the quiet, fixed-scale off-air render only.
+    /// Noel's +30 dB ruling (2026-10-20 09:01) is for the quiet, fixed-scale off-air render only.
     /// A take this computer recorded is at microphone level and must play exactly as recorded:
     /// lifting it would drive a -8 dBFS voice into the limiter. Pins both sides.
     /// </summary>
@@ -30,7 +32,7 @@ public sealed class EngineLatencyTests
     public void ListeningGainAppliesToTheOffAirRenderOnly()
     {
         NoiseReductionPerChannelTests.AssertWindowless();
-        float[] voice = { 0.4f, -0.4f, 0.05f, -0.05f };
+        float[] voice = { 0.4f, -0.4f, 0.01f, -0.01f };
         var unity = new RecordingPlayer.FixedGainLimiterSampleProvider(new ArraySource(voice), gained: false);
         var unityOut = new float[voice.Length];
         unity.Read(unityOut);
@@ -40,8 +42,8 @@ public sealed class EngineLatencyTests
         var offAir = new RecordingPlayer.FixedGainLimiterSampleProvider(new ArraySource(voice), gained: true);
         var offAirOut = new float[voice.Length];
         offAir.Read(offAirOut);
-        Assert.Equal(0.5f, offAirOut[2], 3);   // 0.05 x 10, below the ceiling
-        Assert.True(offAir.Limited);           // 0.4 x 10 is far above it
+        Assert.Equal(0.31623f, offAirOut[2], 3); // 0.01 x 31.6228, below the ceiling
+        Assert.True(offAir.Limited);             // 0.4 x 31.6228 is far above it
     }
 
     private sealed class ArraySource : ISampleProvider
@@ -75,7 +77,7 @@ public sealed class EngineLatencyTests
                 .Where(d => d.RootElement.GetProperty("event").GetString() == "speech")
                 .Select(d => d.RootElement.GetProperty("text").GetString()).ToArray();
             Assert.Single(speech);
-            Assert.Equal("Playing the received off-air take. Played 20 dB louder.", speech[0]);
+            Assert.Equal("Playing the received off-air take. Played 30 dB louder.", speech[0]);
         }
         finally
         {
@@ -87,12 +89,12 @@ public sealed class EngineLatencyTests
     [Fact]
     public void PlaybackUsesOneFixedGainAndSoftLimitsStrongerTakes()
     {
-        var source = new Samples(0.01f, -0.04f, 0.2f);
+        var source = new Samples(0.01f, -0.01f, 0.2f);
         var gain = new RecordingPlayer.FixedGainLimiterSampleProvider(source);
         var output = new float[3];
         Assert.Equal(3, gain.Read(output));
-        Assert.Equal(0.1f, output[0], 4);
-        Assert.Equal(-0.4f, output[1], 4);
+        Assert.Equal(0.31623f, output[0], 4);
+        Assert.Equal(-0.31623f, output[1], 4);
         Assert.InRange(output[2], 0.8f, 0.99f);
         Assert.True(gain.Limited);
     }
@@ -114,6 +116,36 @@ public sealed class EngineLatencyTests
             // the mixer refuses the file after the local mute was applied.
             Assert.False(RecordingPlayer.Play(path, "A test take.", rig));
             Assert.Equal(priorMute, rig.LocalReceiveMutedForTakePlayback);
+            Assert.False(RecordingPlayer.IsPlaying);
+        }
+        finally
+        {
+            RecordingPlayer.Stop();
+            try { File.Delete(path); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task PlaybackStartedOffTheUiThreadRestoresLiveAudioWhenTheFileEnds()
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        string path = Path.Combine(Path.GetTempPath(), "jjflex-playback-end-" + Guid.NewGuid().ToString("N") + ".wav");
+        var rig = (FlexBase)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(FlexBase));
+        ISampleProvider? mixerInput = null;
+        try
+        {
+            using (var writer = new WaveFileWriter(path, new WaveFormat(44100, 16, 1)))
+                writer.Write(new byte[882], 0, 882);
+            Assert.True(await Task.Run(() => RecordingPlayer.PlayWithMixer(path, "Test take.", rig, false,
+                source => { mixerInput = source; return true; })));
+            Assert.True(rig.LocalReceiveMutedForTakePlayback);
+            Assert.NotNull(mixerInput);
+            await Task.Run(() =>
+            {
+                var samples = new float[4096];
+                while (mixerInput.Read(samples) > 0) { }
+            });
+            Assert.True(SpinWait.SpinUntil(() => !rig.LocalReceiveMutedForTakePlayback, TimeSpan.FromSeconds(2)));
             Assert.False(RecordingPlayer.IsPlaying);
         }
         finally

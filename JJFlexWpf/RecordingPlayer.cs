@@ -2,7 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
-using System.Windows.Threading;
+using System.Threading.Tasks;
 using JJTrace;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
@@ -62,16 +62,8 @@ public static class RecordingPlayer
     private static FixedGainLimiterSampleProvider? _gain;
     private static FlexBase? _liveRig;
     private static bool _priorLiveMute;
-    private static DispatcherTimer? _watcher;
     private static string _path = "";
     private static string _name = "";
-
-    /// <summary>
-    /// How often the UI thread asks whether the file has played out. Short
-    /// enough that "finished" lands while the operator is still listening for
-    /// it, long enough to cost nothing.
-    /// </summary>
-    private static readonly TimeSpan WatchInterval = TimeSpan.FromMilliseconds(100);
 
     /// <summary>True while a recording is playing.</summary>
     public static bool IsPlaying
@@ -102,7 +94,11 @@ public static class RecordingPlayer
     /// ambiguity is exactly what this whole finding was made of.
     /// </summary>
     public static bool Play(string path, string? announcement = null, FlexBase? liveRig = null,
-        bool offAirListeningGain = false)
+        bool offAirListeningGain = false) =>
+        PlayWithMixer(path, announcement, liveRig, offAirListeningGain, EarconPlayer.AddRecordingPlayback);
+
+    internal static bool PlayWithMixer(string path, string? announcement, FlexBase? liveRig,
+        bool offAirListeningGain, Func<ISampleProvider, bool> addPlayback)
     {
         if (string.IsNullOrEmpty(path))
         {
@@ -135,9 +131,9 @@ public static class RecordingPlayer
         FixedGainLimiterSampleProvider gain;
         try
         {
-            // The +20 dB listening gain is for the off-air IQ render only (Noel, 2026-10-20 06:21),
+            // The +30 dB listening gain is for the off-air IQ render only (Noel, 2026-10-20 09:01),
             // which is fixed-scale and quiet. A take this computer recorded is already at
-            // microphone level; lifting it 20 dB would drive it into the limiter.
+            // microphone level; lifting it 30 dB would drive it into the limiter.
             gain = new FixedGainLimiterSampleProvider(ToMixerFormat(reader), offAirListeningGain);
             provider = new EndOfFileSampleProvider(gain);
         }
@@ -164,6 +160,12 @@ public static class RecordingPlayer
             Trace.WriteLine($"RecordingPlayer: no length for {path}: {ex.Message}");
         }
 
+        var announced = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        provider.Ended += () => _ = Task.Run(async () =>
+        {
+            await announced.Task.ConfigureAwait(false);
+            End(Lexicon.Get("audio.take.playback_finished"), confirmTone: true, expected: provider);
+        });
         lock (Gate)
         {
             _reader = reader;
@@ -176,8 +178,9 @@ public static class RecordingPlayer
             if (liveRig != null) liveRig.LocalReceiveMutedForTakePlayback = true;
         }
 
-        if (!EarconPlayer.AddRecordingPlayback(provider))
+        if (!addPlayback(provider))
         {
+            announced.TrySetResult(true);
             // No mixer means no audio device is open for us to play through.
             // Say so instead of sitting silently in a "playing" state.
             lock (Gate)
@@ -195,14 +198,15 @@ public static class RecordingPlayer
 
         try
         {
-            StartWatching();
             StateChanged?.Invoke();
             AnnounceStarted(announcement ?? Lexicon.Get("audio.take.playing",
                 ("name", _name), ("length", RecordingStore.DescribeLength(seconds))), offAirListeningGain);
+            announced.TrySetResult(true);
             return true;
         }
         catch (Exception ex)
         {
+            announced.TrySetResult(true);
             // This path begins after the local receive gate was applied.
             // End clears it before any refusal can itself fault or be delayed.
             try { End(""); } catch (Exception cleanup) { Trace.WriteLine($"RecordingPlayer cleanup failed: {cleanup}"); }
@@ -229,44 +233,14 @@ public static class RecordingPlayer
     /// </summary>
     public static void Stop() => End(spokenReason: Lexicon.Get("audio.check.playback_stopped"));
 
-    /// <summary>
-    /// Watch for the file playing out, on the thread that started it. See
-    /// <see cref="EndOfFileSampleProvider"/> for why end of file is a flag
-    /// rather than a callback.
-    /// </summary>
-    private static void StartWatching()
-    {
-        StopWatching();
-        var watcher = new DispatcherTimer { Interval = WatchInterval };
-        watcher.Tick += (s, e) =>
-        {
-            EndOfFileSampleProvider? provider;
-            lock (Gate) provider = _provider;
-            if (provider == null) { StopWatching(); return; }
-            if (!provider.HasEnded) return;
-            // Says so rather than only going quiet: a recording of digital
-            // silence and a playback that never started sound identical, and
-            // only one of them ends with this sentence.
-            End(Lexicon.Get("audio.take.playback_finished"), confirmTone: true);
-        };
-        _watcher = watcher;
-        watcher.Start();
-    }
-
-    private static void StopWatching()
-    {
-        var watcher = _watcher;
-        _watcher = null;
-        watcher?.Stop();
-    }
-
-    private static void End(string spokenReason, bool confirmTone = false)
+    private static void End(string spokenReason, bool confirmTone = false, EndOfFileSampleProvider? expected = null)
     {
         WaveFileReader? reader;
         EndOfFileSampleProvider? provider;
         bool limited;
         lock (Gate)
         {
+            if (expected != null && !ReferenceEquals(_provider, expected)) return;
             reader = _reader;
             provider = _provider;
             limited = _gain?.Limited ?? false;
@@ -276,7 +250,6 @@ public static class RecordingPlayer
             _path = "";
             RestoreLiveAudio();
         }
-        StopWatching();
         if (provider == null) return;
 
         EarconPlayer.RemoveRecordingPlayback(provider);
@@ -326,7 +299,7 @@ public static class RecordingPlayer
         return source;
     }
 
-    /// <summary>Fixed 20 dB playback gain with a soft ceiling for the off-air render, or unity for
+    /// <summary>Fixed 30 dB playback gain with a soft ceiling for the off-air render, or unity for
     /// anything else; file samples remain unmodified either way.</summary>
     internal sealed class FixedGainLimiterSampleProvider : ISampleProvider
     {
@@ -346,7 +319,7 @@ public static class RecordingPlayer
             if (!_gained) return count; // unity: the file plays exactly as recorded
             for (int i = 0; i < count; i++)
             {
-                double scaled = buffer[i] * 10.0; // +20 dB, never per-take normalization.
+                double scaled = buffer[i] * 31.622776601683793; // +30 dB, never per-take normalization.
                 double level = Math.Abs(scaled);
                 if (level > 0.8)
                 {
@@ -361,17 +334,12 @@ public static class RecordingPlayer
     }
 
     /// <summary>
-    /// Passes audio through and RAISES A FLAG when the source runs out.
+    /// Passes audio through and signals end of file without doing cleanup on the mixer thread.
     /// </summary>
     /// <remarks>
-    /// <b>A flag, not a callback, and that is the whole reason this class
-    /// exists in this shape.</b> Read runs on the audio render thread, inside
-    /// the mixer's own walk of its input list. Calling back from there would
-    /// mean removing a mixer input from inside that walk, disposing a file
-    /// handle on the render thread, and speaking from a thread that has no
-    /// business speaking. So it sets a bool and returns, and the player's own
-    /// timer notices on the UI thread, where every other state change in this
-    /// class already happens.
+    /// Read runs on the audio render thread, inside the mixer's input walk.
+    /// The signal only schedules cleanup on a worker; it never removes an
+    /// input, disposes a file, or speaks inside that walk.
     /// <para>
     /// It keeps returning zero afterwards, so a mixer that has not dropped it
     /// yet hears silence rather than the file starting again.
@@ -380,18 +348,19 @@ public static class RecordingPlayer
     private sealed class EndOfFileSampleProvider : ISampleProvider
     {
         private readonly ISampleProvider _source;
-        private volatile bool _ended;
+        private int _ended;
+        public event Action? Ended;
 
         public EndOfFileSampleProvider(ISampleProvider source) { _source = source; }
 
         /// <summary>True once the file has played out.</summary>
-        public bool HasEnded => _ended;
+        public bool HasEnded => Volatile.Read(ref _ended) != 0;
 
         public WaveFormat WaveFormat => _source.WaveFormat;
 
         public int Read(Span<float> buffer)
         {
-            if (_ended) return 0;
+            if (HasEnded) return 0;
             int read;
             try
             {
@@ -406,7 +375,7 @@ public static class RecordingPlayer
             }
             if (read > 0) return read;
 
-            _ended = true;
+            if (Interlocked.Exchange(ref _ended, 1) == 0) Ended?.Invoke();
             return 0;
         }
     }

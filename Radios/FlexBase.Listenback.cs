@@ -27,7 +27,11 @@ public partial class FlexBase
     // Keep this exact selection shared by the off-air take and Loopback Check.
     internal static string OtherTransverterReceiveInput(IEnumerable<string> receiveAntennas, string transmitAntenna) =>
         receiveAntennas?.FirstOrDefault(a => a.StartsWith("XVT", StringComparison.OrdinalIgnoreCase) && a != transmitAntenna);
-    public bool OffAirListenbackSupported => theRadio?.DiversityIsAllowed == true && LoopbackSupported;
+    public string OffAirListenbackRefusalReason => theRadio == null ? "no-radio" :
+        RemoteRig ? "smartlink-iq-unavailable" :
+        !theRadio.DiversityIsAllowed ? "one-scu-not-confirmed" :
+        !TXAntennaList.Any(a => a.StartsWith("XVT", StringComparison.OrdinalIgnoreCase)) ? "no-transverter-port" : "";
+    public bool OffAirListenbackSupported => OffAirListenbackRefusalReason.Length == 0;
 
     private Guid _listenbackPreflightConnection;
     private string _listenbackPreflightResult = "not run";
@@ -35,6 +39,7 @@ public partial class FlexBase
 
     public async Task<bool> RunListenbackPreflightAsync(CancellationToken cancellation)
     {
+        if (RemoteRig) throw new InvalidOperationException("smartlink-iq-unavailable");
         var connection = theRadio?.CurrentCommandConnection;
         _listenbackPreflightConnection = Guid.Empty;
         var run = await StartListenbackAsync(new ListenbackOptions(), cancellation).ConfigureAwait(false);
@@ -105,8 +110,8 @@ public partial class FlexBase
             if (tx?.Panadapter == null) throw new InvalidOperationException("no-transmit-pan");
             if (Transmit || LoopbackArranged) throw new InvalidOperationException("radio-busy");
             if (options.OffAir && DummyLoadMode) throw new InvalidOperationException("dummy-load-active");
-            if (options.OffAir && !OffAirListenbackSupported) throw new InvalidOperationException("one-scu-not-confirmed");
-            if (options.OffAir && RemoteRig && !HasCleanListenbackPreflight) throw new InvalidOperationException("preflight-required");
+            if (options.OffAir && OffAirListenbackRefusalReason is { Length: > 0 } refusal)
+                throw new InvalidOperationException(refusal);
             if (options.OffAir && tx.DemodMode is not ("USB" or "LSB")) throw new InvalidOperationException("ssb-only");
             if (options.OffAir && string.IsNullOrEmpty(LoopbackOtherReceivePort(expectedLoopbackAntenna)))
                 throw new InvalidOperationException("no-other-transverter-input");
@@ -134,6 +139,17 @@ public partial class FlexBase
             {
                 snapshot.Settings.Add(new("tx-antenna", tx.TXAnt, $"slice set {tx.Index} txant={tx.TXAnt}", $"slice {tx.Index}", "txant", "slice", (uint)tx.Index, RequestedValue: expectedLoopbackAntenna))
                 ; identities["tx-antenna"] = tx;
+                // The shared arrangement mutes every previously audible owned slice.
+                // Persist those prior values before it sends its first radio write.
+                lock (mySlices)
+                    foreach (var slice in mySlices.Where(s => !s.Mute))
+                    {
+                        string name = "slice-mute-" + slice.Index.ToString(CultureInfo.InvariantCulture);
+                        snapshot.Settings.Add(new(name, "0", $"slice set {slice.Index} audio_mute=0",
+                            $"slice {slice.Index}", "audio_mute", "slice", (uint)slice.Index, RequestedValue: "1"));
+                        snapshot.Resources.Add(DescribeRecoveryResource(slice));
+                        identities[name] = slice;
+                    }
                 snapshot.Settings.Add(new("rf-power", radio.RFPower.ToString(CultureInfo.InvariantCulture), $"transmit set rfpower={radio.RFPower}", "transmit", "rfpower", RequestedValue: "1"));
                 snapshot.Settings.Add(new("monitor", radio.TXMonitor ? "1" : "0", "transmit set mon=" + (radio.TXMonitor ? "1" : "0"), "transmit", "sb_monitor", RequestedValue: "0"));
                 var band = findAnyValidXvtr();
@@ -161,6 +177,34 @@ public partial class FlexBase
                     throw new InvalidOperationException("arrangement-refused");
                 }
                 ownedLoopback = _lbResources;
+                if (ownedLoopback?.Slice != null)
+                {
+                    var ears = ownedLoopback.Slice;
+                    var earsPan = ownedLoopback.Pan;
+                    string savedFrequency = ownedLoopback.SavedFrequency.ToString("F6", CultureInfo.InvariantCulture);
+                    string savedCenter = ownedLoopback.SavedPanCenter.ToString("F6", CultureInfo.InvariantCulture);
+                    snapshot.Settings.Add(new("ears-pan-center", savedCenter,
+                        $"display pan set 0x{earsPan.StreamID:X} center={savedCenter}", $"display pan 0x{earsPan.StreamID:X}",
+                        "center", "pan", earsPan.StreamID, RequestedValue: tx.Freq.ToString("F6", CultureInfo.InvariantCulture)));
+                    snapshot.Settings.Add(new("ears-frequency", savedFrequency,
+                        $"slice tune {ears.Index} {savedFrequency}", $"slice {ears.Index}",
+                        "RF_frequency", "slice", (uint)ears.Index, RequestedValue: ears.Freq.ToString("F6", CultureInfo.InvariantCulture)));
+                    snapshot.Settings.Add(new("ears-mode", ownedLoopback.SavedMode,
+                        $"slice set {ears.Index} mode={ownedLoopback.SavedMode}", $"slice {ears.Index}",
+                        "mode", "slice", (uint)ears.Index, RequestedValue: ears.DemodMode));
+                    snapshot.Settings.Add(new("ears-antenna", ownedLoopback.SavedRxAnt,
+                        $"slice set {ears.Index} rxant={ownedLoopback.SavedRxAnt}", $"slice {ears.Index}",
+                        "rxant", "slice", (uint)ears.Index, RequestedValue: ears.RXAnt));
+                    snapshot.Settings.Add(new("ears-rf-gain", ownedLoopback.SavedRFGain.ToString(CultureInfo.InvariantCulture),
+                        $"slice set {ears.Index} rfgain={ownedLoopback.SavedRFGain}", $"slice {ears.Index}",
+                        "rfgain", "slice", (uint)ears.Index, RequestedValue: "32"));
+                    identities["ears-antenna"] = ears;
+                    identities["ears-rf-gain"] = ears;
+                    identities["ears-frequency"] = ears;
+                    identities["ears-mode"] = ears;
+                    identities["ears-pan-center"] = earsPan;
+                    store.Save(snapshot);
+                }
                 if (ownedLoopback?.Slice != null)
                     lock (_sliceSettleLock) _diagnosticSlices[ownedLoopback.Slice] = DiagnosticSlicePurpose.OffAir;
             }
@@ -482,6 +526,16 @@ public partial class FlexBase
             // not the mutable signal settings of a take-created listener.
             if (setting.Name == "tx-antenna")
                 return current is Slice tx && tx.IsTransmitSlice && WasPreexisting("slice", (uint)tx.Index);
+            if (setting.Name.StartsWith("slice-mute-", StringComparison.Ordinal))
+                return sameConnection && current is Slice savedSlice &&
+                    WasPreexisting("slice", (uint)savedSlice.Index) &&
+                    snapshot.Resources.Any(r => r.Kind == "slice" && r.Id == savedSlice.Index &&
+                        r.PanId == savedSlice.Panadapter?.StreamID);
+            if (setting.Name.StartsWith("ears-", StringComparison.Ordinal))
+                return sameConnection && snapshot.Resources.Any(r => r.Kind == setting.ResourceKind &&
+                    r.Id == setting.ResourceId && r.Owner == radio.ClientHandle &&
+                    (current is Slice earSlice && r.PanId == earSlice.Panadapter?.StreamID ||
+                     current is Panadapter earPan && r.PanId == earPan.StreamID));
             if (setting.Name == "pan-iq-channel" && WasPreexisting("pan", setting.ResourceId))
                 return current is Panadapter txPan && radio.SliceList.Any(s => s.ClientHandle == radio.ClientHandle &&
                     s.IsTransmitSlice && ReferenceEquals(s.Panadapter, txPan));
@@ -574,7 +628,8 @@ public partial class FlexBase
         }
         bool streamRemovalConfirmed = true;
         bool NeedsReadback(SavedRadioSetting item) => item.Name == "xvtr-drive";
-        bool RequiresWriteProof(SavedRadioSetting item) => item.Name is "full-duplex" or "tx-antenna" or "rf-power" or "monitor";
+        bool RequiresWriteProof(SavedRadioSetting item) => item.Name is "full-duplex" or "tx-antenna" or "rf-power" or "monitor" ||
+            item.Name.StartsWith("slice-mute-", StringComparison.Ordinal) || item.Name.StartsWith("ears-", StringComparison.Ordinal);
         bool PanBusy(Panadapter pan) => !streamRemovalConfirmed || radio.DAXIQStreamList.Any(s =>
             ReferenceEquals(s.Pan, pan) || (pan.DAXIQChannel != 0 && s.DAXIQChannel == pan.DAXIQChannel));
         bool restored = await IqRecovery.RestoreAsync(snapshot, async setting =>
@@ -588,6 +643,8 @@ public partial class FlexBase
             trace.Write("item", new { setting.Name, setting.RestoreCommand, setting.Value, setting.ResourceKind, setting.ResourceId });
             if (!Live()) return Verdict(false, "connection-ended-or-transmitting");
             object current = Current(setting);
+            if (setting.Name.StartsWith("ears-", StringComparison.Ordinal) && current == null)
+                return Verdict(true, "created-listener-already-removed; no surviving ears setting");
             if (NeedsReadback(setting) && AlreadyRestored(setting, current))
             {
                 try

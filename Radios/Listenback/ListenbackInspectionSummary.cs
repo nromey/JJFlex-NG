@@ -29,7 +29,8 @@ public static class ListenbackInspectionSummary
         };
         if (setting.Name.StartsWith("created-", StringComparison.Ordinal))
             return Lexicon.Get(present == true ? "audio.iq.ack.present" : present == false ? "audio.iq.ack.absent" : "audio.iq.ack.created", ("target", resource));
-        string key = "audio.iq.setting." + setting.Name;
+        string key = "audio.iq.setting." + (setting.Name.StartsWith("slice-mute-", StringComparison.Ordinal) ?
+            "slice-mute" : setting.Name);
         return Lexicon.Get("audio.iq.ack.setting", ("setting", Lexicon.Get(key)), ("target", resource),
             ("prior", setting.Value), ("requested", setting.RequestedValue ?? Lexicon.Get("audio.iq.ack.not_recorded")));
     }

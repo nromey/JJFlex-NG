@@ -182,15 +182,39 @@ public sealed class ListenbackRoundTwoTests : IDisposable
         Assert.False(executed); Assert.Empty(c.F.Vendor.Transport.Commands);
     }
     [Fact]
-    public async Task One_scu_remote_off_air_is_refused_before_preflight_or_mutation()
+    public async Task One_scu_local_off_air_is_refused_before_mutation()
     {
         using var c = new RadioCase();
         Property(c.F.Vendor.Radio, "Model", "FLEX-6300");
-        Property(c.F.Vendor.Radio, "IsWan", true);
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             c.F.Rig.StartListenbackAsync(new ListenbackOptions(OffAir: true), default));
         Assert.Equal("one-scu-not-confirmed", error.Message);
         Assert.Empty(c.F.Vendor.Transport.Commands); Assert.Equal(0, c.F.Rig.q.Count);
+        Assert.Null(c.F.Rig.PendingListenbackRecovery);
+    }
+
+    [Fact]
+    public async Task Two_receiver_radio_without_transverter_port_does_not_claim_one_receiver()
+    {
+        using var c = new RadioCase();
+        Field(c.Tx, "_tx_ant_list", new[] { "ANT1" });
+        Assert.Equal("no-transverter-port", c.F.Rig.OffAirListenbackRefusalReason);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            c.F.Rig.StartListenbackAsync(new ListenbackOptions(OffAir: true), default));
+        Assert.Equal("no-transverter-port", error.Message);
+        Assert.Empty(c.F.Vendor.Transport.Commands);
+    }
+
+    [Fact]
+    public async Task SmartLinkOffAirRefusesWithoutStartingTheCapacityRun()
+    {
+        using var c = new RadioCase();
+        Property(c.F.Vendor.Radio, "IsWan", true);
+        Assert.Equal("smartlink-iq-unavailable", c.F.Rig.OffAirListenbackRefusalReason);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            c.F.Rig.StartListenbackAsync(new ListenbackOptions(OffAir: true), default));
+        Assert.Equal("smartlink-iq-unavailable", error.Message);
+        Assert.Empty(c.F.Vendor.Transport.Commands);
         Assert.Null(c.F.Rig.PendingListenbackRecovery);
     }
     [Fact]

@@ -571,6 +571,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             // without this — the WinForms message loop doesn't route keys to WPF.
             System.Windows.Forms.Integration.ElementHost.EnableModelessKeyboardInterop(_instance);
         }
+        else if (!ReferenceEquals(_instance._rig, rig)) _instance.SetRig(rig);
         _instance.FocusTab(tabIndex);
         _instance.Activate();
     }
@@ -645,6 +646,19 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     public void SetRig(FlexBase? rig)
     {
         var oldRig = _rig;
+        if (!ReferenceEquals(oldRig, rig))
+        {
+            _iqCancellation?.Cancel();
+            if (_iqRun != null) _ = FinishIqAsync("connection-changed");
+            if (oldRig != null && rig != null)
+            {
+                _session?.ForceEnd("Radio changed, audio check ended");
+                _session = null;
+            }
+            _iqRecoveryReader = null;
+            _lastIqDirectory = null;
+            if (_takeStatus != null) _takeStatus.Text = Lexicon.Get(rig == null ? "audio.no_radio_connected" : "audio.iq.idle");
+        }
         if (oldRig != null && !ReferenceEquals(oldRig, rig))
             _ = oldRig.StopWorkshopSliceRecorderAsync();
         _rig = rig;
@@ -705,6 +719,15 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         // Both branches, because a departing radio's meter list is exactly as
         // wrong to leave on screen as a departing radio's readings.
         BindMeterInventory(rig);
+        UpdateIqAvailability();
+    }
+
+    public static void NotifyRigReady(FlexBase rig)
+    {
+        var inst = _instance;
+        if (inst == null || !inst.IsLoaded) return;
+        if (inst.Dispatcher.CheckAccess()) inst.SetRig(rig);
+        else inst.Dispatcher.BeginInvoke(() => inst.SetRig(rig));
     }
 
     /// <summary>

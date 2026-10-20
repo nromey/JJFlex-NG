@@ -12,6 +12,11 @@ internal sealed class LoopbackSliceResources
     private readonly HashSet<Panadapter> _beforePans;
     internal Slice Slice { get; private set; }
     internal Panadapter Pan { get; private set; }
+    internal string SavedRxAnt { get; private set; }
+    internal int SavedRFGain { get; private set; }
+    internal double SavedFrequency { get; private set; }
+    internal string SavedMode { get; private set; }
+    internal double SavedPanCenter { get; private set; }
     private uint? _replyPan;
     private bool _requireReply;
     internal void ExpectCreationReply() => _requireReply = true;
@@ -58,6 +63,11 @@ internal sealed class LoopbackSliceResources
     internal bool Configure(IEnumerable<Slice> slices, IEnumerable<Panadapter> pans, Slice transmit, string antenna)
     {
         if (!IsPresent(slices, pans) || transmit == null || ReferenceEquals(Slice, transmit)) return false;
+        SavedRxAnt = Slice.RXAnt;
+        SavedRFGain = Slice.RFGain;
+        SavedFrequency = Slice.Freq;
+        SavedMode = Slice.DemodMode;
+        SavedPanCenter = Pan.CenterFreq;
         Slice.Freq = transmit.Freq;
         Slice.DemodMode = transmit.DemodMode;
         Slice.RXAnt = antenna;
