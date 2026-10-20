@@ -229,7 +229,11 @@ namespace Radios.Tests
             // nowhere, assembled as NVDA would speak it.
             string heard = rig.Rig.LastPcMicNotOursReport;
             Assert.Equal(NotOursSentence("MIC"), heard);
-            Assert.Contains("Someone at the radio changed its microphone input to MIC", heard);
+            // The radio reported a different input; WHO changed it - someone
+            // at the radio, another client, a profile load - is not known, so
+            // the sentence must not say (Codex follow-up finding 2).
+            Assert.StartsWith("The radio's microphone input changed to MIC,", heard);
+            Assert.DoesNotContain("Someone", heard);
             Assert.Contains("will not hear your transmitted audio", heard);
             Assert.Contains("The Radio menu has Switch Mic Input Back to PC.", heard);
             Assert.DoesNotContain("Setting it back to PC", heard);
@@ -615,14 +619,14 @@ namespace Radios.Tests
         // ------------------------------------------------------------------
 
         /// <summary>The radio answers "mic input PC" with the status a real
-        /// radio sends, or with nothing at all.</summary>
-        private static void RadioAnswersSwitch(PcAudioRig rig, bool reportsPc)
+        /// radio sends, or with nothing at all, or refuses it.</summary>
+        private static void RadioAnswersSwitch(PcAudioRig rig, bool reportsPc, uint replyCode = 0)
         {
             var vendor = rig.Vendor;
             vendor.Transport.CommandWritten = cmd =>
             {
                 if (cmd != "mic input PC") return;
-                vendor.ReplyOk(vendor.LastSequence);
+                vendor.Reply(vendor.LastSequence, replyCode, replyCode == 0 ? "" : "refused");
                 if (reportsPc) vendor.Status("transmit mic_selection=PC");
             };
         }
@@ -667,7 +671,12 @@ namespace Radios.Tests
             var result = rig.Rig.SwitchMicInputBackToPc();
 
             Assert.Equal(FlexBase.MicSwitchBackOutcome.NotConfirmed, result.Outcome);
-            Assert.Equal("The radio didn't switch the mic input. It's still MIC.", result.Sentence);
+            // Without a status the input is unknown: the sentence says only
+            // that the radio did not confirm, and what it last reported
+            // (Codex follow-up finding 1).
+            Assert.Equal("The radio didn't confirm the switch to PC. The last mic input it reported is MIC.", result.Sentence);
+            Assert.DoesNotContain("didn't switch", result.Sentence);
+            Assert.DoesNotContain("still", result.Sentence);
             Assert.Equal("MIC", rig.MicInput);
         }
 
@@ -766,6 +775,136 @@ namespace Radios.Tests
 
             Assert.Equal(2, rig.Rig.PcMicNotOursReports);
             Assert.Equal("MIC", rig.MicInput);   // reported, never healed
+        }
+
+        // ------------------------------------------------------------------
+        // #686 follow-up, repair round: an unconfirmed switch, and the overlap
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void AnUnconfirmedSwitchBackIsStillPutBackAtStop()
+        {
+            // OK reply, no status: the radio may be on PC without saying so,
+            // while the cache still reads MIC. The stop must not lean on "the
+            // cache reads PC", or the owner's radio is left on PC.
+            using var rig = GuestRadioMovedToMic();
+            RadioAnswersSwitch(rig, reportsPc: false);
+            Assert.Equal(FlexBase.MicSwitchBackOutcome.NotConfirmed, rig.Rig.SwitchMicInputBackToPc().Outcome);
+            int before = rig.MicWrites.Length;
+
+            rig.StopPcAudio();
+
+            Assert.Equal(before + 1, rig.MicWrites.Length);
+            Assert.Equal("mic input MIC", rig.MicWrites.Last());
+        }
+
+        [Fact]
+        public void ASwitchBackTheRadioRefusedIsNotPutBack()
+        {
+            // An error reply means the radio did not switch and the cache is
+            // right, so there is nothing to put back.
+            using var rig = GuestRadioMovedToMic();
+            RadioAnswersSwitch(rig, reportsPc: false, replyCode: 0x50000016);
+            Assert.Equal(FlexBase.MicSwitchBackOutcome.NotConfirmed, rig.Rig.SwitchMicInputBackToPc().Outcome);
+            int before = rig.MicWrites.Length;
+
+            rig.StopPcAudio();
+
+            Assert.Equal(before, rig.MicWrites.Length);
+        }
+
+        [Fact]
+        public void AnUnconfirmedSwitchBackThenANewerReportIsLeftAlone()
+        {
+            using var rig = GuestRadioMovedToMic();
+            RadioAnswersSwitch(rig, reportsPc: false);
+            rig.Rig.SwitchMicInputBackToPc();
+            rig.RadioReports("BAL");   // a newer choice, reported by the radio
+            int before = rig.MicWrites.Length;
+
+            rig.StopPcAudio();
+
+            Assert.Equal(before, rig.MicWrites.Length);
+            Assert.Equal("BAL", rig.MicInput);
+        }
+
+        [Fact]
+        public void AnUnconfirmedSwitchBackIsNotReannouncedByTheHealerAsNews()
+        {
+            using var rig = GuestRadioMovedToMic();
+            rig.Check();
+            Assert.Equal(1, rig.Rig.PcMicNotOursReports);
+            RadioAnswersSwitch(rig, reportsPc: false);
+            rig.Rig.SwitchMicInputBackToPc();
+
+            rig.Clock += 1_000;
+            rig.Check();
+
+            // The operator has just heard the last reported input; the same
+            // divergence is not a new episode.
+            Assert.Equal(1, rig.Rig.PcMicNotOursReports);
+        }
+
+        [Fact]
+        public void AStopDuringTheSwitchBacksWaitWaitsForItAndPutsBackTheRightValue()
+        {
+            // Codex follow-up finding 3: the stop arrives while the
+            // switch-back is waiting for the radio. It must wait, then decide
+            // against what the radio actually reported, not consume the saved
+            // value against a cache about to change.
+            using var rig = GuestRadioMovedToMic();
+            var vendor = rig.Vendor;
+            System.Threading.Tasks.Task? stop = null;
+            bool stopFinishedDuringTheWait = true;
+            vendor.Transport.CommandWritten = cmd =>
+            {
+                if (cmd != "mic input PC") return;
+                vendor.ReplyOk(vendor.LastSequence);
+                stop = System.Threading.Tasks.Task.Run(() => rig.StopPcAudio());
+                stopFinishedDuringTheWait = stop.Wait(300);
+                vendor.Status("transmit mic_selection=PC");   // the radio answers, late
+            };
+
+            var result = rig.Rig.SwitchMicInputBackToPc();
+            Assert.NotNull(stop);
+            Assert.True(stop!.Wait(5_000), "the stop never finished");
+
+            Assert.False(stopFinishedDuringTheWait, "the stop ran inside the switch-back's wait");
+            Assert.Equal(FlexBase.MicSwitchBackOutcome.Switched, result.Outcome);
+            Assert.Equal("mic input MIC", rig.MicWrites.Last());
+            Assert.Equal("MIC", rig.MicInput);
+        }
+
+        [Fact]
+        public void ASwitchBackArrivingDuringAStopsPutBackDoesNotSwitchAfterTheSessionEnds()
+        {
+            // The other order: the stop is already putting the owner's value
+            // back when the switch-back is pressed. The channel still reads
+            // started at that instant (the stop clears it after the put-back),
+            // so the switch-back passes its first look, then waits for the
+            // lock - and must find the session closed, not switch the radio
+            // to PC with no session left to put it back.
+            Arrange(RadioOwnership.SomeoneElses, Where.SmartLink);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.OverSmartLink();
+            rig.StartPcAudio();
+            rig.MarkConnected(true);
+            var vendor = rig.Vendor;
+            System.Threading.Tasks.Task<FlexBase.MicSwitchBackResult>? press = null;
+            vendor.Transport.CommandWritten = cmd =>
+            {
+                if (cmd != "mic input MIC" || press != null) return;
+                press = System.Threading.Tasks.Task.Run(() => rig.Rig.SwitchMicInputBackToPc());
+                press.Wait(300);   // it gets as far as the lock, and waits
+            };
+
+            rig.StopPcAudio();
+            Assert.NotNull(press);
+            Assert.True(press!.Wait(5_000), "the switch-back never finished");
+
+            Assert.Equal(FlexBase.MicSwitchBackOutcome.PcAudioNotRunning, press.Result.Outcome);
+            Assert.Equal(new[] { "mic input PC", "mic input MIC" }, rig.MicWrites);
+            Assert.Equal("MIC", rig.MicInput);
         }
 
         // ------------------------------------------------------------------

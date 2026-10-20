@@ -1672,9 +1672,44 @@ namespace Radios
             public Radio Radio { get; }
             public string Serial { get; }
             public long Run { get; }
+
+            /// <summary>
+            /// A switch to PC went out on the reply-bearing path and the radio
+            /// has not CONFIRMED it (no <c>mic_selection=PC</c> status), but
+            /// has not refused it either. The radio may be on PC while our
+            /// cache still reads <see cref="Saved"/>, so the put-back cannot
+            /// lean on "the cache reads PC" alone (#686, Codex follow-up
+            /// finding 1). Cleared if an error reply arrives later: a refusal
+            /// means the cache is right.
+            /// </summary>
+            public volatile bool PcUnconfirmed;
         }
 
         private MicInputSwap _micInputSwap;
+
+        /// <summary>
+        /// Serialises the operator's switch-back with every put-back and the
+        /// session reset (#686, Codex follow-up finding 3). The switch-back
+        /// replaces the saved value and then waits up to
+        /// <see cref="MicSwitchBackConfirmMs"/> for the radio; without this a
+        /// stop could consume the swap in that window and decide against a
+        /// cache the radio was about to change. Never the receive channel's
+        /// own lock: the receive poll takes that one every pass, and holding
+        /// it across the wait would stall receive audio.
+        /// </summary>
+        private readonly object _micSwitchLock = new object();
+
+        /// <summary>
+        /// A PC-audio session is open for the switch-back's purposes: set when
+        /// the receive channel's start succeeds, cleared by the stop in the
+        /// same locked step as its put-back, and by every session reset. The
+        /// switch-back asks THIS, under <see cref="_micSwitchLock"/>, rather
+        /// than the channel's Started flag, which the stop clears only after
+        /// its put-back - so a switch-back that got the lock just after a stop's
+        /// put-back could otherwise switch to PC with no session left to put
+        /// it back.
+        /// </summary>
+        private bool _micSessionOpen;
 
         /// <summary>
         /// Put the saved mic input back, at most once, and only where it came
@@ -1692,6 +1727,11 @@ namespace Radios
         /// Radio object and serial are what say whether it is still this
         /// station's.</param>
         private void PutBackSavedMicInput(string when, bool sameRunOnly = true)
+        {
+            lock (_micSwitchLock) PutBackSavedMicInputLocked(when, sameRunOnly);
+        }
+
+        private void PutBackSavedMicInputLocked(string when, bool sameRunOnly)
         {
             var swap = _micInputSwap;
             _micInputSwap = null;
@@ -1717,6 +1757,23 @@ namespace Radios
                     radio.MicInput = swap.Saved;
                     Tracing.TraceLine("PutBackSavedMicInput (" + when + "): mic input put back to '"
                         + swap.Saved + "' (#686)", TraceLevel.Info);
+                }
+                else if (swap.PcUnconfirmed
+                         && string.Equals(nowInput, swap.Saved, StringComparison.OrdinalIgnoreCase))
+                {
+                    // The switch-back's PC was never confirmed and never
+                    // refused, and the radio has reported nothing newer than
+                    // the value it replaced. The radio may be on PC without
+                    // having said so, so the value is sent anyway. If the
+                    // radio never switched, this asks for what it already has
+                    // and changes nothing. FlexLib's setter would not send it
+                    // (its cache already holds this value), so it goes out
+                    // raw, on the same path the switch-back used.
+                    string notSent = SendRadioCommandWithReply(radio, "mic input " + swap.Saved.ToUpperInvariant(), null);
+                    Tracing.TraceLine("PutBackSavedMicInput (" + when + "): the switch to PC was never confirmed and the radio"
+                        + " has reported nothing newer than '" + swap.Saved + "', so it is sent back regardless"
+                        + (notSent == null ? "" : " - NOT sent: " + notSent) + " (#686)",
+                        notSent == null ? TraceLevel.Info : TraceLevel.Warning);
                 }
                 else
                 {
@@ -1763,8 +1820,13 @@ namespace Radios
 
         internal void ResetPcMicSession(string why)
         {
-            var swap = _micInputSwap;
-            _micInputSwap = null;
+            MicInputSwap swap;
+            lock (_micSwitchLock)
+            {
+                swap = _micInputSwap;
+                _micInputSwap = null;
+                _micSessionOpen = false;
+            }
             if (swap != null)
             {
                 Tracing.TraceLine("ResetPcMicSession (" + why + "): discarding the mic input '" + swap.Saved
@@ -1858,6 +1920,10 @@ namespace Radios
                         _pcMicExpected = false;
                         PutBackSavedMicInput("PC audio did not start");
                     }
+                    else
+                    {
+                        lock (_micSwitchLock) _micSessionOpen = true;
+                    }
                 }
                 if (!opusOutputChannel.Started)
                 {
@@ -1918,9 +1984,18 @@ namespace Radios
         /// <para><b>The restore at stop follows it.</b> The value the switch
         /// replaced becomes the one PC audio's stop puts back, on the stop's
         /// usual terms (same radio, same run, still PC). That is the
-        /// owner's choice our write overrode, so it is the one owed back. Set
-        /// before the send: if the radio never switches, the stop finds the
-        /// input not PC and writes nothing.</para>
+        /// owner's choice our write overrode, so it is the one owed back.
+        /// <b>Without a status the input is unknown</b> (Codex follow-up
+        /// finding 1): the radio may have applied PC and not said so. So an
+        /// unconfirmed, unrefused switch marks the saved value
+        /// <c>PcUnconfirmed</c>, and the stop then sends it back even though
+        /// the cache still reads it, as long as the radio has reported nothing
+        /// newer. If the radio never switched, that asks for what it already
+        /// has. The spoken answer for that case says only what is known: the
+        /// radio did not confirm, and the last input it reported.</para>
+        /// <para><b>Serialised with the stop</b> by <c>_micSwitchLock</c>, so
+        /// a stop cannot consume the saved value while this waits, and this
+        /// cannot switch to PC after a stop has closed the session.</para>
         /// </summary>
         public MicSwitchBackResult SwitchMicInputBackToPc()
         {
@@ -1940,33 +2015,60 @@ namespace Radios
                 return new MicSwitchBackResult(MicSwitchBackOutcome.AlreadyPc,
                     Lexicon.Get("audio.mic.switch_back_already_pc"));
 
-            _micInputSwap = new MicInputSwap(before, radio, Interlocked.Read(ref _remoteAudioRun));
-            _pcMicExpected = true;     // we asked for PC again
-            _pcMicDiverged = false;    // that episode is over; a new move is a new one
-            uint replyCode = 0;
-            bool replied = false;
-            string notSent = SendRadioCommandWithReply(radio, "mic input PC", reply =>
+            lock (_micSwitchLock)
             {
-                replyCode = reply.Code;
-                replied = true;
-            });
-            bool confirmed = notSent == null && await(() =>
-                ReferenceEquals(theRadio, radio)
-                && string.Equals(radio.MicInput ?? "", "PC", StringComparison.OrdinalIgnoreCase),
-                MicSwitchBackConfirmMs);
-            string after = radio.MicInput ?? "";
-            Tracing.TraceLine("SwitchMicInputBackToPc: was '" + before + "', "
-                + (notSent ?? ("sent; reply " + (replied ? "0x" + replyCode.ToString("X") : "none yet")))
-                + ", the radio now reports '" + after + "' — "
-                + (confirmed ? "switched" : "NOT confirmed") + " (#686)",
-                confirmed ? TraceLevel.Info : TraceLevel.Warning);
-            if (confirmed)
+                // Re-read under the lock: a stop may have run since the checks,
+                // and the stop closes the session in the same locked step as
+                // its put-back.
+                if (!_micSessionOpen)
+                    // DRAFT PROSE (#686): awaiting Noel
+                    return new MicSwitchBackResult(MicSwitchBackOutcome.PcAudioNotRunning,
+                        Lexicon.Get("audio.mic.switch_back_no_pc_audio"));
+
+                var swap = new MicInputSwap(before, radio, Interlocked.Read(ref _remoteAudioRun));
+                _micInputSwap = swap;
+                _pcMicExpected = true;     // we asked for PC again
+                uint replyCode = 0;
+                bool replied = false;
+                string notSent = SendRadioCommandWithReply(radio, "mic input PC", reply =>
+                {
+                    replyCode = reply.Code;
+                    replied = true;
+                    // A refusal, even a late one, means the radio did not
+                    // switch and the cache is right.
+                    if (reply.Code != 0) swap.PcUnconfirmed = false;
+                });
+                bool confirmed = notSent == null && await(() =>
+                    ReferenceEquals(theRadio, radio)
+                    && string.Equals(radio.MicInput ?? "", "PC", StringComparison.OrdinalIgnoreCase),
+                    MicSwitchBackConfirmMs);
+                // Sent and neither confirmed nor refused: possibly applied.
+                if (!confirmed && notSent == null && !(replied && replyCode != 0))
+                    swap.PcUnconfirmed = true;
+                // A confirmed switch ends the healer's episode, so the next
+                // move is a new one. An unconfirmed one does not: the radio's
+                // last report is still off PC, and the operator has just been
+                // told so, so the healer must not announce it again as news.
+                _pcMicDiverged = !confirmed;
+                string after = radio.MicInput ?? "";
+                Tracing.TraceLine("SwitchMicInputBackToPc: was '" + before + "', "
+                    + (notSent ?? ("sent; reply " + (replied ? "0x" + replyCode.ToString("X") : "none yet")))
+                    + ", the radio's last report is '" + after + "' — "
+                    + (confirmed ? "switched (the radio reported PC)" : "NOT confirmed by the radio")
+                    + (swap.PcUnconfirmed ? "; PC may have been applied unreported, so the stop will send the put-back regardless" : "")
+                    + " (#686)",
+                    confirmed ? TraceLevel.Info : TraceLevel.Warning);
+                if (confirmed)
+                    // DRAFT PROSE (#686): awaiting Noel
+                    return new MicSwitchBackResult(MicSwitchBackOutcome.Switched,
+                        Lexicon.Get("audio.mic.switch_back_done"));
+                // Not "the radio didn't switch": with no status, the input is
+                // UNKNOWN, and what we have is only the last one it reported
+                // (Codex follow-up finding 1).
                 // DRAFT PROSE (#686): awaiting Noel
-                return new MicSwitchBackResult(MicSwitchBackOutcome.Switched,
-                    Lexicon.Get("audio.mic.switch_back_done"));
-            // DRAFT PROSE (#686): awaiting Noel
-            return new MicSwitchBackResult(MicSwitchBackOutcome.NotConfirmed,
-                Lexicon.Get("audio.mic.switch_back_not_confirmed", ("current", after)));
+                return new MicSwitchBackResult(MicSwitchBackOutcome.NotConfirmed,
+                    Lexicon.Get("audio.mic.switch_back_not_confirmed", ("current", after)));
+            }
         }
 
         private void stopOpusOutputChannel()
@@ -1997,7 +2099,11 @@ namespace Radios
                     // it unasked. The Audio Workshop's RestoreInjectionPath
                     // has always restored on the same condition. And only to
                     // the radio, and in the run, it was saved from (round two).
-                    PutBackSavedMicInput("PC audio stopped");
+                    lock (_micSwitchLock)
+                    {
+                        _micSessionOpen = false;
+                        PutBackSavedMicInputLocked("PC audio stopped", sameRunOnly: true);
+                    }
                 }
                 // ignore error.
                 catch { }
