@@ -2000,6 +2000,37 @@ public class NativeMenuBar : IDisposable
             SpeakAfterMenuClose(Radios.Lexicon.Get("settings.ptt.local_on"));
         }, () => Rig?.LocalPTT == true);
 
+        // #686 follow-up (Noel, 2026-10-20 07:55 and 08:09): "I'd let the user
+        // know and offer to change it back ... I'd put it in the radio menu,
+        // it'd be a helpful shortcut." On a radio not declared yours, JJ
+        // Flexible never puts the mic input back to PC behind its owner's back;
+        // the healer's sentence names this item instead, and pressing it is
+        // the operator's own explicit choice. ALWAYS present, so it is where
+        // that sentence says it is, and every press is answered: switched (only
+        // when the radio reports PC), not switched (with what the radio still
+        // reports), or the true reason it does not apply. Off the UI thread,
+        // because confirming it waits up to a second and a half for the
+        // radio's own status.
+        AddWired(radio, "Switch Mic Input Back to PC", () =>
+        {
+            var rig = Rig;
+            if (rig == null) { SpeakNoRadio(); return; }
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                try
+                {
+                    var result = rig.SwitchMicInputBackToPc();
+                    if (result.Sentence != null)   // null: the hold already spoke
+                        SpeakAfterMenuClose(result.Sentence, Radios.VerbosityLevel.Critical);
+                }
+                catch (System.Exception ex)
+                {
+                    Tracing.TraceLine("NativeMenuBar: Switch Mic Input Back to PC threw: " + ex.Message,
+                        TraceLevel.Error);
+                }
+            });
+        });
+
         // QB Track I — the addressable transmit path Noel asked for:
         // Alt+R → T → P walks to the Power dialog with accelerators the whole
         // way. Same builder as Slice → Transmission (one room, two doors).

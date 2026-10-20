@@ -1812,37 +1812,16 @@ namespace Radios
                             VerbosityLevel.Critical, true);
                     }
                 }
-                else if (!PcMicSwitchAllowedAtStart(out string notSwitched))
-                {
-                    // #686, repair round one: someone else's radio (or one
-                    // never answered for), and this operator is on its local
-                    // network with no declaration that they are away from it,
-                    // so they have a microphone at the radio. The owner's mic
-                    // input is station-global and theirs; it is left alone.
-                    // Nothing is saved, so the stop path puts nothing
-                    // back, and _pcMicExpected stays false, because we asked
-                    // for nothing. If the input is not already PC, computer
-                    // audio will not modulate, which is the silent-transmit
-                    // shape, so it is said once, now, at Critical.
-                    string current = theRadio.MicInput ?? "";
-                    Tracing.TraceLine("startOpusOutputChannel: NOT switching mic input to PC — "
-                        + notSwitched + "; the radio's input is '" + current + "' (#686)",
-                        TraceLevel.Warning);
-                    if (!string.Equals(current, "PC", StringComparison.OrdinalIgnoreCase))
-                    {
-                        // DRAFT PROSE (#686): awaiting Noel
-                        string report = Lexicon.Get("audio.mic.not_switched_not_ours", ("current", current));
-                        LastPcMicNotOursReport = report;
-                        PcMicNotOursReports++;
-                        if (!SuppressSpeech) ScreenReaderOutput.Speak(
-                            report,
-                            Speech.SpeechIntent.Interrupt,
-                            VerbosityLevel.Critical,
-                            subject: Speech.SpeechSubject.PcMicLeftForOwner);
-                    }
-                }
                 else
                 {
+                    // ALWAYS switch, on any radio, local or remote (#686; Noel,
+                    // 2026-10-20 08:10, revising his 05:25 ruling): "If you
+                    // don't own it and you connect to PC, it's got to switch
+                    // it to pc for you to be able to transmit, it just needs
+                    // to put it back if you don't own it." The put-back is the
+                    // stop's (and a failed start's, and an abandoned run's),
+                    // through PutBackSavedMicInput: same radio, same run, and
+                    // only while the input is still the PC we set.
                     _micInputSwap = new MicInputSwap(theRadio.MicInput, theRadio,
                         Interlocked.Read(ref _remoteAudioRun));
                     theRadio.MicInput = "PC";
@@ -1888,55 +1867,106 @@ namespace Radios
             return opusOutputChannel.Started;
         }
 
-        /// <summary>
-        /// Whether starting PC audio may switch the radio's mic input to PC
-        /// (#686, repair round one). Derived by the coordinator from Noel's
-        /// 2026-10-20 05:25 ruling, "I'd check to see if the user is remote.
-        /// If they are, you'd need to switch to PC", and put to him for
-        /// correction.
-        /// <list type="bullet">
-        /// <item>On a radio declared Mine: yes, as it always was.</item>
-        /// <item>Otherwise (Unset counts as not Mine), only when this operator
-        /// is REMOTE, meaning they have no microphone at the radio, so PC is
-        /// the only way their audio can reach the transmitter. Remote is
-        /// <see cref="RemoteRig"/> (the connection travels SmartLink,
-        /// <c>Radio.IsWan</c>), OR the operator's own standing declaration
-        /// <c>RadioConfig.NoPhysicalAccess</c> ("This radio is operated
-        /// remotely; I cannot reach its front panel"). The second is needed
-        /// because a tailnet path makes a distant operator look local to
-        /// <c>IsWan</c>, and it invents nothing: it is the existing
-        /// declaration of exactly "I am not at the radio".</item>
-        /// </list>
-        /// <paramref name="why"/> names the deciding signal, for the trace.
-        /// A one-time act at start; the healer never re-asserts PC on a radio
-        /// not declared Mine, remote or not (see <see cref="checkPcMicSelection"/>).
-        /// </summary>
-        private bool PcMicSwitchAllowedAtStart(out string why)
+        /// <summary>What the Radio menu's Switch Mic Input Back to PC did.</summary>
+        public enum MicSwitchBackOutcome
         {
-            string serial = theRadio?.Serial;
-            var ownership = RadioConfig.OwnershipOf(serial);
-            if (ownership == RadioOwnership.Mine)
+            /// <summary>Sent, and the radio reported PC afterwards.</summary>
+            Switched,
+            /// <summary>Sent (or tried), and the radio did not report PC.</summary>
+            NotConfirmed,
+            /// <summary>No radio connected.</summary>
+            NoRadio,
+            /// <summary>The change-nothing hold is armed; the hold spoke.</summary>
+            Held,
+            /// <summary>Computer audio is not running, so there is nothing to
+            /// switch back for.</summary>
+            PcAudioNotRunning,
+            /// <summary>The radio already reports PC.</summary>
+            AlreadyPc,
+        }
+
+        /// <summary>The outcome and the sentence to speak for it. The
+        /// sentence is null only for <see cref="MicSwitchBackOutcome.Held"/>,
+        /// whose refusal the hold has already spoken.</summary>
+        public sealed class MicSwitchBackResult
+        {
+            public MicSwitchBackResult(MicSwitchBackOutcome outcome, string sentence)
             {
-                why = "radio declared Mine";
-                return true;
+                Outcome = outcome;
+                Sentence = sentence;
             }
-            if (RemoteRig)
+            public MicSwitchBackOutcome Outcome { get; }
+            public string Sentence { get; }
+        }
+
+        /// <summary>How long the switch-back waits for the radio to report PC.</summary>
+        private const int MicSwitchBackConfirmMs = 1500;
+
+        /// <summary>
+        /// Radio menu, Switch Mic Input Back to PC (#686; Noel, 2026-10-20
+        /// 07:55: "I'd let the user know and offer to change it back", and
+        /// 08:09: "I'd put it in the radio menu, it'd be a helpful shortcut").
+        /// The operator's own explicit choice, so it is allowed on a radio not
+        /// declared Mine; the hold still wins.
+        /// <para><b>Confirmed from the radio, never from our own echo.</b>
+        /// FlexLib's <c>MicInput</c> setter assigns its cache before it sends,
+        /// as <c>Slice.DemodMode</c>'s does, so reading the property back after
+        /// the setter proves nothing. The command goes out through the
+        /// reply-bearing path instead, which leaves the cache alone, so the
+        /// only thing that can make <c>MicInput</c> read PC afterwards is the
+        /// radio's own <c>mic_selection</c> status.</para>
+        /// <para><b>The restore at stop follows it.</b> The value the switch
+        /// replaced becomes the one PC audio's stop puts back, on the stop's
+        /// usual terms (same radio, same run, still PC). That is the
+        /// owner's choice our write overrode, so it is the one owed back. Set
+        /// before the send: if the radio never switches, the stop finds the
+        /// input not PC and writes nothing.</para>
+        /// </summary>
+        public MicSwitchBackResult SwitchMicInputBackToPc()
+        {
+            var radio = theRadio;
+            if (radio == null || !IsConnected)
+                return new MicSwitchBackResult(MicSwitchBackOutcome.NoRadio, Lexicon.Get("connect.command_needs_radio"));
+            if (GuardRefuses("settings.guard.action.mic_input_pc"))
+                return new MicSwitchBackResult(MicSwitchBackOutcome.Held, null);
+            var channel = opusOutputChannel;
+            if (channel == null || !channel.Started)
+                // DRAFT PROSE (#686): awaiting Noel
+                return new MicSwitchBackResult(MicSwitchBackOutcome.PcAudioNotRunning,
+                    Lexicon.Get("audio.mic.switch_back_no_pc_audio"));
+            string before = radio.MicInput ?? "";
+            if (string.Equals(before, "PC", StringComparison.OrdinalIgnoreCase))
+                // DRAFT PROSE (#686): awaiting Noel
+                return new MicSwitchBackResult(MicSwitchBackOutcome.AlreadyPc,
+                    Lexicon.Get("audio.mic.switch_back_already_pc"));
+
+            _micInputSwap = new MicInputSwap(before, radio, Interlocked.Read(ref _remoteAudioRun));
+            _pcMicExpected = true;     // we asked for PC again
+            _pcMicDiverged = false;    // that episode is over; a new move is a new one
+            uint replyCode = 0;
+            bool replied = false;
+            string notSent = SendRadioCommandWithReply(radio, "mic input PC", reply =>
             {
-                why = "ownership " + ownership + ", but the connection is SmartLink (RemoteRig), so this operator has no microphone at the radio";
-                Tracing.TraceLine("startOpusOutputChannel: switching mic input to PC on a radio not declared Mine — " + why + " (#686)",
-                    TraceLevel.Info);
-                return true;
-            }
-            bool noPhysicalAccess = !string.IsNullOrEmpty(serial) && RadioConfig.LoadForRadio(serial).NoPhysicalAccess;
-            if (noPhysicalAccess)
-            {
-                why = "ownership " + ownership + ", but the operator declared this radio operated remotely (NoPhysicalAccess), so they have no microphone at it";
-                Tracing.TraceLine("startOpusOutputChannel: switching mic input to PC on a radio not declared Mine — " + why + " (#686)",
-                    TraceLevel.Info);
-                return true;
-            }
-            why = "ownership " + ownership + " and a local connection (RemoteRig false, NoPhysicalAccess not declared)";
-            return false;
+                replyCode = reply.Code;
+                replied = true;
+            });
+            bool confirmed = notSent == null && await(() =>
+                ReferenceEquals(theRadio, radio)
+                && string.Equals(radio.MicInput ?? "", "PC", StringComparison.OrdinalIgnoreCase),
+                MicSwitchBackConfirmMs);
+            string after = radio.MicInput ?? "";
+            Tracing.TraceLine("SwitchMicInputBackToPc: was '" + before + "', "
+                + (notSent ?? ("sent; reply " + (replied ? "0x" + replyCode.ToString("X") : "none yet")))
+                + ", the radio now reports '" + after + "' — "
+                + (confirmed ? "switched" : "NOT confirmed") + " (#686)",
+                confirmed ? TraceLevel.Info : TraceLevel.Warning);
+            if (confirmed)
+                // DRAFT PROSE (#686): awaiting Noel
+                return new MicSwitchBackResult(MicSwitchBackOutcome.Switched,
+                    Lexicon.Get("audio.mic.switch_back_done"));
+            // DRAFT PROSE (#686): awaiting Noel
+            return new MicSwitchBackResult(MicSwitchBackOutcome.NotConfirmed,
+                Lexicon.Get("audio.mic.switch_back_not_confirmed", ("current", after)));
         }
 
         private void stopOpusOutputChannel()
@@ -2087,14 +2117,13 @@ namespace Radios
             // shared write asks: RadioConfig.OwnershipOf. The owner's path
             // below is unchanged.
             //
-            // A REMOTE guest is no exception (repair round one). The start
-            // switches a remote guest to PC once, because they have no
-            // microphone at the radio (PcMicSwitchAllowedAtStart); that is a
-            // one-time act. This is an ongoing override, and the invariant
-            // forbids it on someone else's radio: if the owner picks up the
-            // hand mic while a remote guest is on, it stays picked up, and
-            // the guest is told why their audio stopped reaching the
-            // transmitter.
+            // The start switches every radio to PC once, because without it
+            // the operator cannot transmit (Noel, 2026-10-20 08:10), and the
+            // stop puts it back. That is a one-time act with an undo. This is
+            // an ongoing override, and the invariant forbids it on someone
+            // else's radio: if the owner picks up the hand mic, it stays
+            // picked up, and the operator is told, with the Radio menu's
+            // Switch Mic Input Back to PC as their own explicit way back.
             var ownership = RadioConfig.OwnershipOf(theRadio.Serial);
             if (ownership != RadioOwnership.Mine)
             {
