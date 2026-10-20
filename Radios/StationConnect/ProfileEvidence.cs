@@ -30,12 +30,38 @@ namespace Radios.StationConnect
             Sequence = sequence;
             AttemptGeneration = attemptGeneration;
             AtMs = atMs;
+            Ordinal = ObservationOrdinal.Next();
         }
         public IReadOnlyList<string> Names { get; }
         public ObservationProvenance Provenance { get; }
         public long Sequence { get; }
         public int AttemptGeneration { get; }
         public long AtMs { get; }
+
+        /// <summary>The <see cref="ObservationOrdinal"/> at which this list was
+        /// observed, for ordering against the station tracker's slices.</summary>
+        public long Ordinal { get; }
+
+        /// <summary>
+        /// True when this radio-reported list is the ANSWER to a
+        /// <c>profile global info</c> this application sent and had not yet
+        /// had answered (<see cref="ProfileEvidenceLog.GlobalInventoryAsked"/>).
+        /// The radio sends one list status per ask, so the oldest outstanding
+        /// ask is taken as answered by the next radio-reported list. Such a
+        /// list is inventory, not a report of anything the radio did on its
+        /// own, and is never completion evidence (#639, Codex B1).
+        /// </summary>
+        public bool AnswersOurAsk { get; internal set; }
+
+        /// <summary>
+        /// True when this radio-reported list was taken as the answer to
+        /// FlexLib's OWN connect-time <c>profile global info</c>, which
+        /// <c>Radio.Connect</c> sends from <c>GetProfileLists()</c> without
+        /// telling us (<see cref="ProfileEvidenceLog.FlexLibConnectInventoryAsked"/>).
+        /// Like <see cref="AnswersOurAsk"/>, inventory and never completion
+        /// evidence (#639, repair round two).
+        /// </summary>
+        public bool AnswersFlexLibConnectAsk { get; internal set; }
         public bool Contains(string name) =>
             !string.IsNullOrEmpty(name) && Names.Any(n => string.Equals(n, name, StringComparison.Ordinal));
     }
@@ -99,6 +125,40 @@ namespace Radios.StationConnect
 
         /// <summary>The latest global inventory, or null when none has been observed this attempt.</summary>
         public InventoryObservation GlobalList { get; }
+
+        /// <summary>
+        /// The latest RADIO-REPORTED global inventory that was NOT taken as the
+        /// answer to any recorded ask, or null. Two senders of
+        /// <c>profile global info</c> exist and both are recorded: FlexLib's
+        /// own connect-time ask (<see cref="ProfileEvidenceLog.FlexLibConnectInventoryAsked"/>,
+        /// recorded by FlexBase immediately before the vendor's Connect) and
+        /// ours (<see cref="ProfileEvidenceLog.GlobalInventoryAsked"/>). What
+        /// is left is the radio's own list: the re-report it makes a few
+        /// milliseconds after the last slice a global load restores. The
+        /// completion policy reads this, never <see cref="GlobalList"/>, so a
+        /// late answer to either ask cannot be mistaken for the load finishing
+        /// (#639, Codex B1 and the round-one re-verify).
+        /// </summary>
+        public InventoryObservation UnsolicitedGlobalList { get; internal set; }
+
+        /// <summary>How many <c>profile global info</c> asks of ours have gone
+        /// out this attempt and not yet been taken as answered.</summary>
+        public int OutstandingGlobalAsks { get; internal set; }
+
+        /// <summary>How many of FlexLib's connect-time <c>profile global info</c>
+        /// asks are recorded and not yet taken as answered (0 or 1 on a real
+        /// connect: one vendor Connect per attempt).</summary>
+        public int OutstandingFlexLibConnectAsks { get; internal set; }
+
+        /// <summary>
+        /// True when FlexLib's connect-time answer MAY still be on its way:
+        /// its ask is outstanding, or an ask of ours that went out while it
+        /// was outstanding is itself still unanswered. In the second case the
+        /// list taken as FlexLib's answer may have been ours, since nothing in
+        /// a list says which ask it answers. Noel ruled (2026-10-20 08:15)
+        /// that a load sent while this is true never confirms (#639).
+        /// </summary>
+        public bool FlexLibConnectAnswerMayBeOutstanding { get; internal set; }
 
         /// <summary>The latest global selection, or null.</summary>
         public SelectionObservation GlobalSelection { get; }
@@ -176,11 +236,14 @@ namespace Radios.StationConnect
         public long ConnectFenceAtSequence { get; internal set; }
 
         /// <summary>Sequence at which a radio-origin end boundary was observed,
-        /// or 0. <b>Nothing in the application emits one today.</b> This is
-        /// the hook bench question B fills: if the radio has a distinct end
-        /// message, the handler that recognises it calls
-        /// <see cref="ProfileEvidenceLog.RadioEndBoundary"/> and the completion
-        /// policy is taught to require it.</summary>
+        /// or 0. <b>Nothing in the application emits one today</b>, and the
+        /// production completion policy no longer waits for one: bench B found
+        /// the radio re-reports its global LIST after a load instead
+        /// (<see cref="LoadCompletionByGlobalListReportPolicy"/>, #639), which
+        /// is read from <see cref="GlobalList"/> by sequence. This stays as the
+        /// hook for a radio with a distinct end message: the handler that
+        /// recognises it calls <see cref="ProfileEvidenceLog.RadioEndBoundary"/>
+        /// and <see cref="LoadCompletionByRadioEndBoundaryPolicy"/> requires it.</summary>
         public long RadioEndBoundaryAtSequence { get; }
         public string RadioEndBoundaryToken { get; }
 
@@ -208,6 +271,24 @@ namespace Radios.StationConnect
         private readonly object _lock = new object();
         private readonly IStationClock _clock;
         private InventoryObservation _globalList;
+        private InventoryObservation _unsolicitedGlobalList;
+        // Asks are taken as answered in the order they were made, as far as
+        // the accounting can tell: FlexLib's connect-time ask first (it goes
+        // out inside the vendor's Connect, before the station phase can ask
+        // anything), then ours oldest first. Each of ours carries its own id,
+        // so a failed send withdraws THAT ask and never a later one (Codex's
+        // two-ask fault edge, round-one re-verify).
+        private sealed class OurAsk
+        {
+            public long Id;
+            /// <summary>Made while FlexLib's ask was outstanding (or while
+            /// another such ask of ours was), so the list taken as FlexLib's
+            /// answer may have been this one's.</summary>
+            public bool MayCoverFlexLibsAnswer;
+        }
+        private readonly List<OurAsk> _ourAsks = new List<OurAsk>();
+        private int _flexLibConnectAsks;
+        private long _nextAskId;
         private SelectionObservation _globalSelection;
         private SelectionObservation _txSelection;
         private SelectionObservation _micSelection;
@@ -236,6 +317,9 @@ namespace Radios.StationConnect
             lock (_lock)
             {
                 _globalList = null;
+                _unsolicitedGlobalList = null;
+                _ourAsks.Clear();
+                _flexLibConnectAsks = 0;
                 _globalSelection = null;
                 _txSelection = null;
                 _micSelection = null;
@@ -254,13 +338,101 @@ namespace Radios.StationConnect
             Changed?.Invoke();
         }
 
+        /// <summary>
+        /// This application is about to send <c>profile global info</c>. Call
+        /// it BEFORE the command goes out, so the answer cannot arrive ahead of
+        /// the record, and keep the returned id: if the send then fails, pass
+        /// it to <see cref="GlobalInventoryAskWithdrawn"/>. A radio-reported
+        /// global list is taken as the answer to the oldest outstanding ask
+        /// and is never completion evidence. An ask the radio never answers
+        /// therefore holds the completion policy closed for the attempt (the
+        /// load's own list re-report is consumed as the answer), which is the
+        /// fail-closed direction (#639, Codex B1). Returns 0, recording
+        /// nothing, when the generation is not the current attempt's.
+        /// </summary>
+        public long GlobalInventoryAsked(int attemptGeneration)
+        {
+            long id;
+            lock (_lock)
+            {
+                if (attemptGeneration != _attemptGeneration) return 0;
+                _sequence++;
+                id = ++_nextAskId;
+                _ourAsks.Add(new OurAsk
+                {
+                    Id = id,
+                    MayCoverFlexLibsAnswer = _flexLibConnectAsks > 0 || _ourAsks.Any(a => a.MayCoverFlexLibsAnswer),
+                });
+            }
+            Changed?.Invoke();
+            return id;
+        }
+
+        /// <summary>The ask recorded by <see cref="GlobalInventoryAsked"/> under
+        /// <paramref name="askId"/> never reached the radio (the send threw or
+        /// the transport refused it). Removes that ask only; an ask already
+        /// taken as answered, or an unknown id, changes nothing.</summary>
+        public void GlobalInventoryAskWithdrawn(int attemptGeneration, long askId)
+        {
+            lock (_lock)
+            {
+                if (attemptGeneration != _attemptGeneration) return;
+                _ourAsks.RemoveAll(a => a.Id == askId);
+            }
+            Changed?.Invoke();
+        }
+
+        /// <summary>
+        /// FlexLib is about to send its OWN <c>profile global info</c>:
+        /// <c>Radio.Connect</c> calls <c>GetProfileLists()</c> from
+        /// <c>InitializeCommandConnection</c>, before the <c>sub</c> commands,
+        /// and nothing tells us. FlexBase records it immediately before every
+        /// live call to the vendor's Connect, after the attempt's reset, so
+        /// the answer cannot arrive ahead of the record. Until a radio-reported
+        /// list is taken as its answer, a list may be that answer and is not
+        /// the radio's own; and a load sent while
+        /// <see cref="ProfileEvidenceSnapshot.FlexLibConnectAnswerMayBeOutstanding"/>
+        /// is true never confirms (Noel, 2026-10-20 08:15; every radio, 08:13).
+        /// There is no withdrawal: FlexLib's ask has no reply we can see, and
+        /// a vendor Connect that fails before sending it leaves no station
+        /// phase to judge (#639, repair round two).
+        /// </summary>
+        public void FlexLibConnectInventoryAsked(int attemptGeneration)
+        {
+            lock (_lock)
+            {
+                if (attemptGeneration != _attemptGeneration) return;
+                _sequence++;
+                _flexLibConnectAsks++;
+            }
+            Changed?.Invoke();
+        }
+
         public void GlobalListObserved(IReadOnlyList<string> names, ObservationProvenance provenance, int attemptGeneration)
         {
             lock (_lock)
             {
                 if (attemptGeneration != _attemptGeneration) return;
                 _sequence++;
-                _globalList = new InventoryObservation(names?.ToList(), provenance, _sequence, attemptGeneration, _clock.NowMs);
+                var obs = new InventoryObservation(names?.ToList(), provenance, _sequence, attemptGeneration, _clock.NowMs);
+                _globalList = obs;
+                if (provenance == ObservationProvenance.RadioReported)
+                {
+                    if (_flexLibConnectAsks > 0)
+                    {
+                        _flexLibConnectAsks--;
+                        obs.AnswersFlexLibConnectAsk = true;
+                    }
+                    else if (_ourAsks.Count > 0)
+                    {
+                        _ourAsks.RemoveAt(0);
+                        obs.AnswersOurAsk = true;
+                    }
+                    else
+                    {
+                        _unsolicitedGlobalList = obs;
+                    }
+                }
             }
             Changed?.Invoke();
         }
@@ -369,6 +541,10 @@ namespace Radios.StationConnect
                     MicReported = _micReported,
                     TxChainFieldsReported = _txChainFields.ToList(),
                     ConnectFenceAtSequence = _connectFenceAt,
+                    UnsolicitedGlobalList = _unsolicitedGlobalList,
+                    OutstandingGlobalAsks = _ourAsks.Count,
+                    OutstandingFlexLibConnectAsks = _flexLibConnectAsks,
+                    FlexLibConnectAnswerMayBeOutstanding = _flexLibConnectAsks > 0 || _ourAsks.Any(a => a.MayCoverFlexLibsAnswer),
                 };
             }
         }

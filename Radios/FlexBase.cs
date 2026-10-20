@@ -2868,6 +2868,9 @@ namespace Radios
             {
                 Tracing.TraceLine($"Connect: IsWan={theRadio.IsWan} RequiresHolePunch={theRadio.RequiresHolePunch} PublicTlsPort={theRadio.PublicTlsPort} NegotiatedHolePunchPort={theRadio.NegotiatedHolePunchPort} IP={theRadio.IP}", TraceLevel.Info);
                 ConnectionProfiler.Current?.RecordEvent("flexlib_connect_begin");
+                // FlexLib's Connect sends its own `profile global info`; record
+                // it first, so its answer is never taken as the radio's own (#639).
+                NoteFlexLibConnectTimeProfileAsk("Connect");
                 // The stored GUI client id for this radio and instance, or null
                 // for "radio, mint one" (#782). FlexLib sends `client gui <id>`
                 // or a bare `client gui` accordingly.
@@ -3402,6 +3405,8 @@ namespace Radios
 
                 if (rv)
                 {
+                    // FlexLib's Connect sends its own `profile global info` (#639).
+                    NoteFlexLibConnectTimeProfileAsk("RetryConnect");
                     // The same stored id as the first attempt presented, unless
                     // the radio refused it as a duplicate in between (#782).
                     rv = theRadio.Connect(prepareClientIdentityForConnect("RetryConnect"));

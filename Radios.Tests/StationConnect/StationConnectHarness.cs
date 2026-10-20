@@ -295,7 +295,13 @@ namespace Radios.Tests.StationConnect
             Station = new StationTracker(Clock);
             Profiles = new ProfileEvidenceLog(Clock);
             Waiter = new ScriptedWaiter(Clock);
-            Port.DeliverFreshInventory = names => Profiles.GlobalListObserved(names, ObservationProvenance.RadioReported, Gen);
+            // As production does it (#639): the ask is recorded before it goes
+            // out, and the radio's answer is taken as that ask's answer.
+            Port.DeliverFreshInventory = names =>
+            {
+                Profiles.GlobalInventoryAsked(Gen);
+                Profiles.GlobalListObserved(names, ObservationProvenance.RadioReported, Gen);
+            };
             Port.LatestInventory = () => Profiles.Snapshot().GlobalList;
             NewAttempt();
         }
@@ -372,9 +378,34 @@ namespace Radios.Tests.StationConnect
         /// <summary>A discovery packet did not list the client.</summary>
         public void ClientRemovedByDiscovery(uint handle) => Roster.ClientRemoved(handle, Gen, RosterRemovalOrigin.Discovery);
 
-        /// <summary>A radio-reported global inventory.</summary>
+        /// <summary>A radio-reported global inventory. With no recorded ask
+        /// outstanding it is the radio's own (the post-load re-report); with
+        /// one outstanding — FlexLib's connect-time ask
+        /// (<see cref="FlexLibConnectTimeAskIsOutstanding"/>) first, then ours —
+        /// it is taken as that ask's answer, as the production log would take
+        /// it. The harness records FlexLib's ask only when a test says so, so
+        /// a list here with nothing recorded models a list of unknown origin.</summary>
         public void RadioReportsGlobalList(params string[] names) =>
             Profiles.GlobalListObserved(names, ObservationProvenance.RadioReported, Gen);
+
+        /// <summary>
+        /// Our own fresh <c>profile global info</c> went out and has NOT been
+        /// answered: the bounded read in <c>ReadRadioProfileList</c> gave up on
+        /// the cached names, the planner proceeded on them, and the load is
+        /// about to be sent with the ask still outstanding (#639, Codex B1).
+        /// The next <see cref="RadioReportsGlobalList"/> is its late answer.
+        /// </summary>
+        public void OurInventoryAskIsStillOutstanding() => Profiles.GlobalInventoryAsked(Gen);
+
+        /// <summary>
+        /// FlexLib's own connect-time <c>profile global info</c> (sent by
+        /// <c>Radio.GetProfileLists</c> from inside <c>Radio.Connect</c>) has
+        /// gone out and not been answered yet. Production records it from
+        /// <c>FlexBase.NoteFlexLibConnectTimeProfileAsk</c> immediately before
+        /// the vendor's Connect (#639, repair round two). The next
+        /// <see cref="RadioReportsGlobalList"/> may be its answer.
+        /// </summary>
+        public void FlexLibConnectTimeAskIsOutstanding() => Profiles.FlexLibConnectInventoryAsked(Gen);
 
         public void RadioReportsGlobalSelection(string name) =>
             Profiles.GlobalSelectionObserved(name, ObservationProvenance.RadioReported, Gen);
@@ -424,6 +455,21 @@ namespace Radios.Tests.StationConnect
         {
             OwnSliceArrives();
             RadioEndBoundary();
+        }
+
+        /// <summary>
+        /// What the bench 8600 was MEASURED to do after <c>profile global
+        /// load</c>, in every archived trace from 2026-10-17 to 2026-10-20
+        /// (#639): the restored slices are reported ready, and a few
+        /// milliseconds after the LAST of them the radio re-reports its
+        /// global profile list, unasked. This is the evidence the production
+        /// default completion policy accepts; see
+        /// <see cref="LoadCompletionByGlobalListReportPolicy"/>.
+        /// </summary>
+        public void RadioCompletesTheLoadAsMeasured(int slices = 1)
+        {
+            for (int i = 0; i < slices; i++) OwnSliceArrives();
+            RadioReportsGlobalList(Port.InventoryNames.ToArray());
         }
 
         // ── assertions the brief insists on: the exact action AND zero of each competitor ──

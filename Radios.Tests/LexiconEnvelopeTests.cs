@@ -1190,9 +1190,41 @@ namespace Radios.Tests
                 "settings.band.mode_not_set",
                 "settings.band.mode_not_set_transmitting",
                 "settings.band.mode_switching",
+
+                // Junkbox #639, 2026-10-20: the brief clause the connect
+                // briefing speaks when the station phase ends Unconfirmed.
+                // REWORDED, which is what forced it out of the manifest: it
+                // read "Station restore not confirmed; nothing added on top."
+                // and Noel said on 2026-10-19 that "'nothing was restored on
+                // top' makes no sense to me." It now says what happened and
+                // what it cost the operator (the transmit and microphone setup
+                // that runs only on a confirmed station was skipped), in a
+                // whole sentence. Until the same day it was spoken on EVERY
+                // owner connect, because the completion default was the bench
+                // B placeholder; it is now reachable only when the evidence
+                // genuinely did not arrive. The wording is a DRAFT awaiting
+                // Noel.
+                //
+                // delivery: forgettable, request-scoped, no receipt. It is a
+                // standalone thing the application says on its own account, so
+                // not TextOnly. Its premise is what THIS connect's station
+                // phase concluded, which cannot stop being true, so
+                // request-scoped is the honest contract; and the connect
+                // briefing retains it by SpeechSubject.ProfileStationOutcome
+                // through its own owed-utterance mechanics, not through this
+                // descriptor, so a retained shelf life here would be a second
+                // record of one obligation. No receipt: the long form carries
+                // the remedy and nothing is alarming about an unconfirmed
+                // restore that kept the slices. Its siblings -- the long form
+                // settings.profile_station.unconfirmed, and failed_brief and
+                // not_restored_brief, which say "nothing else changed" and
+                // "nothing changed on top" in the same family -- are legacy and
+                // still frozen. WHEN THE PASS REACHES THEM, DECIDE ALL FOUR
+                // TOGETHER.
+                "settings.profile_station.unconfirmed_brief",
             };
 
-            Assert.Equal(3152, unclassified);
+            Assert.Equal(3151, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,
