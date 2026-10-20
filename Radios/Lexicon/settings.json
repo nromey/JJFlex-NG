@@ -700,7 +700,7 @@
   "settings.profile_guest.why.autosave_off_failed": "the radio did not confirm that profile autosave was turned off, so nothing was changed on it.",
   "settings.profile_guest.why.chain_changed": "the radio's transmit settings changed after JJ Flexible took its copy of them, so it did not apply yours over a copy that is out of date.",
   "settings.profile_station.unconfirmed": "Your station could not be confirmed as restored. Whatever the radio set up is kept, with {slices} of your slices so far, and nothing was added or changed on top of it. To try again, disconnect and reconnect.",
-  "settings.profile_station.unconfirmed_brief": "Station restore not confirmed; nothing added on top.",
+  "settings.profile_station.unconfirmed_brief": { "text": "Your station restore was not confirmed, so transmit and microphone setup was skipped.", "delivery": { "shelfLife": "forgettable", "validity": "request-scoped", "receipt": "none" } },
   "settings.profile_station.failed": "Your station could not be set up completely. {slices} of your slices are there; nothing else was changed. To try again, disconnect and reconnect.",
   "settings.profile_station.failed_brief": "Station setup incomplete; nothing else changed.",
   "settings.profile_station.not_restored": "Your station was not restored on this radio: {why} Whatever the radio set up is kept, with {slices} of your slices, and nothing was changed on top of it.",

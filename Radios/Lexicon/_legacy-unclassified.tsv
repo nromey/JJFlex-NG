@@ -2804,7 +2804,6 @@ settings.profile_station.requested.loaded	84a8a479786af920
 settings.profile_station.requested.not_sent	d7f4192a926e16b0
 settings.profile_station.requested.sent_unconfirmed	7fc3a57713cc2f18
 settings.profile_station.unconfirmed	ddd1ded66d334b53
-settings.profile_station.unconfirmed_brief	aa576e60b8d8a17f
 settings.profile_station.why.not_chosen	1f9443fab9037d5a
 settings.ptt.alc_out_of_range	4d043a5578372fff
 settings.ptt.final_warning_not_a_number	81b98b6979183632

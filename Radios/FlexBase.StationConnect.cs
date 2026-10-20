@@ -1339,6 +1339,17 @@ namespace Radios
             switch (station.Outcome)
             {
                 case StationOutcome.Unconfirmed:
+                    // Reachable now only when the evidence genuinely did not
+                    // arrive inside the station phase (no list re-report, or no
+                    // slice, or permission changed after the send), since #639
+                    // retired the placeholder that made EVERY owner connect end
+                    // here. A restore the radio completed as measured is
+                    // RestoredConfirmed and says nothing.
+                    // DRAFT PROSE (#639): awaiting Noel -- the brief form. Noel,
+                    // 2026-10-19: "'nothing was restored on top' makes no sense
+                    // to me." It now says what happened and what it cost: the
+                    // restore was not confirmed, so the transmit and microphone
+                    // setup that runs only on a confirmed station was skipped.
                     full = Lexicon.Get("settings.profile_station.unconfirmed", slices);
                     brief = Lexicon.Get("settings.profile_station.unconfirmed_brief");
                     break;
