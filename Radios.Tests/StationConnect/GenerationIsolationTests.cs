@@ -168,7 +168,9 @@ namespace Radios.Tests.StationConnect
         [Fact]
         public void APostImportReentry_WithAnOutstandingLoad_SendsNoSecondLoad_AndAllocatesNothing()
         {
-            // Operation 1 sends a load the default policy cannot confirm.
+            // Operation 1 sends a load under a policy that cannot confirm it
+            // (the retired placeholder, kept for exactly this: a load that
+            // stays outstanding).
             var policies = StationHarness.PositiveControlPolicies();
             policies.LoadCompletion = LoadCompletionUnconfirmedPolicy.Instance;
             var h = new StationHarness(policies);

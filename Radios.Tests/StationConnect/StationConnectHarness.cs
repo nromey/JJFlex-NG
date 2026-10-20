@@ -426,6 +426,21 @@ namespace Radios.Tests.StationConnect
             RadioEndBoundary();
         }
 
+        /// <summary>
+        /// What the bench 8600 was MEASURED to do after <c>profile global
+        /// load</c>, in every archived trace from 2026-10-17 to 2026-10-20
+        /// (#639): the restored slices are reported ready, and a few
+        /// milliseconds after the LAST of them the radio re-reports its
+        /// global profile list, unasked. This is the evidence the production
+        /// default completion policy accepts; see
+        /// <see cref="LoadCompletionByGlobalListReportPolicy"/>.
+        /// </summary>
+        public void RadioCompletesTheLoadAsMeasured(int slices = 1)
+        {
+            for (int i = 0; i < slices; i++) OwnSliceArrives();
+            RadioReportsGlobalList(Port.InventoryNames.ToArray());
+        }
+
         // ── assertions the brief insists on: the exact action AND zero of each competitor ──
 
         public void AssertExactlyOneLoadAndNothingElse(string name)

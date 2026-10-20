@@ -56,6 +56,18 @@ namespace Radios.StationConnect
         public bool RadioEndBoundaryAfterSend =>
             ProfileNow != null && ProfileNow.RadioEndBoundaryAtSequence > SentAtProfileSequence;
 
+        /// <summary>Convenience: a RADIO-REPORTED global profile list observed
+        /// AFTER the send. The radio re-reports its lists, unasked, a few
+        /// milliseconds after the last slice a global load restores (measured
+        /// 2026-10-17 to 2026-10-20, #639); a list reported before the send —
+        /// FlexLib's connect-time ask, or our own fresh ask, both of which are
+        /// answered before the load goes out — has a lower sequence and does
+        /// not count.</summary>
+        public bool RadioReportedGlobalListAfterSend =>
+            ProfileNow?.GlobalList != null
+            && ProfileNow.GlobalList.Provenance == ObservationProvenance.RadioReported
+            && ProfileNow.GlobalList.Sequence > SentAtProfileSequence;
+
         /// <summary>Convenience: own slices reported after the send whose
         /// identity was not present before it.</summary>
         public int NewOwnSlicesSinceSend =>
@@ -77,20 +89,23 @@ namespace Radios.StationConnect
         Unconfirmed,
 
         /// <summary>Not provable by this policy on this transport, so waiting
-        /// cannot help. The default while bench question B is open. The
-        /// coordinator stops at once with an Unconfirmed outcome instead of
-        /// spending the bound on an answer that cannot arrive.</summary>
+        /// cannot help. The coordinator stops at once with an Unconfirmed
+        /// outcome instead of spending the bound on an answer that cannot
+        /// arrive. Only <see cref="LoadCompletionUnconfirmedPolicy"/> returns
+        /// it, and that was the production default until 2026-10-20 (#639).</summary>
         NotProvable,
     }
 
     /// <summary>
     /// <b>Bench question B's plug.</b> Given the evidence for a sent global
-    /// load, has the load finished reconstructing the station? The default
-    /// returns <see cref="LoadCompletion.Unconfirmed"/> for everything but an
-    /// explicit rejection. No quiet timer is ever promoted to proof here or
-    /// anywhere else; if the bench finds a radio-origin end boundary, the
-    /// handler that recognises it feeds <see cref="ProfileEvidenceLog.RadioEndBoundary"/>
-    /// and a policy that requires it replaces the default.
+    /// load, has the load finished reconstructing the station? No quiet timer
+    /// is ever promoted to proof here or anywhere else. The production default
+    /// is <see cref="LoadCompletionByGlobalListReportPolicy"/>, on the measured
+    /// behaviour of the radio after a load (#639, 2026-10-20); if a radio ever
+    /// turns out to emit a distinct end-of-load message, the handler that
+    /// recognises it feeds <see cref="ProfileEvidenceLog.RadioEndBoundary"/>
+    /// and <see cref="LoadCompletionByRadioEndBoundaryPolicy"/> is the shape
+    /// that requires it.
     /// </summary>
     public interface ILoadCompletionPolicy
     {
@@ -98,7 +113,26 @@ namespace Radios.StationConnect
         LoadCompletion Judge(LoadEvidence evidence);
     }
 
-    /// <summary>The default: nothing confirms a load. Rejection is still rejection.</summary>
+    /// <summary>
+    /// The RETIRED placeholder: nothing confirms a load, rejection is still
+    /// rejection. The production default from the coordinator's landing
+    /// (2026-09-21) until 2026-10-20, when #639 replaced it with
+    /// <see cref="LoadCompletionByGlobalListReportPolicy"/>. Kept for the tests
+    /// that need a sent load to stay outstanding (the post-import barrier, the
+    /// new-connection reset), and as the record of what the trace line
+    /// "unconfirmed until bench B" meant. <b>Not a production policy.</b>
+    /// </summary>
+    /// <remarks>
+    /// What it cost while it shipped, so nobody reinstates it as "safer": on
+    /// every owner connect it ended the station phase the instant the load
+    /// was sent, reported <c>established=False</c> for a restore the trace
+    /// showed working, skipped transmit, microphone, owner initialisation and
+    /// live audio, and said "Station restore not confirmed" to an operator
+    /// whose station had just come back exactly as saved (Noel, 2026-10-19
+    /// 06:57; #639). Bench B was answered on 2026-10-17 and this code never
+    /// heard — the shape <c>memory/feedback_a_closed_blocker_does_not_tell_its_entry.md</c>
+    /// describes, between the register and the code.
+    /// </remarks>
     public sealed class LoadCompletionUnconfirmedPolicy : ILoadCompletionPolicy
     {
         public static readonly LoadCompletionUnconfirmedPolicy Instance = new LoadCompletionUnconfirmedPolicy();
@@ -111,12 +145,106 @@ namespace Radios.StationConnect
     }
 
     /// <summary>
+    /// <b>The production default since 2026-10-20 (#639).</b> A sent global
+    /// load is Confirmed when the radio has RE-REPORTED ITS GLOBAL PROFILE
+    /// LIST after the send AND at least one own slice has been reported ready
+    /// after the send that was not present at the send. Rejection is
+    /// rejection; anything short of both facts is Unconfirmed, and the
+    /// coordinator keeps judging inside the station phase as evidence arrives.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>What was measured, and where.</b> The 2026-10-17 bench (#499)
+    /// established that the load WORKS: <c>JJRadioDefault</c> came back
+    /// byte-identical across three loads. It did not find a distinct
+    /// end-of-load message, and FlexLib surfaces none. What every archived
+    /// trace of the bench 8600 shows instead — seven connects from 2026-10-17
+    /// to 2026-10-20, a three-slice profile on 2026-10-19 06:00 and 06:35 and
+    /// a one-slice profile on 2026-10-19 17:42 to 19:01 and 2026-10-20 04:44
+    /// and 04:45 — is one order, every time: the load is sent; 260 to 480 ms
+    /// later the restored slices are reported ready; 2 to 5 ms after the LAST
+    /// of them the radio sends <c>profile global list=</c> again, together
+    /// with the transmit and microphone lists, unasked. Three slices: load
+    /// 11101, slices 11554, 11559, 11561, list 11566. One slice: load 13083,
+    /// slice 13342, list 13347.
+    /// </para>
+    /// <para>
+    /// <b>Why the list report is the radio's own.</b> FlexLib asks for the
+    /// lists once, at connect (<c>GetProfileLists</c> in its connect
+    /// sequence, before the subscriptions), and the coordinator's fresh ask
+    /// for the global inventory is ANSWERED before the load is sent, because
+    /// the coordinator waits for that answer and only then dispatches. During
+    /// the coordinator's wait nothing of ours asks for the global list, so a
+    /// radio-reported list with a sequence after the send came from the radio
+    /// on its own account. The radio's <c>profile global current=</c> is not
+    /// usable here: FlexLib raises it only on a CHANGE, and on an owner's
+    /// reconnect the wanted profile is usually already current.
+    /// </para>
+    /// <para>
+    /// <b>What this is not.</b> It is a measured regularity of this radio's
+    /// behaviour on this firmware, not a documented end-of-load message. If a
+    /// radio ever re-lists its profiles BEFORE the last restored slice is
+    /// ready, this policy confirms early: the result's slice count is low,
+    /// the layout recorded at "station established" is partial until the
+    /// next place flush rewrites it, and the post-station writes — which do
+    /// not depend on the slice count — run while slices are still arriving.
+    /// Nothing is written to a slice on that account. If a restored slice is
+    /// ever traced AFTER the list re-report, this boundary is early and the
+    /// policy must change.
+    /// </para>
+    /// <para>
+    /// <b>What stays fail-closed, and the bench that would open each.</b> A
+    /// saved profile with ZERO slices never confirms (the list arrives, no
+    /// slice does) and ends Unconfirmed at the phase deadline — save an empty
+    /// station, connect, and read whether the list is still re-reported; if
+    /// it is, a zero-slice rule can be written on that trace. A load whose
+    /// restored slices REUSE the indices of slices present at the send is not
+    /// counted by <see cref="StationSnapshot.NewSince"/> and ends Unconfirmed
+    /// at the deadline — the operator-requested load after company left, with
+    /// client-local slices already on the radio, is the case; the fix is in
+    /// the station tracker's identity rule, not here. The 6300, and a
+    /// multi-slice profile over SmartLink, are unobserved: the bench is one
+    /// connect with the trace read for the order of <c>sliceAdded</c> and
+    /// <c>ProfileGlobalList</c> after <c>global load ... SENT</c>.
+    /// </para>
+    /// <para>
+    /// <b>Where it is judged.</b> Only <c>StationCoordinator.LoadExistingRoute</c>
+    /// asks a completion policy, and every global load the application sends
+    /// goes through it: the connect (operation 1), the post-import re-entry,
+    /// and the operator-requested load. The radio's response to
+    /// <c>profile global load</c> is the same command on all three, so one
+    /// policy judges one kind of evidence; the unobserved variables are the
+    /// radio and the transport, named above, not the path.
+    /// </para>
+    /// </remarks>
+    public sealed class LoadCompletionByGlobalListReportPolicy : ILoadCompletionPolicy
+    {
+        public static readonly LoadCompletionByGlobalListReportPolicy Instance = new LoadCompletionByGlobalListReportPolicy();
+        public string Name => "the radio re-reported its global profile list after the load, and an own slice materialized";
+        public LoadCompletion Judge(LoadEvidence e)
+        {
+            if (e == null) return LoadCompletion.Unconfirmed;
+            if (e.Rejected) return LoadCompletion.Rejected;
+            // The list alone is not a station: a zero-slice profile and a load
+            // whose slices never materialized both look like this.
+            if (!e.RadioReportedGlobalListAfterSend) return LoadCompletion.Unconfirmed;
+            // A slice alone may be the first of several: the list is what the
+            // radio was measured to send after the LAST one.
+            if (e.NewOwnSlicesSinceSend == 0) return LoadCompletion.Unconfirmed;
+            return LoadCompletion.Confirmed;
+        }
+    }
+
+    /// <summary>
     /// A completion policy that requires a radio-origin end boundary observed
     /// after the send AND at least one own slice reported after the send (or
     /// the boundary explicitly supporting zero). <b>Not the default</b>: it is
-    /// the shape the design describes for the step-6 barrier, provided so the
-    /// bench result can be plugged in and so tests have a positive control.
-    /// Whether such a boundary exists is what bench B determines.
+    /// the shape the design describes for the step-6 barrier, kept so tests
+    /// have a positive control with an explicit boundary, and so that a radio
+    /// which does emit a distinct end-of-load message (none is known; bench B
+    /// found the list re-report instead, see
+    /// <see cref="LoadCompletionByGlobalListReportPolicy"/>) can be plugged in
+    /// through <see cref="ProfileEvidenceLog.RadioEndBoundary"/>.
     /// </summary>
     public sealed class LoadCompletionByRadioEndBoundaryPolicy : ILoadCompletionPolicy
     {
@@ -277,13 +405,28 @@ namespace Radios.StationConnect
     {
         /// <summary>Roster authority is RULED (Noel, 2026-09-22): live
         /// membership from the radio's own status, with discovery-only
-        /// removals treated as present. Of the other THREE, LoadCompletion and
-        /// GuestSharedWriteAuthority are still fail-closed;
-        /// InitialMaterialization is NOT, as of 2026-10-03 — bench D answered
-        /// it. This sentence said "the other two" when there were three of
-        /// them, so count the fields rather than trusting the number.</summary>
+        /// removals treated as present. Of the other THREE, only
+        /// GuestSharedWriteAuthority is still fail-closed: InitialMaterialization
+        /// was answered by bench D (2026-10-03) and LoadCompletion by bench B
+        /// (2026-10-17, in the code 2026-10-20, #639). This sentence has
+        /// miscounted twice, so count the fields rather than trusting the
+        /// number.</summary>
         public IRosterAuthorityPolicy RosterAuthority = RosterAuthorityByLiveMembershipPolicy.Instance;
-        public ILoadCompletionPolicy LoadCompletion = LoadCompletionUnconfirmedPolicy.Instance;
+
+        /// <summary>
+        /// BENCH B IS ANSWERED, 2026-10-17 (#499), and in the code since
+        /// 2026-10-20 (#639): the radio re-reports its global profile list a
+        /// few milliseconds after the last slice a load restores, and that
+        /// plus a materialized own slice is what
+        /// <see cref="LoadCompletionByGlobalListReportPolicy"/> requires. The
+        /// measurement, its limits and the benches that would widen it are on
+        /// that class. Until then this was
+        /// <see cref="LoadCompletionUnconfirmedPolicy"/>, which ended every
+        /// owner connect Unconfirmed the instant the load was sent and kept
+        /// transmit, microphone, owner initialisation and live audio from
+        /// running on the one path that was restoring the station correctly.
+        /// </summary>
+        public ILoadCompletionPolicy LoadCompletion = LoadCompletionByGlobalListReportPolicy.Instance;
 
         /// <summary>
         /// BENCH D IS ANSWERED, 2026-10-02, so this is no longer the fail-closed
@@ -352,21 +495,26 @@ namespace Radios.StationConnect
         /// </summary>
         public IRosterAuthorityPolicy GuestSharedWriteAuthority = RosterAuthorityUnknownPolicy.Instance;
 
-        /// <summary>The production defaults, as of 2026-10-03: the ruled owner
+        /// <summary>The production defaults, as of 2026-10-20: the ruled owner
         /// roster authority; materialization ending at our own handle (bench D,
         /// answered 2026-10-02; a RETURNING connect gets the fence through
-        /// <see cref="ForConnect"/>, #782); load completion and the GUEST shared-write
-        /// authority still fail-closed. Materialization was fail-closed until
-        /// 2026-10-03, and that default was the whole of the zero-slices
-        /// report — see the note on the field.</summary>
+        /// <see cref="ForConnect"/>, #782); load completion on the radio's
+        /// measured list re-report plus a materialized own slice (bench B,
+        /// answered 2026-10-17, #639); the GUEST shared-write authority still
+        /// fail-closed. Materialization was fail-closed until 2026-10-03, and
+        /// that default was the whole of the zero-slices report; load
+        /// completion was fail-closed until 2026-10-20, and that default was
+        /// the whole of "Station restore not confirmed" on every owner connect
+        /// — see the notes on the fields.</summary>
         public static StationPolicies Defaults() => new StationPolicies();
 
         private static StationPolicies _current = Defaults();
 
         /// <summary>
-        /// The policies production connects with. Defaults refuse every
-        /// automatic shared write and every fresh allocation; that is the
-        /// working, safer app the design describes while the bench is open.
+        /// The policies production connects with. One default is still
+        /// fail-closed — the guest's shared-write authority — so the guest
+        /// live-audio route stays refused; everything else now judges on
+        /// radio-reported evidence.
         /// </summary>
         public static StationPolicies Current
         {

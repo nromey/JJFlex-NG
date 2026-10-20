@@ -217,12 +217,25 @@ namespace Radios.Tests.StationConnect
             // MaterializationUnknownPolicy until 2026-10-03.
             Assert.IsType<MaterializationEndsAtOwnHandlePolicy>(StationPolicies.Defaults().InitialMaterialization);
 
-            // Still closed, and for two different reasons. Load completion
-            // waits on bench B. The GUEST shared-write authority waits on a
-            // non-owner roster bench AND on the legacy put-back executor
-            // retaining unresolved snapshots -- code that is not written, so
-            // it is not a one-line swap when its bench lands.
-            Assert.IsType<LoadCompletionUnconfirmedPolicy>(StationPolicies.Defaults().LoadCompletion);
+            // LOAD COMPLETION IS NO LONGER CLOSED, as of 2026-10-20 (#639):
+            // bench B was answered on 2026-10-17 (#499: the load works, the
+            // profile came back byte-identical across three loads) and the
+            // code never heard for three days, during which every owner
+            // connect said "Station restore not confirmed" to a restore the
+            // trace showed working. The evidence the default now accepts is
+            // the radio's own re-report of its global profile list after the
+            // load — observed 2 to 5 ms after the LAST restored slice in every
+            // archived trace from 2026-10-17 to 2026-10-20, one-slice and
+            // three-slice profiles alike — plus at least one own slice reported
+            // ready after the send. The measurement and its limits are on the
+            // policy class; the behaviour is in LoadCompletionPolicyTests.
+            // This line asserted LoadCompletionUnconfirmedPolicy until 2026-10-20.
+            Assert.IsType<LoadCompletionByGlobalListReportPolicy>(StationPolicies.Defaults().LoadCompletion);
+
+            // Still closed, and NOT a one-line swap when its bench lands: the
+            // GUEST shared-write authority waits on a non-owner roster bench
+            // AND on the legacy put-back executor retaining unresolved
+            // snapshots -- code that is not written.
             Assert.IsType<RosterAuthorityUnknownPolicy>(StationPolicies.Defaults().GuestSharedWriteAuthority);
         }
 

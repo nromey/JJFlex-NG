@@ -176,11 +176,14 @@ namespace Radios.StationConnect
         public long ConnectFenceAtSequence { get; internal set; }
 
         /// <summary>Sequence at which a radio-origin end boundary was observed,
-        /// or 0. <b>Nothing in the application emits one today.</b> This is
-        /// the hook bench question B fills: if the radio has a distinct end
-        /// message, the handler that recognises it calls
-        /// <see cref="ProfileEvidenceLog.RadioEndBoundary"/> and the completion
-        /// policy is taught to require it.</summary>
+        /// or 0. <b>Nothing in the application emits one today</b>, and the
+        /// production completion policy no longer waits for one: bench B found
+        /// the radio re-reports its global LIST after a load instead
+        /// (<see cref="LoadCompletionByGlobalListReportPolicy"/>, #639), which
+        /// is read from <see cref="GlobalList"/> by sequence. This stays as the
+        /// hook for a radio with a distinct end message: the handler that
+        /// recognises it calls <see cref="ProfileEvidenceLog.RadioEndBoundary"/>
+        /// and <see cref="LoadCompletionByRadioEndBoundaryPolicy"/> requires it.</summary>
         public long RadioEndBoundaryAtSequence { get; }
         public string RadioEndBoundaryToken { get; }
 
