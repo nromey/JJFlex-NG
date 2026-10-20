@@ -25,7 +25,9 @@ namespace Radios.Tests.StationConnect
     /// asks for the lists once, at connect, and our own fresh ask is answered
     /// before the load goes out). A one-slice profile: load 13083, slice
     /// 13342, list 13347. A three-slice profile: load 11101, slices 11554,
-    /// 11559, 11561, list 11566.
+    /// 11559, 11561, list 11566. One of the 2026-10-20 connects was over
+    /// SmartLink and showed the same order (load 163634, slice 163910, list
+    /// 163912).
     /// </para>
     /// <para>
     /// So the evidence the default accepts is a RADIO-REPORTED global list

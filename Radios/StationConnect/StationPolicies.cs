@@ -166,7 +166,9 @@ namespace Radios.StationConnect
     /// of them the radio sends <c>profile global list=</c> again, together
     /// with the transmit and microphone lists, unasked. Three slices: load
     /// 11101, slices 11554, 11559, 11561, list 11566. One slice: load 13083,
-    /// slice 13342, list 13347.
+    /// slice 13342, list 13347. One of the 2026-10-20 connects was over
+    /// SmartLink (<c>IsWan=True</c>; load 163634, slice 163910, list 163912),
+    /// so the order holds on both transports for the one-slice profile.
     /// </para>
     /// <para>
     /// <b>Why the list report is the radio's own.</b> FlexLib asks for the
