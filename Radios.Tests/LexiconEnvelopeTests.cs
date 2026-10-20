@@ -1159,6 +1159,10 @@ namespace Radios.Tests
                 "audio.mic.switch_back_not_confirmed",
                 "audio.mic.switch_back_no_pc_audio",
                 "audio.mic.switch_back_already_pc",
+                // Same reasoning, same day: the answer when the press was made in
+                // a computer-audio session that ended before it could act, so a
+                // later session's saved value is never touched by it. DRAFT.
+                "audio.mic.switch_back_session_changed",
                 "settings.guard.action.mic_input_pc",
             };
 

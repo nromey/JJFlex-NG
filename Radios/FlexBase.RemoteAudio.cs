@@ -1712,6 +1712,22 @@ namespace Radios
         private bool _micSessionOpen;
 
         /// <summary>
+        /// Which PC-audio session is open: incremented under
+        /// <see cref="_micSwitchLock"/> each time the receive channel's start
+        /// succeeds. A Boolean "open" says nothing about WHICH session, and it
+        /// goes false at a stop and true again at the next start.
+        /// </summary>
+        private long _micSessionId;
+
+        /// <summary>
+        /// Test seam, null in production: called with a name immediately
+        /// before the switch-back and the stop take <see cref="_micSwitchLock"/>,
+        /// so a test can hold a thread at exactly that point with a gate
+        /// rather than hoping a sleep lands it there.
+        /// </summary>
+        private Action<string> _micSwitchCheckpoint;
+
+        /// <summary>
         /// Put the saved mic input back, at most once, and only where it came
         /// from: the same Radio object, in the same remote-audio run, and only
         /// while the radio still reports the PC this app set. Anything else
@@ -1922,7 +1938,11 @@ namespace Radios
                     }
                     else
                     {
-                        lock (_micSwitchLock) _micSessionOpen = true;
+                        lock (_micSwitchLock)
+                        {
+                            _micSessionOpen = true;
+                            Interlocked.Increment(ref _micSessionId);
+                        }
                     }
                 }
                 if (!opusOutputChannel.Started)
@@ -1949,6 +1969,10 @@ namespace Radios
             PcAudioNotRunning,
             /// <summary>The radio already reports PC.</summary>
             AlreadyPc,
+            /// <summary>The PC-audio session the press was made in ended
+            /// before the switch could be made; a later session may be
+            /// running, and its saved value is not this press's to touch.</summary>
+            SessionChanged,
         }
 
         /// <summary>The outcome and the sentence to speak for it. The
@@ -1999,31 +2023,46 @@ namespace Radios
         /// </summary>
         public MicSwitchBackResult SwitchMicInputBackToPc()
         {
-            var radio = theRadio;
-            if (radio == null || !IsConnected)
-                return new MicSwitchBackResult(MicSwitchBackOutcome.NoRadio, Lexicon.Get("connect.command_needs_radio"));
-            if (GuardRefuses("settings.guard.action.mic_input_pc"))
-                return new MicSwitchBackResult(MicSwitchBackOutcome.Held, null);
-            var channel = opusOutputChannel;
-            if (channel == null || !channel.Started)
-                // DRAFT PROSE (#686): awaiting Noel
-                return new MicSwitchBackResult(MicSwitchBackOutcome.PcAudioNotRunning,
-                    Lexicon.Get("audio.mic.switch_back_no_pc_audio"));
-            string before = radio.MicInput ?? "";
-            if (string.Equals(before, "PC", StringComparison.OrdinalIgnoreCase))
-                // DRAFT PROSE (#686): awaiting Noel
-                return new MicSwitchBackResult(MicSwitchBackOutcome.AlreadyPc,
-                    Lexicon.Get("audio.mic.switch_back_already_pc"));
-
+            // BOUND TO THE SESSION IT WAS PRESSED IN (Codex re-verify,
+            // 2026-10-20). Two things, and either alone leaves a hole:
+            //  - the session it belongs to is taken HERE, at the press, and
+            //    checked again under the lock, because a Boolean "open" goes
+            //    false at a stop and true again at the next start, so an old
+            //    press could act inside a session nobody pressed it in;
+            //  - every read it decides on is taken INSIDE the lock, because a
+            //    value read out here (the "before" it would save) can belong
+            //    to a session that has since ended, and saving it tagged with
+            //    the new run would let the next stop restore it over the
+            //    owner's newer choice.
+            long pressedInSession = Interlocked.Read(ref _micSessionId);
+            _micSwitchCheckpoint?.Invoke("switch-back");
             lock (_micSwitchLock)
             {
-                // Re-read under the lock: a stop may have run since the checks,
-                // and the stop closes the session in the same locked step as
-                // its put-back.
+                var radio = theRadio;
+                if (radio == null || !IsConnected)
+                    return new MicSwitchBackResult(MicSwitchBackOutcome.NoRadio, Lexicon.Get("connect.command_needs_radio"));
+                if (GuardRefuses("settings.guard.action.mic_input_pc"))
+                    return new MicSwitchBackResult(MicSwitchBackOutcome.Held, null);
+                // The stop closes the session in the same locked step as its
+                // put-back, so this reads the truth for this instant.
                 if (!_micSessionOpen)
                     // DRAFT PROSE (#686): awaiting Noel
                     return new MicSwitchBackResult(MicSwitchBackOutcome.PcAudioNotRunning,
                         Lexicon.Get("audio.mic.switch_back_no_pc_audio"));
+                if (_micSessionId != pressedInSession)
+                {
+                    Tracing.TraceLine("SwitchMicInputBackToPc: pressed in PC-audio session " + pressedInSession
+                        + ", and session " + _micSessionId + " is running now; this press does not touch it (#686)",
+                        TraceLevel.Warning);
+                    // DRAFT PROSE (#686): awaiting Noel
+                    return new MicSwitchBackResult(MicSwitchBackOutcome.SessionChanged,
+                        Lexicon.Get("audio.mic.switch_back_session_changed"));
+                }
+                string before = radio.MicInput ?? "";
+                if (string.Equals(before, "PC", StringComparison.OrdinalIgnoreCase))
+                    // DRAFT PROSE (#686): awaiting Noel
+                    return new MicSwitchBackResult(MicSwitchBackOutcome.AlreadyPc,
+                        Lexicon.Get("audio.mic.switch_back_already_pc"));
 
                 var swap = new MicInputSwap(before, radio, Interlocked.Read(ref _remoteAudioRun));
                 _micInputSwap = swap;
@@ -2099,6 +2138,7 @@ namespace Radios
                     // it unasked. The Audio Workshop's RestoreInjectionPath
                     // has always restored on the same condition. And only to
                     // the radio, and in the run, it was saved from (round two).
+                    _micSwitchCheckpoint?.Invoke("stop");
                     lock (_micSwitchLock)
                     {
                         _micSessionOpen = false;

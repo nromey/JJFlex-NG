@@ -41,6 +41,7 @@ namespace Radios.Tests
         private static readonly FieldInfo TheRadioField = typeof(FlexBase).GetField("theRadio", Private)!;
         private static readonly FieldInfo RunField = typeof(FlexBase).GetField("_remoteAudioRun", Private)!;
         private static readonly FieldInfo ConnectedField = typeof(FlexBase).GetField("_IsConnected", Private)!;
+        private static readonly FieldInfo CheckpointField = typeof(FlexBase).GetField("_micSwitchCheckpoint", Private)!;
         private static readonly MethodInfo BeginRunMethod = typeof(FlexBase).GetMethod("BeginRemoteAudioRunMicState", Private)!;
 
         /// <summary>A start well past one second, so nothing here leans on
@@ -845,6 +846,41 @@ namespace Radios.Tests
             Assert.Equal(1, rig.Rig.PcMicNotOursReports);
         }
 
+        /// <summary>
+        /// Gates at the two points just before the switch-back and the stop
+        /// take the mic lock (<c>_micSwitchCheckpoint</c>). Each name gets a
+        /// "reached" signal, and optionally a gate that holds the thread there
+        /// until the test opens it. No sleeps: a thread is where the test says
+        /// it is because it has signalled so.
+        /// </summary>
+        private sealed class LockGates
+        {
+            private readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Threading.ManualResetEventSlim> _reached = new();
+            private readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Threading.ManualResetEventSlim> _hold = new();
+
+            public LockGates(FlexBase rig)
+            {
+                Assert.True(CheckpointField != null, "_micSwitchCheckpoint is not where this test reaches it");
+                CheckpointField.SetValue(rig, (Action<string>)(name =>
+                {
+                    Reached(name).Set();
+                    if (_hold.TryGetValue(name, out var gate))
+                        Assert.True(gate.Wait(10_000), "the gate at '" + name + "' was never opened");
+                }));
+            }
+
+            public System.Threading.ManualResetEventSlim Reached(string name) =>
+                _reached.GetOrAdd(name, _ => new System.Threading.ManualResetEventSlim(false));
+
+            /// <summary>Hold the next thread that reaches <paramref name="name"/>.</summary>
+            public void Hold(string name) => _hold[name] = new System.Threading.ManualResetEventSlim(false);
+
+            public void Release(string name) => _hold[name].Set();
+
+            public void WaitReached(string name) =>
+                Assert.True(Reached(name).Wait(10_000), "no thread reached '" + name + "'");
+        }
+
         [Fact]
         public void AStopDuringTheSwitchBacksWaitWaitsForItAndPutsBackTheRightValue()
         {
@@ -853,23 +889,27 @@ namespace Radios.Tests
             // against what the radio actually reported, not consume the saved
             // value against a cache about to change.
             using var rig = GuestRadioMovedToMic();
+            var gates = new LockGates(rig.Rig);
             var vendor = rig.Vendor;
             System.Threading.Tasks.Task? stop = null;
-            bool stopFinishedDuringTheWait = true;
+            bool stopWasHeldAtTheLock = false;
             vendor.Transport.CommandWritten = cmd =>
             {
                 if (cmd != "mic input PC") return;
                 vendor.ReplyOk(vendor.LastSequence);
+                // This thread holds the mic lock: the stop reaches the lock
+                // and cannot pass it until the switch-back is done.
                 stop = System.Threading.Tasks.Task.Run(() => rig.StopPcAudio());
-                stopFinishedDuringTheWait = stop.Wait(300);
+                gates.WaitReached("stop");
+                stopWasHeldAtTheLock = !stop.IsCompleted;
                 vendor.Status("transmit mic_selection=PC");   // the radio answers, late
             };
 
             var result = rig.Rig.SwitchMicInputBackToPc();
             Assert.NotNull(stop);
-            Assert.True(stop!.Wait(5_000), "the stop never finished");
+            Assert.True(stop!.Wait(10_000), "the stop never finished");
 
-            Assert.False(stopFinishedDuringTheWait, "the stop ran inside the switch-back's wait");
+            Assert.True(stopWasHeldAtTheLock, "the stop finished inside the switch-back's wait");
             Assert.Equal(FlexBase.MicSwitchBackOutcome.Switched, result.Outcome);
             Assert.Equal("mic input MIC", rig.MicWrites.Last());
             Assert.Equal("MIC", rig.MicInput);
@@ -879,32 +919,66 @@ namespace Radios.Tests
         public void ASwitchBackArrivingDuringAStopsPutBackDoesNotSwitchAfterTheSessionEnds()
         {
             // The other order: the stop is already putting the owner's value
-            // back when the switch-back is pressed. The channel still reads
-            // started at that instant (the stop clears it after the put-back),
-            // so the switch-back passes its first look, then waits for the
-            // lock - and must find the session closed, not switch the radio
-            // to PC with no session left to put it back.
+            // back (it holds the lock; its write is on the wire) when the
+            // switch-back is pressed. The press reaches the lock, waits, and
+            // must find the session closed, not switch the radio to PC with
+            // no session left to put it back.
             Arrange(RadioOwnership.SomeoneElses, Where.SmartLink);
             using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
             rig.OverSmartLink();
             rig.StartPcAudio();
             rig.MarkConnected(true);
+            var gates = new LockGates(rig.Rig);
             var vendor = rig.Vendor;
             System.Threading.Tasks.Task<FlexBase.MicSwitchBackResult>? press = null;
+            bool pressWasHeldAtTheLock = false;
             vendor.Transport.CommandWritten = cmd =>
             {
                 if (cmd != "mic input MIC" || press != null) return;
                 press = System.Threading.Tasks.Task.Run(() => rig.Rig.SwitchMicInputBackToPc());
-                press.Wait(300);   // it gets as far as the lock, and waits
+                gates.WaitReached("switch-back");
+                pressWasHeldAtTheLock = !press.IsCompleted;
             };
 
             rig.StopPcAudio();
             Assert.NotNull(press);
-            Assert.True(press!.Wait(5_000), "the switch-back never finished");
+            Assert.True(press!.Wait(10_000), "the switch-back never finished");
 
+            Assert.True(pressWasHeldAtTheLock, "the switch-back finished inside the stop's put-back");
             Assert.Equal(FlexBase.MicSwitchBackOutcome.PcAudioNotRunning, press.Result.Outcome);
             Assert.Equal(new[] { "mic input PC", "mic input MIC" }, rig.MicWrites);
             Assert.Equal("MIC", rig.MicInput);
+        }
+
+        [Fact]
+        public void APressFromAnEarlierSessionNeverTouchesTheNextSessionsSavedValue()
+        {
+            // Codex re-verify, the remaining blocker, step by step:
+            //  1. a press is made while the input reads MIC;
+            //  2. the session stops, and the owner picks BAL;
+            //  3. the next start saves BAL and switches to PC;
+            //  4. the old press reaches the lock;
+            //  5. the next stop must put back BAL, not the old press's MIC.
+            using var rig = GuestRadioMovedToMic();
+            var gates = new LockGates(rig.Rig);
+            gates.Hold("switch-back");
+            var press = System.Threading.Tasks.Task.Run(() => rig.Rig.SwitchMicInputBackToPc());
+            gates.WaitReached("switch-back");                   // 1
+
+            rig.StopPcAudio();                                  // 2
+            rig.RadioReports("BAL");
+            rig.StartPcAudio();                                 // 3
+            Assert.Equal("PC", rig.MicInput);
+
+            gates.Release("switch-back");                       // 4
+            Assert.True(press.Wait(10_000), "the old press never finished");
+            Assert.Equal(FlexBase.MicSwitchBackOutcome.SessionChanged, press.Result.Outcome);
+            Assert.Equal(Lexicon.Get("audio.mic.switch_back_session_changed"), press.Result.Sentence);
+
+            rig.StopPcAudio();                                  // 5
+            Assert.Equal("mic input BAL", rig.MicWrites.Last());
+            Assert.Equal("BAL", rig.MicInput);
+            Assert.Equal(2, rig.MicWrites.Count(c => c == "mic input PC"));   // the two starts, and no stale press
         }
 
         // ------------------------------------------------------------------

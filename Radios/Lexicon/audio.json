@@ -468,6 +468,7 @@
   "audio.mic.switch_back_done": { "text": "Mic input switched back to PC.", "delivery": null },
   "audio.mic.switch_back_no_pc_audio": { "text": "Computer audio isn't running, so the mic input was not switched to PC.", "delivery": null },
   "audio.mic.switch_back_not_confirmed": { "text": "The radio didn't confirm the switch to PC. The last mic input it reported is {current}.", "delivery": null },
+  "audio.mic.switch_back_session_changed": { "text": "Computer audio stopped before the switch could be made, so the mic input was not changed.", "delivery": null },
   "audio.mic.transmit_to_measure": "Mic audio, transmit to measure",
   "audio.mic_profiles.file_unreadable": "Your microphone setups file could not be read, so the list starts empty. The unreadable file was kept next to it as {kept}.",
   "audio.micprofile.applied": "Microphone setup {profile} applied.",
