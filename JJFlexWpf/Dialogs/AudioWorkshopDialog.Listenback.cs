@@ -17,7 +17,7 @@ public partial class AudioWorkshopDialog
     private TextBox? _takeStatus;
     private ComboBox? _iqRate, _iqAntenna;
     private CheckBox? _iqSeparate, _iqFdx;
-    private Button? _iqDiagnostic, _iqPreflight;
+    private Button? _iqDiagnostic, _iqPreflight, _sliceRecordButton, _slicePlayButton;
     private ListenbackRun? _iqRun;
     private Func<RadioRecoverySnapshot>? _iqRecoveryReader;
     private CancellationTokenSource? _iqCancellation;
@@ -66,6 +66,9 @@ public partial class AudioWorkshopDialog
         AddToSection(HearYourselfContent, _iqAntenna);
         _iqDiagnostic = IqButton("diagnostic_start", () => _ = ToggleDiagnosticAsync());
         _iqPreflight = IqButton("preflight_button", () => _ = PreflightAsync());
+        _iqPreflight.Visibility = Visibility.Collapsed; // SetRig reveals it only for SmartLink.
+        _sliceRecordButton = IqButton("record_slice", () => _ = ToggleSliceRecordAsync());
+        _slicePlayButton = IqButton("play_recording", () => _ = ToggleSlicePlayAsync());
         IqButton("recovery_button", () => _ = RestoreIqAsync());
         IqButton("detune_plus", () => _ = PlayIqAsync(NewestIqDirectory(), 1000));
         IqButton("detune_minus", () => _ = PlayIqAsync(NewestIqDirectory(), -1000));
@@ -82,15 +85,59 @@ public partial class AudioWorkshopDialog
     }
     private void UpdateIqAvailability()
     {
+        SyncSliceRecorderUi();
+        if (_iqPreflight != null)
+            _iqPreflight.Visibility = _rig?.RemoteRig == true ? Visibility.Visible : Visibility.Collapsed;
         if (_iqAntenna == null || _iqRun != null || _iqBusy) return;
         var names = new[] { Lexicon.Get("audio.iq.antenna_unchanged") }.Concat(_rig?.ListenbackReceiveAntennas ?? Array.Empty<string>()).ToArray();
         if (!(_iqAntenna.ItemsSource is string[] old) || !old.SequenceEqual(names))
         { _iqAntenna.ItemsSource = names; _iqAntenna.SelectedIndex = 0; }
         if (_takeStatus != null && _lastIqDirectory == null)
             _takeStatus.Text = Lexicon.Get(_rig == null ? "audio.no_radio_connected" :
-                _rig.OffAirListenbackSupported ? "audio.iq.idle" : "audio.iq.one_scu");
+                _rig.OffAirListenbackSupported ? "audio.iq.idle" : "audio.iq.one_scu") +
+                " " + Lexicon.Get("audio.iq.capacity_smartlink_only");
     }
-    private void IqStatus(string text, bool failure = false)
+    private bool SliceRecorderTargetsLoopback => !_iqWasOffAir && _session?.Active == true &&
+        _session.IsLoopback && _rig?.LoopbackArranged == true;
+    private void SyncSliceRecorderUi()
+    {
+        if (_sliceRecordButton != null)
+        {
+            _sliceRecordButton.IsEnabled = _rig != null;
+            string label = _rig?.WorkshopSliceRecording == true
+                ? Lexicon.Get("audio.iq.stop_slice_record") : Lexicon.Get("audio.iq.record_slice");
+            _sliceRecordButton.Content = label;
+            AutomationProperties.SetName(_sliceRecordButton, label);
+        }
+        if (_slicePlayButton != null)
+        {
+            // A running playback may always be stopped. New playback needs
+            // the target slice's radio-reported PlayEnabled flag.
+            _slicePlayButton.IsEnabled = _rig?.WorkshopSlicePlaying == true ||
+                _rig?.WorkshopSlicePlayEnabled(SliceRecorderTargetsLoopback) == true;
+            string label = _rig?.WorkshopSlicePlaying == true
+                ? Lexicon.Get("audio.iq.stop_slice_play") : Lexicon.Get("audio.iq.play_recording");
+            _slicePlayButton.Content = label;
+            AutomationProperties.SetName(_slicePlayButton, label);
+        }
+    }
+    private async Task ToggleSliceRecordAsync()
+    {
+        if (_rig == null) return;
+        var outcome = await _rig.ToggleWorkshopSliceRecordAsync(SliceRecorderTargetsLoopback);
+        SyncSliceRecorderUi();
+        ScreenReaderOutput.Speak(outcome.Message, outcome.Success ? VerbosityLevel.Terse : VerbosityLevel.Critical,
+            interrupt: !outcome.Success);
+    }
+    private async Task ToggleSlicePlayAsync()
+    {
+        if (_rig == null) return;
+        var outcome = await _rig.ToggleWorkshopSlicePlayAsync(SliceRecorderTargetsLoopback);
+        SyncSliceRecorderUi();
+        ScreenReaderOutput.Speak(outcome.Message, outcome.Success ? VerbosityLevel.Terse : VerbosityLevel.Critical,
+            interrupt: !outcome.Success);
+    }
+    private void IqStatus(string text, bool failure = false, string? subject = null)
     {
         if (_iqClosing)
         {
@@ -109,6 +156,8 @@ public partial class AudioWorkshopDialog
                 else ScreenReaderOutput.Speak(text, VerbosityLevel.Critical, interrupt: true);
             }));
         }
+        else if (subject != null)
+            ScreenReaderOutput.Speak(text, Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse, subject: subject);
         else ScreenReaderOutput.Speak(text, VerbosityLevel.Terse);
     }
     private void AnnounceClosedRecovery(bool restored) => PostClosedIqStatus(
@@ -134,6 +183,7 @@ public partial class AudioWorkshopDialog
     }
     private void IqFailure(Exception ex)
     {
+        ScreenReaderOutput.Supersede("audio.iq.preparing", "take preparation failed");
         JJTrace.Tracing.TraceLine("Listenback: " + ex, System.Diagnostics.TraceLevel.Error);
         string reason = ex is OperationCanceledException ? "cancelled" : ex.Message;
         string key = "audio.iq.reason." + reason;
@@ -184,6 +234,7 @@ public partial class AudioWorkshopDialog
     }
     private async Task FinishIqAsync(string reason)
     {
+        ScreenReaderOutput.Supersede("audio.iq.preparing", "take finished");
         if (_iqBusy || _iqRun == null) return;
         _iqBusy = true;
         _iqWatch.Stop();
@@ -225,8 +276,8 @@ public partial class AudioWorkshopDialog
                 }
                 if (_iqWasOffAir && run.HasRadioKeying && !_iqClosing && File.Exists(Path.Combine(run.DirectoryPath, "heard.wav")))
                 {
-                    ScreenReaderOutput.Speak(Lexicon.Get("audio.iq.playing"), VerbosityLevel.Terse);
-                    RecordingPlayer.Play(Path.Combine(run.DirectoryPath, "heard.wav"));
+                    RecordingPlayer.Play(Path.Combine(run.DirectoryPath, "heard.wav"),
+                        Lexicon.Get("audio.iq.playing"), _rig, offAirListeningGain: true);
                 }
             }
         }
@@ -240,7 +291,7 @@ public partial class AudioWorkshopDialog
         _iqBusy = true; _iqWasOffAir = true; _iqRecoveryReader = rig.CaptureListenbackRecoveryReader();
         _iqCancellation = new CancellationTokenSource();
         SetStartButtonLabel(Lexicon.Get("audio.iq.cancel_start"));
-        IqStatus(Lexicon.Get("audio.iq.preparing"));
+        IqStatus(Lexicon.Get("audio.iq.preparing"), subject: "audio.iq.preparing");
         try
         {
             if (!rig.OffAirListenbackSupported) throw new InvalidOperationException("one-scu-not-confirmed");
@@ -302,8 +353,7 @@ public partial class AudioWorkshopDialog
             var rendered = await Task.Run(() => SsbTakeRenderer.Render(directory, detune));
             if (_iqClosing) return;
             string playbackKey = take.State == "incomplete" ? "audio.iq.playing_incomplete" : detune == 0 ? "audio.iq.playing" : "audio.iq.playing_detuned";
-            IqStatus(Lexicon.Get(playbackKey));
-            RecordingPlayer.Play(rendered.Path);
+            RecordingPlayer.Play(rendered.Path, Lexicon.Get(playbackKey), _rig, offAirListeningGain: true);
         }
         catch (Exception ex) { IqFailure(ex); }
         finally { _iqBusy = false; }
@@ -324,7 +374,7 @@ public partial class AudioWorkshopDialog
                 throw new InvalidDataException("sent-checksum");
             await Task.Run(() => TakeAudio.ReadMono(path));
             if (_iqClosing) return;
-            IqStatus(Lexicon.Get("audio.iq.playing_sent")); RecordingPlayer.Play(path);
+            RecordingPlayer.Play(path, Lexicon.Get("audio.iq.playing_sent"), _rig);
         }
         catch (Exception ex) { IqFailure(ex); }
         finally { _iqBusy = false; }
@@ -382,6 +432,11 @@ public partial class AudioWorkshopDialog
         _iqClosing = true;
         _iqCancellation?.Cancel();
         _iqWatch.Stop();
-        if (!_iqBusy) _ = FinishIqAsync("dialog-closed");
+        _ = CloseListenbackAsync(_rig);
+    }
+    private async Task CloseListenbackAsync(FlexBase? rig)
+    {
+        if (rig != null) await rig.StopWorkshopSliceRecorderAsync();
+        if (!_iqBusy) await FinishIqAsync("dialog-closed");
     }
 }

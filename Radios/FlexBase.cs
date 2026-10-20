@@ -6393,8 +6393,12 @@ namespace Radios
                     lock (_sliceSettleLock)
                         diagnosticRemoval = _diagnosticSlices.TryGetValue(slc, out diagnosticPurpose);
                     if (diagnosticRemoval && !SuppressSpeech)
-                        ScreenReaderOutput.Speak(Lexicon.Get(diagnosticPurpose == DiagnosticSlicePurpose.Loopback
-                            ? "audio.check.loopback_removing_ears" : "audio.iq.removing_listener"), VerbosityLevel.Terse);
+                        ScreenReaderOutput.Speak(Lexicon.Get(diagnosticPurpose switch
+                        {
+                            DiagnosticSlicePurpose.Loopback => "audio.check.loopback_removing_ears",
+                            DiagnosticSlicePurpose.OffAir => "audio.iq.offair_removing_listener",
+                            _ => "audio.iq.removing_listener"
+                        }), VerbosityLevel.Terse);
                     NoteSliceSetChanged(slc, added: false);
                 }
             }
@@ -11261,9 +11265,12 @@ namespace Radios
             try
             {
             if (!_loopbackArranged) return "";
+            // The listening slice must stop its own buffer before removal.
+            bool recorderStopped = !ReferenceEquals(_workshopRecorderSlice, _lbResources?.Slice) ||
+                await StopWorkshopSliceRecorderAsync().ConfigureAwait(false);
             _loopbackArranged = false;
 
-            string trouble = "";
+            string trouble = recorderStopped ? "" : "The listening slice recorder stop was not confirmed. ";
             if (theRadio != null && ReferenceEquals(theRadio, _lbArrangementRadio) &&
                 ReferenceEquals(theRadio.CurrentCommandConnection, _lbArrangementConnection))
             {

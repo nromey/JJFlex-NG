@@ -1096,6 +1096,22 @@ namespace Radios.Tests
                 "audio.full_duplex.refused",
                 "audio.full_duplex.unconfirmed",
 
+                // #456 Round 8: playback fact/limiter, SmartLink-only capacity,
+                // reply failure, purpose wording, and #787 slice control labels.
+                "audio.take.fixed_gain",
+                "audio.take.limiter_engaged",
+                "audio.iq.record_slice",
+                "audio.iq.stop_slice_record",
+                "audio.iq.play_recording",
+                "audio.iq.stop_slice_play",
+                "audio.iq.capacity_smartlink_only",
+                "audio.iq.reason.no-stream-create-reply",
+                "audio.iq.reason.stream-create-refused",
+                "audio.iq.reason.smartlink-no-iq",
+                "audio.iq.listener_added",
+                "audio.iq.offair_removing_listener",
+                "audio.check.loopback_ears_added",
+
             };
 
             Assert.Equal(3152, unclassified);

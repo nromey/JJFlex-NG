@@ -104,7 +104,7 @@ namespace Radios
         /// <summary>
         /// Add a pan and slice.
         /// </summary>
-        private enum DiagnosticSlicePurpose { None, Listenback, Loopback }
+        private enum DiagnosticSlicePurpose { None, Listenback, Loopback, OffAir }
         public bool NewSlice() => NewSlice(null);
 
         private bool NewSlice(LoopbackSliceResources resources, DiagnosticSlicePurpose diagnosticPurpose = DiagnosticSlicePurpose.None)
@@ -127,9 +127,11 @@ namespace Radios
             // #117: an operator-requested layout is provisional and gets a
             // receipt. A check's temporary listener is not their request.
             if (diagnosticPurpose == DiagnosticSlicePurpose.None) NoteOperatorChangedSliceSet();
-            else if (!SuppressSpeech)
-                ScreenReaderOutput.Speak(Lexicon.Get(diagnosticPurpose == DiagnosticSlicePurpose.Loopback
-                    ? "audio.check.loopback_adding_ears" : "audio.iq.adding_listener"), VerbosityLevel.Terse);
+            else if (!SuppressSpeech && diagnosticPurpose == DiagnosticSlicePurpose.Listenback)
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.iq.adding_listener"), VerbosityLevel.Terse);
+            // Loopback and off-air share this setup. Their one purpose-specific
+            // announcement belongs to the confirmed start line, after the
+            // ears exist; a progress line here was rescued after keying.
             q.Enqueue((FunctionDel)(() =>
             {
                 if (resources == null) theRadio.RequestPanafall();

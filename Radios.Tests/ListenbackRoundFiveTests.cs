@@ -102,7 +102,10 @@ public sealed class ListenbackRoundFiveTests : IDisposable
                 }
             }
             else if (command.StartsWith("stream create type=dax_iq", StringComparison.Ordinal))
+            {
+                c.F.Vendor.ReplyOk(c.F.Vendor.LastSequence);
                 c.F.Vendor.Status($"stream 0x20000000 type=dax_iq client_handle=0x{radio.ClientHandle:X} daxiq_channel=1 daxiq_rate=48000 active=1 pan=0x0 payload_endian=little");
+            }
             else
             {
                 c.Respond(command);

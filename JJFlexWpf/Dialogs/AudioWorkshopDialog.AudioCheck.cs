@@ -444,6 +444,9 @@ public partial class AudioWorkshopDialog
     {
         SetStartButtonLabel("Start Audio Check");
         SetLoopbackButtonLabel(stopping: false);
+        if (_rig != null && !await _rig.StopWorkshopSliceRecorderAsync())
+            ScreenReaderOutput.Speak("The radio slice recorder stop was not confirmed.", VerbosityLevel.Critical);
+        SyncSliceRecorderUi();
         if (_iqWasOffAir && _iqRun != null) { _ = FinishIqAsync("operator-stop"); return; }
         if (_rig != null && _rig.LoopbackArranged)
         {
@@ -549,7 +552,7 @@ public partial class AudioWorkshopDialog
         bool preferFile = file != null && (!radioHasTake || _newestTakeIsAFile);
         if (preferFile)
         {
-            RecordingPlayer.Play(file!.Path);   // speaks for itself, success or not
+            RecordingPlayer.Play(file!.Path, liveRig: _rig);   // speaks for itself, success or not
             return;
         }
 
@@ -780,6 +783,8 @@ public partial class AudioWorkshopDialog
             // source, and how to stop. Key-down is never silent even if this
             // class faults between the two.
             if (_method == AudioCheckListenMethods.OffAir) _owner._iqRun?.OwnKeying(true);
+            if (_method == AudioCheckListenMethods.OffAir)
+                ScreenReaderOutput.Supersede("audio.iq.preparing", "off-air take ready to start");
             _ptt.ToggleLock();
             if (!_ptt.IsTransmitting)
             {
@@ -797,10 +802,12 @@ public partial class AudioWorkshopDialog
             var line = new StringBuilder();
             if (_method == AudioCheckListenMethods.OffAir)
             {
+                line.Append(Lexicon.Get("audio.iq.listener_added")).Append(' ');
                 line.Append(Lexicon.Get("audio.iq.keyed_line", ("freq", FormatMHz(rig.TXFrequency)), ("source", SourceFriendlyName(rig.MicSource))));
             }
             else if (_loopback)
             {
+                line.Append(Lexicon.Get("audio.check.loopback_ears_added")).Append(' ');
                 // HONESTY (ratified product framing): this is real RF through
                 // a massively overloaded receiver. It proves presence,
                 // processing, and rough shape — never claim a faithful

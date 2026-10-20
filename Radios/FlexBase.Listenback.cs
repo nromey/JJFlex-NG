@@ -161,6 +161,8 @@ public partial class FlexBase
                     throw new InvalidOperationException("arrangement-refused");
                 }
                 ownedLoopback = _lbResources;
+                if (ownedLoopback?.Slice != null)
+                    lock (_sliceSettleLock) _diagnosticSlices[ownedLoopback.Slice] = DiagnosticSlicePurpose.OffAir;
             }
             else if (separate && !NewSlice(diagnosticResources, DiagnosticSlicePurpose.Listenback)) throw new InvalidOperationException("no-free-slice");
             if (separate)

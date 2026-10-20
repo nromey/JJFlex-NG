@@ -48,6 +48,7 @@ public sealed class ListenbackRoundThreeTests : IDisposable
             }
             else if (command.StartsWith("stream create type=dax_iq"))
             {
+                c.F.Vendor.ReplyOk(c.F.Vendor.LastSequence);
                 // A separate status, after the pan setter and the old optimistic
                 // snapshot. The pan setter itself never updates Slice.RXAnt.
                 if (separate && !holdEcho) c.F.Vendor.Status("slice 0 RF_frequency=14.2 mode=USB rxant=XVT-B");
@@ -96,6 +97,12 @@ public sealed class ListenbackRoundThreeTests : IDisposable
         var run = await pumped;
         try
         {
+            if (offAir)
+            {
+                var purposes = (System.Collections.IDictionary)typeof(FlexBase)
+                    .GetField("_diagnosticSlices", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(c.F.Rig)!;
+                Assert.Equal("OffAir", purposes[c.Ears]?.ToString());
+            }
             Assert.False(c.F.Rig.AcknowledgeInspectedListenbackRecovery(c.F.Rig.PendingListenbackRecovery, true));
             c.F.Rig.ListenbackUnkeyWait = TimeSpan.FromMilliseconds(40);
             Field(c.F.Rig, "_Transmit", true);

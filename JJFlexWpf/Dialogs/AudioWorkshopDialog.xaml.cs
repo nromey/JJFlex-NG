@@ -645,6 +645,8 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     public void SetRig(FlexBase? rig)
     {
         var oldRig = _rig;
+        if (oldRig != null && !ReferenceEquals(oldRig, rig))
+            _ = oldRig.StopWorkshopSliceRecorderAsync();
         _rig = rig;
         UpdateRadioControlAvailability();
         if (rig != null)

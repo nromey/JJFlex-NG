@@ -1,10 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Flex.Smoothlake.FlexLib;
 using Flex.Smoothlake.Vita;
+using JJTrace;
 
 namespace Radios.Listenback;
 
@@ -30,6 +33,8 @@ public sealed class IqRadioCapture : IAsyncDisposable
     private readonly object _statusGate = new();
     private DAXIQStream _stream;
     private int _stopping, _inCallback;
+    private long _routedPackets, _routedPayloadBytes;
+    private readonly ConcurrentDictionary<string, byte> _unexpectedPacketKinds = new();
     public IqTakeWriter Writer { get; }
     public Task<string> Ended => _ended.Task;
     public long DroppedPackets => _feed.DroppedPackets;
@@ -60,9 +65,30 @@ public sealed class IqRadioCapture : IAsyncDisposable
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation, _lifetime.Token);
         cancellation = linked.Token;
         if (!Connected) throw new InvalidOperationException("connection-ended");
-        await _queue(() => { if (Connected && Volatile.Read(ref _stopping) == 0) _radio.RequestDAXIQStream(_channel); }).ConfigureAwait(false);
+        var createReply = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await _queue(() =>
+        {
+            if (!Connected || Volatile.Read(ref _stopping) != 0) throw new InvalidOperationException("connection-ended");
+            string command = $"stream create type=dax_iq daxiq_channel={_channel}";
+            int sequence = _radio.SendReplyCommand((replySequence, code, text) =>
+            {
+                try { Writer.Header.Event("iq-create-reply", new { Sequence = replySequence, Code = code.ToString("X8"), Text = text }); }
+                catch (ObjectDisposedException)
+                {
+                    Tracing.TraceLine($"Listen-back late IQ create reply after take close: sequence={replySequence} code={code:X8} text={text}", TraceLevel.Warning);
+                }
+                finally { createReply.TrySetResult(code == 0); }
+            }, command);
+            Writer.Header.Event("iq-create-sent", new { Sequence = sequence, Command = command });
+        }).ConfigureAwait(false);
+        try
+        {
+            if (!await createReply.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellation).ConfigureAwait(false))
+                throw new InvalidOperationException("stream-create-refused");
+        }
+        catch (TimeoutException) { throw new InvalidOperationException("no-stream-create-reply"); }
         try { _stream = await _added.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellation).ConfigureAwait(false); }
-        catch (TimeoutException) { throw new InvalidOperationException("no-stream-status-within-five-seconds"); }
+        catch (TimeoutException) { throw new InvalidOperationException(NoIqReason("no-stream-status-within-five-seconds")); }
         if (!Connected) throw new InvalidOperationException("connection-ended");
         // Sending directly avoids the SampleRate setter's optimistic local
         // value. Only OnStatus assigns Writer.EchoedRate from radio text.
@@ -83,10 +109,12 @@ public sealed class IqRadioCapture : IAsyncDisposable
             if (first == _ended.Task) throw new InvalidOperationException(await _ended.Task.ConfigureAwait(false));
             ready = await Writer.Ready.ConfigureAwait(false);
         }
-        catch (TimeoutException) { throw new InvalidOperationException("no-active-stream-at-confirmed-rate"); }
+        catch (TimeoutException) { throw new InvalidOperationException(NoIqReason("no-active-stream-at-confirmed-rate")); }
         if (!ready) throw new InvalidOperationException(Writer.Failure ?? "classifier-not-ready");
         _ = MonitorAsync();
     }
+    private string NoIqReason(string fallback) => _radio.IsWan && Interlocked.Read(ref _routedPackets) == 0
+        ? "smartlink-no-iq" : fallback;
     private async Task MonitorAsync()
     {
         await Task.WhenAny(Writer.Failed, _ended.Task).ConfigureAwait(false);
@@ -123,9 +151,30 @@ public sealed class IqRadioCapture : IAsyncDisposable
         Interlocked.Increment(ref _inCallback);
         try
         {
-            if (Volatile.Read(ref _stopping) == 0 && Connected && ReferenceEquals(stream, _stream)) _feed.Offer(packet);
+            if (Volatile.Read(ref _stopping) == 0 && Connected && ReferenceEquals(stream, _stream))
+            {
+                Interlocked.Increment(ref _routedPackets);
+                Interlocked.Add(ref _routedPayloadBytes, (packet.payload?.Length ?? 0) * sizeof(float));
+                ushort expected = _rate switch
+                {
+                    24000 => VitaFlex.SL_VITA_IF_WIDE_CLASS_24kHz,
+                    48000 => VitaFlex.SL_VITA_IF_WIDE_CLASS_48kHz,
+                    96000 => VitaFlex.SL_VITA_IF_WIDE_CLASS_96kHz,
+                    _ => 0
+                };
+                if (packet.ClassId.PacketClassCode != expected)
+                    TraceUnexpected($"class={packet.ClassId.PacketClassCode:X4}");
+                if (packet.ClassId.OUI != VitaFlex.FLEX_OUI)
+                    TraceUnexpected($"oui={packet.ClassId.OUI:X6}");
+                _feed.Offer(packet);
+            }
         }
         finally { Interlocked.Decrement(ref _inCallback); }
+    }
+    private void TraceUnexpected(string kind)
+    {
+        if (_unexpectedPacketKinds.TryAdd(kind, 0))
+            Tracing.TraceLine($"Listen-back routed IQ packet: unexpected {kind} on stream 0x{_stream?.StreamID:X}; vendor may have discarded others before this callback", TraceLevel.Warning);
     }
     private void OnStatus(string raw)
     {
@@ -192,6 +241,8 @@ public sealed class IqRadioCapture : IAsyncDisposable
                 try { if (_beforeFinish != null) await _beforeFinish().ConfigureAwait(false); }
                 finally
                 {
+                    Writer.Header.Write("iq-routed-packets", Interlocked.Read(ref _routedPackets));
+                    Writer.Header.Write("iq-routed-payload-bytes", Interlocked.Read(ref _routedPayloadBytes));
                     Writer.Finish(reason, _feed.DroppedPackets, _feed.DroppedPairs, _feed.SubscriberFailures);
                     _ended.TrySetResult(reason);
                 }

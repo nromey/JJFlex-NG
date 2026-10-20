@@ -191,7 +191,10 @@ public sealed class ListenbackRoundFourTests : IDisposable
                 c.F.Vendor.Reply(c.F.Vendor.LastSequence,0,"0x40000000,0x42000000");
             }
             else if(command.StartsWith("stream create type=dax_iq"))
+            {
+                c.F.Vendor.ReplyOk(c.F.Vendor.LastSequence);
                 c.F.Vendor.Status($"stream 0x20000000 type=dax_iq client_handle=0x{radio.ClientHandle:X} daxiq_channel=1 pan=0x0 daxiq_rate=48000 active=1 payload_endian=little");
+            }
             else if (confirmationTimeout && command == "sub slice all")
             {
                 c.F.Vendor.Status("slice 0 in_use=1 pan=0x40000000 RF_frequency=21.195 mode=USB rxant=ANT1");

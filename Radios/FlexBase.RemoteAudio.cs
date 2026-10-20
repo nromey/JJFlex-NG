@@ -17,6 +17,13 @@ namespace Radios
     /// </remarks>
     public partial class FlexBase
     {
+        private volatile bool _localReceiveMutedForTakePlayback;
+        /// <summary>Suppress only decoded live receive sound on this computer during local take playback.</summary>
+        public bool LocalReceiveMutedForTakePlayback
+        {
+            get => _localReceiveMutedForTakePlayback;
+            set => _localReceiveMutedForTakePlayback = value;
+        }
         // region remote audio
         #region RemoteAudio
         // Note that here input and output refer to input and output from the rig.
@@ -1237,7 +1244,11 @@ namespace Radios
                     // than differenced between timestamps. See
                     // ReceiveContinuityMeter for why the difference matters.
                     _opusRxContinuity.Consume(consumedTs);
-                    opusOutputChannel.PortAudioStream.WriteOpus(opusBuf);
+                    // Local take playback owns this computer-side gate. Keep
+                    // consuming timestamps while muted; never send a radio
+                    // mute command or make the receive stream fall behind.
+                    if (!LocalReceiveMutedForTakePlayback)
+                        opusOutputChannel.PortAudioStream.WriteOpus(opusBuf);
                 }
                 else
                 {

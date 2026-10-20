@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Threading;
 using System.Windows.Threading;
 using JJTrace;
 using NAudio.Wave;
@@ -58,6 +59,9 @@ public static class RecordingPlayer
     private static readonly object Gate = new();
     private static WaveFileReader? _reader;
     private static EndOfFileSampleProvider? _provider;
+    private static FixedGainLimiterSampleProvider? _gain;
+    private static FlexBase? _liveRig;
+    private static bool _priorLiveMute;
     private static DispatcherTimer? _watcher;
     private static string _path = "";
     private static string _name = "";
@@ -97,7 +101,8 @@ public static class RecordingPlayer
     /// nothing cannot tell "playing silence" from "did not start", and that
     /// ambiguity is exactly what this whole finding was made of.
     /// </summary>
-    public static bool Play(string path)
+    public static bool Play(string path, string? announcement = null, FlexBase? liveRig = null,
+        bool offAirListeningGain = false)
     {
         if (string.IsNullOrEmpty(path))
         {
@@ -127,9 +132,14 @@ public static class RecordingPlayer
         }
 
         EndOfFileSampleProvider provider;
+        FixedGainLimiterSampleProvider gain;
         try
         {
-            provider = new EndOfFileSampleProvider(ToMixerFormat(reader));
+            // The +20 dB listening gain is for the off-air IQ render only (Noel, 2026-10-20 06:21),
+            // which is fixed-scale and quiet. A take this computer recorded is already at
+            // microphone level; lifting it 20 dB would drive it into the limiter.
+            gain = new FixedGainLimiterSampleProvider(ToMixerFormat(reader), offAirListeningGain);
+            provider = new EndOfFileSampleProvider(gain);
         }
         catch (Exception ex)
         {
@@ -158,8 +168,12 @@ public static class RecordingPlayer
         {
             _reader = reader;
             _provider = provider;
+            _gain = gain;
             _path = path;
             _name = Path.GetFileNameWithoutExtension(path);
+            _liveRig = liveRig;
+            _priorLiveMute = liveRig?.LocalReceiveMutedForTakePlayback ?? false;
+            if (liveRig != null) liveRig.LocalReceiveMutedForTakePlayback = true;
         }
 
         if (!EarconPlayer.AddRecordingPlayback(provider))
@@ -170,21 +184,43 @@ public static class RecordingPlayer
             {
                 _reader = null;
                 _provider = null;
+                _gain = null;
                 _path = "";
+                RestoreLiveAudio();
             }
             reader.Dispose();
             Refuse(Lexicon.Get("audio.take.play_no_output"));
             return false;
         }
 
-        StartWatching();
-        StateChanged?.Invoke();
-        ScreenReaderOutput.Speak(
-            Lexicon.Get("audio.take.playing",
-                ("name", _name),
-                ("length", RecordingStore.DescribeLength(seconds))),
-            VerbosityLevel.Terse, interrupt: true);
-        return true;
+        try
+        {
+            StartWatching();
+            StateChanged?.Invoke();
+            AnnounceStarted(announcement ?? Lexicon.Get("audio.take.playing",
+                ("name", _name), ("length", RecordingStore.DescribeLength(seconds))), offAirListeningGain);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            // This path begins after the local receive gate was applied.
+            // End clears it before any refusal can itself fault or be delayed.
+            try { End(""); } catch (Exception cleanup) { Trace.WriteLine($"RecordingPlayer cleanup failed: {cleanup}"); }
+            Refuse(Lexicon.Get("audio.take.play_failed", ("reason", ex.Message)));
+            return false;
+        }
+    }
+
+    /// <summary>The sole successful-start announcement, chosen by the playback caller.</summary>
+    internal static void AnnounceStarted(string announcement, bool gained = true) => ScreenReaderOutput.Speak(
+        gained ? announcement.TrimEnd() + " " + Lexicon.Get("audio.take.fixed_gain") : announcement.TrimEnd(),
+        VerbosityLevel.Terse, interrupt: true);
+
+    private static void RestoreLiveAudio()
+    {
+        if (_liveRig != null) _liveRig.LocalReceiveMutedForTakePlayback = _priorLiveMute;
+        _liveRig = null;
+        _priorLiveMute = false;
     }
 
     /// <summary>
@@ -228,13 +264,17 @@ public static class RecordingPlayer
     {
         WaveFileReader? reader;
         EndOfFileSampleProvider? provider;
+        bool limited;
         lock (Gate)
         {
             reader = _reader;
             provider = _provider;
+            limited = _gain?.Limited ?? false;
             _reader = null;
             _provider = null;
+            _gain = null;
             _path = "";
+            RestoreLiveAudio();
         }
         StopWatching();
         if (provider == null) return;
@@ -255,7 +295,9 @@ public static class RecordingPlayer
 
         StateChanged?.Invoke();
         if (confirmTone) EarconPlayer.ConfirmTone();
-        ScreenReaderOutput.Speak(spokenReason, VerbosityLevel.Terse, interrupt: false);
+        if (!string.IsNullOrEmpty(spokenReason))
+            ScreenReaderOutput.Speak(spokenReason, VerbosityLevel.Terse, interrupt: false);
+        if (limited) ScreenReaderOutput.Speak(Lexicon.Get("audio.take.limiter_engaged"), VerbosityLevel.Terse);
     }
 
     /// <summary>Say why it will not play, with the tone that means refusal.</summary>
@@ -282,6 +324,40 @@ public static class RecordingPlayer
         else if (source.WaveFormat.Channels > want.Channels)
             source = new StereoToMonoSampleProvider(source);
         return source;
+    }
+
+    /// <summary>Fixed 20 dB playback gain with a soft ceiling for the off-air render, or unity for
+    /// anything else; file samples remain unmodified either way.</summary>
+    internal sealed class FixedGainLimiterSampleProvider : ISampleProvider
+    {
+        private readonly ISampleProvider _source;
+        private int _limited;
+        private readonly bool _gained;
+        public FixedGainLimiterSampleProvider(ISampleProvider source, bool gained = true)
+        {
+            _source = source;
+            _gained = gained;
+        }
+        public WaveFormat WaveFormat => _source.WaveFormat;
+        public bool Limited => Volatile.Read(ref _limited) != 0;
+        public int Read(Span<float> buffer)
+        {
+            int count = _source.Read(buffer);
+            if (!_gained) return count; // unity: the file plays exactly as recorded
+            for (int i = 0; i < count; i++)
+            {
+                double scaled = buffer[i] * 10.0; // +20 dB, never per-take normalization.
+                double level = Math.Abs(scaled);
+                if (level > 0.8)
+                {
+                    Volatile.Write(ref _limited, 1);
+                    level = 0.8 + 0.19 * (1.0 - Math.Exp(-(level - 0.8) / 0.19));
+                    scaled = Math.CopySign(level, scaled);
+                }
+                buffer[i] = (float)scaled;
+            }
+            return count;
+        }
     }
 
     /// <summary>
