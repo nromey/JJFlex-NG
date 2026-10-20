@@ -216,6 +216,22 @@ namespace Radios.Tests
             // Round three widened it to every kind: the vendor's save, create
             // and delete for global, transmit and microphone profiles, and the
             // raw command text for any of them.
+            //
+            // THE COUNT (round four, Codex F2 of the third re-verify): this
+            // regex finds SIXTEEN matches in four files, not the fourteen the
+            // round-three report claimed: one in FlexBase.MainThread.cs (the
+            // dead "#if zero" create, which never compiles), eleven in
+            // FlexBase.Profiles.cs (the raw save literal among them), three in
+            // FlexBase.StationConnect.cs and one in DeferredCreationRun.cs
+            // (the port's call). The expected list below keeps multiplicity,
+            // so a seventeenth match fails it. What it CANNOT see: a command
+            // string built at run time rather than written as a literal, a
+            // literal spelled "profile tx ..." (this file's own info command
+            // uses that spelling; the regex knows only "transmit"), any call
+            // spelled without the leading dot, the database import upload
+            // (F3), any .vb file below the repository root, and every other
+            // source tree. It is a textual inventory of these trees, not proof
+            // that nothing else writes a profile.
             var callSite = new Regex(
                 @"\.(SaveGlobalProfile|DeleteGlobalProfile|SaveTXProfile|CreateTXProfile|DeleteTXProfile|SaveMICProfile|CreateMICProfile|DeleteMICProfile)\s*\("
                 + @"|""(profile (?:global|transmit|mic) (?:save|create|delete))\b", RegexOptions.Compiled);

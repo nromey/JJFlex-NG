@@ -956,7 +956,7 @@ namespace Radios.Tests
                 // machinery. Their siblings settings.guard.layout_save_blocked
                 // and .layout_save_roster_unknown are legacy and still frozen;
                 // WHEN THE PASS REACHES THEM, DECIDE ALL FOUR TOGETHER. Both
-                // wordings are DRAFTS awaiting Noel.
+                // wordings were APPROVED by Noel 2026-10-19 (#777 Q4, Q5).
                 "settings.guard.profile_write_not_our_radio",
                 "settings.guard.profile_write_ownership_unknown",
                 // Round three, Noel's 2026-10-19 ruling that transmit and
