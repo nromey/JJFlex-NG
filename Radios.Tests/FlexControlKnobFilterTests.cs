@@ -8,22 +8,26 @@ using static Radios.Tests.FlexControlKnobWire;
 namespace Radios.Tests
 {
     /// <summary>
-    /// #520, ruled by Noel 2026-10-20 at 12:25 ("wait until the knob calms down"): at open the
-    /// Flex Control's input codes are ignored until the knob has sent nothing at all for
-    /// <see cref="KnobInputFilter.QuietGapMs"/>, any token restarting that wait; after that every
-    /// input code is acted on at once. These replay streams through <see cref="KnobInputFilter"/>
-    /// with explicit times and the port opening at time zero. No timers.
+    /// #520, ruled by Noel 2026-10-20 at 12:25 ("wait until the knob calms down"), with the
+    /// buffer check he approved at 12:52: at open the Flex Control's input codes are ignored until
+    /// a check of the port's buffer finds it empty a full <see cref="KnobInputFilter.QuietGapMs"/>
+    /// after the last read; after that every input code is acted on at once. These drive
+    /// <see cref="KnobInputFilter"/> with explicit times and the port opening at time zero. No timers.
     /// </summary>
     /// <remarks>
+    /// <para><b>The model.</b> A fixture says when each code's bytes LAND in the port's buffer
+    /// (held to 9600 baud), and when the reader gets round to reading them, which can be much
+    /// later. A buffer check runs every <see cref="KnobInputFilter.QuietCheckMs"/> and sees how
+    /// many landed bytes are still unread. That is the distinction Codex's round-four review said
+    /// the filter could not draw: text waiting to be read is not a quiet knob.</para>
     /// <para><b>The streams are RECONSTRUCTED from the measurement in #520, not captured.</b> The
     /// probe printed with <c>Write-Host</c>, which cannot be redirected, so no recording exists.
     /// Each fixture says which sentence of the entry it is built from.</para>
-    /// <para><b>Every fixture is held to 9600 baud</b> by <see cref="Replay"/>, so none can carry
-    /// codes faster than the port allows.</para>
     /// </remarks>
     public class FlexControlKnobFilterTests
     {
         private const double Gap = KnobInputFilter.QuietGapMs;
+        private const double Every = KnobInputFilter.QuietCheckMs;
 
         private sealed class Run
         {
@@ -32,17 +36,46 @@ namespace Radios.Tests
             public KnobInputFilter Filter = null!;
         }
 
-        private static Run Replay(IEnumerable<(string token, double at)> arrivals, double closeAt = 600_000)
+        /// <summary>
+        /// Land each code in the buffer at its time, read it at <paramref name="readAt"/> of that
+        /// time (at once by default), and check the buffer every <see cref="Every"/> ms, until well
+        /// after the last event. Also check just before every landing: the real timer can fire at
+        /// any moment, and the moment just before more bytes land is the worst one, so the gap's
+        /// boundary is tested exactly. Ties: that check, bytes land, then a read, then a timed check.
+        /// </summary>
+        private static Run Simulate(IEnumerable<(string token, double at)> landings, Func<double, double>? readAt = null, double? closeAt = null)
         {
-            var stream = arrivals.ToList();
-            AssertNoFasterThanTheWire(stream);
+            var landed = landings.ToList();
+            AssertNoFasterThanTheWire(landed);
+            readAt ??= t => t;
+            var reads = landed.Select(l => readAt(l.at)).ToList();
+            Assert.All(landed.Zip(reads), p => Assert.True(p.Second >= p.First.at, "a read before its bytes landed"));
+
+            double end = closeAt ?? (landed.Count == 0 ? 0 : Math.Max(landed.Max(l => l.at), reads.Max())) + 2 * Gap + Every;
+            var events = new List<(double at, int order, int index)>();
+            for (int i = 0; i < landed.Count; i++)
+            {
+                events.Add((landed[i].at, -1, -1));
+                events.Add((landed[i].at, 0, i));
+                events.Add((reads[i], 1, i));
+            }
+            for (double c = Every; c <= end; c += Every) events.Add((c, 2, -1));
+            events = events.OrderBy(e => e.at).ThenBy(e => e.order).ThenBy(e => e.index).ToList();
+
             var run = new Run();
             run.Filter = new KnobInputFilter(0, run.Notes.Add);
-            foreach (var (token, at) in stream)
+            int unread = 0;
+            foreach (var (at, order, index) in events)
             {
-                if (run.Filter.Accept(token, at)) run.Out.Add(token);
+                if (order == 0) unread += landed[index].token.Length + 1;
+                else if (order == 1)
+                {
+                    unread -= landed[index].token.Length + 1;
+                    if (run.Filter.Accept(landed[index].token, at)) run.Out.Add(landed[index].token);
+                }
+                else run.Filter.CheckQuiet(at, unread);
             }
-            run.Filter.Close(closeAt);
+            run.Filter.Close(end);
             return run;
         }
 
@@ -51,8 +84,8 @@ namespace Radios.Tests
         /// <summary>
         /// One controlled revolution, as measured: 84 rotation events over about 2.4 s (about 34
         /// steps a second), gaps from the measured set. The entry's four sub-millisecond doubles
-        /// are modelled as two codes in one read: two separate arrivals 0.4 ms apart are faster
-        /// than 9600 baud allows.
+        /// are modelled as two codes landing together: two arrivals 0.4 ms apart are faster than
+        /// 9600 baud allows.
         /// </summary>
         private static List<(string token, double at)> MeasuredRevolution(string direction = "D", double start = 17_457)
         {
@@ -80,13 +113,13 @@ namespace Radios.Tests
             BackToBack(0, new[] { "F0304", "D", "D", "F0304", "U", "D", "X1S", "D", "D", "F0304", "U", "D" });
 
         /// <summary>
-        /// A saved pile delivered in batches, each back to back, with <paramref name="pause"/>
-        /// between the last arrival of one batch and the first arrival of the next.
+        /// A saved pile in batches, each back to back, with <paramref name="pause"/> between the
+        /// last landing of one batch and the first landing of the next.
         /// </summary>
-        private static List<(string token, double at)> Batches(int batches, int perBatch, double pause, string code = "D")
+        private static List<(string token, double at)> Batches(int batches, int perBatch, double pause, string code = "D", double start = 0)
         {
             var stream = new List<(string, double)>();
-            double t = 0;
+            double t = start;
             for (int b = 0; b < batches; b++)
             {
                 if (b > 0) t += pause - MsFor(code);
@@ -97,20 +130,94 @@ namespace Radios.Tests
             return stream;
         }
 
+        /// <summary>Comfortably after any wait: a full gap after <paramref name="lastRead"/> plus a check.</summary>
+        private static double After(double lastRead) => lastRead + Gap + 2 * Every;
+
+        // ---- Codex's round-four sequences: text waiting to be read is not quiet ----
+
+        [Fact]
+        public void A_delayed_first_callback_cannot_pass_the_saved_pile_off_as_live()
+        {
+            // The whole replay lands in the first 40 ms, but Windows does not deliver it until
+            // 990 ms, nearly a second later, so no read happens for far longer than the gap. The
+            // buffer checks see it waiting. Drop the buffer check and this goes red.
+            var pile = ConnectReplay();
+            var turn = MeasuredRevolution("U", 3_000);
+
+            Run run = Simulate(pile.Concat(turn), readAt: t => t < 1_000 ? 990 : t);
+
+            Assert.Equal(9, run.Filter.ReplayEventsDiscarded);
+            Assert.Equal(new[] { "F0304", "F0304", "F0304" }, run.Out.Take(3).ToArray());
+            Assert.Equal(84, run.Out.Count(t => t == "U"));
+            Assert.DoesNotContain("D", run.Out);
+            Assert.DoesNotContain("X1S", run.Out);
+            Assert.Contains(run.Notes, n => n.StartsWith("knob ready at 1500.0 ms after the open call"));
+        }
+
+        [Fact]
+        public void A_later_saved_batch_held_up_by_a_stalled_reader_cannot_pass_as_live()
+        {
+            // One batch is read at once; the second lands at 300 ms while the reader is stalled
+            // and is not read until 920 ms. Without the buffer check, a gap of over 500 ms since
+            // the first batch's last read would end the wait before the second batch is read.
+            var first = BackToBack(0, "D", 42);
+            var second = BackToBack(300, "U", 42);
+            var turn = MeasuredRevolution("D", 3_000);
+
+            Run run = Simulate(first.Concat(second).Concat(turn), readAt: t => t >= 300 && t < 1_000 ? 920 : t);
+
+            Assert.Equal(84, run.Filter.ReplayEventsDiscarded);
+            Assert.Equal(84, run.Out.Count);
+            Assert.All(run.Out, t => Assert.Equal("D", t));
+        }
+
+        [Fact]
+        public void A_buffer_holding_bytes_is_never_quiet_however_long_since_the_last_read()
+        {
+            var run = new Run();
+            run.Filter = new KnobInputFilter(0, run.Notes.Add);
+            run.Filter.Accept("D", 10);
+            run.Filter.CheckQuiet(60_000, 2);
+            Assert.True(run.Filter.WaitingForQuiet);
+            run.Filter.CheckQuiet(60_050, 0);
+            Assert.False(run.Filter.WaitingForQuiet);
+        }
+
+        [Fact]
+        public void A_read_never_ends_the_wait_by_itself()
+        {
+            // Only a buffer check can find the knob quiet. Round four let a read a full gap after
+            // the last one end the wait, which is exactly how a late callback passed as live.
+            var filter = new KnobInputFilter(0);
+            Assert.False(filter.Accept("D", 10));
+            Assert.False(filter.Accept("D", 60_000));
+            Assert.True(filter.WaitingForQuiet);
+        }
+
         // ---- The wait for quiet ----
+
+        [Fact]
+        public void A_genuinely_quiet_knob_becomes_ready_and_acts_on_the_next_step()
+        {
+            Run run = Simulate(new[] { ("D", 600.0) });
+            Assert.Equal(new[] { "D" }, run.Out);
+            Assert.Contains(run.Notes, n => n.StartsWith("knob ready at 500.0 ms after the open call"));
+
+            Assert.Empty(Simulate(new[] { ("D", 490.0) }).Out); // before any check has found it quiet
+        }
 
         [Fact]
         public void A_replay_in_batches_with_pauses_shorter_than_the_quiet_gap_is_wholly_ignored()
         {
             // Noel: "The knob sends these queued actions in batches." Four batches of 42 detents,
-            // two revolutions in all, each pause just short of the quiet gap. Make the rule end on
-            // any gap shorter than the constant and this goes red.
+            // two revolutions in all, each pause 1 ms short of the gap, read as they land. Make
+            // the rule end on any gap shorter than the constant and this goes red.
             var pile = Batches(4, 42, Gap - 1);
             var gaps = pile.Zip(pile.Skip(1), (x, y) => y.at - x.at).ToList();
             Assert.InRange(gaps.Max(), Gap - 1 - 1e-6, Gap - 1 + 1e-6); // the fixture's pauses really are just short
-            var turn = MeasuredRevolution("U", End(pile) + Gap);
+            var turn = MeasuredRevolution("U", After(End(pile)));
 
-            Run run = Replay(pile.Concat(turn));
+            Run run = Simulate(pile.Concat(turn));
 
             Assert.Equal(168, run.Filter.ReplayEventsDiscarded);
             Assert.Equal(84, run.Out.Count);
@@ -118,57 +225,35 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void A_replay_delivered_in_callbacks_with_one_time_each_is_wholly_ignored()
-        {
-            // Round two's counterexample, held to the wire: the saved input arrives in two
-            // callbacks, each stamping its whole chunk with one time, 10 ms apart.
-            var stream = new List<(string, double)>();
-            stream.AddRange(Enumerable.Repeat(("D", 20.0), 9));   // 18 bytes by 20 ms
-            stream.Add(("F0304", 30.0));                           // 6 bytes, then 2
-            stream.Add(("D", 30.0));
-            stream.AddRange(Enumerable.Repeat(("U", 300.0), 3));
-
-            Run run = Replay(stream);
-
-            Assert.Equal(new[] { "F0304" }, run.Out);
-            Assert.Equal(13, run.Filter.ReplayEventsDiscarded);
-        }
-
-        [Fact]
         public void An_F0304_between_batches_does_not_end_the_wait()
         {
-            // The pause either side of the F0304 is under the gap, but the two pauses together are
-            // well over it. Let the F0304 not restart the timer and the second batch reaches the radio.
+            // The pause either side of the F0304 is under the gap, but the two together are well
+            // over it. Let the F0304 not restart the wait and the second batch reaches the radio.
             var first = BackToBack(0, "D", 20);
             double reportAt = End(first) + 0.6 * Gap;
             var second = BackToBack(reportAt + 0.6 * Gap, "D", 20);
-            var stream = first.Append(("F0304", reportAt)).Concat(second).ToList();
 
-            Run run = Replay(stream);
+            Run run = Simulate(first.Append(("F0304", reportAt)).Concat(second));
 
             Assert.Equal(new[] { "F0304" }, run.Out);
             Assert.Equal(40, run.Filter.ReplayEventsDiscarded);
         }
 
         [Fact]
-        public void The_first_code_after_a_full_quiet_gap_acts_at_once()
+        public void The_first_code_after_the_knob_is_found_quiet_acts_at_once()
         {
+            // The simulator checks the buffer just before each landing, so this is the boundary
+            // exactly: a full gap after the last read, found empty, and the code acts.
             var pile = ConnectReplay();
             double last = End(pile);
 
-            Run onTime = Replay(pile.Append(("D", last + Gap)));
+            Run onTime = Simulate(pile.Append(("D", last + Gap)));
             Assert.Equal("D", onTime.Out[^1]);
-            Assert.False(onTime.Filter.WaitingForQuiet);
 
-            Run early = Replay(pile.Append(("D", last + Gap - 0.1)));
+            // A tenth of a millisecond short, the check does not find it quiet, and the code
+            // restarts the wait instead.
+            Run early = Simulate(pile.Append(("D", last + Gap - 0.1)));
             Assert.DoesNotContain("D", early.Out);
-        }
-
-        [Fact]
-        public void A_quiet_open_is_ready_a_gap_after_the_open_call()
-        {
-            Assert.Equal(new[] { "D" }, Replay(new[] { ("D", Gap) }).Out);
-            Assert.Empty(Replay(new[] { ("D", Gap - 0.1) }).Out);
         }
 
         [Fact]
@@ -177,8 +262,7 @@ namespace Radios.Tests
             // The trade Noel accepted: a turn already going at connect never leaves a full gap,
             // so all of it is ignored; the first step after a pause acts.
             var turn = MeasuredRevolution("D", 10);
-            double resume = End(turn) + Gap;
-            Run run = Replay(turn.Append(("U", resume)));
+            Run run = Simulate(turn.Append(("U", After(End(turn)))));
 
             Assert.Equal(new[] { "U" }, run.Out);
             Assert.Equal(84, run.Filter.ReplayEventsDiscarded);
@@ -187,7 +271,7 @@ namespace Radios.Tests
         [Fact]
         public void F0304_while_waiting_survives_every_time_it_is_sent()
         {
-            Run run = Replay(ConnectReplay());
+            Run run = Simulate(ConnectReplay());
             Assert.Equal(new[] { "F0304", "F0304", "F0304" }, run.Out);
             Assert.Equal(9, run.Filter.ReplayEventsDiscarded);
         }
@@ -198,17 +282,20 @@ namespace Radios.Tests
         public void Nothing_real_is_dropped_once_the_knob_is_ready()
         {
             var pile = ConnectReplay();
-            double ready = End(pile) + Gap;
+            double ready = After(End(pile));
             var stream = new List<(string token, double at)>(pile);
-            stream.AddRange(Enumerable.Repeat(("D", ready), 3));              // three detents in one read
-            stream.AddRange(Enumerable.Repeat(("D", ready + 5_000), 68));     // a reader stall's backlog
+            stream.AddRange(BackToBack(ready, "D", 3));                       // three detents...
+            var stall = BackToBack(ready + 5_000, "D", 68);                   // a reader stall's backlog...
+            stream.AddRange(stall);
             stream.AddRange(MeasuredRevolution("U", ready + 10_000));         // the measured fast turn
             stream.Add(("D", ready + 20_000));                                // a step, then presses at once
             stream.Add(("X1S", ready + 20_029));
             stream.Add(("C", ready + 20_034));
             stream.Add(("F0304", ready + 20_041));                            // a mid-session report
+            double threeAt = ready + 10, stallAt = End(stall) + 300;
 
-            Run run = Replay(stream);
+            // ...read in one go, and after a long stall.
+            Run run = Simulate(stream, readAt: t => t >= ready && t < ready + 10 ? threeAt : t >= ready + 5_000 && t < ready + 6_000 ? stallAt : t);
 
             Assert.Equal(3 + 68 + 1, run.Out.Count(t => t == "D"));
             Assert.Equal(84, run.Out.Count(t => t == "U"));
@@ -223,46 +310,54 @@ namespace Radios.Tests
             double rate = 83 / ((End(turn) - turn[0].at) / 1000.0);
             Assert.InRange(rate, 30, 38); // the fixture really is the measured ~34 steps a second
 
-            Run run = Replay(turn);
+            Run run = Simulate(turn);
 
             Assert.Equal(84, run.Out.Count);
             Assert.Equal(0, run.Filter.ReplayEventsDiscarded);
         }
 
-        // ---- The trace line ----
+        // ---- The trace line says only what was observed ----
 
         [Fact]
-        public void The_trace_says_what_was_ignored_the_gaps_it_saw_and_when_the_knob_was_ready()
+        public void The_trace_says_what_was_ignored_the_gaps_it_saw_and_when_the_knob_was_found_quiet()
         {
-            var stream = new List<(string token, double at)> { ("F0304", 10.0), ("D", 20.0), ("D", 20.0), ("X1S", 150.0) };
-            stream.Add(("U", 150.0 + Gap + 7));
-            Run run = Replay(stream);
+            var filter = new List<string>();
+            var f = new KnobInputFilter(0, filter.Add);
+            f.Accept("F0304", 10);
+            f.Accept("D", 20);
+            f.Accept("D", 20);
+            f.Accept("X1S", 150);
+            f.CheckQuiet(600, 4);
+            f.CheckQuiet(650, 0);
+            f.Accept("U", 657);
 
-            string line = Assert.Single(run.Notes);
-            Assert.Contains("knob ready 650.0 ms after the open call, once it had sent nothing for 500.0 ms", line);
-            Assert.Contains("the next code came at 657.0 ms and was acted on", line);
-            Assert.Contains("ignored 3 input codes (D 2, X1S 1) and passed 1 device reports", line);
-            Assert.Contains("the first at 10.0 ms after the open call, then gaps of 10.0, 130.0 ms", line);
-            Assert.Contains("not the times the bytes left the knob", line);
+            string line = Assert.Single(filter);
+            Assert.Equal(
+                "knob ready at 650.0 ms after the open call: no text had been read from the port for 500.0 ms, and the port's buffer was empty when checked."
+                + " While waiting it ignored 3 input codes (D 2, X1S 1) and passed 1 device reports, and 1 buffer checks found bytes waiting unread."
+                + " Reads: the first at 10.0 ms after the open call, then gaps of 10.0, 130.0 ms."
+                + " These are the times the text was read from the port, one read often carrying many codes, not the times the bytes left the knob.",
+                line);
+            Assert.DoesNotContain("sent nothing", line);
         }
 
         [Fact]
-        public void A_port_closed_before_the_knob_went_quiet_says_so()
+        public void A_port_closed_before_the_knob_was_found_quiet_says_so()
         {
-            var run = new Run();
-            run.Filter = new KnobInputFilter(0, run.Notes.Add);
-            run.Filter.Accept("D", 3);
-            run.Filter.Close(200);
-            Assert.Contains("the port closed at 200.0 ms after the open call with the knob never quiet", Assert.Single(run.Notes));
+            var notes = new List<string>();
+            var f = new KnobInputFilter(0, notes.Add);
+            f.Accept("D", 3);
+            f.Close(200);
+            Assert.StartsWith("the port closed at 200.0 ms after the open call before a buffer check had found the knob quiet", Assert.Single(notes));
         }
 
         [Fact]
-        public void A_port_closed_after_a_silent_open_reports_ready_and_nothing_arrived()
+        public void A_silent_open_reports_ready_and_nothing_read()
         {
-            Run run = Replay(Array.Empty<(string, double)>(), closeAt: 2_000);
+            Run run = Simulate(Array.Empty<(string, double)>(), closeAt: 2_000);
             string line = Assert.Single(run.Notes);
-            Assert.Contains("knob ready 500.0 ms after the open call", line);
-            Assert.Contains("Nothing arrived while waiting", line);
+            Assert.StartsWith("knob ready at 500.0 ms after the open call", line);
+            Assert.Contains("Nothing was read while waiting", line);
         }
 
         // ---- The fixtures themselves ----
@@ -276,7 +371,7 @@ namespace Radios.Tests
             var roundThree = Enumerable.Range(0, 160).Select(i => ("D", 1.0 + i * 2.05)).ToList();
             Assert.Throws<InvalidOperationException>(() => AssertNoFasterThanTheWire(roundThree));
 
-            // Nine codes in one callback at 10 ms need 18.75 ms.
+            // Nine codes landing together at 10 ms need 18.75 ms.
             Assert.Throws<InvalidOperationException>(() => AssertNoFasterThanTheWire(Enumerable.Repeat(("D", 10.0), 9)));
 
             AssertNoFasterThanTheWire(BackToBack(0, "D", 160));

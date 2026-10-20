@@ -5,6 +5,7 @@ using System.IO;
 using System.IO.Ports;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using JJTrace;
 
 namespace JJFlexControl
@@ -37,6 +38,7 @@ namespace JJFlexControl
             Tracing.TraceLine("Serial.Open:" + port, TraceLevel.Info);
             bool rv = true;
             KnobInputPump openPump = null;
+            System.Threading.Timer openCheck = null;
             knobPort = new SerialPort();
             try
             {
@@ -65,7 +67,21 @@ namespace JJFlexControl
                 knobPort.DataReceived += (sender, e) => dataReceived(openPort, boundPump);
                 knobPort.Open();
                 Tracing.TraceLine("Serial.Open: the port opened " + openClock.Elapsed.TotalMilliseconds.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)
-                    + " ms after the open call; the knob's arrival times count from the open call", TraceLevel.Info);
+                    + " ms after the open call; the knob's read times count from the open call", TraceLevel.Info);
+
+                // Round five: only a check of the port's own buffer, made between reads, can find
+                // the knob quiet. A read's time is when Windows delivered the text, so a late
+                // callback would otherwise pass saved turns off as fresh ones. The check runs every
+                // KnobInputFilter.QuietCheckMs and stops itself once the knob is found quiet.
+                System.Threading.Timer check = null;
+                check = new System.Threading.Timer(_ =>
+                {
+                    if (checkQuiet(openPort, boundPump)) return;
+                    try { check?.Change(Timeout.Infinite, Timeout.Infinite); }
+                    catch (ObjectDisposedException) { } // Close got there first
+                }, null, Timeout.Infinite, Timeout.Infinite);
+                openCheck = check;
+                check.Change(KnobInputFilter.QuietCheckMs, KnobInputFilter.QuietCheckMs);
             }
             catch(Exception ex)
             {
@@ -74,7 +90,11 @@ namespace JJFlexControl
                 rv = false;
             }
 
-            if (rv) pump = openPump;
+            if (rv)
+            {
+                pump = openPump;
+                quietCheck = openCheck;
+            }
 
             return rv;
         }
@@ -87,6 +107,8 @@ namespace JJFlexControl
             Tracing.TraceLine("Serial.close",TraceLevel.Info);
             // Stop first: it waits for any dispatch already in progress, and nothing from this open
             // is dispatched after it returns (#520). Nothing is held, so nothing is lost.
+            if (quietCheck != null) quietCheck.Dispose();
+            quietCheck = null;
             KnobInputPump closing = pump;
             pump = null;
             if (closing != null) closing.Stop();
@@ -94,6 +116,20 @@ namespace JJFlexControl
         }
 
         private KnobInputPump pump;
+        private System.Threading.Timer quietCheck;
+
+        /// <summary>
+        /// One buffer check while waiting for the knob to go quiet. True while still waiting. A port
+        /// that cannot say how much it holds counts as holding something: never quiet by default.
+        /// </summary>
+        private static bool checkQuiet(SerialPort port, KnobInputPump openPump)
+        {
+            return openPump.CheckQuiet(() =>
+            {
+                try { return port.BytesToRead; }
+                catch (Exception ex) when (ex is InvalidOperationException || ex is IOException) { return 1; }
+            });
+        }
 
         private static void dataReceived(SerialPort port, KnobInputPump openPump)
         {
@@ -101,16 +137,16 @@ namespace JJFlexControl
             // handlers: what the knob replays when the port opens is ignored until the knob has
             // gone quiet, every input code after that is acted on at once, and a device report
             // such as F0304 is always passed on.
-            string text;
-            try
+            // Read INSIDE the pump's lock, so a buffer check can never fall between taking the
+            // text out of the port and handing it to the filter (round five).
+            openPump.ReadFrom(() =>
             {
-                text = port.ReadExisting();
-            }
-            catch (Exception ex) when (ex is InvalidOperationException || ex is IOException)
-            {
-                return; // the port closed underneath this callback
-            }
-            openPump.TakeText(text);
+                try { return port.ReadExisting(); }
+                catch (Exception ex) when (ex is InvalidOperationException || ex is IOException)
+                {
+                    return null; // the port closed underneath this callback
+                }
+            });
         }
     }
 }
