@@ -512,5 +512,18 @@ namespace Radios.Speech
         /// through the menu-close path, which carries no subject today.
         /// </summary>
         public const string GlobalProfileWriteRefusal = "global-profile-write-refusal";
+
+        /// <summary>
+        /// The radio's microphone input left PC while computer transmit audio
+        /// was running, on a radio NOT declared the operator's, so JJ Flex left
+        /// the owner's choice alone and said so instead of putting it back
+        /// (junkbox #686). Spoken once per divergence episode by
+        /// <c>checkPcMicSelection</c>; the next episode's report covers it.
+        /// Its own subject because it is a statement about where the transmit
+        /// audio is going on somebody else's radio, not a refusal of anything
+        /// the operator pressed, so <see cref="GlobalProfileWriteRefusal"/>
+        /// says nothing about it and must not retire it.
+        /// </summary>
+        public const string PcMicLeftForOwner = "pc-mic-left-for-owner";
     }
 }
