@@ -1396,7 +1396,7 @@ public partial class MainWindow : UserControl
     /// announcement that is wrong by the time it is heard is worse than
     /// silence.</para>
     /// </remarks>
-    private void ReportHomePanelsMissing()
+    private void ReportHomePanelsMissing(HomeLayoutRestore.Route route)
     {
         // Wrapped because this sits on the connect path. An instrument that can
         // take down the thing it is watching is worse than no instrument, and
@@ -1404,7 +1404,7 @@ public partial class MainWindow : UserControl
         // the rest of the radio is wired up.
         try
         {
-            ReportHomePanelsMissingCore();
+            ReportHomePanelsMissingCore(route);
         }
         catch (Exception ex)
         {
@@ -1412,13 +1412,18 @@ public partial class MainWindow : UserControl
         }
     }
 
-    private void ReportHomePanelsMissingCore()
+    private void ReportHomePanelsMissingCore(HomeLayoutRestore.Route route)
     {
         if (!HomePanelsCollapsedWithRadio) return;
 
+        // Until #410 this line named its own cause — "ExitRescueMode returned
+        // early ... so ApplyUIMode never ran" — which was true then and would
+        // be false now, because that early return restores. So it states the
+        // state and the route taken, and leaves the cause to the trace lines
+        // around it rather than asserting one it can no longer know.
         Tracing.TraceLine(
-            "Home panels missing with a radio present (#500/#410): ExitRescueMode returned early"
-            + " because rescue mode was never entered, so ApplyUIMode never ran to restore them."
+            "Home panels missing with a radio present (#500/#410), after the arrival's restore decision"
+            + " (route: " + route + "). Something collapsed the fields panel that no restore on this arrival covered."
             + " | state: " + DescribeHomePanelVisibility()
             + " | FieldsPanelUserVisible=" + FieldsPanelUserVisible,
             TraceLevel.Error);
@@ -1492,36 +1497,53 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
-    /// A radio arrived: retire the rescue page and hand Home back to the UI
-    /// mode. Restoring through <see cref="ApplyUIMode"/> rather than by
-    /// un-collapsing each panel means the connected layout is never rebuilt
-    /// from this method's memory of what it used to look like — the mode
-    /// builders stay the single source of truth for that.
+    /// A radio arrived: retire the rescue page if it is up, and hand Home back
+    /// to the UI mode whenever anything collapsed it — the rescue page, or the
+    /// disconnect shell a reconnect inside the grace period finds still in
+    /// place (#410). Both routes restore through
+    /// <see cref="RestoreConnectedHomeLayout"/>, so <see cref="ApplyUIMode"/>
+    /// stays the single source of truth for the connected layout.
     /// </summary>
     public void ExitRescueMode()
     {
         CancelRescueCountdown();
-        if (!_rescueMode)
+        var route = HomeLayoutRestore.Decide(_rescueMode, _disconnectShellUp);
+        if (route != HomeLayoutRestore.Route.FromRescuePage)
         {
-            // #500 — THIS EARLY RETURN IS THE SILENT MOMENT, and it is the one
-            // the evening of 2026-09-01 actually landed in.
+            // #410 — A RECONNECT INSIDE THE GRACE PERIOD OWES THE SAME RESTORE.
             //
             // A disconnect runs RestoreNoRadioShell, which collapses Fields,
-            // Meters and Panadapter WITHOUT entering rescue mode, and starts a
-            // three-minute countdown. A radio arriving before that countdown
-            // fires reaches here with _rescueMode still false, returns on this
-            // line, and NEVER RUNS ApplyUIMode — which is the only thing that
-            // un-collapses those three panels. ApplyUIMode is called on startup
-            // and on an operator change; nothing on a reconnect calls it.
+            // Meters and Panadapter WITHOUT entering rescue mode, and starts
+            // the three-minute countdown. A radio arriving before it fires
+            // reaches here with _rescueMode still false. Until #410 this branch
+            // only reported and returned, and ApplyUIMode — the only thing that
+            // un-collapses those panels — never ran, so the operator got a
+            // working radio with a third of the interface out of the tab order,
+            // and reconnecting, the obvious remedy, was the path that left it
+            // that way (#500 caught it on 2026-09-01 and made it visible).
             //
-            // So the operator gets a working radio with a third of the
-            // interface gone, it survives further reconnects because
-            // reconnecting is not what restores it, and a restart appears to
-            // fix it. That is #410's mechanism seen from this side, and
-            // repairing it is #410's job, not this track's.
+            // Now it restores exactly as the rescue exit does, through the one
+            // shared method, so ApplyUIMode stays the single source of the
+            // layout. Nothing is spoken and focus is not moved: the disconnect
+            // put focus on the frequency display, which never collapsed, and
+            // the connect flow's own narration is what the operator hears.
             //
-            // What this track owes it is that it stop being invisible.
-            ReportHomePanelsMissing();
+            // Route.None is the first connect of a session, before any
+            // disconnect: startup already applied the layout, so nothing runs.
+            if (route == HomeLayoutRestore.Route.FromDisconnectShell)
+            {
+                Tracing.TraceLine(
+                    "Home: radio arrived inside the rescue grace period — restoring the panels the disconnect collapsed"
+                    + " | before: " + DescribeHomePanelVisibility(),
+                    TraceLevel.Info);
+                RestoreConnectedHomeLayout();
+            }
+
+            // #500's instrument stays on this path and still reports the state
+            // it was built to see — a radio present and the fields panel gone —
+            // now as a defect in whatever collapsed it after this restore, or
+            // in a route nobody has found yet, rather than as this early return.
+            ReportHomePanelsMissing(route);
             return;
         }
         _rescueMode = false;
@@ -1536,10 +1558,7 @@ public partial class MainWindow : UserControl
         bool pageHadFocus = RescuePanel.IsKeyboardFocusWithin;
 
         RescuePanel.Visibility = Visibility.Collapsed;
-        // ContentArea is the one panel the mode builders never touch; its
-        // children carry their own CW-mode visibility rules from there.
-        ContentArea.Visibility = Visibility.Visible;
-        ApplyUIMode(ActiveUIMode);
+        RestoreConnectedHomeLayout();
 
         // Reset the page's name so a lead that was never heard cannot outlive
         // the situation that produced it and greet the operator next time.
@@ -1565,6 +1584,45 @@ public partial class MainWindow : UserControl
         Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
             Radios.ScreenReaderOutput.Speak(
                 Radios.Lexicon.Get("connect.home.radio_back"), VerbosityLevel.Critical, interrupt: false));
+    }
+
+    /// <summary>
+    /// True from the moment <see cref="RestoreNoRadioShell"/> collapses Home's
+    /// operating surface until <see cref="RestoreConnectedHomeLayout"/> puts it
+    /// back. What tells <see cref="ExitRescueMode"/> that a reconnect inside
+    /// the grace period owes a restore (#410).
+    /// </summary>
+    private bool _disconnectShellUp;
+
+    /// <summary>
+    /// Hand Home back to the UI mode after either collapse — the rescue page
+    /// or the disconnect shell. One method for both routes so the two can
+    /// never restore differently (#410).
+    /// </summary>
+    /// <remarks>
+    /// <para>Restoring through <see cref="ApplyUIMode"/> rather than by
+    /// un-collapsing each panel means the connected layout is never rebuilt
+    /// from a memory of what it used to look like; the mode builders stay the
+    /// single source of truth.</para>
+    /// <para><b>What this does NOT restore, on either route.</b>
+    /// <c>ApplyUIMode</c> never touches <c>MetersPanel</c> or
+    /// <c>PanadapterPanel</c>. The panadapter comes back on its own when the
+    /// first pan line arrives (the <c>PanDisplayCallback</c> re-shows it if the
+    /// operator's Show-panadapter setting is on). The meters panel is the
+    /// operator's own Ctrl+M choice and starts collapsed on a cold connect, so
+    /// a meters panel they had opened before the drop stays closed after it —
+    /// true before #410 on the rescue route too, and reported rather than
+    /// changed here.</para>
+    /// </remarks>
+    private void RestoreConnectedHomeLayout()
+    {
+        // ContentArea is the one panel the mode builders never touch; its
+        // children carry their own CW-mode visibility rules from there. The
+        // disconnect shell never collapses it, so on that route this is a
+        // no-op kept for symmetry rather than a repair.
+        ContentArea.Visibility = Visibility.Visible;
+        ApplyUIMode(ActiveUIMode);
+        _disconnectShellUp = false;
     }
 
     #region Mid-session rescue — Sprint 31 Track R
@@ -3633,6 +3691,9 @@ public partial class MainWindow : UserControl
             FieldsPanel.Visibility = Visibility.Collapsed;
             MetersPanel.Visibility = Visibility.Collapsed;
             PanadapterPanel.Visibility = Visibility.Collapsed;
+            // #410: the next radio to arrive owes a restore, whether the
+            // rescue page has engaged by then or not.
+            _disconnectShellUp = true;
             // FreqOut is the cold-start focus anchor (SpeakWelcome focuses it
             // after MainWindow loads). Returning focus here means the user
             // doesn't lose a meaningful focus location during the visibility
