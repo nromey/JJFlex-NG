@@ -14,6 +14,7 @@ internal sealed class LoopbackSliceResources
     internal Panadapter Pan { get; private set; }
     internal string SavedRxAnt { get; private set; }
     internal int SavedRFGain { get; private set; }
+    internal bool SavedMute { get; private set; }
     /// <summary>The RF gain sent to the ears slice; the restore's expected value.</summary>
     internal int EarsRFGain { get; set; } = 32;
     internal double SavedFrequency { get; private set; }
@@ -67,6 +68,7 @@ internal sealed class LoopbackSliceResources
         if (!IsPresent(slices, pans) || transmit == null || ReferenceEquals(Slice, transmit)) return false;
         SavedRxAnt = Slice.RXAnt;
         SavedRFGain = Slice.RFGain;
+        SavedMute = Slice.Mute;
         SavedFrequency = Slice.Freq;
         SavedMode = Slice.DemodMode;
         SavedPanCenter = Pan.CenterFreq;

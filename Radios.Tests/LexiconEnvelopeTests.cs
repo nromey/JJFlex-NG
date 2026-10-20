@@ -1120,6 +1120,13 @@ namespace Radios.Tests
                 "audio.iq.offair_removing_listener",
                 "audio.check.loopback_ears_added",
 
+                // #456 Round 10: off-air live monitoring and the two comparison methods.
+                "audio.iq.hear_during_take",
+                "audio.iq.setting.ears-mute",
+                "audio.iq.compared_aligned",
+                "audio.iq.compared_average",
+                "audio.iq.average_difference",
+
             };
 
             Assert.Equal(3152, unclassified);

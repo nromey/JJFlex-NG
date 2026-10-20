@@ -199,12 +199,26 @@ public partial class FlexBase
                         $"slice set {ears.Index} rfgain={ownedLoopback.SavedRFGain}", $"slice {ears.Index}",
                         "rfgain", "slice", (uint)ears.Index,
                         RequestedValue: ownedLoopback.EarsRFGain.ToString(CultureInfo.InvariantCulture)));
+                    bool desiredEarsMute = !options.HearSelfDuringOffAir;
+                    if (ownedLoopback.SavedMute != desiredEarsMute)
+                    {
+                        snapshot.Settings.Add(new("ears-mute", ownedLoopback.SavedMute ? "1" : "0",
+                            $"slice set {ears.Index} audio_mute={(ownedLoopback.SavedMute ? 1 : 0)}",
+                            $"slice {ears.Index}", "audio_mute", "slice", (uint)ears.Index,
+                            RequestedValue: desiredEarsMute ? "1" : "0"));
+                        identities["ears-mute"] = ears;
+                    }
                     identities["ears-antenna"] = ears;
                     identities["ears-rf-gain"] = ears;
                     identities["ears-frequency"] = ears;
                     identities["ears-mode"] = ears;
                     identities["ears-pan-center"] = earsPan;
                     store.Save(snapshot);
+                    if (ownedLoopback.SavedMute != desiredEarsMute &&
+                        !await LoopbackSliceCommandAsync(radio, connection, ears,
+                            $"slice set {ears.Index} audio_mute={(desiredEarsMute ? 1 : 0)}",
+                            "off-air ears mute setup").ConfigureAwait(false))
+                        throw new InvalidOperationException("arrangement-refused");
                 }
                 if (ownedLoopback?.Slice != null)
                     lock (_sliceSettleLock) _diagnosticSlices[ownedLoopback.Slice] = DiagnosticSlicePurpose.OffAir;

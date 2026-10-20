@@ -61,6 +61,51 @@ public static class AudioDifferential
         return values.Count == 0 ? new(false, "no-keyed-gap-free-span") : new(true, "aligned-spans",
             values.Average(v => v.LevelDb), values.Average(v => v.TiltDb), values.Average(v => v.CrestDb), values.Average(v => v.StopbandDb));
     }
+    /// <summary>Compare independent live readings without claiming sample alignment.</summary>
+    public static AudioDifference CompareOverallAverage(float[] first, IReadOnlyList<TakeSpan> firstSpans,
+        float[] second, IReadOnlyList<TakeSpan> secondSpans, int rate, double filterLow, double filterHigh)
+    {
+        static (double Level, double Tilt)? Average(float[] samples, IReadOnlyList<TakeSpan> spans,
+            int rate, double filterLow, double filterHigh)
+        {
+            const int window = 512;
+            double squares = 0, lowPower = 0, highPower = 0;
+            long sampleCount = 0;
+            int windows = 0;
+            double lowEnd = filterLow + (filterHigh - filterLow) / 3;
+            double highStart = filterLow + 2 * (filterHigh - filterLow) / 3;
+            foreach (var span in spans)
+            {
+                int from = (int)Math.Clamp(span.Start, 0, samples.Length);
+                int to = (int)Math.Clamp(span.End, 0, samples.Length);
+                for (int i = from; i < to; i++) { squares += samples[i] * (double)samples[i]; sampleCount++; }
+                for (int start = from; start + window <= to; start += window)
+                {
+                    var tapered = new double[window];
+                    for (int i = 0; i < window; i++)
+                        tapered[i] = samples[start + i] * (.5 - .5 * Math.Cos(2 * Math.PI * i / (window - 1)));
+                    for (int bin = 1; bin < window / 2; bin++)
+                    {
+                        double hz = bin * (double)rate / window;
+                        if (hz < filterLow || hz > filterHigh || (hz >= lowEnd && hz < highStart)) continue;
+                        double coefficient = 2 * Math.Cos(2 * Math.PI * bin / window), p = 0, pp = 0;
+                        foreach (double value in tapered) { double current = value + coefficient * p - pp; pp = p; p = current; }
+                        double power = Math.Max(0, p * p + pp * pp - coefficient * p * pp);
+                        if (hz < lowEnd) lowPower += power;
+                        else highPower += power;
+                    }
+                    windows++;
+                }
+            }
+            if (sampleCount < rate / 4 || windows == 0 || squares <= 0 || lowPower <= 0 || highPower <= 0)
+                return null;
+            return (Db(squares / sampleCount), Db(highPower / windows) - Db(lowPower / windows));
+        }
+        var a = Average(first, firstSpans, rate, filterLow, filterHigh);
+        var b = Average(second, secondSpans, rate, filterLow, filterHigh);
+        return a == null || b == null ? new(false, "no-keyed-gap-free-speech") :
+            new(true, "overall-average", b.Value.Level - a.Value.Level, b.Value.Tilt - a.Value.Tilt);
+    }
     public static string Compatibility(TakeInspection a, TakeInspection b)
     {
         foreach (string key in new[] { "serial", "mode", "rate-echoed", "receive-antenna", "rf-gain", "tx-antenna", "rf-power",

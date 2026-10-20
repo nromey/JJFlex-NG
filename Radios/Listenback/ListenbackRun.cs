@@ -5,7 +5,8 @@ using System.Threading.Tasks;
 namespace Radios.Listenback;
 
 public sealed record ListenbackOptions(int Rate = 24000, bool SeparatePan = false,
-    bool FullDuplex = false, string ReceiveAntenna = null, bool OffAir = false);
+    bool FullDuplex = false, string ReceiveAntenna = null, bool OffAir = false,
+    bool HearSelfDuringOffAir = false);
 
 public sealed class ListenbackRun
 {

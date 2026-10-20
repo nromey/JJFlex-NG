@@ -16,7 +16,7 @@ public partial class AudioWorkshopDialog
 {
     private TextBox? _takeStatus;
     private ComboBox? _iqRate, _iqAntenna;
-    private CheckBox? _iqSeparate, _iqFdx;
+    private CheckBox? _iqSeparate, _iqFdx, _iqHearSelfDuringTake;
     private Button? _iqDiagnostic, _iqPreflight, _sliceRecordButton, _slicePlayButton;
     private ListenbackRun? _iqRun;
     private FlexBase? _iqRunRig;
@@ -61,6 +61,9 @@ public partial class AudioWorkshopDialog
         _iqFdx = new CheckBox { Content = Lexicon.Get("audio.iq.full_duplex"), Margin = new Thickness(2) };
         AddToSection(HearYourselfContent, _iqSeparate);
         AddToSection(HearYourselfContent, _iqFdx);
+        _iqHearSelfDuringTake = new CheckBox { Content = Lexicon.Get("audio.iq.hear_during_take"),
+            IsChecked = false, Margin = new Thickness(2) };
+        AddToSection(HearYourselfContent, _iqHearSelfDuringTake);
         _iqAntenna = new ComboBox { Margin = new Thickness(2) };
         AutomationProperties.SetName(_iqAntenna, Lexicon.Get("audio.iq.antenna_label"));
         JJFlexHelp.SetText(_iqAntenna, Lexicon.Get("audio.iq.antenna_help"));
@@ -306,7 +309,8 @@ public partial class AudioWorkshopDialog
             if (rig.OffAirListenbackRefusalReason is { Length: > 0 } refusal)
                 throw new InvalidOperationException(refusal);
             int rate = new[] { 24000, 48000, 96000 }[Math.Clamp(_iqRate?.SelectedIndex ?? 0, 0, 2)];
-            _iqRun = await rig.StartListenbackAsync(new ListenbackOptions(Rate: rate, OffAir: true), _iqCancellation.Token);
+            _iqRun = await rig.StartListenbackAsync(new ListenbackOptions(Rate: rate, OffAir: true,
+                HearSelfDuringOffAir: _iqHearSelfDuringTake?.IsChecked == true), _iqCancellation.Token);
             _iqRunRig = rig;
             if (_iqClosing || _iqCancellation.IsCancellationRequested || !ReferenceEquals(rig, _rig) || ptt.IsTransmitting || rig.Transmit)
                 throw new OperationCanceledException();
@@ -401,7 +405,15 @@ public partial class AudioWorkshopDialog
                 .OrderByDescending(d => File.GetLastWriteTimeUtc(Path.Combine(d, "take.txt"))).Take(2).ToArray() : Array.Empty<string>();
             if (pair.Length < 2) { IqStatus(Lexicon.Get("audio.iq.need_two")); return; }
             var difference = await Task.Run(() => TakeAnalysis.CompareTakes(pair[1], pair[0]));
-            IqStatus(difference.Comparable ? Lexicon.Get("audio.iq.previous_comparison") + " " + DifferenceSentence(difference) :
+            string methodKey = difference.Reason == "overall-average" ? "audio.iq.compared_average" : "audio.iq.compared_aligned";
+            string method = Lexicon.Get(methodKey);
+            string numbers = difference.Reason == "overall-average"
+                ? Lexicon.Get("audio.iq.average_difference",
+                    ("level_word", Lexicon.Get(difference.LevelDb >= 0 ? "audio.iq.louder" : "audio.iq.quieter")),
+                    ("level", Math.Abs(difference.LevelDb).ToString("F1")),
+                    ("tilt", difference.TiltDb.ToString("+0.0;-0.0;0.0")))
+                : DifferenceSentence(difference);
+            IqStatus(difference.Comparable ? Lexicon.Get("audio.iq.previous_comparison") + " " + method + " " + numbers :
                 Lexicon.Get("audio.iq.unlike_or_unaligned"), !difference.Comparable);
         }
         catch (Exception ex) { IqFailure(ex); }

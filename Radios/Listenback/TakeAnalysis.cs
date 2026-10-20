@@ -177,12 +177,21 @@ public static class TakeAnalysis
         SsbTakeRenderer.Render(previousDirectory); SsbTakeRenderer.Render(currentDirectory);
         var (rate, first) = TakeAudio.ReadMono(Path.Combine(previousDirectory, "heard.wav"));
         var (_, second) = TakeAudio.ReadMono(Path.Combine(currentDirectory, "heard.wav"));
-        var firstSpan = TakeTimeline.WithoutGaps(TakeTimeline.KeyedSpans(a, first.Length), TakeTimeline.Gaps(a)).FirstOrDefault();
-        var secondSpan = TakeTimeline.WithoutGaps(TakeTimeline.KeyedSpans(b, second.Length), TakeTimeline.Gaps(b)).FirstOrDefault();
-        int length = (int)Math.Min(firstSpan.Length, secondSpan.Length);
-        if (length < rate / 4) return new(false, "no-keyed-gap-free-span");
-        first = first.AsSpan((int)firstSpan.Start, length).ToArray(); second = second.AsSpan((int)secondSpan.Start, length).ToArray();
-        var alignment = AudioAlignment.Measure(first, second, rate, new[] { new TakeSpan(0, length) });
-        return AudioDifferential.Compare(first, second, rate, alignment, Number(a, "tx-filter-low"), Number(a, "tx-filter-high"));
+        var firstSpans = TakeTimeline.WithoutGaps(TakeTimeline.KeyedSpans(a, first.Length), TakeTimeline.Gaps(a));
+        var secondSpans = TakeTimeline.WithoutGaps(TakeTimeline.KeyedSpans(b, second.Length), TakeTimeline.Gaps(b));
+        double filterLow = Number(a, "tx-filter-low"), filterHigh = Number(a, "tx-filter-high");
+        var firstSpan = firstSpans.FirstOrDefault(s => s.Length >= rate / 4);
+        var secondSpan = secondSpans.FirstOrDefault(s => s.Length >= rate / 4);
+        if (firstSpan.Length > 0 && secondSpan.Length > 0)
+        {
+            int length = (int)Math.Min(firstSpan.Length, secondSpan.Length);
+            var alignedFirst = first.AsSpan((int)firstSpan.Start, length).ToArray();
+            var alignedSecond = second.AsSpan((int)secondSpan.Start, length).ToArray();
+            var alignment = AudioAlignment.Measure(alignedFirst, alignedSecond, rate, new[] { new TakeSpan(0, length) });
+            if (alignment.Aligned)
+                return AudioDifferential.Compare(alignedFirst, alignedSecond, rate, alignment, filterLow, filterHigh);
+        }
+        return AudioDifferential.CompareOverallAverage(first, firstSpans, second, secondSpans,
+            rate, filterLow, filterHigh);
     }
 }

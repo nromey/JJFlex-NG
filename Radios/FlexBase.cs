@@ -11196,16 +11196,12 @@ namespace Radios
                     ears = resources.Slice;
                 }
             }).ConfigureAwait(false);
-            // Noel 2026-10-20 13:49: bring the ears' RF gain up. Take the top of the range
-            // the radio reports for this pan, never less than the 32 that has worked; the
-            // trace records the range so the bench can see what the port actually allows.
-            int panGainLow = resources.Pan?.RFGainLow ?? 0, panGainHigh = resources.Pan?.RFGainHigh ?? 0,
-                panGainStep = resources.Pan?.RFGainStep ?? 0;
-            resources.EarsRFGain = Math.Max(32, panGainHigh);
-            Tracing.TraceLine($"Loopback ears RF gain: pan reports low={panGainLow} high={panGainHigh} step={panGainStep}; sending {resources.EarsRFGain}", TraceLevel.Info);
             if (!await LoopbackSliceCommandAsync(arrangementRadio, arrangementConnection, ears,
-                $"slice set {ears.Index} rxant={earsAntenna}", "ears antenna setup").ConfigureAwait(false) ||
-                !await LoopbackSliceCommandAsync(arrangementRadio, arrangementConnection, ears,
+                $"slice set {ears.Index} rxant={earsAntenna}", "ears antenna setup").ConfigureAwait(false))
+                throw new InvalidOperationException("loopback-ears-setting-refused");
+            resources.EarsRFGain = await LoopbackEarsRFGainAsync(arrangementRadio, arrangementConnection,
+                ears, resources.Pan).ConfigureAwait(false);
+            if (!await LoopbackSliceCommandAsync(arrangementRadio, arrangementConnection, ears,
                 $"slice set {ears.Index} rfgain={resources.EarsRFGain}", "ears RF gain setup").ConfigureAwait(false))
                 throw new InvalidOperationException("loopback-ears-setting-refused");
 
@@ -11232,6 +11228,47 @@ namespace Radios
                 return false;
             }
             finally { System.Threading.Volatile.Write(ref _lbArrangementStarting, 0); }
+        }
+
+        private async Task<int> LoopbackEarsRFGainAsync(Radio radio, CommandConnection connection,
+            Slice ears, Panadapter pan)
+        {
+            const int fallback = 32;
+            string command = $"display pan rfgain_info 0x{pan.StreamID:X}";
+            var reply = new TaskCompletionSource<(uint Code, string Text)>(TaskCreationOptions.RunContinuationsAsynchronously);
+            await IqQueue(() =>
+            {
+                if (!ReferenceEquals(theRadio, radio) || !radio.Connected ||
+                    !ReferenceEquals(radio.CurrentCommandConnection, connection) ||
+                    !radio.SliceList.Contains(ears) || !mySlices.Contains(ears) ||
+                    !radio.PanadapterList.Contains(pan) || !ReferenceEquals(ears.Panadapter, pan))
+                    throw new InvalidOperationException("loopback-connection-or-slice-changed");
+                int sent = radio.SendReplyCommand((sequence, code, response) =>
+                {
+                    Tracing.TraceLine($"Loopback ears RF gain info: reply {sequence} {code:X8} {response}", TraceLevel.Info);
+                    reply.TrySetResult((code, response));
+                }, command);
+                Tracing.TraceLine($"Loopback ears RF gain info: sent {sent} {command}", TraceLevel.Info);
+            }).ConfigureAwait(false);
+            using var timeout = new CancellationTokenSource(ListenbackConfirmationWait);
+            (uint Code, string Text) result;
+            try { result = await reply.Task.WaitAsync(timeout.Token).ConfigureAwait(false); }
+            catch (OperationCanceledException)
+            {
+                Tracing.TraceLine($"Loopback ears RF gain info: no reply; sending {fallback}", TraceLevel.Warning);
+                return fallback;
+            }
+            string[] range = result.Text?.Split(',') ?? Array.Empty<string>();
+            int low = 0, high = 0, step = 0;
+            bool parsed = result.Code == 0 && range.Length >= 3 &&
+                int.TryParse(range[0].Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out low) &&
+                int.TryParse(range[1].Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out high) &&
+                int.TryParse(range[2].Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out step);
+            int gain = parsed ? Math.Max(fallback, high) : fallback;
+            Tracing.TraceLine(parsed
+                ? $"Loopback ears RF gain: radio reports low={low} high={high} step={step}; sending {gain}"
+                : $"Loopback ears RF gain: unusable radio reply; sending {gain}", TraceLevel.Info);
+            return gain;
         }
 
         private async Task<bool> LoopbackSliceCommandAsync(Radio radio, CommandConnection connection,
