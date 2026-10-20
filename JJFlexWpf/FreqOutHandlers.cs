@@ -3584,17 +3584,18 @@ public class FreqOutHandlers
         string bandName = BandDisplayName(targetBand);
         string freqStr = FormatFreqForSpeech(targetFreq);
 
-        // 60m mode advisory: auto-correct mode if inappropriate for the target segment
+        // 60m mode advisory: auto-correct mode if inappropriate for the target
+        // segment. The composition is shared with the channel rotation and
+        // typed frequency entry since #312, so all three say it the same way.
         string modeAdvisory = "";
         if (targetBand == Bands.BandNames.m60 && Rig != null)
         {
             string country = License?.Country ?? "US";
-            var advisory = SixtyMeterChannels.GetModeAdvisory(country, targetFreq, mode);
-            if (advisory?.RequiredMode != null)
+            var correction = SixtyMeterChannels.GetModeCorrection(country, targetFreq, mode);
+            if (correction != null)
             {
-                Rig.Mode = advisory.Value.RequiredMode;
-                modeAdvisory = Lexicon.Get("settings.band.mode_advisory",
-                    ("mode", advisory.Value.RequiredMode), ("segment", advisory.Value.SegmentLabel));
+                Rig.Mode = correction.RequiredMode;
+                modeAdvisory = correction.Advisory;
             }
         }
 

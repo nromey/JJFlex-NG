@@ -6551,30 +6551,26 @@ public partial class MainWindow : UserControl
             return;
         }
 
-        int stopCount = alloc.Value.Channels.Length + (alloc.Value.Digi != null ? 1 : 0);
-        if (stopCount == 0) return;
+        // #312: the stop, the mode and the sentence are decided in one pure
+        // place. A channel sets its own mode, as it always has; the digital
+        // segment now sets CW when the current mode is not permitted there and
+        // says so with the band jump's own advisory clause — before #312 it
+        // tuned and spoke and left the operator on USB inside a digital-only
+        // segment, with transmit plausibly the next thing they did.
+        var stop = SixtyMeterChannels.Rotate(country, _sixtyMeterChannelIndex, direction, RigControl.Mode);
+        if (stop == null) return;
+        _sixtyMeterChannelIndex = stop.Index;
 
-        _sixtyMeterChannelIndex = (_sixtyMeterChannelIndex + direction + stopCount) % stopCount;
+        // Frequency first, then mode, the order this method and the band jump
+        // have always used.
+        RigControl.Frequency = stop.FrequencyHz;
+        if (stop.ModeToSet != null) RigControl.Mode = stop.ModeToSet;
 
-        if (_sixtyMeterChannelIndex < alloc.Value.Channels.Length)
-        {
-            // Channelized frequency
-            var ch = alloc.Value.Channels[_sixtyMeterChannelIndex];
-            ulong freqHz = (ulong)(ch.FrequencyMHz * 1_000_000.0 + 0.5);
-            RigControl.Frequency = freqHz;
-            RigControl.Mode = ch.Mode;
-            ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.home.sixty_meter_channel",
-                ("label", ch.Label), ("freq", $"{ch.FrequencyMHz:F4}"), ("mode", ch.Mode)),
-                VerbosityLevel.Terse);
-        }
-        else if (alloc.Value.Digi is { } digi)
-        {
-            // Digital segment — tune to start
-            ulong freqHz = (ulong)(digi.StartMHz * 1_000_000.0 + 0.5);
-            RigControl.Frequency = freqHz;
-            ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.home.sixty_meter_digital",
-                ("freq", $"{digi.StartMHz:F4}")), VerbosityLevel.Terse);
-        }
+        // Queue, not interrupt, exactly as before; keyed so a newer stop
+        // retires an unheard older one rather than both being rescued after an
+        // interrupt.
+        ScreenReaderOutput.Speak(stop.Announcement, Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
+            subject: Radios.Speech.SpeechSubject.SixtyMeterStop);
     }
 
     #endregion

@@ -90,6 +90,88 @@ namespace Radios
         }
 
         /// <summary>
+        /// A mode the radio must be moved to on arrival at a 60m frequency, and
+        /// the clause that says so — <c>", mode set to CW for digital segment"</c>.
+        /// </summary>
+        public sealed record ModeCorrection(string RequiredMode, string SegmentLabel, string Advisory);
+
+        /// <summary>
+        /// <see cref="GetModeAdvisory"/> turned into what every arrival path acts
+        /// on: null when nothing has to change (not a 60m allocation, or already
+        /// on a permitted mode), otherwise the mode to set and the advisory
+        /// clause to append to whatever the path already says (#312).
+        /// </summary>
+        /// <remarks>
+        /// One composition for every path that can land on 60m — the band jump,
+        /// the channel rotation and typed frequency entry — so the three cannot
+        /// grow three wordings for one correction. The band jump had this inline
+        /// and was, until #312, the only path that applied it at all.
+        /// </remarks>
+        public static ModeCorrection? GetModeCorrection(
+            string countryCode, ulong frequencyHz, string? currentMode)
+        {
+            var advisory = GetModeAdvisory(countryCode, frequencyHz, currentMode ?? "");
+            if (advisory?.RequiredMode is not { } required) return null;
+            return new ModeCorrection(required, advisory.Value.SegmentLabel,
+                Lexicon.Get("settings.band.mode_advisory",
+                    ("mode", required), ("segment", advisory.Value.SegmentLabel)));
+        }
+
+        /// <summary>
+        /// One stop of the Alt+Shift+Up / Alt+Shift+Down rotation: where to tune,
+        /// the mode to set (null to leave the mode alone), and the sentence.
+        /// </summary>
+        public sealed record RotationStop(int Index, ulong FrequencyHz, string? ModeToSet, string Announcement);
+
+        /// <summary>
+        /// The next stop of the 60m rotation — the five channels, then the
+        /// digital segment — from <paramref name="currentIndex"/> in
+        /// <paramref name="direction"/>, wrapping. Null when the country has no
+        /// allocation or the allocation has no stops.
+        /// </summary>
+        /// <remarks>
+        /// <para>A channel stop always sets the channel's own mode, exactly as
+        /// it always has. <b>The digital-segment stop sets a mode only when the
+        /// current one is not permitted there</b>, through
+        /// <see cref="GetModeCorrection"/>, and says so with the band jump's own
+        /// advisory clause (#312). Until #312 that stop tuned and spoke and
+        /// never touched the mode, so one more press from a USB channel left the
+        /// operator inside the digital-only segment on USB, told only that they
+        /// had arrived.</para>
+        /// <para>Pure: the caller tunes, sets the mode and speaks. Pulled out of
+        /// <c>MainWindow.SixtyMeterChannelNavigate</c> so the decision can be
+        /// tested without a window or a radio.</para>
+        /// </remarks>
+        public static RotationStop? Rotate(
+            string countryCode, int currentIndex, int direction, string? currentMode)
+        {
+            var alloc = GetAllocation(countryCode);
+            if (alloc == null) return null;
+
+            int stopCount = alloc.Value.Channels.Length + (alloc.Value.Digi != null ? 1 : 0);
+            if (stopCount == 0) return null;
+
+            int index = ((currentIndex + direction) % stopCount + stopCount) % stopCount;
+
+            if (index < alloc.Value.Channels.Length)
+            {
+                var ch = alloc.Value.Channels[index];
+                return new RotationStop(index, ToHz(ch.FrequencyMHz), ch.Mode,
+                    Lexicon.Get("connect.home.sixty_meter_channel",
+                        ("label", ch.Label), ("freq", $"{ch.FrequencyMHz:F4}"), ("mode", ch.Mode)));
+            }
+
+            var digi = alloc.Value.Digi!;
+            ulong freqHz = ToHz(digi.StartMHz);
+            string arrival = Lexicon.Get("connect.home.sixty_meter_digital", ("freq", $"{digi.StartMHz:F4}"));
+            var correction = GetModeCorrection(countryCode, freqHz, currentMode);
+            return new RotationStop(index, freqHz, correction?.RequiredMode,
+                arrival + (correction?.Advisory ?? ""));
+        }
+
+        private static ulong ToHz(double mhz) => (ulong)(mhz * 1_000_000.0 + 0.5);
+
+        /// <summary>
         /// Check if a frequency (in Hz) is on a valid 60m channel or within the digi segment.
         /// Returns true if the frequency is valid for 60m TX.
         /// </summary>
