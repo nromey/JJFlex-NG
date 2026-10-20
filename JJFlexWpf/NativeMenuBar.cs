@@ -2006,9 +2006,10 @@ public class NativeMenuBar : IDisposable
         // Flexible never puts the mic input back to PC behind its owner's back;
         // the healer's sentence names this item instead, and pressing it is the
         // operator's own explicit choice. ALWAYS present, so it is where that
-        // sentence says it is, and every press is answered. It does what a
-        // manual change of the mic input does - queue the write, no waiting -
-        // so it runs right here on the UI thread. The PC-audio session is read
+        // sentence says it is, and every press is answered. It queues the
+        // write and waits for nothing, so it runs right here on the UI thread;
+        // the radio's answer comes back a moment later and only a refusal is
+        // spoken (12:28, the full duplex pattern). The PC-audio session is read
         // HERE, at the press, so the queued write can refuse if computer audio
         // stopped before it ran.
         AddWired(radio, "Switch Mic Input Back to PC", () =>

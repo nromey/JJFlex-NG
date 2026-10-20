@@ -466,6 +466,7 @@
   "audio.mic.no_reading_yet": "Mic audio, no reading yet",
   "audio.mic.switch_back_already_pc": { "text": "The radio's mic input is already PC.", "delivery": null },
   "audio.mic.switch_back_no_pc_audio": { "text": "Computer audio isn't running, so the mic input was not switched to PC.", "delivery": null },
+  "audio.mic.switch_back_refused": { "text": "The radio did not switch the mic input to PC.", "delivery": null },
   "audio.mic.switch_back_session_changed": { "text": "Computer audio stopped before the switch could be made, so the mic input was not changed.", "delivery": null },
   "audio.mic.switch_back_switching": { "text": "Switching the mic input to PC.", "delivery": null },
   "audio.mic.transmit_to_measure": "Mic audio, transmit to measure",

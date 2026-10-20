@@ -1167,6 +1167,14 @@ namespace Radios.Tests
                 // later session's saved value is never touched by it. DRAFT.
                 "audio.mic.switch_back_session_changed",
                 "settings.guard.action.mic_input_pc",
+                // Same track, round five (Noel 12:28: "do it the way we do the
+                // full duplex check ... verify later then automatically speak
+                // it"): the one late answer to the same press, spoken once
+                // when the radio refuses the switch. TextOnly for the same
+                // reason as its siblings: it exists only because the operator
+                // pressed Switch Mic Input Back to PC, and it says whether the
+                // radio did what was asked. DRAFT awaiting Noel.
+                "audio.mic.switch_back_refused",
             };
 
             Assert.Equal(3152, unclassified);
