@@ -1009,6 +1009,99 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void ARestartTakesOverAPutBackStillWaitingSoTheOwnersInputComesBackOnce()
+        {
+            // Codex re-verify 5, the exact sequence. The first session starts
+            // on the owner's MIC; the owner moves it to MIC again and the
+            // operator switches back; the radio reports PC. The stop queues
+            // the MIC put-back, and computer audio restarts before it runs, so
+            // the cache already reads PC. The restart takes the debt over:
+            // the second session's stop puts the owner's MIC back, once.
+            using var rig = GuestRadioMovedToMic();
+            using var held = new HeldQueue(rig.Rig);
+
+            PressOnly(rig);
+            held.Drain();
+            rig.RadioReports("PC");
+            rig.Vendor.ReplyOk(SwitchSequence(rig));
+            rig.StopPcAudio();                               // queues the owner's MIC
+            Assert.Equal(1, held.Count);
+            rig.StartPcAudio();                              // restart before the queue runs
+            held.Drain();                                    // the old put-back: taken over, does nothing
+            Assert.Equal("PC", rig.MicInput);
+            int micBefore = rig.MicWrites.Count(c => c == "mic input MIC");
+
+            rig.StopPcAudio();
+            held.Drain();
+
+            Assert.Equal("MIC", rig.MicInput);
+            Assert.Equal(micBefore + 1, rig.MicWrites.Count(c => c == "mic input MIC"));
+            Assert.Equal("mic input MIC", rig.MicWrites.Last());
+        }
+
+        [Fact]
+        public void APutBackThatRunsBeforeTheRestartStillEndsOnTheOwnersInput()
+        {
+            using var rig = GuestRadioMovedToMic();
+            using var held = new HeldQueue(rig.Rig);
+
+            PressOnly(rig);
+            held.Drain();
+            rig.RadioReports("PC");
+            rig.Vendor.ReplyOk(SwitchSequence(rig));
+            rig.StopPcAudio();
+            held.Drain();                                    // the put-back runs first
+            Assert.Equal("MIC", rig.MicInput);
+
+            rig.StartPcAudio();                              // saves MIC, writes PC
+            Assert.Equal("PC", rig.MicInput);
+            rig.StopPcAudio();
+            held.Drain();
+
+            Assert.Equal("MIC", rig.MicInput);
+            Assert.Equal("mic input MIC", rig.MicWrites.Last());
+        }
+
+        [Fact]
+        public void APutBackOwedToOneRadioIsNeverTakenOverOnAnother()
+        {
+            using var rig = GuestRadioMovedToMic();
+            using var held = new HeldQueue(rig.Rig);
+
+            PressOnly(rig);
+            held.Drain();
+            rig.RadioReports("PC");
+            rig.StopPcAudio();                               // queued for the first radio
+            rig.ReconnectTo(SecondSerial, "BAL");
+            rig.StartPcAudio();                              // the second radio: saves its own BAL
+            held.Drain();                                    // the first radio's put-back: dropped
+            rig.StopPcAudio();
+            held.Drain();
+
+            Assert.Equal("BAL", rig.MicInput);
+            Assert.DoesNotContain("mic input MIC", rig.MicWrites);
+            Assert.Equal("mic input BAL", rig.MicWrites.Last());
+        }
+
+        [Fact]
+        public void TheQuietDoesNotUseUpTheCheckInterval()
+        {
+            // Codex re-verify 5, follow-up: a check held by the quiet just
+            // before it ends must not push the first real check nearly a
+            // second later. The report comes as soon as the quiet ends.
+            using var rig = GuestRadioMovedToMic();
+
+            Press(rig);
+            rig.Clock += FlexBase.PcMicSwitchQuietMs - 1;
+            rig.Check();
+            Assert.Equal(0, rig.Rig.PcMicNotOursReports);    // still quiet
+
+            rig.Clock += 1;
+            rig.Check();
+            Assert.Equal(1, rig.Rig.PcMicNotOursReports);
+        }
+
+        [Fact]
         public void SwitchBackWithNoRadioRefusesAndSaysSo()
         {
             using var rig = GuestRadioMovedToMic();

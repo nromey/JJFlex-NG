@@ -1771,7 +1771,8 @@ namespace Radios
             {
                 // Pinned to the session being closed, as it is now: the
                 // queued write must not land in a later one (round six).
-                var pin = new PutBackPin(_micSessionId, run, radio.CurrentCommandConnection);
+                var pin = new PutBackPin(radio, swap, _micSessionId, run, radio.CurrentCommandConnection);
+                _queuedPutBack = pin;   // the one put-back owed, until it runs or a restart takes it over
                 return () => PutBackAfterSwitchBack(radio, swap, pin, when);
             }
             return () => PutBackNow(radio, swap, when);
@@ -1831,19 +1832,41 @@ namespace Radios
         /// silence the new session's transmit audio. So when it runs, it
         /// writes only if no newer session has opened and nothing else has
         /// changed.
+        /// <para>But the value it owes the owner must not be lost with it
+        /// (round seven, Codex re-verify 5): a restart that finds this put-back
+        /// still waiting, on the same radio and connection, TAKES IT OVER,
+        /// adopting <see cref="Swap"/>'s saved value as its own restore value
+        /// and cancelling the queued write, so the debt has exactly one
+        /// owner. The claim is made under <see cref="_micSwitchLock"/>
+        /// through <see cref="_queuedPutBack"/>: whichever of the restart and
+        /// the queued write gets there first owns it, and the other does
+        /// nothing.</para>
         /// </summary>
         private sealed class PutBackPin
         {
-            public PutBackPin(long session, long run, CommandConnection connection)
+            public PutBackPin(Radio radio, MicInputSwap swap, long session, long run, CommandConnection connection)
             {
+                Radio = radio;
+                Swap = swap;
                 Session = session;
                 Run = run;
                 Connection = connection;
             }
+            public Radio Radio { get; }
+            public MicInputSwap Swap { get; }
             public long Session { get; }
             public long Run { get; }
             public CommandConnection Connection { get; }
+
+            /// <summary>The queued write has claimed it and is sending; set
+            /// under <see cref="_micSwitchLock"/>, for the trace.</summary>
+            public bool Writing { get; set; }
         }
+
+        /// <summary>The switch-back put-back queued by the last stop and not
+        /// yet run or taken over; null when none is owed. Read and written
+        /// only under <see cref="_micSwitchLock"/> (round seven).</summary>
+        private PutBackPin _queuedPutBack;
 
         private void WriteSwitchBackPutBack(Radio radio, MicInputSwap swap, PutBackPin pin, string when)
         {
@@ -1859,13 +1882,17 @@ namespace Radios
                 string stale = null;
                 lock (_micSwitchLock)
                 {
-                    if (_micSessionOpen || _micSessionId != pin.Session)
+                    if (!ReferenceEquals(_queuedPutBack, pin))
+                        stale = "a restart took it over, or a newer put-back replaced it";
+                    else if (_micSessionOpen || _micSessionId != pin.Session)
                         stale = "a newer PC-audio session has opened (session " + _micSessionId
                             + (_micSessionOpen ? ", open" : ", closed") + "; queued for " + pin.Session + ")";
                     else if (Interlocked.Read(ref _remoteAudioRun) != pin.Run)
                         stale = "a newer remote-audio run has begun";
                     else if (!ReferenceEquals(radio.CurrentCommandConnection, pin.Connection))
                         stale = "the radio's command connection has changed";
+                    if (stale == null) pin.Writing = true;   // claimed: a restart now adopts, never cancels
+                    else if (ReferenceEquals(_queuedPutBack, pin)) _queuedPutBack = null;
                 }
                 if (stale != null)
                 {
@@ -1906,6 +1933,11 @@ namespace Radios
             catch (Exception ex)
             {
                 Tracing.TraceLine("PutBackSavedMicInput (" + when + "): " + ex.Message, TraceLevel.Error);
+            }
+            finally
+            {
+                lock (_micSwitchLock)
+                    if (ReferenceEquals(_queuedPutBack, pin)) _queuedPutBack = null;
             }
         }
 
@@ -2006,8 +2038,31 @@ namespace Radios
                     // stop's (and a failed start's, and an abandoned run's),
                     // through PutBackSavedMicInput: same radio, same run, and
                     // only while the input is still the PC we set.
-                    _micInputSwap = new MicInputSwap(theRadio.MicInput, theRadio,
-                        Interlocked.Read(ref _remoteAudioRun));
+                    //
+                    // A put-back the last stop queued and that has not run yet
+                    // is TAKEN OVER here, on the same radio and connection
+                    // (round seven): its saved value is the owner's, and the
+                    // cache may already read the PC the switch-back set, so
+                    // saving the cache would lose the owner's input for good.
+                    string saved = theRadio.MicInput;
+                    PutBackPin adopted = null;
+                    lock (_micSwitchLock)
+                    {
+                        var owed = _queuedPutBack;
+                        if (owed != null && ReferenceEquals(owed.Radio, theRadio)
+                            && ReferenceEquals(owed.Connection, theRadio.CurrentCommandConnection))
+                        {
+                            adopted = owed;
+                            saved = owed.Swap.Saved;
+                            _queuedPutBack = null;   // the queued write now finds it gone
+                        }
+                        _micInputSwap = new MicInputSwap(saved, theRadio,
+                            Interlocked.Read(ref _remoteAudioRun));
+                    }
+                    if (adopted != null)
+                        Tracing.TraceLine("startOpusOutputChannel: took over the put-back of '" + saved
+                            + "' that the last stop queued" + (adopted.Writing ? " (its write was already going out)" : "")
+                            + "; this session's stop owes it now (#686)", TraceLevel.Info);
                     theRadio.MicInput = "PC";
                     // Remember that WE asked for PC, so the loop can tell a silent
                     // revert from a deliberate operator choice. See
@@ -2515,6 +2570,11 @@ namespace Radios
             if (!_pcMicExpected || theRadio == null || ChangeNothingActive) return;
 
             long now = _pcMicCheckClock();
+            // A switch-back in flight: hold the check until the radio answers
+            // or one check interval passes (#686, rounds six and seven).
+            // Before the limiter, so a held check does not use up the
+            // interval and push the first real check nearly a second later.
+            if (now < Volatile.Read(ref _pcMicSwitchQuietUntil)) return;
             if (!PcMicCheckDue(now, _pcMicCheckTime)) return;
             _pcMicCheckTime = now;
 
@@ -2529,10 +2589,6 @@ namespace Radios
                 }
                 return;
             }
-
-            // A switch-back in flight: hold the report until the radio
-            // answers or one check interval passes (#686, round six).
-            if (now < Volatile.Read(ref _pcMicSwitchQuietUntil)) return;
 
             if (_pcMicDiverged) return; // already reported this episode
 
