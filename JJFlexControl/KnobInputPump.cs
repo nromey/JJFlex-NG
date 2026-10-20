@@ -6,20 +6,23 @@ namespace JJFlexControl
 {
     /// <summary>
     /// One open port's worth of knob input (#520): the text the port delivers, split into tokens,
-    /// passed through <see cref="KnobInputFilter"/>'s opening window, and dispatched in order. One
+    /// passed through <see cref="KnobInputFilter"/>'s wait for quiet, and dispatched in order. One
     /// lock orders dispatch between the port's thread and <see cref="Stop"/>.
     /// </summary>
     /// <remarks>
     /// <para><b>Nothing is held</b>, so a close has nothing to release: every input code after the
-    /// opening window is dispatched in the call that read it.</para>
+    /// knob has gone quiet is dispatched in the call that read it.</para>
     /// <para><b>Nothing is dispatched after close.</b> <see cref="Stop"/> takes the same lock as
     /// every dispatch, so it waits for one already in progress, and every later read sees the
     /// stopped flag inside the lock.</para>
     /// <para><b>The parse is inside the lock too, and the buffer belongs to this open.</b> A late
     /// callback from a port that has been closed and reopened cannot touch the new open's buffer,
     /// because each open has its own pump.</para>
-    /// <para>A fresh pump, so a fresh opening window, at EVERY open: Noel's buffer ruling applies
+    /// <para>A fresh pump, so a fresh wait for quiet, at EVERY open: Noel's buffer ruling applies
     /// to each one.</para>
+    /// <para><b>Arrival times are callback times.</b> Everything in one <see cref="TakeText"/>
+    /// call is stamped with one reading of the clock, taken when the call gets the lock; that is
+    /// when Windows handed the text over, not when its bytes arrived.</para>
     /// </remarks>
     public sealed class KnobInputPump
     {
@@ -35,8 +38,9 @@ namespace JJFlexControl
 
         /// <param name="dispatch">Acts on one token. Called under the pump's lock, in order.</param>
         /// <param name="clockMs">Milliseconds on any monotonic clock; a Stopwatch when null. The
-        /// opening window starts at its reading when the pump is made, so make it as the port opens.</param>
-        /// <param name="note">Trace sink for the window's discards and for device reports. May be null.</param>
+        /// wait for quiet counts from its reading when the pump is made, so make the pump just
+        /// before the port is asked to open: nothing can arrive earlier than that.</param>
+        /// <param name="note">Trace sink for the wait's summary and for device reports. May be null.</param>
         public KnobInputPump(Action<string> dispatch, Func<double> clockMs = null, Action<string> note = null)
         {
             _dispatch = dispatch ?? throw new ArgumentNullException(nameof(dispatch));
@@ -50,7 +54,7 @@ namespace JJFlexControl
             _filter = new KnobInputFilter(_clockMs(), note);
         }
 
-        /// <summary>Input codes the opening window discarded, for the trace and the tests.</summary>
+        /// <summary>Input codes ignored while waiting for quiet, for the trace and the tests.</summary>
         public int ReplayEventsDiscarded
         {
             get { lock (_gate) return _filter.ReplayEventsDiscarded; }
