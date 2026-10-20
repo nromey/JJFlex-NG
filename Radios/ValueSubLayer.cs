@@ -896,6 +896,7 @@ namespace Radios
         internal Action<string, string> EmitMove;    // (text, subject) — a sweep, tail wins
         internal Action<string, string> EmitAnswer;  // (text, subject) — a question, answers now
         internal Action<string> EmitSay;             // interrupting one-shot on the layer's status subject
+        internal Action<string> EmitRefusal;         // a refusal's words, which pass the verbosity gate (#778b)
         internal Func<VerbosityLevel> VerbosityNow;
 
         private ValueSubLayer(ValueSubLayerDefinition def)
@@ -938,6 +939,23 @@ namespace Radios
                 Speech.SpeechIntent.Interrupt,
                 VerbosityLevel.Terse,
                 subject: Speech.SpeechSubject.ValueLayerStatus(_def.Id));
+            // A refusal's words have their own route because the verbosity
+            // decision for them is already made, in Refuse, by the #528 rule:
+            // when they reach here they are either the Chatty teaching
+            // sentence or the stand-in for a tone that cannot sound. In the
+            // second case they MUST be heard at Off, and EmitSay's Terse tag
+            // is exactly what ScreenReaderOutput drops at Off (Codex B4,
+            // 2026-10-19: a refused push to talk at Off with sounds off was
+            // wholly silent). So they are tagged Critical, past the gate,
+            // which is what the leader's own refusal has always done for the
+            // same reason (DoLeaderCommand's unknown-key arm). Tagging Critical
+            // cannot make a lower level say more: below Chatty, with the tone
+            // audible, Refuse returns before it gets here.
+            EmitRefusal = text => ScreenReaderOutput.Speak(
+                text,
+                Speech.SpeechIntent.Interrupt,
+                VerbosityLevel.Critical,
+                subject: Speech.SpeechSubject.ValueLayerStatus(_def.Id));
             VerbosityNow = () => ScreenReaderOutput.CurrentVerbosity;
 
             _restore = def.Snapshot?.Invoke();
@@ -974,6 +992,11 @@ namespace Radios
             layer.EmitMove = emitMove;
             layer.EmitAnswer = emitAnswer;
             layer.EmitSay = emitSay;
+            // The engine tests read refusals with everything else the layer
+            // says. Whether those words pass the PRODUCTION gate is not
+            // something a seam can show; ValueLayerRefusalDeliveryTests drives
+            // the real route for that.
+            layer.EmitRefusal = emitSay;
             layer.VerbosityNow = verbosityNow;
             layer.AnnounceEntry();
             return layer;
@@ -1521,19 +1544,36 @@ namespace Radios
         /// Answer a key the layer did not accept: the invalid tone, always,
         /// and the hint only where verbosity asks for hints (#528). Below
         /// Chatty the tone is the whole answer — unless the host says the
-        /// tone cannot sound, in which case the hint is spoken at every level
-        /// so the refusal is never silent. A layer that wires no tone at all
-        /// gets the words at every level for the same reason. The layer stays
-        /// open either way; verbosity changes what is said, never what
-        /// happens.
+        /// tone cannot sound, in which case the hint is spoken at every level,
+        /// Off included, so the refusal is never silent. A layer that wires no
+        /// tone at all gets the words at every level for the same reason. The
+        /// layer stays open either way; verbosity changes what is said, never
+        /// what happens.
         /// </summary>
+        /// <remarks>
+        /// The words go out through <see cref="EmitRefusal"/>, not
+        /// <see cref="EmitSay"/>: the level decision is made HERE, so the
+        /// route must not make a second one. Until #778b round four it went
+        /// through EmitSay, whose Terse tag the speech gate drops at Off, and
+        /// "spoken at every level" was false at the one level where nothing
+        /// else could be heard. Noel, 2026-10-19 21:18, on a refused push to
+        /// talk at Off with sounds off: "yes, we'd need to let the user know
+        /// somehow". Every refusal in this class comes through here: the
+        /// in-place keys nothing here would act on (push to talk, the
+        /// transmit lock, the brackets), a key the layer does not bind and
+        /// its near miss, a typed number, an arrow before a target is picked,
+        /// the wrong arrow pair, a Shift whose side cannot be read, a
+        /// modifier that names no target, and Home, End or 0 before a pick.
+        /// A refusal whose host supplies no sentence at all is still the
+        /// tone alone; there are no words to stand in.
+        /// </remarks>
         private void Refuse(string? hint)
         {
             bool toneWillSound = _def.Cues.Invalid != null && (_def.Cues.Audible?.Invoke() ?? true);
             _def.Cues.Invalid?.Invoke();
             if (string.IsNullOrEmpty(hint)) return;
             if (Speech.RefusalVoice.ToneStandsAlone(VerbosityNow(), toneWillSound)) return;
-            EmitSay(hint!);
+            EmitRefusal(hint!);
         }
 
         private string? HintFor(Slot? s)

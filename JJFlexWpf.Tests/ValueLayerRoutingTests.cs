@@ -258,6 +258,43 @@ public sealed class ValueLayerRoutingTests : IDisposable
     }
 
     [Theory]
+    [InlineData(Keys.Space | Keys.Control, true)]      // push to talk, all sounds off
+    [InlineData(Keys.Space | Keys.Control, false)]     // push to talk, Commands and confirmations off
+    [InlineData(Keys.Space | Keys.Shift, true)]        // the transmit lock
+    [InlineData(Keys.OemOpenBrackets, false)]          // a filter bracket
+    public void At_off_with_the_sounds_off_the_refusal_is_spoken_through_the_real_host(Keys k, bool masterOff)
+    {
+        // #778b round four, Codex B4. Noel, 2026-10-19 21:18, asked whether a
+        // refused push to talk should still speak at Off when sounds are off:
+        // "yes, we'd need to let the user know somehow". The real audio layer,
+        // the real host's answer to "will the tone sound" (the earcon master
+        // switch and the Commands and confirmations category), and the real
+        // ScreenReaderOutput gate at Off. Asserted from the recent speech
+        // history, which is filled only on the far side of that gate. Red
+        // before round four: the words were tagged Terse and Off dropped them.
+        bool masterBefore = EarconPlayer.EarconsEnabled;
+        bool categoryBefore = EarconPlayer.GetCategoryEnabled(EarconPlayer.EarconCategory.CommandsAndConfirmations);
+        try
+        {
+            var commands = OpenAudioLayerOnVoxGain(fromDialog: true);
+            if (masterOff) EarconPlayer.EarconsEnabled = false;
+            else EarconPlayer.SetCategoryEnabled(EarconPlayer.EarconCategory.CommandsAndConfirmations, false);
+            Assert.False(EarconPlayer.IsOn(EarconPlayer.EarconCategory.CommandsAndConfirmations));
+            ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Critical;   // Off
+
+            string said = SpokenAfter(() => Assert.True(commands.DoCommand(k, fromDialog: true)));
+
+            Assert.Equal(SentenceFor(k), said);
+            Assert.True(commands.LiveValueLayer!.IsLive);
+        }
+        finally
+        {
+            EarconPlayer.EarconsEnabled = masterBefore;
+            EarconPlayer.SetCategoryEnabled(EarconPlayer.EarconCategory.CommandsAndConfirmations, categoryBefore);
+        }
+    }
+
+    [Theory]
     [InlineData(Keys.OemOpenBrackets | Keys.Control | Keys.Shift, CommandValues.TXFilterLowDown, true)]
     [InlineData(Keys.OemCloseBrackets | Keys.Control | Keys.Shift, CommandValues.TXFilterLowUp, true)]
     [InlineData(Keys.OemOpenBrackets | Keys.Control | Keys.Shift, CommandValues.TXFilterLowDown, false)]
