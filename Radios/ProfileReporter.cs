@@ -1590,8 +1590,10 @@ namespace Radios
 
         /// <summary>
         /// True while a profile walk is running. Both walking entry points —
-        /// this export and the comparison report — load profiles on the radio,
-        /// and two walks at once would restore each other's wrong state.
+        /// the restore capture and the comparison report — take this flag for
+        /// their whole run and release it on every exit, because both load
+        /// profiles on the radio and two walks at once would restore each
+        /// other's wrong state. Until #469 only the restore capture set it.
         /// </summary>
         public static bool WalkInProgress
             => System.Threading.Volatile.Read(ref _walkInFlight) != 0;
@@ -1605,14 +1607,6 @@ namespace Radios
         /// </summary>
         internal static Action<string> WalkHeldProbe;
 
-        /// <summary>
-        /// Build the restore-grade capture. Walks every global, TX and mic
-        /// profile (in that order — a global load drags TX and mic selections
-        /// with it, so the later walks re-right what the earlier ones moved),
-        /// captures the radio's reported state under each, then puts the
-        /// original profiles back and checks. Returns null if a walk is
-        /// already in flight.
-        /// </summary>
         /// <summary>
         /// Whether this model has anywhere to SHOW the front-panel
         /// screensaver. Pure, so a test can hold it to the models we ship.
@@ -1636,6 +1630,16 @@ namespace Radios
             catch { return false; }
         }
 
+        /// <summary>
+        /// Build the restore-grade capture. Walks every global, TX and mic
+        /// profile (in that order — a global load drags TX and mic selections
+        /// with it, so the later walks re-right what the earlier ones moved),
+        /// captures the radio's reported state under each, then puts the
+        /// original profiles back and checks. Returns null if a walk is
+        /// already in flight; the in-flight flag is held for the whole run
+        /// and released on every exit, the same flag the comparison report
+        /// takes (#469).
+        /// </summary>
         public static RestoreGradeExport GenerateRestoreGradeExport(
             FlexBase rig, Action<string> progressCallback = null)
         {

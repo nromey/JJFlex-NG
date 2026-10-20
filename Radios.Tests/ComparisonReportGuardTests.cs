@@ -305,6 +305,32 @@ namespace Radios.Tests
             Assert.NotNull(ProfileReporter.GenerateReport(rig));
         }
 
+        // ------------------------------------------------------------------
+        // Every summary documents the member under it
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void No_summary_in_the_reporter_is_orphaned_and_the_restore_capture_has_its_own()
+        {
+            // A summary that ends and is followed straight by another summary
+            // documents nothing: the compiler attaches the LAST one, so the
+            // first is lost. That is how GenerateRestoreGradeExport carried
+            // CanShowScreensaver's summary while its own went nowhere (#469).
+            string[] lines = Read("Radios/ProfileReporter.cs").Replace("\r\n", "\n").Split('\n');
+            for (int i = 0; i + 1 < lines.Length; i++)
+            {
+                Assert.False(lines[i].Trim() == "/// </summary>" && lines[i + 1].Trim() == "/// <summary>",
+                    "an orphaned <summary> ends at line " + (i + 1) + " of ProfileReporter.cs");
+            }
+
+            int method = Array.FindIndex(lines, l => l.Contains("public static RestoreGradeExport GenerateRestoreGradeExport("));
+            Assert.True(method > 0, "GenerateRestoreGradeExport not found");
+            int open = Array.FindLastIndex(lines, method, l => l.Trim() == "/// <summary>");
+            Assert.Contains("Build the restore-grade capture", lines[open + 1]);
+            for (int i = open; i < method; i++)
+                Assert.StartsWith("///", lines[i].Trim());
+        }
+
         private static string Read(string relative)
         {
             string path = Path.Combine(RepoRoot(), relative.Replace('/', Path.DirectorySeparatorChar));
