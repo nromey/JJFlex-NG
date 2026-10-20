@@ -1157,6 +1157,25 @@ namespace Radios.Tests
                 // forgettable question for Noel. DECIDE ALL THREE TOGETHER.
                 // DRAFT awaiting Noel.
                 "audio.mic.not_switched_not_ours",
+
+                // Junkbox #312, repair rounds one and two, 2026-10-20: what a
+                // 60 m arrival says about the mode it asked for, replacing
+                // "mode set to ..." which could be false. Round two (ruled by
+                // Noel): the request went out ("switching", claiming no
+                // confirmation, because nothing on the path hears the radio
+                // agree), or it was refused while transmitting, or there was
+                // no slice of ours or no running command loop. The refusals
+                // speak about the MODE only, so they cannot contradict the
+                // arrival's frequency in the same sentence. FRAGMENTS appended
+                // to an arrival (the band jump's, the rotation's, or typed
+                // entry's), never spoken alone, so TextOnly is the only honest
+                // classification. Their sibling settings.band.mode_advisory is
+                // legacy, still frozen, and since round two has no caller;
+                // WHEN THE PASS REACHES IT, DECIDE ALL FOUR TOGETHER. DRAFTS
+                // awaiting Noel.
+                "settings.band.mode_not_set",
+                "settings.band.mode_not_set_transmitting",
+                "settings.band.mode_switching",
             };
 
             Assert.Equal(3152, unclassified);

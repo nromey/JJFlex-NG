@@ -525,5 +525,14 @@ namespace Radios.Speech
         /// says nothing about it and must not retire it.
         /// </summary>
         public const string PcMicLeftForOwner = "pc-mic-left-for-owner";
+
+        /// <summary>
+        /// Where the 60m channel rotation (Alt+Shift+Up / Alt+Shift+Down) just
+        /// landed — a channel, or the digital segment with any mode it set
+        /// (junkbox #312). True until the next press of the rotation moves the
+        /// radio again, which says the same kind of thing about the new stop, so
+        /// the newer stop covers an unheard older one.
+        /// </summary>
+        public const string SixtyMeterStop = "sixty-meter-stop";
     }
 }
