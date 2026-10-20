@@ -57,6 +57,31 @@ FULL_SCALE = 32768.0            # FlexLib ONE_OVER_ZERO_DBFS is 1/32768
 FFT_N = 4096
 
 
+def vita_timestamps(data):
+    """Return (tsi, tsf, integer_ts, fractional_ts) from a VITA header.
+
+    tsi/tsf are the 2-bit timestamp-type fields of word 0; zero means the
+    field is absent. Answers #456's "are IQ packets timestamped?" without
+    keying anything.
+    """
+    word0 = struct.unpack_from(">I", data, 0)[0]
+    pkt_type = word0 >> 28
+    tsi = (word0 >> 22) & 0x03
+    tsf = (word0 >> 20) & 0x03
+    idx = 4
+    if pkt_type in (0x01, 0x03):
+        idx += 4
+    if word0 & 0x08000000:
+        idx += 8
+    its = fts = None
+    if tsi:
+        its = struct.unpack_from(">I", data, idx)[0]
+        idx += 4
+    if tsf:
+        fts = struct.unpack_from(">Q", data, idx)[0]
+    return tsi, tsf, its, fts
+
+
 def parse_vita(data):
     """Return (packet_class, payload_offset, payload_len) or None."""
     if len(data) < 8:
@@ -296,6 +321,9 @@ def main():
         energy = peak = 0.0
         recent_pairs = []                  # complex, for the per-second FFT
         head_raw = []                      # unscaled, for the classifier
+        first_ts = last_ts = None          # (tsi, tsf, int, frac)
+        total_pkts = total_samps = 0
+        last_class = None
         while time.time() - t0 < args.seconds:
             try:
                 data, _ = udp.recvfrom(16384)
@@ -305,6 +333,20 @@ def main():
             if data:
                 parsed = parse_vita(data)
                 if parsed and parsed[0] in WIDE_CLASSES:
+                    ts = vita_timestamps(data)
+                    if first_ts is None:
+                        first_ts = ts
+                        print(f"  first packet: class=0x{parsed[0]:04X} "
+                              f"({WIDE_CLASSES[parsed[0]]} Hz) tsi={ts[0]} "
+                              f"tsf={ts[1]} int={ts[2]} frac={ts[3]}")
+                    if parsed[0] != last_class:
+                        print(f"  class -> 0x{parsed[0]:04X} "
+                              f"({WIDE_CLASSES[parsed[0]]} Hz) at packet "
+                              f"{total_pkts}, ts int={ts[2]} frac={ts[3]}")
+                        last_class = parsed[0]
+                    last_ts = ts
+                    total_pkts += 1
+                    total_samps += parsed[2] // 4
                     _, off, plen = parsed
                     n = plen // 4
                     vals = struct.unpack_from(f"<{n}f", data, off)
@@ -338,6 +380,12 @@ def main():
                 pkts = n_samps = 0
                 energy = peak = 0.0
 
+        elapsed = time.time() - t0
+        print(f"\n  delivered: {total_pkts} packets, {total_samps // 2} IQ pairs "
+              f"in {elapsed:.1f}s = {total_samps / 2 / elapsed:.0f} pairs/s "
+              f"against {args.rate} requested")
+        if first_ts:
+            print(f"  timestamps: first {first_ts}, last {last_ts}")
         print("\n  payload verdict:", classify(head_raw))
 
         print("\n  tearing down stream")

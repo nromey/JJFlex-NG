@@ -9,6 +9,144 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-10-19 — LISTEN-BACK TO ROUND SIX, THE CLIENT ID MERGED, AND A RADIO THAT NEVER ECHOES FULL DUPLEX
+
+**Written 2026-10-19 at 21:20.** Covers the window from the previous seal's commit (`c4343d99`, 05:21) to now.
+Rigmeter's "today" counts from midnight and so includes that seal commit, which was docs only.
+
+### What the day produced
+
+- **#782 is on main (`61dac225`, 17:56): JJ Flexible tells the radio who it is**, with a saved GUI client ID per
+  radio. Benched on the 8600 over LAN and SmartLink before the merge, and bench step 1 passed on both. **It stays
+  OPEN** for two things: one returning connect in five got no ping ACK (the send needs logging), and the refusal
+  path is untested. The bench sheet's step 4 could not be run, because JJ Flexible is single-instance for an
+  ordinary launch.
+- **The FlexBase partial-class split merged (`defbf746`, 09:35).** Fourteen regions moved into their own
+  `FlexBase.*.cs` files, Codex verified it, and the source-guard tests now read every partial. Code in these files
+  is now cited by symbol, not by line number (`6d12b9f7`).
+- **The sentence guard got stricter in five commits.** It now asks the C# parser what a comment is. It skips only
+  text that every possible combination of build symbols switches off, and Release builds define `RELEASE`. It also
+  reads MSBuild response files. Each step came from a Codex re-verify finding.
+- **#456, listen-back, went through six rounds on `feature/456-iq-listenback` (`bda589ea`, pushed).** Steps 1 to 3
+  landed at 12:36, with repair rounds at 13:13, 13:52, 18:29 (round 4), 19:54 (round 5) and 21:10 (round 6).
+  Rounds 4 to 6 came from the bench:
+  - **B1, a stale first IQ packet.** It is now discarded only if the next two packets agree.
+  - **B2/R4-3: the radio NEVER echoes `full_duplex_enabled` to the client that set it.** Measured twice. That is
+    why FlexLib's own setter is optimistic.
+  - **B3, the listening slice and pan were never tuned.** The vendor setters skip the send when the local value
+    already matches, and swallow the reply. Round 5 sends raw `slice tune` and `display pan set` commands and logs
+    each reply.
+  - **B4, the radio hung and needed a power-supply cycle.** Causation is unproven.
+- **Measured from a separate read-only client: a repeat `sub radio all` on a subscribed connection returns reply 0
+  and NO status.** A repeat `sub tx all` resends only part of its status (2 of 8 lines); a repeat `sub xvtr all`
+  resends. So the app's own connection can never read full duplex back. Round 5's read-back would always have
+  timed out, and it would have broken the shipped Loopback Check.
+- **Noel's proof ruling, ~20:50 (filed under #456 and #783):** a reply of 0 is the proof. The app updates its state
+  and speaks at once, and a nonzero reply is spoken as refused. On LAN only, a quiet read-back on a separate
+  connection speaks only if the radio disagrees. SmartLink skips it. Round 6 builds exactly this.
+- **#783 is new: a full duplex control.** It lives in the Transmission expander and the Transmit menu, and on
+  `Ctrl+J, Ctrl+X`. Built in round 4.
+- **"I've checked, clear it" stays** (Noel: "yes, keep it for sure") until cleanup that cannot be confirmed is fixed.
+
+### The junkbox iterator lane — first night
+
+- **#778, half one, merged into `junkbox/integration` (13:21):** a key a value layer does not take stays in the
+  layer.
+- **#777 merged (19:16):** profiles on a radio that is not yours are refused, and "saved" now means sent.
+  - The refusal covers Save, Delete, Select, and the transmit and microphone profiles.
+  - Checked by Codex in several rounds (verify, then re-verifies through `reverify4`).
+- **#778b (layer exits) is PARKED, not merged.** Round three's Sol check found B4: with sounds off and verbosity
+  Off, a refused push to talk is silent, while the new help text promises words. **Noel answered at 21:18**: speak
+  at every level when the tone cannot play. **Round four runs tomorrow** (ruled 21:17): an Opus repair of B4 and
+  F1, a test that checks past the speech gate, and a narrow Sol check.
+- `junkbox/integration` is at `6a81ac4f`. None of the four junkbox branches had been pushed. This seal pushes them.
+- Spend ledger (in `ITERATOR-LANE-HANDOFF.md`): **Codex 1,555,256 tokens** over nine runs, and **Claude subagents
+  4,107,296**. The #456 arc's Codex total is **2,095,721** (round 4: 333,337; round 5: 429,116; round 6: 220,102).
+  **Tier ruling, 18:15:** repairs go to Opus or Sol. Astra or Fable only when a frontier model hasn't already
+  covered the ground, or when a pass is troubled.
+
+### Cross-surface activity
+
+- **Main:** 41 commits since midnight. **`feature/456-iq-listenback`:** 44. **Junkbox branches:** jb777 45, jb778 31,
+  jb778b 52, integration 46. Those counts overlap, because the branches share history. **`refactor/flexbase-partials`:**
+  22, merged. The Sprint 48 worktrees were idle.
+- **13 commits carry the Codex trailer.**
+- **Still in `for-codex/`:** the brief `2026-09-29-build-638-ownership-at-connect.md` (carried over, not
+  started), plus Claude's ANSWER files for #456 rounds 1 to 6 and older ones.
+- **Planning written today:**
+  - `SPRINT-CLOSEOUT-45-TO-48.md`: all four sprints are merged, but none of the post-merge cleanup is done for 46,
+    47 or 48. That means test matrices, a joint keyboard audit, and an x86 build (none since 2026-08-21).
+  - Draft test matrices for Sprints 46 to 48, with a reconciliation report.
+  - The AetherSDR DAX IQ facts.
+  - Listen-back design compared against the code.
+  - Bench sheets in `for-noel/`.
+- **Memory written or changed today:**
+  - a closed blocker does not tell its entry
+  - hub files are owned by neighbourhood
+  - Delete removes the selected item (Noel's ruling, #774)
+  - a bare path reads as a command
+  - don't restate settled facts to him
+  - the Opus 5.5 1M pin
+  - the worktree-build firewall block
+  - one reviewer per artifact
+  - the DAX IQ findings (the same-SCU note softened)
+  - new tonight: a counted say is not a heard say
+- **Other repos:**
+  - AetherSDR: 2 upstream commits. It is a research clone.
+  - Freight Fate: **16 unpushed** on `feat/career-1.9`. Pushing it is Noel's call.
+  - Civ VI Access: 2 dirty files.
+  - rigmeter: 13 commits, with no remote by design.
+- **Infrastructure:**
+  - `radio-command.ps1` is in JJFlex-private (`409342b`). It is a narrow, allowlisted script for writing to the
+    radio, and it never keys. **Noel still has to add its permission rule himself.** Claude was denied writing to
+    the radio and did not work around it.
+  - A Windows Firewall Block on a never-run worktree exe hid LAN discovery. Noel flipped it. There is a memory
+    entry for it.
+
+### Seal checks
+
+- **Nightly Dropbox promote SKIPPED, on Noel's instruction.** Claude's reading of why that is right: main's new #782 changes connect behaviour, and its
+  refusal path has never been exercised. The NAS archive is unaffected.
+- **Vulnerability check:** 32 projects, 0 vulnerable.
+- **Memory drift:** 88 paths and 56 symbols. Nothing new beyond expected false positives (bare names outside the
+  walked trees, and the deliberately excluded credential file).
+- **MEMORY.md:** 15,140 bytes, which is over the ~12 KB seal threshold. Trimming it is carried over.
+- **Archive sweep:** five bannered entries, three already archived. The other two are the partial or resolution
+  entries noted at the last seal.
+- **3f:** CodexInstructionFileTests and IntegrationPassInstructionTests passed 5 of 5. The Codex prompt carries "Claude
+  Code leads this". There is no sandbox `setup_error.json`.
+- **AppData backup:** 51 files, 0.05 MB, with 25 connection profiles (7 on 2026-10-17). CLAUDE.md's figure of 32
+  is stale.
+- **NVDA logs archived** to `nvda-logs/2026-10/2026-10-19-nvda.log` and `-nvda-old.log`. The live log had 2,864
+  Speaking lines, so it was armed.
+- **Stale guidance to fix:** Agent.md and memory still describe the own-handle fence as the default, but #782
+  changed the station phase to wait for a post-connect fence. Fix that next session.
+
+### Tomorrow
+
+- **The iterator runs at full speed.** The first item is #778b round four.
+- **Round-6 listen-back bench on the 8600.** Codex's report holds the sheet ("Round 6 bench sheet for Noel"). Check:
+  - the full duplex control confirms on reply 0
+  - the LAN probe
+  - no client-joined announcement from the probe
+  - speech timing
+  - the keyed Loopback Check (Noel only)
+- **Clarity, #736.**
+- **The listen-back goal is Don's 6300 in half duplex, over SmartLink.** Noel's guess is that it needs one free
+  slice, and he says not to take that as settled. Capturing IQ while transmitting was measured on 2026-08-09 on the
+  8600's transmitting SCU, with full duplex off. Keying on Don's radio needs Tony present.
+- **#782:** log the ping send, so the missing ACK can be read.
+
+### Rigmeter snapshot — end of 2026-10-19
+
+Main only, so the #456, #778, #778b and #777 branches are not in these figures.
+- **41 commits, 116 files.**
+- **Work done:** +21,167 / −13,206, net +7,961. Nearly all of it is C#: +20,762 / −13,194 across 107 files. The
+  FlexBase split's moves inflate both sides.
+- **Repository size change:** net +7,961 across 113 files.
+- **For scale:** 11.0 braille volumes, about 12.7 hours of read-aloud.
+- **Snapshot:** `historical\stats\2026-10-19-61dac225.json`.
+
 ## END-OF-DAY SEAL — 2026-10-18, SEALED 2026-10-19 — THE JUNKBOX READ, TWELVE RULINGS, AND A MEASUREMENT THAT WITHDREW ITS OWN RECOMMENDATION
 
 **Written 2026-10-19 at 05:15.** Covers the window from the previous seal's commit

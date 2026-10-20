@@ -137,6 +137,11 @@ namespace Radios
                 PhaseChanged?.Invoke(testNum, "Creating radio instance");
                 rig = new FlexBase(OpenParms);
                 rig.SuppressSpeech = true;
+                // A throwaway rig in the operator's own process. It must not
+                // present the GUI client id the live connection holds — the
+                // radio would refuse one of the two as a duplicate — and it
+                // must not store the ids it is minted (#782).
+                rig.UseStoredGuiClientId = false;
                 rig.ShowAccountSelector = AccountSelector;
 
                 bool connected = false;

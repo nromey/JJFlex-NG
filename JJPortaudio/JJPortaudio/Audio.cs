@@ -859,6 +859,8 @@ namespace JJPortaudio
             get { return CBData.AudioSent; }
             set { CBData.AudioSent = value; }
         }
+        internal TxFramePipeline TransmitPipeline => CBData?.TxPipeline;
+
         internal ITxInputSource ToneSource
         {
             get { return CBData?.ToneSource; }

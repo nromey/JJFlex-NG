@@ -170,6 +170,16 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     departure must still arrive when discovery already removed the client. Preserve the
     collection-omission regression in `ProducerIdentityTests` when upgrading.
 
+19. **IQ packet evidence (2026-10-19)**: keep the comment-marked instance event
+    `RXAudioStream.IFPacketReady` and its call in `AddRXData(VitaIFDataPacket)`.
+    It passes the borrowed packet, including timestamps, packet count, class and
+    samples, synchronously before the existing `DataReady` call. Both the packet
+    object and its payload are reused: subscribers must copy inside the handler.
+    The Opus overload and the existing `DataReady` signature are unchanged.
+    The IQ recorder needs these fields to establish gaps and validate every
+    packet against the echoed rate. RXAudioStream.cs is no longer safe to copy
+    from a vendor drop without merging this patch.
+
 ## Other vendored trees — NOT FlexLib, but they carry patches too
 
 FlexLib is not the only vendor code in this repo, and a patch in one of the
@@ -191,7 +201,7 @@ FlexLib drop. Recorded here so a future upgrade of the tree in question finds it
 
 Rather than a fresh vendor copy + manual patch reapply, use git for a 3-way merge per changed file:
 1. Branch off `main`; `git checkout track/flexlib-42 -- FlexLib_API/` to pull the already-patched 4.2.18 tree (never merge `main` INTO that branch — main carries the revert and silently deletes the drop).
-2. For each vendor-changed file we also patched (find them by diffing pristine drops **with line endings normalized** — repo objects are LF, vendor zips are CRLF): `git merge-file ours base theirs` with base = pristine old vendor (commit `92385f88` for 4.2.18), ours = patched tree, theirs = new vendor file. 4.2.18→4.2.20 changed only `Radio.cs` (clean merge, zero conflicts) and `RXAudioStream.cs` (never patched, blind copy).
+2. For each vendor-changed file we also patched (find them by diffing pristine drops **with line endings normalized** — repo objects are LF, vendor zips are CRLF): `git merge-file ours base theirs` with base = pristine old vendor (commit `92385f88` for 4.2.18), ours = patched tree, theirs = new vendor file. 4.2.18→4.2.20 changed only `Radio.cs` (clean merge, zero conflicts) and `RXAudioStream.cs` (unpatched at that upgrade; now carries item 19 and MUST be merged, never blind-copied).
 3. Re-check items 1–9 above (the version stamp and the VitaSocket patch included — the old "1–7" here predated both), restore `MmcssPipelineScheduler.cs` to vendor-stock, build, and verify `Radio.cs` line counts: 4.1.5 = 14,471; 4.2.18 patched = 15,212; 4.2.20 merged = 15,268 (`wc -l`, CRLF or LF both count the same).
 
 Tip: After an upgrade, run a build and verify a remote connect; the wrapper logs the negotiated protocol so you can confirm TLS 1.2+.

@@ -135,6 +135,9 @@ namespace Flex.Smoothlake.FlexLib
             Interlocked.Add(ref _byteSum, packet.Length);
 
             int packet_count = packet.Header.packet_count;
+            // JJFlex patch (MIGRATION item 19): borrowed packet and samples;
+            // subscribers must copy both before this synchronous call returns.
+            IFPacketReady?.Invoke(this, packet);
             OnRXDataReady(this, packet.payload);
 
             // normal case -- this is the next packet we are looking for, or it is the first one
@@ -229,6 +232,9 @@ namespace Flex.Smoothlake.FlexLib
 
         public delegate void DataReadyEventHandler(RXAudioStream rxAudioStream, float[] rxData);
         public event DataReadyEventHandler DataReady;
+
+        // JJFlex patch: IF packets only. The existing DataReady and Opus path stay intact.
+        public event Action<RXAudioStream, VitaIFDataPacket> IFPacketReady;
         private void OnRXDataReady(RXAudioStream rxAudioStream, float[] rxData)
         {
             if (DataReady == null) 
