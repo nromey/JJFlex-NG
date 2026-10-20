@@ -211,6 +211,9 @@ namespace Radios
             // for the operator surfaces and it speaks; the caller must not.
             if (GuardRefuses("settings.guard.action.profile_load")) return GuardedOutcome.Refused;
             bool rv = true;
+            // Set by the transmit and microphone delegates when they run (#777 round four).
+            bool dispatched = false;
+            bool refusedAtDispatch = false;
             // select profiles, allowed before main loop.
             string str = "";
             switch (prof.ProfileType)
@@ -231,13 +234,22 @@ namespace Radios
                     {
                         q.Enqueue((FunctionDel)(() =>
                         {
-                            if (!theRadio.ProfileTXList.Contains(prof.Name))
+                            try
                             {
-                                theRadio.CreateTXProfile(prof.Name);
-                                str += "CreateTXProfile_";
+                                if (!theRadio.ProfileTXList.Contains(prof.Name))
+                                {
+                                    // The list is read again at dispatch, so the
+                                    // create is decided HERE, and whose radio it
+                                    // is gets asked here too (#777 round four).
+                                    if (OwnershipRefusesProfileWrite(prof.Name, ProfileWriteActionKey(prof.ProfileType, delete: false)))
+                                    { refusedAtDispatch = true; return; }
+                                    theRadio.CreateTXProfile(prof.Name);
+                                    str += "CreateTXProfile_";
+                                }
+                                theRadio.ProfileTXSelection = prof.Name;
+                                str += "ProfileTXSelection";
                             }
-                            theRadio.ProfileTXSelection = prof.Name;
-                            str += "ProfileTXSelection";
+                            finally { dispatched = true; }
                         }), str, true);
                     }
                     break;
@@ -245,13 +257,20 @@ namespace Radios
                     {
                         q.Enqueue((FunctionDel)(() =>
                         {
-                            if (!theRadio.ProfileMICList.Contains(prof.Name))
+                            try
                             {
-                                theRadio.CreateMICProfile(prof.Name);
-                                str += "CreateMICProfile_";
+                                if (!theRadio.ProfileMICList.Contains(prof.Name))
+                                {
+                                    // As for transmit, above (#777 round four).
+                                    if (OwnershipRefusesProfileWrite(prof.Name, ProfileWriteActionKey(prof.ProfileType, delete: false)))
+                                    { refusedAtDispatch = true; return; }
+                                    theRadio.CreateMICProfile(prof.Name);
+                                    str += "CreateMICProfile_";
+                                }
+                                theRadio.ProfileMICSelection = prof.Name;
+                                str += "ProfileMICSelection";
                             }
-                            theRadio.ProfileMICSelection = prof.Name;
-                            str += "ProfileMICSelection";
+                            finally { dispatched = true; }
                         }), str, true);
                     }
                     break;
@@ -260,7 +279,55 @@ namespace Radios
                     rv = false;
                     break;
             }
-            return rv ? GuardedOutcome.Done : GuardedOutcome.Failed;
+            if (!rv) return GuardedOutcome.Failed;
+
+            // THE DISPATCHED DELEGATE'S ANSWER IS THE ANSWER (#777 round four,
+            // Codex B1 of the third re-verify). The check above reads the
+            // radio's list before the enqueue; the delegate reads it again
+            // when the main loop runs it, and until round four a name that had
+            // gone by then was CREATED with nobody asking whose radio it was.
+            // A guest's "select an existing profile" became "create one on the
+            // owner's radio", and this still returned Done, so the dialog
+            // announced a selection. The delegate now asks the same ownership
+            // decision at the point it would create, and when that refuses it
+            // sends nothing and speaks the refusal. On a radio not declared
+            // ours this waits, bounded, for the delegate's answer, so that a
+            // refusal leaves the dialog silent instead of saying "selected".
+            // Run inline (before the main loop) the answer is already in. An
+            // owner never waits, and nothing an owner sees changes.
+            if (!dispatched && SelectMayBeRefusedAtDispatch(prof)
+                && !await(() => dispatched, SelectDispatchWaitMs))
+            {
+                // Still queued: reported as queued, Select's contract before
+                // round four. If the name has gone when it does run, the
+                // delegate still refuses, sends nothing and speaks.
+                Tracing.TraceLine("SelectProfile: '" + prof.Name + "' had not run within " + SelectDispatchWaitMs
+                    + " ms; reported as queued. Whose radio it is is asked again when it runs (#777)", TraceLevel.Warning);
+                return GuardedOutcome.Done;
+            }
+            return refusedAtDispatch ? GuardedOutcome.Refused : GuardedOutcome.Done;
+        }
+
+        /// <summary>How long a guest's transmit or microphone Select waits for
+        /// its queued delegate's answer (#777 round four): the bound the delete
+        /// funnel gives its own queued readback.</summary>
+        private const int SelectDispatchWaitMs = 1000;
+
+        /// <summary>
+        /// Whether a queued Select could still be refused when it runs: a
+        /// transmit or microphone profile, whose delegate may choose to create,
+        /// on a radio the single ownership decision does not answer Mine. Not a
+        /// second ownership test: the same <c>StationLayoutSaveGuard.OwnershipRefusal</c>
+        /// over <c>RadioConfig.OwnershipOf</c> the delegate asks, read here only
+        /// to decide whether to wait for the delegate's answer.
+        /// </summary>
+        private bool SelectMayBeRefusedAtDispatch(Profile_t prof)
+        {
+            var radio = theRadio;
+            if (radio == null) return false;
+            if (prof.ProfileType != ProfileTypes.tx && prof.ProfileType != ProfileTypes.mic) return false;
+            return StationLayoutSaveGuard.OwnershipRefusal(RadioConfig.OwnershipOf(radio.Serial))
+                != StationLayoutSaveRefusal.None;
         }
 
         /// <summary>
