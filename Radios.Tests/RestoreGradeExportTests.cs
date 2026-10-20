@@ -22,6 +22,9 @@ namespace Radios.Tests
     /// be read still getting its section, and the whole file round-tripping
     /// through a parser.</para>
     /// </summary>
+    // #469: shares the profile-walk flag with ComparisonReportGuardTests,
+    // which holds it on purpose; serialised so neither refuses the other.
+    [Collection(ProfileWalkFlagCollection.Name)]
     public sealed class RestoreGradeExportTests
     {
         private static FlexBase MakeRig()

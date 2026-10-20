@@ -598,10 +598,67 @@ namespace Radios
         }
 
         /// <summary>
+        /// Why <see cref="GenerateReport(FlexBase, Action{string}, out WalkRefusal)"/>
+        /// declined to run. The caller words the refusal; the reporter only
+        /// says which one it was.
+        /// </summary>
+        public enum WalkRefusal
+        {
+            /// <summary>It ran.</summary>
+            None,
+            /// <summary>Another profile walk holds the in-flight flag — the
+            /// restore capture, or another comparison report.</summary>
+            WalkAlreadyRunning,
+        }
+
+        /// <summary>
         /// Generate a full report including profile comparisons and meter enumeration.
         /// Sprint 20: Enhanced report with load-snapshot profile comparison and meter listing.
+        /// Returns null when it refused; the overload with an <c>out</c>
+        /// parameter says why.
         /// </summary>
         public static string GenerateReport(FlexBase rig, Action<string> progressCallback = null)
+            => GenerateReport(rig, progressCallback, out _);
+
+        /// <summary>
+        /// <see cref="GenerateReport(FlexBase, Action{string})"/>, saying why
+        /// it refused when it returns null.
+        /// </summary>
+        /// <remarks>
+        /// #469: this report walks every stored profile exactly as the restore
+        /// capture does, so it takes the SAME in-flight flag for the whole run
+        /// and releases it on every exit, an exception included. Until then it
+        /// only CHECKED the flag (at the menu) and never set it, so a restore
+        /// capture started during a comparison report — or a second report —
+        /// sailed through the guard that exists to stop two walks restoring
+        /// each other's wrong state, while <see cref="WalkInProgress"/>'s own
+        /// documentation said both entry points set it. The flag is held for
+        /// the read-only sections too: they read the profile selection the
+        /// walk is about to move, and a report read mid-walk of the other
+        /// entry point would describe a profile it did not start on.
+        /// </remarks>
+        public static string GenerateReport(FlexBase rig, Action<string> progressCallback,
+            out WalkRefusal refusal)
+        {
+            if (Interlocked.CompareExchange(ref _walkInFlight, 1, 0) != 0)
+            {
+                Tracing.TraceLine("ProfileReporter: comparison report refused — a profile walk is already running", TraceLevel.Warning);
+                refusal = WalkRefusal.WalkAlreadyRunning;
+                return null;
+            }
+            try
+            {
+                WalkHeldProbe?.Invoke("comparison report");
+                refusal = WalkRefusal.None;
+                return GenerateReportCore(rig, progressCallback);
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _walkInFlight, 0);
+            }
+        }
+
+        private static string GenerateReportCore(FlexBase rig, Action<string> progressCallback)
         {
             var sb = new StringBuilder();
             sb.AppendLine($"JJFlexRadio Profile Report");
@@ -1510,6 +1567,15 @@ namespace Radios
             => System.Threading.Volatile.Read(ref _walkInFlight) != 0;
 
         /// <summary>
+        /// TEST SEAM ONLY. Called by each walking entry point immediately
+        /// after it has taken the in-flight flag, with the entry point's name,
+        /// so a test can start the OTHER entry point while the flag is
+        /// genuinely held by production code and watch it refuse (#469). Null
+        /// in production; nothing in the application assigns it.
+        /// </summary>
+        internal static Action<string> WalkHeldProbe;
+
+        /// <summary>
         /// Build the restore-grade capture. Walks every global, TX and mic
         /// profile (in that order — a global load drags TX and mic selections
         /// with it, so the later walks re-right what the earlier ones moved),
@@ -1550,6 +1616,7 @@ namespace Radios
             }
             try
             {
+                WalkHeldProbe?.Invoke("restore capture");
                 return GenerateRestoreGradeExportCore(rig, progressCallback);
             }
             finally
