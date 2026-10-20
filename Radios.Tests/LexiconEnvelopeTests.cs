@@ -1181,17 +1181,12 @@ namespace Radios.Tests
                 // list is not "nothing to compare") and the restore refusal
                 // that names only the kinds it would load. Same classification
                 // and reasoning as above. All DRAFTS awaiting Noel.
-                "settings.profile_walk.not_moved",
-                // Round three (Codex: FlexLib's selection getter reads back our
-                // own request, so "the radio is on X now" could be false): the
-                // stop says only what is certain, the last profile SENT and the
-                // original as the radio reported it. FRAGMENTS, joined with a
-                // semicolon by WhereTheRadioWasLeft. DRAFTS.
-                "settings.profile_walk.last_sent",
-                "settings.profile_walk.original_not_put_back",
-                "settings.profile_walk.original_unknown",
-                "settings.profile_walk.original_none",
-                "settings.profile_walk.earlier_not_confirmed",
+                // Round four (Noel, 2026-10-20: stop naming profiles after a
+                // transmit stop and claim nothing we cannot prove): every
+                // fragment that named a profile after a stop is gone. The stop
+                // line (settings.profile_walk.stopped_keyed, classified above)
+                // and the two finished sentences now carry one fixed piece of
+                // advice instead. DRAFTS.
                 "settings.profile.report_saved_stopped",
                 "settings.restore_export.saved_stopped",
                 "settings.profile.report_start_list_missing",

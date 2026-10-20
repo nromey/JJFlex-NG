@@ -352,14 +352,12 @@ namespace Radios
             /// its last profile, at the put-back.</summary>
             public string StoppedBefore;
 
-            /// <summary>The last profile a load REQUEST went out for, whether or
-            /// not the radio confirmed it; null when none was sent. #469 round
-            /// three: this is the only "where" a stopped walk may state.
-            /// FlexLib's selection getters cannot say where the radio is,
-            /// because its setters write the same field before sending and an
-            /// equal status from the radio is skipped, so reading one back after
-            /// a load returns our own request.</summary>
-            public string LastSent;
+            /// <summary>The last profile the walk REQUESTED a load of, or null.
+            /// Evidence for the saved files only, labelled there as "requested":
+            /// the request can be refused before it is dispatched (the
+            /// change-nothing and ownership gates in SelectProfileGuarded), so
+            /// it never means "sent" and is never spoken (#469 round four).</summary>
+            public string LastRequested;
         }
 
         // ── #418: the three-state profile list, and its renderings ──
@@ -607,7 +605,7 @@ namespace Radios
                 try
                 {
                     outcome.LoadAttempts++;
-                    outcome.LastSent = name;
+                    outcome.LastRequested = name;
                     if (load(name))
                     {
                         outcome.LastLoaded = name;
@@ -649,10 +647,9 @@ namespace Radios
 
             if (outcome.StoppedForTransmit)
             {
-                Tracing.TraceLine($"ProfileReporter: {label} walk stopped for transmit — last load sent '{outcome.LastSent ?? "(none)"}', started on '{outcome.OriginalSelection ?? "(not reported)"}', nothing put back", TraceLevel.Error);
+                Tracing.TraceLine($"ProfileReporter: {label} walk stopped for transmit — last load requested '{outcome.LastRequested ?? "(none)"}', app's last recorded selection before the walk '{outcome.OriginalSelection ?? "(none recorded)"}', nothing put back", TraceLevel.Error);
                 // DRAFT PROSE (#469): awaiting Noel
-                progressCallback?.Invoke(Lexicon.Get("settings.profile_walk.stopped_keyed")
-                    + " " + WhereTheRadioWasLeft(outcome));
+                progressCallback?.Invoke(TransmitStopSentence());
                 return;
             }
 
@@ -680,29 +677,42 @@ namespace Radios
         }
 
         /// <summary>
-        /// For a walk stopped because the radio was keyed: only what is
-        /// CERTAIN. The last profile a load was sent for, and that the original
-        /// was not put back, naming it when the radio reported it, saying it
-        /// is unknown when it never did, and saying "none" only when the radio
-        /// reported an empty selection. It never claims which profile the
-        /// radio is on (#469 round three: FlexLib's getter would read back our
-        /// own request). The spoken stop line, both finished sentences and
-        /// both files carry these same words.
+        /// The one sentence spoken when a walk stops because the radio was
+        /// keyed. It names no profile and claims nothing about where the radio
+        /// was left, because nothing here can prove it: FlexLib's selection
+        /// getter is written locally by its own setter before the command goes
+        /// out, and a load request can be refused before it is dispatched.
+        /// Ruled by Noel, 2026-10-20, after three rounds of trying to say more:
+        /// "I'm not sure that this is a hugely necessary step for a case that
+        /// will happen so rarely" (#469 round four). The finished sentences end
+        /// with the same advice.
         /// </summary>
-        internal static string WhereTheRadioWasLeft(ProfileWalkOutcome o)
+        public static string TransmitStopSentence()
+            // DRAFT PROSE (#469): awaiting Noel
+            => Lexicon.Get("settings.profile_walk.stopped_keyed");
+
+        /// <summary>
+        /// The labelled evidence a saved file may carry for a stopped walk:
+        /// what the walk requested (never "sent"), and the app's last recorded
+        /// selection before it began (never "original": the getter may hold
+        /// the app's own earlier request). Lines in "key = value" form.
+        /// </summary>
+        internal static List<(string Key, string Value)> StoppedWalkEvidence(ProfileWalkOutcome o)
         {
             string kind = TypeLabel(o.ProfileType);
-            // DRAFT PROSE (#469): awaiting Noel
-            if (o.LastSent == null)
-                return Lexicon.Get("settings.profile_walk.not_moved", ("kind", kind));
-
-            string sent = Lexicon.Get("settings.profile_walk.last_sent", ("kind", kind), ("profile", o.LastSent));
-            string original = o.OriginalSelection == null
-                ? Lexicon.Get("settings.profile_walk.original_unknown", ("kind", kind))
-                : o.OriginalSelection.Length == 0
-                    ? Lexicon.Get("settings.profile_walk.original_none", ("kind", kind))
-                    : Lexicon.Get("settings.profile_walk.original_not_put_back", ("profile", o.OriginalSelection));
-            return sent + "; " + original;
+            return new List<(string, string)>
+            {
+                ("last " + kind + " profile the walk requested",
+                    o.LastRequested == null
+                        ? "none — no load was requested"
+                        : o.LastRequested + " (requested only; it may have been refused before it reached the radio, or not applied)"),
+                ("app's last recorded " + kind + " selection before the walk",
+                    o.OriginalSelection == null
+                        ? "none recorded"
+                        : o.OriginalSelection.Length == 0
+                            ? "recorded as empty"
+                            : o.OriginalSelection + " (may be the app's own earlier request, not the radio's state)"),
+            };
         }
 
         /// <summary>
@@ -1048,12 +1058,6 @@ namespace Radios
             /// <summary>The radio was keyed during the walk, so it stopped and
             /// put nothing back.</summary>
             public bool StoppedForTransmit;
-            /// <summary>The walk that stopped; its outcome says where the radio
-            /// was left.</summary>
-            public ProfileWalkOutcome StoppedWalk;
-            /// <summary>An earlier type's walk loaded profiles and its put-back
-            /// was not confirmed.</summary>
-            public bool EarlierNotConfirmed;
             /// <summary>True when nothing was moved, or everything the walk
             /// loaded was confirmed back where it started.</summary>
             public bool EverythingPutBack = true;
@@ -1067,25 +1071,18 @@ namespace Radios
 
         /// <summary>
         /// The sentence that answers the press when the report is saved.
-        /// Unchanged for an ordinary run. When the radio was keyed it says the
-        /// walk stopped, which profile the radio is on now and that the
-        /// original was not put back — the same words the stop line spoke and
-        /// the report file carries (#469 round two).
+        /// Unchanged for an ordinary run. After a transmit stop it says the
+        /// comparison may be incomplete and gives the same manual route as the
+        /// stop line, naming no profile and claiming nothing about where the
+        /// radio was left (#469 round four).
         /// </summary>
         public static string ComparisonFinishedSentence(ComparisonReport report, string path)
         {
             if (!report.StoppedForTransmit)
                 return Lexicon.Get("settings.profile.report_saved", ("path", path));
             // DRAFT PROSE (#469): awaiting Noel
-            return Lexicon.Get("settings.profile.report_saved_stopped", ("path", path))
-                + StoppedTail(report.StoppedWalk, report.EarlierNotConfirmed);
+            return Lexicon.Get("settings.profile.report_saved_stopped", ("path", path));
         }
-
-        /// <summary>" " + where the radio was left, plus the caution when an
-        /// earlier walk's put-back was not confirmed.</summary>
-        private static string StoppedTail(ProfileWalkOutcome stopped, bool earlierNotConfirmed)
-            => (stopped == null ? "" : " " + WhereTheRadioWasLeft(stopped))
-               + (earlierNotConfirmed ? " " + Lexicon.Get("settings.profile_walk.earlier_not_confirmed") : "");
 
         /// <summary>
         /// Generate a full report including profile comparisons and meter enumeration.
@@ -1308,10 +1305,7 @@ namespace Radios
                 Tracing.TraceLine($"ProfileReporter: comparing {TypeLabel(ptype)} profiles", TraceLevel.Info);
                 var snapshots = CaptureAllProfiles(rig, ptype, out var walk, progressCallback, list);
                 if (walk.LoadAttempts > 0 && !(walk.RestoreAttempted && walk.RestoreConfirmed))
-                {
                     result.EverythingPutBack = false;
-                    if (!walk.StoppedForTransmit) result.EarlierNotConfirmed = true;
-                }
                 if (snapshots.Count >= 2)
                 {
                     sb.AppendLine();
@@ -1340,7 +1334,6 @@ namespace Radios
                 if (walk.StoppedForTransmit)
                 {
                     result.StoppedForTransmit = true;
-                    result.StoppedWalk = walk;
                     AppendComparisonStopped(sb, walk);
                     break;
                 }
@@ -1365,14 +1358,16 @@ namespace Radios
             sb.AppendLine("PROFILE LOADING STOPPED");
             sb.AppendLine(new string('=', 60));
             sb.AppendLine("The radio was keyed during the comparison, so no more profiles");
-            sb.AppendLine("were loaded and nothing was put back while transmitting.");
+            sb.AppendLine("were requested and nothing was put back while transmitting.");
             sb.AppendLine(walk.StoppedBefore != null
-                ? $"Loading stopped before {label} profile '{walk.StoppedBefore}'; that profile and every one after it are not compared here."
-                : $"The radio was keyed after the last {label} profile was loaded, before the original could be put back.");
-            // The same words the operator heard (#469 round two).
-            sb.AppendLine(WhereTheRadioWasLeft(walk));
-            if (walk.LastSent != null)
-                sb.AppendLine("Reload your own profile from the Radio menu when you unkey.");
+                ? $"Loading stopped before {label} profile '{walk.StoppedBefore}' was requested; that profile and every one after it are not compared here."
+                : $"The radio was keyed after the last {label} profile was requested, so nothing was put back.");
+            // Evidence, each value labelled for what it is (#469 round four):
+            // which profile the radio is on is NOT known, and is not claimed.
+            foreach (var (key, value) in StoppedWalkEvidence(walk))
+                sb.AppendLine(char.ToUpperInvariant(key[0]) + key.Substring(1) + ": " + value + ".");
+            sb.AppendLine("Which profile the radio is on now is not known.");
+            sb.AppendLine(TransmitStopSentence());
         }
 
         /// <summary>
@@ -2099,15 +2094,8 @@ namespace Radios
             public WalkRefusal Refused;
 
             /// <summary>The radio was keyed during the walk, so it stopped and
-            /// put nothing back (#469); the file says what was not captured and
-            /// where the radio was left.</summary>
+            /// put nothing back (#469); the file says what was not captured.</summary>
             public bool StoppedForTransmit;
-
-            /// <summary>The walk that stopped.</summary>
-            public ProfileWalkOutcome StoppedWalk;
-
-            /// <summary>An earlier type's put-back was not confirmed.</summary>
-            public bool EarlierNotConfirmed;
         }
 
         private static int _walkInFlight;
@@ -2225,8 +2213,8 @@ namespace Radios
         /// <summary>
         /// The sentence that answers the restore-capture press when the file
         /// is written: the existing three, plus the one for a walk stopped
-        /// because the radio was keyed, which says where the radio was left
-        /// in the same words as the stop line and the file (#469).
+        /// because the radio was keyed, which names no profile and claims
+        /// nothing about where the radio was left (#469 round four).
         /// </summary>
         public static string RestoreFinishedSentence(RestoreGradeExport export, string path)
         {
@@ -2234,8 +2222,7 @@ namespace Radios
             if (!export.WalkRan) key = "settings.restore_export.saved_no_walk";
             else if (export.StoppedForTransmit)
                 // DRAFT PROSE (#469): awaiting Noel
-                return Lexicon.Get("settings.restore_export.saved_stopped", ("path", path))
-                    + StoppedTail(export.StoppedWalk, export.EarlierNotConfirmed);
+                return Lexicon.Get("settings.restore_export.saved_stopped", ("path", path));
             else key = export.EverythingPutBack
                     ? "settings.restore_export.saved_put_back"
                     : "settings.restore_export.saved_not_put_back";
@@ -2458,17 +2445,18 @@ namespace Radios
                     if (outcome.StoppedForTransmit)
                     {
                         result.StoppedForTransmit = true;
-                        result.StoppedWalk = outcome;
                         var notWalked = profileTypes
                             .SkipWhile(x => x != t).Skip(1)
                             .Select(x => TypeLabel(x) + " profiles").ToList();
                         sb.AppendLine("[profile walk stopped]");
-                        sb.AppendLine("reason = the radio was keyed during the walk, so no more profiles were loaded and nothing was put back while transmitting");
+                        sb.AppendLine("reason = the radio was keyed during the walk, so no more profiles were requested and nothing was put back while transmitting");
                         sb.AppendLine(outcome.StoppedBefore != null
                             ? "stopped before = " + TypeLabel(t) + " profile " + outcome.StoppedBefore
-                              + "; it and every " + TypeLabel(t) + " profile after it are not in this file"
-                            : "stopped after = the last " + TypeLabel(t) + " profile, before the original could be put back");
-                        sb.AppendLine("where the radio was left = " + WhereTheRadioWasLeft(outcome));
+                              + " was requested; it and every " + TypeLabel(t) + " profile after it are not in this file"
+                            : "stopped after = the last " + TypeLabel(t) + " profile was requested, so nothing was put back");
+                        foreach (var (key, value) in StoppedWalkEvidence(outcome))
+                            sb.AppendLine(key + " = " + value);
+                        sb.AppendLine("profile the radio is on now = not known");
                         sb.AppendLine("not walked at all = " + (notWalked.Count == 0 ? "none" : string.Join(", ", notWalked)));
                         sb.AppendLine("to capture them = unkey, then run this export again");
                         sb.AppendLine();
@@ -2480,9 +2468,6 @@ namespace Radios
                 result.EverythingPutBack = outcomes.All(o =>
                     o.LoadAttempts == 0
                     || (o.RestoreAttempted && o.RestoreConfirmed));
-                result.EarlierNotConfirmed = outcomes.Any(o =>
-                    !o.StoppedForTransmit && o.LoadAttempts > 0
-                    && !(o.RestoreAttempted && o.RestoreConfirmed));
             }
 
             // ── [memories] — not profile contents, but the reset takes them ──
@@ -2561,11 +2546,10 @@ namespace Radios
                         value = "nothing was loaded — the radio reports no stored "
                             + typeWord + " profiles, so there was nothing to put back";
                     else if (o.StoppedForTransmit)
-                        value = o.LastSent == null
-                            ? "not needed — " + WhereTheRadioWasLeft(o)
-                            : "NO — the radio was keyed, so nothing was put back while transmitting. "
-                              + WhereTheRadioWasLeft(o)
-                              + " Reload your profile from the Radio menu when you unkey";
+                        value = o.LastRequested == null
+                            ? "nothing was requested, so nothing needed putting back"
+                            : "NO — the radio was keyed, so nothing was put back while transmitting; "
+                              + "which profile the radio is on now is not known. " + TransmitStopSentence();
                     else if (o.LoadAttempts == 0 && o.Unreadable.Count > 0)
                         value = "no load was ever sent — there was no radio connection, so the radio was not moved";
                     else if (o.LoadAttempts == 0)
