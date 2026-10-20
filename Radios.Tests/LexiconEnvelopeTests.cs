@@ -1222,6 +1222,89 @@ namespace Radios.Tests
                 // still frozen. WHEN THE PASS REACHES THEM, DECIDE ALL FOUR
                 // TOGETHER.
                 "settings.profile_station.unconfirmed_brief",
+
+                // Junkbox #469, 2026-10-20: the profile comparison report now
+                // refuses while keyed and runs in the background, so it needs
+                // its own start sentence (one for a run that loads profiles,
+                // one for a radio where the comparison is left out), its own
+                // transmit refusal, and its own failure sentence: the restore
+                // capture's settings.restore_export.start names a "restore"
+                // capture and its not_while_transmitting says "this export".
+                // Classified rather than frozen because they were written here
+                // (#720). delivery: null - TextOnly - on the #726 reasoning:
+                // each is spoken ONLY in answer to the operator's own press of
+                // the Tools menu item, the start and refusal at once and the
+                // failure as the delayed answer to that press, and the
+                // application never says any of them on its own account. Their
+                // siblings settings.profile.report_saved and the
+                // settings.restore_export.* family are legacy and still frozen;
+                // WHEN THE PASS REACHES THEM, DECIDE THE TWO REPORTS' SENTENCES
+                // TOGETHER. All four wordings are DRAFTS awaiting Noel.
+                "settings.profile.report_start",
+                "settings.profile.report_start_no_walk",
+                "settings.profile.report_not_while_transmitting",
+                "settings.profile.report_failed",
+                // Repair round one (Codex's four blockers, 2026-10-20), same
+                // reasoning and classification as the block above. The start
+                // sentence now names what the walk loads, through the three
+                // FRAGMENTS settings.profile.report_kinds.*, which are never
+                // spoken alone; a fourth start sentence covers a run that has
+                // nothing to compare; the transmit refusal names what the run
+                // would load. The walker's three lines for a key-up mid-walk
+                // are spoken as progress, in answer to the press that started
+                // the walk, and the two reports' finished sentences for a walk
+                // stopped by a key-up are the delayed answer to that press.
+                // Siblings settings.restore_export.saved_* are legacy and
+                // frozen; DECIDE THEM WITH THESE. All DRAFTS awaiting Noel.
+                "settings.profile.report_start_nothing_to_compare",
+                "settings.profile.report_kinds.global",
+                "settings.profile.report_kinds.tx",
+                "settings.profile.report_kinds.mic",
+                "settings.profile.report_kinds.and",
+                "settings.profile_walk.stopped_keyed",
+                // Same round, the restore capture's start sentence, which had
+                // the comparison's defect one method over: one sentence,
+                // "every stored profile is loaded", whatever would load. Three
+                // sentences now, chosen from its plan. The legacy
+                // settings.restore_export.start is no longer spoken and stays
+                // frozen; DECIDE IT (retire or reword) WITH THESE. DRAFTS.
+                "settings.restore_export.start_walk",
+                "settings.restore_export.start_nothing_to_walk",
+                "settings.restore_export.start_no_walk",
+                // Round two, Noel's ruling 2026-10-20 ("I'd say what profile
+                // radio's on now"): a walk stopped by a key-up puts NOTHING
+                // back, so the wait-and-put-back sentences of round one are
+                // gone. What replaces them says which profile the radio is on
+                // and that the original was not put back, built from the
+                // fragments below, which are never spoken alone; the stop
+                // line, both finished sentences and both files use the same
+                // words. Also: the list-missing start sentences (an unreadable
+                // list is not "nothing to compare") and the restore refusal
+                // that names only the kinds it would load. Same classification
+                // and reasoning as above. All DRAFTS awaiting Noel.
+                // Round four (Noel, 2026-10-20: stop naming profiles after a
+                // transmit stop and claim nothing we cannot prove): every
+                // fragment that named a profile after a stop is gone. The stop
+                // line (settings.profile_walk.stopped_keyed, classified above)
+                // and the two finished sentences now carry one fixed piece of
+                // advice instead. DRAFTS.
+                "settings.profile.report_saved_stopped",
+                "settings.restore_export.saved_stopped",
+                "settings.profile.report_start_list_missing",
+                "settings.profile.report_start_lists_missing",
+                "settings.restore_export.not_while_transmitting_kinds",
+                // Round six (Codex reverify5: "sent back" is unprovable too,
+                // because Done means queued and FlexLib's setter can skip the
+                // send): a run that requested any load ends with the stop
+                // line's manual route and claims nothing about what reached the
+                // radio; one that requested none says only that it was not
+                // moved, which is provable. The legacy
+                // settings.restore_export.saved_put_back / saved_not_put_back are
+                // no longer spoken and stay frozen; DECIDE THEM WITH THESE.
+                // Same classification and reasoning as above. DRAFTS.
+                "settings.profile.report_saved_loaded",
+                "settings.restore_export.saved_loaded",
+                "settings.restore_export.saved_nothing_moved",
             };
 
             Assert.Equal(3151, unclassified);

@@ -22,6 +22,10 @@ namespace Radios.Tests
     /// be read still getting its section, and the whole file round-tripping
     /// through a parser.</para>
     /// </summary>
+    // #469: shares the process-wide profile-walk flag with
+    // ComparisonReportGuardTests, which holds it on purpose; both sit in the
+    // RadioConfig statics collection so neither refuses the other.
+    [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class RestoreGradeExportTests
     {
         private static FlexBase MakeRig()
@@ -153,7 +157,7 @@ namespace Radios.Tests
             // No load request ever went out — so the file must say the radio
             // was not moved, rather than raise a false alarm.
             Assert.True(export.WalkRan);
-            Assert.True(export.EverythingPutBack);
+            Assert.False(export.AnyLoadRequested);
             Assert.Contains("global profile put back = no load was ever sent — the global profile list could not be read (no radio connection), so the radio was not moved", text);
         }
 
@@ -199,7 +203,7 @@ namespace Radios.Tests
             Assert.NotNull(export);
 
             Assert.False(export.WalkRan);
-            Assert.True(export.EverythingPutBack); // nothing was touched
+            Assert.False(export.AnyLoadRequested); // nothing was touched
             Assert.Contains("[profile walk skipped]", export.Text);
             Assert.Contains("change nothing is on for this radio", export.Text);
             Assert.DoesNotContain("[global profile:", export.Text);
@@ -220,8 +224,14 @@ namespace Radios.Tests
             // anywhere saying so. Both halves of the fix are pinned by source
             // because the failing path needs a radio that refuses a load.
             string source = Read("Radios/ProfileReporter.cs");
-            Assert.Contains("RestoreConfirmed = LoadProfileAndWait", source);
-            Assert.Contains("walk.RestoreAttempted && !walk.RestoreConfirmed", source);
+            // #469 moved the walk into RunWalk, which reaches the radio
+            // through the load it is handed; WalkProfiles hands it
+            // LoadProfileAndWait (pinned in ComparisonReportGuardTests).
+            // #469 round six: the put-back is REQUESTED and its arrival is not
+            // claimed; the comparison counts any requested load for the
+            // pointer sentence.
+            Assert.Contains("var result = load(outcome.OriginalSelection);", source);
+            Assert.Contains("if (walk.LoadAttempts > 0) result.AnyLoadRequested = true;", source);
 
             // The positive control for this scan: a token known absent.
             Assert.DoesNotContain("NoSuchRestoreSymbol", source);
