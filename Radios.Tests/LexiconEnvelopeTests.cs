@@ -1121,6 +1121,21 @@ namespace Radios.Tests
                 "audio.iq.ack.not_recorded",
                 "audio.iq.ack.listener_request",
                 "audio.iq.ack.antenna_unchanged",
+
+                // Junkbox #312, repair round one, 2026-10-20: the honest
+                // endings for a 60 m arrival whose mode correction did not
+                // happen, replacing "mode set to ..." where it would have
+                // been false - the request was refused while transmitting,
+                // or there was no slice of ours to write, or the slice did
+                // not agree within the confirm window. FRAGMENTS appended to
+                // an arrival sentence (the band jump's, the rotation's, or
+                // typed entry's), never spoken alone, so TextOnly is the only
+                // honest classification. Their sibling settings.band.mode_advisory
+                // is legacy and still frozen; WHEN THE PASS REACHES IT, DECIDE
+                // ALL FOUR TOGETHER. DRAFTS awaiting Noel.
+                "settings.band.mode_not_set",
+                "settings.band.mode_not_set_transmitting",
+                "settings.band.mode_unconfirmed",
             };
 
             Assert.Equal(3152, unclassified);

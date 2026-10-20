@@ -980,36 +980,45 @@ public class FreqOutHandlers
         else
             EarconPlayer.DingTone();
         string display = FormatFreqForSpeech(freqMhz.Value);
-        // No rig, no mode to correct: the sentence must never claim a mode
-        // change nothing made, so the correction is only asked for with a rig.
-        var outcome = Rig != null
-            ? QuickTypeCommitOutcome(License?.Country ?? "US", freqHz, Rig.Mode, display)
-            : (ModeToSet: (string?)null, Sentence: Lexicon.Get("settings.tuning.freq_set", ("freq", display)));
-        if (outcome.ModeToSet != null && Rig != null) Rig.Mode = outcome.ModeToSet;
-        Radios.ScreenReaderOutput.Speak(outcome.Sentence, VerbosityLevel.Terse, true);
+        // No rig, no mode to correct: the correction is only asked for with a
+        // rig, and with one it is said only when true (#312, repair round one).
+        var outcome = QuickTypeCommitOutcome(License?.Country ?? "US", freqHz, Rig?.Mode, display);
+        var rig = Rig;
+        if (rig != null && outcome.Correction != null)
+        {
+            _ = SixtyMeterModeDelivery.DeliverAsync(rig, outcome.Arrival, outcome.Correction,
+                Radios.Speech.SpeechIntent.Interrupt);
+        }
+        else
+        {
+            // The radio is moving: a 60 m arrival still waiting for agreement
+            // must not speak late over this one.
+            SixtyMeterModeDelivery.CancelPending();
+            Radios.ScreenReaderOutput.Speak(outcome.Arrival, VerbosityLevel.Terse, true);
+        }
         CancelQuickType();
     }
 
     /// <summary>
-    /// What a committed typed frequency owes the mode, and the sentence that
-    /// confirms it (#312). Pure, so it can be tested without a window.
+    /// What a committed typed frequency owes the mode, and the arrival sentence
+    /// (#312). Pure, so it can be tested without a window.
     /// </summary>
     /// <remarks>
     /// Typed entry is the second path #312's report named. Landing on a 60m
-    /// frequency now applies the same correction the band jump and the channel
-    /// rotation apply, through <see cref="SixtyMeterChannels.GetModeCorrection"/>:
-    /// into the digital segment on a voice mode sets CW, onto a channel sets
-    /// the channel's mode, and the advisory clause is appended to the existing
-    /// "Frequency set to" sentence. Anywhere else, nothing changes.
+    /// frequency now asks for the same correction the band jump and the channel
+    /// rotation ask for, through <see cref="SixtyMeterChannels.GetModeCorrection"/>:
+    /// into the digital segment on a voice mode, CW; onto a channel, the
+    /// channel's mode. The arrival carries NO mode clause: whether "mode set to"
+    /// is true depends on the radio taking the write, which
+    /// <see cref="SixtyMeterModeDelivery"/> finds out and says (repair round
+    /// one). With no current mode known (no rig) there is no correction.
     /// </remarks>
-    internal static (string? ModeToSet, string Sentence) QuickTypeCommitOutcome(
+    internal static (SixtyMeterChannels.ModeCorrection? Correction, string Arrival) QuickTypeCommitOutcome(
         string country, ulong freqHz, string? currentMode, string display)
     {
-        string sentence = Lexicon.Get("settings.tuning.freq_set", ("freq", display));
-        var correction = SixtyMeterChannels.GetModeCorrection(country, freqHz, currentMode);
-        return correction == null
-            ? (null, sentence)
-            : (correction.RequiredMode, sentence + correction.Advisory);
+        string arrival = Lexicon.Get("settings.tuning.freq_set", ("freq", display));
+        if (currentMode == null) return (null, arrival);
+        return (SixtyMeterChannels.GetModeCorrection(country, freqHz, currentMode), arrival);
     }
 
     /// <summary>
@@ -3612,24 +3621,29 @@ public class FreqOutHandlers
         string freqStr = FormatFreqForSpeech(targetFreq);
 
         // 60m mode advisory: auto-correct mode if inappropriate for the target
-        // segment. The composition is shared with the channel rotation and
-        // typed frequency entry since #312, so all three say it the same way.
-        string modeAdvisory = "";
+        // segment. The correction is shared with the channel rotation and
+        // typed frequency entry since #312, and so, since #312's repair round
+        // one, is the way it is said: "mode set to" only once the slice reports
+        // the mode, and plainly "not changed" when the request was refused
+        // (transmitting, or no slice of ours). Until then this path assigned
+        // Rig.Mode and claimed the change on the next line, which Mode's
+        // silent refusals could make false.
+        SixtyMeterChannels.ModeCorrection? correction = null;
         if (targetBand == Bands.BandNames.m60 && Rig != null)
         {
             string country = License?.Country ?? "US";
-            var correction = SixtyMeterChannels.GetModeCorrection(country, targetFreq, mode);
-            if (correction != null)
-            {
-                Rig.Mode = correction.RequiredMode;
-                modeAdvisory = correction.Advisory;
-            }
+            correction = SixtyMeterChannels.GetModeCorrection(country, targetFreq, mode);
         }
+        // Any band jump moves the radio: a 60 m arrival still waiting for
+        // agreement must not speak late over this one.
+        SixtyMeterModeDelivery.CancelPending();
 
-        Radios.ScreenReaderOutput.Speak(
-            Lexicon.Get("settings.band.jump",
-                ("band", bandName), ("freq", freqStr), ("advisory", modeAdvisory)),
-            VerbosityLevel.Terse, interrupt: true);
+        string arrival = Lexicon.Get("settings.band.jump",
+            ("band", bandName), ("freq", freqStr), ("advisory", ""));
+        if (correction != null && Rig != null)
+            _ = SixtyMeterModeDelivery.DeliverAsync(Rig, arrival, correction, Radios.Speech.SpeechIntent.Interrupt);
+        else
+            Radios.ScreenReaderOutput.Speak(arrival, VerbosityLevel.Terse, interrupt: true);
         EarconPlayer.BandBoundaryBeep();
 
         // Save band memory

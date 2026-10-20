@@ -119,9 +119,18 @@ namespace Radios
 
         /// <summary>
         /// One stop of the Alt+Shift+Up / Alt+Shift+Down rotation: where to tune,
-        /// the mode to set (null to leave the mode alone), and the sentence.
+        /// the channel's own mode for a channel stop, the correction a
+        /// digital-segment stop owes (null when the mode is already permitted),
+        /// and the arrival sentence WITHOUT any mode clause.
         /// </summary>
-        public sealed record RotationStop(int Index, ulong FrequencyHz, string? ModeToSet, string Announcement);
+        /// <remarks>
+        /// The mode clause is not here on purpose (#312, repair round one):
+        /// whether "mode set to CW" is true depends on whether the radio took
+        /// the write, which a pure planner cannot know.
+        /// <see cref="SixtyMeterModeDelivery"/> appends the clause that is true.
+        /// </remarks>
+        public sealed record RotationStop(int Index, ulong FrequencyHz, string? ChannelMode,
+            ModeCorrection? Correction, string Arrival);
 
         /// <summary>
         /// The next stop of the 60m rotation — the five channels, then the
@@ -133,12 +142,12 @@ namespace Radios
         /// <para>A channel stop always sets the channel's own mode, exactly as
         /// it always has. <b>The digital-segment stop sets a mode only when the
         /// current one is not permitted there</b>, through
-        /// <see cref="GetModeCorrection"/>, and says so with the band jump's own
-        /// advisory clause (#312). Until #312 that stop tuned and spoke and
+        /// <see cref="GetModeCorrection"/>, and the caller says so through
+        /// <see cref="SixtyMeterModeDelivery"/> (#312). Until #312 that stop tuned and spoke and
         /// never touched the mode, so one more press from a USB channel left the
         /// operator inside the digital-only segment on USB, told only that they
         /// had arrived.</para>
-        /// <para>Pure: the caller tunes, sets the mode and speaks. Pulled out of
+        /// <para>Pure: the caller tunes, requests the mode and speaks. Pulled out of
         /// <c>MainWindow.SixtyMeterChannelNavigate</c> so the decision can be
         /// tested without a window or a radio.</para>
         /// </remarks>
@@ -156,7 +165,7 @@ namespace Radios
             if (index < alloc.Value.Channels.Length)
             {
                 var ch = alloc.Value.Channels[index];
-                return new RotationStop(index, ToHz(ch.FrequencyMHz), ch.Mode,
+                return new RotationStop(index, ToHz(ch.FrequencyMHz), ch.Mode, null,
                     Lexicon.Get("connect.home.sixty_meter_channel",
                         ("label", ch.Label), ("freq", $"{ch.FrequencyMHz:F4}"), ("mode", ch.Mode)));
             }
@@ -164,9 +173,8 @@ namespace Radios
             var digi = alloc.Value.Digi!;
             ulong freqHz = ToHz(digi.StartMHz);
             string arrival = Lexicon.Get("connect.home.sixty_meter_digital", ("freq", $"{digi.StartMHz:F4}"));
-            var correction = GetModeCorrection(countryCode, freqHz, currentMode);
-            return new RotationStop(index, freqHz, correction?.RequiredMode,
-                arrival + (correction?.Advisory ?? ""));
+            return new RotationStop(index, freqHz, null,
+                GetModeCorrection(countryCode, freqHz, currentMode), arrival);
         }
 
         private static ulong ToHz(double mhz) => (ulong)(mhz * 1_000_000.0 + 0.5);

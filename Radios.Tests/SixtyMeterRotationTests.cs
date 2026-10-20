@@ -8,12 +8,12 @@ namespace Radios.Tests
     /// </summary>
     /// <remarks>
     /// <para><b>What this sees and what it cannot.</b> It asserts the stop the
-    /// rotation lands on, the mode it says to set, and the sentence assembled
-    /// through the real lexicon, word for word. It cannot see that
-    /// <c>MainWindow.SixtyMeterChannelNavigate</c> acts on the stop — tunes,
-    /// sets <c>RigControl.Mode</c>, and speaks — or that the sentence survives
-    /// the verbosity filter in <c>ScreenReaderOutput</c> (it is Terse, so it
-    /// does at the default level). Those are a window and a radio: the bench
+    /// rotation lands on, the correction it owes, and the arrival sentence
+    /// assembled through the real lexicon, word for word. The mode clause is
+    /// NOT here since repair round one: whether "mode set to CW" is true
+    /// depends on the radio taking the write, and SixtyMeterModeDeliveryTests
+    /// owns that, past the speech gate. It cannot see that
+    /// <c>MainWindow.SixtyMeterChannelNavigate</c> acts on the stop. The bench
     /// half is Alt+Shift+Up through the stops into the digital segment from a
     /// USB channel, listening for the mode.</para>
     /// </remarks>
@@ -32,10 +32,10 @@ namespace Radios.Tests
             Assert.NotNull(stop);
             Assert.Equal(DigitalSegment, stop!.Index);
             Assert.Equal(5_351_500UL, stop.FrequencyHz);
-            Assert.Equal("CW", stop.ModeToSet);
-            Assert.Equal(
-                $"60 meter digital and CW segment, {5.3515:F4} megahertz, mode set to CW for digital segment",
-                stop.Announcement);
+            Assert.Null(stop.ChannelMode);
+            Assert.Equal("CW", stop.Correction?.RequiredMode);
+            Assert.Equal(", mode set to CW for digital segment", stop.Correction!.Advisory);
+            Assert.Equal($"60 meter digital and CW segment, {5.3515:F4} megahertz", stop.Arrival);
         }
 
         [Fact]
@@ -45,8 +45,7 @@ namespace Radios.Tests
 
             Assert.NotNull(stop);
             Assert.Equal(DigitalSegment, stop!.Index);
-            Assert.Equal("CW", stop.ModeToSet);
-            Assert.EndsWith(", mode set to CW for digital segment", stop.Announcement);
+            Assert.Equal("CW", stop.Correction?.RequiredMode);
         }
 
         [Theory]
@@ -59,8 +58,9 @@ namespace Radios.Tests
             var stop = SixtyMeterChannels.Rotate("US", Channel5, +1, mode);
 
             Assert.NotNull(stop);
-            Assert.Null(stop!.ModeToSet);
-            Assert.Equal($"60 meter digital and CW segment, {5.3515:F4} megahertz", stop.Announcement);
+            Assert.Null(stop!.ChannelMode);
+            Assert.Null(stop.Correction);
+            Assert.Equal($"60 meter digital and CW segment, {5.3515:F4} megahertz", stop.Arrival);
         }
 
         [Theory]
@@ -82,8 +82,9 @@ namespace Radios.Tests
                 Assert.NotNull(stop);
                 Assert.Equal(expectedIndex, stop!.Index);
                 Assert.Equal((ulong)(mhz * 1_000_000.0 + 0.5), stop.FrequencyHz);
-                Assert.Equal("USB", stop.ModeToSet);
-                Assert.Equal($"{label}, {mhz:F4} megahertz, USB", stop.Announcement);
+                Assert.Equal("USB", stop.ChannelMode);
+                Assert.Null(stop.Correction);
+                Assert.Equal($"{label}, {mhz:F4} megahertz, USB", stop.Arrival);
             }
         }
 

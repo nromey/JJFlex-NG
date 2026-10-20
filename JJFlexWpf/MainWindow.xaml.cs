@@ -6553,10 +6553,10 @@ public partial class MainWindow : UserControl
 
         // #312: the stop, the mode and the sentence are decided in one pure
         // place. A channel sets its own mode, as it always has; the digital
-        // segment now sets CW when the current mode is not permitted there and
-        // says so with the band jump's own advisory clause — before #312 it
-        // tuned and spoke and left the operator on USB inside a digital-only
-        // segment, with transmit plausibly the next thing they did.
+        // segment now asks for CW when the current mode is not permitted there
+        // — before #312 it tuned and spoke and left the operator on USB inside
+        // a digital-only segment, with transmit plausibly the next thing they
+        // did.
         var stop = SixtyMeterChannels.Rotate(country, _sixtyMeterChannelIndex, direction, RigControl.Mode);
         if (stop == null) return;
         _sixtyMeterChannelIndex = stop.Index;
@@ -6564,13 +6564,27 @@ public partial class MainWindow : UserControl
         // Frequency first, then mode, the order this method and the band jump
         // have always used.
         RigControl.Frequency = stop.FrequencyHz;
-        if (stop.ModeToSet != null) RigControl.Mode = stop.ModeToSet;
 
-        // Queue, not interrupt, exactly as before; keyed so a newer stop
-        // retires an unheard older one rather than both being rescued after an
-        // interrupt.
-        ScreenReaderOutput.Speak(stop.Announcement, Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
-            subject: Radios.Speech.SpeechSubject.SixtyMeterStop);
+        if (stop.Correction == null)
+        {
+            // A channel stop, or the segment on a mode already permitted
+            // there. Unchanged from before #312, except that it retires any
+            // earlier stop still waiting for the radio to agree.
+            if (stop.ChannelMode != null) RigControl.Mode = stop.ChannelMode;
+            Radios.SixtyMeterModeDelivery.CancelPending();
+            // Queue, not interrupt, exactly as before; keyed so a newer stop
+            // retires an unheard older one rather than both being rescued
+            // after an interrupt.
+            ScreenReaderOutput.Speak(stop.Arrival, Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
+                subject: Radios.Speech.SpeechSubject.SixtyMeterStop);
+            return;
+        }
+
+        // Repair round one: "mode set to CW" is said only once the slice
+        // reports CW. Refused while transmitting or with no slice of ours, the
+        // sentence says the segment needs CW and that it was not changed.
+        _ = Radios.SixtyMeterModeDelivery.DeliverAsync(RigControl, stop.Arrival, stop.Correction,
+            Radios.Speech.SpeechIntent.Queue);
     }
 
     #endregion

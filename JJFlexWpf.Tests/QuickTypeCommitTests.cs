@@ -3,15 +3,17 @@ using Xunit;
 namespace JJFlexWpf.Tests;
 
 /// <summary>
-/// What committing a typed frequency does to the mode, and what it says
+/// What committing a typed frequency owes the mode, and its arrival sentence
 /// (#312). Pure static decision: NO WINDOW, no FreqOutHandlers instance, no
 /// WPF object is constructed here, so this class is desk-safe.
 /// </summary>
 /// <remarks>
-/// <b>What this cannot see:</b> that <c>CommitQuickType</c> sets
-/// <c>Rig.Mode</c> from the outcome and speaks its sentence past the verbosity
-/// filter. That is the bench half: type 5.360 and Enter on the frequency field
-/// while on USB, and listen for the mode.
+/// <b>What this cannot see:</b> that <c>CommitQuickType</c> hands the outcome
+/// to <c>SixtyMeterModeDelivery</c>, which decides the true mode clause and is
+/// tested past the speech gate in Radios.Tests (SixtyMeterModeDeliveryTests).
+/// The arrival here deliberately carries no mode clause (repair round one).
+/// Bench half: type 5.360 and Enter on the frequency field while on USB, and
+/// listen for the mode.
 /// </remarks>
 public sealed class QuickTypeCommitTests
 {
@@ -20,8 +22,9 @@ public sealed class QuickTypeCommitTests
     {
         var o = FreqOutHandlers.QuickTypeCommitOutcome("US", 5_360_000, "USB", "5.360 megahertz");
 
-        Assert.Equal("CW", o.ModeToSet);
-        Assert.Equal("Frequency set to 5.360 megahertz, mode set to CW for digital segment", o.Sentence);
+        Assert.Equal("CW", o.Correction?.RequiredMode);
+        Assert.Equal(", mode set to CW for digital segment", o.Correction!.Advisory);
+        Assert.Equal("Frequency set to 5.360 megahertz", o.Arrival);
     }
 
     [Fact]
@@ -29,8 +32,9 @@ public sealed class QuickTypeCommitTests
     {
         var o = FreqOutHandlers.QuickTypeCommitOutcome("US", 5_332_000, "CW", "5.332 megahertz");
 
-        Assert.Equal("USB", o.ModeToSet);
-        Assert.Equal("Frequency set to 5.332 megahertz, mode set to USB for Channel 1", o.Sentence);
+        Assert.Equal("USB", o.Correction?.RequiredMode);
+        Assert.Equal(", mode set to USB for Channel 1", o.Correction!.Advisory);
+        Assert.Equal("Frequency set to 5.332 megahertz", o.Arrival);
     }
 
     [Theory]
@@ -43,7 +47,16 @@ public sealed class QuickTypeCommitTests
     {
         var o = FreqOutHandlers.QuickTypeCommitOutcome("US", hz, mode, "the frequency");
 
-        Assert.Null(o.ModeToSet);
-        Assert.Equal("Frequency set to the frequency", o.Sentence);
+        Assert.Null(o.Correction);
+        Assert.Equal("Frequency set to the frequency", o.Arrival);
+    }
+
+    [Fact]
+    public void With_no_rig_there_is_no_mode_to_correct()
+    {
+        var o = FreqOutHandlers.QuickTypeCommitOutcome("US", 5_360_000, null, "5.360 megahertz");
+
+        Assert.Null(o.Correction);
+        Assert.Equal("Frequency set to 5.360 megahertz", o.Arrival);
     }
 }
