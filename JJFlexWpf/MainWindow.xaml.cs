@@ -1484,6 +1484,7 @@ public partial class MainWindow : UserControl
         RescuePanel.Visibility = Visibility.Visible;
         RadioControlsPanel.Visibility = Visibility.Collapsed;
         FieldsPanel.Visibility = Visibility.Collapsed;
+        _metersMemory.Collapsing(MetersPanel.Visibility == Visibility.Visible);
         MetersPanel.Visibility = Visibility.Collapsed;
         PanadapterPanel.Visibility = Visibility.Collapsed;
         ContentArea.Visibility = Visibility.Collapsed;
@@ -1604,15 +1605,14 @@ public partial class MainWindow : UserControl
     /// un-collapsing each panel means the connected layout is never rebuilt
     /// from a memory of what it used to look like; the mode builders stay the
     /// single source of truth.</para>
-    /// <para><b>What this does NOT restore, on either route.</b>
-    /// <c>ApplyUIMode</c> never touches <c>MetersPanel</c> or
-    /// <c>PanadapterPanel</c>. The panadapter comes back on its own when the
-    /// first pan line arrives (the <c>PanDisplayCallback</c> re-shows it if the
-    /// operator's Show-panadapter setting is on). The meters panel is the
-    /// operator's own Ctrl+M choice and starts collapsed on a cold connect, so
-    /// a meters panel they had opened before the drop stays closed after it —
-    /// true before #410 on the rescue route too, and reported rather than
-    /// changed here.</para>
+    /// <para><b>The two panels <c>ApplyUIMode</c> never touches.</b> The
+    /// meters panel is the operator's own Ctrl+M choice; whether it was open
+    /// when a collapse took it is remembered by <see cref="_metersMemory"/>
+    /// and given back here. The panadapter is not restored here: it comes back
+    /// on its own when the first pan line arrives, because
+    /// <c>WirePanDisplay</c> re-wires its callback at every power-on and the
+    /// callback re-shows the panel if the operator's Show-panadapter setting
+    /// is on.</para>
     /// </remarks>
     private void RestoreConnectedHomeLayout()
     {
@@ -1623,7 +1623,23 @@ public partial class MainWindow : UserControl
         ContentArea.Visibility = Visibility.Visible;
         ApplyUIMode(ActiveUIMode);
         _disconnectShellUp = false;
+
+        // Repair round one: ApplyUIMode never touches the meters panel, so a
+        // panel the operator had open before the drop is given back here, on
+        // both routes. Visibility only: the expander kept its own state through
+        // the collapse, nothing is spoken, and focus is not moved.
+        if (_metersMemory.Restoring())
+        {
+            MetersPanel.Visibility = Visibility.Visible;
+            Tracing.TraceLine("Home: reopening the meters panel the operator had open before the collapse",
+                TraceLevel.Info);
+        }
     }
+
+    /// <summary>
+    /// Whether a collapse took a meters panel the operator had open (#410).
+    /// </summary>
+    private readonly HomeLayoutRestore.MetersPanelMemory _metersMemory = new();
 
     #region Mid-session rescue — Sprint 31 Track R
 
@@ -3689,6 +3705,7 @@ public partial class MainWindow : UserControl
 
             RadioControlsPanel.Visibility = Visibility.Visible;
             FieldsPanel.Visibility = Visibility.Collapsed;
+            _metersMemory.Collapsing(MetersPanel.Visibility == Visibility.Visible);
             MetersPanel.Visibility = Visibility.Collapsed;
             PanadapterPanel.Visibility = Visibility.Collapsed;
             // #410: the next radio to arrive owes a restore, whether the
@@ -6103,6 +6120,9 @@ public partial class MainWindow : UserControl
     /// </remarks>
     public void ToggleMetersPanel()
     {
+        // #410: a press made while a collapse is owed a reopen is the
+        // operator's newer word, and the panel's own visibility carries it.
+        _metersMemory.OperatorToggled();
         MetersPanel.TogglePanelVisibility();
     }
 

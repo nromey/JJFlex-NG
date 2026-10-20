@@ -37,6 +37,48 @@ public sealed class HomeLayoutRestoreTests
             HomeLayoutRestore.Decide(rescueMode: true, disconnectShellUp: false));
     }
 
+    // ---- the meters panel (repair round one) ----
+    // Pure state, no panel: what MainWindow does with the answer (sets
+    // MetersPanel visible inside RestoreConnectedHomeLayout, on both routes) is
+    // the bench half — open meters with Ctrl+M, drop the radio, reconnect.
+
+    [Fact]
+    public void A_meters_panel_open_at_the_disconnect_is_reopened_by_the_restore()
+    {
+        var m = new HomeLayoutRestore.MetersPanelMemory();
+        m.Collapsing(metersVisibleNow: true);
+        Assert.True(m.Restoring());
+        Assert.False(m.Restoring()); // owed once, not forever
+    }
+
+    [Fact]
+    public void A_meters_panel_that_was_closed_stays_closed()
+    {
+        var m = new HomeLayoutRestore.MetersPanelMemory();
+        m.Collapsing(metersVisibleNow: false);
+        Assert.False(m.Restoring());
+    }
+
+    [Fact]
+    public void The_rescue_page_collapsing_after_the_disconnect_does_not_forget_the_panel_was_open()
+    {
+        // Disconnect shell, then three minutes later the rescue page: the
+        // second collapse sees the panel already collapsed.
+        var m = new HomeLayoutRestore.MetersPanelMemory();
+        m.Collapsing(metersVisibleNow: true);
+        m.Collapsing(metersVisibleNow: false);
+        Assert.True(m.Restoring());
+    }
+
+    [Fact]
+    public void A_Ctrl_M_press_while_disconnected_is_the_operators_newer_word()
+    {
+        var m = new HomeLayoutRestore.MetersPanelMemory();
+        m.Collapsing(metersVisibleNow: true);
+        m.OperatorToggled();
+        Assert.False(m.Restoring());
+    }
+
     [Fact]
     public void The_first_connect_of_a_session_owes_nothing()
     {
