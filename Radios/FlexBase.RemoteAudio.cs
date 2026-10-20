@@ -1766,6 +1766,17 @@ namespace Radios
         internal static bool PcMicCheckDue(long nowMs, long lastCheckedMs) =>
             lastCheckedMs == PcMicNeverChecked || nowMs - lastCheckedMs >= 1000;
 
+        /// <summary>The sentence last handed to speech because the mic input
+        /// left PC on a radio not declared Mine, or null when none has been
+        /// (#686). Set before the speech gate, as #777's
+        /// <see cref="LastGlobalProfileWriteRefusal"/> is, so a test can read
+        /// what the operator would have heard without anything being said.</summary>
+        internal string LastPcMicNotOursReport { get; private set; }
+
+        /// <summary>How many times that report has been made this session:
+        /// one per divergence episode, never one per check.</summary>
+        internal int PcMicNotOursReports { get; private set; }
+
         /// <summary>
         /// While PC transmit audio is running, verify the radio still has its
         /// mic input set to PC — and if it has drifted behind our back, say so
@@ -1803,6 +1814,40 @@ namespace Radios
             if (_pcMicDiverged) return; // already reported this episode
 
             _pcMicDiverged = true;
+
+            // WHOSE RADIO IS THIS (#686). Noel's invariant: "I can't touch
+            // Don's settings and he can't touch mine." The mic input is
+            // station-global and outlives the session, so on a radio that is
+            // not the operator's, a move away from PC is the owner's (or
+            // another client's) legitimate choice - exactly the divergence the
+            // comment above this method wants respected, arriving by a route
+            // _pcMicExpected cannot see. There we say so and write nothing.
+            // Only Mine heals; Unset counts as not Mine, the fail-safe
+            // direction #777 took for the same reason (an unanswered question
+            // is not permission). Asked once per episode, here, rather than
+            // every second, and from the one ownership answer every other
+            // shared write asks: RadioConfig.OwnershipOf. The owner's path
+            // below is unchanged.
+            var ownership = RadioConfig.OwnershipOf(theRadio.Serial);
+            if (ownership != RadioOwnership.Mine)
+            {
+                Tracing.TraceLine("checkPcMicSelection: radio mic selection is '" + current
+                    + "', not PC, while computer transmit audio is running"
+                    + " — NOT re-asserting: ownership is " + ownership
+                    + ", and on a radio not declared Mine the owner's choice stands (#686)",
+                    TraceLevel.Warning);
+                // DRAFT PROSE (#686): awaiting Noel
+                string report = Lexicon.Get("audio.mic.diverged_not_ours", ("current", current));
+                LastPcMicNotOursReport = report;
+                PcMicNotOursReports++;
+                if (!SuppressSpeech) ScreenReaderOutput.Speak(
+                    report,
+                    Speech.SpeechIntent.Interrupt,
+                    VerbosityLevel.Critical,
+                    subject: Speech.SpeechSubject.PcMicLeftForOwner);
+                return;
+            }
+
             Tracing.TraceLine("checkPcMicSelection: radio mic selection is '" + current
                 + "', not PC, while computer transmit audio is running"
                 + " — re-asserting PC", TraceLevel.Warning);

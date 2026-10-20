@@ -90,6 +90,91 @@ namespace Radios.Tests
             public void Dispose() => Fixture.Dispose();
         }
 
+        private static string NotOursSentence(string current) =>
+            Lexicon.Get("audio.mic.diverged_not_ours", ("current", current));
+
+        // ------------------------------------------------------------------
+        // #686: on a radio that is not the operator's, report and never write
+        // ------------------------------------------------------------------
+
+        [Theory]
+        [InlineData(null)]                         // never answered: no config at all
+        [InlineData(RadioOwnership.Unset)]         // answered nothing, explicitly
+        [InlineData(RadioOwnership.SomeoneElses)]
+        public void OnARadioNotMarkedMineTheMicInputIsLeftAloneAndTheOperatorIsTold(RadioOwnership? ownership)
+        {
+            if (ownership.HasValue) Declare(ownership.Value);
+            using var rig = new PcAudioRig(Start);
+
+            rig.RadioReports("MIC");
+            rig.Check();
+
+            // The owner's choice stands: nothing went out, and the radio still
+            // says MIC.
+            Assert.Empty(rig.MicWrites);
+            Assert.Equal("MIC", rig.MicInput);
+
+            // And the operator is told why their transmit audio is going
+            // nowhere, assembled as NVDA would speak it.
+            string heard = rig.Rig.LastPcMicNotOursReport;
+            Assert.Equal(NotOursSentence("MIC"), heard);
+            Assert.Contains("cannot reach the transmitter", heard);
+            Assert.Contains("is now MIC", heard);
+            Assert.DoesNotContain("Setting it back to PC", heard);
+            Assert.DoesNotContain("{current}", heard);
+            Assert.Equal(1, rig.Rig.PcMicNotOursReports);
+        }
+
+        [Fact]
+        public void OnTheOperatorsOwnRadioTheHealStands()
+        {
+            // The positive control for the theory above: the same divergence
+            // on a radio declared Mine IS written back, so "no write" there is
+            // the ownership answer and not a check that never ran.
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start);
+
+            rig.RadioReports("MIC");
+            rig.Check();
+
+            Assert.Equal(new[] { "mic input PC" }, rig.MicWrites);
+            Assert.Equal("PC", rig.MicInput);
+            Assert.Null(rig.Rig.LastPcMicNotOursReport);
+            Assert.Equal(0, rig.Rig.PcMicNotOursReports);
+        }
+
+        [Fact]
+        public void TheReportFiresOncePerEpisodeAndNotOncePerCheck()
+        {
+            Declare(RadioOwnership.SomeoneElses);
+            using var rig = new PcAudioRig(Start);
+
+            rig.RadioReports("MIC");
+            for (int i = 0; i < 5; i++)
+            {
+                rig.Check();
+                rig.Clock += 1_000;
+            }
+            Assert.Equal(1, rig.Rig.PcMicNotOursReports);
+
+            // The owner puts it back to PC: the episode ends.
+            rig.RadioReports("PC");
+            rig.Check();
+            rig.Clock += 1_000;
+            Assert.Equal(1, rig.Rig.PcMicNotOursReports);
+
+            // And moves it away again: a new episode, a new report.
+            rig.RadioReports("BAL");
+            rig.Check();
+            rig.Clock += 1_000;
+            rig.Check();
+            Assert.Equal(2, rig.Rig.PcMicNotOursReports);
+            Assert.Equal(NotOursSentence("BAL"), rig.Rig.LastPcMicNotOursReport);
+
+            // Through all of it, nothing was ever written to the owner's radio.
+            Assert.Empty(rig.MicWrites);
+        }
+
         // ------------------------------------------------------------------
         // #649: the limiter's clock
         // ------------------------------------------------------------------

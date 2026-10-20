@@ -1121,6 +1121,31 @@ namespace Radios.Tests
                 "audio.iq.ack.not_recorded",
                 "audio.iq.ack.listener_request",
                 "audio.iq.ack.antenna_unchanged",
+
+                // Junkbox #686, 2026-10-20: the microphone healer's report on
+                // a radio not declared Mine (Unset or SomeoneElses). There it
+                // no longer puts the mic input back to PC, so the legacy
+                // audio.mic.diverged ("Setting it back to PC.") would be
+                // false; this says the transmit audio is going nowhere and
+                // why, and names the remedy the way #777's refusals do.
+                // Classified rather than frozen (#720). It is a MESSAGE, not
+                // TextOnly: unlike the #726 and #777 blocks above, nobody asked
+                // for it - the application says it on its own account when a
+                // divergence starts. Forgettable because that is what its
+                // producer actually does: one presentation per divergence
+                // episode, no retry, no retained debt; the producer re-reads
+                // the radio every second and a new episode is a new sentence.
+                // Receipt warning because it reports a transmit that will
+                // carry nothing. request-scoped is the one built-in contract
+                // and is an APPROXIMATION here: the premise (the mic input is
+                // still off PC) can stop being true, and no domain owner has
+                // registered a contract that evaluates it. By #617's own test
+                // ("if it did not land, is saying it later still true?") the
+                // honest shelf life is persistent, which needs that contract
+                // and a past-tense historyKey in Noel's words - a question for
+                // Noel, not a default. Its sibling audio.mic.diverged is legacy
+                // and still frozen; DECIDE BOTH TOGETHER. DRAFT awaiting Noel.
+                "audio.mic.diverged_not_ours",
             };
 
             Assert.Equal(3152, unclassified);
