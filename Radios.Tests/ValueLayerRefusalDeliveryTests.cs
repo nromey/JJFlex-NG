@@ -31,17 +31,24 @@ namespace Radios.Tests
     /// opened with <see cref="ValueSubLayer.Enter"/>, not the test entry, so
     /// its speech goes through the real <see cref="ScreenReaderOutput.Speak(string, Speech.SpeechIntent, VerbosityLevel, string?, Speech.SpeechCoalesceKind, string?, bool, Func{bool}?, string, int, string)"/>
     /// and its real verbosity gate. What reached the far side of the gate is
-    /// read from the silent verification channel's transcript (#171), which
-    /// records every utterance with a <c>gated</c> flag, and from the recent
-    /// speech history, which is filled only when text reaches the backend.
+    /// read from the silent verification channel's transcript (#171): the
+    /// gate writes a <c>gated</c> event and returns, and only an utterance
+    /// that passed it is written from the hand-off to the backend, with
+    /// <c>gated</c> false. That is the assertion here. That the words then
+    /// reach the recent speech history, which needs a backend that accepts
+    /// them, is asserted through the real host in
+    /// <c>JJFlexWpf.Tests.ValueLayerRoutingTests.At_off_with_the_sounds_off_the_refusal_is_spoken_through_the_real_host</c>,
+    /// where the quiet-run backend is always the diverted one.
     /// </para>
     /// <para>
     /// <b>Desk safety.</b> Render is switched off BEFORE anything speaks, and
-    /// each test refuses to go on unless the live backend is the diverted one:
-    /// with render off Prism is never loaded, so nothing reaches NVDA. If some
-    /// earlier test in the process had already brought up a real backend, the
-    /// guard fails the test instead of speaking. No earcon player exists in this
-    /// assembly; the tone is a counter.
+    /// each test refuses to go on unless the live backend is one that cannot
+    /// sound: the diverted backend (render off, Prism never loaded) or the null
+    /// one. In a full run some earlier test has usually brought the backend up
+    /// already, and in this test host that has been the null backend, because
+    /// Prism does not resolve here; if it ever did, the guard fails the test
+    /// instead of speaking. No earcon player exists in this assembly; the tone
+    /// is a counter.
     /// </para>
     /// <para>
     /// <b>What this cannot see:</b> the host's own answer to "will the tone
@@ -80,7 +87,9 @@ namespace Radios.Tests
         private static void AssertTheDeskIsSafe()
         {
             Assert.False(OutputChannelRecorder.RenderEnabled, "Refusing: render is on, so speech could reach the screen reader");
-            Assert.Equal("diverted", ScreenReaderOutput.BackendName);
+            string backend = ScreenReaderOutput.BackendName;
+            Assert.True(backend == "diverted" || backend == "none",
+                "Refusing: the live speech backend is '" + backend + "', which could reach the screen reader");
         }
 
         private JsonElement[] Speech()
@@ -94,9 +103,11 @@ namespace Radios.Tests
                 .ToArray();
         }
 
-        /// <summary>Delivered: the utterance passed the verbosity gate.</summary>
+        /// <summary>Delivered: the utterance passed the verbosity gate, unsuppressed.</summary>
         private bool Delivered(string text) => Speech().Any(e =>
-            e.GetProperty("text").GetString() == text && !e.GetProperty("gated").GetBoolean());
+            e.GetProperty("text").GetString() == text
+            && !e.GetProperty("gated").GetBoolean()
+            && !e.GetProperty("suppressed").GetBoolean());
 
         private sealed class Tone
         {
@@ -151,9 +162,6 @@ namespace Radios.Tests
             ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Critical;   // Off
             var tone = new Tone { Audible = false };
             var layer = Open(tone);
-            string marker = "marker " + Guid.NewGuid().ToString("N");
-            ScreenReaderOutput.Speak(marker, VerbosityLevel.Critical, true);
-            Assert.Equal(marker, ScreenReaderOutput.RecentMessages.FirstOrDefault());
 
             Assert.Equal(ValueLayerKeyResult.Handled, layer.HandleKey(key));
 
@@ -161,7 +169,6 @@ namespace Radios.Tests
             Assert.Equal(1, tone.Played);   // the cue was asked to play; the switches keep it quiet
             Assert.True(Delivered(sentence),
                 "the refusal was gated at Off with the tone silent: the operator heard nothing");
-            Assert.Equal(sentence, ScreenReaderOutput.RecentMessages.FirstOrDefault());
         }
 
         [Theory]
