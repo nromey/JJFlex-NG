@@ -684,7 +684,7 @@ namespace Radios
             try
             {
             Tracing.TraceLine("remoteAudioProc is WAN=" + RemoteRig.ToString(), TraceLevel.Info);
-            ResetPcMicSession("remote-audio run " + run + " starting");
+            BeginRemoteAudioRunMicState(run);
             opusOutputChannel = null;
             opusInputChannel = null;
             opusInputAvailable = false;
@@ -1684,7 +1684,14 @@ namespace Radios
         /// trace. Always clears the saved value. Never throws: it runs from a
         /// stop and from a failed start's finally.
         /// </summary>
-        private void PutBackSavedMicInput(string when)
+        /// <param name="when">For the trace.</param>
+        /// <param name="sameRunOnly">True for a stop and a failed start, which
+        /// belong to the run that saved the value. False only at the start of
+        /// the NEXT run, where the value can only be an abandoned stop's
+        /// leftover: there the run cannot match by construction, and the
+        /// Radio object and serial are what say whether it is still this
+        /// station's.</param>
+        private void PutBackSavedMicInput(string when, bool sameRunOnly = true)
         {
             var swap = _micInputSwap;
             _micInputSwap = null;
@@ -1693,7 +1700,9 @@ namespace Radios
             {
                 var radio = theRadio;
                 long run = Interlocked.Read(ref _remoteAudioRun);
-                if (radio == null || !ReferenceEquals(radio, swap.Radio) || swap.Run != run)
+                if (radio == null || !ReferenceEquals(radio, swap.Radio)
+                    || !string.Equals(radio.Serial ?? "", swap.Serial, StringComparison.Ordinal)
+                    || (sameRunOnly && swap.Run != run))
                 {
                     Tracing.TraceLine("PutBackSavedMicInput (" + when + "): NOT writing '" + swap.Saved
                         + "' - it was saved from radio " + swap.Serial + " in run " + swap.Run
@@ -1726,13 +1735,32 @@ namespace Radios
         /// A PC-audio session boundary: forget every piece of mic state that
         /// belongs to the session before (#686, repair round two). Called at
         /// the start of every remote-audio run and on connect. The saved value
-        /// is DISCARDED, not written - at a run start or a connect there is no
-        /// way to know it still belongs to the radio in front of us, and a
-        /// stop that should have put it back has already had its chance - and
-        /// the discard is traced. The healer's episode latch and our record
+        /// is DISCARDED, not written, and the discard is traced. At a run start
+        /// <see cref="BeginRemoteAudioRunMicState"/> has already put back a
+        /// value that belongs to the same Radio, so what reaches here is one
+        /// from a different radio or connection; on connect it is always a
+        /// different connection. The healer's episode latch and our record
         /// of having asked for PC go with it, so a new session's divergence
         /// is reported as new.
         /// </summary>
+        /// <summary>
+        /// The mic-state half of a remote-audio run's start, called first
+        /// thing in <c>remoteAudioProc</c>. A value still saved here means an
+        /// earlier run's stop never ran (its thread was abandoned when the
+        /// join timed out), and the owner's radio may still be on the PC we
+        /// set. Ruled by the coordinator 2026-10-20: put it back, exactly as
+        /// that stop would have - same Radio object and serial, and only while
+        /// the radio still reports PC - and discard it only when it belongs to
+        /// a different radio or connection. Discarding would leave the
+        /// owner's radio on PC, the harm #686 exists to prevent.
+        /// </summary>
+        private void BeginRemoteAudioRunMicState(long run)
+        {
+            PutBackSavedMicInput("remote-audio run " + run + " starting, after an earlier run's stop never ran",
+                sameRunOnly: false);
+            ResetPcMicSession("remote-audio run " + run + " starting");
+        }
+
         internal void ResetPcMicSession(string why)
         {
             var swap = _micInputSwap;

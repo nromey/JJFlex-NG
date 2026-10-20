@@ -40,6 +40,7 @@ namespace Radios.Tests
         private static readonly FieldInfo StopAudioSeam = typeof(FlexBase).GetField("_stopOutputAudio", Private)!;
         private static readonly FieldInfo TheRadioField = typeof(FlexBase).GetField("theRadio", Private)!;
         private static readonly FieldInfo RunField = typeof(FlexBase).GetField("_remoteAudioRun", Private)!;
+        private static readonly MethodInfo BeginRunMethod = typeof(FlexBase).GetMethod("BeginRemoteAudioRunMicState", Private)!;
 
         /// <summary>A start well past one second, so nothing here leans on
         /// the very first comparison.</summary>
@@ -140,6 +141,17 @@ namespace Radios.Tests
             /// clear the run's start makes.</summary>
             public void NextRunWithoutClearing() =>
                 RunField.SetValue(Rig, (long)RunField.GetValue(Rig)! + 1);
+
+            /// <summary>A new remote-audio run begins, through the exact call
+            /// <c>remoteAudioProc</c> makes first, after an earlier run whose
+            /// stop never ran (its thread was abandoned).</summary>
+            public void NextRunBegins()
+            {
+                Assert.True(BeginRunMethod != null, "BeginRemoteAudioRunMicState is not where this test reaches it");
+                long run = (long)RunField.GetValue(Rig)! + 1;
+                RunField.SetValue(Rig, run);
+                BeginRunMethod.Invoke(Rig, new object[] { run });
+            }
 
             /// <summary>The radio this FlexBase is talking to now.</summary>
             public VendorRadioFixture Vendor;
@@ -551,6 +563,56 @@ namespace Radios.Tests
 
             Assert.Equal(2, rig.Rig.PcMicNotOursReports);
             Assert.Equal(new[] { "mic input PC", "mic input PC" }, rig.MicWrites);
+        }
+
+        [Fact]
+        public void ARunStartAfterAnAbandonedStopPutsTheSameRadioBack()
+        {
+            // The earlier run's thread was abandoned before its stop ran, so
+            // the owner's radio is still on the PC we set. The next run's start
+            // writes exactly what that stop would have written: discarding it
+            // would leave the owner's radio on PC, the harm #686 exists for.
+            Arrange(RadioOwnership.SomeoneElses, Where.SmartLink);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.OverSmartLink();
+            rig.StartPcAudio();
+
+            rig.NextRunBegins();
+
+            Assert.Equal(new[] { "mic input PC", "mic input MIC" }, rig.MicWrites);
+            Assert.Equal("MIC", rig.MicInput);
+            Assert.False(rig.PcMicExpected);
+        }
+
+        [Fact]
+        public void ARunStartLeavesALaterChoiceAlone()
+        {
+            Declare(RadioOwnership.Mine);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+            rig.RadioReports("BAL");
+
+            rig.NextRunBegins();
+
+            Assert.Equal(new[] { "mic input PC" }, rig.MicWrites);
+            Assert.Equal("BAL", rig.MicInput);
+        }
+
+        [Fact]
+        public void ARunStartOnADifferentRadioDiscardsTheValueUnwritten()
+        {
+            Declare(RadioOwnership.Mine);
+            Declare(RadioOwnership.SomeoneElses, SecondSerial);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.StartPcAudio();
+
+            rig.ReconnectTo(SecondSerial, "PC");
+            rig.NextRunBegins();
+            rig.PlantChannel(started: true);
+            rig.StopPcAudio();
+
+            Assert.Empty(rig.MicWrites);
+            Assert.Equal("PC", rig.MicInput);
         }
 
         // ------------------------------------------------------------------
