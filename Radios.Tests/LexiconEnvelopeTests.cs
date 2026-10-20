@@ -934,13 +934,19 @@ namespace Radios.Tests
                 // already decides whether words or the tone are heard, and the
                 // application never says it on its own account. Its sibling
                 // audio.value_layer.near_miss is legacy and still frozen; WHEN
-                // THE PASS REACHES IT, DECIDE BOTH TOGETHER. The wording is a
-                // DRAFT awaiting Noel.
+                // THE PASS REACHES IT, DECIDE BOTH TOGETHER. The wording was
+                // RULED by Noel 2026-10-19 14:33 (#778 queue question 2).
                 "audio.value_layer.unknown_key",
                 // Same track, same reasoning: the line for a bare digit, which
-                // a value layer now refuses before asking the registry because
-                // forwarded it would start frequency entry. DRAFT awaiting Noel.
+                // a value layer refuses because forwarded it would start
+                // frequency entry. RULED by Noel 14:33-14:34 ("just say
+                // selected number").
                 "audio.value_layer.typed_number",
+                // #778b, same reasoning: the fine-step sentence the engine
+                // appends to the digit line where Shift with the arrows really
+                // is the fine step. Noel asked for one at 14:33; this wording
+                // is a DRAFT awaiting him.
+                "audio.value_layer.fine_step",
 
                 // Junkbox #777, 2026-10-19: a global-profile write (Save, or
                 // Delete since round two) refused because the radio is

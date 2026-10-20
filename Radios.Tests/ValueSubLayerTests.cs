@@ -249,30 +249,30 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Single_a_modified_jump_key_is_an_unknown_key_and_travels_on()
+        public void Single_a_modified_jump_key_is_refused_and_the_layer_stays()
         {
             // Ctrl+Home means "top of the document" everywhere else; inside a
-            // layer that selects by letter it is simply not ours, so it keeps
-            // the value, says the layer closed, and goes on to mean what it
-            // always means. (#778's first round made this stay instead,
-            // reading the registry's silence as "nowhere to go"; that swept
-            // up push-to-talk and the bracket keys with it, and was withdrawn.
-            // The layer cannot know what a non-letter means below it, so it
-            // lets it go.)
+            // layer that does not bind it, it is simply not ours. Since #778b
+            // (Noel, 2026-10-19 14:35) the only ways out are Enter, Escape and
+            // the JJ key, so it is refused and the layer is exactly as it was.
+            // Until then it confirmed, said the layer closed and travelled on,
+            // and the "closed" was cut off by whatever the key said next.
             var (h, rig) = OpenSingle(40, VerbosityLevel.Terse);
-            Assert.Equal(ValueLayerKeyResult.ClosedPassThrough,
+            Assert.Equal(ValueLayerKeyResult.Handled,
                 h.Layer.HandleKey(Keys.Home | Keys.Control));
             Assert.Equal(40, rig.Value);
-            Assert.False(h.Layer.IsLive);
+            Assert.True(h.Layer.IsLive);
+            Assert.DoesNotContain("Power layer closed", h.Said);
         }
 
         [Fact]
-        public void Single_a_key_the_host_says_means_something_outside_still_leaves()
+        public void Single_a_key_the_host_says_is_a_command_outside_is_refused_too()
         {
-            // The positive control for the rule above: the SAME chord, with a
-            // host that answers "yes, that is a command out here", keeps the
-            // value, says the layer closed, and travels on. The decision is
-            // the registry's answer and nothing else.
+            // The other half of the ruling: the SAME chord, with a host that
+            // answers "yes, that is a command out here", is refused just the
+            // same. Whether a key means something outside no longer decides
+            // whether it leaves; it decides only whether a near miss may be
+            // offered for it. Real hotkeys such as Ctrl+F stay inside.
             var h = new Harness { Verbosity = VerbosityLevel.Terse };
             var rig = new SingleRig { Value = 40 };
             h.Open(new ValueSubLayerDefinition
@@ -288,11 +288,11 @@ namespace Radios.Tests
             });
             h.Layer.HandleKey(Keys.Up);
 
-            Assert.Equal(ValueLayerKeyResult.ClosedPassThrough,
+            Assert.Equal(ValueLayerKeyResult.Handled,
                 h.Layer.HandleKey(Keys.Home | Keys.Control));
-            Assert.False(h.Layer.IsLive);
+            Assert.True(h.Layer.IsLive);
             Assert.Equal(45, rig.Value);
-            Assert.Equal("Power layer closed", h.LastSaid);
+            Assert.DoesNotContain("Power layer closed", h.Said);
         }
 
         [Fact]
@@ -489,6 +489,17 @@ namespace Radios.Tests
         // KeyLayerHelp.LayerName and picks the lexicon line from the engine's
         // reason. The same two lexicon keys, the same layer-name argument.
 
+        private static bool InPlaceChord(Keys k)
+        {
+            Keys code = k & Keys.KeyCode, mods = k & Keys.Modifiers;
+            if (code == Keys.Space) return mods == Keys.Control || mods == Keys.Shift;
+            return code == Keys.OemOpenBrackets || code == Keys.OemCloseBrackets;
+        }
+
+        private const string NotAKeyInAudio = "Not a key in the Audio layer. Press H to list available keys for this layer.";
+        private const string TypedNumberInAudio = "A typed number does nothing in the Audio layer. Use arrow keys to change the selected number.";
+        private const string FineStep = "Shift with the arrows moves it in fine steps.";
+
         private static string LayerUnknownKey(string layerNameKey, Keys pressed, ValueLayerRefusal why)
             => Lexicon.Get(why == ValueLayerRefusal.TypedEntry
                     ? "audio.value_layer.typed_number"
@@ -656,7 +667,13 @@ namespace Radios.Tests
                 MeansSomethingOutside = k => k == (Keys.F | Keys.Control) || k == (Keys.M | Keys.Shift),
                 DescribeNearMiss = k => AudioLayerNearMiss(k, h.Verbosity),
                 DescribeUnknownKey = (k, why) => LayerUnknownKey("audio.audio_layer.name", k, why),
-                PassThroughKeys = k => k == (Keys.V | Keys.Control | Keys.Shift),
+                DescribeFineStep = () => Lexicon.Get("audio.value_layer.fine_step"),
+                // #778b: the shipped hosts' ActsInPlaceInsideALayer — the
+                // verbosity cycle from the registry (Ctrl+Shift+V by default)
+                // and KeyCommands.IsInPlaceChord: Ctrl+Space, Shift+Space and
+                // the brackets in every form. JJFlexWpf.Tests'
+                // ValueLayerRoutingTests drive the real one.
+                PassThroughKeys = k => k == (Keys.V | Keys.Control | Keys.Shift) || InPlaceChord(k),
                 HostKeys = k =>
                 {
                     if ((k & Keys.Modifiers) != Keys.Shift) return false;
@@ -1295,7 +1312,7 @@ namespace Radios.Tests
             Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.X));
             Assert.True(h.Layer.IsLive);
             Assert.Equal(35, rig.Mic);
-            Assert.Equal("Not a key in the Audio layer. H lists its keys.", h.LastSaid);
+            Assert.Equal(NotAKeyInAudio, h.LastSaid);
             Assert.DoesNotContain("Audio layer closed", h.Said);
 
             // Still the layer it was: the arrows still move what was picked.
@@ -1381,21 +1398,30 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Audio_a_key_that_means_something_outside_still_leaves()
+        public void Audio_a_real_hotkey_is_refused_and_the_layer_stays()
         {
-            // The distinction the whole change turns on. Ctrl+F is a registry
-            // chord — enter a frequency — so the operator who pressed it meant
-            // to go there, and Shift+F being a slice jump does not make it a
-            // slip. It keeps the value, says the layer closed, and travels.
+            // #778b, Noel 2026-10-19 14:35: "keep it so that only [the way out]
+            // is enter, esc, and the jj key". Ctrl+F is a registry chord —
+            // enter a frequency — and until this it confirmed, said the layer
+            // closed (cut off by the frequency prompt sixteen milliseconds
+            // later, so the operator could not know) and travelled. Now it is
+            // refused like any key the layer does not take, with the layer's
+            // plain line: it is a command out there, so no near miss is
+            // guessed for it even though Shift+F is a slice jump in here.
             var (h, rig) = OpenAudio(VerbosityLevel.Chatty);
             h.Layer.HandleKey(Keys.M);
             h.Layer.HandleKey(Keys.Up);
 
-            Assert.Equal(ValueLayerKeyResult.ClosedPassThrough,
+            Assert.Equal(ValueLayerKeyResult.Handled,
                 h.Layer.HandleKey(Keys.F | Keys.Control));
-            Assert.False(h.Layer.IsLive);
+            Assert.True(h.Layer.IsLive);
             Assert.Equal(35, rig.Mic);
-            Assert.Equal("Audio layer closed", h.LastSaid);
+            Assert.Equal(NotAKeyInAudio, h.LastSaid);
+            Assert.DoesNotContain("Audio layer closed", h.Said);
+
+            // And the layer is the one it was.
+            h.Layer.HandleKey(Keys.Up);
+            Assert.Equal(40, rig.Mic);
         }
 
         [Fact]
@@ -1446,8 +1472,9 @@ namespace Radios.Tests
             Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.D1));
             Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.D4));
             Assert.True(h.Layer.IsLive);
-            Assert.Equal("A typed number does nothing in the Audio layer. Use the arrows to move the value.",
-                h.LastSaid);
+            // Noel's sentence, ruled 14:33-14:34, then the fine step: mic moves
+            // by 5 and Shift moves it by 1, so the second sentence is true.
+            Assert.Equal(TypedNumberInAudio + " " + FineStep, h.LastSaid);
             Assert.DoesNotContain("Audio layer closed", h.Said);
 
             // Enter now means what it always means in here: keep and leave.
@@ -1458,20 +1485,78 @@ namespace Radios.Tests
         }
 
         [Theory]
-        [InlineData(Keys.Control | Keys.Space)]
-        [InlineData(Keys.Shift | Keys.Space)]
-        public void Audio_ptt_chords_leave_for_the_main_window_handler(Keys chord)
+        [InlineData(Keys.Control | Keys.Space)]                  // hold to talk
+        [InlineData(Keys.Shift | Keys.Space)]                    // transmit lock, which also unlocks
+        [InlineData(Keys.OemOpenBrackets)]                       // the bracket filter keys,
+        [InlineData(Keys.OemCloseBrackets)]                      // every form the app binds
+        [InlineData(Keys.OemOpenBrackets | Keys.Shift)]
+        [InlineData(Keys.OemCloseBrackets | Keys.Shift)]
+        [InlineData(Keys.OemOpenBrackets | Keys.Control)]
+        [InlineData(Keys.OemCloseBrackets | Keys.Control)]
+        [InlineData(Keys.OemOpenBrackets | Keys.Control | Keys.Shift)]   // TX filter low edge, a registry row
+        [InlineData(Keys.V | Keys.Control | Keys.Shift)]         // the verbosity cycle
+        public void Audio_a_key_that_acts_in_place_travels_on_and_the_layer_stays(Keys chord)
         {
-            // These chords are handled by MainWindow_PreviewKeyDown, not the
-            // registry. AnyWindowPreviewKeyDown routes an armed layer first;
-            // ClosedPassThrough makes DoCommand(fromDialog: true) return false
-            // so the window can receive the chord. No PTT handler is invoked
-            // here: this is the pure engine's delivery contract only.
-            var (h, _) = OpenAudio(VerbosityLevel.Chatty);
+            // #778 ruling 2, as filed (to confirm at the radio): push to talk,
+            // the transmit lock and the bracket filter keys keep working inside
+            // a layer because they do not leave it. The main window handles
+            // them in branches the registry never lists, which is how #778's
+            // first round came to swallow push to talk (Codex, B1). The host
+            // names them; the engine lets them go UNCONSUMED with the layer
+            // still live, so the main window's handler (or the dialog) gets the
+            // key and the operator is still where they were.
+            var (h, rig) = OpenAudio(VerbosityLevel.Chatty);
             h.Layer.HandleKey(Keys.M);
+            h.Layer.HandleKey(Keys.Up);                               // 35
 
-            Assert.Equal(ValueLayerKeyResult.ClosedPassThrough, h.Layer.HandleKey(chord));
-            Assert.False(h.Layer.IsLive);
+            Assert.Equal(ValueLayerKeyResult.PassThrough, h.Layer.HandleKey(chord));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal("mic", h.Layer.CurrentTarget?.Id);
+            Assert.DoesNotContain("Audio layer closed", h.Said);
+
+            // Still the layer it was.
+            h.Layer.HandleKey(Keys.Up);
+            Assert.Equal(40, rig.Mic);
+        }
+
+        [Fact]
+        public void A_layer_that_binds_a_bracket_itself_takes_it_ahead_of_the_in_place_list()
+        {
+            // Noel, 14:36: brackets move the filter inside a layer unless the
+            // layer claims them itself; the planned mode layer uses them for
+            // next and previous mode. "A layer's own key always wins." So the
+            // host's in-place list is asked only after every key the layer
+            // binds. A two-target layer selecting by [ and ] stands in for the
+            // mode layer; the host names the brackets as in place, exactly as
+            // the shipped hosts do.
+            var h = new Harness { Verbosity = VerbosityLevel.Chatty };
+            int a = 1, b = 2;
+            h.Open(new ValueSubLayerDefinition
+            {
+                Id = "mode",
+                Selection = ValueLayerSelection.ByLetter,
+                Targets = new List<ValueTarget>
+                {
+                    new() { Id = "previous", Name = "Previous", SelectKey = Keys.OemOpenBrackets,
+                            Read = () => a, Apply = v => a = v, Min = 0, Max = 9, Step = 1, FineStep = 1,
+                            Axes = ValueLayerAxes.UpDown, Number = v => "previous " + v },
+                    new() { Id = "next", Name = "Next", SelectKey = Keys.OemCloseBrackets,
+                            Read = () => b, Apply = v => b = v, Min = 0, Max = 9, Step = 1, FineStep = 1,
+                            Axes = ValueLayerAxes.UpDown, Number = v => "next " + v },
+                },
+                DescribeClosed = () => "Mode layer closed",
+                PassThroughKeys = InPlaceChord,
+            });
+
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.OemCloseBrackets));
+            Assert.Equal("next", h.Layer.CurrentTarget?.Id);
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.OemOpenBrackets));
+            Assert.Equal("previous", h.Layer.CurrentTarget?.Id);
+
+            // The control: a bracket form this layer does NOT bind is still the
+            // host's, and travels on with the layer live.
+            Assert.Equal(ValueLayerKeyResult.PassThrough, h.Layer.HandleKey(Keys.OemOpenBrackets | Keys.Shift));
+            Assert.True(h.Layer.IsLive);
         }
 
         [Fact]
@@ -1498,32 +1583,41 @@ namespace Radios.Tests
             {
                 Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(k));
                 Assert.True(h.Layer.IsLive);
-                Assert.Equal("A typed number does nothing in the Audio layer. Use the arrows to move the value.",
-                    h.LastSaid);
+                Assert.Equal(TypedNumberInAudio + " " + FineStep, h.LastSaid);
             }
             Assert.Equal(30, rig.Mic);
         }
 
         [Fact]
-        public void Audio_a_shifted_digit_is_neither_typed_entry_nor_a_letter_and_travels()
+        public void Audio_a_shifted_digit_is_not_typed_entry_and_gets_the_plain_line()
         {
-            // The set is the main window's own: Shift+digit produces no
-            // character there, so it starts nothing; and it is not a letter,
-            // so the layer cannot know it is meaningless. It travels, as it
-            // always did.
+            // The typed-entry set is the main window's own: Shift+digit
+            // produces no character there, so it starts nothing and is not a
+            // "typed number". Since #778b it is refused like any other key the
+            // layer does not take, with the layer's plain line.
             var (h, _) = OpenAudio(VerbosityLevel.Chatty);
             h.Layer.HandleKey(Keys.M);
-            Assert.Equal(ValueLayerKeyResult.ClosedPassThrough, h.Layer.HandleKey(Keys.D1 | Keys.Shift));
-            Assert.False(h.Layer.IsLive);
-            Assert.Equal("Audio layer closed", h.LastSaid);
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.D1 | Keys.Shift));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal(NotAKeyInAudio, h.LastSaid);
         }
 
-        // ── Only what the layer can KNOW is refused (#778 round two) ─────
+        [Fact]
+        public void Audio_a_digit_on_a_target_with_no_finer_step_does_not_promise_one()
+        {
+            // The speech processor's three modes move by one and so does Shift:
+            // there is no finer step, so "Shift with the arrows moves it in fine
+            // steps" would be a sentence the next press contradicts. The ruled
+            // sentence alone.
+            var (h, _) = OpenAudio(VerbosityLevel.Chatty);
+            h.Layer.HandleKey(Keys.S);
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.D2));
+            Assert.Equal(TypedNumberInAudio, h.LastSaid);
+        }
+
+        // ── Everything else is refused (#778b) ──────────────────────────
 
         [Theory]
-        [InlineData(Keys.OemOpenBrackets)]                       // bracket filter keys: bare,
-        [InlineData(Keys.OemCloseBrackets | Keys.Shift)]         // Shift and Ctrl forms all go to
-        [InlineData(Keys.OemOpenBrackets | Keys.Control)]        // MainWindow's HandleFilterHotkey
         [InlineData(Keys.Tab)]
         [InlineData(Keys.Tab | Keys.Shift)]
         [InlineData(Keys.Space)]
@@ -1531,77 +1625,99 @@ namespace Radios.Tests
         [InlineData(Keys.PageDown)]
         [InlineData(Keys.Delete)]
         [InlineData(Keys.Insert)]
-        [InlineData(Keys.F5)]
+        [InlineData(Keys.F5)]                                    // a band jump, a registry row
+        [InlineData(Keys.F | Keys.Control)]                      // type a frequency, a registry row
         [InlineData(Keys.D1 | Keys.Control)]                     // a message slot, configured or not
         [InlineData(Keys.Home | Keys.Control)]
-        [InlineData(Keys.Z | Keys.Control)]                      // Ctrl tier, no near miss, no row
+        [InlineData(Keys.Z | Keys.Control)]
+        [InlineData(Keys.Space | Keys.Control | Keys.Shift)]     // not a transmit chord
         [InlineData(Keys.OemPeriod)]
         [InlineData(Keys.OemMinus)]
-        public void Audio_a_key_the_layer_cannot_know_to_be_meaningless_travels_on(Keys k)
+        public void Audio_every_other_key_is_refused_and_the_layer_stays(Keys k)
         {
-            // Codex's blocker B1 (2026-10-19): the registry is not the whole
-            // key map, so its silence is not "nowhere to go". Every key here
-            // has no registry row in the mirror and no near miss, and every
-            // one travels, because the layer cannot tell a dead key from one
-            // the main window handles itself. The non-registry branches in
-            // MainWindow_PreviewKeyDown, as read for this change, so the next
-            // reader knows they exist:
+            // #778b. Round two of #778 let every key here travel, because the
+            // registry is not the whole key map and the layer could not tell a
+            // dead key from one the main window handles itself (Codex, B1).
+            // That reasoning still holds, and is now answered differently: the
+            // keys the main window handles in place are NAMED by the host (the
+            // theory above), and everything else is refused, because Noel ruled
+            // the only ways out are Enter, Escape and the JJ key. The
+            // non-registry branches in MainWindow_PreviewKeyDown, as read for
+            // this change, so the next reader knows they exist:
             //
-            //   - Tab returns early so WPF and the child panels get it.
-            //   - The universal Home-key no-radio guard (M, V, R, X, Q, =)
-            //     speaks "no radio" — only when RigControl is null, and a
-            //     value layer is dropped the moment the rig is null, so it
-            //     cannot fire under a live layer.
-            //   - Escape stops an in-flight voice message.
-            //   - Escape cancels filter-edge mode and RIT/XIT scale-adjust.
-            //   - OemOpenBrackets / OemCloseBrackets, bare, Shift and Ctrl,
-            //     go to FreqOutHandlers.HandleFilterHotkey (Alt forms pass the
-            //     layer anyway, as Alt chords).
+            //   - Tab returns early so WPF and the child panels get it. ON THE
+            //     MAIN WINDOW TAB THEREFORE NEVER REACHES A LAYER, refused or
+            //     not; this refusal holds in a dialog, where the Window class
+            //     handler routes the layer first. Reported, not changed here.
+            //   - The universal Home-key no-radio guard (M, V, R, X, Q, =),
+            //     only when RigControl is null; a layer is dropped then.
+            //   - Escape stops an in-flight voice message, and cancels
+            //     filter-edge mode and RIT/XIT scale-adjust.
+            //   - The bracket filter keys, bare, Shift and Ctrl, go to
+            //     FreqOutHandlers.HandleFilterHotkey.
             //   - Shift+Space toggles the transmit lock (and UNLOCKS it).
             //   - Ctrl+Space is hold-to-talk; Escape while transmitting unkeys.
-            //   - Then step 4, the registry dispatch, and step 5, the focused
+            //   - Then step 4, the registry dispatch, which is where the main
+            //     window first asks a layer anything, and step 5, the focused
             //     control.
             //
-            // MainWindow_PreviewKeyUp also takes the Space release for PTT.
-            // The Home FIELD handlers (FreqOutHandlers) bind many bare letters
-            // and Shift+S; those are letters and are deliberately NOT in this
-            // list — see the letter tests.
+            // MainWindow_PreviewKeyUp takes the Space release for PTT; a key-up
+            // never reaches a layer.
             var (h, rig) = OpenAudio(VerbosityLevel.Chatty);
             h.Layer.HandleKey(Keys.M);
             h.Layer.HandleKey(Keys.Up);                               // 35
 
-            Assert.Equal(ValueLayerKeyResult.ClosedPassThrough, h.Layer.HandleKey(k));
-            Assert.False(h.Layer.IsLive);
-            Assert.Equal(35, rig.Mic);                                // kept, never restored
-            Assert.Equal("Audio layer closed", h.LastSaid);
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(k));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal(35, rig.Mic);
+            Assert.Equal(NotAKeyInAudio, h.LastSaid);
+            Assert.DoesNotContain("Audio layer closed", h.Said);
         }
 
         [Fact]
-        public void Audio_shift_m_is_a_registry_row_and_travels_to_mute_all_slices()
+        public void Audio_shift_m_is_refused_with_the_plain_line_and_no_near_miss()
         {
-            // Shift+M is a letter with Shift only, which is the refused class
-            // — but it IS a registry chord (MuteAllSlices, Radio scope), so the
-            // host says it means something outside and it travels. The
-            // mirror's stub registry knows it for exactly this test.
+            // Shift+M IS a registry chord (MuteAllSlices, Radio scope) and one
+            // modifier from M, which picks mic here. Since #778b it no longer
+            // leaves; and because it is a command out there it was pressed on
+            // purpose, so the layer does not guess "M: Mic level" for it (#547
+            // offers a near miss only for a key with no meaning outside). The
+            // mirror's stub registry knows Shift+M for exactly this test.
             var (h, _) = OpenAudio(VerbosityLevel.Chatty);
             h.Layer.HandleKey(Keys.P);
-            Assert.Equal(ValueLayerKeyResult.ClosedPassThrough, h.Layer.HandleKey(Keys.M | Keys.Shift));
-            Assert.False(h.Layer.IsLive);
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.M | Keys.Shift));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal(NotAKeyInAudio, h.LastSaid);
         }
 
         [Fact]
-        public void Audio_an_unbound_letter_stays_bare_or_shifted_and_its_ctrl_form_travels()
+        public void Audio_an_unbound_letter_stays_bare_shifted_or_with_ctrl()
         {
-            // The refused letter class is "no Ctrl or Alt": Z and Shift+Z
-            // stay; Ctrl+Z is the Ctrl tier, has no near miss and no row, and
-            // travels like any other key the layer cannot vouch for.
             var (h, _) = OpenAudio(VerbosityLevel.Chatty);
             h.Layer.HandleKey(Keys.M);
             Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.Z));
             Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.Z | Keys.Shift));
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.Z | Keys.Control));
             Assert.True(h.Layer.IsLive);
-            Assert.Equal(ValueLayerKeyResult.ClosedPassThrough, h.Layer.HandleKey(Keys.Z | Keys.Control));
-            Assert.False(h.Layer.IsLive);
+        }
+
+        [Fact]
+        public void Enter_escape_and_the_jj_key_are_still_the_exits()
+        {
+            var (enter, _) = OpenAudio(VerbosityLevel.Chatty);
+            enter.Layer.HandleKey(Keys.M);
+            Assert.Equal(ValueLayerKeyResult.Closed, enter.Layer.HandleKey(Keys.Return));
+            Assert.False(enter.Layer.IsLive);
+
+            var (escape, _) = OpenAudio(VerbosityLevel.Chatty);
+            escape.Layer.HandleKey(Keys.M);
+            Assert.Equal(ValueLayerKeyResult.Closed, escape.Layer.HandleKey(Keys.Escape));
+            Assert.False(escape.Layer.IsLive);
+
+            var (jj, _) = OpenAudio(VerbosityLevel.Chatty);
+            jj.Layer.HandleKey(Keys.M);
+            Assert.Equal(ValueLayerKeyResult.ClosedHandOff, jj.Layer.HandleKey(Keys.J | Keys.Control));
+            Assert.False(jj.Layer.IsLive);
         }
 
         [Fact]
@@ -1649,10 +1765,10 @@ namespace Radios.Tests
         [Fact]
         public void Single_a_digit_is_consumed_even_when_the_host_says_it_means_something_outside()
         {
-            // The registry is not consulted for a digit: a bare-digit chord
-            // added to the key table one day must not reopen the fall-through.
-            // The control: in the same harness a letter the host vouches for
-            // still leaves.
+            // A bare-digit chord added to the key table one day must not reopen
+            // the fall-through. Since #778b a letter the host vouches for is
+            // refused too, so the two are the same answer; the digit keeps its
+            // own sentence, which the audio tests read.
             var h = new Harness { Verbosity = VerbosityLevel.Terse };
             var rig = new SingleRig { Value = 40 };
             h.Open(new ValueSubLayerDefinition
@@ -1669,8 +1785,9 @@ namespace Radios.Tests
 
             Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.D7));
             Assert.True(h.Layer.IsLive);
-            Assert.Equal(ValueLayerKeyResult.ClosedPassThrough, h.Layer.HandleKey(Keys.X));
-            Assert.False(h.Layer.IsLive);
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.X));
+            Assert.True(h.Layer.IsLive);
+            Assert.Empty(rig.Writes);
         }
 
         [Fact]
@@ -1938,6 +2055,7 @@ namespace Radios.Tests
                 MeansSomethingOutside = k => false,
                 DescribeNearMiss = k => FilterLayerNearMiss(k, h.Verbosity),
                 DescribeUnknownKey = (k, why) => LayerUnknownKey("audio.filter_layer.name", k, why),
+                DescribeFineStep = () => Lexicon.Get("audio.value_layer.fine_step"),
             };
             h.Open(def);
             return (h, rig);
@@ -1976,7 +2094,22 @@ namespace Radios.Tests
             var (h, rig) = OpenFilter(VerbosityLevel.Chatty);
             Assert.Equal(ValueLayerKeyResult.Handled, Press(h, rig, Keys.Z, ShiftSide.None));
             Assert.True(h.Layer.IsLive);
-            Assert.Equal("Not a key in the Filter layer. H lists its keys.", h.LastSaid);
+            Assert.Equal("Not a key in the Filter layer. Press H to list available keys for this layer.", h.LastSaid);
+            Assert.DoesNotContain(Lexicon.Get("audio.filter_layer.closed"), h.Said);
+        }
+
+        [Fact]
+        public void Filter_a_digit_never_promises_a_fine_step()
+        {
+            // In the filter layer Shift chooses an edge (Left Shift the low,
+            // Right Shift the high), so "Shift with the arrows moves it in fine
+            // steps" would be false here. The engine says the ruled digit
+            // sentence alone, however the host wires the fine step.
+            var (h, rig) = OpenFilter(VerbosityLevel.Chatty);
+            Assert.Equal(ValueLayerKeyResult.Handled, Press(h, rig, Keys.D4, ShiftSide.None));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal("A typed number does nothing in the Filter layer. Use arrow keys to change the selected number.",
+                h.LastSaid);
             Assert.DoesNotContain(Lexicon.Get("audio.filter_layer.closed"), h.Said);
         }
 
@@ -2617,11 +2750,25 @@ namespace Radios.Tests
             Assert.Contains("private static string LayerUnknownKey(string context, Keys pressed, Radios.ValueLayerRefusal why)", source);
             Assert.Contains("KeyLayerHelp.LayerName(context)", source);
 
+            // #778b: every shipped layer names the keys that act in place
+            // through the ONE host helper, and wires the fine-step sentence
+            // (the engine decides where it is true). A layer that kept the old
+            // verbosity-only lambda would refuse push to talk inside it, out
+            // loud; the count is pinned for the same reason as above, and the
+            // mirror's InPlaceChord is held to the shipped body here.
+            Assert.Equal(3, Regex.Matches(source, @"PassThroughKeys = ActsInPlaceInsideALayer,").Count);
+            Assert.DoesNotContain("PassThroughKeys = key => Lookup(key)?.KeyDef.Id == CommandValues.CycleVerbosity", source);
+            Assert.Contains("=> IsInPlaceChord(k) || Lookup(k)?.KeyDef.Id == CommandValues.CycleVerbosity;", source);
+            Assert.Contains("return mods == Keys.Control || mods == Keys.Shift;", source);
+            Assert.Contains("return code == Keys.OemOpenBrackets || code == Keys.OemCloseBrackets;", source);
+            Assert.Equal(3, Regex.Matches(source, @"DescribeFineStep = LayerFineStep,").Count);
+
             foreach (string key in new[]
             {
                 "audio.value_layer.near_miss",
                 "audio.value_layer.unknown_key",
                 "audio.value_layer.typed_number",
+                "audio.value_layer.fine_step",
                 "audio.audio_layer.entered",
                 "audio.audio_layer.entered_on_pan",
                 "audio.audio_layer.closed",
@@ -2806,6 +2953,50 @@ namespace Radios.Tests
             // worse one. One idea, one implementation.
             Assert.DoesNotContain("LayerHelpSpeech(", ReadSource("JJFlexWpf/KeyInventory.cs"));
             Assert.DoesNotContain("leader.layer_help", ReadSource("Radios/Lexicon/leader.json"));
+        }
+
+        [Fact]
+        public void On_the_main_window_push_to_talk_and_the_brackets_are_handled_before_any_layer_is_asked()
+        {
+            // #778b, the routing fact under ruling 2. The main window is a
+            // UserControl hosted in the shell's ElementHost, NOT a Window, so
+            // the Window class handler that routes a live layer first in a
+            // dialog (KeyCommands.AnyWindowPreviewKeyDown) is never on its
+            // route. There the layer is first asked at step 4 of
+            // MainWindow_PreviewKeyDown, the registry dispatch, and push to
+            // talk, the transmit lock, Escape while transmitting and the
+            // bracket filter keys are all handled at steps 2 and 3, before it.
+            // So on Home those keys reach MainWindow's handlers with the layer
+            // untouched. The engine's PassThrough for them (the theory above)
+            // is what keeps them working everywhere else: a dialog, Logging
+            // mode, or focus outside the Home fields, where steps 2 and 3 do
+            // not fire. This pin fails if someone moves the registry dispatch
+            // above them; that would not break the keys (the layer lets them
+            // go), but it would change what this comment, and the report, say.
+            string xaml = ReadSource("JJFlexWpf/MainWindow.xaml");
+            Assert.StartsWith("<UserControl x:Class=\"JJFlexWpf.MainWindow\"", xaml.TrimStart());
+
+            string source = ReadSource("JJFlexWpf/MainWindow.xaml.cs");
+            int start = source.IndexOf("private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)", StringComparison.Ordinal);
+            Assert.True(start >= 0);
+            int step4 = source.IndexOf("DoCommandHandler(winFormsKey)", start, StringComparison.Ordinal);
+            Assert.True(step4 > start);
+            foreach (string branch in new[]
+            {
+                "_freqOutHandlers.HandleFilterHotkey(e);",
+                "_pttController.ToggleLock();",
+                "PttKeyDownEdge();",
+                "_pttController.EscapeUnlock();",
+            })
+            {
+                int at = source.IndexOf(branch, start, StringComparison.Ordinal);
+                Assert.True(at > start && at < step4, branch + " must come before the registry dispatch");
+            }
+
+            // And Tab returns before ANY of it, which is why a layer on the
+            // main window never sees Tab at all (reported for #778b).
+            int tab = source.IndexOf("if (rawKey == Key.Tab)", start, StringComparison.Ordinal);
+            Assert.True(tab > start && tab < step4);
         }
 
         // ────────────────────────────────────────────────────────────────
