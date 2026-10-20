@@ -980,9 +980,36 @@ public class FreqOutHandlers
         else
             EarconPlayer.DingTone();
         string display = FormatFreqForSpeech(freqMhz.Value);
-        Radios.ScreenReaderOutput.Speak(
-            Lexicon.Get("settings.tuning.freq_set", ("freq", display)), VerbosityLevel.Terse, true);
+        // No rig, no mode to correct: the sentence must never claim a mode
+        // change nothing made, so the correction is only asked for with a rig.
+        var outcome = Rig != null
+            ? QuickTypeCommitOutcome(License?.Country ?? "US", freqHz, Rig.Mode, display)
+            : (ModeToSet: (string?)null, Sentence: Lexicon.Get("settings.tuning.freq_set", ("freq", display)));
+        if (outcome.ModeToSet != null && Rig != null) Rig.Mode = outcome.ModeToSet;
+        Radios.ScreenReaderOutput.Speak(outcome.Sentence, VerbosityLevel.Terse, true);
         CancelQuickType();
+    }
+
+    /// <summary>
+    /// What a committed typed frequency owes the mode, and the sentence that
+    /// confirms it (#312). Pure, so it can be tested without a window.
+    /// </summary>
+    /// <remarks>
+    /// Typed entry is the second path #312's report named. Landing on a 60m
+    /// frequency now applies the same correction the band jump and the channel
+    /// rotation apply, through <see cref="SixtyMeterChannels.GetModeCorrection"/>:
+    /// into the digital segment on a voice mode sets CW, onto a channel sets
+    /// the channel's mode, and the advisory clause is appended to the existing
+    /// "Frequency set to" sentence. Anywhere else, nothing changes.
+    /// </remarks>
+    internal static (string? ModeToSet, string Sentence) QuickTypeCommitOutcome(
+        string country, ulong freqHz, string? currentMode, string display)
+    {
+        string sentence = Lexicon.Get("settings.tuning.freq_set", ("freq", display));
+        var correction = SixtyMeterChannels.GetModeCorrection(country, freqHz, currentMode);
+        return correction == null
+            ? (null, sentence)
+            : (correction.RequiredMode, sentence + correction.Advisory);
     }
 
     /// <summary>
