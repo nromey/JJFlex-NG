@@ -1740,8 +1740,31 @@ namespace Radios
         // cleared when the operator picks something else through MicSource, so
         // the warning fires for reverts we did not make and nothing else.
         private volatile bool _pcMicExpected;
-        private int _pcMicCheckTime;
         private bool _pcMicDiverged;
+
+        // When checkPcMicSelection last looked, on a 64-BIT clock (#649; the
+        // shape H18 gave traceTxMeters' limiter for #625). This was an int
+        // compared against Environment.TickCount, starting at 0 and assigned
+        // only after the limit passed. TickCount is negative for the second
+        // half of every 49.7-day cycle of Windows uptime, so on a machine up
+        // between about 24.9 and 49.7 days "now - 0" was negative, always
+        // under a second, and the field never advanced: the check never ran
+        // once, and an operator could transmit PC audio into a closed gate
+        // and be told nothing - the 2026-08-14 shape this check exists for.
+        // Read from code, never observed. TickCount64 does not go negative
+        // for 292 million years. The clock is a field only so a test can
+        // stand the check on the uptime that used to silence it.
+        private long _pcMicCheckTime = PcMicNeverChecked;
+        private Func<long> _pcMicCheckClock = () => System.Environment.TickCount64;
+
+        /// <summary>The check has not run yet, so the next one is due
+        /// whatever the clock says.</summary>
+        internal const long PcMicNeverChecked = long.MinValue;
+
+        /// <summary>Whether the once-a-second limit lets the mic-selection
+        /// check run now. 64-bit throughout; see <see cref="_pcMicCheckTime"/>.</summary>
+        internal static bool PcMicCheckDue(long nowMs, long lastCheckedMs) =>
+            lastCheckedMs == PcMicNeverChecked || nowMs - lastCheckedMs >= 1000;
 
         /// <summary>
         /// While PC transmit audio is running, verify the radio still has its
@@ -1761,8 +1784,8 @@ namespace Radios
             // is already a no-op.)
             if (!_pcMicExpected || theRadio == null || ChangeNothingActive) return;
 
-            int now = System.Environment.TickCount;
-            if ((now - _pcMicCheckTime) < 1000) return;
+            long now = _pcMicCheckClock();
+            if (!PcMicCheckDue(now, _pcMicCheckTime)) return;
             _pcMicCheckTime = now;
 
             string current = theRadio.MicInput ?? "";
