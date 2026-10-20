@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using Radios;
 using Xunit;
@@ -168,6 +169,107 @@ namespace Radios.Tests
         }
 
         // ------------------------------------------------------------------
+        // One answer to "will this load profiles?"
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void A_radio_never_opted_in_is_not_walked_and_the_report_says_so()
+        {
+            // The menu picks its start sentence from ComparisonWillLoadProfiles,
+            // and the report decides its skip from the same call, so the
+            // sentence cannot promise a walk the report then declines. What
+            // this cannot reach: the TRUE answer needs a connected radio with a
+            // serial the operator opted in, which no test here has.
+            var rig = MakeRig();
+            Assert.False(ProfileReporter.ComparisonWillLoadProfiles(rig));
+            string report = ProfileReporter.GenerateReport(rig);
+            Assert.Contains("PROFILE COMPARISON SKIPPED", report);
+            Assert.DoesNotContain("PROFILE COMPARISON" + Environment.NewLine, report.Replace("PROFILE COMPARISON SKIPPED", ""));
+
+            rig.SetChangeNothingActive(true);
+            Assert.False(ProfileReporter.ComparisonWillLoadProfiles(rig));
+            Assert.Contains("Change nothing is on for this radio", ProfileReporter.GenerateReport(rig));
+        }
+
+        // ------------------------------------------------------------------
+        // The menu item: refusals at the press, the walk off the UI thread,
+        // and the path still spoken and the file still opened
+        // ------------------------------------------------------------------
+
+        private const string ComparisonItem = "AddWired(tools, \"Profile comparison report, loads each one\"";
+        private const string RestoreItem = "AddWired(tools, \"Full restore capture, loads every profile\"";
+
+        /// <summary>The text of one menu item's lambda: from its AddWired to
+        /// the next AddWired or separator.</summary>
+        private static string MenuItemBody(string menu, string item)
+        {
+            int start = menu.IndexOf(item, StringComparison.Ordinal);
+            Assert.True(start >= 0, "menu item not found: " + item);
+            int next = menu.IndexOf("AddWired(tools,", start + item.Length, StringComparison.Ordinal);
+            int sep = menu.IndexOf("AddSep(tools)", start + item.Length, StringComparison.Ordinal);
+            int end = new[] { next, sep }.Where(i => i > 0).DefaultIfEmpty(menu.Length).Min();
+            return menu.Substring(start, end - start);
+        }
+
+        private static int At(string body, string token)
+        {
+            int i = body.IndexOf(token, StringComparison.Ordinal);
+            Assert.True(i >= 0, "expected '" + token + "' in the menu item's body");
+            return i;
+        }
+
+        [Fact]
+        public void The_menu_item_refuses_first_then_runs_the_walk_in_the_background_and_still_speaks_and_opens_the_file()
+        {
+            // A SOURCE PIN, said plainly: Radios.Tests cannot run a WPF menu,
+            // so this reads the lambda's text. It proves the ORDER the code is
+            // written in — refusals before the background task, the walk only
+            // inside it, the save, the file opening and the spoken path after
+            // the walk — not that NVDA says the path. The bench half does that.
+            string body = MenuItemBody(Read("JJFlexWpf/NativeMenuBar.cs"), ComparisonItem);
+
+            int transmit = At(body, "reportRig.Transmit");
+            int busy = At(body, "ProfileReporter.WalkInProgress");
+            int task = At(body, "System.Threading.Tasks.Task.Run(");
+            int settle = At(body, "System.Threading.Thread.Sleep(4000)");
+            int walk = At(body, "ProfileReporter.GenerateReport(");
+            int save = At(body, "ProfileReporter.SaveReport(report)");
+            int spoken = At(body, "\"settings.profile.report_saved\", (\"path\", path)");
+            int open = At(body, "System.Diagnostics.Process.Start(");
+
+            Assert.True(transmit < busy, "transmit must refuse before the busy check");
+            Assert.True(busy < task, "both refusals come before anything starts");
+            Assert.True(task < settle && settle < walk, "the walk runs inside the task, after the settle");
+            // Open, THEN speak: the file's window arriving flushes anything
+            // the screen reader was saying, so the path must come after it —
+            // the order this item had before #469, when the open was
+            // synchronous and the path came 500 ms later.
+            Assert.True(walk < save && save < open && open < spoken,
+                "save, then open the file, then speak the path, all after the walk");
+
+            // Exactly one walk call, and it is the one inside the task: a
+            // second, synchronous one would put the walk back on the UI thread.
+            Assert.Equal(walk, body.LastIndexOf("ProfileReporter.GenerateReport(", StringComparison.Ordinal));
+            Assert.Equal(save, body.LastIndexOf("ProfileReporter.SaveReport(", StringComparison.Ordinal));
+
+            // A pool thread may not let an exception escape.
+            Assert.True(At(body, "catch (Exception ex)") > walk);
+        }
+
+        [Fact]
+        public void The_pin_reader_sees_the_restore_capture_built_the_same_way()
+        {
+            // Positive control for the extractor above: on the item this one
+            // copies, the same reader finds the same shape. If the extractor
+            // silently grabbed the wrong span, this would fail with it.
+            string body = MenuItemBody(Read("JJFlexWpf/NativeMenuBar.cs"), RestoreItem);
+            Assert.True(At(body, "restoreRig.Transmit") < At(body, "System.Threading.Tasks.Task.Run("));
+            Assert.True(At(body, "System.Threading.Tasks.Task.Run(")
+                < At(body, "ProfileReporter.GenerateRestoreGradeExport("));
+            Assert.DoesNotContain("ProfileReporter.GenerateReport(", body);
+        }
+
+        // ------------------------------------------------------------------
         // The flag is released on every exit path
         // ------------------------------------------------------------------
 
@@ -201,6 +303,26 @@ namespace Radios.Tests
 
             Assert.False(ProfileReporter.WalkInProgress);
             Assert.NotNull(ProfileReporter.GenerateReport(rig));
+        }
+
+        private static string Read(string relative)
+        {
+            string path = Path.Combine(RepoRoot(), relative.Replace('/', Path.DirectorySeparatorChar));
+            Assert.True(File.Exists(path),
+                "Could not find " + relative + " (looked at " + path + "). A test that "
+                + "cannot find its subject proves nothing about it.");
+            return File.ReadAllText(path);
+        }
+
+        private static string RepoRoot()
+        {
+            var dir = new DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null)
+            {
+                if (File.Exists(Path.Combine(dir.FullName, "JJFlexRadio.sln"))) return dir.FullName;
+                dir = dir.Parent;
+            }
+            return AppContext.BaseDirectory;
         }
     }
 }

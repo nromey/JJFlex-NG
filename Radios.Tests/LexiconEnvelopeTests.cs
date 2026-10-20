@@ -1121,6 +1121,28 @@ namespace Radios.Tests
                 "audio.iq.ack.not_recorded",
                 "audio.iq.ack.listener_request",
                 "audio.iq.ack.antenna_unchanged",
+
+                // Junkbox #469, 2026-10-20: the profile comparison report now
+                // refuses while keyed and runs in the background, so it needs
+                // its own start sentence (one for a run that loads profiles,
+                // one for a radio where the comparison is left out), its own
+                // transmit refusal, and its own failure sentence: the restore
+                // capture's settings.restore_export.start names a "restore"
+                // capture and its not_while_transmitting says "this export".
+                // Classified rather than frozen because they were written here
+                // (#720). delivery: null - TextOnly - on the #726 reasoning:
+                // each is spoken ONLY in answer to the operator's own press of
+                // the Tools menu item, the start and refusal at once and the
+                // failure as the delayed answer to that press, and the
+                // application never says any of them on its own account. Their
+                // siblings settings.profile.report_saved and the
+                // settings.restore_export.* family are legacy and still frozen;
+                // WHEN THE PASS REACHES THEM, DECIDE THE TWO REPORTS' SENTENCES
+                // TOGETHER. All four wordings are DRAFTS awaiting Noel.
+                "settings.profile.report_start",
+                "settings.profile.report_start_no_walk",
+                "settings.profile.report_not_while_transmitting",
+                "settings.profile.report_failed",
             };
 
             Assert.Equal(3152, unclassified);

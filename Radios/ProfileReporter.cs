@@ -615,6 +615,20 @@ namespace Radios
         }
 
         /// <summary>
+        /// Whether the comparison report will LOAD profiles on this radio, or
+        /// leave the comparison out. The report's own skip decision and the
+        /// menu's start sentence both ask this, so the sentence cannot promise
+        /// a walk the report then declines (#469). Today's answer: not under
+        /// the change-nothing hold (#414), and not on a radio the operator has
+        /// never opted in to profile loading (#450). A type with fewer than two
+        /// stored profiles is still skipped inside the walk; this does not
+        /// read the radio's lists, so it cannot see that.
+        /// </summary>
+        public static bool ComparisonWillLoadProfiles(FlexBase rig)
+            => !rig.ChangeNothingActive
+               && rig.ProfileIntent == ProfileGuestIntent.LoadMineAndPutBack;
+
+        /// <summary>
         /// Generate a full report including profile comparisons and meter enumeration.
         /// Sprint 20: Enhanced report with load-snapshot profile comparison and meter listing.
         /// Returns null when it refused; the overload with an <c>out</c>
@@ -781,10 +795,7 @@ namespace Radios
             //
             // The read-only sections above still run, so a shorter report
             // reads as the setting working rather than the feature breaking.
-            bool guestRefusesWalk =
-                rig.ProfileIntent != ProfileGuestIntent.LoadMineAndPutBack;
-
-            if (rig.ChangeNothingActive || guestRefusesWalk)
+            if (!ComparisonWillLoadProfiles(rig))
             {
                 sb.AppendLine();
                 sb.AppendLine(new string('=', 60));
@@ -819,7 +830,11 @@ namespace Radios
                 var list = readings[ptype];
                 if (!list.Reported || list.Names.Count < 2) continue;
 
-                progressCallback?.Invoke($"Comparing {ptype} profiles...");
+                // Traced, not spoken (#469): the walker's first "Loading ...
+                // profile 1 of N" line follows at once and would interrupt it,
+                // so the first spoken progress is the first thing that takes
+                // time — the restore capture's rule.
+                Tracing.TraceLine($"ProfileReporter: comparing {TypeLabel(ptype)} profiles", TraceLevel.Info);
                 var snapshots = CaptureAllProfiles(rig, ptype, out var walk, progressCallback, list);
                 if (snapshots.Count >= 2)
                 {
@@ -844,8 +859,8 @@ namespace Radios
                 }
             }
 
-            // Meter enumeration
-            progressCallback?.Invoke("Enumerating meters...");
+            // Meter enumeration. Instant, so nothing is spoken for it: the
+            // next thing the operator hears is the saved path (#469).
             FormatMeterSection(sb, rig);
 
             return sb.ToString();

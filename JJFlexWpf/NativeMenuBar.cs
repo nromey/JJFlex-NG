@@ -2544,20 +2544,112 @@ public class NativeMenuBar : IDisposable
         // So each label now ends with what it does to the radio, in the same
         // words, and all three diverge on the FIRST word — a menu is arrowed
         // through and heard, not scanned.
+        //
+        // #469: the comparison report walks every stored profile exactly as the
+        // restore capture below does, so it carries the same three guards, in
+        // the same order: keyed transmit refuses at the press, a walk already
+        // running refuses next, and the walk itself runs in the BACKGROUND with
+        // spoken progress — it loads each profile on the radio in turn and
+        // takes a minute or two, and a frozen window that long is, to a screen
+        // reader, a hang. The path is still SPOKEN and the file still OPENS,
+        // now when the walk finishes rather than when the menu closes: that is
+        // how the report is read. ProfileReporter.GenerateReport asks both
+        // refusals again when it starts, because the radio can be keyed during
+        // the settle below.
         AddWired(tools, "Profile comparison report, loads each one", () =>
         {
-            if (Rig == null) { SpeakNoRadio(); return; }
-            // The restore export walks profiles in the background; two walks
-            // at once would restore each other's wrong state.
+            var reportRig = Rig;
+            if (reportRig == null) { SpeakNoRadio(); return; }
+            if (reportRig.Transmit)
+            {
+                // DRAFT PROSE (#469): awaiting Noel
+                SpeakAfterMenuClose(Radios.Lexicon.Get(
+                    "settings.profile.report_not_while_transmitting"));
+                return;
+            }
             if (ProfileReporter.WalkInProgress)
             {
                 SpeakAfterMenuClose(Radios.Lexicon.Get("settings.restore_export.busy"));
                 return;
             }
-            var report = ProfileReporter.GenerateReport(Rig);
-            var path = ProfileReporter.SaveReport(report);
-            SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile.report_saved", ("path", path)));
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+            // Say whether profiles will actually be loaded: on a radio under
+            // the change-nothing hold, or one never opted in to profile
+            // loading, the report leaves the comparison out, and promising
+            // "you will hear things change" there would be false.
+            bool loads = ProfileReporter.ComparisonWillLoadProfiles(reportRig);
+            // DRAFT PROSE (#469): awaiting Noel
+            SpeakAfterMenuClose(Radios.Lexicon.Get(loads
+                ? "settings.profile.report_start"
+                : "settings.profile.report_start_no_walk"));
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                try
+                {
+                    // The restore capture's settle: give the start sentence
+                    // room to finish, because the first progress line
+                    // interrupts and the sentence that sets expectations must
+                    // not lose the race to it.
+                    System.Threading.Thread.Sleep(4000);
+                    var report = ProfileReporter.GenerateReport(reportRig,
+                        progress => Radios.ScreenReaderOutput.Speak(
+                            progress,
+                            Radios.Speech.SpeechIntent.Latest,
+                            Radios.VerbosityLevel.Terse,
+                            coalesceKey: "profile-report-progress",
+                            subject: Radios.Speech.SpeechSubject.Progress),
+                        out var refusal);
+                    // The last progress line is about a walk that has ended;
+                    // whatever is said next must not have it rescued behind it.
+                    Radios.ScreenReaderOutput.Supersede(
+                        Radios.Speech.SpeechSubject.Progress, "the profile report finishing");
+                    if (report == null)
+                    {
+                        Radios.ScreenReaderOutput.Speak(
+                            Radios.Lexicon.Get(refusal == ProfileReporter.WalkRefusal.Transmitting
+                                ? "settings.profile.report_not_while_transmitting"
+                                : "settings.restore_export.busy"),
+                            Radios.VerbosityLevel.Terse, interrupt: true);
+                        return;
+                    }
+                    var path = ProfileReporter.SaveReport(report);
+                    // OPEN FIRST, THEN SPEAK — the order this item has always
+                    // had, kept on purpose. A screen reader flushes its queue
+                    // when the focused window changes, so a path spoken just
+                    // before the file's window arrives is destroyed by it.
+                    // Until #469 the file was opened synchronously and the
+                    // path spoken 500 ms later (SpeakAfterMenuClose's delay),
+                    // after the window change; that is how the report has been
+                    // read, so the same order and the same delay are kept.
+                    // The file is written by now, so a failure to OPEN it is
+                    // not a failed report: trace it and still say the path.
+                    try
+                    {
+                        System.Diagnostics.Process.Start(
+                            new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+                    }
+                    catch (Exception openEx)
+                    {
+                        Tracing.TraceLine($"Profile comparison report: saved, but opening {path} failed: {openEx}", TraceLevel.Warning);
+                    }
+                    System.Threading.Thread.Sleep(500);
+                    // Critical, as the restore capture's: this is the delayed
+                    // answer to a command given a minute ago, and the path is
+                    // the only way back to the file.
+                    Radios.ScreenReaderOutput.Speak(
+                        Radios.Lexicon.Get("settings.profile.report_saved", ("path", path)),
+                        Radios.VerbosityLevel.Critical, interrupt: true);
+                }
+                catch (Exception ex)
+                {
+                    // On a pool thread an escaped exception ends the process,
+                    // so every failure is caught, traced and said.
+                    Tracing.TraceLine($"Profile comparison report: {ex}", TraceLevel.Error);
+                    // DRAFT PROSE (#469): awaiting Noel
+                    Radios.ScreenReaderOutput.Speak(
+                        Radios.Lexicon.Get("settings.profile.report_failed", ("error", ex.Message)),
+                        Radios.VerbosityLevel.Critical, interrupt: true);
+                }
+            });
         });
         // #227: everything the radio holds, as plain text, BEFORE a factory
         // reset takes it all. Read-only and safe any time — unlike Profile
