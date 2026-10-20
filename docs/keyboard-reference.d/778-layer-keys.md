@@ -12,9 +12,13 @@ actually spoken.
 Tab is deliberately NOT named below. Inside a dialog a live layer refuses Tab like any other
 key, but on the main window Tab never reaches the layer (MainWindow_PreviewKeyDown returns
 before asking it), so Tab moves focus and the layer stays open. That is the subject of
-ASK-778b-main-window-tab.md; name Tab here once it is ruled. -->
+ASK-778b-main-window-tab.md; name Tab here once it is ruled.
+
+"On Home" below means the main window. Push to talk there also needs focus in the Home fields
+or field groups and the radio powered on, as it always has; that gate is the main window's and
+did not change. -->
 
 - **Enter, Escape and the JJ key are the only ways out.** Any other key the layer doesn't use is refused and the layer stays where it was: a letter it doesn't use, the space bar, and real hotkeys alike, like `Ctrl+F` or a band key. You get the refusal tone, and at chatty verbosity the layer's own answer: the list of letters above if you haven't picked anything yet, or "Not a key in the Audio layer. Press H to list available keys for this layer." once you have. Until now any key that meant something elsewhere closed the layer and then did its job, and the "layer closed" was usually talked over by that job, so you couldn't tell.
-- **A few keys do their job and leave the layer open:** push to talk (`Ctrl+Space`), the transmit lock (`Shift+Space`), the bracket filter keys in every form, and the verbosity cycle (`Ctrl+Shift+V`). The menus on `Alt` and `F1` help work exactly as they always did. A layer that uses one of these keys for something of its own gets it first.
+- **A few keys do their job and leave the layer open.** On Home: push to talk (`Ctrl+Space`), the transmit lock (`Shift+Space`) and the bracket filter keys in every form. In any other window, push to talk, the lock and the plain, Shift and Ctrl bracket keys have no job to do, so inside a layer there they are refused, out loud at every verbosity: "Push to talk does not work from this window. The Audio layer is still open.", and the same for the transmit lock and the bracket keys. `Ctrl+Shift` with a bracket, the transmit filter's low edge, works from every window, and so does the verbosity cycle (`Ctrl+Shift+V`). The menus on `Alt` and `F1` help work exactly as they always did. A layer that uses one of these keys for something of its own gets it first.
 - **A slip is named.** A key that means nothing anywhere, and sits one modifier away from a key that *does* mean something in here, names the key you nearly pressed: "Ctrl+B: Binaural receive on or off."
 - **A typed number does nothing yet.** The digit keys `1` to `9`, and the keypad digit keys, are refused: "A typed number does nothing in the Audio layer. Use arrow keys to change the selected number." Where holding Shift with the arrows gives a finer step, it adds "Shift with the arrows moves it in fine steps." On the frequency field a loose digit starts typing a frequency, so a value you meant for the layer could have become a retune. `0` is still the centre jump, and with NumLock off the keypad's arrows, Home and End still do their layer jobs.
