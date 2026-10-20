@@ -20,8 +20,16 @@ internal static class FullDuplexControl
         // Menu activation can return before the native menu has relinquished
         // focus. Deliver from the arriving Home context after that transition.
         if (Application.Current?.Dispatcher is { } dispatcher)
-            dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new System.Action(() => Speak(key)));
-        else Speak(key);
+            dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new System.Action(() =>
+            {
+                Speak(key);
+                if (key is "audio.full_duplex.on" or "audio.full_duplex.off") rig?.BeginFullDuplexLanCheck();
+            }));
+        else
+        {
+            Speak(key);
+            if (key is "audio.full_duplex.on" or "audio.full_duplex.off") rig?.BeginFullDuplexLanCheck();
+        }
     }
     private static void Speak(string key) => ScreenReaderOutput.Speak(Lexicon.Get(key), VerbosityLevel.Critical, interrupt: true);
 }

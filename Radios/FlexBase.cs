@@ -4791,8 +4791,10 @@ namespace Radios
             switch (e.PropertyName)
             {
                 case "FullDuplexEnabled":
+                    if (!ReferenceEquals(r, theRadio)) break;
                     _fullDuplexReportedRadio = r;
                     _fullDuplexReportedConnection = r.CurrentCommandConnection?.Id ?? Guid.Empty;
+                    Volatile.Write(ref _fullDuplexDecision, null); // a fresh radio report supersedes a local reply
                     break;
                 case "FeatureLicense":
                     HookFeatureLicense(r);
@@ -10950,7 +10952,7 @@ namespace Radios
         /// </summary>
         public bool FullDuplexEnabled
         {
-            get { return theRadio?.FullDuplexEnabled ?? false; }
+            get { return theRadio == null ? false : FullDuplexState(theRadio, theRadio.CurrentCommandConnection); }
             set { _ = SetFullDuplexFromPropertyAsync(value); }
         }
 
@@ -11081,13 +11083,7 @@ namespace Radios
             // Snapshot.
             arrangementRadio = theRadio;
             arrangementConnection = arrangementRadio.CurrentCommandConnection;
-            try { _lbSavedFdx = confirmedPriorFullDuplex ??
-                await ReadFullDuplexAsync(arrangementRadio, arrangementConnection).ConfigureAwait(false); }
-            catch (Exception ex)
-            {
-                Tracing.TraceLine("StartLoopbackArrangement full duplex read-back: " + ex.Message, TraceLevel.Error);
-                return false;
-            }
+            _lbSavedFdx = confirmedPriorFullDuplex ?? FullDuplexState(arrangementRadio, arrangementConnection);
             _lbSavedTxAnt = TXAntennaName;
             _lbSavedMonitor = theRadio.TXMonitor;
             _lbSavedPower = XmitPower;
@@ -11100,7 +11096,7 @@ namespace Radios
             try
             {
                 if (!await SetFullDuplexConfirmedAsync(true, arrangementRadio, arrangementConnection).ConfigureAwait(false))
-                    throw new InvalidOperationException("full-duplex-readback-mismatch");
+                    throw new InvalidOperationException("full-duplex-connection-changed");
                 setupChanged = true;
             }
             catch (Exception ex)

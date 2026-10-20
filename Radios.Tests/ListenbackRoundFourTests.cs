@@ -92,7 +92,7 @@ public sealed class ListenbackRoundFourTests : IDisposable
     [InlineData("FLEX-8600")]
     [InlineData("FLEX-6300")]
     [InlineData("UNKNOWN")]
-    public async Task Full_duplex_is_unknown_until_reported_and_waits_for_the_radio_instead_of_the_request(string model)
+    public async Task Full_duplex_is_unknown_until_reported_and_waits_for_the_set_reply(string model)
     {
         using var c = new RadioCase(); var rig = c.F.Rig; var radio = c.F.Vendor.Radio;
         Property(radio,"Model",model);
@@ -101,51 +101,34 @@ public sealed class ListenbackRoundFourTests : IDisposable
         Assert.Equal("audio.full_duplex.not_reported",await rig.ToggleFullDuplexAsync());
         c.F.Vendor.Status("radio full_duplex_enabled=0");
         Assert.True(rig.FullDuplexAvailable); Assert.False(rig.FullDuplexEnabled);
-        int reads = 0;
-        c.F.Vendor.Transport.CommandWritten = command =>
-        {
-            if (command == "sub radio all" && ++reads == 1) c.F.Vendor.Status("radio full_duplex_enabled=0");
-            c.F.Vendor.ReplyOk(c.F.Vendor.LastSequence);
-        };
+        c.F.Vendor.Transport.CommandWritten = command => { }; // hold the set reply
         var toggle = rig.ToggleFullDuplexAsync();
-        for (int i = 0; i < 50 && reads < 2; ++i)
+        for (int i = 0; i < 50 && c.F.Vendor.Transport.Commands.Count == 0; ++i)
         {
             while(rig.q.Count > 0) if(rig.q.Dequeue().Item is FlexBase.FunctionDel action) action();
             await Task.Delay(5);
         }
         Assert.False(toggle.IsCompleted); Assert.False(rig.FullDuplexEnabled);
         Assert.Contains("radio set full_duplex_enabled=1",c.F.Vendor.Transport.Commands);
-        c.F.Vendor.Status("radio full_duplex_enabled=1");
+        c.F.Vendor.ReplyOk(c.F.Vendor.LastSequence);
         Assert.Equal("audio.full_duplex.on",await toggle);
         Assert.True(rig.FullDuplexEnabled);
+        Assert.DoesNotContain("sub radio all", c.F.Vendor.Transport.Commands);
         c.F.Vendor.Transport.CommandWritten = c.Respond;
         Assert.Equal("audio.full_duplex.off",await c.Pump(rig.ToggleFullDuplexAsync()));
         Assert.False(rig.FullDuplexEnabled);
     }
 
     [Fact]
-    public async Task Full_duplex_refusal_and_missing_echo_do_not_claim_a_new_state()
+    public async Task Full_duplex_refusal_and_missing_reply_do_not_claim_a_new_state()
     {
         using var c = new RadioCase(); c.F.Rig.WireStationHandlers(c.F.Vendor.Radio);
         c.F.Vendor.Status("radio full_duplex_enabled=0");
         c.F.Rig.ListenbackConfirmationWait = TimeSpan.FromMilliseconds(60);
-        c.F.Vendor.Transport.CommandWritten = command =>
-        {
-            if (command == "sub radio all") { c.F.Vendor.Status("radio full_duplex_enabled=0"); c.F.Vendor.ReplyOk(c.F.Vendor.LastSequence); }
-            else c.F.Vendor.Reply(c.F.Vendor.LastSequence,1,"refused");
-        };
+        c.F.Vendor.Transport.CommandWritten = command => c.F.Vendor.Reply(c.F.Vendor.LastSequence,1,"refused");
         Assert.Equal("audio.full_duplex.refused",await c.Pump(c.F.Rig.ToggleFullDuplexAsync()));
         Assert.False(c.F.Rig.FullDuplexEnabled);
-        bool initialRead = true;
-        c.F.Vendor.Transport.CommandWritten = command =>
-        {
-            if (command == "sub radio all" && initialRead)
-            {
-                c.F.Vendor.Status("radio full_duplex_enabled=0");
-                initialRead = false;
-            }
-            c.F.Vendor.ReplyOk(c.F.Vendor.LastSequence);
-        };
+        c.F.Vendor.Transport.CommandWritten = command => { }; // no set reply
         Assert.Equal("audio.full_duplex.unconfirmed",await c.Pump(c.F.Rig.ToggleFullDuplexAsync()));
         Assert.False(c.F.Rig.FullDuplexEnabled);
     }
@@ -250,7 +233,7 @@ public sealed class ListenbackRoundFourTests : IDisposable
         string directory = Directory.GetDirectories(takesRoot).Except(beforeTakes).Single();
         string restore = File.ReadAllText(Directory.GetFiles(directory,"restore-*.txt").Single());
         Assert.Contains("full-duplex",restore); Assert.Contains("Sequence",restore); Assert.Contains("00000000",restore);
-        Assert.Contains("reply-and-status-confirmed",restore);
+        Assert.Contains("reply-confirmed",restore);
         if(confirmationTimeout)
         {
             string header = File.ReadAllText(Path.Combine(directory,"take.txt"));

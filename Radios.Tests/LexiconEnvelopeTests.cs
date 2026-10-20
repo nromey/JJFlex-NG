@@ -1084,8 +1084,9 @@ namespace Radios.Tests
                 "audio.check.loopback_restore_unconfirmed",
                 "audio.iq.reason.listener-command-refused",
                 "audio.iq.reason.listener-command-timeout",
-                "audio.iq.reason.full-duplex-readback-unavailable",
                 "audio.iq.reason.full-duplex-refused",
+                "audio.full_duplex.disagreed_on",
+                "audio.full_duplex.disagreed_off",
                 "audio.full_duplex.refused",
                 "audio.full_duplex.unconfirmed",
 

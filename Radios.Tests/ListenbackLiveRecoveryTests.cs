@@ -17,7 +17,7 @@ public sealed class ListenbackLiveRecoveryTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Live_restore_waits_for_status_and_reconnect_never_removes_a_reused_slice(bool reused)
+    public async Task Live_restore_waits_for_reply_and_reconnect_never_removes_a_reused_slice(bool reused)
     {
         using var fixture = new RigOnVendorRadio("listenback-restore-" + Guid.NewGuid().ToString("N"));
         fixture.Rig.q.MainLoop = true;
@@ -41,18 +41,8 @@ public sealed class ListenbackLiveRecoveryTests : IDisposable
             if (fixture.Rig.q.Dequeue().Item is FlexBase.FunctionDel action) action();
         Assert.False(restore.IsCompleted);
         fixture.Vendor.ReplyOk(fixture.Vendor.LastSequence);
-        Assert.False(restore.IsCompleted); // command success alone is insufficient
-        var deadline = DateTime.UtcNow.AddSeconds(2);
-        while (fixture.Rig.q.Count == 0 && DateTime.UtcNow < deadline)
-            await Task.Delay(5);
-        Assert.True(fixture.Rig.q.Count > 0); // the fresh read-back request must be sent first
-        while (fixture.Rig.q.Count > 0)
-            if (fixture.Rig.q.Dequeue().Item is FlexBase.FunctionDel action) action();
-        Assert.Contains("sub radio all", fixture.Vendor.Transport.Commands);
-        fixture.Vendor.ReplyOk(fixture.Vendor.LastSequence);
-        Assert.False(restore.IsCompleted); // read-back reply without status is insufficient
-        fixture.Vendor.Status("radio full_duplex_enabled=0");
         Assert.Equal(!reused, await restore.WaitAsync(TimeSpan.FromSeconds(2)));
+        Assert.DoesNotContain("sub radio all", fixture.Vendor.Transport.Commands);
         Assert.DoesNotContain("slice remove 0", fixture.Vendor.Transport.Commands);
         Assert.Equal(reused, store.Find(snapshot.Serial) != null);
     }

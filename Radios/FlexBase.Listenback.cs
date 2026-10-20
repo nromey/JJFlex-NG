@@ -115,14 +115,7 @@ public partial class FlexBase
             if (!separate && tx.Panadapter.DAXIQChannel != 0) throw new InvalidOperationException("pan-iq-in-use");
             bool priorFullDuplex = false;
             if (options.FullDuplex || options.OffAir)
-            {
-                try { priorFullDuplex = await ReadFullDuplexAsync(radio, connection).ConfigureAwait(false); }
-                catch (Exception ex)
-                {
-                    JJTrace.Tracing.TraceLine("Listenback initial full duplex read-back: " + ex.Message, System.Diagnostics.TraceLevel.Warning);
-                    throw new InvalidOperationException("full-duplex-readback-unavailable", ex);
-                }
-            }
+                priorFullDuplex = FullDuplexState(radio, connection);
             string directory = Path.Combine(RadioConfig.AppDataRoot, "Recordings", "takes",
                 DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff", CultureInfo.InvariantCulture) + "-" + Guid.NewGuid().ToString("N")[..8]);
             snapshot = new RadioRecoverySnapshot { Serial = radio.Serial, ClientHandle = radio.ClientHandle,
@@ -372,11 +365,11 @@ public partial class FlexBase
                     new SavedRadioSetting("monitor", "0", "", "transmit", "sb_monitor") };
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
                 timeout.CancelAfter(TimeSpan.FromSeconds(4));
-                if (tx.TXAnt != expectedLoopbackAntenna || radio.RFPower != 1 || !await ReadFullDuplexAsync(radio, connection).ConfigureAwait(false) || radio.TXMonitor)
+                if (tx.TXAnt != expectedLoopbackAntenna || radio.RFPower != 1 || !FullDuplexState(radio, connection) || radio.TXMonitor)
                     throw new InvalidOperationException("arrangement-not-confirmed");
                 foreach (var target in desired)
                 {
-                    if (target.Name == "full-duplex") continue; // confirmed by the fresh radio read-back above
+                    if (target.Name == "full-duplex") continue; // proved by the successful set reply above
                     if (snapshot.Settings.FirstOrDefault(s => s.Name == target.Name)?.Value == target.Value) continue;
                     while (true)
                     {
@@ -504,7 +497,7 @@ public partial class FlexBase
             if (setting.ResourceKind != "" && current == null) return true;
             string value = setting.Name switch
             {
-                "full-duplex" => radio.FullDuplexEnabled ? "1" : "0",
+                "full-duplex" => FullDuplexState(radio, connection) ? "1" : "0",
                 "rf-power" => radio.RFPower.ToString(CultureInfo.InvariantCulture),
                 "monitor" => radio.TXMonitor ? "1" : "0",
                 "tx-antenna" => (current as Slice)?.TXAnt,
@@ -533,7 +526,7 @@ public partial class FlexBase
                 await IqQueue(() =>
                 {
                     if (!Live()) { reply.TrySetResult(false); return; }
-                    if (!NeedsReadback(setting) && AlreadyRestored(setting, Current(setting)))
+                    if (!RequiresWriteProof(setting) && !NeedsReadback(setting) && AlreadyRestored(setting, Current(setting)))
                     {
                         trace.Write("no-command", new { setting.Name, Reason = "already-restored-at-send" });
                         evidence.TrySetResult(true); reply.TrySetResult(true); return;
@@ -543,6 +536,8 @@ public partial class FlexBase
                     int sequence = radio.SendReplyCommand((sequence, code, text) =>
                     {
                         trace.Write("reply", new { setting.Name, Sequence = sequence, Code = code.ToString("X8"), Text = text });
+                        if (code == 0 && setting.Name == "full-duplex")
+                            AcceptFullDuplexReply(radio, connection, setting.Value == "1");
                         reply.TrySetResult(code == 0);
                     }, setting.RestoreCommand);
                     trace.Write("sent", new { setting.Name, Sequence = sequence, Command = setting.RestoreCommand });
@@ -552,6 +547,12 @@ public partial class FlexBase
                 if (NeedsReadback(setting))
                     return await ReadSettingAsync(radio, connection, setting,
                         note => trace.Write("readback", new { setting.Name, Note = note })).ConfigureAwait(false);
+                if (RequiresWriteProof(setting))
+                {
+                    trace.Write("confirmation", new { setting.Name,
+                        Basis = evidence.Task.IsCompleted ? "reply-and-echo" : "reply-only" });
+                    return true;
+                }
                 return await evidence.Task.WaitAsync(timeout.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
@@ -563,7 +564,8 @@ public partial class FlexBase
             finally { status.Status -= Seen; }
         }
         bool streamRemovalConfirmed = true;
-        bool NeedsReadback(SavedRadioSetting item) => item.Name is "full-duplex" or "tx-antenna" or "rf-power" or "monitor" or "xvtr-drive";
+        bool NeedsReadback(SavedRadioSetting item) => item.Name == "xvtr-drive";
+        bool RequiresWriteProof(SavedRadioSetting item) => item.Name is "full-duplex" or "tx-antenna" or "rf-power" or "monitor";
         bool PanBusy(Panadapter pan) => !streamRemovalConfirmed || radio.DAXIQStreamList.Any(s =>
             ReferenceEquals(s.Pan, pan) || (pan.DAXIQChannel != 0 && s.DAXIQChannel == pan.DAXIQChannel));
         bool restored = await IqRecovery.RestoreAsync(snapshot, async setting =>
@@ -590,7 +592,9 @@ public partial class FlexBase
             // A no-op needs no command/echo. In particular, a removed pan has
             // no surviving IQ binding, and a prior antenna already in place
             // can be confirmed without claiming ownership of a replacement.
-            if (!NeedsReadback(setting) && AlreadyRestored(setting, current)) return Verdict(true, "already-restored-or-absent; no command");
+            if (setting.Name == "tx-antenna" && AlreadyRestored(setting, current) && !Ours(setting, current))
+                return Verdict(true, "prior antenna already present; no unowned slice command");
+            if (!NeedsReadback(setting) && !RequiresWriteProof(setting) && AlreadyRestored(setting, current)) return Verdict(true, "already-restored-or-absent; no command");
             if (setting.ResourceKind != "" && !Ours(setting, current)) return Verdict(false, "ownership-unproven; no command");
             if (current is Slice slice && setting.Name == "created-slice")
             {
@@ -619,7 +623,8 @@ public partial class FlexBase
                  !(setting.Name == "created-slice" && current is Slice target && (target.Active || target.IsTransmitSlice)) &&
                  !(setting.Name == "created-pan" && current is Panadapter targetPan &&
                     (PanBusy(targetPan) || targetPan.DAXIQChannel != 0 || radio.SliceList.Any(s => ReferenceEquals(s.Panadapter, current)))))).ConfigureAwait(false);
-            return Verdict(confirmed, confirmed ? "reply-and-status-confirmed" : "command-not-confirmed");
+            return Verdict(confirmed, confirmed ?
+                (RequiresWriteProof(setting) ? "reply-confirmed; see confirmation basis" : "reply-and-status-confirmed") : "command-not-confirmed");
         }, true).ConfigureAwait(false);
         trace.Write("complete", new { Confirmed = restored, snapshot.ResourceCreationPending });
         return restored;

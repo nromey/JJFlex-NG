@@ -19,7 +19,7 @@ public sealed class ListenbackRoundFiveTests : IDisposable
     public void Dispose() => _scope.Dispose();
 
     [Fact]
-    public async Task Full_duplex_toggle_reads_before_and_after_a_no_echo_write()
+    public async Task Full_duplex_toggle_tracks_both_reply_proven_changes_without_setter_echo()
     {
         using var c = new RadioCase();
         var radio = c.F.Vendor.Radio;
@@ -39,11 +39,11 @@ public sealed class ListenbackRoundFiveTests : IDisposable
         Assert.True(actual); Assert.True(c.F.Rig.FullDuplexEnabled);
         Assert.Equal("audio.full_duplex.off", await c.Pump(c.F.Rig.ToggleFullDuplexAsync()));
         Assert.False(actual); Assert.False(c.F.Rig.FullDuplexEnabled);
-        Assert.Equal(4, c.F.Vendor.Transport.Commands.Count(x => x == "sub radio all"));
+        Assert.DoesNotContain("sub radio all", c.F.Vendor.Transport.Commands);
     }
 
     [Fact]
-    public async Task Restore_full_duplex_uses_a_new_readback_after_the_success_reply()
+    public async Task Restore_full_duplex_records_the_success_reply_without_waiting_for_radio_echo()
     {
         using var c = new RadioCase();
         var snapshot = c.Snapshot();
@@ -70,8 +70,9 @@ public sealed class ListenbackRoundFiveTests : IDisposable
         Assert.True(await c.Pump(c.F.Rig.RestoreListenbackSnapshotAsync(snapshot, true)));
         Assert.False(actual); Assert.False(c.F.Rig.FullDuplexEnabled);
         string trace = string.Join("\n", Directory.GetFiles(snapshot.TakeDirectory, "restore-*.txt").Select(File.ReadAllText));
-        Assert.Contains("readback", trace);
+        Assert.Contains("reply-only", trace);
         Assert.Contains("full-duplex", trace);
+        Assert.DoesNotContain("sub radio all", c.F.Vendor.Transport.Commands);
     }
 
     [Theory]
@@ -150,7 +151,7 @@ public sealed class ListenbackRoundFiveTests : IDisposable
     { await run.StopAsync(); return run.Restored; }
 
     [Fact]
-    public async Task Loopback_check_waits_for_full_duplex_readback_and_restores_it_without_an_echo()
+    public async Task Loopback_check_waits_for_full_duplex_reply_and_restores_it_without_an_echo()
     {
         using var c = new RadioCase();
         bool actual = false;
@@ -181,14 +182,17 @@ public sealed class ListenbackRoundFiveTests : IDisposable
         Assert.Equal("", await c.Pump(c.F.Rig.EndLoopbackArrangementAsync()));
         Assert.False(actual);
         Assert.False(c.F.Rig.FullDuplexEnabled);
-        Assert.Equal(3, c.F.Vendor.Transport.Commands.Count(x => x == "sub radio all"));
+        Assert.DoesNotContain("sub radio all", c.F.Vendor.Transport.Commands);
     }
 
     [Fact]
-    public async Task Keyed_restore_settings_can_be_proved_by_fresh_readback_without_setter_echoes()
+    public async Task Keyed_restore_settings_use_reply_proof_while_xvtr_keeps_its_readback()
     {
         using var c = new RadioCase(); var snapshot = c.Snapshot();
+        snapshot.TakeDirectory = Path.Combine(RadioConfig.AppDataRoot, "round-five-keyed-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(snapshot.TakeDirectory);
         snapshot.Settings.Add(new("xvtr-drive", "-1", "xvtr set 0 max_power=-1", "xvtr 0", "max_power"));
+        c.Store.Save(snapshot);
         string antenna = "XVT-A"; int power = 1; bool monitor = true;
         c.F.Vendor.Transport.CommandWritten = command =>
         {
@@ -215,8 +219,11 @@ public sealed class ListenbackRoundFiveTests : IDisposable
         };
         Assert.True(await c.Pump(c.F.Rig.RestoreListenbackSnapshotAsync(snapshot, true)));
         Assert.Equal("ANT1", antenna); Assert.Equal(20, power); Assert.False(monitor);
-        Assert.Contains("sub slice all", c.F.Vendor.Transport.Commands);
-        Assert.Contains("sub tx all", c.F.Vendor.Transport.Commands);
+        Assert.DoesNotContain("sub slice all", c.F.Vendor.Transport.Commands);
+        Assert.DoesNotContain("sub tx all", c.F.Vendor.Transport.Commands);
         Assert.Contains("sub xvtr all", c.F.Vendor.Transport.Commands);
+        string trace = string.Join("\n", Directory.GetFiles(snapshot.TakeDirectory, "restore-*.txt").Select(File.ReadAllText));
+        Assert.Contains("reply-only", trace);
+        Assert.Contains("readback", trace); // transverter drive keeps the measured repeat-subscription proof
     }
 }

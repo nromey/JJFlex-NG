@@ -1,4 +1,5 @@
 using System;
+using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using Flex.Smoothlake.FlexLib;
@@ -11,16 +12,25 @@ public partial class FlexBase
     private Radio _fullDuplexReportedRadio;
     private Guid _fullDuplexReportedConnection;
     private int _fullDuplexChanging;
+    private sealed class FullDuplexDecision(Radio radio, CommandConnection connection, bool value)
+    {
+        internal Radio Radio { get; } = radio;
+        internal CommandConnection Connection { get; } = connection;
+        internal bool Value { get; } = value;
+        internal int CheckStarted;
+    }
+    private FullDuplexDecision _fullDuplexDecision;
+    internal Func<IPAddress, CancellationToken, Task<bool?>> FullDuplexLanQuery { get; set; } = FullDuplexLanProbe.ReadAsync;
+    internal Task FullDuplexLanCheckTask { get; private set; } = Task.CompletedTask;
     // FlexLib has no FullDuplexAllowed flag. Missing state is unknown, not
     // unsupported. A reported full_duplex_enabled field offers the control.
     public bool? FullDuplexAvailable => theRadio?.Connected == true &&
         ReferenceEquals(theRadio, _fullDuplexReportedRadio) &&
         theRadio.CurrentCommandConnection?.Id == _fullDuplexReportedConnection ? true : null;
 
-    // FlexLib sends this subscription during connection setup and has no
-    // duplicate-subscription guard. Its parser processes every returned status,
-    // including unchanged values. Whether the radio re-sends on this same
-    // connection is a bench question; if it does not, this request times out.
+    // The 8600 does not resend radio status for a repeated sub radio all on
+    // one connection. This helper is used only for xvtr, whose repeat was
+    // measured to resend status. Full duplex uses the set reply instead.
     private async Task<string> ReadStatusAsync(Radio radio, CommandConnection connection,
         string subscription, Func<string, bool> accepts, Action<string> log = null)
     {
@@ -53,31 +63,67 @@ public partial class FlexBase
         return raw;
     }
 
-    private async Task<bool> ReadFullDuplexAsync(Radio radio, CommandConnection connection, Action<string> log = null)
+    private bool FullDuplexState(Radio radio, CommandConnection connection)
     {
-        string raw = await ReadStatusAsync(radio, connection, "sub radio all", line =>
+        var decision = Volatile.Read(ref _fullDuplexDecision);
+        return decision != null && ReferenceEquals(decision.Radio, radio) &&
+            ReferenceEquals(decision.Connection, connection) ? decision.Value : radio.FullDuplexEnabled;
+    }
+
+    private void AcceptFullDuplexReply(Radio radio, CommandConnection connection, bool value, bool scheduleLanCheck = true)
+    {
+        if (!radio.Connected || !ReferenceEquals(radio, theRadio) ||
+            !ReferenceEquals(connection, radio.CurrentCommandConnection)) return;
+        // FlexLib's setter updates this value locally, but would send a second,
+        // untracked command. Keep the reply-proven state on the pinned rig instead.
+        var decision = new FullDuplexDecision(radio, connection, value);
+        Volatile.Write(ref _fullDuplexDecision, decision);
+        if (scheduleLanCheck) BeginFullDuplexLanCheck();
+    }
+
+    // The control calls this after speaking the accepted result, so a fast
+    // LAN disagreement cannot overtake the primary success announcement.
+    public void BeginFullDuplexLanCheck()
+    {
+        var decision = Volatile.Read(ref _fullDuplexDecision);
+        if (decision == null || Interlocked.Exchange(ref decision.CheckStarted, 1) != 0) return;
+        FullDuplexLanCheckTask = VerifyFullDuplexLanAsync(decision);
+    }
+
+    private async Task VerifyFullDuplexLanAsync(FullDuplexDecision decision)
+    {
+        var radio = decision.Radio;
+        if (radio.IsWan || RemoteRig || radio.IP == null) return;
+        if (!ReferenceEquals(Volatile.Read(ref _fullDuplexDecision), decision) ||
+            !radio.Connected || !ReferenceEquals(theRadio, radio) ||
+            !ReferenceEquals(decision.Connection, radio.CurrentCommandConnection)) return;
+        try
         {
-            int bar = line.IndexOf('|');
-            if (bar < 0 || !line[(bar + 1)..].StartsWith("radio ", StringComparison.OrdinalIgnoreCase)) return false;
-            var values = RadioStatusTap.Values(line[(bar + 1)..]);
-            return values.TryGetValue("full_duplex_enabled", out string value) && (value == "0" || value == "1");
-        }, log).ConfigureAwait(false);
-        string value = RadioStatusTap.Values(raw[(raw.IndexOf('|') + 1)..])["full_duplex_enabled"];
-        return value == "1";
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            bool? actual = await FullDuplexLanQuery(radio.IP, timeout.Token).ConfigureAwait(false);
+            if (actual == null || actual == decision.Value ||
+                !ReferenceEquals(Volatile.Read(ref _fullDuplexDecision), decision) ||
+                !ReferenceEquals(radio, theRadio) || !radio.Connected ||
+                !ReferenceEquals(decision.Connection, radio.CurrentCommandConnection)) return;
+            // The check is silent on agreement and absence. A real disagreement
+            // supersedes the local reply-proven state, and is announced once.
+            var corrected = new FullDuplexDecision(radio, decision.Connection, actual.Value) { CheckStarted = 1 };
+            if (!ReferenceEquals(Interlocked.CompareExchange(ref _fullDuplexDecision, corrected, decision), decision)) return;
+            JJTrace.Tracing.TraceLine($"Full duplex LAN check disagreed: requested={decision.Value} read={actual.Value}", System.Diagnostics.TraceLevel.Warning);
+            if (!SuppressSpeech)
+                ScreenReaderOutput.Speak(Lexicon.Get(actual.Value
+                    ? "audio.full_duplex.disagreed_on" : "audio.full_duplex.disagreed_off"),
+                    VerbosityLevel.Critical, interrupt: true);
+        }
+        catch (Exception ex)
+        { JJTrace.Tracing.TraceLine("Full duplex LAN check unavailable: " + ex.Message, System.Diagnostics.TraceLevel.Info); }
     }
 
     private async Task<bool> ReadSettingAsync(Radio radio, CommandConnection connection,
         SavedRadioSetting setting, Action<string> log = null)
     {
-        string subscription = setting.Name switch
-        {
-            "full-duplex" => "sub radio all",
-            "tx-antenna" => "sub slice all",
-            "rf-power" or "monitor" => "sub tx all",
-            "xvtr-drive" => "sub xvtr all",
-            _ => throw new ArgumentOutOfRangeException(nameof(setting))
-        };
-        string raw = await ReadStatusAsync(radio, connection, subscription, line =>
+        if (setting.Name != "xvtr-drive") throw new ArgumentOutOfRangeException(nameof(setting));
+        string raw = await ReadStatusAsync(radio, connection, "sub xvtr all", line =>
         {
             int bar = line.IndexOf('|');
             if (bar < 0 || !line[(bar + 1)..].StartsWith(setting.StatusPrefix + " ", StringComparison.OrdinalIgnoreCase)) return false;
@@ -87,17 +133,19 @@ public partial class FlexBase
     }
 
     private async Task<bool> SetFullDuplexConfirmedAsync(bool value, Radio radio,
-        CommandConnection connection, Action<string> log = null)
+        CommandConnection connection, Action<string> log = null, bool scheduleLanCheck = true)
     {
         var reply = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         await RequestFullDuplexAsync(value, (sequence, code, response) =>
         {
             log?.Invoke($"set reply {sequence} {code:X8} {response}");
+            if (code == 0) AcceptFullDuplexReply(radio, connection, value, scheduleLanCheck);
             reply.TrySetResult(code == 0);
         }, radio, connection).ConfigureAwait(false);
         using var timeout = new CancellationTokenSource(ListenbackConfirmationWait);
         if (!await reply.Task.WaitAsync(timeout.Token).ConfigureAwait(false)) throw new InvalidOperationException("full-duplex-refused");
-        return await ReadFullDuplexAsync(radio, connection, log).ConfigureAwait(false) == value;
+        return radio.Connected && ReferenceEquals(radio, theRadio) &&
+            ReferenceEquals(connection, radio.CurrentCommandConnection);
     }
 
     private async Task SetFullDuplexFromPropertyAsync(bool value)
@@ -107,7 +155,7 @@ public partial class FlexBase
         try
         {
             if (!await SetFullDuplexConfirmedAsync(value, radio, connection).ConfigureAwait(false))
-                JJTrace.Tracing.TraceLine("Full duplex property request: read-back mismatch", System.Diagnostics.TraceLevel.Error);
+                JJTrace.Tracing.TraceLine("Full duplex property request: connection changed", System.Diagnostics.TraceLevel.Error);
         }
         catch (Exception ex)
         { JJTrace.Tracing.TraceLine("Full duplex property request: " + ex, System.Diagnostics.TraceLevel.Error); }
@@ -124,8 +172,7 @@ public partial class FlexBase
                 if (radio == null || !radio.Connected || !ReferenceEquals(theRadio, radio) ||
                     !ReferenceEquals(connection, radio.CurrentCommandConnection)) throw new InvalidOperationException("connection-ended");
                 string command = "radio set full_duplex_enabled=" + (value ? "1" : "0");
-                // The vendor setter changes its getter before the radio answers.
-                // Sending the command leaves FullDuplexEnabled radio-reported.
+                // Never update the local state before the reply.
                 radio.SendReplyCommand(reply ?? ((sequence, code, text) =>
                     JJTrace.Tracing.TraceLine($"Full duplex request reply {sequence}: {code:X8} {text}", System.Diagnostics.TraceLevel.Info)), command);
             }).ConfigureAwait(false);
@@ -149,9 +196,9 @@ public partial class FlexBase
             if (radio == null || connection == null || FullDuplexAvailable != true) return "audio.full_duplex.unconfirmed";
             bool Live() => ReferenceEquals(theRadio, radio) && radio.Connected && ReferenceEquals(connection, radio.CurrentCommandConnection);
             Action<string> trace = note => JJTrace.Tracing.TraceLine("Full duplex control: " + note, System.Diagnostics.TraceLevel.Info);
-            bool current = await ReadFullDuplexAsync(radio, connection, trace).ConfigureAwait(false);
+            bool current = FullDuplexState(radio, connection);
             bool wanted = !current;
-            if (!await SetFullDuplexConfirmedAsync(wanted, radio, connection, trace).ConfigureAwait(false))
+            if (!await SetFullDuplexConfirmedAsync(wanted, radio, connection, trace, scheduleLanCheck: false).ConfigureAwait(false))
                 return "audio.full_duplex.unconfirmed";
             return Live() ? (wanted ? "audio.full_duplex.on" : "audio.full_duplex.off") : "audio.full_duplex.unconfirmed";
         }

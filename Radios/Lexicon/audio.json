@@ -926,7 +926,6 @@
   "audio.iq.reason.listening-state-not-confirmed": {"text": "the radio did not confirm the listening slice and pan settings. Preparation stopped.", "delivery": null},
   "audio.iq.reason.listener-command-refused": {"text": "the radio refused a listening frequency command. Preparation stopped; the take header has the command and reply.", "delivery": null},
   "audio.iq.reason.listener-command-timeout": {"text": "the radio did not answer a listening frequency command. Preparation stopped; the take header has the command.", "delivery": null},
-  "audio.iq.reason.full-duplex-readback-unavailable": {"text": "the radio did not report its current full duplex state. Preparation stopped before changing it.", "delivery": null},
   "audio.iq.reason.full-duplex-refused": {"text": "the radio refused full duplex. Preparation stopped.", "delivery": null},
   "audio.iq.recovery_state_unknown": {"text": "The saved recovery state could not be read. Review unrestored take settings; no claim of restoration can be made.", "delivery": null},
   "audio.iq.ack.title": {"text": "Check the unrestored take changes", "delivery": null},
@@ -956,12 +955,14 @@
   "audio.full_duplex.on": {"text": "Full duplex on", "delivery": null},
   "audio.full_duplex.off": {"text": "Full duplex off", "delivery": null},
   "audio.full_duplex.not_reported": {"text": "Full duplex: not reported by the radio", "delivery": null},
-  "audio.full_duplex.help": {"text": "Full duplex applies to the whole radio. Press this button, or the JJ key Ctrl+J followed by Ctrl+X, to toggle it. The displayed state follows the radio report; a request that is not confirmed is announced.", "delivery": null},
+  "audio.full_duplex.help": {"text": "Full duplex applies to the whole radio. Press this button, or the JJ key Ctrl+J followed by Ctrl+X, to toggle it. The displayed state changes when the radio accepts the command. A LAN check speaks only if the radio reports a different state.", "delivery": null},
   "audio.full_duplex.blocked": {"text": "Full duplex was not changed because Change Nothing is on.", "delivery": null},
   "audio.full_duplex.pending": {"text": "A full duplex request is still waiting for the radio.", "delivery": null},
   "audio.full_duplex.setting": {"text": "Setting full duplex", "delivery": null},
   "audio.check.loopback_setup_unconfirmed": {"text": "The Loopback Check could not confirm its radio settings. No automatic keying was started.", "delivery": null},
   "audio.check.loopback_restore_unconfirmed": {"text": "Loopback restoration could not be confirmed. Check full duplex, transmit antenna and power.", "delivery": null},
   "audio.full_duplex.refused": {"text": "The radio refused the full duplex change.", "delivery": null},
+  "audio.full_duplex.disagreed_on": {"text": "The radio reports full duplex on, but the accepted command requested off. Check full duplex on the radio.", "delivery": null},
+  "audio.full_duplex.disagreed_off": {"text": "The radio reports full duplex off, but the accepted command requested on. Check full duplex on the radio.", "delivery": null},
   "audio.full_duplex.unconfirmed": {"text": "The radio did not confirm the full duplex change. Check its reported state.", "delivery": null}
 }
