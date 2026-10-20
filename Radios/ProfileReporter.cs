@@ -183,25 +183,29 @@ namespace Radios
             _ => type.ToString(),
         };
 
-        /// <summary>What one profile load came to, as far as this app can know
-        /// (#469 round five).</summary>
+        /// <summary>What one profile load came to, as far as this app can know.
+        /// QUEUED, never "sent": SelectProfileGuarded's Done means the command
+        /// was queued, and FlexLib's setters can skip the send when their own
+        /// cache already holds the name (#469 round six). Used only to decide
+        /// whether a walk captured a profile and to word why it did not.</summary>
         internal enum ProfileLoadResult
         {
-            /// <summary>Refused before dispatch (change nothing, ownership) or
-            /// failed to enqueue: nothing reached the radio.</summary>
-            NotSent,
-            /// <summary>Sent; FlexLib's field did not read it back in time.</summary>
-            SentNotSettled,
-            /// <summary>Sent; the field read it back and the state settled.
+            /// <summary>Not queued: refused before dispatch (change nothing,
+            /// ownership) or failed.</summary>
+            NotQueued,
+            /// <summary>Queued; FlexLib's field did not read it back in time.</summary>
+            QueuedNotSettled,
+            /// <summary>Queued; the field read it back and the state settled.
             /// Still not the radio's own report.</summary>
-            SentAndSettled,
+            QueuedAndSettled,
         }
 
         /// <summary>
         /// Loads a profile by name and waits for the radio to settle. Says
-        /// whether the load was SENT, which until #469 round five was
+        /// whether the load was QUEUED, which until #469 round five was
         /// discarded: a load refused before dispatch then waited on a field
         /// that never changed and was indistinguishable from a slow radio.
+        /// Queued is not sent, and neither is the radio's answer.
         /// </summary>
         /// <remarks>
         /// The confirmation await below is weaker than it looks: FlexLib's
@@ -223,8 +227,8 @@ namespace Radios
             var dispatched = rig.SelectProfileGuarded(prof);
             if (dispatched != GuardedOutcome.Done)
             {
-                Tracing.TraceLine($"ProfileReporter: {profileType} profile '{name}' was not sent ({dispatched})", TraceLevel.Warning);
-                return ProfileLoadResult.NotSent;
+                Tracing.TraceLine($"ProfileReporter: {profileType} profile '{name}' was not queued ({dispatched})", TraceLevel.Warning);
+                return ProfileLoadResult.NotQueued;
             }
 
             // Wait for the selection to be accepted (see remarks: this is the
@@ -247,11 +251,11 @@ namespace Radios
             if (!settled)
             {
                 Tracing.TraceLine($"ProfileReporter: Timed out waiting for {profileType} profile '{name}' to settle", TraceLevel.Warning);
-                return ProfileLoadResult.SentNotSettled;
+                return ProfileLoadResult.QueuedNotSettled;
             }
 
             WaitForSettle(rig);
-            return ProfileLoadResult.SentAndSettled;
+            return ProfileLoadResult.QueuedAndSettled;
         }
 
         /// <summary>
@@ -319,11 +323,10 @@ namespace Radios
         /// <summary>
         /// What a profile walk did to the radio: which profiles were captured,
         /// which could not be read, and — the part <c>CaptureAllProfiles</c>
-        /// used to throw away — whether the starting profile was SENT back
-        /// afterwards (#469 round five: sent, not confirmed, because FlexLib's
-        /// selection field is written by its own setter). A put-back that was
-        /// never sent can leave the radio on another profile, and until
-        /// 2026-08-30 nothing recorded that it had happened.
+        /// used to throw away — whether a put-back of the starting selection
+        /// was requested. Whether it reached the radio is not known and is not
+        /// recorded (#469 round six). Until 2026-08-30 nothing recorded even
+        /// the request.
         /// </summary>
         public sealed class ProfileWalkOutcome
         {
@@ -355,24 +358,11 @@ namespace Radios
             /// single request is a different fact from a load that hung.</summary>
             public int LoadAttempts;
 
+            /// <summary>A put-back of the starting selection was REQUESTED.
+            /// Whether it reached the radio is not known, and nothing says it
+            /// did (#469 round six).</summary>
             public bool RestoreAttempted;
 
-            /// <summary>#469 round five: the put-back load was SENT, meaning
-            /// FlexBase.SelectProfileGuarded returned Done rather than refusing
-            /// before dispatch. Nothing here proves the radio applied it, so
-            /// this is the strongest thing either report may say: "sent back".</summary>
-            public bool RestoreSent;
-
-            /// <summary>How many walk loads were sent (not refused before
-            /// dispatch). Zero means this walk never moved the radio.</summary>
-            public int LoadsSent;
-
-            /// <summary>The put-back was sent AND FlexLib's selection field then
-            /// read back its name. That field is written by FlexLib's own setter
-            /// before the command goes out, so this is NOT the radio's
-            /// confirmation, and no sentence or file line claims it is (#469
-            /// round five). Kept for the trace.</summary>
-            public bool RestoreConfirmed;
 
             /// <summary>#469: the radio was keyed, so the walk stopped and did
             /// NOT put the original profile back — never automatically, ruled
@@ -499,9 +489,9 @@ namespace Radios
         /// <summary>
         /// THE profile walker — the only one. Loads every profile of the given
         /// type in turn, calls <paramref name="captureWhileLoaded"/> while each
-        /// one is on the radio, then sends the starting profile back and records
-        /// whether that was SENT (not whether the radio applied it; nothing here
-        /// can see that). Both reports ride this: the comparison
+        /// one is on the radio, then requests the starting selection again.
+        /// Whether that reached the radio is not known, and nothing here
+        /// claims it did. Both reports ride this: the comparison
         /// report captures snapshots, the restore-grade export writes keyed
         /// sections.
         /// </summary>
@@ -611,10 +601,10 @@ namespace Radios
         /// speaks one fixed sentence that names no profile and claims nothing
         /// about where the radio was left (round four: nothing here can prove
         /// it), and the callers start no later type.</para>
-        /// <para><b>Unkeyed, the starting profile is sent back,</b> and the
-        /// outcome records only whether it was SENT (round five): FlexLib's
-        /// selection field is written by its own setter, so reading it back
-        /// is not the radio's confirmation.</para>
+        /// <para><b>Unkeyed, a put-back of the starting selection is
+        /// requested,</b> and nothing records or says that it reached the
+        /// radio (round six): queued is not sent, FlexLib's setter can skip
+        /// the send, and its selection field is written by that same setter.</para>
         /// </remarks>
         internal static void RunWalk(
             ProfileWalkOutcome outcome, IReadOnlyList<string> profiles,
@@ -645,8 +635,7 @@ namespace Radios
                     outcome.LoadAttempts++;
                     outcome.LastRequested = name;
                     var result = load(name);
-                    if (result != ProfileLoadResult.NotSent) outcome.LoadsSent++;
-                    if (result == ProfileLoadResult.SentAndSettled)
+                    if (result == ProfileLoadResult.QueuedAndSettled)
                     {
                         outcome.LastLoaded = name;
                         captureWhileLoaded?.Invoke(name);
@@ -654,8 +643,8 @@ namespace Radios
                     }
                     else
                     {
-                        problem = result == ProfileLoadResult.NotSent
-                            ? "the load was refused before it reached the radio"
+                        problem = result == ProfileLoadResult.NotQueued
+                            ? "the load was not queued; it was refused or failed before it reached the radio"
                             : "the radio did not confirm loading this profile in time";
                     }
                 }
@@ -695,52 +684,44 @@ namespace Radios
                 return;
             }
 
-            // Send the starting profile back, and record only whether it was
-            // SENT (#469 round five). A put-back refused before dispatch, or
-            // one with no starting selection recorded, is a walk that may have
-            // left the radio moved, and both reports say so.
+            // Request the starting selection again. Whether it reached the
+            // radio is not known and is never claimed (#469 round six); the
+            // result goes to the trace only.
             if (!string.IsNullOrEmpty(outcome.OriginalSelection))
             {
                 outcome.RestoreAttempted = true;
-                progressCallback?.Invoke($"Sending back the {label} profile recorded before the walk: {outcome.OriginalSelection}");
+                progressCallback?.Invoke($"Asking the radio to load the {label} profile recorded before the walk: {outcome.OriginalSelection}");
                 try
                 {
                     var result = load(outcome.OriginalSelection);
-                    outcome.RestoreSent = result != ProfileLoadResult.NotSent;
-                    outcome.RestoreConfirmed = result == ProfileLoadResult.SentAndSettled;
+                    Tracing.TraceLine($"ProfileReporter: put-back of {label} profile '{outcome.OriginalSelection}' requested — {result}", TraceLevel.Info);
                 }
                 catch (Exception ex)
                 {
-                    outcome.RestoreSent = false;
-                    outcome.RestoreConfirmed = false;
-                    Tracing.TraceLine($"ProfileReporter: send-back of {label} profile '{outcome.OriginalSelection}' threw: {ex.Message}", TraceLevel.Warning);
-                }
-                if (!outcome.RestoreSent)
-                {
-                    Tracing.TraceLine($"ProfileReporter: {label} profile '{outcome.OriginalSelection}' was NOT sent back", TraceLevel.Error);
+                    Tracing.TraceLine($"ProfileReporter: put-back of {label} profile '{outcome.OriginalSelection}' threw: {ex.Message}", TraceLevel.Warning);
                 }
             }
         }
 
         /// <summary>
-        /// Why a walk that moved the radio sent nothing back, or null when it
-        /// sent its starting profile back or never moved the radio. Used by
-        /// both reports' files and finished sentences (#469 round five).
+        /// What a saved file may say about one kind's starting profile after
+        /// an ordinary (unkeyed) walk that requested loads: the app's recorded
+        /// selection, labelled for what it is, and whether a put-back was
+        /// requested, never whether it reached the radio, because nothing here
+        /// can know that (#469 round six). Null when the walk requested no load.
         /// </summary>
-        internal static string NotSentBackReason(ProfileWalkOutcome o)
+        internal static string PutBackNote(ProfileWalkOutcome o)
         {
-            if (o.LoadsSent == 0 || o.RestoreSent) return null;
+            if (o.LoadAttempts == 0) return null;
             string kind = TypeLabel(o.ProfileType);
             if (o.OriginalSelection == null)
-                return "no starting " + kind + " selection was recorded, so there was nothing to send back";
+                return "No " + kind + " selection was recorded before the walk, so no put-back was requested.";
             if (o.OriginalSelection.Length == 0)
-                return "the starting " + kind + " selection was recorded as empty, so there was nothing to send back";
-            return "sending " + o.OriginalSelection + " back was refused before it reached the radio";
+                return "The " + kind + " selection recorded before the walk was empty, so no put-back was requested.";
+            return "A put-back of " + o.OriginalSelection + ", the app's last recorded " + kind
+                + " selection before the walk (it may be the app's own earlier request), was requested;"
+                + " whether it reached the radio is not known.";
         }
-
-        /// <summary>A walk sent something to the radio and then sent its
-        /// starting profile back.</summary>
-        internal static bool SentBack(ProfileWalkOutcome o) => o.LoadsSent > 0 && o.RestoreSent;
 
         /// <summary>
         /// The one sentence spoken when a walk stops because the radio was
@@ -1124,11 +1105,9 @@ namespace Radios
             /// <summary>The radio was keyed during the walk, so it stopped and
             /// put nothing back.</summary>
             public bool StoppedForTransmit;
-            /// <summary>Some walk sent at least one load to the radio.</summary>
-            public bool Moved;
-            /// <summary>Every walk that moved the radio sent its starting
-            /// profile back. Sent, not confirmed (#469 round five).</summary>
-            public bool EverythingSentBack = true;
+            /// <summary>Some walk requested at least one profile load. That is
+            /// the whole test for the pointer sentence (#469 round six).</summary>
+            public bool AnyLoadRequested;
         }
 
         /// <summary>The sentence for a refused run, true to why it refused.</summary>
@@ -1138,10 +1117,9 @@ namespace Radios
                 : Lexicon.Get("settings.restore_export.busy");
 
         /// <summary>
-        /// The sentence that answers the press when the report is saved. An
-        /// ordinary run that moved the radio says its starting profiles were
-        /// SENT back, never "confirmed" or "back on", or, when one could not
-        /// be sent, gives the manual route (#469 round five). After a transmit stop it says the
+        /// The sentence that answers the press when the report is saved. A run
+        /// that requested any profile load ends with the manual route, and
+        /// claims nothing about what reached the radio (#469 round six). After a transmit stop it says the
         /// comparison may be incomplete and gives the same manual route as the
         /// stop line, naming no profile and claiming nothing about where the
         /// radio was left (#469 round four).
@@ -1150,12 +1128,10 @@ namespace Radios
         {
             if (!report.StoppedForTransmit)
             {
-                if (!report.Moved)
+                if (!report.AnyLoadRequested)
                     return Lexicon.Get("settings.profile.report_saved", ("path", path));
                 // DRAFT PROSE (#469): awaiting Noel
-                return Lexicon.Get(report.EverythingSentBack
-                    ? "settings.profile.report_saved_sent_back"
-                    : "settings.profile.report_saved_not_sent_back", ("path", path));
+                return Lexicon.Get("settings.profile.report_saved_loaded", ("path", path));
             }
             // DRAFT PROSE (#469): awaiting Noel
             return Lexicon.Get("settings.profile.report_saved_stopped", ("path", path));
@@ -1381,9 +1357,7 @@ namespace Radios
                 // time — the restore capture's rule.
                 Tracing.TraceLine($"ProfileReporter: comparing {TypeLabel(ptype)} profiles", TraceLevel.Info);
                 var snapshots = CaptureAllProfiles(rig, ptype, out var walk, progressCallback, list);
-                if (walk.LoadsSent > 0) result.Moved = true;
-                if (!walk.StoppedForTransmit && walk.LoadsSent > 0 && !walk.RestoreSent)
-                    result.EverythingSentBack = false;
+                if (walk.LoadAttempts > 0) result.AnyLoadRequested = true;
                 if (snapshots.Count >= 2)
                 {
                     sb.AppendLine();
@@ -1394,10 +1368,8 @@ namespace Radios
                     FormatProfileComparison(sb, snapshots);
                 }
 
-                // What became of the starting profile, said only as far as it
-                // is known (#469 round five): SENT back, or not sent and why.
-                // Never "confirmed": FlexLib's own setter writes the field the
-                // old check read.
+                // What the app requested for the starting profile, and nothing
+                // about whether it reached the radio (#469 round six).
                 if (!walk.StoppedForTransmit) AppendComparisonPutBack(sb, walk);
 
                 // #469: keyed part-way. The walk stopped loading, and no later
@@ -1419,27 +1391,17 @@ namespace Radios
         }
 
         /// <summary>
-        /// The comparison report's note on what became of one kind's starting
-        /// profile after an ordinary (unkeyed) walk: SENT back, labelled for
-        /// what the value is, or NOT sent back and why, with the manual route.
-        /// Nothing when the walk never moved the radio (#469 round five).
+        /// The comparison report's note on one kind's starting profile after
+        /// an ordinary (unkeyed) walk that requested loads: <see cref="PutBackNote"/>
+        /// and the manual route. Nothing when the walk requested no load.
         /// </summary>
         internal static void AppendComparisonPutBack(StringBuilder sb, ProfileWalkOutcome walk)
         {
-            string kind = TypeLabel(walk.ProfileType);
-            string notSent = NotSentBackReason(walk);
-            if (SentBack(walk))
-            {
-                sb.AppendLine();
-                sb.AppendLine($"The app's last recorded {kind} selection before the walk, '{walk.OriginalSelection}',");
-                sb.AppendLine("was sent back to the radio (the radio's own report was not checked).");
-            }
-            else if (notSent != null)
-            {
-                sb.AppendLine();
-                sb.AppendLine($"NOT SENT BACK: no {kind} profile was sent back, because {notSent}.");
-                sb.AppendLine("Your profile may not be the one you started with; load it again from Profiles, in the Radio menu, if needed.");
-            }
+            string note = PutBackNote(walk);
+            if (note == null) return;
+            sb.AppendLine();
+            sb.AppendLine(note);
+            sb.AppendLine("Your profile may not be the one you started with; load it again from Profiles, in the Radio menu, if needed.");
         }
 
         /// <summary>
@@ -2182,12 +2144,10 @@ namespace Radios
             /// so the file holds only live settings.</summary>
             public bool WalkRan;
 
-            /// <summary>Some walk sent at least one load to the radio.</summary>
-            public bool Moved;
-
-            /// <summary>Every walk that moved the radio sent its starting
-            /// profile back. Sent, not confirmed (#469 round five).</summary>
-            public bool EverythingSentBack;
+            /// <summary>Some walk requested at least one profile load. False
+            /// means no load was even attempted, which is the only case where
+            /// "it was not moved" is provable (#469 round six).</summary>
+            public bool AnyLoadRequested;
 
             /// <summary>Why the reservation overload declined to run (#469);
             /// <see cref="WalkRefusal.None"/> when it ran.</summary>
@@ -2323,12 +2283,12 @@ namespace Radios
             else if (export.StoppedForTransmit)
                 // DRAFT PROSE (#469): awaiting Noel
                 return Lexicon.Get("settings.restore_export.saved_stopped", ("path", path));
-            else if (!export.Moved)
+            else if (!export.AnyLoadRequested)
                 // DRAFT PROSE (#469): awaiting Noel
                 key = "settings.restore_export.saved_nothing_moved";
-            else key = export.EverythingSentBack
-                    ? "settings.restore_export.saved_sent_back"
-                    : "settings.restore_export.saved_not_sent_back";
+            else
+                // DRAFT PROSE (#469): awaiting Noel
+                key = "settings.restore_export.saved_loaded";
             return Lexicon.Get(key, ("path", path));
         }
 
@@ -2522,7 +2482,6 @@ namespace Radios
                 sb.AppendLine();
                 Tracing.TraceLine("RestoreGradeExport: walk skipped — change nothing is on for this radio", TraceLevel.Warning);
                 result.WalkRan = false;
-                result.EverythingSentBack = true; // nothing was touched
             }
             else
             {
@@ -2566,11 +2525,9 @@ namespace Radios
                         break;
                     }
                 }
-                // A walk that never sent a load request did not move the
-                // radio; only one that did needs its restore confirmed.
-                result.Moved = outcomes.Any(o => o.LoadsSent > 0);
-                result.EverythingSentBack = outcomes.All(o =>
-                    o.StoppedForTransmit || NotSentBackReason(o) == null);
+                // Only a capture that requested no load at all may say the
+                // radio was not moved (#469 round six).
+                result.AnyLoadRequested = outcomes.Any(o => o.LoadAttempts > 0);
             }
 
             // ── [memories] — not profile contents, but the reset takes them ──
@@ -2625,8 +2582,8 @@ namespace Radios
             AppendSettingLines(sb, memLines);
             sb.AppendLine();
 
-            // ── [after the walk] — what became of each starting profile, as far
-        //    as it is known: sent back, or not sent and why (#469) ──
+            // ── [after the walk] — what was requested for each starting profile;
+        //    whether it reached the radio is not known (#469 round six) ──
             sb.AppendLine("[after the walk]");
             if (!result.WalkRan)
             {
@@ -2649,8 +2606,8 @@ namespace Radios
         /// <summary>
         /// The restore capture's "[after the walk]" value for one kind: what
         /// became of its starting profile, said only as far as it is known.
-        /// "Sent back" is the strongest claim; nothing here says "confirmed"
-        /// (#469 round five). Pure, so a test can hold every case.
+        /// Nothing here says a put-back reached the radio (#469 round six).
+        /// Pure, so a test can hold every case.
         /// </summary>
         internal static string AfterTheWalkValue(ProfileWalkOutcome o)
         {
@@ -2674,13 +2631,7 @@ namespace Radios
                 return "no load was ever sent — there was no radio connection, so the radio was not moved";
             if (o.LoadAttempts == 0)
                 return "nothing was loaded, so there was nothing to put back";
-            if (o.LoadsSent == 0)
-                return "nothing was sent to the radio, so nothing needed sending back";
-            if (SentBack(o))
-                return "sent back: " + o.OriginalSelection
-                    + ", the app's last recorded selection before the walk (the radio's own report was not checked)";
-            return "NOT sent back — " + NotSentBackReason(o)
-                + ". Your profile may not be the one you started with; load it again from Profiles, in the Radio menu, if needed";
+            return PutBackNote(o) + " Your profile may not be the one you started with; load it again from Profiles, in the Radio menu, if needed";
         }
 
         /// <summary>

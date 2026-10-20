@@ -2640,9 +2640,9 @@ public class NativeMenuBar : IDisposable
                             System.Threading.Thread.Sleep(500);
                             // Critical, as the restore capture's: the delayed
                             // answer to a press made a minute ago, the only way
-                            // back to the file, and — when loading stopped
-                            // because the radio was keyed — a statement of
-                            // where the radio was left.
+                            // back to the file, and — when any profile load was
+                            // requested — the pointer to reload your own
+                            // profile. It never says where the radio was left.
                             Radios.ScreenReaderOutput.Speak(
                                 ProfileReporter.ComparisonFinishedSentence(report, path),
                                 Radios.VerbosityLevel.Critical, interrupt: true);
