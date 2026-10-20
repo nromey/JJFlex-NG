@@ -11196,10 +11196,17 @@ namespace Radios
                     ears = resources.Slice;
                 }
             }).ConfigureAwait(false);
+            // Noel 2026-10-20 13:49: bring the ears' RF gain up. Take the top of the range
+            // the radio reports for this pan, never less than the 32 that has worked; the
+            // trace records the range so the bench can see what the port actually allows.
+            int panGainLow = resources.Pan?.RFGainLow ?? 0, panGainHigh = resources.Pan?.RFGainHigh ?? 0,
+                panGainStep = resources.Pan?.RFGainStep ?? 0;
+            resources.EarsRFGain = Math.Max(32, panGainHigh);
+            Tracing.TraceLine($"Loopback ears RF gain: pan reports low={panGainLow} high={panGainHigh} step={panGainStep}; sending {resources.EarsRFGain}", TraceLevel.Info);
             if (!await LoopbackSliceCommandAsync(arrangementRadio, arrangementConnection, ears,
                 $"slice set {ears.Index} rxant={earsAntenna}", "ears antenna setup").ConfigureAwait(false) ||
                 !await LoopbackSliceCommandAsync(arrangementRadio, arrangementConnection, ears,
-                $"slice set {ears.Index} rfgain=32", "ears RF gain setup").ConfigureAwait(false))
+                $"slice set {ears.Index} rfgain={resources.EarsRFGain}", "ears RF gain setup").ConfigureAwait(false))
                 throw new InvalidOperationException("loopback-ears-setting-refused");
 
             _loopbackArranged = true;

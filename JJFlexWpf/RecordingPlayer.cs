@@ -373,10 +373,15 @@ public static class RecordingPlayer
                 Trace.WriteLine($"RecordingPlayer read failed: {ex.Message}");
                 read = 0;
             }
-            if (read > 0) return read;
+            if (read == buffer.Length) return read;
 
+            // A short read is the end too, not just a zero one. NAudio's
+            // MixingSampleProvider drops an input the moment it returns fewer
+            // samples than asked and never reads it again, so a provider that
+            // waited for a zero read never heard its own end: the 8.4 s take on
+            // 2026-10-20 still said "playing" 13 s later, with live audio muted.
             if (Interlocked.Exchange(ref _ended, 1) == 0) Ended?.Invoke();
-            return 0;
+            return read;
         }
     }
 }

@@ -155,6 +155,41 @@ public sealed class EngineLatencyTests
         }
     }
 
+    [Fact]
+    public async Task PlaybackThroughTheRealMixerEndsWhenTheMixerDropsTheFile()
+    {
+        // The test above reads its own input until zero, which the real mixer
+        // never does: MixingSampleProvider drops an input on its first short
+        // read. Bench 2026-10-20: an 8.4 s take still "playing" after 13 s.
+        NoiseReductionPerChannelTests.AssertWindowless();
+        string path = Path.Combine(Path.GetTempPath(), "jjflex-playback-mixer-" + Guid.NewGuid().ToString("N") + ".wav");
+        var rig = (FlexBase)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(FlexBase));
+        var mixer = new NAudio.Wave.SampleProviders.MixingSampleProvider(
+            WaveFormat.CreateIeeeFloatWaveFormat(44100, 2)) { ReadFully = true };
+        try
+        {
+            using (var writer = new WaveFileWriter(path, new WaveFormat(44100, 16, 1)))
+                writer.Write(new byte[8820], 0, 8820);
+            Assert.True(await Task.Run(() => RecordingPlayer.PlayWithMixer(path, "Test take.", rig, true,
+                source => { mixer.AddMixerInput(source); return true; })));
+            Assert.True(rig.LocalReceiveMutedForTakePlayback);
+            await Task.Run(() =>
+            {
+                var samples = new float[4096];
+                for (int i = 0; i < 20 && mixer.MixerInputs.Any(); i++) mixer.Read(samples.AsSpan());
+            });
+            Assert.Empty(mixer.MixerInputs);
+            Assert.True(SpinWait.SpinUntil(() => !rig.LocalReceiveMutedForTakePlayback, TimeSpan.FromSeconds(2)),
+                "the mixer dropped the file but live audio stayed muted");
+            Assert.False(RecordingPlayer.IsPlaying);
+        }
+        finally
+        {
+            RecordingPlayer.Stop();
+            try { File.Delete(path); } catch { }
+        }
+    }
+
     private sealed class Samples(params float[] samples) : ISampleProvider
     {
         public WaveFormat WaveFormat { get; } = WaveFormat.CreateIeeeFloatWaveFormat(44100, 1);

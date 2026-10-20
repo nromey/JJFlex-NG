@@ -14,6 +14,8 @@ internal sealed class LoopbackSliceResources
     internal Panadapter Pan { get; private set; }
     internal string SavedRxAnt { get; private set; }
     internal int SavedRFGain { get; private set; }
+    /// <summary>The RF gain sent to the ears slice; the restore's expected value.</summary>
+    internal int EarsRFGain { get; set; } = 32;
     internal double SavedFrequency { get; private set; }
     internal string SavedMode { get; private set; }
     internal double SavedPanCenter { get; private set; }

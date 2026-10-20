@@ -197,7 +197,8 @@ public partial class FlexBase
                         "rxant", "slice", (uint)ears.Index, RequestedValue: ears.RXAnt));
                     snapshot.Settings.Add(new("ears-rf-gain", ownedLoopback.SavedRFGain.ToString(CultureInfo.InvariantCulture),
                         $"slice set {ears.Index} rfgain={ownedLoopback.SavedRFGain}", $"slice {ears.Index}",
-                        "rfgain", "slice", (uint)ears.Index, RequestedValue: "32"));
+                        "rfgain", "slice", (uint)ears.Index,
+                        RequestedValue: ownedLoopback.EarsRFGain.ToString(CultureInfo.InvariantCulture)));
                     identities["ears-antenna"] = ears;
                     identities["ears-rf-gain"] = ears;
                     identities["ears-frequency"] = ears;
