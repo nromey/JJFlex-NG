@@ -22,9 +22,10 @@ namespace Radios.Tests
     /// be read still getting its section, and the whole file round-tripping
     /// through a parser.</para>
     /// </summary>
-    // #469: shares the profile-walk flag with ComparisonReportGuardTests,
-    // which holds it on purpose; serialised so neither refuses the other.
-    [Collection(ProfileWalkFlagCollection.Name)]
+    // #469: shares the process-wide profile-walk flag with
+    // ComparisonReportGuardTests, which holds it on purpose; both sit in the
+    // RadioConfig statics collection so neither refuses the other.
+    [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class RestoreGradeExportTests
     {
         private static FlexBase MakeRig()
@@ -223,7 +224,10 @@ namespace Radios.Tests
             // anywhere saying so. Both halves of the fix are pinned by source
             // because the failing path needs a radio that refuses a load.
             string source = Read("Radios/ProfileReporter.cs");
-            Assert.Contains("RestoreConfirmed = LoadProfileAndWait", source);
+            // #469 moved the walk into RunWalk, which reaches the radio
+            // through the load it is handed; WalkProfiles hands it
+            // LoadProfileAndWait (pinned in ComparisonReportGuardTests).
+            Assert.Contains("outcome.RestoreConfirmed = load(outcome.OriginalSelection)", source);
             Assert.Contains("walk.RestoreAttempted && !walk.RestoreConfirmed", source);
 
             // The positive control for this scan: a token known absent.

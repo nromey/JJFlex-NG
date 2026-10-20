@@ -249,14 +249,16 @@ namespace Radios.Tests
             // them. That is a write wearing the word "report", and its restore
             // is best-effort by construction.
             //
-            // #469 moved the decision into ComparisonWillLoadProfiles, so the
-            // menu's start sentence and the report's skip ask one question;
-            // ComparisonReportGuardTests drives it on a rig. This pins that the
-            // report itself still consults it.
+            // #469 moved the decision into ComparisonMayLoadProfiles, read once
+            // into the comparison plan, so the menu's sentences and the
+            // report's skip ask one question; ComparisonReportGuardTests drives
+            // the plan. This pins that the report itself still consults it.
             string reporter = Read(Reporter);
             Assert.Contains("rig.ProfileIntent == ProfileGuestIntent.LoadMineAndPutBack",
                 reporter, StringComparison.Ordinal);
-            Assert.Contains("if (!ComparisonWillLoadProfiles(rig))",
+            Assert.Contains("if (!plan.ProfilesMayBeLoaded)",
+                reporter, StringComparison.Ordinal);
+            Assert.Contains("MakeComparisonPlan(ComparisonMayLoadProfiles(rig), lists)",
                 reporter, StringComparison.Ordinal);
         }
     }

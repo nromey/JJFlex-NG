@@ -1143,6 +1143,29 @@ namespace Radios.Tests
                 "settings.profile.report_start_no_walk",
                 "settings.profile.report_not_while_transmitting",
                 "settings.profile.report_failed",
+                // Repair round one (Codex's four blockers, 2026-10-20), same
+                // reasoning and classification as the block above. The start
+                // sentence now names what the walk loads, through the three
+                // FRAGMENTS settings.profile.report_kinds.*, which are never
+                // spoken alone; a fourth start sentence covers a run that has
+                // nothing to compare; the transmit refusal names what the run
+                // would load. The walker's three lines for a key-up mid-walk
+                // are spoken as progress, in answer to the press that started
+                // the walk, and the two reports' finished sentences for a walk
+                // stopped by a key-up are the delayed answer to that press.
+                // Siblings settings.restore_export.saved_* are legacy and
+                // frozen; DECIDE THEM WITH THESE. All DRAFTS awaiting Noel.
+                "settings.profile.report_start_nothing_to_compare",
+                "settings.profile.report_kinds.global",
+                "settings.profile.report_kinds.tx",
+                "settings.profile.report_kinds.global_and_tx",
+                "settings.profile.report_saved_stopped_put_back",
+                "settings.profile.report_saved_stopped_not_put_back",
+                "settings.profile_walk.stopped_keyed",
+                "settings.profile_walk.stopped_keyed_put_back_waits",
+                "settings.profile_walk.put_back_waits_for_unkey",
+                "settings.restore_export.saved_stopped_put_back",
+                "settings.restore_export.saved_stopped_not_put_back",
             };
 
             Assert.Equal(3152, unclassified);
