@@ -31,6 +31,10 @@
          through its public Read and Describe. A console tool with no
          dependencies beyond RigSurface, which has none. -->
     <ProjectReference Include="..\tools\TxFactAudit\TxFactAudit.csproj" />
+    <!-- #520: the Flex Control knob's input filter (burst discard, F0304 kept, the press
+         guard) is replayed over reconstructed event streams. JJFlexControl depends only on
+         Radios and JJTrace, so no cycle and nothing new on the desk. -->
+    <ProjectReference Include="..\JJFlexControl\JJFlexControl.csproj" />
   </ItemGroup>
 
   <ItemGroup>
