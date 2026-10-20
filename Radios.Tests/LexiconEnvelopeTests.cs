@@ -1160,13 +1160,7 @@ namespace Radios.Tests
                 "settings.profile.report_kinds.tx",
                 "settings.profile.report_kinds.mic",
                 "settings.profile.report_kinds.and",
-                "settings.profile.report_saved_stopped_put_back",
-                "settings.profile.report_saved_stopped_not_put_back",
                 "settings.profile_walk.stopped_keyed",
-                "settings.profile_walk.stopped_keyed_put_back_waits",
-                "settings.profile_walk.put_back_waits_for_unkey",
-                "settings.restore_export.saved_stopped_put_back",
-                "settings.restore_export.saved_stopped_not_put_back",
                 // Same round, the restore capture's start sentence, which had
                 // the comparison's defect one method over: one sentence,
                 // "every stored profile is loaded", whatever would load. Three
@@ -1176,6 +1170,29 @@ namespace Radios.Tests
                 "settings.restore_export.start_walk",
                 "settings.restore_export.start_nothing_to_walk",
                 "settings.restore_export.start_no_walk",
+                // Round two, Noel's ruling 2026-10-20 ("I'd say what profile
+                // radio's on now"): a walk stopped by a key-up puts NOTHING
+                // back, so the wait-and-put-back sentences of round one are
+                // gone. What replaces them says which profile the radio is on
+                // and that the original was not put back, built from the
+                // fragments below, which are never spoken alone; the stop
+                // line, both finished sentences and both files use the same
+                // words. Also: the list-missing start sentences (an unreadable
+                // list is not "nothing to compare") and the restore refusal
+                // that names only the kinds it would load. Same classification
+                // and reasoning as above. All DRAFTS awaiting Noel.
+                "settings.profile_walk.not_moved",
+                "settings.profile_walk.now_on",
+                "settings.profile_walk.now_on_unknown",
+                "settings.profile_walk.not_put_back",
+                "settings.profile_walk.not_put_back_unknown",
+                "settings.profile_walk.started_on_none",
+                "settings.profile_walk.earlier_not_confirmed",
+                "settings.profile.report_saved_stopped",
+                "settings.restore_export.saved_stopped",
+                "settings.profile.report_start_list_missing",
+                "settings.profile.report_start_lists_missing",
+                "settings.restore_export.not_while_transmitting_kinds",
             };
 
             Assert.Equal(3152, unclassified);
