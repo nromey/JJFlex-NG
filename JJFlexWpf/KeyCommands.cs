@@ -3023,15 +3023,24 @@ public class KeyCommands
             switch (DoValueLayerKey(k))
             {
                 case Radios.ValueLayerKeyResult.PassThrough:
-                    // Alt chords, F1, and the keys that act in place (#778:
-                    // the verbosity cycle, push to talk, the transmit lock,
-                    // the bracket filter keys): fall through to the rest of
-                    // this dispatch with the layer still live. A registry
-                    // chord among them (the verbosity cycle, Ctrl+Shift+[)
-                    // runs below; one the registry never lists (Ctrl+Space,
-                    // the bare brackets) finds no row, so this returns false
-                    // and the key goes on to the main window's own handler or
-                    // the dialog, the layer still open.
+                    // Alt chords, F1, and an in-place key THIS table can run
+                    // (#778b, InPlaceVerdictFor): the verbosity cycle, and
+                    // Ctrl+Shift+[ or ] where the table has the transmit
+                    // filter rows. They fall through to the rest of this
+                    // dispatch with the layer still live and run from their
+                    // row below.
+                    //
+                    // An in-place key with NO row in this table never comes
+                    // back here: push to talk, the transmit lock and the
+                    // bare, Shift and Ctrl brackets in the shipped tables, and
+                    // Ctrl+Shift+[ or ] in the log form's copy. The engine
+                    // refuses it (LayerKeyUnavailableHere), consumes it and
+                    // keeps the layer open. On Home, with its own gates met,
+                    // MainWindow_PreviewKeyDown acts on push to talk, the lock
+                    // and the brackets before it asks a layer anything, so a
+                    // layer is only asked when nothing would act on them: a
+                    // dialog, the log form, or Home with focus outside the
+                    // fields, the radio off, or Logging mode for the brackets.
                     break;
 
                 case Radios.ValueLayerKeyResult.ClosedPassThrough:
@@ -5641,13 +5650,16 @@ public class KeyCommands
         => InPlaceVerdictFor(k) == InPlaceVerdict.ActsHere;
 
     /// <summary>
-    /// The very short true sentence, spoken at Chatty only, for an in-place
-    /// key a layer is asked about when nothing here would act on it (#778b):
-    /// push to talk, the transmit lock or a bracket key. Below Chatty the low
-    /// refusal tone is the whole answer (Noel, 2026-10-19 20:55: "the tone
-    /// really should be enough, similar to the DMR radios that beep when they
-    /// can't transmit"). It does NOT say "not a key in this layer", which is
-    /// false for push to talk.
+    /// The very short true sentence for an in-place key a layer is asked
+    /// about when nothing here would act on it (#778b): push to talk, the
+    /// transmit lock or a bracket key. Spoken at Chatty after the low refusal
+    /// tone; below Chatty the tone is the whole answer (Noel, 2026-10-19
+    /// 20:55: "the tone really should be enough, similar to the DMR radios
+    /// that beep when they can't transmit"). When the tone cannot sound
+    /// (earcons off, or the Commands and confirmations category off) it is
+    /// spoken at every level, Off included, so the refusal is never silent
+    /// (Noel, 21:18: "yes, we'd need to let the user know somehow"). It does
+    /// NOT say "not a key in this layer", which is false for push to talk.
     /// </summary>
     private string? LayerKeyUnavailableHere(Keys k)
     {
