@@ -221,7 +221,7 @@ namespace Radios.Tests
         [InlineData("public string FrontPanelDisplayMode", "GuardRefuses(\"settings.guard.action.front_panel\")", 1400)]
         [InlineData("public GuardedOutcome SelectProfileGuarded(", "GuardRefuses(\"settings.guard.action.profile_load\")", 1000)]
         [InlineData("public bool SelectMicProfileIfPresent(", "GuardRefuses(\"settings.guard.action.profile_load\")", 900)]
-        [InlineData("public bool SaveProfile(", "GuardRefuses(\"settings.guard.action.profile_save\")", 800)]
+        [InlineData("public GuardedOutcome SaveProfileGuarded(", "GuardRefuses(\"settings.guard.action.profile_save\")", 800)]
         // The gap the #397 write-path audit found in this very list: under the
         // hold you could still DELETE a profile off the radio while loading and
         // saving one both refused. Delete is the most destructive of the three

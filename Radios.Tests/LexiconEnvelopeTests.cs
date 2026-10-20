@@ -941,6 +941,47 @@ namespace Radios.Tests
                 // a value layer now refuses before asking the registry because
                 // forwarded it would start frequency entry. DRAFT awaiting Noel.
                 "audio.value_layer.typed_number",
+
+                // Junkbox #777, 2026-10-19: a global-profile write (Save, or
+                // Delete since round two) refused because the radio is
+                // declared someone else's, or its ownership was never
+                // answered; the verb comes from settings.guard.action.* the
+                // way settings.guard.refused does it. Classified rather than
+                // frozen (#720). delivery: null - TextOnly - on the #726
+                // reasoning: each is spoken ONLY in answer to the operator's
+                // own press (the menu's Save Station Setup to Radio, or the
+                // Profiles dialog's Save or Delete), the application never
+                // says either on its own account, and a refusal whose sentence
+                // names the remedy must not be shortened by the verbosity
+                // machinery. Their siblings settings.guard.layout_save_blocked
+                // and .layout_save_roster_unknown are legacy and still frozen;
+                // WHEN THE PASS REACHES THEM, DECIDE ALL FOUR TOGETHER. Both
+                // wordings were APPROVED by Noel 2026-10-19 (#777 Q4, Q5).
+                "settings.guard.profile_write_not_our_radio",
+                "settings.guard.profile_write_ownership_unknown",
+                // Round three, Noel's 2026-10-19 ruling that transmit and
+                // microphone profiles are refused like global ones: the verb
+                // and kind the two sentences above take as {action} for those
+                // kinds. FRAGMENTS of a sentence, never spoken alone, so
+                // TextOnly is the only honest classification; global keeps
+                // the approved legacy fragments settings.guard.action.profile_save
+                // / profile_delete, which stay frozen and are shared with the
+                // hold's refusal. These four are DRAFTS awaiting Noel; the two
+                // sentences above were APPROVED the same day.
+                "settings.guard.action.tx_profile_create",
+                "settings.guard.action.tx_profile_delete",
+                "settings.guard.action.mic_profile_create",
+                "settings.guard.action.mic_profile_delete",
+                // Same track, round two (Codex B3): the honest receipt for a
+                // save whose command did not go out within its bound, which
+                // until then was announced as saved. Spoken only in answer to
+                // the press that asked for the save; TextOnly on the same
+                // reasoning; the existing receipts settings.profile.saved and
+                // settings.station_layout.saved beside them are legacy and
+                // still frozen - DECIDE EACH PAIR TOGETHER. DRAFTS awaiting
+                // Noel.
+                "settings.profile.save_not_sent",
+                "settings.station_layout.save_not_sent",
             };
 
             Assert.Equal(3152, unclassified);
