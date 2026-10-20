@@ -309,11 +309,16 @@ namespace Radios.Tests
             Key(rig, true);
             using (var r = ProfileReporter.TryReserveWalk())
             {
-                var refused = ProfileReporter.GenerateRestoreGradeExport(r, rig, null);
+                var refused = ProfileReporter.GenerateRestoreGradeExport(r,
+                    ProfileReporter.MakeRestorePlan(true, Lists(2, 1, 0)), rig, null);
                 Assert.Equal(ProfileReporter.WalkRefusal.Transmitting, refused.Refused);
                 Assert.Null(refused.Text);
 
-                // Under the change-nothing hold nothing is loaded, so it runs.
+                // A plan that loads nothing is read-only, so it runs keyed:
+                // offline (no list can be read) and under the hold alike.
+                var offline = ProfileReporter.GenerateRestoreGradeExport(r, rig, null);
+                Assert.Equal(ProfileReporter.WalkRefusal.None, offline.Refused);
+                Assert.NotNull(offline.Text);
                 rig.SetChangeNothingActive(true);
                 var readOnly = ProfileReporter.GenerateRestoreGradeExport(r, rig, null);
                 Assert.Equal(ProfileReporter.WalkRefusal.None, readOnly.Refused);
@@ -583,22 +588,81 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void The_restore_item_reserves_at_the_press_too()
+        public void The_restore_item_reserves_at_the_press_and_plans_before_it_speaks()
         {
             // Same reader, the other item — and the positive control for the
-            // extractor: it must find the restore capture's own shape.
+            // extractor: it must find the restore capture's own shape. Red on
+            // 0cae6353, which spoke the fixed "every stored profile is loaded"
+            // sentence at the press whatever would load.
             string body = MenuItemBody(Read("JJFlexWpf/NativeMenuBar.cs"), RestoreItem);
-            int transmit = At(body, "restoreRig.Transmit && ProfileReporter.RestoreCaptureWouldWalk(restoreRig)");
             int reserve = At(body, "ProfileReporter.TryReserveWalk()");
-            int start = At(body, "\"settings.restore_export.start\"");
             int task = At(body, "System.Threading.Tasks.Task.Run(");
             int owns = At(body, "using (reservation)");
-            int walk = At(body, "ProfileReporter.GenerateRestoreGradeExport(reservation, restoreRig,");
+            int plan = At(body, "ProfileReporter.PlanRestoreCapture(restoreRig)");
+            int refusal = At(body, "ProfileReporter.RestoreTransmitRefusal(");
+            int start = At(body, "ProfileReporter.RestoreStartSentence(plan)");
+            int settle = At(body, "System.Threading.Thread.Sleep(4000)");
+            int walk = At(body, "ProfileReporter.GenerateRestoreGradeExport(reservation, plan, restoreRig,");
             int refused = At(body, "export.Refused == ProfileReporter.WalkRefusal.Transmitting");
-            Assert.True(transmit < reserve && reserve < start && start < task && task < owns && owns < walk && walk < refused);
+            Assert.True(reserve < task && task < owns && owns < plan && plan < refusal && refusal < start
+                && start < settle && settle < walk && walk < refused);
+            Assert.DoesNotContain("\"settings.restore_export.start\"", body);
             Assert.DoesNotContain("ProfileReporter.WalkInProgress", body);
             Assert.DoesNotContain("ProfileReporter.GenerateReport(", body);
             Assert.True(At(body, "reservation.Dispose();") > walk);
+        }
+
+        [Fact]
+        public void The_restore_capture_loads_every_kind_the_radio_holds_any_of_and_nothing_under_the_hold()
+        {
+            Assert.Equal(new[] { ProfileTypes.global, ProfileTypes.tx, ProfileTypes.mic },
+                ProfileReporter.TypesTheRestoreCaptureLoads(true, Lists(1, 1, 1)));
+            Assert.Equal(new[] { ProfileTypes.global, ProfileTypes.mic },
+                ProfileReporter.TypesTheRestoreCaptureLoads(true, Lists(2, 0, 3)));
+            Assert.Empty(ProfileReporter.TypesTheRestoreCaptureLoads(true, Lists(0, 0, 0)));
+            Assert.Empty(ProfileReporter.TypesTheRestoreCaptureLoads(false, Lists(4, 4, 4)));
+            var unreported = Lists(3, 3, 3);
+            unreported[ProfileTypes.tx].Reported = false;
+            Assert.Equal(new[] { ProfileTypes.global, ProfileTypes.mic },
+                ProfileReporter.TypesTheRestoreCaptureLoads(true, unreported));
+        }
+
+        [Fact]
+        public void The_restore_start_sentence_says_only_what_will_load()
+        {
+            Assert.Equal(
+                "Capturing settings for restore. Your stored global, TX and mic profiles are loaded on the radio in turn, "
+                + "and you will hear things change as it goes. This takes a minute or two; progress is spoken.",
+                ProfileReporter.RestoreStartSentence(ProfileReporter.MakeRestorePlan(true, Lists(2, 1, 1))));
+            Assert.Contains("Your stored global and mic profiles are loaded",
+                ProfileReporter.RestoreStartSentence(ProfileReporter.MakeRestorePlan(true, Lists(1, 0, 4))));
+            Assert.Contains("Your stored TX profiles are loaded",
+                ProfileReporter.RestoreStartSentence(ProfileReporter.MakeRestorePlan(true, Lists(0, 1, 0))));
+            Assert.DoesNotContain("Every stored profile",
+                ProfileReporter.RestoreStartSentence(ProfileReporter.MakeRestorePlan(true, Lists(2, 2, 2))));
+        }
+
+        [Fact]
+        public void When_the_restore_capture_will_load_nothing_its_start_sentence_promises_no_loading()
+        {
+            string none = ProfileReporter.RestoreStartSentence(ProfileReporter.MakeRestorePlan(true, Lists(0, 0, 0)));
+            Assert.Equal("Capturing settings for restore. No stored profiles could be read from the radio, so it is left as it is.", none);
+            string held = ProfileReporter.RestoreStartSentence(ProfileReporter.MakeRestorePlan(false, Lists(3, 3, 3)));
+            Assert.Equal("Capturing settings for restore. Change nothing is on for this radio, so it is left as it is "
+                + "and the file holds live settings only.", held);
+            foreach (string sentence in new[] { none, held })
+                Assert.DoesNotContain("loaded on the radio", sentence);
+
+            // An offline radio reads no list, so it plans to load nothing and
+            // is told so, never "every stored profile is loaded".
+            var offline = ProfileReporter.PlanRestoreCapture(MakeRig());
+            Assert.False(offline.WillLoad);
+            Assert.Equal(none, ProfileReporter.RestoreStartSentence(offline));
+
+            // A keyed radio whose capture would load nothing is not refused.
+            Assert.Null(ProfileReporter.RestoreTransmitRefusal(offline, keyed: true));
+            Assert.Equal(Radios.Lexicon.Get("settings.restore_export.not_while_transmitting"),
+                ProfileReporter.RestoreTransmitRefusal(ProfileReporter.MakeRestorePlan(true, Lists(1, 0, 0)), keyed: true));
         }
 
         // ------------------------------------------------------------------

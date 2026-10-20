@@ -1158,7 +1158,8 @@ namespace Radios.Tests
                 "settings.profile.report_start_nothing_to_compare",
                 "settings.profile.report_kinds.global",
                 "settings.profile.report_kinds.tx",
-                "settings.profile.report_kinds.global_and_tx",
+                "settings.profile.report_kinds.mic",
+                "settings.profile.report_kinds.and",
                 "settings.profile.report_saved_stopped_put_back",
                 "settings.profile.report_saved_stopped_not_put_back",
                 "settings.profile_walk.stopped_keyed",
@@ -1166,6 +1167,15 @@ namespace Radios.Tests
                 "settings.profile_walk.put_back_waits_for_unkey",
                 "settings.restore_export.saved_stopped_put_back",
                 "settings.restore_export.saved_stopped_not_put_back",
+                // Same round, the restore capture's start sentence, which had
+                // the comparison's defect one method over: one sentence,
+                // "every stored profile is loaded", whatever would load. Three
+                // sentences now, chosen from its plan. The legacy
+                // settings.restore_export.start is no longer spoken and stays
+                // frozen; DECIDE IT (retire or reword) WITH THESE. DRAFTS.
+                "settings.restore_export.start_walk",
+                "settings.restore_export.start_nothing_to_walk",
+                "settings.restore_export.start_no_walk",
             };
 
             Assert.Equal(3152, unclassified);

@@ -2706,20 +2706,15 @@ public class NativeMenuBar : IDisposable
         // so two presses inside that window both spoke the start sentence and
         // one then said busy. Now the second press hears busy and nothing
         // else, and the reservation is released on every path inside the
-        // task. Keyed transmit is asked at the press and again after the
-        // settle, and only where the walk would run: under the change-nothing
-        // hold this capture is read-only and runs keyed.
+        // task. Then, as the comparison report does, the PLAN is read before
+        // anything is said: keyed transmit refuses only when the plan loads
+        // something, and the start sentence names what will load, or makes no
+        // loading promise when nothing will. Transmit is asked again after the
+        // settle, and before every profile the walk loads.
         AddWired(tools, "Full restore capture, loads every profile", () =>
         {
             var restoreRig = Rig;
             if (restoreRig == null) { SpeakNoRadio(); return; }
-            if (restoreRig.Transmit && ProfileReporter.RestoreCaptureWouldWalk(restoreRig))
-            {
-                // The walk rewrites power, filters and antennas mid-load.
-                SpeakAfterMenuClose(Radios.Lexicon.Get(
-                    "settings.restore_export.not_while_transmitting"));
-                return;
-            }
             var reservation = ProfileReporter.TryReserveWalk();
             if (reservation == null)
             {
@@ -2728,18 +2723,28 @@ public class NativeMenuBar : IDisposable
             }
             try
             {
-                SpeakAfterMenuClose(Radios.Lexicon.Get("settings.restore_export.start"));
                 System.Threading.Tasks.Task.Run(() =>
                 {
                     using (reservation)
                     {
                         try
                         {
+                            var plan = ProfileReporter.PlanRestoreCapture(restoreRig);
+                            // The walk rewrites power, filters and antennas mid-load.
+                            string keyedRefusal = ProfileReporter.RestoreTransmitRefusal(
+                                plan, restoreRig.Transmit);
+                            if (keyedRefusal != null)
+                            {
+                                SpeakAfterMenuClose(keyedRefusal);
+                                return;
+                            }
+                            // DRAFT PROSE (#469): awaiting Noel
+                            SpeakAfterMenuClose(ProfileReporter.RestoreStartSentence(plan));
                             // Give the start announcement room to finish: the first
                             // progress line interrupts, and the one sentence that
                             // sets expectations must not lose the race to it.
                             System.Threading.Thread.Sleep(4000);
-                            var export = ProfileReporter.GenerateRestoreGradeExport(reservation, restoreRig,
+                            var export = ProfileReporter.GenerateRestoreGradeExport(reservation, plan, restoreRig,
                                 progress => Radios.ScreenReaderOutput.Speak(
                                     progress,
                                     Radios.Speech.SpeechIntent.Latest,

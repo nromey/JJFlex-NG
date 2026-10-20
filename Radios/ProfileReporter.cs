@@ -784,10 +784,12 @@ namespace Radios
         // can say something the others do not do.
 
         /// <summary>
-        /// What one comparison report will do on this radio, decided before
-        /// anything is said or loaded.
+        /// What one profile walk — the comparison report's or the restore
+        /// capture's — will do on this radio, decided before anything is said
+        /// or loaded. Each walk has its own maker, because they load different
+        /// sets: <see cref="PlanComparison"/> and <see cref="PlanRestoreCapture"/>.
         /// </summary>
-        public sealed class ComparisonPlan
+        public sealed class ProfileWalkPlan
         {
             /// <summary>Policy: the change-nothing hold is off and the operator
             /// opted this radio in to profile loading (#414, #450). False means
@@ -837,10 +839,10 @@ namespace Radios
             return result;
         }
 
-        internal static ComparisonPlan MakeComparisonPlan(
+        internal static ProfileWalkPlan MakeComparisonPlan(
             bool profilesMayBeLoaded,
             IReadOnlyDictionary<ProfileTypes, FlexBase.RadioProfileList> lists)
-            => new ComparisonPlan
+            => new ProfileWalkPlan
             {
                 ProfilesMayBeLoaded = profilesMayBeLoaded,
                 Lists = lists,
@@ -852,7 +854,7 @@ namespace Radios
         /// Asks the radio (a bounded wait per list), so never on the UI
         /// thread. Read-only: nothing on the radio changes.
         /// </summary>
-        public static ComparisonPlan PlanComparison(FlexBase rig)
+        public static ProfileWalkPlan PlanComparison(FlexBase rig)
         {
             var lists = new Dictionary<ProfileTypes, FlexBase.RadioProfileList>();
             foreach (var t in new[] { ProfileTypes.global, ProfileTypes.tx, ProfileTypes.mic })
@@ -865,14 +867,20 @@ namespace Radios
             return plan;
         }
 
-        /// <summary>"global", "TX" or "global and TX" — the kinds a plan loads,
-        /// as the start sentence and the transmit refusal name them.</summary>
-        internal static string ComparisonKindsPhrase(IReadOnlyList<ProfileTypes> types)
+        /// <summary>The kinds a plan loads, as the start sentences and the
+        /// transmit refusal name them: "global", "global and TX", "global, TX
+        /// and mic". The words come from the lexicon; only the list
+        /// punctuation is here.</summary>
+        internal static string KindsPhrase(IReadOnlyList<ProfileTypes> types)
         {
-            if (types.Count >= 2) return Lexicon.Get("settings.profile.report_kinds.global_and_tx");
-            return types[0] == ProfileTypes.global
-                ? Lexicon.Get("settings.profile.report_kinds.global")
-                : Lexicon.Get("settings.profile.report_kinds.tx");
+            var words = types.Select(t => Lexicon.Get(t == ProfileTypes.global
+                    ? "settings.profile.report_kinds.global"
+                    : t == ProfileTypes.tx
+                        ? "settings.profile.report_kinds.tx"
+                        : "settings.profile.report_kinds.mic")).ToList();
+            if (words.Count <= 1) return words.FirstOrDefault() ?? "";
+            string and = Lexicon.Get("settings.profile.report_kinds.and");
+            return string.Join(", ", words.Take(words.Count - 1)) + " " + and + " " + words[words.Count - 1];
         }
 
         /// <summary>
@@ -880,12 +888,12 @@ namespace Radios
         /// plan: it names the kinds that will be loaded, or, when nothing will
         /// be, makes no promise of loading.
         /// </summary>
-        public static string ComparisonStartSentence(ComparisonPlan plan)
+        public static string ComparisonStartSentence(ProfileWalkPlan plan)
         {
             // DRAFT PROSE (#469): awaiting Noel
             if (plan.WillLoad)
                 return Lexicon.Get("settings.profile.report_start",
-                    ("kinds", ComparisonKindsPhrase(plan.TypesToLoad)));
+                    ("kinds", KindsPhrase(plan.TypesToLoad)));
             return plan.ProfilesMayBeLoaded
                 ? Lexicon.Get("settings.profile.report_start_nothing_to_compare")
                 : Lexicon.Get("settings.profile.report_start_no_walk");
@@ -897,13 +905,88 @@ namespace Radios
         /// a read-only report and runs. When it refuses, its reason names what
         /// the run would actually have loaded.
         /// </summary>
-        public static string ComparisonTransmitRefusal(ComparisonPlan plan, bool keyed)
+        public static string ComparisonTransmitRefusal(ProfileWalkPlan plan, bool keyed)
         {
             if (!keyed || !plan.WillLoad) return null;
             // DRAFT PROSE (#469): awaiting Noel
             return Lexicon.Get("settings.profile.report_not_while_transmitting",
-                ("kinds", ComparisonKindsPhrase(plan.TypesToLoad)));
+                ("kinds", KindsPhrase(plan.TypesToLoad)));
         }
+
+        /// <summary>
+        /// The types the restore capture loads: global, TX and mic, each
+        /// whenever the radio reported at least one stored — the capture's job
+        /// is every stored profile, so a single one is walked — and none under
+        /// the change-nothing hold. Pure, so a test can hold every case.
+        /// </summary>
+        internal static IReadOnlyList<ProfileTypes> TypesTheRestoreCaptureLoads(
+            bool walkPermitted,
+            IReadOnlyDictionary<ProfileTypes, FlexBase.RadioProfileList> lists)
+        {
+            var result = new List<ProfileTypes>();
+            if (!walkPermitted || lists == null) return result;
+            foreach (var t in new[] { ProfileTypes.global, ProfileTypes.tx, ProfileTypes.mic })
+            {
+                if (lists.TryGetValue(t, out var l) && l != null && l.Reported && l.Names.Count >= 1)
+                    result.Add(t);
+            }
+            return result;
+        }
+
+        internal static ProfileWalkPlan MakeRestorePlan(
+            bool walkPermitted,
+            IReadOnlyDictionary<ProfileTypes, FlexBase.RadioProfileList> lists)
+            => new ProfileWalkPlan
+            {
+                ProfilesMayBeLoaded = walkPermitted,
+                Lists = lists,
+                TypesToLoad = TypesTheRestoreCaptureLoads(walkPermitted, lists),
+            };
+
+        /// <summary>
+        /// Read the radio's lists and decide what the restore capture will
+        /// load (#469, the same class as the comparison's start sentence: the
+        /// capture said "every stored profile is loaded" whatever would load).
+        /// The capture's file prints these same lists, so the file, the start
+        /// sentence and the transmit refusal cannot disagree. Asks the radio,
+        /// so never on the UI thread; read-only.
+        /// </summary>
+        public static ProfileWalkPlan PlanRestoreCapture(FlexBase rig)
+        {
+            var lists = new Dictionary<ProfileTypes, FlexBase.RadioProfileList>();
+            foreach (var t in new[] { ProfileTypes.global, ProfileTypes.tx, ProfileTypes.mic })
+                lists[t] = ReadListSafely(rig, t);
+            var plan = MakeRestorePlan(RestoreCaptureWouldWalk(rig), lists);
+            Tracing.TraceLine("RestoreGradeExport: plan — "
+                + (plan.WillLoad ? "loads " + string.Join(" then ", plan.TypesToLoad.Select(TypeLabel))
+                    : plan.ProfilesMayBeLoaded ? "no stored profile could be read, loads nothing"
+                    : "change nothing is on, loads nothing"), TraceLevel.Info);
+            return plan;
+        }
+
+        /// <summary>
+        /// The restore capture's start sentence, true to its plan: it names
+        /// the kinds that will be loaded, or, when nothing will be, makes no
+        /// promise of loading.
+        /// </summary>
+        public static string RestoreStartSentence(ProfileWalkPlan plan)
+        {
+            // DRAFT PROSE (#469): awaiting Noel
+            if (plan.WillLoad)
+                return Lexicon.Get("settings.restore_export.start_walk",
+                    ("kinds", KindsPhrase(plan.TypesToLoad)));
+            return plan.ProfilesMayBeLoaded
+                ? Lexicon.Get("settings.restore_export.start_nothing_to_walk")
+                : Lexicon.Get("settings.restore_export.start_no_walk");
+        }
+
+        /// <summary>The restore capture's transmit refusal for this plan, or
+        /// null: unkeyed, or keyed on a plan that loads nothing, which is a
+        /// read-only capture and runs.</summary>
+        public static string RestoreTransmitRefusal(ProfileWalkPlan plan, bool keyed)
+            => keyed && plan.WillLoad
+                ? Lexicon.Get("settings.restore_export.not_while_transmitting")
+                : null;
 
         /// <summary>What one comparison run produced.</summary>
         public sealed class ComparisonReport
@@ -919,7 +1002,7 @@ namespace Radios
         }
 
         /// <summary>The sentence for a refused run, true to why it refused.</summary>
-        public static string ComparisonRefusedSentence(ComparisonReport report, ComparisonPlan plan)
+        public static string ComparisonRefusedSentence(ComparisonReport report, ProfileWalkPlan plan)
             => report.Refused == WalkRefusal.Transmitting
                 ? ComparisonTransmitRefusal(plan, keyed: true)
                 : Lexicon.Get("settings.restore_export.busy");
@@ -989,7 +1072,7 @@ namespace Radios
         /// keyed, because nothing in it changes the radio.
         /// </remarks>
         public static ComparisonReport GenerateReport(
-            WalkReservation reservation, ComparisonPlan plan, FlexBase rig,
+            WalkReservation reservation, ProfileWalkPlan plan, FlexBase rig,
             Action<string> progressCallback)
         {
             RequireHeld(reservation);
@@ -1007,7 +1090,7 @@ namespace Radios
             return result;
         }
 
-        private static string GenerateReportCore(FlexBase rig, ComparisonPlan plan,
+        private static string GenerateReportCore(FlexBase rig, ProfileWalkPlan plan,
             Action<string> progressCallback, ComparisonReport result)
         {
             var sb = new StringBuilder();
@@ -2043,13 +2126,28 @@ namespace Radios
             WalkReservation reservation, FlexBase rig, Action<string> progressCallback)
         {
             RequireHeld(reservation);
+            return GenerateRestoreGradeExport(reservation, PlanRestoreCapture(rig), rig, progressCallback);
+        }
+
+        /// <summary>
+        /// The restore-grade capture under a reservation the caller holds,
+        /// doing exactly what <paramref name="plan"/> (from
+        /// <see cref="PlanRestoreCapture"/>) says: the menu plans first so its
+        /// start sentence names what will load, and the file then prints the
+        /// same lists the sentence was decided from.
+        /// </summary>
+        public static RestoreGradeExport GenerateRestoreGradeExport(
+            WalkReservation reservation, ProfileWalkPlan plan, FlexBase rig, Action<string> progressCallback)
+        {
+            RequireHeld(reservation);
+            if (plan == null) throw new ArgumentNullException(nameof(plan));
             WalkHeldProbe?.Invoke("restore capture");
-            if (RestoreCaptureWouldWalk(rig) && rig.Transmit)
+            if (plan.WillLoad && rig.Transmit)
             {
                 Tracing.TraceLine("RestoreGradeExport: refused — the radio is transmitting and the walk would load profiles", TraceLevel.Warning);
                 return new RestoreGradeExport { Refused = WalkRefusal.Transmitting };
             }
-            return GenerateRestoreGradeExportCore(rig, progressCallback);
+            return GenerateRestoreGradeExportCore(rig, plan, progressCallback);
         }
 
         /// <summary>
@@ -2081,7 +2179,7 @@ namespace Radios
         }
 
         private static RestoreGradeExport GenerateRestoreGradeExportCore(
-            FlexBase rig, Action<string> progressCallback)
+            FlexBase rig, ProfileWalkPlan plan, Action<string> progressCallback)
         {
             var result = new RestoreGradeExport();
             var sb = new StringBuilder();
@@ -2148,7 +2246,11 @@ namespace Radios
             var lists = new Dictionary<ProfileTypes, FlexBase.RadioProfileList>();
             foreach (var t in profileTypes)
             {
-                lists[t] = ReadListSafely(rig, t);
+                // #469: the plan's reading, so the file and the start sentence
+                // were decided from the same lists.
+                lists[t] = plan.Lists != null && plan.Lists.TryGetValue(t, out var planned) && planned != null
+                    ? planned
+                    : ReadListSafely(rig, t);
                 capture.Add(ProfileCountLine(lists[t]));
                 var crossCheck = ProfileCrossCheckLine(lists[t]);
                 if (crossCheck != null) capture.Add(crossCheck);
@@ -2254,7 +2356,7 @@ namespace Radios
 
             // ── The walk ──
             var outcomes = new List<ProfileWalkOutcome>();
-            if (rig.ChangeNothingActive)
+            if (!plan.ProfilesMayBeLoaded)
             {
                 // Same reasoning as the comparison report: walking means
                 // loading every profile on a radio the operator asked us to
