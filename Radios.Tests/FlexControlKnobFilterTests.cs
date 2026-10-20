@@ -7,7 +7,7 @@ using Xunit;
 namespace Radios.Tests
 {
     /// <summary>
-    /// #520: the Flex Control knob must not act on what nobody did. Every stream here is replayed
+    /// #520: the Flex Control knob must not act on a burst nobody's hand made. Every stream here is replayed
     /// through <see cref="KnobInputFilter"/> exactly the way <c>Serial</c> drives it, including the
     /// release timer: <see cref="Replay"/> fires <see cref="KnobInputFilter.Release"/> at every
     /// <see cref="KnobInputFilter.NextDueMs"/> before the next arrival, so the release times the
@@ -139,11 +139,11 @@ namespace Radios.Tests
             Assert.Equal(84, run.Out.Count);
             Assert.All(run.Out, o => Assert.Equal("D", o.Token));
             Assert.Equal(0, run.Filter.BurstEventsDiscarded);
-            Assert.Equal(0, run.Filter.PhantomStepsDiscarded);
-            // Each step is acted on within the hold, never later: the cost of the press guard.
+            // Each step is acted on half a tick after the last arrival of its tick (the smallest
+            // hold the burst rule allows): within 7.8 ms, or 8.2 for the first of a 0.4 ms double.
             for (int i = 0; i < 84; i++)
             {
-                Assert.InRange(run.Out[i].At - turn[i].Item2, 0, KnobInputFilter.RotationHoldMs + 0.001);
+                Assert.InRange(run.Out[i].At - turn[i].Item2, 0, KnobInputFilter.GroupCloseMs + 0.4 + 0.001);
             }
         }
 
@@ -214,53 +214,23 @@ namespace Radios.Tests
             Assert.Equal(new[] { "F0304", "F0304", "F0304", "D" }, run.Tokens);
         }
 
-        // ---- Ruling 3: suppress rotation within a tick or two of any press code ----
+        // ---- Repair round one: the press guard is out, so nothing near a press is dropped ----
 
         [Fact]
-        public void A_phantom_step_just_before_a_knob_double_press_is_discarded()
+        public void A_real_final_detent_followed_at_once_by_a_press_is_acted_on()
         {
-            // The measured order: the phantom D comes before its C.
-            Run run = Replay(new[] { ("D", 1_000.0), ("C", 1_020.0) });
+            // The press-nudge guard was taken out because it could not tell this from a phantom:
+            // a turn's last step, then a button press about one detent-interval later.
+            Run run = Replay(new[] { ("D", 1_000.0), ("U", 1_029.0), ("X1S", 1_050.0) });
 
-            Assert.Equal(new[] { "C" }, run.Tokens);
-            Assert.Equal(1, run.Filter.PhantomStepsDiscarded);
+            Assert.Equal(new[] { "D", "U", "X1S" }, run.Tokens);
         }
 
         [Fact]
-        public void A_phantom_step_just_after_a_press_is_discarded()
+        public void A_rotation_and_a_press_in_the_same_tick_both_arrive()
         {
-            Run run = Replay(new[] { ("S", 1_000.0), ("U", 1_000.0 + 2 * Tick) });
-            Assert.Equal(new[] { "S" }, run.Tokens);
-        }
-
-        [Fact]
-        public void Three_double_presses_with_two_phantoms_step_the_frequency_zero_times()
-        {
-            // "Three deliberate knob double-presses produced D, C, C, D, C."
-            Run run = Replay(new[]
-            {
-                ("D", 1_000.0), ("C", 1_018.0),
-                ("C", 2_000.0),
-                ("D", 3_000.0), ("C", 3_031.5),
-            });
-
-            Assert.Equal(new[] { "C", "C", "C" }, run.Tokens);
-            Assert.Equal(2, run.Filter.PhantomStepsDiscarded);
-        }
-
-        [Fact]
-        public void Any_press_code_guards_rotation_not_only_the_knobs_own()
-        {
-            Run run = Replay(new[] { ("D", 1_000.0), ("X2S", 1_015.6) });
-            Assert.Equal(new[] { "X2S" }, run.Tokens);
-        }
-
-        [Fact]
-        public void A_step_three_ticks_from_a_press_is_a_real_step()
-        {
-            // The window's far edge: a gap that rounds to three ticks is outside "a tick or two".
-            Run run = Replay(new[] { ("D", 1_000.0), ("S", 1_000.0 + 3 * Tick), ("U", 1_000.0 + 6 * Tick) });
-            Assert.Equal(new[] { "D", "S", "U" }, run.Tokens);
+            Run run = Replay(new[] { ("D", 1_000.0), ("C", 1_000.5) });
+            Assert.Equal(new[] { "D", "C" }, run.Tokens);
         }
 
         [Fact]
@@ -272,18 +242,39 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Order_is_kept_when_a_press_follows_a_held_rotation()
-        {
-            Run run = Replay(new[] { ("U", 1_000.0), ("X1S", 1_000.0 + 4 * Tick), ("D", 1_200.0) });
-            Assert.Equal(new[] { "U", "X1S", "D" }, run.Tokens);
-        }
-
-        [Fact]
         public void A_press_is_acted_on_within_half_a_tick()
         {
             Run run = Replay(new[] { ("X3S", 1_000.0) });
             Assert.Single(run.Out);
             Assert.InRange(run.Out[0].At - 1_000.0, 0, KnobInputFilter.GroupCloseMs + 0.001);
+        }
+
+        // ---- Repair round one: close loses no real step ----
+
+        [Fact]
+        public void Flush_acts_on_a_real_step_still_held_and_still_discards_a_burst()
+        {
+            var one = new KnobInputFilter();
+            Assert.Empty(one.Accept("U", 1_000.0));
+            Assert.Equal(new[] { "U" }, one.Flush());
+            Assert.Null(one.NextDueMs);
+
+            var burst = new KnobInputFilter();
+            foreach (string t in new[] { "D", "D", "U", "D" }) Assert.Empty(burst.Accept(t, 1_000.0));
+            Assert.Empty(burst.Flush());
+            Assert.Equal(4, burst.BurstEventsDiscarded);
+        }
+
+        // ---- Repair round one: the limit of the rule, stated rather than hidden ----
+
+        [Fact]
+        public void A_replay_of_one_or_two_steps_is_not_caught_and_this_is_an_open_question()
+        {
+            // Not a ruling: the measured ceiling of a hand is two per tick, so one or two buffered
+            // steps replayed at open cannot be told from a live turn. Noel has the question
+            // (2026-10-20 report, repair round one). This pins the limit so nobody claims more.
+            Run run = Replay(new[] { ("F0304", 0.6), ("D", 6.0), ("D", 8.1) });
+            Assert.Equal(new[] { "F0304", "D", "D" }, run.Tokens);
         }
 
         [Fact]

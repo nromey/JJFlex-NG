@@ -1,64 +1,62 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 
 namespace JJFlexControl
 {
     /// <summary>
     /// Stands between the Flex Control's decoded tokens and anything that acts on them, and
-    /// drops the input nobody's hand produced (#520). Pure: no port, no clock, no thread. The
+    /// drops bursts of input no hand could produce (#520). Pure: no port, no clock, no thread. The
     /// caller passes each token's arrival time and calls <see cref="Release"/> when
-    /// <see cref="NextDueMs"/> comes round.
+    /// <see cref="NextDueMs"/> comes round, and <see cref="Flush"/> when the port closes.
     /// </summary>
     /// <remarks>
-    /// <para>Every rule here was ruled by Noel at the bench on 2026-09-02, and every number comes
-    /// from that measurement (#520), not from this code:</para>
+    /// <para>Two of Noel's 2026-09-02 bench rulings, with their numbers from that measurement:</para>
     /// <list type="bullet">
-    /// <item><b>A burst faster than a hand is discarded.</b> The knob reports on a 15.6 ms clock
-    /// and a genuine turn never puts more than two events in one tick. The device holds input
-    /// while the port is closed and replays it at line rate on open; a stalled reader lands a
-    /// backlog the same way. Both put many events inside one tick, so one rule covers both.</item>
+    /// <item><b>A burst of three or more inputs faster than a hand is discarded.</b> The device
+    /// holds input while the port is closed and replays it at line rate on open, and a stalled
+    /// reader lands a backlog the same way. The bench measured gaps in whole multiples of 15.6 ms
+    /// and never more than two events in one such tick from a hand, so three or more inside one
+    /// tick is the burst. <b>A replay of only one or two inputs is NOT caught</b>: the measured
+    /// ceiling of a hand is two per tick, so nothing here can tell those from a live turn. That is
+    /// an open question for Noel, not a rule this class makes.</item>
     /// <item><b>A device report is never discarded with the burst.</b> <c>F0304</c> arrives in
     /// exactly that opening window and is probably the identity report. Any token that is not
-    /// one of the fourteen input codes passes through untouched and is not counted.</item>
-    /// <item><b>Rotation within a tick or two of any press code is discarded.</b> Pressing
-    /// mechanically nudges the encoder, and that phantom step would move the frequency every
-    /// time the operator presses. The window is the upper end of the ruling, two ticks, and it
-    /// is symmetric: the measured phantoms came BEFORE their press codes, so a rotation is held
-    /// for that long to see whether a press follows.</item>
+    /// one of the fourteen input codes passes through at once and is not counted.</item>
     /// </list>
-    /// <para><b>Timing is counted in device ticks, never in raw milliseconds.</b> Two arrivals
-    /// are <see cref="TicksBetween"/> ticks apart, rounded to the nearest whole tick, because
-    /// the wrist has already been sampled at 64 Hz before any byte reaches us. A gap that
-    /// rounds to zero means the same tick, and input codes that follow one another with no whole
-    /// tick between them form one group. A group of more than two is a burst, however long it
-    /// runs: a replay at 9600 baud lands an event every two to four milliseconds, so the whole
-    /// backlog chains into one group and goes together.</para>
-    /// <para>What it costs: a press is held until its tick is over (under 8 ms) and a rotation
-    /// until no press can still fall inside two ticks of it (about 39 ms). Order is
-    /// preserved.</para>
+    /// <para><b>The ruling to suppress rotation near a press code is NOT built here.</b> It was
+    /// built and taken out (repair round one): the measured long-press phantom lands 3.8 s before
+    /// its press code, the double-press gap was never measured, and a guard wide enough to matter
+    /// also drops a real final detent and delays every turn. It waits on a bench measurement.</para>
+    /// <para><b>Timing is counted in whole ticks of 15.625 ms.</b> Two arrivals are
+    /// <see cref="TicksBetween"/> ticks apart, rounded to the nearest whole tick. Whether that
+    /// spacing is the knob's own report clock or the probe's poll loop is unsettled
+    /// (ASK-520-tick-clock): the arrivals are host times either way. Input codes that follow one
+    /// another with no whole tick between them form one group, and a group of more than two is a
+    /// burst however long it chains: a replay at 9600 baud lands an event every two to four
+    /// milliseconds.</para>
+    /// <para><b>What it costs: each input is held until its group can take no more members, half
+    /// a tick (about 8 ms) after the group's last arrival.</b> That is the smallest hold the rule
+    /// allows, because any input could be the first of a burst, and dispatching it at once would
+    /// let the first two steps of every replay through. Order is preserved.</para>
     /// </remarks>
     public sealed class KnobInputFilter
     {
-        /// <summary>The knob's report clock: 15.6 ms measured, 1/64 s exactly (#520).</summary>
+        /// <summary>The measured spacing: 15.6 ms, taken as 1/64 s exactly (#520).</summary>
         public const double TickMs = 1000.0 / 64.0;
 
         /// <summary>
-        /// The physical ceiling of a hand: a genuine turn never puts more than about two events in
-        /// one tick (#520). Three or more in one tick is a burst.
+        /// The measured ceiling of a hand: never more than about two events in one tick (#520).
+        /// Three or more in one tick is a burst.
         /// </summary>
         public const int MaxEventsPerTick = 2;
 
-        /// <summary>"Within a tick or two of any press code" (#520), taken at its upper end.</summary>
-        public const int PressGuardTicks = 2;
-
         /// <summary>
-        /// How long a rotation must be held before no press can still arrive within
-        /// <see cref="PressGuardTicks"/> of it: a gap of 2.5 ticks rounds to 3.
+        /// A group can take no more members once half a tick has passed since its last arrival,
+        /// because any later arrival rounds to at least one whole tick away. This is also the
+        /// whole hold an input waits.
         /// </summary>
-        public const double RotationHoldMs = (PressGuardTicks + 0.5) * TickMs;
-
-        /// <summary>A tick's group can take no more members once half a tick has passed.</summary>
         public const double GroupCloseMs = 0.5 * TickMs;
 
         // A deadline handed out by NextDueMs must be met when Release is called AT it. Without
@@ -87,27 +85,19 @@ namespace JJFlexControl
         /// </summary>
         public static bool IsDeviceReport(string token) => !IsRotation(token) && !IsPress(token);
 
-        /// <summary>How many whole device ticks separate two arrivals, rounded to nearest.</summary>
+        /// <summary>How many whole ticks separate two arrivals, rounded to nearest.</summary>
         public static int TicksBetween(double earlierMs, double laterMs) =>
             (int)Math.Floor(Math.Abs(laterMs - earlierMs) / TickMs + 0.5);
 
         private sealed class TickGroup
         {
-            public int Size;
-        }
-
-        private sealed class Held
-        {
-            public string Token;
-            public double At;
-            public TickGroup Group;
+            public readonly List<string> Members = new List<string>();
+            public double FirstAt;
+            public double LastAt;
         }
 
         private readonly Action<string> _note;
-        private readonly List<Held> _held = new List<Held>();
-        private readonly List<double> _pressTimes = new List<double>();
-        private TickGroup _openGroup;
-        private double _lastInputAt = double.NaN;
+        private TickGroup _open;
         private double _decidedThrough = double.NegativeInfinity;
 
         /// <param name="note">Told, in a sentence, about every discard, so the trace shows what
@@ -117,45 +107,24 @@ namespace JJFlexControl
             _note = note;
         }
 
-        /// <summary>Events discarded because they arrived faster than a hand could produce them.</summary>
+        /// <summary>Inputs discarded because they arrived faster than a hand could produce them.</summary>
         public int BurstEventsDiscarded { get; private set; }
-
-        /// <summary>Rotation steps discarded because they fell within two ticks of a press code.</summary>
-        public int PhantomStepsDiscarded { get; private set; }
 
         /// <summary>
         /// When <see cref="Release"/> next has something to decide, in the same clock as the
         /// arrival times; null when nothing is held.
         /// </summary>
-        public double? NextDueMs
-        {
-            get
-            {
-                if (_held.Count == 0) return null;
-                Held head = _held[0];
-                // The head's group may still be open by reference after its time has passed;
-                // the deadline is the LATER of the group closing and the head's own hold, so a
-                // Release at it always decides something.
-                double closesAt = ReferenceEquals(head.Group, _openGroup)
-                    ? _lastInputAt + GroupCloseMs
-                    : head.At;
-                if (IsRotation(head.Token) && head.Group.Size <= MaxEventsPerTick)
-                {
-                    return Math.Max(closesAt, head.At + RotationHoldMs);
-                }
-                return closesAt;
-            }
-        }
+        public double? NextDueMs => _open == null ? (double?)null : _open.LastAt + GroupCloseMs;
 
         /// <summary>
         /// Take one decoded token that arrived at <paramref name="atMs"/>. Returns, in order,
-        /// whatever may now be acted on. Arrival times must not go backwards.
+        /// whatever may now be acted on.
         /// </summary>
         public IReadOnlyList<string> Accept(string token, double atMs)
         {
             // Time never runs backwards here: an arrival stamped before a Release already decided
-            // that instant is treated as arriving at it, so it cannot join a group whose members
-            // have already been acted on.
+            // that instant is treated as arriving at it, so it cannot join a group that has
+            // already been acted on.
             if (atMs < _decidedThrough) atMs = _decidedThrough;
 
             var output = new List<string>();
@@ -167,16 +136,12 @@ namespace JJFlexControl
                 return output;
             }
 
-            if (_openGroup == null || double.IsNaN(_lastInputAt) || TicksBetween(_lastInputAt, atMs) != 0)
+            if (_open == null)
             {
-                _openGroup = new TickGroup();
+                _open = new TickGroup { FirstAt = atMs };
             }
-            _openGroup.Size++;
-            _lastInputAt = atMs;
-            if (IsPress(token)) _pressTimes.Add(atMs);
-
-            _held.Add(new Held { Token = token, At = atMs, Group = _openGroup });
-            ReleaseInto(output, atMs);
+            _open.Members.Add(token);
+            _open.LastAt = atMs;
             return output;
         }
 
@@ -191,65 +156,38 @@ namespace JJFlexControl
             return output;
         }
 
+        /// <summary>
+        /// The port is closing and nothing more will arrive: decide what is held now, so a real
+        /// step taken just before a close is acted on and a burst is still discarded.
+        /// </summary>
+        public IReadOnlyList<string> Flush()
+        {
+            var output = new List<string>();
+            if (_open != null) Decide(output);
+            return output;
+        }
+
         private void ReleaseInto(List<string> output, double nowMs)
         {
             if (nowMs > _decidedThrough) _decidedThrough = nowMs;
-            while (_held.Count > 0)
-            {
-                Held head = _held[0];
-
-                bool groupClosed = !ReferenceEquals(head.Group, _openGroup)
-                    || nowMs - _lastInputAt >= GroupCloseMs - DeadlineSlackMs;
-                if (!groupClosed) break;
-
-                if (head.Group.Size > MaxEventsPerTick)
-                {
-                    DiscardBurst(head.Group);
-                    continue;
-                }
-
-                if (IsPress(head.Token))
-                {
-                    _held.RemoveAt(0);
-                    output.Add(head.Token);
-                    continue;
-                }
-
-                // A rotation. A press inside the window, before or after it, makes it a phantom.
-                if (NearPress(head.At))
-                {
-                    _held.RemoveAt(0);
-                    PhantomStepsDiscarded++;
-                    _note?.Invoke("rotation " + head.Token + " discarded: within "
-                        + PressGuardTicks + " ticks of a press code, so the press nudged the encoder");
-                    continue;
-                }
-
-                if (nowMs - head.At < RotationHoldMs - DeadlineSlackMs) break; // a press may yet arrive
-
-                _held.RemoveAt(0);
-                output.Add(head.Token);
-            }
-
-            // Press times older than any rotation still to be judged are no longer needed.
-            double horizon = (_held.Count > 0 ? _held[0].At : nowMs) - RotationHoldMs;
-            _pressTimes.RemoveAll(t => t < horizon);
+            if (_open != null && nowMs - _open.LastAt >= GroupCloseMs - DeadlineSlackMs) Decide(output);
         }
 
-        private bool NearPress(double rotationAt) =>
-            _pressTimes.Any(p => TicksBetween(p, rotationAt) <= PressGuardTicks);
-
-        private void DiscardBurst(TickGroup group)
+        private void Decide(List<string> output)
         {
-            List<Held> members = _held.Where(h => ReferenceEquals(h.Group, group)).ToList();
-            _held.RemoveAll(h => ReferenceEquals(h.Group, group));
-            BurstEventsDiscarded += members.Count;
-            if (members.Count == 0) return;
-            double span = members[members.Count - 1].At - members[0].At;
-            _note?.Invoke(members.Count + " events with no whole tick between them, over "
-                + span.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)
+            TickGroup group = _open;
+            _open = null;
+            if (group.Members.Count <= MaxEventsPerTick)
+            {
+                output.AddRange(group.Members);
+                return;
+            }
+
+            BurstEventsDiscarded += group.Members.Count;
+            _note?.Invoke(group.Members.Count + " events with no whole tick between them, over "
+                + (group.LastAt - group.FirstAt).ToString("0.0", CultureInfo.InvariantCulture)
                 + " ms, discarded as a burst no hand could produce: "
-                + string.Join(",", members.Select(m => m.Token)));
+                + string.Join(",", group.Members));
         }
     }
 }
