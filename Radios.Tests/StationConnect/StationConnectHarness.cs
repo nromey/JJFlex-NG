@@ -378,10 +378,13 @@ namespace Radios.Tests.StationConnect
         /// <summary>A discovery packet did not list the client.</summary>
         public void ClientRemovedByDiscovery(uint handle) => Roster.ClientRemoved(handle, Gen, RosterRemovalOrigin.Discovery);
 
-        /// <summary>A radio-reported global inventory. With no ask of ours
-        /// outstanding it is the radio's own (FlexLib's connect-time answer, or
-        /// the post-load re-report); with one outstanding it is that ask's
-        /// answer, as the production log would take it.</summary>
+        /// <summary>A radio-reported global inventory. With no recorded ask
+        /// outstanding it is the radio's own (the post-load re-report); with
+        /// one outstanding — FlexLib's connect-time ask
+        /// (<see cref="FlexLibConnectTimeAskIsOutstanding"/>) first, then ours —
+        /// it is taken as that ask's answer, as the production log would take
+        /// it. The harness records FlexLib's ask only when a test says so, so
+        /// a list here with nothing recorded models a list of unknown origin.</summary>
         public void RadioReportsGlobalList(params string[] names) =>
             Profiles.GlobalListObserved(names, ObservationProvenance.RadioReported, Gen);
 
@@ -393,6 +396,16 @@ namespace Radios.Tests.StationConnect
         /// The next <see cref="RadioReportsGlobalList"/> is its late answer.
         /// </summary>
         public void OurInventoryAskIsStillOutstanding() => Profiles.GlobalInventoryAsked(Gen);
+
+        /// <summary>
+        /// FlexLib's own connect-time <c>profile global info</c> (sent by
+        /// <c>Radio.GetProfileLists</c> from inside <c>Radio.Connect</c>) has
+        /// gone out and not been answered yet. Production records it from
+        /// <c>FlexBase.NoteFlexLibConnectTimeProfileAsk</c> immediately before
+        /// the vendor's Connect (#639, repair round two). The next
+        /// <see cref="RadioReportsGlobalList"/> may be its answer.
+        /// </summary>
+        public void FlexLibConnectTimeAskIsOutstanding() => Profiles.FlexLibConnectInventoryAsked(Gen);
 
         public void RadioReportsGlobalSelection(string name) =>
             Profiles.GlobalSelectionObserved(name, ObservationProvenance.RadioReported, Gen);

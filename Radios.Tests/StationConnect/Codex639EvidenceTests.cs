@@ -22,6 +22,11 @@ namespace Radios.Tests.StationConnect
     // connect-time answer arriving late; the shape where the list answers OUR
     // outstanding ask is in LoadCompletionPolicyTests. Both must leave the
     // coordinator waiting for the radio's own list after the newest slice.
+    //
+    // Repair round two (2026-10-20): production now RECORDS FlexLib's
+    // connect-time ask, so this unrecorded list models a list of unknown
+    // origin. The shape Codex's re-verify named, FlexLib's late answer AFTER
+    // the first restored slice, is in FlexLibConnectAskTests.
     public class Codex639EvidenceTests
     {
         [Fact]

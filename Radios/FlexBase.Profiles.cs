@@ -509,11 +509,12 @@ namespace Radios
             // be inventory and not the radio's own post-load list re-report
             // (#639, Codex B1). A send that fails withdraws the record.
             int askGeneration = typ == ProfileTypes.global ? StationAttempt.Generation : 0;
+            long askId = 0;
             try
             {
                 try
                 {
-                    if (typ == ProfileTypes.global) ProfileEvidence.GlobalInventoryAsked(askGeneration);
+                    if (typ == ProfileTypes.global) askId = ProfileEvidence.GlobalInventoryAsked(askGeneration);
                     // Fire the ask and OBSERVE the reply task so a refusal
                     // cannot surface later as an unobserved exception. The
                     // list itself arrives as a status message, not in the
@@ -525,7 +526,7 @@ namespace Radios
                             Tracing.TraceLine(
                                 "ReadRadioProfileList(" + typ + "): info command refused: "
                                 + t.Exception?.GetBaseException().Message, TraceLevel.Warning);
-                            if (typ == ProfileTypes.global) ProfileEvidence.GlobalInventoryAskWithdrawn(askGeneration);
+                            if (typ == ProfileTypes.global) ProfileEvidence.GlobalInventoryAskWithdrawn(askGeneration, askId);
                         },
                         TaskContinuationOptions.OnlyOnFaulted);
                 }
@@ -534,7 +535,7 @@ namespace Radios
                     // The ask itself failed. Fall through to whatever the
                     // session already holds; Reported says whether that is
                     // anything.
-                    if (typ == ProfileTypes.global) ProfileEvidence.GlobalInventoryAskWithdrawn(askGeneration);
+                    if (typ == ProfileTypes.global) ProfileEvidence.GlobalInventoryAskWithdrawn(askGeneration, askId);
                     Tracing.TraceLine("ReadRadioProfileList(" + typ + "): ask failed: "
                         + ex.Message, TraceLevel.Warning);
                 }

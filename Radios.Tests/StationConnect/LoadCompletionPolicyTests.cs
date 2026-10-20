@@ -239,8 +239,8 @@ namespace Radios.Tests.StationConnect
             // The send threw, or the transport refused it: the ask is withdrawn
             // and the next list is the radio's own.
             var e = new Evidence().ArmAtSend();
-            e.Profiles.GlobalInventoryAsked(Evidence.Gen);
-            e.Profiles.GlobalInventoryAskWithdrawn(Evidence.Gen);
+            long ask = e.Profiles.GlobalInventoryAsked(Evidence.Gen);
+            e.Profiles.GlobalInventoryAskWithdrawn(Evidence.Gen, ask);
             e.SliceReady(0);
             e.ListReported();
             Assert.Equal(LoadCompletion.Confirmed, Policy.Judge(e.Now()));

@@ -44,6 +44,17 @@ namespace Radios.StationConnect
         /// <summary>Monotonic milliseconds since the send.</summary>
         public long ElapsedSinceSendMs;
 
+        /// <summary>
+        /// True when, at the moment the load was sent, FlexLib's own
+        /// connect-time <c>profile global info</c> might still have been
+        /// unanswered (<see cref="ProfileEvidenceSnapshot.FlexLibConnectAnswerMayBeOutstanding"/>).
+        /// Taken at the send and never revised: a list arriving later may be
+        /// that answer, and nothing in a list says which ask it answers.
+        /// Noel ruled, 2026-10-20 08:15, that such a load never confirms on
+        /// any list (#639, repair round two).
+        /// </summary>
+        public bool FlexLibConnectAnswerMayBeOutstandingAtSend;
+
         /// <summary>Convenience: a radio-reported global selection equal to the
         /// wanted name observed AFTER the send.</summary>
         public bool RadioReportedSelectionMatchesAfterSend =>
@@ -69,8 +80,9 @@ namespace Radios.StationConnect
             && ProfileNow.GlobalList.Sequence > SentAtProfileSequence;
 
         /// <summary>Convenience: a radio-reported global list observed after
-        /// the send that was NOT the answer to a <c>profile global info</c> of
-        /// ours (<see cref="ProfileEvidenceSnapshot.UnsolicitedGlobalList"/>).
+        /// the send that was NOT taken as the answer to a recorded
+        /// <c>profile global info</c>, FlexLib's connect-time ask or ours
+        /// (<see cref="ProfileEvidenceSnapshot.UnsolicitedGlobalList"/>).
         /// The radio sends one of these, unasked, a few milliseconds after the
         /// last slice a global load restores (measured 2026-10-17 to
         /// 2026-10-20, #639).</summary>
@@ -178,12 +190,14 @@ namespace Radios.StationConnect
 
     /// <summary>
     /// <b>The production default since 2026-10-20 (#639).</b> A sent global
-    /// load is Confirmed when three things hold: at least one own slice has
-    /// been reported ready after the send that was not present at the send;
-    /// the radio has sent its global profile list ON ITS OWN ACCOUNT after
-    /// the send — a list that is not the answer to a <c>profile global info</c>
-    /// of ours; and that list arrived AFTER the newest of those slices. A
-    /// rejection is Rejected; anything short of all three is Unconfirmed, and
+    /// load is Confirmed when four things hold: FlexLib's own connect-time
+    /// <c>profile global info</c> had been answered when the load was sent;
+    /// at least one own slice has been reported ready after the send that
+    /// was not present at the send; the radio has sent its global profile
+    /// list ON ITS OWN ACCOUNT after the send — a list that is not taken as
+    /// the answer to any recorded <c>profile global info</c>, FlexLib's or
+    /// ours; and that list arrived AFTER the newest of those slices. A
+    /// rejection is Rejected; anything short of all four is Unconfirmed, and
     /// the coordinator keeps judging inside the station phase as evidence
     /// arrives, so a later slice re-opens the wait for a later list.
     /// </summary>
@@ -226,17 +240,31 @@ namespace Radios.StationConnect
     /// re-report is consumed as the answer): fail-closed, not a timer.
     /// </para>
     /// <para>
-    /// <b>Why the list must follow the newest slice.</b> The one other
-    /// unsolicited list the radio is known to send is the answer to FlexLib's
-    /// connect-time <c>profile global info</c>, which is not ours and so not
-    /// accounted for. It is answered before the station phase in every trace,
-    /// and because the radio handles its command channel in order (the #782
-    /// fence rests on the same fact) a late answer to a query sent before the
-    /// load arrives before the load's first slice. Requiring the list to
-    /// carry a higher <see cref="ObservationOrdinal"/> than every new own
-    /// slice therefore rejects it, and more generally rejects any list that
-    /// is not the one the radio sends after the last restored slice. The two
-    /// logs have separate sequences, which is why the ordinal exists.
+    /// <b>FlexLib's own ask is accounted for too (repair round two).</b>
+    /// <c>Radio.Connect</c> sends <c>profile global info</c> itself, from
+    /// <c>GetProfileLists()</c>, and round one left it unrecorded on the
+    /// premise that the radio answers it before the load's first slice
+    /// because it was sent earlier. Codex (round-one re-verify) found nothing
+    /// that proves that premise: the source shows received messages are
+    /// handled in order, not that the radio emits an earlier query's answer
+    /// before a later load's effects. So FlexBase now records FlexLib's ask
+    /// immediately before every live vendor Connect
+    /// (<c>NoteFlexLibConnectTimeProfileAsk</c>), the next radio-reported list
+    /// is taken as its answer, and Noel ruled (2026-10-20 08:15) that if it
+    /// may still be unanswered when the load is sent, the load never
+    /// confirms on any list (<see cref="LoadEvidence.FlexLibConnectAnswerMayBeOutstandingAtSend"/>):
+    /// it ends Unconfirmed at the phase bound. Every one of the 24 archived
+    /// loads (2026-10-19 and 2026-10-20) had both answers, FlexLib's and
+    /// ours, in before the send, so the measured path is unchanged.
+    /// </para>
+    /// <para>
+    /// <b>Why the list must follow the newest slice.</b> The measured order is
+    /// slices, then the radio's own list a few milliseconds after the LAST of
+    /// them. Requiring the list to carry a higher
+    /// <see cref="ObservationOrdinal"/> than every new own slice rejects any
+    /// list that is not that one, including a late answer the accounting
+    /// attributed to the wrong ask. The two logs have separate sequences,
+    /// which is why the ordinal exists.
     /// </para>
     /// <para>
     /// <b>What this is not.</b> It is a measured regularity of one radio's
@@ -265,7 +293,8 @@ namespace Radios.StationConnect
     /// 20 s from the phase's start, not from the send) before ending
     /// Unconfirmed, where the retired placeholder ended in a millisecond.
     /// Same outcome, no post-station writes either way; the cost is the
-    /// wait. The benches: save an empty station and connect, for the
+    /// wait. FlexLib's connect-time ask still unanswered at the send is one
+    /// more such case, by ruling. The benches: save an empty station and connect, for the
     /// zero-slice rule; the operator-requested load after company left with
     /// client-local slices on the radio, for index reuse (the fix belongs in
     /// the tracker's identity rule); one connect on a 6300, and one with a
@@ -288,10 +317,16 @@ namespace Radios.StationConnect
         {
             if (e == null) return LoadCompletion.Unconfirmed;
             if (e.Rejected) return LoadCompletion.Rejected;
-            // A list that answers an ask of ours is inventory, not the radio
-            // reporting the load; the list alone is not a station either (a
-            // zero-slice profile and a load whose slices never materialized
-            // both look like that).
+            // FlexLib's connect-time answer may still have been on its way at
+            // the send: any list after it may be that answer, so nothing after
+            // it can confirm (Noel, 2026-10-20 08:15). Unconfirmed, not
+            // NotProvable: the phase still waits out its bound, keeping the
+            // slices that arrive, as ruled.
+            if (e.FlexLibConnectAnswerMayBeOutstandingAtSend) return LoadCompletion.Unconfirmed;
+            // A list taken as the answer to a recorded ask is inventory, not
+            // the radio reporting the load; the list alone is not a station
+            // either (a zero-slice profile and a load whose slices never
+            // materialized both look like that).
             if (!e.UnsolicitedGlobalListAfterSend) return LoadCompletion.Unconfirmed;
             // A slice alone may be the first of several: the list is what the
             // radio was measured to send after the LAST one, so the list must

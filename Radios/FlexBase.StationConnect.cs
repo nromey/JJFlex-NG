@@ -166,6 +166,27 @@ namespace Radios
                 TraceLevel.Info);
         }
 
+        /// <summary>
+        /// Record that FlexLib is about to send its OWN
+        /// <c>profile global info</c>. <c>Radio.Connect</c> calls
+        /// <c>GetProfileLists()</c> from <c>InitializeCommandConnection</c>
+        /// and tells nobody, so until 2026-10-20 its answer was classed as the
+        /// radio's own list and, arriving late, could have confirmed a global
+        /// load that was still restoring slices (#639, repair round two;
+        /// Codex's round-one re-verify). Called immediately before every live
+        /// call to the vendor's Connect, after <see cref="BeginStationAttempt"/>
+        /// has reset the evidence, so the answer cannot arrive ahead of the
+        /// record. Vendored FlexLib is not edited for this
+        /// (<c>memory/feedback_no_vendor_derivative_commits.md</c>).
+        /// </summary>
+        private void NoteFlexLibConnectTimeProfileAsk(string why)
+        {
+            int gen = StationAttempt.Generation;
+            ProfileEvidence.FlexLibConnectInventoryAsked(gen);
+            Tracing.TraceLine("StationConnect: " + why + " — FlexLib's own connect-time 'profile global info' is about to go out (attempt "
+                + gen + "); the next global list the radio reports is taken as its answer, not as the radio's own", TraceLevel.Info);
+        }
+
         private void StationEvidenceChanged()
         {
             StationAttempt.Signal();

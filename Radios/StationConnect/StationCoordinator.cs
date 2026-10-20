@@ -289,6 +289,7 @@ namespace Radios.StationConnect
             var stationBefore = _station.Snapshot();
             long profileSeqAtSend = _profiles.Sequence;
             long stationSeqAtSend = _station.Sequence;
+            bool flexLibAnswerMayBeOutstandingAtSend = false;
             bool sent = false;
             string refusal = null;
             string rejection = null;
@@ -334,7 +335,12 @@ namespace Radios.StationConnect
                     return;
                 }
 
-                profileSeqAtSend = _profiles.Sequence;
+                // One snapshot for both, so the sequence and the state of
+                // FlexLib's connect-time ask describe the same instant (#639,
+                // repair round two).
+                var profilesAtSend = _profiles.Snapshot();
+                profileSeqAtSend = profilesAtSend.Sequence;
+                flexLibAnswerMayBeOutstandingAtSend = profilesAtSend.FlexLibConnectAnswerMayBeOutstanding;
                 stationSeqAtSend = _station.Sequence;
                 stationBefore = _station.Snapshot();
                 // The radio's reply is acceptance or rejection of the
@@ -383,6 +389,9 @@ namespace Radios.StationConnect
 
             result.LoadSent = true;
             Trace("global load '" + name + "' SENT (not loaded). Waiting for completion evidence under policy: " + _policies.LoadCompletion.Name);
+            if (flexLibAnswerMayBeOutstandingAtSend)
+                Trace(FlexLibAskOpenAtSend + " was still unanswered when the load was sent; any global list after the send "
+                    + "may be its answer, so this load cannot be confirmed and ends Unconfirmed at the station phase's bound (#639, ruled 2026-10-20)");
 
             // ── Sent, not Loaded ──
             while (true)
@@ -400,6 +409,7 @@ namespace Radios.StationConnect
                     RejectionText = rejection ?? "",
                     Acknowledged = acknowledged,
                     ElapsedSinceSendMs = _clock.NowMs - sentAtMs,
+                    FlexLibConnectAnswerMayBeOutstandingAtSend = flexLibAnswerMayBeOutstandingAtSend,
                 };
                 var completion = _policies.LoadCompletion.Judge(evidence);
 
@@ -453,12 +463,20 @@ namespace Radios.StationConnect
                     result.LoadOutstanding = true;
                     result.Allocation.Stop = AllocationStop.LoadOutstanding;
                     return Finish(result, StationOutcome.Unconfirmed, GlobalRoute.LoadExisting,
-                        "the station phase ended without completion evidence; the load may still be in progress. "
+                        "the station phase ended without completion evidence"
+                        + (flexLibAnswerMayBeOutstandingAtSend
+                            ? " (" + FlexLibAskOpenAtSend + " was unanswered when the load was sent, so no list after it could be told from that answer)"
+                            : "")
+                        + "; the load may still be in progress. "
                         + "No second load, no disconnect-to-retry, no default fill");
                 }
                 _waiter.Wait(Math.Min(25, phase.RemainingMs(_clock)));
             }
         }
+
+        /// <summary>How the coordinator's trace names FlexLib's own
+        /// <c>profile global info</c>, sent from inside the vendor's Connect.</summary>
+        private const string FlexLibAskOpenAtSend = "FlexLib's connect-time profile list request (its own 'profile global info')";
 
         /// <summary>
         /// Everything that withdraws permission for a load already sent, as
