@@ -50,6 +50,7 @@ public sealed class ListenbackRoundSixTests : IDisposable
                 c.Ears = c.Add(0, 1.8);
                 Field(c.F.Rig, "mySliceAdded", true);
                 Field(c.F.Rig, "_RXVFO", 1); Field(c.F.Rig, "_TXVFO", 1);
+                c.F.Vendor.Reply(c.F.Vendor.LastSequence, 0, "0x40000000,0x42000000");
             }
             else if (!command.StartsWith("sub radio all", StringComparison.Ordinal)) c.Respond(command);
             c.F.Vendor.ReplyOk(c.F.Vendor.LastSequence);

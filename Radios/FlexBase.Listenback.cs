@@ -24,6 +24,9 @@ public partial class FlexBase
         return () => serial == null ? null : store.Find(serial);
     }
     public string[] ListenbackReceiveAntennas => SliceForTransmitSetting()?.Panadapter?.RXAntennaList ?? Array.Empty<string>();
+    // Keep this exact selection shared by the off-air take and Loopback Check.
+    internal static string OtherTransverterReceiveInput(IEnumerable<string> receiveAntennas, string transmitAntenna) =>
+        receiveAntennas?.FirstOrDefault(a => a.StartsWith("XVT", StringComparison.OrdinalIgnoreCase) && a != transmitAntenna);
     public bool OffAirListenbackSupported => theRadio?.DiversityIsAllowed == true && LoopbackSupported;
 
     private Guid _listenbackPreflightConnection;
@@ -41,7 +44,9 @@ public partial class FlexBase
             await Task.Delay(TimeSpan.FromSeconds(10), cancellation).ConfigureAwait(false);
             var health = run.Capture.Writer.Health();
             clean = !run.HasRadioKeying && !Transmit && health.Seconds >= 9 && health.Age < 1 &&
-                health.Gaps == 0 && health.Fill == 0 && run.Capture.DroppedPackets == 0 && Math.Abs(health.Ratio - 1) <= .01 && !run.Capture.Ended.IsCompleted;
+                health.Gaps == (run.Capture.Writer.StartupSignatureDetected ? 1 : 0) &&
+                health.Fill == (run.Capture.Writer.StartupSignatureDetected ? 4 : 0) &&
+                run.Capture.DroppedPackets == 0 && Math.Abs(health.Ratio - 1) <= .01 && !run.Capture.Ended.IsCompleted;
             _listenbackPreflightResult = FormattableString.Invariant($"clean={clean}; seconds={health.Seconds:F3}; ratio={health.Ratio:F6}; gaps={health.Gaps}; fill={health.Fill}; maximum-jitter-seconds={health.Jitter:F6}");
             run.Capture.Writer.Header.Write("preflight", _listenbackPreflightResult);
         }
@@ -103,6 +108,8 @@ public partial class FlexBase
             if (options.OffAir && !OffAirListenbackSupported) throw new InvalidOperationException("one-scu-not-confirmed");
             if (options.OffAir && RemoteRig && !HasCleanListenbackPreflight) throw new InvalidOperationException("preflight-required");
             if (options.OffAir && tx.DemodMode is not ("USB" or "LSB")) throw new InvalidOperationException("ssb-only");
+            if (options.OffAir && string.IsNullOrEmpty(LoopbackOtherReceivePort(expectedLoopbackAntenna)))
+                throw new InvalidOperationException("no-other-transverter-input");
             if (!(ModelInfo.GetModelInfoForModel(radio.Model)?.DaxIqSampleRates.Contains(options.Rate) ?? false)) throw new InvalidOperationException("unsupported-rate");
             bool separate = options.OffAir || options.SeparatePan;
             if (separate && radio.SliceList.Count >= TotalMaxSlices) throw new InvalidOperationException("no-free-slice");
@@ -155,7 +162,7 @@ public partial class FlexBase
                 }
                 ownedLoopback = _lbResources;
             }
-            else if (separate && !NewSlice(diagnosticResources)) throw new InvalidOperationException("no-free-slice");
+            else if (separate && !NewSlice(diagnosticResources, DiagnosticSlicePurpose.Listenback)) throw new InvalidOperationException("no-free-slice");
             if (separate)
             {
                 await IqQueue(() =>
@@ -186,7 +193,7 @@ public partial class FlexBase
             store.Save(snapshot);
             string rxAnt = options.ReceiveAntenna;
             if (options.OffAir)
-                rxAnt = pan.RXAntennaList?.FirstOrDefault(a => a.StartsWith("XVT", StringComparison.OrdinalIgnoreCase) && a != tx.TXAnt);
+                rxAnt = OtherTransverterReceiveInput(pan.RXAntennaList, tx.TXAnt);
             if (options.OffAir && string.IsNullOrEmpty(rxAnt)) throw new InvalidOperationException("no-other-transverter-input");
             if (!string.IsNullOrEmpty(rxAnt) && !(pan.RXAntennaList?.Contains(rxAnt) ?? false)) throw new InvalidOperationException("receive-antenna-unavailable");
             double receiveFrequency = tx.Freq;

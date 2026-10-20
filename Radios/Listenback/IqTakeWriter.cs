@@ -25,6 +25,7 @@ public sealed class IqTakeWriter : IDisposable
     private IqBlock _leading, _following;
     private bool _startupSettled;
     private long _startupDiscards;
+    private bool _startupSignatureDetected;
     private readonly object _gate = new();
     public string DirectoryPath { get; }
     public TakeHeader Header { get; }
@@ -32,6 +33,7 @@ public sealed class IqTakeWriter : IDisposable
     public bool IsReady => _ready.Task.IsCompletedSuccessfully && _ready.Task.Result;
     public long PairsWritten => _pairs;
     public long FillPairs => _fill;
+    public bool StartupSignatureDetected => _startupSignatureDetected;
     public string Failure { get; private set; }
     public Task<string> Failed => _failure.Task;
     private readonly TaskCompletionSource<string> _failure = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -142,6 +144,14 @@ public sealed class IqTakeWriter : IDisposable
         var gap = _ledger.Observe(h, data.Length / 2, block.DroppedPairs);
         if (!gap.Exact || gap.FillPairs != 0 || gap.Discard)
             Header.Event("gap", new { AtPair = _pairs, Header = h, gap.FillPairs, gap.Discard, gap.Exact, gap.Basis });
+        if (gap.Exact && !gap.Discard && gap.Basis == "radio-timestamp" && gap.FillPairs == 4 &&
+            _pairs == 128 && _lastPacketPairs == 128 && _gaps == 0 &&
+            block.DroppedPackets == 0 && block.DroppedPairs == 0)
+        {
+            _startupSignatureDetected = true;
+            Header.Event("startup-signature-gap", new { AtPair = _pairs, gap.FillPairs, gap.Exact, gap.Basis });
+            Header.Write("startup-signature", "detected");
+        }
         if (gap.Discard)
         {
             _discards++;
@@ -273,7 +283,7 @@ public sealed class IqTakeWriter : IDisposable
                 Header.Write("overrun-pairs", droppedPairs);
                 Header.Write("subscriber-failures", subscriberFailures);
                 Header.Write("sha256", TakeHeader.Checksum(Path.Combine(DirectoryPath, "rf.iq")));
-                bool clean = IsReady && !_failed && _gaps == 0 && _discards == 0 &&
+                bool clean = IsReady && !_failed && _gaps == (_startupSignatureDetected ? 1 : 0) && _discards == 0 &&
                     droppedPackets == 0 && _overruns == 0 && subscriberFailures == 0 && reason == "operator-stop";
                 Header.Write("closed", clean ? "clean" : "incomplete");
             }

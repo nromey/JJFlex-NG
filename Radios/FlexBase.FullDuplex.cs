@@ -93,30 +93,40 @@ public partial class FlexBase
     private async Task VerifyFullDuplexLanAsync(FullDuplexDecision decision)
     {
         var radio = decision.Radio;
-        if (radio.IsWan || RemoteRig || radio.IP == null) return;
-        if (!ReferenceEquals(Volatile.Read(ref _fullDuplexDecision), decision) ||
-            !radio.Connected || !ReferenceEquals(theRadio, radio) ||
-            !ReferenceEquals(decision.Connection, radio.CurrentCommandConnection)) return;
+        void Outcome(string result) => JJTrace.Tracing.TraceLine("Full duplex LAN check: " + result,
+            System.Diagnostics.TraceLevel.Info);
+        if (radio.IsWan) { Outcome("skipped: WAN"); return; }
+        if (RemoteRig) { Outcome("skipped: RemoteRig"); return; }
+        if (radio.IP == null) { Outcome("skipped: no IP"); return; }
+        if (!ReferenceEquals(Volatile.Read(ref _fullDuplexDecision), decision))
+        { Outcome("skipped: superseded"); return; }
+        if (!radio.Connected || !ReferenceEquals(theRadio, radio) ||
+            !ReferenceEquals(decision.Connection, radio.CurrentCommandConnection))
+        { Outcome("skipped: connection changed"); return; }
         try
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
             bool? actual = await FullDuplexLanQuery(radio.IP, timeout.Token).ConfigureAwait(false);
-            if (actual == null || actual == decision.Value ||
-                !ReferenceEquals(Volatile.Read(ref _fullDuplexDecision), decision) ||
-                !ReferenceEquals(radio, theRadio) || !radio.Connected ||
-                !ReferenceEquals(decision.Connection, radio.CurrentCommandConnection)) return;
+            if (!ReferenceEquals(Volatile.Read(ref _fullDuplexDecision), decision))
+            { Outcome("skipped: superseded"); return; }
+            if (!ReferenceEquals(radio, theRadio) || !radio.Connected ||
+                !ReferenceEquals(decision.Connection, radio.CurrentCommandConnection))
+            { Outcome("skipped: connection changed"); return; }
+            if (actual == null) { Outcome("unavailable"); return; }
+            if (actual == decision.Value) { Outcome($"agreed: {actual.Value}"); return; }
             // The check is silent on agreement and absence. A real disagreement
             // supersedes the local reply-proven state, and is announced once.
             var corrected = new FullDuplexDecision(radio, decision.Connection, actual.Value) { CheckStarted = 1 };
-            if (!ReferenceEquals(Interlocked.CompareExchange(ref _fullDuplexDecision, corrected, decision), decision)) return;
-            JJTrace.Tracing.TraceLine($"Full duplex LAN check disagreed: requested={decision.Value} read={actual.Value}", System.Diagnostics.TraceLevel.Warning);
+            if (!ReferenceEquals(Interlocked.CompareExchange(ref _fullDuplexDecision, corrected, decision), decision))
+            { Outcome("skipped: superseded"); return; }
+            Outcome($"disagreed: requested={decision.Value} read={actual.Value}");
             if (!SuppressSpeech)
                 ScreenReaderOutput.Speak(Lexicon.Get(actual.Value
                     ? "audio.full_duplex.disagreed_on" : "audio.full_duplex.disagreed_off"),
                     VerbosityLevel.Critical, interrupt: true);
         }
-        catch (Exception ex)
-        { JJTrace.Tracing.TraceLine("Full duplex LAN check unavailable: " + ex.Message, System.Diagnostics.TraceLevel.Info); }
+        catch (OperationCanceledException) { Outcome("timed out"); }
+        catch (Exception ex) { Outcome("unavailable: " + ex.Message); }
     }
 
     private async Task<bool> ReadSettingAsync(Radio radio, CommandConnection connection,

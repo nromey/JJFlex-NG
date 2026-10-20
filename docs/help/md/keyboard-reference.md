@@ -610,7 +610,7 @@ These keys are active anywhere inside the Audio Workshop window (`Ctrl+Shift+W` 
 - **Alt+E** — Export a preset to a file you can share
 - **Alt+I** — Import a preset from a file (it joins your saved presets — nothing changes on the radio until you load it)
 - **Alt+R** — Reset the TX audio chain to defaults
-- **Escape** — Two-stage while a check is transmitting: first press unkeys and stays in the workshop, second press closes it. Escape never leaves you transmitting
+- **Escape** — While an Audio Check or Loopback Check is running, stop it and stay in the workshop; press again after it ends to close. Stopping unkeys the radio
 
 Inside the Load Preset picker, the `Delete` key (or the Delete button) deletes the preset you're on — it asks before doing anything, and deleting never touches the radio.
 

@@ -46,6 +46,7 @@ public sealed class ListenbackRoundTwoTests : IDisposable
                 null, new object[] { F.Vendor.Radio }, null)!;
             Property(pan, "StreamID", (uint)(0x40000000 + index));
             Property(pan, "ClientHandle", RigOnVendorRadio.OurHandle);
+            Field(pan, "_rx_antenna_list", new[] { "ANT1", "XVT-A", "XVT-B" });
             Property(s, "Panadapter", pan);
             Field(s, "_tx_ant_list", new[] { "ANT1", "XVT-A", "XVT-B" });
             Field(s, "_txant", "ANT1");

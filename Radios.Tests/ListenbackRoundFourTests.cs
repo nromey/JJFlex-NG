@@ -134,14 +134,17 @@ public sealed class ListenbackRoundFourTests : IDisposable
     }
 
     [Fact]
-    public void Exact_bench_four_pair_gap_is_not_disguised_as_clean()
+    public void Exact_bench_four_pair_gap_is_recorded_as_a_startup_signature()
     {
         var first = new IqPacketHeader(0x20000000,0,739,1,2,1792448344,891792219912,20158426792920);
         var second = new IqPacketHeader(0x20000000,1,739,1,2,1792448344,897292215842,20158426867579);
         using var w = new IqTakeWriter(DirectoryFor("four-pair-gap"),24000,new Dictionary<string,string>()) { Active = true, EchoedRate = 24000 };
         w.Accept(new(first,Noise(128),0,0)); w.Accept(new(second,Noise(8192),0,0));
         w.Finish("operator-stop");
-        Assert.Equal(4,w.FillPairs); Assert.Equal("incomplete",TakeReader.Inspect(w.DirectoryPath).State);
+        Assert.Equal(4,w.FillPairs);
+        var take = TakeReader.Inspect(w.DirectoryPath);
+        Assert.Equal("clean", take.State);
+        Assert.Equal("detected", take.Get("startup-signature"));
     }
 
     [Fact]

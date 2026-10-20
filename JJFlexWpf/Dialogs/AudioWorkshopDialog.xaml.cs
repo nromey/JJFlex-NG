@@ -255,7 +255,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     /// </summary>
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
-        if (e.Key == Key.Escape && _session != null && _session.EscapeStopsTransmit)
+        if (e.Key == Key.Escape && _session?.Active == true)
         {
             _session.StopCheck();
             e.Handled = true;

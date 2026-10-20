@@ -210,7 +210,8 @@ public partial class AudioWorkshopDialog
                         int.Parse(take.Get("rate-requested"), System.Globalization.CultureInfo.InvariantCulture)).ToString("F1")),
                     ("antenna", take.Get("receive-antenna")), ("gain", take.Get("rf-gain")),
                     ("ratio", ListenbackResultText.Ratio(take.Get("pairs-per-arrival-span"))), ("gaps", take.Get("gaps") ?? "0"),
-                    ("classifier", take.Get("classifier") ?? Lexicon.Get("audio.iq.unknown"))));
+                    ("classifier", take.Get("classifier") ?? Lexicon.Get("audio.iq.unknown"))) +
+                    (take.Get("startup-signature") == "detected" ? " " + Lexicon.Get("audio.iq.startup_signature") : ""));
                 if (measured != null && _takeStatus != null && !_iqClosing)
                 {
                     string details = measured.Alignment.Aligned ?

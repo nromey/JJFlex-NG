@@ -6320,7 +6320,7 @@ namespace Radios
                 // #58: opens the bulk window and restarts the settle timer, so
                 // a connect that delivers four slices produces ONE census
                 // instead of four per-slice announcements.
-                NoteSliceSetChanged();
+                NoteSliceSetChanged(slc, added: true);
                 if (slc.IsTransmitSlice)
                 {
                     Tracing.TraceLine("sliceAdded:IsTransmitSlice", TraceLevel.Info);
@@ -6388,7 +6388,14 @@ namespace Radios
                     // the operator asked for it — the receipt saying the change
                     // is provisional. Releasing three slices in a burst still
                     // costs exactly one of each.
-                    NoteSliceSetChanged();
+                    bool diagnosticRemoval;
+                    DiagnosticSlicePurpose diagnosticPurpose;
+                    lock (_sliceSettleLock)
+                        diagnosticRemoval = _diagnosticSlices.TryGetValue(slc, out diagnosticPurpose);
+                    if (diagnosticRemoval && !SuppressSpeech)
+                        ScreenReaderOutput.Speak(Lexicon.Get(diagnosticPurpose == DiagnosticSlicePurpose.Loopback
+                            ? "audio.check.loopback_removing_ears" : "audio.iq.removing_listener"), VerbosityLevel.Terse);
+                    NoteSliceSetChanged(slc, added: false);
                 }
             }
             else Tracing.TraceLine("sliceRemoved:not mine" + slc.ToString(), TraceLevel.Info);
@@ -10999,15 +11006,12 @@ namespace Radios
 
         // ── Loopback check plumbing (QB Track G, 2026-08-07) ──
         //
-        // The transverter-port loopback, live-verified on the 8600: with full
-        // duplex on, TX antenna XVT A, an "ears" slice listening on the same
-        // XVT port at the same frequency/mode, 1 watt, and TX monitor OFF,
-        // the operator hears their own transmitted signal demodulated inside
-        // one radio with no antennas. HONESTY (ratified): raw adjacent-port
-        // coupling massively overloads the receiver — what this yields is
-        // presence/processing/rough-shape verification, NOT a faithful
-        // off-air listen. Drive management below aims the coupling at the
-        // receiver's linear range where a transverter band definition exists.
+        // The 8600 same-port listener returned exact zeros during transmit.
+        // The controlled Loopback Check therefore sends on one XVT input and
+        // listens on another at the same frequency/mode, with other owned
+        // receive slices muted, 1 watt, RF gain 32 and TX monitor off. Noel's
+        // keyed bench must still verify this corrected arrangement. Adjacent
+        // port coupling can overload the receiver; this is a rough chain check.
 
         private bool _loopbackArranged;
         private bool _lbSavedFdx;
@@ -11017,6 +11021,16 @@ namespace Radios
         private LoopbackSliceResources _lbResources;
         private Xvtr _lbDriveBand;
         private double _lbSavedDriveDbm;
+        private List<(Slice Slice, bool Muted)> _lbSavedMutes;
+
+        private string LoopbackOtherReceivePort(string transmitAntenna)
+        {
+            // The transmit pan is already at the frequency/mode the new ears
+            // pan will use. Its ant_list status is the same contextual receive
+            // list the off-air listen-back reads from its listening pan.
+            try { return OtherTransverterReceiveInput(SliceForTransmitSetting()?.Panadapter?.RXAntennaList, transmitAntenna); }
+            catch (NullReferenceException) { return null; } // vendor getter clones an unset list
+        }
 
         /// <summary>True while the loopback arrangement is applied.</summary>
         public bool LoopbackArranged => _loopbackArranged;
@@ -11040,6 +11054,9 @@ namespace Radios
                     return "This radio has a single receiver, which the radio itself uses during transmit";
                 if (!TXAntennaList.Exists(a => a.StartsWith("XVT", StringComparison.OrdinalIgnoreCase)))
                     return "No transverter port in this radio's transmit antenna list";
+                string transmitAntenna = TXAntennaList.Find(a => a.StartsWith("XVT", StringComparison.OrdinalIgnoreCase));
+                if (string.IsNullOrEmpty(LoopbackOtherReceivePort(transmitAntenna)))
+                    return Lexicon.Get("audio.check.loopback_no_other_port");
                 if (theRadio.SliceList.Count >= TotalMaxSlices)
                     return "No free slice for the listening receiver";
                 return "";
@@ -11055,9 +11072,9 @@ namespace Radios
         /// Apply the verified loopback recipe: snapshot full-duplex flag, TX
         /// antenna, monitor state, RF power and slice roster, then set FDX
         /// on, TX antenna to the first XVT port, 1 watt (power 0 is silent —
-        /// verified), monitor OFF, and create the ears slice on the same
-        /// port/frequency/mode. All radio writes ride the command queue, so a
-        /// caller must await confirmed full duplex before keying. Returns false
+        /// verified), monitor OFF, and create the ears slice on the other
+        /// receive XVT port at the same frequency/mode. All radio writes ride
+        /// the command queue and setup waits for replies before keying. Returns false
         /// when unsupported or when the radio cannot confirm its state.
         /// </summary>
         public async Task<bool> StartLoopbackArrangementAsync(bool? confirmedPriorFullDuplex = null)
@@ -11079,6 +11096,12 @@ namespace Radios
 
             string xvt = TXAntennaList.Find(a => a.StartsWith("XVT", StringComparison.OrdinalIgnoreCase));
             if (string.IsNullOrEmpty(xvt)) return false;
+            string earsAntenna = LoopbackOtherReceivePort(xvt);
+            if (string.IsNullOrEmpty(earsAntenna))
+            {
+                Tracing.TraceLine("StartLoopbackArrangement: no second transverter receive input", TraceLevel.Warning);
+                return false;
+            }
 
             // Snapshot.
             arrangementRadio = theRadio;
@@ -11087,6 +11110,8 @@ namespace Radios
             _lbSavedTxAnt = TXAntennaName;
             _lbSavedMonitor = theRadio.TXMonitor;
             _lbSavedPower = XmitPower;
+            lock (mySlices)
+                _lbSavedMutes = mySlices.Select(s => (Slice: s, Muted: s.Mute)).ToList();
             LoopbackSliceResources resources;
             lock (mySlices)
                 resources = new LoopbackSliceResources(mySlices, arrangementRadio.PanadapterList);
@@ -11095,22 +11120,26 @@ namespace Radios
             // Apply the recipe (queue-sequenced).
             try
             {
-                if (!await SetFullDuplexConfirmedAsync(true, arrangementRadio, arrangementConnection).ConfigureAwait(false))
+                if (!await SetFullDuplexConfirmedAsync(true, arrangementRadio, arrangementConnection,
+                    note => Tracing.TraceLine("Loopback full duplex setup: " + note, TraceLevel.Info)).ConfigureAwait(false))
                     throw new InvalidOperationException("full-duplex-connection-changed");
                 setupChanged = true;
             }
             catch (Exception ex)
             {
                 Tracing.TraceLine("StartLoopbackArrangement full duplex: " + ex.Message, TraceLevel.Error);
-                try { await SetFullDuplexConfirmedAsync(_lbSavedFdx, arrangementRadio, arrangementConnection).ConfigureAwait(false); }
+                try { await SetFullDuplexConfirmedAsync(_lbSavedFdx, arrangementRadio, arrangementConnection,
+                    note => Tracing.TraceLine("Loopback full duplex setup rollback: " + note, TraceLevel.Info)).ConfigureAwait(false); }
                 catch (Exception restore) { Tracing.TraceLine("StartLoopbackArrangement full duplex rollback: " + restore.Message, TraceLevel.Error); }
                 _lbResources = null;
+                _lbSavedMutes = null;
                 return false;
             }
             if (!ReferenceEquals(theRadio, arrangementRadio) ||
                 !ReferenceEquals(arrangementConnection, arrangementRadio.CurrentCommandConnection))
             {
                 _lbResources = null;
+                _lbSavedMutes = null;
                 return false;
             }
             TXAntennaName = xvt;                       // TX slice → XVT port
@@ -11128,44 +11157,96 @@ namespace Radios
                 q.Enqueue((FunctionDel)(() => { band.MaxPower = -10.0; }), "LoopbackDrive");
             }
 
-            // Ears slice: create, then configure once it exists (the NewSlice
-            // queue item awaits creation internally, so this enqueued config
-            // runs after it).
-            if (!NewSlice(resources))
+            foreach (var saved in _lbSavedMutes)
+            {
+                Tracing.TraceLine($"Loopback prior mute: slice={saved.Slice.Index} muted={saved.Muted}", TraceLevel.Info);
+                if (!saved.Muted && !await LoopbackSliceCommandAsync(arrangementRadio, arrangementConnection,
+                    saved.Slice, $"slice set {saved.Slice.Index} audio_mute=1", "mute setup").ConfigureAwait(false))
+                    throw new InvalidOperationException("loopback-mute-refused");
+            }
+
+            // NewSlice's queued creation waits for the owned pan and slice.
+            // Do not report readiness until configuration and gain have replies.
+            if (!NewSlice(resources, DiagnosticSlicePurpose.Loopback))
             {
                 Tracing.TraceLine("StartLoopbackArrangement: NewSlice refused", TraceLevel.Error);
-                await rollbackLoopbackAsync(arrangementRadio, arrangementConnection).ConfigureAwait(false);
-                _lbResources = null;
-                return false;
+                throw new InvalidOperationException("loopback-new-slice-refused");
             }
-            q.Enqueue((FunctionDel)(() =>
+            Slice ears = null;
+            await IqQueue(() =>
             {
-                if (!ReferenceEquals(theRadio, arrangementRadio)) return;
+                if (!ReferenceEquals(theRadio, arrangementRadio)) throw new InvalidOperationException("connection-ended");
                 lock (mySlices)
                 {
-                    if (!resources.Capture(mySlices, arrangementRadio.PanadapterList) ||
+                    if (!resources.Capture(mySlices, arrangementRadio.PanadapterList))
+                        throw new InvalidOperationException("loopback-ears-missing");
+                    string[] earsInputs;
+                    try { earsInputs = resources.Pan.RXAntennaList; }
+                    catch (NullReferenceException) { earsInputs = null; }
+                    if (!(earsInputs?.Contains(earsAntenna) ?? false))
+                        throw new InvalidOperationException("loopback-ears-port-unavailable");
+                    if (
                         !resources.Configure(mySlices, arrangementRadio.PanadapterList,
-                            SliceForTransmitSetting(), xvt))
-                        Tracing.TraceLine("Loopback ears slice config: slice missing", TraceLevel.Error);
+                            SliceForTransmitSetting(), earsAntenna))
+                        throw new InvalidOperationException("loopback-ears-missing");
+                    ears = resources.Slice;
                 }
-            }), "LoopbackEars");
+            }).ConfigureAwait(false);
+            if (!await LoopbackSliceCommandAsync(arrangementRadio, arrangementConnection, ears,
+                $"slice set {ears.Index} rxant={earsAntenna}", "ears antenna setup").ConfigureAwait(false) ||
+                !await LoopbackSliceCommandAsync(arrangementRadio, arrangementConnection, ears,
+                $"slice set {ears.Index} rfgain=32", "ears RF gain setup").ConfigureAwait(false))
+                throw new InvalidOperationException("loopback-ears-setting-refused");
 
             _loopbackArranged = true;
             _lbArrangementRadio = arrangementRadio;
             _lbArrangementConnection = arrangementConnection;
-            Tracing.TraceLine($"Loopback arranged: xvt={xvt} savedFdx={_lbSavedFdx} savedAnt={_lbSavedTxAnt} savedPwr={_lbSavedPower} earsSlice={resources.Slice?.Index}", TraceLevel.Info);
+            Tracing.TraceLine($"Loopback arranged: txXvt={xvt} earsRx={earsAntenna} savedFdx={_lbSavedFdx} savedAnt={_lbSavedTxAnt} savedPwr={_lbSavedPower} earsSlice={resources.Slice?.Index}", TraceLevel.Info);
             return true;
             }
             catch (Exception ex)
             {
                 Tracing.TraceLine("StartLoopbackArrangement failed: " + ex, TraceLevel.Error);
                 if (setupChanged)
-                    try { await rollbackLoopbackAsync(arrangementRadio, arrangementConnection).ConfigureAwait(false); }
+                    try
+                    {
+                        _loopbackArranged = true;
+                        _lbArrangementRadio = arrangementRadio;
+                        _lbArrangementConnection = arrangementConnection;
+                        string trouble = await EndLoopbackArrangementAsync().ConfigureAwait(false);
+                        if (trouble.Length != 0) Tracing.TraceLine("StartLoopbackArrangement rollback: " + trouble, TraceLevel.Error);
+                    }
                     catch (Exception restore) { Tracing.TraceLine("StartLoopbackArrangement rollback: " + restore, TraceLevel.Error); }
                 _lbResources = null;
                 return false;
             }
             finally { System.Threading.Volatile.Write(ref _lbArrangementStarting, 0); }
+        }
+
+        private async Task<bool> LoopbackSliceCommandAsync(Radio radio, CommandConnection connection,
+            Slice slice, string command, string purpose)
+        {
+            var reply = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            await IqQueue(() =>
+            {
+                if (!ReferenceEquals(theRadio, radio) || !radio.Connected ||
+                    !ReferenceEquals(radio.CurrentCommandConnection, connection) ||
+                    !radio.SliceList.Contains(slice) || !mySlices.Contains(slice))
+                    throw new InvalidOperationException("loopback-connection-or-slice-changed");
+                int sent = radio.SendReplyCommand((sequence, code, response) =>
+                {
+                    Tracing.TraceLine($"Loopback {purpose}: reply {sequence} {code:X8} {response}", TraceLevel.Info);
+                    reply.TrySetResult(code == 0);
+                }, command);
+                Tracing.TraceLine($"Loopback {purpose}: sent {sent} {command}", TraceLevel.Info);
+            }).ConfigureAwait(false);
+            using var timeout = new CancellationTokenSource(ListenbackConfirmationWait);
+            try { return await reply.Task.WaitAsync(timeout.Token).ConfigureAwait(false); }
+            catch (OperationCanceledException)
+            {
+                Tracing.TraceLine($"Loopback {purpose}: reply timed out for {command}", TraceLevel.Error);
+                return false;
+            }
         }
 
         /// <summary>
@@ -11208,19 +11289,35 @@ namespace Radios
                             if (!resources.Release(mySlices, arrangementRadio.PanadapterList,
                                 VFOToSlice(RXVFO), SliceForTransmitSetting())) return;
                         }
-                        NoteOperatorChangedSliceSet();
                         if (!FlexBase.@await(() => mySliceRemoved, 3000))
                             Tracing.TraceLine("Loopback ears removal: radio confirmation timed out", TraceLevel.Error);
                     }
                     finally { if (reservedRemoval) System.Threading.Interlocked.Decrement(ref _pendingRemovals); }
                 }), "LoopbackEarsRemove");
+                if (_lbSavedMutes != null)
+                {
+                    foreach (var saved in _lbSavedMutes)
+                    {
+                        try
+                        {
+                            if (!await LoopbackSliceCommandAsync(arrangementRadio, _lbArrangementConnection,
+                                saved.Slice, $"slice set {saved.Slice.Index} audio_mute={(saved.Muted ? 1 : 0)}", "mute restore").ConfigureAwait(false))
+                                trouble += $"Slice {saved.Slice.Index} mute restoration was not confirmed. ";
+                        }
+                        catch (Exception ex)
+                        {
+                            Tracing.TraceLine("Loopback mute restore: " + ex.Message, TraceLevel.Error);
+                            trouble += $"Slice {saved.Slice.Index} mute restoration was not confirmed. ";
+                        }
+                    }
+                }
                 TXAntennaName = _lbSavedTxAnt;
                 XmitPower = _lbSavedPower;
                 Monitor = _lbSavedMonitor ? OffOnValues.on : OffOnValues.off;
                 try
                 {
                     if (!await SetFullDuplexConfirmedAsync(_lbSavedFdx, arrangementRadio,
-                        _lbArrangementConnection).ConfigureAwait(false))
+                        _lbArrangementConnection, note => Tracing.TraceLine("Loopback full duplex restore: " + note, TraceLevel.Info)).ConfigureAwait(false))
                         trouble += "Full duplex restoration was not confirmed. ";
                 }
                 catch (Exception ex)
@@ -11237,6 +11334,7 @@ namespace Radios
             }
             else trouble += "The radio connection changed before restoration could be confirmed. ";
             _lbResources = null;
+            _lbSavedMutes = null;
             _lbDriveBand = null;
             _lbArrangementRadio = null;
             _lbArrangementConnection = null;
@@ -11244,24 +11342,6 @@ namespace Radios
             return trouble;
             }
             finally { System.Threading.Volatile.Write(ref _lbArrangementEnding, 0); }
-        }
-
-        private async Task rollbackLoopbackAsync(Radio arrangementRadio, CommandConnection arrangementConnection)
-        {
-            if (!ReferenceEquals(theRadio, arrangementRadio) ||
-                !ReferenceEquals(arrangementConnection, arrangementRadio.CurrentCommandConnection)) return;
-            try { await SetFullDuplexConfirmedAsync(_lbSavedFdx, arrangementRadio, arrangementConnection).ConfigureAwait(false); }
-            catch (Exception ex) { Tracing.TraceLine("Loopback full duplex rollback: " + ex.Message, TraceLevel.Error); }
-            TXAntennaName = _lbSavedTxAnt;
-            XmitPower = _lbSavedPower;
-            Monitor = _lbSavedMonitor ? OffOnValues.on : OffOnValues.off;
-            if (_lbDriveBand != null)
-            {
-                var band = _lbDriveBand;
-                double dbm = _lbSavedDriveDbm;
-                q.Enqueue((FunctionDel)(() => { band.MaxPower = dbm; }), "LoopbackDriveRestore");
-                _lbDriveBand = null;
-            }
         }
 
         /// <summary>

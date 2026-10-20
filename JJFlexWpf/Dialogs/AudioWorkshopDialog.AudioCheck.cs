@@ -229,7 +229,11 @@ public partial class AudioWorkshopDialog
             Visibility = Visibility.Collapsed
         };
         AutomationProperties.SetName(_loopbackButton, "Loopback Check, transverter port");
-        _loopbackButton.Click += async (s, e) => await StartLoopbackCheckAsync();
+        _loopbackButton.Click += async (s, e) =>
+        {
+            if (_session?.Active == true && _session.IsLoopback) _session.StopCheck();
+            else await StartLoopbackCheckAsync();
+        };
         AddToSection(HearYourselfContent, _loopbackButton);
 
         _loopbackInfo = new TextBlock
@@ -274,7 +278,7 @@ public partial class AudioWorkshopDialog
 
     /// <summary>
     /// The Loopback Check: apply the verified recipe (full duplex on, TX to
-    /// the XVT port, ears slice on the same port, 1 watt, monitor off), then
+    /// one XVT port, ears slice on the other receive port, 1 watt, monitor off), then
     /// key through the same PttSafetyController path as every other check.
     /// Teardown restores every saved value and removes the ears slice.
     /// </summary>
@@ -339,8 +343,7 @@ public partial class AudioWorkshopDialog
         if (session.Start())
         {
             _session = session;
-            SetStartButtonLabel("Stop Audio Check");
-            _micGainControl?.Focus();
+            SetLoopbackButtonLabel(stopping: true);
         }
         else
         {
@@ -425,6 +428,13 @@ public partial class AudioWorkshopDialog
         AutomationProperties.SetName(_startCheckButton, label);
     }
 
+    private void SetLoopbackButtonLabel(bool stopping)
+    {
+        if (_loopbackButton == null) return;
+        _loopbackButton.Content = stopping ? "Stop Loopback Check" : "Loopback Check (transverter port)";
+        AutomationProperties.SetName(_loopbackButton, stopping ? "Stop Loopback Check" : "Loopback Check, transverter port");
+    }
+
     /// <summary>
     /// Session ended (any path) — restore the button label, and if a
     /// loopback arrangement is up, tear it down and say so. Runs on every
@@ -433,6 +443,7 @@ public partial class AudioWorkshopDialog
     private async void OnSessionEnded()
     {
         SetStartButtonLabel("Start Audio Check");
+        SetLoopbackButtonLabel(stopping: false);
         if (_iqWasOffAir && _iqRun != null) { _ = FinishIqAsync("operator-stop"); return; }
         if (_rig != null && _rig.LoopbackArranged)
         {
@@ -650,6 +661,7 @@ public partial class AudioWorkshopDialog
         private const int RecordBufferSeconds = 120;   // verified live cap
 
         public bool Active { get; private set; }
+        public bool IsLoopback => _loopback;
 
         /// <summary>
         /// True while Escape must unkey rather than close the dialog. Covers
@@ -865,6 +877,13 @@ public partial class AudioWorkshopDialog
             if (!Active) return;
             if (_phase == Phase.Keyed)
                 HandleUnkey(external: false);
+            else if (_ptt.IsTransmitting || Rig?.Transmit == true)
+            {
+                _ptt.EscapeUnlock();
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.check.still_transmitting"),
+                    VerbosityLevel.Critical, interrupt: true);
+            }
+            else ForceEnd(null);
         }
 
         /// <summary>
