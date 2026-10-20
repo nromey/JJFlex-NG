@@ -57,9 +57,10 @@ namespace JJFlexControl
 
             if (rv)
             {
-                // A fresh pump, so a fresh #520 filter, at EVERY open: the device replays
+                // A fresh pump, so a fresh #520 opening window, at EVERY open: the device replays
                 // whatever was done to it while the port was closed, and Noel's buffer ruling
-                // applies to each open. The handler is bound to THIS open's pump and port.
+                // applies to each open. Made right after Open, because the window starts when the
+                // pump is made. The handler is bound to THIS open's pump and port.
                 KnobInputPump openPump = new KnobInputPump(
                     token => parent.OnKnobOutput(token),
                     note: note => Tracing.TraceLine("Serial.filter:" + note, TraceLevel.Info));
@@ -77,8 +78,8 @@ namespace JJFlexControl
         internal void Close()
         {
             Tracing.TraceLine("Serial.close",TraceLevel.Info);
-            // Stop first: it waits for any dispatch already in progress, acts on a real step still
-            // held, and nothing from this open is dispatched after it returns (#520).
+            // Stop first: it waits for any dispatch already in progress, and nothing from this open
+            // is dispatched after it returns (#520). Nothing is held, so nothing is lost.
             KnobInputPump closing = pump;
             pump = null;
             if (closing != null) closing.Stop();
@@ -89,9 +90,9 @@ namespace JJFlexControl
 
         private static void dataReceived(SerialPort port, KnobInputPump openPump)
         {
-            // Every token goes through the #520 filter rather than straight to the handlers: a
-            // burst of three or more replayed at open or landed by a stalled read is discarded,
-            // and a device report such as F0304 is always passed on.
+            // Every token goes through the #520 opening window rather than straight to the
+            // handlers: what the knob replays when the port opens is ignored, every input code
+            // after that is acted on at once, and a device report such as F0304 is always passed on.
             string text;
             try
             {

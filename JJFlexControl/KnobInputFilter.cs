@@ -1,68 +1,65 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
 
 namespace JJFlexControl
 {
     /// <summary>
     /// Stands between the Flex Control's decoded tokens and anything that acts on them, and
-    /// drops bursts of input no hand could produce (#520). Pure: no port, no clock, no thread. The
-    /// caller passes each token's arrival time and calls <see cref="Release"/> when
-    /// <see cref="NextDueMs"/> comes round, and <see cref="Flush"/> when the port closes.
+    /// ignores what the knob replays when the port opens (#520). Pure: no port, no clock, no
+    /// thread. One filter per open; the caller passes the open time and each token's arrival time.
     /// </summary>
     /// <remarks>
-    /// <para>Two of Noel's 2026-09-02 bench rulings, with their numbers from that measurement:</para>
+    /// <para><b>The rule, ruled by Noel 2026-10-20 ("I'd do A"):</b> discard input codes during a
+    /// short opening window after the port opens, and after that act on every input code at once,
+    /// with no hold and no grouping. The device saves what was done to it while the port was
+    /// closed and hands it all over on open; once connected, nothing real is ever dropped. This
+    /// replaced a "discard any burst faster than a hand" rule, which dropped a real turn whenever
+    /// one serial read carried three detents: every token in a read shares one arrival time, so a
+    /// read describes the read, not the events inside it.</para>
+    /// <para><b>A device report is never discarded, inside the window or out.</b> <c>F0304</c>
+    /// arrives in exactly that opening window and is probably the identity report. Any token that
+    /// is not one of the fourteen input codes passes through at once.</para>
+    /// <para><b>The window's shape comes from the measurement in #520, not from taste:</b></para>
     /// <list type="bullet">
-    /// <item><b>A burst of three or more inputs faster than a hand is discarded.</b> The device
-    /// holds input while the port is closed and replays it at line rate on open, and a stalled
-    /// reader lands a backlog the same way. The bench measured gaps in whole multiples of 15.6 ms
-    /// and never more than two events in one such tick from a hand, so three or more inside one
-    /// tick is the burst. <b>A replay of only one or two inputs is NOT caught</b>: the measured
-    /// ceiling of a hand is two per tick, so nothing here can tell those from a live turn. That is
-    /// an open question for Noel, not a rule this class makes.</item>
-    /// <item><b>A device report is never discarded with the burst.</b> <c>F0304</c> arrives in
-    /// exactly that opening window and is probably the identity report. Any token that is not
-    /// one of the fourteen input codes passes through at once and is not counted.</item>
+    /// <item><b>It lasts at least <see cref="OpeningMinimumMs"/>, 25 ms.</b> In every bench run the
+    /// whole opening sequence, the <c>F0304</c> reports and any replay, arrived "in the first 25 ms".</item>
+    /// <item><b>After that it ends at the first gap of <see cref="QuietGapMs"/>, half a tick (about
+    /// 7.8 ms), with no token of any kind.</b> A replay drains at 9600 baud, one token every two to
+    /// six milliseconds, so a backlog larger than the bench's keeps the window open until it has
+    /// drained; a hand never leaves gaps that short except for the measured sub-millisecond doubles.</item>
+    /// <item><b>It never lasts longer than <see cref="OpeningCapMs"/>, about 331 ms</b>: 25 ms plus
+    /// the time the largest turn the bench recorded, 147 detents, takes to drain at 9600 baud
+    /// (147 codes of two bytes, ten bits a byte). The device's real buffer size is unmeasured
+    /// (ASK-520-opening-window).</item>
     /// </list>
-    /// <para><b>The ruling to suppress rotation near a press code is NOT built here.</b> It was
-    /// built and taken out (repair round one): the measured long-press phantom lands 3.8 s before
-    /// its press code, the double-press gap was never measured, and a guard wide enough to matter
-    /// also drops a real final detent and delays every turn. It waits on a bench measurement.</para>
-    /// <para><b>Timing is counted in whole ticks of 15.625 ms.</b> Two arrivals are
-    /// <see cref="TicksBetween"/> ticks apart, rounded to the nearest whole tick. Whether that
-    /// spacing is the knob's own report clock or the probe's poll loop is unsettled
-    /// (ASK-520-tick-clock): the arrivals are host times either way. Input codes that follow one
-    /// another with no whole tick between them form one group, and a group of more than two is a
-    /// burst however long it chains: a replay at 9600 baud lands an event every two to four
-    /// milliseconds.</para>
-    /// <para><b>What it costs: each input is held until its group can take no more members, half
-    /// a tick (about 8 ms) after the group's last arrival.</b> That is the smallest hold the rule
-    /// allows, because any input could be the first of a burst, and dispatching it at once would
-    /// let the first two steps of every replay through. Order is preserved.</para>
+    /// <para><b>What it costs:</b> a real turn made in the first moment after the port opens is
+    /// dropped with the replay. That is the trade Noel accepted.</para>
+    /// <para><b>Not built here:</b> the press-nudge ruling. It waits on a bench measurement of the
+    /// gap between a phantom step and its press code.</para>
     /// </remarks>
     public sealed class KnobInputFilter
     {
-        /// <summary>The measured spacing: 15.6 ms, taken as 1/64 s exactly (#520).</summary>
+        /// <summary>The measured spacing of the knob's reports: 15.6 ms, taken as 1/64 s (#520).</summary>
         public const double TickMs = 1000.0 / 64.0;
 
-        /// <summary>
-        /// The measured ceiling of a hand: never more than about two events in one tick (#520).
-        /// Three or more in one tick is a burst.
-        /// </summary>
-        public const int MaxEventsPerTick = 2;
+        /// <summary>Every measured opening sequence arrived within the first 25 ms (#520).</summary>
+        public const double OpeningMinimumMs = 25.0;
 
         /// <summary>
-        /// A group can take no more members once half a tick has passed since its last arrival,
-        /// because any later arrival rounds to at least one whole tick away. This is also the
-        /// whole hold an input waits.
+        /// Half a tick with nothing arriving ends the window once the minimum has passed: shorter
+        /// than no gap inside a 9600-baud drain, and a gap no hand leaves except a sub-millisecond double.
         /// </summary>
-        public const double GroupCloseMs = 0.5 * TickMs;
+        public const double QuietGapMs = 0.5 * TickMs;
 
-        // A deadline handed out by NextDueMs must be met when Release is called AT it. Without
-        // this, (t + hold) - t can come out a hair under hold, nothing is released, and the timer
-        // is rearmed for the same instant forever.
-        private const double DeadlineSlackMs = 1e-6;
+        /// <summary>The largest turn the bench recorded: 147 detents in one uncontrolled twirl (#520).</summary>
+        public const int LargestRecordedTurn = 147;
+
+        /// <summary>
+        /// The hard end of the window: the minimum plus the time <see cref="LargestRecordedTurn"/>
+        /// rotation codes ("D;", two bytes, ten bits a byte) take to drain at 9600 baud.
+        /// </summary>
+        public const double OpeningCapMs = OpeningMinimumMs + LargestRecordedTurn * 2 * 10 * 1000.0 / 9600.0;
 
         private static readonly HashSet<string> Rotations = new HashSet<string> { "D", "U" };
         private static readonly HashSet<string> Presses = new HashSet<string>
@@ -81,113 +78,71 @@ namespace JJFlexControl
 
         /// <summary>
         /// True for anything that is not one of the fourteen input codes, such as <c>F0304</c>.
-        /// These are never filtered, delayed or counted toward a burst.
+        /// These are never discarded.
         /// </summary>
         public static bool IsDeviceReport(string token) => !IsRotation(token) && !IsPress(token);
 
-        /// <summary>How many whole ticks separate two arrivals, rounded to nearest.</summary>
-        public static int TicksBetween(double earlierMs, double laterMs) =>
-            (int)Math.Floor(Math.Abs(laterMs - earlierMs) / TickMs + 0.5);
-
-        private sealed class TickGroup
-        {
-            public readonly List<string> Members = new List<string>();
-            public double FirstAt;
-            public double LastAt;
-        }
-
+        private readonly double _openedAt;
         private readonly Action<string> _note;
-        private TickGroup _open;
-        private double _decidedThrough = double.NegativeInfinity;
+        private double _lastTokenAt;
+        private bool _windowOpen = true;
+        private readonly List<string> _dropped = new List<string>();
 
-        /// <param name="note">Told, in a sentence, about every discard, so the trace shows what
-        /// the knob sent and why it did nothing. May be null.</param>
-        public KnobInputFilter(Action<string> note = null)
+        /// <param name="openedAtMs">When the port opened, on the same clock as the arrivals.</param>
+        /// <param name="note">Told, in a sentence, what the opening window discarded. May be null.</param>
+        public KnobInputFilter(double openedAtMs, Action<string> note = null)
         {
+            _openedAt = openedAtMs;
+            _lastTokenAt = openedAtMs;
             _note = note;
         }
 
-        /// <summary>Inputs discarded because they arrived faster than a hand could produce them.</summary>
-        public int BurstEventsDiscarded { get; private set; }
+        /// <summary>Input codes discarded by the opening window.</summary>
+        public int ReplayEventsDiscarded => _dropped.Count;
+
+        /// <summary>True until the opening window has ended.</summary>
+        public bool InOpeningWindow => _windowOpen;
 
         /// <summary>
-        /// When <see cref="Release"/> next has something to decide, in the same clock as the
-        /// arrival times; null when nothing is held.
+        /// Take one decoded token that arrived at <paramref name="atMs"/>. Returns true when it
+        /// should be acted on, which is at once: there is no hold.
         /// </summary>
-        public double? NextDueMs => _open == null ? (double?)null : _open.LastAt + GroupCloseMs;
-
-        /// <summary>
-        /// Take one decoded token that arrived at <paramref name="atMs"/>. Returns, in order,
-        /// whatever may now be acted on.
-        /// </summary>
-        public IReadOnlyList<string> Accept(string token, double atMs)
+        public bool Accept(string token, double atMs)
         {
-            // Time never runs backwards here: an arrival stamped before a Release already decided
-            // that instant is treated as arriving at it, so it cannot join a group that has
-            // already been acted on.
-            if (atMs < _decidedThrough) atMs = _decidedThrough;
+            if (_windowOpen && WindowEndsBefore(atMs)) CloseWindow(atMs);
 
-            var output = new List<string>();
-            ReleaseInto(output, atMs);
-
-            if (IsDeviceReport(token))
+            bool keep = !_windowOpen || IsDeviceReport(token);
+            if (_windowOpen)
             {
-                output.Add(token);
-                return output;
+                _lastTokenAt = Math.Max(_lastTokenAt, atMs);
+                if (!keep) _dropped.Add(token);
             }
-
-            if (_open == null)
-            {
-                _open = new TickGroup { FirstAt = atMs };
-            }
-            _open.Members.Add(token);
-            _open.LastAt = atMs;
-            return output;
+            return keep;
         }
 
         /// <summary>
-        /// Decide whatever is due by <paramref name="nowMs"/>. Returns, in order, the tokens that
-        /// may now be acted on.
+        /// The port is closing; say what the window dropped if it never got to say so.
+        /// Nothing is held, so there is nothing to release.
         /// </summary>
-        public IReadOnlyList<string> Release(double nowMs)
+        public void Close(double atMs)
         {
-            var output = new List<string>();
-            ReleaseInto(output, nowMs);
-            return output;
+            if (_windowOpen) CloseWindow(atMs);
         }
 
-        /// <summary>
-        /// The port is closing and nothing more will arrive: decide what is held now, so a real
-        /// step taken just before a close is acted on and a burst is still discarded.
-        /// </summary>
-        public IReadOnlyList<string> Flush()
+        private bool WindowEndsBefore(double atMs)
         {
-            var output = new List<string>();
-            if (_open != null) Decide(output);
-            return output;
+            double sinceOpen = atMs - _openedAt;
+            if (sinceOpen >= OpeningCapMs) return true;
+            return sinceOpen >= OpeningMinimumMs && atMs - _lastTokenAt >= QuietGapMs;
         }
 
-        private void ReleaseInto(List<string> output, double nowMs)
+        private void CloseWindow(double atMs)
         {
-            if (nowMs > _decidedThrough) _decidedThrough = nowMs;
-            if (_open != null && nowMs - _open.LastAt >= GroupCloseMs - DeadlineSlackMs) Decide(output);
-        }
-
-        private void Decide(List<string> output)
-        {
-            TickGroup group = _open;
-            _open = null;
-            if (group.Members.Count <= MaxEventsPerTick)
-            {
-                output.AddRange(group.Members);
-                return;
-            }
-
-            BurstEventsDiscarded += group.Members.Count;
-            _note?.Invoke(group.Members.Count + " events with no whole tick between them, over "
-                + (group.LastAt - group.FirstAt).ToString("0.0", CultureInfo.InvariantCulture)
-                + " ms, discarded as a burst no hand could produce: "
-                + string.Join(",", group.Members));
+            _windowOpen = false;
+            if (_dropped.Count == 0) return;
+            _note?.Invoke("opening window ignored " + _dropped.Count + " input codes the knob replayed on connect, last at "
+                + (_lastTokenAt - _openedAt).ToString("0.0", CultureInfo.InvariantCulture) + " ms after open: "
+                + string.Join(",", _dropped));
         }
     }
 }

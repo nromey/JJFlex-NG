@@ -1,27 +1,25 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
-using System.Threading;
 
 namespace JJFlexControl
 {
     /// <summary>
     /// One open port's worth of knob input (#520): the text the port delivers, split into tokens,
-    /// run through <see cref="KnobInputFilter"/>, and dispatched in order. It owns the filter's
-    /// release timer and the one lock that orders dispatch between the port's thread, the timer's
-    /// thread and <see cref="Stop"/>.
+    /// passed through <see cref="KnobInputFilter"/>'s opening window, and dispatched in order. One
+    /// lock orders dispatch between the port's thread and <see cref="Stop"/>.
     /// </summary>
     /// <remarks>
-    /// <para><b>Close loses no real step.</b> <see cref="Stop"/> takes the same lock as every
-    /// dispatch, so it waits for one already in progress, then decides what is held as if nothing
-    /// more will arrive: a real step taken just before close is acted on, a burst is still
-    /// discarded. After <see cref="Stop"/> returns, nothing this pump holds is ever dispatched.</para>
+    /// <para><b>Nothing is held</b>, so a close has nothing to release: every input code after the
+    /// opening window is dispatched in the call that read it.</para>
+    /// <para><b>Nothing is dispatched after close.</b> <see cref="Stop"/> takes the same lock as
+    /// every dispatch, so it waits for one already in progress, and every later read sees the
+    /// stopped flag inside the lock.</para>
     /// <para><b>The parse is inside the lock too, and the buffer belongs to this open.</b> A late
     /// callback from a port that has been closed and reopened cannot touch the new open's buffer,
     /// because each open has its own pump.</para>
-    /// <para>A fresh pump, so a fresh filter, at EVERY open: Noel's buffer ruling applies to each
-    /// one.</para>
+    /// <para>A fresh pump, so a fresh opening window, at EVERY open: Noel's buffer ruling applies
+    /// to each one.</para>
     /// </remarks>
     public sealed class KnobInputPump
     {
@@ -30,46 +28,32 @@ namespace JJFlexControl
         private readonly object _gate = new object();
         private readonly Action<string> _dispatch;
         private readonly Func<double> _clockMs;
-        private readonly Action<long> _schedule;
-        private readonly Timer _timer;
         private readonly Action<string> _note;
         private readonly KnobInputFilter _filter;
         private readonly StringBuilder _pending = new StringBuilder();
         private bool _stopped;
 
         /// <param name="dispatch">Acts on one token. Called under the pump's lock, in order.</param>
-        /// <param name="clockMs">Milliseconds on any monotonic clock; a Stopwatch when null.</param>
-        /// <param name="schedule">Told how many milliseconds until <see cref="ReleaseDue"/> should
-        /// run, or <see cref="Timeout.Infinite"/>. When null the pump runs its own timer.</param>
-        /// <param name="note">Trace sink for discards and device reports. May be null.</param>
-        public KnobInputPump(Action<string> dispatch, Func<double> clockMs = null,
-            Action<long> schedule = null, Action<string> note = null)
+        /// <param name="clockMs">Milliseconds on any monotonic clock; a Stopwatch when null. The
+        /// opening window starts at its reading when the pump is made, so make it as the port opens.</param>
+        /// <param name="note">Trace sink for the window's discards and for device reports. May be null.</param>
+        public KnobInputPump(Action<string> dispatch, Func<double> clockMs = null, Action<string> note = null)
         {
             _dispatch = dispatch ?? throw new ArgumentNullException(nameof(dispatch));
             _note = note;
-            _filter = new KnobInputFilter(note);
             if (clockMs == null)
             {
                 Stopwatch watch = Stopwatch.StartNew();
                 clockMs = () => watch.Elapsed.TotalMilliseconds;
             }
             _clockMs = clockMs;
-            if (schedule == null)
-            {
-                _timer = new Timer(_ => ReleaseDue(), null, Timeout.Infinite, Timeout.Infinite);
-                schedule = wait =>
-                {
-                    try { _timer.Change(wait, Timeout.Infinite); }
-                    catch (ObjectDisposedException) { }
-                };
-            }
-            _schedule = schedule;
+            _filter = new KnobInputFilter(_clockMs(), note);
         }
 
-        /// <summary>Bursts discarded so far, for the trace and the tests.</summary>
-        public int BurstEventsDiscarded
+        /// <summary>Input codes the opening window discarded, for the trace and the tests.</summary>
+        public int ReplayEventsDiscarded
         {
-            get { lock (_gate) return _filter.BurstEventsDiscarded; }
+            get { lock (_gate) return _filter.ReplayEventsDiscarded; }
         }
 
         /// <summary>
@@ -82,7 +66,7 @@ namespace JJFlexControl
             lock (_gate)
             {
                 if (_stopped) return;
-                double now = _clockMs(); // stamped inside the lock: the timer cannot have decided later
+                double now = _clockMs();
                 foreach (char ch in text)
                 {
                     if (ch == '\0') continue;
@@ -95,27 +79,14 @@ namespace JJFlexControl
                     string token = _pending.ToString();
                     _pending.Clear();
                     if (KnobInputFilter.IsDeviceReport(token)) _note?.Invoke("device report kept:" + token);
-                    DispatchAll(_filter.Accept(token, now));
+                    if (_filter.Accept(token, now)) _dispatch(token);
                 }
-                Rearm(now);
-            }
-        }
-
-        /// <summary>The release timer's work: act on whatever the filter has now decided.</summary>
-        public void ReleaseDue()
-        {
-            lock (_gate)
-            {
-                if (_stopped) return;
-                double now = _clockMs();
-                DispatchAll(_filter.Release(now));
-                Rearm(now);
             }
         }
 
         /// <summary>
-        /// The port is closing. Waits for any dispatch in progress, decides what is held, dispatches
-        /// the real steps among it, and guarantees nothing further is dispatched.
+        /// The port is closing. Waits for any dispatch in progress and guarantees nothing further
+        /// is dispatched.
         /// </summary>
         public void Stop()
         {
@@ -123,21 +94,8 @@ namespace JJFlexControl
             {
                 if (_stopped) return;
                 _stopped = true;
-                DispatchAll(_filter.Flush());
-                _schedule(Timeout.Infinite);
+                _filter.Close(_clockMs());
             }
-            _timer?.Dispose();
-        }
-
-        private void Rearm(double now)
-        {
-            double? due = _filter.NextDueMs;
-            _schedule(due == null ? Timeout.Infinite : Math.Max(1L, (long)Math.Ceiling(due.Value - now)));
-        }
-
-        private void DispatchAll(IReadOnlyList<string> tokens)
-        {
-            foreach (string token in tokens) _dispatch(token);
         }
     }
 }
