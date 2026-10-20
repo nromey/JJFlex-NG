@@ -257,6 +257,57 @@ public sealed class ValueLayerRoutingTests : IDisposable
         Assert.NotNull(commands.LiveValueLayer);
     }
 
+    [Fact]
+    public void At_off_with_the_sounds_off_a_refusal_during_an_alarm_waits_for_it_and_is_said_after()
+    {
+        // #778b round five. Round four made the sounds-off refusal heard at
+        // Off by tagging it Critical, and Codex found the cost: as a plain
+        // interrupt it took the reader from a sounding alarm or transmit-safety
+        // sentence mid-word. Noel ruled that the refusal waits behind safety
+        // speech. The real audio layer, the real host, the real
+        // ScreenReaderOutput and its arbiter; the alarm is a real operator
+        // alarm hand-over through ScreenReaderOutput.SpeakAlarm, and the
+        // quiet-run backend is diverted and untracked, so the alarm holds the
+        // safety turn for its occupancy estimate. Red on ce735517: the refusal
+        // was the newest thing said the moment the key was pressed.
+        bool masterBefore = EarconPlayer.EarconsEnabled;
+        const string alarm = "Test alarm for the refusal check. Release transmit now.";
+        int notDelivered = 0;
+        try
+        {
+            var commands = OpenAudioLayerOnVoxGain(fromDialog: true);
+            EarconPlayer.EarconsEnabled = false;
+            ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Critical;   // Off
+
+            ScreenReaderOutput.SpeakAlarm(alarm, Radios.Speech.SpeechSubject.OperatorAlarm("test-778b"),
+                () => alarm, notDelivered: () => notDelivered++);
+            Assert.Equal(alarm, ScreenReaderOutput.RecentMessages.FirstOrDefault());
+
+            Assert.True(commands.DoCommand(Keys.Space | Keys.Control, fromDialog: true));
+
+            // Not cut: the alarm is still the newest thing said, and it has
+            // nothing to be told.
+            Assert.Equal(alarm, ScreenReaderOutput.RecentMessages.FirstOrDefault());
+            Assert.Equal(0, notDelivered);
+            Assert.True(commands.LiveValueLayer!.IsLive);
+
+            // And said after it, once its turn is over: late, not lost.
+            var until = DateTime.UtcNow.AddSeconds(20);
+            while (ScreenReaderOutput.RecentMessages.FirstOrDefault() != Ptt && DateTime.UtcNow < until)
+                System.Threading.Thread.Sleep(50);
+            Assert.Equal(Ptt, ScreenReaderOutput.RecentMessages.FirstOrDefault());
+            Assert.Equal(alarm, ScreenReaderOutput.RecentMessages.Skip(1).FirstOrDefault());
+            Assert.Equal(0, notDelivered);
+        }
+        finally
+        {
+            EarconPlayer.EarconsEnabled = masterBefore;
+            // End the alarm's turn and anything still waiting, so the next
+            // test starts with the reader free.
+            ScreenReaderOutput.Silence();
+        }
+    }
+
     [Theory]
     [InlineData(Keys.Space | Keys.Control, true)]      // push to talk, all sounds off
     [InlineData(Keys.Space | Keys.Control, false)]     // push to talk, Commands and confirmations off

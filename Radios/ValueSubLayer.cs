@@ -951,9 +951,18 @@ namespace Radios
             // same reason (DoLeaderCommand's unknown-key arm). Tagging Critical
             // cannot make a lower level say more: below Chatty, with the tone
             // audible, Refuse returns before it gets here.
-            EmitRefusal = text => ScreenReaderOutput.Speak(
+            //
+            // And it WAITS for the safety turn rather than cutting it (#778b
+            // round five). Critical is a verbosity level, not a priority: as a
+            // plain interrupt this took the reader from a transmit-safety
+            // sentence or an alarm mid-word (Codex, round-four re-verify). Noel
+            // ruled that the refusal waits behind safety speech. With nothing
+            // safety-shaped speaking or waiting it is spoken at once, exactly
+            // as before; otherwise it is said after the last of it. That holds
+            // at every level, Chatty included, since the Chatty sentence had
+            // the same interrupt.
+            EmitRefusal = text => ScreenReaderOutput.SpeakYieldingToSafety(
                 text,
-                Speech.SpeechIntent.Interrupt,
                 VerbosityLevel.Critical,
                 subject: Speech.SpeechSubject.ValueLayerStatus(_def.Id));
             VerbosityNow = () => ScreenReaderOutput.CurrentVerbosity;
