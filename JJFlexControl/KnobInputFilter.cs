@@ -28,7 +28,8 @@ namespace JJFlexControl
     /// batches, would otherwise make saved turns look like a fresh turn after a quiet spell, and
     /// tune the radio.</para>
     /// <para><b>Why that closes it, given the caller reads and checks under one lock:</b> bytes
-    /// leave the port's buffer only by being read, and every read restarts the wait. So if any
+    /// leave the port's buffer only by being read, and every non-empty read restarts the wait,
+    /// whole codes or not (<see cref="TextRead"/>). So if any
     /// byte reached the buffer during the gap, either it was read during the gap, and the gap
     /// restarted, or it is still there when the check is made, and the check finds the buffer
     /// not empty. A check that finds it empty a full gap after the last read therefore shows that
@@ -36,7 +37,12 @@ namespace JJFlexControl
     /// <para><b>What it still cannot see:</b> bytes the knob has not yet sent, or that are still on
     /// their way to the port's buffer. A pause in the knob's own replay longer than the gap would
     /// end the wait early. That is the knob's timing, not ours, and only a bench trace of the
-    /// gaps between batches can show it, which is why the gap errs long.</para>
+    /// gaps between batches can show it, which is why the gap errs long. The same holds for a
+    /// pause in the middle of one code: the half already read restarted the wait, but if the
+    /// rest took longer than the gap to come, the knob is found quiet with half a code held,
+    /// and that code acts when it completes. A two-byte code split by half a second of the
+    /// knob's own silence is not something it has been seen to do; it is named here so nobody
+    /// claims more than the rule gives.</para>
     /// <para><b>Any read restarts the wait, a device report included.</b> Noel, 12:25: <i>"The knob
     /// sends these queued actions in batches, wait until it calms down and then be ready to
     /// tune."</i> An <c>F0304</c> between two batches is the knob still talking.</para>
@@ -139,12 +145,7 @@ namespace JJFlexControl
         {
             if (!_waiting) return true;
 
-            if (_reads.Count == 0 || atMs > _lastRead)
-            {
-                if (_reads.Count < GapsListed + 1) _reads.Add(atMs);
-                else _readsNotListed++;
-            }
-            _lastRead = Math.Max(_lastRead, atMs);
+            TextRead(atMs);
 
             if (IsDeviceReport(token))
             {
@@ -159,6 +160,28 @@ namespace JJFlexControl
                 _ignoredOrder.Add(token);
             }
             return false;
+        }
+
+        /// <summary>
+        /// Text was read from the port at <paramref name="atMs"/>: ANY non-empty read, whether or
+        /// not it completed a code (round six). While waiting, it restarts the wait.
+        /// </summary>
+        /// <remarks>
+        /// A read that ends mid-code, <c>D</c> with its <c>;</c> still to come, takes bytes out of
+        /// the port's buffer without producing a token. If only whole tokens restarted the wait, a
+        /// check a moment later would find the buffer empty and the knob "quiet", and the saved
+        /// <c>D</c> would act when its <c>;</c> arrived (Codex, round five). The caller says so for
+        /// every read, before parsing it, so "no text had been read" in the trace is literally true.
+        /// </remarks>
+        public void TextRead(double atMs)
+        {
+            if (!_waiting) return;
+            if (_reads.Count == 0 || atMs > _lastRead)
+            {
+                if (_reads.Count < GapsListed + 1) _reads.Add(atMs);
+                else _readsNotListed++;
+            }
+            _lastRead = Math.Max(_lastRead, atMs);
         }
 
         /// <summary>

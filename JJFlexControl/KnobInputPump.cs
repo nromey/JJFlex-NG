@@ -80,7 +80,12 @@ namespace JJFlexControl
             lock (_gate)
             {
                 if (_stopped) return;
-                Take(read(), _clockMs());
+                string text = read();
+                if (string.IsNullOrEmpty(text)) return;
+                double now = _clockMs();
+                // Any non-empty read restarts the wait, even one that ends mid-code (round six).
+                _filter.TextRead(now);
+                Take(text, now);
             }
         }
 
@@ -108,7 +113,6 @@ namespace JJFlexControl
 
         private void Take(string text, double now)
         {
-            if (string.IsNullOrEmpty(text)) return;
             foreach (char ch in text)
             {
                 if (ch == '\0') continue;

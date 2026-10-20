@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using JJFlexControl;
@@ -102,6 +103,127 @@ namespace Radios.Tests
 
             Assert.Equal(new[] { "F0304" }, h.Dispatched);
             Assert.Equal(15, h.Pump.ReplayEventsDiscarded);
+        }
+
+        // ---- Round six: a read that ends mid-code still restarts the wait ----
+
+        [Fact]
+        public void A_read_that_ends_mid_code_restarts_the_wait_and_the_saved_code_never_acts()
+        {
+            // Codex's round-five sequence, exactly: a code read at 50 ms; the next read returns
+            // only "D" at 549 ms; a check at 550 ms finds the port's buffer empty; the ";" is read
+            // at 551 ms. "D;" spans a legal 2 ms at 9600 baud. Restart the wait only on whole
+            // codes and the check declares ready and this saved D tunes the radio.
+            var h = new Harness();
+            h.Read(50, "D;");
+            h.Read(549, "D");
+            Assert.True(h.Check(550));
+            h.Read(551, ";");
+
+            Assert.Empty(h.Dispatched);
+            Assert.True(h.Pump.WaitingForQuiet);
+            Assert.DoesNotContain(h.Notes, n => n.StartsWith("knob ready"));
+            Assert.Equal(2, h.Pump.ReplayEventsDiscarded);
+        }
+
+        [Fact]
+        public void A_read_that_carries_no_whole_code_still_counts_as_text_read()
+        {
+            // A read of a lone delimiter, or of nulls, makes no token. It is still text read, so
+            // the trace's "no text had been read" can only be said when it is true.
+            var h = new Harness();
+            h.Read(50, "D;");
+            h.Read(549, ";");
+            Assert.True(h.Check(550));
+            h.Read(600, "\0");
+            Assert.True(h.Check(1_099));
+            Assert.False(h.Check(1_100));
+            Assert.Contains(h.Notes, n => n.StartsWith("knob ready at 1100.0 ms after the open call: no text had been read from the port for 500.0 ms")
+                && n.Contains("then gaps of 499.0, 51.0 ms"));
+        }
+
+        /// <summary>
+        /// Text landing in the port's buffer a few bytes at a time, at 9600 baud, each fragment
+        /// read when <paramref name="readAt"/> says (at once by default), with the buffer checked
+        /// every <see cref="KnobInputFilter.QuietCheckMs"/> and just before every landing. Codes
+        /// are split across reads wherever the fragments fall.
+        /// </summary>
+        private static Harness SimulateBytes(IEnumerable<(string text, double at)> fragments, Func<double, double>? readAt = null)
+        {
+            var landed = fragments.ToList();
+            double previous = 0;
+            foreach (var (text, at) in landed)
+            {
+                FlexControlKnobWire.AssertTextFits(previous, at, text);
+                previous = at;
+            }
+            readAt ??= t => t;
+            var reads = landed.Select(f => readAt(f.at)).ToList();
+            double end = (landed.Count == 0 ? 0 : Math.Max(landed[^1].at, reads.Max())) + 2 * Gap + KnobInputFilter.QuietCheckMs;
+
+            var events = new List<(double at, int order, int index)>();
+            for (int i = 0; i < landed.Count; i++)
+            {
+                events.Add((landed[i].at, -1, -1));
+                events.Add((landed[i].at, 0, i));
+                events.Add((reads[i], 1, i));
+            }
+            for (double c = KnobInputFilter.QuietCheckMs; c <= end; c += KnobInputFilter.QuietCheckMs) events.Add((c, 2, -1));
+
+            var h = new Harness();
+            int unread = 0;
+            foreach (var (at, order, index) in events.OrderBy(e => e.at).ThenBy(e => e.order).ThenBy(e => e.index))
+            {
+                if (order == 0) unread += landed[index].text.Length;
+                else if (order == 1)
+                {
+                    unread -= landed[index].text.Length;
+                    h.Now = at;
+                    h.Pump.TakeText(landed[index].text);
+                }
+                else h.Check(at, unread);
+            }
+            return h;
+        }
+
+        /// <summary><paramref name="text"/> sent back to back from <paramref name="start"/>, landing <paramref name="bytes"/> bytes at a time.</summary>
+        private static List<(string text, double at)> Fragments(string text, double start, int bytes)
+        {
+            var list = new List<(string, double)>();
+            for (int i = 0; i < text.Length; i += bytes)
+            {
+                string part = text.Substring(i, Math.Min(bytes, text.Length - i));
+                list.Add((part, start + FlexControlKnobWire.MsFor(i + part.Length)));
+            }
+            return list;
+        }
+
+        [Fact]
+        public void A_replay_split_mid_code_across_reads_never_acts()
+        {
+            // Two saved batches landing three bytes at a time, so most reads end mid-code, with the
+            // second batch's first fragment landing 1 ms under the gap after the first batch's last
+            // read. Then a live turn after a full quiet gap.
+            var first = Fragments("F0304;D;D;U;D;X1S;D;D;", 0, 3);
+            var second = Fragments("U;D;D;F0304;D;U;", first[^1].at + Gap - 1 - FlexControlKnobWire.MsFor(3), 3);
+            var live = Fragments("U;", second[^1].at + Gap + 2 * KnobInputFilter.QuietCheckMs, 2);
+
+            Harness h = SimulateBytes(first.Concat(second).Concat(live));
+
+            Assert.Equal(new[] { "F0304", "F0304", "U" }, h.Dispatched);
+            Assert.Equal(12, h.Pump.ReplayEventsDiscarded);
+        }
+
+        [Fact]
+        public void A_code_split_across_a_delayed_read_never_acts()
+        {
+            // The "D" of a saved code is read at once; its ";" lands 2 ms later but sits unread
+            // until 1,200 ms. The buffer checks see it waiting the whole time.
+            var h = SimulateBytes(new[] { ("D;", 2.1), ("D", 100.0), (";", 102.0), ("U;", 2_000.0) },
+                readAt: t => t == 102.0 ? 1_200 : t);
+
+            Assert.Equal(new[] { "U" }, h.Dispatched);
+            Assert.Equal(2, h.Pump.ReplayEventsDiscarded);
         }
 
         [Fact]
