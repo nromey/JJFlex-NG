@@ -157,7 +157,8 @@ namespace Radios.Tests
             // No load request ever went out — so the file must say the radio
             // was not moved, rather than raise a false alarm.
             Assert.True(export.WalkRan);
-            Assert.True(export.EverythingPutBack);
+            Assert.False(export.Moved);
+            Assert.True(export.EverythingSentBack);
             Assert.Contains("global profile put back = no load was ever sent — the global profile list could not be read (no radio connection), so the radio was not moved", text);
         }
 
@@ -203,7 +204,7 @@ namespace Radios.Tests
             Assert.NotNull(export);
 
             Assert.False(export.WalkRan);
-            Assert.True(export.EverythingPutBack); // nothing was touched
+            Assert.True(export.EverythingSentBack); // nothing was touched
             Assert.Contains("[profile walk skipped]", export.Text);
             Assert.Contains("change nothing is on for this radio", export.Text);
             Assert.DoesNotContain("[global profile:", export.Text);
@@ -227,8 +228,12 @@ namespace Radios.Tests
             // #469 moved the walk into RunWalk, which reaches the radio
             // through the load it is handed; WalkProfiles hands it
             // LoadProfileAndWait (pinned in ComparisonReportGuardTests).
-            Assert.Contains("outcome.RestoreConfirmed = load(outcome.OriginalSelection)", source);
-            Assert.Contains("walk.RestoreAttempted && !walk.RestoreConfirmed", source);
+            // #469 round five: the put-back's result is whether it was SENT,
+            // and the comparison counts a walk that moved the radio and sent
+            // nothing back.
+            Assert.Contains("var result = load(outcome.OriginalSelection);", source);
+            Assert.Contains("outcome.RestoreSent = result != ProfileLoadResult.NotSent;", source);
+            Assert.Contains("if (!walk.StoppedForTransmit && walk.LoadsSent > 0 && !walk.RestoreSent)", source);
 
             // The positive control for this scan: a token known absent.
             Assert.DoesNotContain("NoSuchRestoreSymbol", source);

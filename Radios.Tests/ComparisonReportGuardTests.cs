@@ -365,13 +365,21 @@ namespace Radios.Tests
             public readonly List<string> Spoken = new List<string>();
             public Func<string, bool> KeyAfterLoading = _ => false;
             public Func<string, bool> Confirms = _ => true;
+            /// <summary>Refused before dispatch (change nothing, ownership):
+            /// recorded as asked for, never as sent.</summary>
+            public Func<string, bool> Refuses = _ => false;
+            public readonly List<string> Sent = new List<string>();
 
-            public bool Load(string name)
+            public ProfileReporter.ProfileLoadResult Load(string name)
             {
                 Assert.False(Keyed, "a profile load was sent while keyed: " + name);
                 Loads.Add(name);
+                if (Refuses(name)) return ProfileReporter.ProfileLoadResult.NotSent;
+                Sent.Add(name);
                 if (KeyAfterLoading(name)) Keyed = true;
-                return Confirms(name);
+                return Confirms(name)
+                    ? ProfileReporter.ProfileLoadResult.SentAndSettled
+                    : ProfileReporter.ProfileLoadResult.SentNotSettled;
             }
 
             public ProfileReporter.ProfileWalkOutcome Walk(ProfileTypes type, string original, params string[] names)
@@ -498,21 +506,21 @@ namespace Radios.Tests
                 + "comparison may be incomplete; the report says what was compared. Your profile may not be the one you "
                 + "started with; load it again from Profiles, in the Radio menu, if needed.",
                 ProfileReporter.ComparisonFinishedSentence(
-                    new ProfileReporter.ComparisonReport { StoppedForTransmit = true, EverythingPutBack = false }, "C:\\r.txt"));
+                    new ProfileReporter.ComparisonReport { StoppedForTransmit = true, Moved = true, EverythingSentBack = false }, "C:\\r.txt"));
             Assert.Equal("Restore capture written to C:\\c.ini. Profile loading stopped because the radio was keyed, so the "
                 + "capture may be incomplete; the file says which profiles it holds. Your profile may not be the one you "
                 + "started with; load it again from Profiles, in the Radio menu, if needed.",
                 ProfileReporter.RestoreFinishedSentence(
-                    new ProfileReporter.RestoreGradeExport { WalkRan = true, StoppedForTransmit = true, EverythingPutBack = true },
+                    new ProfileReporter.RestoreGradeExport { WalkRan = true, StoppedForTransmit = true, Moved = true, EverythingSentBack = true },
                     "C:\\c.ini"));
-            // Whatever the getter-based put-back flag says, a stopped run never
-            // speaks "back on" or "not back on everything".
+            // Whatever the put-back flags say, a stopped run never speaks "back
+            // on" or "not back on everything".
             foreach (bool back in new[] { true, false })
             {
                 string c = ProfileReporter.ComparisonFinishedSentence(
-                    new ProfileReporter.ComparisonReport { StoppedForTransmit = true, EverythingPutBack = back }, "p");
+                    new ProfileReporter.ComparisonReport { StoppedForTransmit = true, Moved = true, EverythingSentBack = back }, "p");
                 string r = ProfileReporter.RestoreFinishedSentence(
-                    new ProfileReporter.RestoreGradeExport { WalkRan = true, StoppedForTransmit = true, EverythingPutBack = back }, "p");
+                    new ProfileReporter.RestoreGradeExport { WalkRan = true, StoppedForTransmit = true, Moved = true, EverythingSentBack = back }, "p");
                 foreach (string s in new[] { c, r })
                 {
                     Assert.DoesNotContain("back on", s);
@@ -520,11 +528,130 @@ namespace Radios.Tests
                 }
             }
 
-            var ordinary = new ProfileReporter.RestoreGradeExport { WalkRan = true, EverythingPutBack = true };
-            Assert.Equal(Radios.Lexicon.Get("settings.restore_export.saved_put_back", ("path", "C:\\c.ini")),
-                ProfileReporter.RestoreFinishedSentence(ordinary, "C:\\c.ini"));
             Assert.Equal("Profile report saved to C:\\r.txt",
                 ProfileReporter.ComparisonFinishedSentence(new ProfileReporter.ComparisonReport(), "C:\\r.txt"));
+        }
+
+        // ------------------------------------------------------------------
+        // Round five (Codex reverify4): the ordinary finish says "sent back",
+        // never "back on" or "confirmed", and says so when nothing was sent
+        // ------------------------------------------------------------------
+
+        private const string Pointer = "Your profile may not be the one you started with; load it again from "
+            + "Profiles, in the Radio menu, if needed.";
+
+        [Fact]
+        public void The_ordinary_finish_says_the_starting_profiles_were_sent_back_and_nothing_stronger()
+        {
+            // Red on b6d33719: "The radio is back on the profiles it started
+            // with", on the strength of a field FlexLib's own setter writes.
+            Assert.Equal("Restore capture written to C:\\c.ini. The profiles recorded before it began were sent back to the radio.",
+                ProfileReporter.RestoreFinishedSentence(
+                    new ProfileReporter.RestoreGradeExport { WalkRan = true, Moved = true, EverythingSentBack = true }, "C:\\c.ini"));
+            Assert.Equal("Profile report saved to C:\\r.txt. The profiles recorded before it began were sent back to the radio.",
+                ProfileReporter.ComparisonFinishedSentence(
+                    new ProfileReporter.ComparisonReport { Moved = true, EverythingSentBack = true }, "C:\\r.txt"));
+            Assert.Equal("Restore capture written to C:\\c.ini. No profile was sent to the radio, so it was not moved.",
+                ProfileReporter.RestoreFinishedSentence(
+                    new ProfileReporter.RestoreGradeExport { WalkRan = true, Moved = false, EverythingSentBack = true }, "C:\\c.ini"));
+            Assert.DoesNotContain("back on", Read("Radios/Lexicon/settings.json")
+                .Split('\n').Where(l => l.Contains("sent_back") || l.Contains("nothing_moved")).Aggregate("", (a, b) => a + b));
+        }
+
+        [Fact]
+        public void The_ordinary_finish_gives_the_manual_route_when_something_was_not_sent_back()
+        {
+            // Red on b6d33719: the comparison ignored its own put-back flag.
+            Assert.Equal("Profile report saved to C:\\r.txt. Not every profile recorded before it began could be sent back; "
+                + "the report says which. " + Pointer,
+                ProfileReporter.ComparisonFinishedSentence(
+                    new ProfileReporter.ComparisonReport { Moved = true, EverythingSentBack = false }, "C:\\r.txt"));
+            Assert.Equal("Restore capture written to C:\\c.ini. Not every profile recorded before it began could be sent back; "
+                + "the end of the file says which. " + Pointer,
+                ProfileReporter.RestoreFinishedSentence(
+                    new ProfileReporter.RestoreGradeExport { WalkRan = true, Moved = true, EverythingSentBack = false }, "C:\\c.ini"));
+        }
+
+        [Fact]
+        public void A_put_back_refused_before_dispatch_is_never_called_sent_back()
+        {
+            var radio = new ScriptedRadio { Refuses = n => n == "Home" };
+            var o = radio.Walk(ProfileTypes.global, "Home", "A", "B");
+
+            Assert.Equal(new[] { "A", "B" }, radio.Sent);
+            Assert.True(o.RestoreAttempted);
+            Assert.False(o.RestoreSent);
+            Assert.Equal("sending Home back was refused before it reached the radio", ProfileReporter.NotSentBackReason(o));
+
+            var sb = new System.Text.StringBuilder();
+            ProfileReporter.AppendComparisonPutBack(sb, o);
+            string file = sb.ToString() + ProfileReporter.AfterTheWalkValue(o);
+            Assert.DoesNotContain("was sent back to the radio", file);
+            Assert.DoesNotContain("sent back:", file);
+            Assert.Contains("NOT SENT BACK: no global profile was sent back, because sending Home back was refused before it reached the radio.", file);
+            Assert.Contains(Pointer, file);
+            Assert.StartsWith("NOT sent back — sending Home back was refused", ProfileReporter.AfterTheWalkValue(o));
+        }
+
+        [Fact]
+        public void A_sent_put_back_is_labelled_sent_and_never_confirmed()
+        {
+            // Even when FlexLib's field reads the name back, the file says
+            // "sent back" and that the radio's own report was not checked.
+            var radio = new ScriptedRadio();
+            var o = radio.Walk(ProfileTypes.tx, "Barefoot", "A", "B");
+            Assert.True(o.RestoreSent);
+            var sb = new System.Text.StringBuilder();
+            ProfileReporter.AppendComparisonPutBack(sb, o);
+            Assert.Contains("The app's last recorded TX selection before the walk, 'Barefoot',", sb.ToString());
+            Assert.Contains("was sent back to the radio (the radio's own report was not checked).", sb.ToString());
+            Assert.Equal("sent back: Barefoot, the app's last recorded selection before the walk (the radio's own report was not checked)",
+                ProfileReporter.AfterTheWalkValue(o));
+            Assert.DoesNotContain("confirmed", sb.ToString() + ProfileReporter.AfterTheWalkValue(o));
+        }
+
+        [Fact]
+        public void No_starting_selection_recorded_gives_the_pointer_and_the_file_note()
+        {
+            // Codex's reverify4 blocker 2. The walk loads, has nothing to send
+            // back, and until round five said nothing about it.
+            var radio = new ScriptedRadio();
+            var o = radio.Walk(ProfileTypes.global, null, "A", "B");
+
+            Assert.Equal(new[] { "A", "B" }, radio.Sent);
+            Assert.False(o.RestoreAttempted);
+            Assert.Equal("no starting global selection was recorded, so there was nothing to send back",
+                ProfileReporter.NotSentBackReason(o));
+            var sb = new System.Text.StringBuilder();
+            ProfileReporter.AppendComparisonPutBack(sb, o);
+            Assert.Contains("NOT SENT BACK: no global profile was sent back, because no starting global selection was "
+                + "recorded, so there was nothing to send back.", sb.ToString());
+            Assert.Contains(Pointer, sb.ToString());
+
+            // And the comparison's own aggregation counts it (source pin: the
+            // loop needs a connected radio).
+            Assert.Contains("if (!walk.StoppedForTransmit && walk.LoadsSent > 0 && !walk.RestoreSent)",
+                Read("Radios/ProfileReporter.cs"));
+        }
+
+        [Fact]
+        public void A_walk_whose_loads_were_all_refused_moved_nothing_and_owes_nothing()
+        {
+            var radio = new ScriptedRadio { Refuses = _ => true };
+            var o = radio.Walk(ProfileTypes.global, null, "A", "B");
+            Assert.Empty(radio.Sent);
+            Assert.Equal(0, o.LoadsSent);
+            Assert.Null(ProfileReporter.NotSentBackReason(o));
+            Assert.Equal("nothing was sent to the radio, so nothing needed sending back", ProfileReporter.AfterTheWalkValue(o));
+            Assert.Contains(o.Unreadable, u => u.Problem == "the load was refused before it reached the radio");
+        }
+
+        [Fact]
+        public void The_restore_file_never_claims_the_radio_confirmed_anything()
+        {
+            string src = Read("Radios/ProfileReporter.cs");
+            Assert.DoesNotContain("confirmed by the radio", src);
+            Assert.Contains("var dispatched = rig.SelectProfileGuarded(prof);", src);
         }
 
         [Fact]
@@ -550,12 +677,12 @@ namespace Radios.Tests
             var o = radio.Walk(ProfileTypes.global, "Home", "A", "B");
             Assert.Equal(new[] { "A", "B", "Home" }, radio.Loads);
             Assert.False(o.StoppedForTransmit);
-            Assert.True(o.RestoreConfirmed);
+            Assert.True(o.RestoreSent);
             Assert.Equal(new[]
             {
                 "Loading global profile 1 of 2: A",
                 "Loading global profile 2 of 2: B",
-                "Putting back the global profile that was loaded: Home",
+                "Sending back the global profile recorded before the walk: Home",
             }, radio.Spoken);
         }
 

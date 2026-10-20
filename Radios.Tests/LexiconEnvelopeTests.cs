@@ -1192,6 +1192,19 @@ namespace Radios.Tests
                 "settings.profile.report_start_list_missing",
                 "settings.profile.report_start_lists_missing",
                 "settings.restore_export.not_while_transmitting_kinds",
+                // Round five (Codex reverify4, two pre-existing blockers in the
+                // ordinary finish): the starting profile is said to be SENT
+                // back, never "back on" or "confirmed" (FlexLib's setter writes
+                // the field the old check read), and a walk that could not send
+                // it back gives the stop line's manual route. The legacy
+                // settings.restore_export.saved_put_back / saved_not_put_back are
+                // no longer spoken and stay frozen; DECIDE THEM WITH THESE.
+                // Same classification and reasoning as above. DRAFTS.
+                "settings.profile.report_saved_sent_back",
+                "settings.profile.report_saved_not_sent_back",
+                "settings.restore_export.saved_sent_back",
+                "settings.restore_export.saved_not_sent_back",
+                "settings.restore_export.saved_nothing_moved",
             };
 
             Assert.Equal(3152, unclassified);
