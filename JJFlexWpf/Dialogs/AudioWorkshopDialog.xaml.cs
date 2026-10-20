@@ -690,7 +690,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             // a reconnect on the same FlexBase can arrange again. Writes are
             // internally guarded when the underlying radio is gone.
             if (oldRig != null && oldRig.LoopbackArranged)
-                oldRig.EndLoopbackArrangement();
+                _ = oldRig.EndLoopbackArrangementAsync();
             _meterTimer.Stop();
             // The poll is dead now — leave the readings honest, not stale.
             UpdateMicReading();

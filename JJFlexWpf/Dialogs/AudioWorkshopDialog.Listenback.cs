@@ -151,6 +151,7 @@ public partial class AudioWorkshopDialog
     }
     private async Task ToggleDiagnosticAsync()
     {
+        if (_loopbackStarting) { IqStatus(Lexicon.Get("audio.iq.stop_other"), true); return; }
         if (_iqBusy) { _iqCancellation?.Cancel(); return; }
         if (_iqRun != null) { await FinishIqAsync("operator-stop"); return; }
         if (_rig == null || _session?.Active == true) { IqStatus(Lexicon.Get("audio.iq.stop_other"), true); return; }

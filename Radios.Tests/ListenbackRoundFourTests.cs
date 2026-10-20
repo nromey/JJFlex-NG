@@ -101,10 +101,18 @@ public sealed class ListenbackRoundFourTests : IDisposable
         Assert.Equal("audio.full_duplex.not_reported",await rig.ToggleFullDuplexAsync());
         c.F.Vendor.Status("radio full_duplex_enabled=0");
         Assert.True(rig.FullDuplexAvailable); Assert.False(rig.FullDuplexEnabled);
-        c.F.Vendor.Transport.CommandWritten = _ => c.F.Vendor.ReplyOk(c.F.Vendor.LastSequence);
+        int reads = 0;
+        c.F.Vendor.Transport.CommandWritten = command =>
+        {
+            if (command == "sub radio all" && ++reads == 1) c.F.Vendor.Status("radio full_duplex_enabled=0");
+            c.F.Vendor.ReplyOk(c.F.Vendor.LastSequence);
+        };
         var toggle = rig.ToggleFullDuplexAsync();
-        while(rig.q.Count > 0) if(rig.q.Dequeue().Item is FlexBase.FunctionDel action) action();
-        await Task.Delay(25);
+        for (int i = 0; i < 50 && reads < 2; ++i)
+        {
+            while(rig.q.Count > 0) if(rig.q.Dequeue().Item is FlexBase.FunctionDel action) action();
+            await Task.Delay(5);
+        }
         Assert.False(toggle.IsCompleted); Assert.False(rig.FullDuplexEnabled);
         Assert.Contains("radio set full_duplex_enabled=1",c.F.Vendor.Transport.Commands);
         c.F.Vendor.Status("radio full_duplex_enabled=1");
@@ -121,10 +129,23 @@ public sealed class ListenbackRoundFourTests : IDisposable
         using var c = new RadioCase(); c.F.Rig.WireStationHandlers(c.F.Vendor.Radio);
         c.F.Vendor.Status("radio full_duplex_enabled=0");
         c.F.Rig.ListenbackConfirmationWait = TimeSpan.FromMilliseconds(60);
-        c.F.Vendor.Transport.CommandWritten = _ => c.F.Vendor.Reply(c.F.Vendor.LastSequence,1,"refused");
+        c.F.Vendor.Transport.CommandWritten = command =>
+        {
+            if (command == "sub radio all") { c.F.Vendor.Status("radio full_duplex_enabled=0"); c.F.Vendor.ReplyOk(c.F.Vendor.LastSequence); }
+            else c.F.Vendor.Reply(c.F.Vendor.LastSequence,1,"refused");
+        };
         Assert.Equal("audio.full_duplex.refused",await c.Pump(c.F.Rig.ToggleFullDuplexAsync()));
         Assert.False(c.F.Rig.FullDuplexEnabled);
-        c.F.Vendor.Transport.CommandWritten = _ => c.F.Vendor.ReplyOk(c.F.Vendor.LastSequence);
+        bool initialRead = true;
+        c.F.Vendor.Transport.CommandWritten = command =>
+        {
+            if (command == "sub radio all" && initialRead)
+            {
+                c.F.Vendor.Status("radio full_duplex_enabled=0");
+                initialRead = false;
+            }
+            c.F.Vendor.ReplyOk(c.F.Vendor.LastSequence);
+        };
         Assert.Equal("audio.full_duplex.unconfirmed",await c.Pump(c.F.Rig.ToggleFullDuplexAsync()));
         Assert.False(c.F.Rig.FullDuplexEnabled);
     }
@@ -185,6 +206,11 @@ public sealed class ListenbackRoundFourTests : IDisposable
             }
             else if(command.StartsWith("stream create type=dax_iq"))
                 c.F.Vendor.Status($"stream 0x20000000 type=dax_iq client_handle=0x{radio.ClientHandle:X} daxiq_channel=1 pan=0x0 daxiq_rate=48000 active=1 payload_endian=little");
+            else if (confirmationTimeout && command == "sub slice all")
+            {
+                c.F.Vendor.Status("slice 0 in_use=1 pan=0x40000000 RF_frequency=21.195 mode=USB rxant=ANT1");
+                c.F.Vendor.ReplyOk(c.F.Vendor.LastSequence);
+            }
             else
             {
                 c.Respond(command);

@@ -22,6 +22,7 @@ namespace JJFlexWpf.Dialogs;
 public partial class AudioWorkshopDialog
 {
     #region Audio Check Section
+    private bool _loopbackStarting;
 
     private void BuildAudioCheckSection()
     {
@@ -228,7 +229,7 @@ public partial class AudioWorkshopDialog
             Visibility = Visibility.Collapsed
         };
         AutomationProperties.SetName(_loopbackButton, "Loopback Check, transverter port");
-        _loopbackButton.Click += (s, e) => StartLoopbackCheck();
+        _loopbackButton.Click += async (s, e) => await StartLoopbackCheckAsync();
         AddToSection(HearYourselfContent, _loopbackButton);
 
         _loopbackInfo = new TextBlock
@@ -277,8 +278,9 @@ public partial class AudioWorkshopDialog
     /// key through the same PttSafetyController path as every other check.
     /// Teardown restores every saved value and removes the ears slice.
     /// </summary>
-    private void StartLoopbackCheck()
+    private async Task StartLoopbackCheckAsync()
     {
+        if (_loopbackStarting) return;
         if (_iqBusy || _iqRun != null) { IqStatus(Lexicon.Get("audio.iq.stop_other"), true); return; }
         if (_session != null && _session.Active)
         {
@@ -304,20 +306,34 @@ public partial class AudioWorkshopDialog
             return;
         }
 
-        if (!_rig.StartLoopbackArrangement())
+        var rig = _rig;
+        _loopbackStarting = true;
+        try
         {
-            string reason = _rig.LoopbackUnavailableReason;
-            if (string.IsNullOrEmpty(reason)) reason = Lexicon.Get("audio.check.loopback_no_free_slice");
+        if (!await rig.StartLoopbackArrangementAsync())
+        {
+            string reason = rig.LoopbackUnavailableReason;
+            if (string.IsNullOrEmpty(reason))
+            {
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.check.loopback_setup_unconfirmed"),
+                    VerbosityLevel.Critical, interrupt: true);
+                return;
+            }
             ScreenReaderOutput.Speak(
                 Lexicon.Get("audio.check.loopback_setup_failed", ("reason", reason)),
                 VerbosityLevel.Critical, interrupt: true);
+            return;
+        }
+        if (_iqClosing || !ReferenceEquals(rig, _rig))
+        {
+            await rig.EndLoopbackArrangementAsync();
             return;
         }
 
         // Power mode is irrelevant here — the loopback arrangement owns
         // power (1 W into the transverter port) and the session's power
         // handling is bypassed entirely in loopback mode.
-        var session = new AudioCheckSession(this, _rig, ptt,
+        var session = new AudioCheckSession(this, rig, ptt,
             AudioCheckListenMethods.Monitor, AudioCheckPowerModes.LowPower, 1,
             loopback: true);
         if (session.Start())
@@ -329,10 +345,21 @@ public partial class AudioWorkshopDialog
         else
         {
             // Keying refused — take the arrangement back down.
-            string trouble = _rig.EndLoopbackArrangement();
+            string trouble = await rig.EndLoopbackArrangementAsync();
             if (!string.IsNullOrEmpty(trouble))
                 ScreenReaderOutput.Speak(trouble, VerbosityLevel.Terse);
         }
+        }
+        catch (Exception ex)
+        {
+            JJTrace.Tracing.TraceLine("Loopback Check setup: " + ex, System.Diagnostics.TraceLevel.Error);
+            if (rig.LoopbackArranged)
+                try { await rig.EndLoopbackArrangementAsync(); }
+                catch (Exception restore) { JJTrace.Tracing.TraceLine("Loopback Check rollback: " + restore, System.Diagnostics.TraceLevel.Error); }
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.loopback_setup_unconfirmed"),
+                VerbosityLevel.Critical, interrupt: true);
+        }
+        finally { _loopbackStarting = false; }
     }
 
     /// <summary>
@@ -341,6 +368,11 @@ public partial class AudioWorkshopDialog
     /// </summary>
     public void ToggleAudioCheck()
     {
+        if (_loopbackStarting)
+        {
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.stop_current_first"), VerbosityLevel.Terse);
+            return;
+        }
         if (_iqBusy) { _iqCancellation?.Cancel(); return; }
         if (_session != null && _session.Active)
         {
@@ -398,16 +430,25 @@ public partial class AudioWorkshopDialog
     /// loopback arrangement is up, tear it down and say so. Runs on every
     /// exit path because every exit path funnels through the session's End.
     /// </summary>
-    private void OnSessionEnded()
+    private async void OnSessionEnded()
     {
         SetStartButtonLabel("Start Audio Check");
         if (_iqWasOffAir && _iqRun != null) { _ = FinishIqAsync("operator-stop"); return; }
         if (_rig != null && _rig.LoopbackArranged)
         {
-            string trouble = _rig.EndLoopbackArrangement();
-            ScreenReaderOutput.Speak(
-                Lexicon.Get("audio.check.loopback_ended") + " " + trouble,
-                VerbosityLevel.Terse);
+            try
+            {
+                string trouble = await _rig.EndLoopbackArrangementAsync();
+                ScreenReaderOutput.Speak(
+                    Lexicon.Get("audio.check.loopback_ended") + " " + trouble,
+                    VerbosityLevel.Terse);
+            }
+            catch (Exception ex)
+            {
+                JJTrace.Tracing.TraceLine("Loopback Check restore: " + ex, System.Diagnostics.TraceLevel.Error);
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.check.loopback_restore_unconfirmed"),
+                    VerbosityLevel.Critical, interrupt: true);
+            }
         }
     }
 

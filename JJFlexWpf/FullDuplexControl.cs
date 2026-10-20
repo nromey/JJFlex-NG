@@ -9,7 +9,14 @@ internal static class FullDuplexControl
 {
     internal static async Task ToggleAsync(FlexBase? rig)
     {
-        string key = rig == null ? "audio.no_radio_connected" : await rig.ToggleFullDuplexAsync();
+        string key;
+        if (rig == null) key = "audio.no_radio_connected";
+        else
+        {
+            var request = rig.ToggleFullDuplexAsync();
+            if (!request.IsCompleted) Speak("audio.full_duplex.setting");
+            key = await request;
+        }
         // Menu activation can return before the native menu has relinquished
         // focus. Deliver from the arriving Home context after that transition.
         if (Application.Current?.Dispatcher is { } dispatcher)

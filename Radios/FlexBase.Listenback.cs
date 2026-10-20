@@ -113,13 +113,23 @@ public partial class FlexBase
                 !radio.PanadapterList.Any(p => p.DAXIQChannel == n) && !radio.DAXIQStreamList.Any(s => s.DAXIQChannel == n));
             if (channel == 0) throw new InvalidOperationException("no-free-iq-channel");
             if (!separate && tx.Panadapter.DAXIQChannel != 0) throw new InvalidOperationException("pan-iq-in-use");
+            bool priorFullDuplex = false;
+            if (options.FullDuplex || options.OffAir)
+            {
+                try { priorFullDuplex = await ReadFullDuplexAsync(radio, connection).ConfigureAwait(false); }
+                catch (Exception ex)
+                {
+                    JJTrace.Tracing.TraceLine("Listenback initial full duplex read-back: " + ex.Message, System.Diagnostics.TraceLevel.Warning);
+                    throw new InvalidOperationException("full-duplex-readback-unavailable", ex);
+                }
+            }
             string directory = Path.Combine(RadioConfig.AppDataRoot, "Recordings", "takes",
                 DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff", CultureInfo.InvariantCulture) + "-" + Guid.NewGuid().ToString("N")[..8]);
             snapshot = new RadioRecoverySnapshot { Serial = radio.Serial, ClientHandle = radio.ClientHandle,
                 TakeDirectory = directory, ResourceCreationPending = separate, ConnectionId = connection.Id,
                 GuiClientId = radio.GUIClientID, PriorActiveSlice = VFOToSlice(RXVFO)?.Index, CreationEvidenceVersion = 1 };
-            if (options.FullDuplex || options.OffAir) snapshot.Settings.Add(new("full-duplex", radio.FullDuplexEnabled ? "1" : "0",
-                "radio set full_duplex_enabled=" + (radio.FullDuplexEnabled ? "1" : "0"), "radio", "full_duplex_enabled", RequestedValue: "1"));
+            if (options.FullDuplex || options.OffAir) snapshot.Settings.Add(new("full-duplex", priorFullDuplex ? "1" : "0",
+                "radio set full_duplex_enabled=" + (priorFullDuplex ? "1" : "0"), "radio", "full_duplex_enabled", RequestedValue: "1"));
             if (options.OffAir)
             {
                 snapshot.Settings.Add(new("tx-antenna", tx.TXAnt, $"slice set {tx.Index} txant={tx.TXAnt}", $"slice {tx.Index}", "txant", "slice", (uint)tx.Index, RequestedValue: expectedLoopbackAntenna))
@@ -145,7 +155,7 @@ public partial class FlexBase
             var diagnosticResources = new LoopbackSliceResources(before, beforePans);
             if (options.OffAir)
             {
-                if (!StartLoopbackArrangement())
+                if (!await StartLoopbackArrangementAsync(priorFullDuplex).ConfigureAwait(false))
                 {
                     snapshot.ResourceCreationPending = false; store.Save(snapshot);
                     throw new InvalidOperationException("arrangement-refused");
@@ -193,19 +203,70 @@ public partial class FlexBase
                 snapshot.ListenerRequest = new((uint)created.Index, pan.StreamID, receiveFrequency, receiveMode, rxAnt);
                 store.Save(snapshot); // Requested details are not identity evidence.
             }
+            if (options.FullDuplex && !options.OffAir && !priorFullDuplex &&
+                !await SetFullDuplexConfirmedAsync(true, radio, connection,
+                    note => writer.Header.Write("full-duplex-setup", note)).ConfigureAwait(false))
+                throw new InvalidOperationException("arrangement-not-confirmed");
+
+            int listenerEvidenceStart = 0;
+            if (created != null) lock (setupEvidence) listenerEvidenceStart = setupEvidence.Count;
+
+            async Task SendListenerCommandAsync(string item, string command)
+            {
+                var reply = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                await IqQueue(() =>
+                {
+                    if (!SameConnection()) throw new InvalidOperationException("connection-ended");
+                    int sequence = radio.SendReplyCommand((seq, code, response) =>
+                    {
+                        writer.Header.Event("listener-command-reply", new { Item = item, Command = command,
+                            Sequence = seq, Code = code.ToString("X8"), Text = response });
+                        reply.TrySetResult(code == 0);
+                    }, command);
+                    writer.Header.Event("listener-command-sent", new { Item = item, Command = command, Sequence = sequence });
+                }).ConfigureAwait(false);
+                using var timeout = new CancellationTokenSource(ListenbackConfirmationWait);
+                try
+                {
+                    if (!await reply.Task.WaitAsync(timeout.Token).ConfigureAwait(false))
+                        throw new InvalidOperationException("listener-command-refused");
+                }
+                catch (OperationCanceledException)
+                {
+                    writer.Header.Event("listener-command-timeout", new { Item = item, Command = command });
+                    throw new InvalidOperationException("listener-command-timeout");
+                }
+            }
+            if (created != null)
+            {
+                string freq = receiveFrequency.ToString("F6", CultureInfo.InvariantCulture);
+                await SendListenerCommandAsync("slice-frequency", $"slice tune {created.Index} {freq}").ConfigureAwait(false);
+                await SendListenerCommandAsync("pan-frequency", $"display pan set 0x{pan.StreamID:X} center={freq}").ConfigureAwait(false);
+            }
             await IqQueue(() =>
             {
                 if (!SameConnection()) throw new InvalidOperationException("connection-ended");
-                if (options.FullDuplex) radio.SendReplyCommand((sequence, code, text) =>
-                    JJTrace.Tracing.TraceLine($"Listenback full duplex request reply {sequence}: {code:X8} {text}", System.Diagnostics.TraceLevel.Info), "radio set full_duplex_enabled=1");
                 if (created != null)
                 {
-                    created.Freq = receiveFrequency;
                     created.DemodMode = receiveMode;
                     if (!string.IsNullOrEmpty(rxAnt)) pan.RXAnt = rxAnt;
-                    pan.CenterFreq = receiveFrequency;
                 }
             }).ConfigureAwait(false);
+            if (created != null)
+            {
+                // The vendor setters cache their requested value and may skip
+                // an equal request. Demand fresh resource reports after the raw
+                // tune replies before the identity/frequency confirmation.
+                foreach (string sub in new[] { "sub slice all", "sub pan all" })
+                    await IqQueue(() =>
+                    {
+                        if (!SameConnection()) throw new InvalidOperationException("connection-ended");
+                        int sequence = radio.SendReplyCommand((seq, code, response) =>
+                            writer.Header.Event("listener-readback-reply", new { Command = sub, Sequence = seq,
+                                Code = code.ToString("X8"), Text = response }), sub);
+                        writer.Header.Event("listener-readback-sent", new { Command = sub, Sequence = sequence });
+                    }).ConfigureAwait(false);
+            }
             var provenance = new Dictionary<string, string>
             {
                 ["model"] = radio.Model, ["serial"] = radio.Serial, ["nickname"] = radio.Nickname,
@@ -270,8 +331,9 @@ public partial class FlexBase
                     string[] sliceLines, panLines;
                     lock (setupEvidence)
                     {
-                        sliceReport = ListenbackCreationEvidence.Read("slice", (uint)created.Index, setupEvidence, out sliceProblem, out sliceLines);
-                        panReport = ListenbackCreationEvidence.Read("pan", pan.StreamID, setupEvidence, out panProblem, out panLines);
+                        var fresh = setupEvidence.Skip(listenerEvidenceStart).ToArray();
+                        sliceReport = ListenbackCreationEvidence.Read("slice", (uint)created.Index, fresh, out sliceProblem, out sliceLines);
+                        panReport = ListenbackCreationEvidence.Read("pan", pan.StreamID, fresh, out panProblem, out panLines);
                     }
                     string Mismatch(RecoveryResource r, string problem)
                     {
@@ -310,10 +372,11 @@ public partial class FlexBase
                     new SavedRadioSetting("monitor", "0", "", "transmit", "sb_monitor") };
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
                 timeout.CancelAfter(TimeSpan.FromSeconds(4));
-                if (tx.TXAnt != expectedLoopbackAntenna || radio.RFPower != 1 || !radio.FullDuplexEnabled || radio.TXMonitor)
+                if (tx.TXAnt != expectedLoopbackAntenna || radio.RFPower != 1 || !await ReadFullDuplexAsync(radio, connection).ConfigureAwait(false) || radio.TXMonitor)
                     throw new InvalidOperationException("arrangement-not-confirmed");
                 foreach (var target in desired)
                 {
+                    if (target.Name == "full-duplex") continue; // confirmed by the fresh radio read-back above
                     if (snapshot.Settings.FirstOrDefault(s => s.Name == target.Name)?.Value == target.Value) continue;
                     while (true)
                     {
@@ -470,7 +533,7 @@ public partial class FlexBase
                 await IqQueue(() =>
                 {
                     if (!Live()) { reply.TrySetResult(false); return; }
-                    if (AlreadyRestored(setting, Current(setting)))
+                    if (!NeedsReadback(setting) && AlreadyRestored(setting, Current(setting)))
                     {
                         trace.Write("no-command", new { setting.Name, Reason = "already-restored-at-send" });
                         evidence.TrySetResult(true); reply.TrySetResult(true); return;
@@ -486,6 +549,9 @@ public partial class FlexBase
                 }).ConfigureAwait(false);
                 using var timeout = new CancellationTokenSource(ListenbackConfirmationWait);
                 if (!await reply.Task.WaitAsync(timeout.Token).ConfigureAwait(false)) return false;
+                if (NeedsReadback(setting))
+                    return await ReadSettingAsync(radio, connection, setting,
+                        note => trace.Write("readback", new { setting.Name, Note = note })).ConfigureAwait(false);
                 return await evidence.Task.WaitAsync(timeout.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
@@ -497,6 +563,7 @@ public partial class FlexBase
             finally { status.Status -= Seen; }
         }
         bool streamRemovalConfirmed = true;
+        bool NeedsReadback(SavedRadioSetting item) => item.Name is "full-duplex" or "tx-antenna" or "rf-power" or "monitor" or "xvtr-drive";
         bool PanBusy(Panadapter pan) => !streamRemovalConfirmed || radio.DAXIQStreamList.Any(s =>
             ReferenceEquals(s.Pan, pan) || (pan.DAXIQChannel != 0 && s.DAXIQChannel == pan.DAXIQChannel));
         bool restored = await IqRecovery.RestoreAsync(snapshot, async setting =>
@@ -510,10 +577,20 @@ public partial class FlexBase
             trace.Write("item", new { setting.Name, setting.RestoreCommand, setting.Value, setting.ResourceKind, setting.ResourceId });
             if (!Live()) return Verdict(false, "connection-ended-or-transmitting");
             object current = Current(setting);
+            if (NeedsReadback(setting) && AlreadyRestored(setting, current))
+            {
+                try
+                {
+                    if (await ReadSettingAsync(radio, connection, setting,
+                        note => trace.Write("readback", new { setting.Name, Note = note })).ConfigureAwait(false))
+                        return Verdict(true, "fresh-readback-already-restored; no command");
+                }
+                catch (Exception ex) { trace.Write("readback-unavailable", new { setting.Name, Error = ex.Message }); }
+            }
             // A no-op needs no command/echo. In particular, a removed pan has
             // no surviving IQ binding, and a prior antenna already in place
             // can be confirmed without claiming ownership of a replacement.
-            if (AlreadyRestored(setting, current)) return Verdict(true, "already-restored-or-absent; no command");
+            if (!NeedsReadback(setting) && AlreadyRestored(setting, current)) return Verdict(true, "already-restored-or-absent; no command");
             if (setting.ResourceKind != "" && !Ours(setting, current)) return Verdict(false, "ownership-unproven; no command");
             if (current is Slice slice && setting.Name == "created-slice")
             {
