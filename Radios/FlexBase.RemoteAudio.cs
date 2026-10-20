@@ -1780,7 +1780,9 @@ namespace Radios
         /// <summary>
         /// While PC transmit audio is running, verify the radio still has its
         /// mic input set to PC — and if it has drifted behind our back, say so
-        /// out loud and put it back.
+        /// out loud, and put it back only on a radio declared Mine. On any
+        /// other radio the owner's choice stands and the sentence says why
+        /// computer audio is going nowhere (#686).
         /// <para>Called from the transmit branch of the remote-audio loop and
         /// throttled to about once a second: the check is a cached property
         /// read, but the recovery is a radio command and the announcement is
