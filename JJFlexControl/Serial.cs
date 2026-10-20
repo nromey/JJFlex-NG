@@ -145,12 +145,9 @@ namespace JJFlexControl
             private void rearm(double now)
             {
                 double? due = filter.NextDueMs;
-                if (due == null)
-                {
-                    releaseTimer.Change(System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
-                    return;
-                }
-                long wait = Math.Max(1L, (long)Math.Ceiling(due.Value - now));
+                long wait = (due == null)
+                    ? System.Threading.Timeout.Infinite
+                    : Math.Max(1L, (long)Math.Ceiling(due.Value - now));
                 try { releaseTimer.Change(wait, System.Threading.Timeout.Infinite); }
                 catch (ObjectDisposedException) { } // closed underneath us
             }
