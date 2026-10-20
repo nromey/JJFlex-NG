@@ -352,12 +352,14 @@ namespace Radios
             /// its last profile, at the put-back.</summary>
             public string StoppedBefore;
 
-            /// <summary>When the walk stopped for transmit: the profile of this
-            /// kind the radio reported being on at that moment, or null when it
-            /// could not be read. Read from the radio, not inferred from the
-            /// last load, so a load that never confirmed cannot be reported as
-            /// where the radio is.</summary>
-            public string NowOn;
+            /// <summary>The last profile a load REQUEST went out for, whether or
+            /// not the radio confirmed it; null when none was sent. #469 round
+            /// three: this is the only "where" a stopped walk may state.
+            /// FlexLib's selection getters cannot say where the radio is,
+            /// because its setters write the same field before sending and an
+            /// equal status from the radio is skipped, so reading one back after
+            /// a load returns our own request.</summary>
+            public string LastSent;
         }
 
         // ── #418: the three-state profile list, and its renderings ──
@@ -509,20 +511,16 @@ namespace Radios
             }
 
             // Record the currently selected profile so we can restore it.
+            //
+            // #469 round three: null stays null. FlexLib leaves these fields
+            // null until the radio's "current" status arrives, and stores ""
+            // only when that status carries an empty value (ParseProfilesStatus
+            // splits "current=" into an empty value and UpdateProfileListSelection
+            // stores it). Folding null into "" used to turn "not yet reported"
+            // into "none was selected", which a stopped walk then said aloud.
             try
             {
-                switch (profileType)
-                {
-                    case ProfileTypes.global:
-                        outcome.OriginalSelection = rig.theRadio.ProfileGlobalSelection ?? "";
-                        break;
-                    case ProfileTypes.tx:
-                        outcome.OriginalSelection = rig.theRadio.ProfileTXSelection ?? "";
-                        break;
-                    case ProfileTypes.mic:
-                        outcome.OriginalSelection = rig.theRadio.ProfileMICSelection ?? "";
-                        break;
-                }
+                outcome.OriginalSelection = StartingSelection(rig.theRadio, profileType);
             }
             catch (Exception ex)
             {
@@ -535,33 +533,31 @@ namespace Radios
             RunWalk(outcome, profiles,
                 name => LoadProfileAndWait(rig, profileType, name),
                 () => rig.Transmit,
-                () => ReadSelectionSafely(rig, profileType),
                 captureWhileLoaded, progressCallback, unreadableCallback);
 
             return outcome;
         }
 
-        /// <summary>The radio's current selection for one profile type, or
-        /// null when it cannot be read. Never throws.</summary>
-        private static string ReadSelectionSafely(FlexBase rig, ProfileTypes type)
+        /// <summary>
+        /// The selection a walk starts from, exactly as FlexLib holds it: null
+        /// when the radio has not reported one, "" only when it reported an
+        /// empty one, otherwise the name. Never folds null into "" (#469 round
+        /// three). Read before any load of this walk is requested, so it is
+        /// not this walk's own request echoed back.
+        /// </summary>
+        internal static string StartingSelection(Radio radio, ProfileTypes type)
         {
-            try
+            switch (type)
             {
-                var radio = rig.theRadio;
-                if (radio == null) return null;
-                switch (type)
-                {
-                    case ProfileTypes.global: return radio.ProfileGlobalSelection;
-                    case ProfileTypes.tx: return radio.ProfileTXSelection;
-                    case ProfileTypes.mic: return radio.ProfileMICSelection;
-                    default: return null;
-                }
+                case ProfileTypes.global: return radio.ProfileGlobalSelection;
+                case ProfileTypes.tx: return radio.ProfileTXSelection;
+                case ProfileTypes.mic: return radio.ProfileMICSelection;
+                default: return null;
             }
-            catch { return null; }
         }
 
         /// <summary>
-        /// The walk itself, reaching the radio only through the three
+        /// The walk itself, reaching the radio only through the two
         /// functions passed in, so a test can drive every path — a load that
         /// fails, a key-up before a load, a key-up after the last one, a
         /// starting profile nobody could read — without a radio.
@@ -586,7 +582,7 @@ namespace Radios
         /// </remarks>
         internal static void RunWalk(
             ProfileWalkOutcome outcome, IReadOnlyList<string> profiles,
-            Func<string, bool> load, Func<bool> keyed, Func<string> readSelection,
+            Func<string, bool> load, Func<bool> keyed,
             Action<string> captureWhileLoaded, Action<string> progressCallback,
             Action<string, string> unreadableCallback)
         {
@@ -611,6 +607,7 @@ namespace Radios
                 try
                 {
                     outcome.LoadAttempts++;
+                    outcome.LastSent = name;
                     if (load(name))
                     {
                         outcome.LastLoaded = name;
@@ -652,8 +649,7 @@ namespace Radios
 
             if (outcome.StoppedForTransmit)
             {
-                if (outcome.LoadAttempts > 0) outcome.NowOn = readSelection();
-                Tracing.TraceLine($"ProfileReporter: {label} walk stopped for transmit — the radio is on '{outcome.NowOn ?? "(could not be read)"}', started on '{outcome.OriginalSelection ?? "(could not be read)"}', nothing put back", TraceLevel.Error);
+                Tracing.TraceLine($"ProfileReporter: {label} walk stopped for transmit — last load sent '{outcome.LastSent ?? "(none)"}', started on '{outcome.OriginalSelection ?? "(not reported)"}', nothing put back", TraceLevel.Error);
                 // DRAFT PROSE (#469): awaiting Noel
                 progressCallback?.Invoke(Lexicon.Get("settings.profile_walk.stopped_keyed")
                     + " " + WhereTheRadioWasLeft(outcome));
@@ -684,29 +680,29 @@ namespace Radios
         }
 
         /// <summary>
-        /// For a walk stopped because the radio was keyed: which profile the
-        /// radio is on now, and that the original was not put back — naming
-        /// each when it is known and saying so when it is not. The spoken stop
-        /// line, both finished sentences and both files carry these same
-        /// words, so what the operator hears and what the file says cannot
-        /// differ (#469, round two).
+        /// For a walk stopped because the radio was keyed: only what is
+        /// CERTAIN. The last profile a load was sent for, and that the original
+        /// was not put back, naming it when the radio reported it, saying it
+        /// is unknown when it never did, and saying "none" only when the radio
+        /// reported an empty selection. It never claims which profile the
+        /// radio is on (#469 round three: FlexLib's getter would read back our
+        /// own request). The spoken stop line, both finished sentences and
+        /// both files carry these same words.
         /// </summary>
         internal static string WhereTheRadioWasLeft(ProfileWalkOutcome o)
         {
             string kind = TypeLabel(o.ProfileType);
             // DRAFT PROSE (#469): awaiting Noel
-            if (o.LoadAttempts == 0)
+            if (o.LastSent == null)
                 return Lexicon.Get("settings.profile_walk.not_moved", ("kind", kind));
 
-            string now = string.IsNullOrEmpty(o.NowOn)
-                ? Lexicon.Get("settings.profile_walk.now_on_unknown", ("kind", kind))
-                : Lexicon.Get("settings.profile_walk.now_on", ("kind", kind), ("profile", o.NowOn));
+            string sent = Lexicon.Get("settings.profile_walk.last_sent", ("kind", kind), ("profile", o.LastSent));
             string original = o.OriginalSelection == null
-                ? Lexicon.Get("settings.profile_walk.not_put_back_unknown", ("kind", kind))
+                ? Lexicon.Get("settings.profile_walk.original_unknown", ("kind", kind))
                 : o.OriginalSelection.Length == 0
-                    ? Lexicon.Get("settings.profile_walk.started_on_none", ("kind", kind))
-                    : Lexicon.Get("settings.profile_walk.not_put_back", ("kind", kind), ("profile", o.OriginalSelection));
-            return now + " " + original;
+                    ? Lexicon.Get("settings.profile_walk.original_none", ("kind", kind))
+                    : Lexicon.Get("settings.profile_walk.original_not_put_back", ("profile", o.OriginalSelection));
+            return sent + "; " + original;
         }
 
         /// <summary>
@@ -1034,6 +1030,14 @@ namespace Radios
                 ? Lexicon.Get("settings.restore_export.not_while_transmitting_kinds",
                     ("kinds", KindsPhrase(plan.TypesToLoad)))
                 : null;
+
+        /// <summary>The sentence for a refused restore capture after the
+        /// settle, true to why it refused: the plan-specific transmit refusal,
+        /// never the legacy "every stored profile" (#469 round three).</summary>
+        public static string RestoreRefusedSentence(RestoreGradeExport export, ProfileWalkPlan plan)
+            => export.Refused == WalkRefusal.Transmitting
+                ? RestoreTransmitRefusal(plan, keyed: true)
+                : Lexicon.Get("settings.restore_export.busy");
 
         /// <summary>What one comparison run produced.</summary>
         public sealed class ComparisonReport
@@ -1367,7 +1371,7 @@ namespace Radios
                 : $"The radio was keyed after the last {label} profile was loaded, before the original could be put back.");
             // The same words the operator heard (#469 round two).
             sb.AppendLine(WhereTheRadioWasLeft(walk));
-            if (walk.LoadAttempts > 0)
+            if (walk.LastSent != null)
                 sb.AppendLine("Reload your own profile from the Radio menu when you unkey.");
         }
 
@@ -2556,14 +2560,16 @@ namespace Radios
                     else if (o.RadioList != null && o.RadioList.Names.Count == 0)
                         value = "nothing was loaded — the radio reports no stored "
                             + typeWord + " profiles, so there was nothing to put back";
+                    else if (o.StoppedForTransmit)
+                        value = o.LastSent == null
+                            ? "not needed — " + WhereTheRadioWasLeft(o)
+                            : "NO — the radio was keyed, so nothing was put back while transmitting. "
+                              + WhereTheRadioWasLeft(o)
+                              + " Reload your profile from the Radio menu when you unkey";
                     else if (o.LoadAttempts == 0 && o.Unreadable.Count > 0)
                         value = "no load was ever sent — there was no radio connection, so the radio was not moved";
                     else if (o.LoadAttempts == 0)
                         value = "nothing was loaded, so there was nothing to put back";
-                    else if (o.StoppedForTransmit)
-                        value = "NO — the radio was keyed, so nothing was put back while transmitting. "
-                            + WhereTheRadioWasLeft(o)
-                            + " Reload your profile from the Radio menu when you unkey";
                     else if (o.RestoreAttempted && o.RestoreConfirmed)
                         value = "yes, " + o.OriginalSelection + " confirmed by the radio";
                     else if (o.RestoreAttempted)

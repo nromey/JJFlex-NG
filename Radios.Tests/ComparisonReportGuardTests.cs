@@ -353,38 +353,41 @@ namespace Radios.Tests
         // ------------------------------------------------------------------
 
         /// <summary>A scripted radio for <see cref="ProfileReporter.RunWalk"/>:
-        /// records every load, fails the test if one is sent while keyed, and
-        /// reports whatever selection the test gives it.</summary>
+        /// records every load request, fails the test if one is sent while
+        /// keyed, and can be told to leave a load unconfirmed. It has no
+        /// selection to read back on purpose: round three's rule is that the
+        /// walk never asks where the radio is, so a fake that answered would
+        /// pin the very claim Codex found false.</summary>
         private sealed class ScriptedRadio
         {
             public bool Keyed;
             public readonly List<string> Loads = new List<string>();
             public readonly List<string> Spoken = new List<string>();
             public Func<string, bool> KeyAfterLoading = _ => false;
-            public string Selection;
-            public bool SelectionUnreadable;
+            public Func<string, bool> Confirms = _ => true;
 
             public bool Load(string name)
             {
                 Assert.False(Keyed, "a profile load was sent while keyed: " + name);
                 Loads.Add(name);
-                Selection = name;
                 if (KeyAfterLoading(name)) Keyed = true;
-                return true;
+                return Confirms(name);
             }
 
             public ProfileReporter.ProfileWalkOutcome Walk(ProfileTypes type, string original, params string[] names)
             {
                 var outcome = new ProfileReporter.ProfileWalkOutcome { ProfileType = type, OriginalSelection = original };
-                ProfileReporter.RunWalk(outcome, names, Load, () => Keyed,
-                    () => SelectionUnreadable ? null : Selection, null, Spoken.Add, null);
+                ProfileReporter.RunWalk(outcome, names, Load, () => Keyed, null, Spoken.Add, null);
                 return outcome;
             }
         }
 
         [Fact]
-        public void Keying_part_way_stops_the_walk_puts_nothing_back_and_says_where_the_radio_is()
+        public void Keying_part_way_stops_the_walk_puts_nothing_back_and_says_only_what_is_certain()
         {
+            // Codex's round-two blocker 1. Red on 48433cfe, which said "The
+            // radio is on the global profile A now" from a getter that reads
+            // back our own request.
             var radio = new ScriptedRadio { KeyAfterLoading = n => n == "A" };
 
             var o = radio.Walk(ProfileTypes.global, "Home", "A", "B", "C");
@@ -393,18 +396,28 @@ namespace Radios.Tests
             Assert.True(o.StoppedForTransmit);
             Assert.Equal("B", o.StoppedBefore);
             Assert.False(o.RestoreAttempted);
-            Assert.Equal("A", o.NowOn);
+            Assert.Equal("A", o.LastSent);
             Assert.Equal("Profile loading stopped because the radio is transmitting. "
-                + "The radio is on the global profile A now. Your global profile Home was not put back.",
+                + "The last global profile sent was A; your original, Home, was not put back.",
                 radio.Spoken.Last());
+            Assert.DoesNotContain(radio.Spoken, s => s.Contains("The radio is on"));
+        }
+
+        [Fact]
+        public void An_unconfirmed_last_load_is_still_named_as_sent_and_nothing_more()
+        {
+            // The radio never confirmed A: "sent" is still true, and nothing
+            // claims A is where the radio is.
+            var radio = new ScriptedRadio { KeyAfterLoading = n => n == "A", Confirms = _ => false };
+            var o = radio.Walk(ProfileTypes.tx, "Barefoot", "A", "B");
+            Assert.Null(o.LastLoaded);
+            Assert.Equal("A", o.LastSent);
+            Assert.EndsWith("The last TX profile sent was A; your original, Barefoot, was not put back.", radio.Spoken.Last());
         }
 
         [Fact]
         public void Keyed_after_the_LAST_profile_is_the_same_stop_not_a_silent_one()
         {
-            // Codex's round-one blocker 1. Red on 631072ae: keyed after the
-            // last load, the walk waited, withheld the put-back, and neither
-            // the speech nor the report said anything.
             var radio = new ScriptedRadio { KeyAfterLoading = n => n == "B" };
 
             var o = radio.Walk(ProfileTypes.tx, "Barefoot", "A", "B");
@@ -413,33 +426,29 @@ namespace Radios.Tests
             Assert.True(o.StoppedForTransmit);
             Assert.Null(o.StoppedBefore);
             Assert.False(o.RestoreAttempted);
-            Assert.Equal("Profile loading stopped because the radio is transmitting. "
-                + "The radio is on the TX profile B now. Your TX profile Barefoot was not put back.",
-                radio.Spoken.Last());
+            string where = "The last TX profile sent was B; your original, Barefoot, was not put back.";
+            Assert.Equal("Profile loading stopped because the radio is transmitting. " + where, radio.Spoken.Last());
 
             var report = new ProfileReporter.ComparisonReport { StoppedForTransmit = true, StoppedWalk = o, EverythingPutBack = false };
             Assert.Equal("Profile report saved to C:\\r.txt. The radio was keyed during the comparison, so loading stopped "
-                + "there and the report says what was compared. The radio is on the TX profile B now. "
-                + "Your TX profile Barefoot was not put back.",
+                + "there and the report says what was compared. " + where,
                 ProfileReporter.ComparisonFinishedSentence(report, "C:\\r.txt"));
 
             var sb = new System.Text.StringBuilder();
             ProfileReporter.AppendComparisonStopped(sb, o);
             string text = sb.ToString();
             Assert.Contains("The radio was keyed after the last TX profile was loaded, before the original could be put back.", text);
-            Assert.Contains("The radio is on the TX profile B now. Your TX profile Barefoot was not put back.", text);
+            Assert.Contains(where, text);
         }
 
         [Fact]
-        public void An_unreadable_starting_profile_is_said_to_be_unknown_and_the_file_says_the_same()
+        public void An_unreported_starting_profile_is_said_to_be_unknown_and_the_file_says_the_same()
         {
-            // Codex's round-one blocker 4. Red on 631072ae: the stop line said
-            // nothing about it, and the file omitted where the radio was left.
             var radio = new ScriptedRadio { KeyAfterLoading = n => n == "A" };
             var o = radio.Walk(ProfileTypes.tx, null, "A", "B");
 
-            string expected = "The radio is on the TX profile A now. "
-                + "The TX profile it started on could not be read, so it was not put back.";
+            string expected = "The last TX profile sent was A; the TX profile it started on had not been reported "
+                + "by the radio, so it is unknown and was not put back.";
             Assert.Equal("Profile loading stopped because the radio is transmitting. " + expected, radio.Spoken.Last());
 
             var sb = new System.Text.StringBuilder();
@@ -453,23 +462,29 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void A_selection_the_radio_will_not_report_is_said_to_be_unreadable_not_guessed()
-        {
-            var radio = new ScriptedRadio { KeyAfterLoading = n => n == "A", SelectionUnreadable = true };
-            var o = radio.Walk(ProfileTypes.global, "Home", "A", "B");
-            Assert.Null(o.NowOn);
-            Assert.Equal("Profile loading stopped because the radio is transmitting. "
-                + "Which global profile the radio is on now could not be read. Your global profile Home was not put back.",
-                radio.Spoken.Last());
-        }
-
-        [Fact]
-        public void A_walk_that_began_with_no_profile_selected_says_there_was_none_to_put_back()
+        public void None_is_said_only_for_a_selection_the_radio_reported_empty()
         {
             var radio = new ScriptedRadio { KeyAfterLoading = n => n == "A" };
             radio.Walk(ProfileTypes.mic, "", "A", "B");
-            Assert.EndsWith("The radio is on the mic profile A now. "
-                + "No mic profile was selected when it started, so there was none to put back.", radio.Spoken.Last());
+            Assert.EndsWith("The last mic profile sent was A; the radio reported no mic profile selected when it "
+                + "started, so there was none to put back.", radio.Spoken.Last());
+        }
+
+        [Fact]
+        public void The_walk_takes_its_start_as_FlexLib_holds_it_and_never_folds_unreported_into_none()
+        {
+            // Codex's round-two blocker 3. SOURCE PIN, said plainly: the
+            // production read needs a FlexLib Radio, which no test here can
+            // build. Red on 48433cfe, which read each selection "?? \"\"".
+            string src = Read("Radios/ProfileReporter.cs");
+            Assert.DoesNotContain("Selection ?? \"\"", src);
+            Assert.Contains("outcome.OriginalSelection = StartingSelection(rig.theRadio, profileType);", src);
+            Assert.Contains("case ProfileTypes.global: return radio.ProfileGlobalSelection;", src);
+
+            // FlexLib keeps the distinction: null until a "current" status,
+            // and the status's own value, empty included, once one arrives.
+            string flex = Read("FlexLib_API/FlexLib/Radio.cs");
+            Assert.Contains("UpdateProfileListSelection(profile_type, value);", flex);
         }
 
         [Fact]
@@ -481,7 +496,7 @@ namespace Radios.Tests
             Assert.True(o.StoppedForTransmit);
             Assert.False(o.RestoreAttempted);
             Assert.Equal(new[] { "Profile loading stopped because the radio is transmitting. "
-                + "No global profile had been loaded, so the radio was not moved." }, radio.Spoken);
+                + "No global profile had been sent, so the radio was not moved." }, radio.Spoken);
         }
 
         [Fact]
@@ -525,7 +540,7 @@ namespace Radios.Tests
             {
                 StoppedForTransmit = true, StoppedWalk = stopped, EarlierNotConfirmed = true, EverythingPutBack = false,
             };
-            Assert.EndsWith("Your TX profile Barefoot was not put back. "
+            Assert.EndsWith("your original, Barefoot, was not put back. "
                 + "Caution: a profile loaded earlier was not confirmed back in place; the file says which.",
                 ProfileReporter.ComparisonFinishedSentence(report, "C:\\r.txt"));
 
@@ -593,7 +608,8 @@ namespace Radios.Tests
             // stopped. Red against 24154dab, whose walker never read transmit.
             string src = Read("Radios/ProfileReporter.cs");
             Assert.Contains("() => rig.Transmit,", src);
-            Assert.Contains("() => ReadSelectionSafely(rig, profileType),", src);
+            // Round three: the walk is handed no way to ask where the radio is.
+            Assert.DoesNotContain("ReadSelectionSafely", src);
             Assert.Contains("name => LoadProfileAndWait(rig, profileType, name),", src);
             Assert.Equal(1, CountOf(src, "LoadProfileAndWait(rig, profileType, name)"));
             // Both reports stop starting new types after a stopped walk: the
@@ -688,6 +704,10 @@ namespace Radios.Tests
             int settle = At(body, "System.Threading.Thread.Sleep(4000)");
             int walk = At(body, "ProfileReporter.GenerateRestoreGradeExport(reservation, plan, restoreRig,");
             int refused = At(body, "export.Refused == ProfileReporter.WalkRefusal.Transmitting");
+            // Round three (Codex blocker 2): the post-settle refusal is the plan's
+            // own, never the legacy "every stored profile" sentence. Red on 48433cfe.
+            Assert.True(At(body, "ProfileReporter.RestoreRefusedSentence(export, plan)") > refused);
+            Assert.DoesNotContain("\"settings.restore_export.not_while_transmitting\"", body);
             Assert.True(reserve < task && task < owns && owns < plan && plan < refusal && refusal < start
                 && start < settle && settle < walk && walk < refused);
             Assert.DoesNotContain("\"settings.restore_export.start\"", body);

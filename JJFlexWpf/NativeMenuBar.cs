@@ -2752,8 +2752,10 @@ public class NativeMenuBar : IDisposable
                                     coalesceKey: "restore-export-progress"));
                             if (export.Refused == ProfileReporter.WalkRefusal.Transmitting)
                             {
+                                // The plan's own refusal, naming only what would
+                                // load — the same sentence the first check uses.
                                 Radios.ScreenReaderOutput.Speak(
-                                    Radios.Lexicon.Get("settings.restore_export.not_while_transmitting"),
+                                    ProfileReporter.RestoreRefusedSentence(export, plan),
                                     Radios.VerbosityLevel.Terse, interrupt: true);
                                 return;
                             }
