@@ -609,6 +609,9 @@ namespace Radios
             /// <summary>Another profile walk holds the in-flight flag — the
             /// restore capture, or another comparison report.</summary>
             WalkAlreadyRunning,
+            /// <summary>The radio is keyed. The walk loads every stored
+            /// profile, and profiles change power, filters and antennas.</summary>
+            Transmitting,
         }
 
         /// <summary>
@@ -640,6 +643,18 @@ namespace Radios
         public static string GenerateReport(FlexBase rig, Action<string> progressCallback,
             out WalkRefusal refusal)
         {
+            // #469: keyed transmit refuses FIRST, before the flag is taken and
+            // before anything is read or loaded — the restore capture's rule,
+            // with its reason: the walk rewrites power, filters and antennas
+            // mid-load. The menu refuses at the press too; this one covers a
+            // key-up between the press and the walk (the menu's settle before
+            // the first progress line is four seconds long).
+            if (rig.Transmit)
+            {
+                Tracing.TraceLine("ProfileReporter: comparison report refused — the radio is transmitting", TraceLevel.Warning);
+                refusal = WalkRefusal.Transmitting;
+                return null;
+            }
             if (Interlocked.CompareExchange(ref _walkInFlight, 1, 0) != 0)
             {
                 Tracing.TraceLine("ProfileReporter: comparison report refused — a profile walk is already running", TraceLevel.Warning);

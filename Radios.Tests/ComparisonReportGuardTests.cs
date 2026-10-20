@@ -119,6 +119,55 @@ namespace Radios.Tests
         }
 
         // ------------------------------------------------------------------
+        // Keyed transmit refuses before anything else
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void Keyed_transmit_refuses_the_report_before_the_flag_is_taken()
+        {
+            // Red against 4d7cc805: a keyed radio got the whole report, walk
+            // included, because nothing on this path asked.
+            var rig = MakeRig();
+            Key(rig, true);
+            bool held = false;
+            ProfileReporter.WalkHeldProbe = who => held = true;
+            try
+            {
+                Assert.Null(ProfileReporter.GenerateReport(rig, null, out var why));
+                Assert.Equal(ProfileReporter.WalkRefusal.Transmitting, why);
+            }
+            finally { ProfileReporter.WalkHeldProbe = null; }
+
+            // Refused before the flag: no walk was ever held, so nothing ran
+            // that could load a profile, and nothing was left to release.
+            Assert.False(held);
+            Assert.False(ProfileReporter.WalkInProgress);
+
+            // Unkeyed, the same rig is reported on — the refusal is about the
+            // key, not the rig.
+            Key(rig, false);
+            Assert.NotNull(ProfileReporter.GenerateReport(rig));
+        }
+
+        [Fact]
+        public void Transmit_is_named_as_the_refusal_even_while_another_walk_holds_the_flag()
+        {
+            // Transmit is asked first, so the operator hears the reason that
+            // needs their hands (unkey) rather than "wait for the other walk",
+            // and the held flag is not touched.
+            var rig = MakeRig();
+            Key(rig, true);
+            Flag.SetValue(null, 1);
+            try
+            {
+                Assert.Null(ProfileReporter.GenerateReport(rig, null, out var why));
+                Assert.Equal(ProfileReporter.WalkRefusal.Transmitting, why);
+                Assert.True(ProfileReporter.WalkInProgress);
+            }
+            finally { Flag.SetValue(null, 0); }
+        }
+
+        // ------------------------------------------------------------------
         // The flag is released on every exit path
         // ------------------------------------------------------------------
 
