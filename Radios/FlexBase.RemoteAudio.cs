@@ -1672,30 +1672,18 @@ namespace Radios
             public Radio Radio { get; }
             public string Serial { get; }
             public long Run { get; }
-
-            /// <summary>
-            /// A switch to PC went out on the reply-bearing path and the radio
-            /// has not CONFIRMED it (no <c>mic_selection=PC</c> status), but
-            /// has not refused it either. The radio may be on PC while our
-            /// cache still reads <see cref="Saved"/>, so the put-back cannot
-            /// lean on "the cache reads PC" alone (#686, Codex follow-up
-            /// finding 1). Cleared if an error reply arrives later: a refusal
-            /// means the cache is right.
-            /// </summary>
-            public volatile bool PcUnconfirmed;
         }
 
         private MicInputSwap _micInputSwap;
 
         /// <summary>
-        /// Serialises the operator's switch-back with every put-back and the
-        /// session reset (#686, Codex follow-up finding 3). The switch-back
-        /// replaces the saved value and then waits up to
-        /// <see cref="MicSwitchBackConfirmMs"/> for the radio; without this a
-        /// stop could consume the swap in that window and decide against a
-        /// cache the radio was about to change. Never the receive channel's
-        /// own lock: the receive poll takes that one every pass, and holding
-        /// it across the wait would stall receive audio.
+        /// Serialises the switch-back's queued write with every put-back and
+        /// the session reset (#686). Held for a few lines at a time and NEVER
+        /// across a radio round-trip: the switch-back's write is a plain send,
+        /// as a manual change is, with no wait for an answer (Noel, 09:41). So
+        /// a stop - including one the UI waits for, through PCAudio's join -
+        /// never waits on a switch-back. Never the receive channel's own lock,
+        /// which the receive poll takes every pass.
         /// </summary>
         private readonly object _micSwitchLock = new object();
 
@@ -1718,14 +1706,6 @@ namespace Radios
         /// goes false at a stop and true again at the next start.
         /// </summary>
         private long _micSessionId;
-
-        /// <summary>
-        /// Test seam, null in production: called with a name immediately
-        /// before the switch-back and the stop take <see cref="_micSwitchLock"/>,
-        /// so a test can hold a thread at exactly that point with a gate
-        /// rather than hoping a sleep lands it there.
-        /// </summary>
-        private Action<string> _micSwitchCheckpoint;
 
         /// <summary>
         /// Put the saved mic input back, at most once, and only where it came
@@ -1773,23 +1753,6 @@ namespace Radios
                     radio.MicInput = swap.Saved;
                     Tracing.TraceLine("PutBackSavedMicInput (" + when + "): mic input put back to '"
                         + swap.Saved + "' (#686)", TraceLevel.Info);
-                }
-                else if (swap.PcUnconfirmed
-                         && string.Equals(nowInput, swap.Saved, StringComparison.OrdinalIgnoreCase))
-                {
-                    // The switch-back's PC was never confirmed and never
-                    // refused, and the radio has reported nothing newer than
-                    // the value it replaced. The radio may be on PC without
-                    // having said so, so the value is sent anyway. If the
-                    // radio never switched, this asks for what it already has
-                    // and changes nothing. FlexLib's setter would not send it
-                    // (its cache already holds this value), so it goes out
-                    // raw, on the same path the switch-back used.
-                    string notSent = SendRadioCommandWithReply(radio, "mic input " + swap.Saved.ToUpperInvariant(), null);
-                    Tracing.TraceLine("PutBackSavedMicInput (" + when + "): the switch to PC was never confirmed and the radio"
-                        + " has reported nothing newer than '" + swap.Saved + "', so it is sent back regardless"
-                        + (notSent == null ? "" : " - NOT sent: " + notSent) + " (#686)",
-                        notSent == null ? TraceLevel.Info : TraceLevel.Warning);
                 }
                 else
                 {
@@ -1953,13 +1916,13 @@ namespace Radios
             return opusOutputChannel.Started;
         }
 
-        /// <summary>What the Radio menu's Switch Mic Input Back to PC did.</summary>
+        /// <summary>What the Radio menu's Switch Mic Input Back to PC did at
+        /// the press.</summary>
         public enum MicSwitchBackOutcome
         {
-            /// <summary>Sent, and the radio reported PC afterwards.</summary>
-            Switched,
-            /// <summary>Sent (or tried), and the radio did not report PC.</summary>
-            NotConfirmed,
+            /// <summary>The write to PC is queued, as a manual change's is.
+            /// Nothing is claimed about what the radio then does.</summary>
+            Switching,
             /// <summary>No radio connected.</summary>
             NoRadio,
             /// <summary>The change-nothing hold is armed; the hold spoke.</summary>
@@ -1969,9 +1932,9 @@ namespace Radios
             PcAudioNotRunning,
             /// <summary>The radio already reports PC.</summary>
             AlreadyPc,
-            /// <summary>The PC-audio session the press was made in ended
-            /// before the switch could be made; a later session may be
-            /// running, and its saved value is not this press's to touch.</summary>
+            /// <summary>Only from the queued write, never at the press: the
+            /// PC-audio session the press was made in ended before the write
+            /// ran, so nothing was written.</summary>
             SessionChanged,
         }
 
@@ -1989,124 +1952,115 @@ namespace Radios
             public string Sentence { get; }
         }
 
-        /// <summary>How long the switch-back waits for the radio to report PC.</summary>
-        private const int MicSwitchBackConfirmMs = 1500;
+        /// <summary>
+        /// The PC-audio session open right now, as a token. The Radio menu
+        /// reads it ON THE UI THREAD at the press and hands it to
+        /// <see cref="SwitchMicInputBackToPc"/>, so the press is bound to the
+        /// session it was made in rather than whichever one is open when the
+        /// work finally runs (Codex re-verify 2).
+        /// </summary>
+        public long PcMicSessionToken => Interlocked.Read(ref _micSessionId);
+
+        /// <summary>What the last queued switch-back write did, for the
+        /// trace's reader and for tests; null until one has run.</summary>
+        internal MicSwitchBackOutcome? LastQueuedMicSwitchBack { get; private set; }
 
         /// <summary>
         /// Radio menu, Switch Mic Input Back to PC (#686; Noel, 2026-10-20
-        /// 07:55: "I'd let the user know and offer to change it back", and
-        /// 08:09: "I'd put it in the radio menu, it'd be a helpful shortcut").
-        /// The operator's own explicit choice, so it is allowed on a radio not
-        /// declared Mine; the hold still wins.
-        /// <para><b>Confirmed from the radio, never from our own echo.</b>
-        /// FlexLib's <c>MicInput</c> setter assigns its cache before it sends,
-        /// as <c>Slice.DemodMode</c>'s does, so reading the property back after
-        /// the setter proves nothing. The command goes out through the
-        /// reply-bearing path instead, which leaves the cache alone, so the
-        /// only thing that can make <c>MicInput</c> read PC afterwards is the
-        /// radio's own <c>mic_selection</c> status.</para>
-        /// <para><b>The restore at stop follows it.</b> The value the switch
-        /// replaced becomes the one PC audio's stop puts back, on the stop's
-        /// usual terms (same radio, same run, still PC). That is the
-        /// owner's choice our write overrode, so it is the one owed back.
-        /// <b>Without a status the input is unknown</b> (Codex follow-up
-        /// finding 1): the radio may have applied PC and not said so. So an
-        /// unconfirmed, unrefused switch marks the saved value
-        /// <c>PcUnconfirmed</c>, and the stop then sends it back even though
-        /// the cache still reads it, as long as the radio has reported nothing
-        /// newer. If the radio never switched, that asks for what it already
-        /// has. The spoken answer for that case says only what is known: the
-        /// radio did not confirm, and the last input it reported.</para>
-        /// <para><b>Serialised with the stop</b> by <c>_micSwitchLock</c>, so
-        /// a stop cannot consume the saved value while this waits, and this
-        /// cannot switch to PC after a stop has closed the session.</para>
+        /// 07:55, 08:09, and 09:41). <b>It does what a manual change does.</b>
+        /// Choosing PC by hand goes through <see cref="MicSource"/>: mark it as
+        /// intent, reset the healer's episode, enqueue the write - no
+        /// confirmation wait, no lock across a radio round-trip. This is that
+        /// path, on the same queue, plus two things a manual change does not
+        /// need:
+        /// <list type="bullet">
+        /// <item><b>It is bound to the session it was pressed in.</b> The
+        /// caller passes the session token it read at the press; the queued
+        /// write checks it, and if computer audio stopped (and perhaps
+        /// started again) in between, it writes nothing and says so.</item>
+        /// <item><b>The restore bookkeeping is one synchronous update.</b> The
+        /// input the switch replaced becomes the value the stop puts back, on
+        /// the stop's usual terms (same radio, same run, only while still PC),
+        /// because that is the owner's latest choice and our write overrode
+        /// it. Done under <see cref="_micSwitchLock"/> together with the write,
+        /// which is a plain send, so the lock is held for a few lines.</item>
+        /// </list>
+        /// The spoken answer is "switching", claiming nothing the radio has not
+        /// said (#312's form). If the radio does not end up on PC, the healer
+        /// reports it again, so a failure is not silent. Allowed on a radio not
+        /// declared Mine, because pressing it is the operator's own explicit
+        /// choice; the hold still wins.
         /// </summary>
-        public MicSwitchBackResult SwitchMicInputBackToPc()
+        /// <param name="pressedInSession">The <see cref="PcMicSessionToken"/>
+        /// read at the press.</param>
+        public MicSwitchBackResult SwitchMicInputBackToPc(long pressedInSession)
         {
-            // BOUND TO THE SESSION IT WAS PRESSED IN (Codex re-verify,
-            // 2026-10-20). Two things, and either alone leaves a hole:
-            //  - the session it belongs to is taken HERE, at the press, and
-            //    checked again under the lock, because a Boolean "open" goes
-            //    false at a stop and true again at the next start, so an old
-            //    press could act inside a session nobody pressed it in;
-            //  - every read it decides on is taken INSIDE the lock, because a
-            //    value read out here (the "before" it would save) can belong
-            //    to a session that has since ended, and saving it tagged with
-            //    the new run would let the next stop restore it over the
-            //    owner's newer choice.
-            long pressedInSession = Interlocked.Read(ref _micSessionId);
-            _micSwitchCheckpoint?.Invoke("switch-back");
+            var radio = theRadio;
+            // The command queue drops a write made outside its main loop, so
+            // "switching" would be a promise nothing keeps.
+            if (radio == null || !IsConnected || q == null || !q.MainLoop)
+                return new MicSwitchBackResult(MicSwitchBackOutcome.NoRadio, Lexicon.Get("connect.command_needs_radio"));
+            if (GuardRefuses("settings.guard.action.mic_input_pc"))
+                return new MicSwitchBackResult(MicSwitchBackOutcome.Held, null);
             lock (_micSwitchLock)
             {
-                var radio = theRadio;
-                if (radio == null || !IsConnected)
-                    return new MicSwitchBackResult(MicSwitchBackOutcome.NoRadio, Lexicon.Get("connect.command_needs_radio"));
-                if (GuardRefuses("settings.guard.action.mic_input_pc"))
-                    return new MicSwitchBackResult(MicSwitchBackOutcome.Held, null);
-                // The stop closes the session in the same locked step as its
-                // put-back, so this reads the truth for this instant.
-                if (!_micSessionOpen)
+                if (!_micSessionOpen || _micSessionId != pressedInSession)
                     // DRAFT PROSE (#686): awaiting Noel
                     return new MicSwitchBackResult(MicSwitchBackOutcome.PcAudioNotRunning,
                         Lexicon.Get("audio.mic.switch_back_no_pc_audio"));
-                if (_micSessionId != pressedInSession)
+            }
+            if (string.Equals(radio.MicInput ?? "", "PC", StringComparison.OrdinalIgnoreCase))
+                // DRAFT PROSE (#686): awaiting Noel
+                return new MicSwitchBackResult(MicSwitchBackOutcome.AlreadyPc,
+                    Lexicon.Get("audio.mic.switch_back_already_pc"));
+
+            q.Enqueue((FunctionDel)(() => RunQueuedMicSwitchBack(radio, pressedInSession)), "MicInput switch-back");
+            // DRAFT PROSE (#686): awaiting Noel
+            return new MicSwitchBackResult(MicSwitchBackOutcome.Switching,
+                Lexicon.Get("audio.mic.switch_back_switching"));
+        }
+
+        /// <summary>The queued half of <see cref="SwitchMicInputBackToPc"/>,
+        /// run by the command queue as a manual change's write is.</summary>
+        private void RunQueuedMicSwitchBack(Radio radio, long pressedInSession)
+        {
+            lock (_micSwitchLock)
+            {
+                if (!_micSessionOpen || _micSessionId != pressedInSession || !ReferenceEquals(theRadio, radio))
                 {
+                    LastQueuedMicSwitchBack = MicSwitchBackOutcome.SessionChanged;
                     Tracing.TraceLine("SwitchMicInputBackToPc: pressed in PC-audio session " + pressedInSession
-                        + ", and session " + _micSessionId + " is running now; this press does not touch it (#686)",
-                        TraceLevel.Warning);
-                    // DRAFT PROSE (#686): awaiting Noel
-                    return new MicSwitchBackResult(MicSwitchBackOutcome.SessionChanged,
-                        Lexicon.Get("audio.mic.switch_back_session_changed"));
+                        + "; by the time the write ran, session " + _micSessionId
+                        + (_micSessionOpen ? " is open" : " has closed")
+                        + (ReferenceEquals(theRadio, radio) ? "" : " on a different radio")
+                        + " - nothing written (#686)", TraceLevel.Warning);
+                    if (!SuppressSpeech)
+                    {
+                        // DRAFT PROSE (#686): awaiting Noel
+                        ScreenReaderOutput.Speak(
+                            Lexicon.Get("audio.mic.switch_back_session_changed"),
+                            Speech.SpeechIntent.Interrupt,
+                            VerbosityLevel.Critical,
+                            subject: Speech.SpeechSubject.PcMicLeftForOwner);
+                    }
+                    return;
                 }
                 string before = radio.MicInput ?? "";
                 if (string.Equals(before, "PC", StringComparison.OrdinalIgnoreCase))
-                    // DRAFT PROSE (#686): awaiting Noel
-                    return new MicSwitchBackResult(MicSwitchBackOutcome.AlreadyPc,
-                        Lexicon.Get("audio.mic.switch_back_already_pc"));
-
-                var swap = new MicInputSwap(before, radio, Interlocked.Read(ref _remoteAudioRun));
-                _micInputSwap = swap;
-                _pcMicExpected = true;     // we asked for PC again
-                uint replyCode = 0;
-                bool replied = false;
-                string notSent = SendRadioCommandWithReply(radio, "mic input PC", reply =>
                 {
-                    replyCode = reply.Code;
-                    replied = true;
-                    // A refusal, even a late one, means the radio did not
-                    // switch and the cache is right.
-                    if (reply.Code != 0) swap.PcUnconfirmed = false;
-                });
-                bool confirmed = notSent == null && await(() =>
-                    ReferenceEquals(theRadio, radio)
-                    && string.Equals(radio.MicInput ?? "", "PC", StringComparison.OrdinalIgnoreCase),
-                    MicSwitchBackConfirmMs);
-                // Sent and neither confirmed nor refused: possibly applied.
-                if (!confirmed && notSent == null && !(replied && replyCode != 0))
-                    swap.PcUnconfirmed = true;
-                // A confirmed switch ends the healer's episode, so the next
-                // move is a new one. An unconfirmed one does not: the radio's
-                // last report is still off PC, and the operator has just been
-                // told so, so the healer must not announce it again as news.
-                _pcMicDiverged = !confirmed;
-                string after = radio.MicInput ?? "";
-                Tracing.TraceLine("SwitchMicInputBackToPc: was '" + before + "', "
-                    + (notSent ?? ("sent; reply " + (replied ? "0x" + replyCode.ToString("X") : "none yet")))
-                    + ", the radio's last report is '" + after + "' — "
-                    + (confirmed ? "switched (the radio reported PC)" : "NOT confirmed by the radio")
-                    + (swap.PcUnconfirmed ? "; PC may have been applied unreported, so the stop will send the put-back regardless" : "")
-                    + " (#686)",
-                    confirmed ? TraceLevel.Info : TraceLevel.Warning);
-                if (confirmed)
-                    // DRAFT PROSE (#686): awaiting Noel
-                    return new MicSwitchBackResult(MicSwitchBackOutcome.Switched,
-                        Lexicon.Get("audio.mic.switch_back_done"));
-                // Not "the radio didn't switch": with no status, the input is
-                // UNKNOWN, and what we have is only the last one it reported
-                // (Codex follow-up finding 1).
-                // DRAFT PROSE (#686): awaiting Noel
-                return new MicSwitchBackResult(MicSwitchBackOutcome.NotConfirmed,
-                    Lexicon.Get("audio.mic.switch_back_not_confirmed", ("current", after)));
+                    LastQueuedMicSwitchBack = MicSwitchBackOutcome.AlreadyPc;
+                    Tracing.TraceLine("SwitchMicInputBackToPc: already PC when the write ran - nothing written (#686)",
+                        TraceLevel.Info);
+                    return;
+                }
+                _micInputSwap = new MicInputSwap(before, radio, Interlocked.Read(ref _remoteAudioRun));
+                _pcMicExpected = true;     // intent, as MicSource marks it
+                _pcMicDiverged = false;    // a new episode, as MicSource resets it
+                radio.MicInput = "PC";     // a plain send; nothing waits for the radio
+                LastQueuedMicSwitchBack = MicSwitchBackOutcome.Switching;
+                Tracing.TraceLine("SwitchMicInputBackToPc: mic input '" + before + "' switched to PC at the operator's"
+                    + " request; the stop will put '" + before + "' back while the input is still PC (#686)",
+                    TraceLevel.Info);
             }
         }
 
@@ -2138,7 +2092,6 @@ namespace Radios
                     // it unasked. The Audio Workshop's RestoreInjectionPath
                     // has always restored on the same condition. And only to
                     // the radio, and in the run, it was saved from (round two).
-                    _micSwitchCheckpoint?.Invoke("stop");
                     lock (_micSwitchLock)
                     {
                         _micSessionOpen = false;

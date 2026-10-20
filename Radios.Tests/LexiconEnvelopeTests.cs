@@ -1155,8 +1155,11 @@ namespace Radios.Tests
                 // audio.mic.not_switched_not_ours was RETIRED the same morning,
                 // when Noel ruled (08:10) that the start always switches to PC;
                 // it never reached main. DRAFTS awaiting Noel.
-                "audio.mic.switch_back_done",
-                "audio.mic.switch_back_not_confirmed",
+                // The confirmed and not-confirmed answers (switch_back_done,
+                // switch_back_not_confirmed) were RETIRED the same day, when
+                // Noel ruled (09:41) the item should do what a manual change
+                // does: queue the write and claim nothing ("switching").
+                "audio.mic.switch_back_switching",
                 "audio.mic.switch_back_no_pc_audio",
                 "audio.mic.switch_back_already_pc",
                 // Same reasoning, same day: the answer when the press was made in
