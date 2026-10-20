@@ -129,54 +129,47 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void A_backlog_larger_than_the_bench_saw_keeps_the_window_open_until_it_has_drained()
+        public void A_replay_split_across_two_reads_is_dropped_whole()
         {
-            // 120 rotation codes draining at 9600 baud, about 2.08 ms apart, run past 25 ms.
-            var drain = Enumerable.Range(0, 120).Select(i => ("D", 1.0 + i * 2.08)).ToList();
-            double drained = drain[^1].Item2;
-            Assert.True(drained > KnobInputFilter.OpeningMinimumMs && drained < KnobInputFilter.OpeningCapMs);
-
-            Run run = Replay(drain.Concat(new[] { ("U", drained + 40), ("U", drained + 70) }));
-
-            Assert.Equal(120, run.Filter.ReplayEventsDiscarded);
-            Assert.Equal(new[] { "U", "U" }, run.Out);
-        }
-
-        [Fact]
-        public void The_window_never_outlasts_its_cap()
-        {
-            // A stream with no quiet gap at all: everything from the cap on is acted on.
-            var stream = Enumerable.Range(0, 400).Select(i => ("D", 1.0 + i * 2.0)).ToList();
-            Run run = Replay(stream);
-
-            int expectedKept = stream.Count(e => e.Item2 >= KnobInputFilter.OpeningCapMs);
-            Assert.Equal(expectedKept, run.Out.Count);
-            Assert.InRange(KnobInputFilter.OpeningCapMs, 331.0, 331.5); // 25 + 147 x 2 bytes x 10 bits / 9600
-        }
-
-        [Fact]
-        public void Input_inside_the_first_25_ms_is_ignored_even_alone()
-        {
-            Run run = Replay(new[] { ("D", 20.0), ("U", 400.0) });
-            Assert.Equal(new[] { "U" }, run.Out);
-            Assert.Equal(1, run.Filter.ReplayEventsDiscarded);
-        }
-
-        [Fact]
-        public void A_first_step_after_a_quiet_opening_is_acted_on()
-        {
-            Run run = Replay(new[] { ("F0304", 0.6), ("F0304", 3.0), ("D", 40.0) });
-            Assert.Equal(new[] { "F0304", "F0304", "D" }, run.Out);
-            Assert.Equal(0, run.Filter.ReplayEventsDiscarded);
-        }
-
-        [Fact]
-        public void A_device_report_counts_as_activity_and_still_passes()
-        {
-            // The window ends at half a tick of silence of ANY kind, F0304 included.
-            Run run = Replay(new[] { ("F0304", 20.0), ("D", 24.0), ("F0304", 28.0), ("D", 30.0), ("D", 60.0) });
-            Assert.Equal(new[] { "F0304", "F0304", "D" }, run.Out);
+            // Codex's round-two counterexample: the saved input arrives in two serial callbacks,
+            // 20 ms and 30 ms after open. A quiet-gap rule closed the window between them and
+            // sent the tail to the radio; the fixed window does not.
+            Run run = Replay(new[] { ("D", 20.0), ("D", 30.0) });
+            Assert.Empty(run.Out);
             Assert.Equal(2, run.Filter.ReplayEventsDiscarded);
+        }
+
+        [Fact]
+        public void F0304_in_the_second_read_passes_and_does_not_let_the_replay_through()
+        {
+            Run run = Replay(new[] { ("D", 20.0), ("F0304", 30.0), ("D", 30.0) });
+            Assert.Equal(new[] { "F0304" }, run.Out);
+            Assert.Equal(2, run.Filter.ReplayEventsDiscarded);
+        }
+
+        [Fact]
+        public void The_window_is_fixed_and_no_gap_ends_it_early()
+        {
+            // Inputs with long gaps between them, all inside the window, are all ignored.
+            Run run = Replay(new[] { ("D", 5.0), ("U", 100.0), ("X1S", 200.0), ("D", 331.0) });
+            Assert.Empty(run.Out);
+            Assert.Equal(4, run.Filter.ReplayEventsDiscarded);
+            Assert.InRange(KnobInputFilter.OpeningWindowMs, 331.0, 331.5); // 25 + 147 x 2 bytes x 10 bits / 9600 baud
+        }
+
+        [Fact]
+        public void A_turn_just_after_the_window_passes_every_step()
+        {
+            var drain = Enumerable.Range(0, 160).Select(i => ("D", 1.0 + i * 2.05)).ToList();
+            Assert.True(drain[^1].Item2 < KnobInputFilter.OpeningWindowMs);
+            var turn = MeasuredRevolution("U", KnobInputFilter.OpeningWindowMs);
+
+            Run run = Replay(drain.Concat(turn));
+
+            Assert.Equal(160, run.Filter.ReplayEventsDiscarded);
+            Assert.Equal(84, run.Out.Count);
+            Assert.All(run.Out, t => Assert.Equal("U", t));
+            Assert.Contains(run.Notes, n => n.Contains("opening window ignored 160"));
         }
 
         [Fact]
