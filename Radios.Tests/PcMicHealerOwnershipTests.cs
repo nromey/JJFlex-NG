@@ -114,6 +114,15 @@ namespace Radios.Tests
 
             public FlexBase Rig => Fixture.Rig;
 
+            /// <summary>The connection travels SmartLink: what
+            /// <c>FlexBase.RemoteRig</c> reads, <c>Radio.IsWan</c>, set the
+            /// way FlexLib's discovery sets it.</summary>
+            public void OverSmartLink() =>
+                typeof(Flex.Smoothlake.FlexLib.Radio).GetProperty(nameof(Flex.Smoothlake.FlexLib.Radio.IsWan))!
+                    .GetSetMethod(nonPublic: true)!.Invoke(Fixture.Vendor.Radio, new object[] { true });
+
+            public bool PcMicExpected => (bool)ExpectedField.GetValue(Rig)!;
+
             /// <summary>The radio says where its mic input is — what another
             /// client moving it, or the owner picking up the hand mic, looks
             /// like from here.</summary>
@@ -163,8 +172,8 @@ namespace Radios.Tests
             // nowhere, assembled as NVDA would speak it.
             string heard = rig.Rig.LastPcMicNotOursReport;
             Assert.Equal(NotOursSentence("MIC"), heard);
-            Assert.Contains("cannot reach the transmitter", heard);
-            Assert.Contains("is now MIC", heard);
+            Assert.Contains("is not reaching the transmitter", heard);
+            Assert.Contains("was changed to MIC", heard);
             Assert.DoesNotContain("Setting it back to PC", heard);
             Assert.DoesNotContain("{current}", heard);
             Assert.Equal(1, rig.Rig.PcMicNotOursReports);
@@ -260,6 +269,120 @@ namespace Radios.Tests
 
             Assert.Equal(writesAtStart, rig.MicWrites.Length);
             Assert.Equal("BAL", rig.MicInput);
+        }
+
+        // ------------------------------------------------------------------
+        // #686 repair round one, part 1: the switch to PC at start
+        // ------------------------------------------------------------------
+
+        /// <summary>How this operator is connected, for the start matrix.</summary>
+        public enum Where { Local, SmartLink, DeclaredNoPhysicalAccess }
+
+        private static void Arrange(RadioOwnership? ownership, Where where)
+        {
+            var cfg = new RadioConfig();
+            if (ownership.HasValue) cfg.Ownership = ownership.Value;
+            if (where == Where.DeclaredNoPhysicalAccess)
+            {
+                cfg.NoPhysicalAccess = true;
+                cfg.NoPhysicalAccessDecided = true;
+            }
+            if (ownership.HasValue || where == Where.DeclaredNoPhysicalAccess)
+                Assert.True(cfg.SaveForRadio(Serial));
+        }
+
+        [Theory]
+        // A remote operator has no microphone at the radio, so starting PC
+        // audio switches to PC whoever owns it (Noel, 2026-10-20 05:25).
+        [InlineData(RadioOwnership.Mine, Where.SmartLink)]
+        [InlineData(RadioOwnership.Unset, Where.SmartLink)]
+        [InlineData(RadioOwnership.SomeoneElses, Where.SmartLink)]
+        [InlineData(null, Where.SmartLink)]
+        [InlineData(RadioOwnership.Unset, Where.DeclaredNoPhysicalAccess)]
+        [InlineData(RadioOwnership.SomeoneElses, Where.DeclaredNoPhysicalAccess)]
+        // The operator's own radio, local: unchanged.
+        [InlineData(RadioOwnership.Mine, Where.Local)]
+        public void StartingPcAudioSwitchesToPcWhenTheOperatorIsRemoteOrTheRadioIsTheirs(RadioOwnership? ownership, Where where)
+        {
+            Arrange(ownership, where);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            if (where == Where.SmartLink) rig.OverSmartLink();
+
+            rig.StartPcAudio();
+
+            Assert.Equal(new[] { "mic input PC" }, rig.MicWrites);
+            Assert.Equal("PC", rig.MicInput);
+            Assert.True(rig.PcMicExpected);
+            Assert.Null(rig.Rig.LastPcMicNotOursReport);
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData(RadioOwnership.Unset)]
+        [InlineData(RadioOwnership.SomeoneElses)]
+        public void StartingPcAudioOnSomeoneElsesRadioFromItsLocalNetworkLeavesTheirMicAloneAndSaysSo(RadioOwnership? ownership)
+        {
+            Arrange(ownership, Where.Local);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+
+            rig.StartPcAudio();
+
+            Assert.Empty(rig.MicWrites);
+            Assert.Equal("MIC", rig.MicInput);
+            Assert.False(rig.PcMicExpected);   // we asked for nothing, so nothing to heal or report later
+
+            string heard = rig.Rig.LastPcMicNotOursReport;
+            Assert.Equal(Lexicon.Get("audio.mic.not_switched_not_ours", ("current", "MIC")), heard);
+            Assert.Contains("will not reach the transmitter", heard);
+            Assert.DoesNotContain("{current}", heard);
+            Assert.Equal(1, rig.Rig.PcMicNotOursReports);
+
+            // And stopping puts nothing back, because nothing was swapped.
+            rig.StopPcAudio();
+            Assert.Empty(rig.MicWrites);
+            Assert.Equal("MIC", rig.MicInput);
+        }
+
+        [Fact]
+        public void OnSomeoneElsesRadioAlreadyOnPcTheLocalStartHasNothingToSay()
+        {
+            Arrange(RadioOwnership.SomeoneElses, Where.Local);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "PC");
+
+            rig.StartPcAudio();
+
+            Assert.Empty(rig.MicWrites);
+            Assert.Null(rig.Rig.LastPcMicNotOursReport);
+        }
+
+        [Fact]
+        public void ARemoteGuestIsSwitchedOnceAtStartAndNeverHealedAfter()
+        {
+            // The start's switch is a one-time act; the healer is an ongoing
+            // override, and #686 forbids it on someone else's radio. If the
+            // owner picks up the hand mic, it stays picked up, and the remote
+            // guest is told why their audio has stopped reaching the
+            // transmitter.
+            Arrange(RadioOwnership.SomeoneElses, Where.SmartLink);
+            using var rig = new PcAudioRig(Start, beforePcAudio: "MIC");
+            rig.OverSmartLink();
+            rig.StartPcAudio();
+            Assert.Equal(new[] { "mic input PC" }, rig.MicWrites);
+
+            rig.RadioReports("MIC");
+            rig.Check();
+            rig.Clock += 1_000;
+            rig.Check();
+
+            Assert.Single(rig.MicWrites);
+            Assert.Equal("MIC", rig.MicInput);
+            Assert.Equal(NotOursSentence("MIC"), rig.Rig.LastPcMicNotOursReport);
+            Assert.Equal(1, rig.Rig.PcMicNotOursReports);
+
+            // And the put-back at stop respects the owner's choice too.
+            rig.StopPcAudio();
+            Assert.Single(rig.MicWrites);
+            Assert.Equal("MIC", rig.MicInput);
         }
 
         // ------------------------------------------------------------------

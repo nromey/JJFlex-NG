@@ -1146,6 +1146,17 @@ namespace Radios.Tests
                 // Noel, not a default. Its sibling audio.mic.diverged is legacy
                 // and still frozen; DECIDE BOTH TOGETHER. DRAFT awaiting Noel.
                 "audio.mic.diverged_not_ours",
+                // Same track, repair round one: the start-time sibling. On a
+                // radio not declared Mine, from its local network with no
+                // NoPhysicalAccess declaration, starting PC audio no longer
+                // switches the owner's mic input to PC, and when that input is
+                // not PC this says computer audio will not reach the
+                // transmitter and names both remedies. Said once per PC-audio
+                // start, on the application's own account; classified on the
+                // reasoning of the line above, with the same persistent-versus-
+                // forgettable question for Noel. DECIDE ALL THREE TOGETHER.
+                // DRAFT awaiting Noel.
+                "audio.mic.not_switched_not_ours",
             };
 
             Assert.Equal(3152, unclassified);

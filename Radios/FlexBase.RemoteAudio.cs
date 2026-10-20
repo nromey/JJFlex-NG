@@ -1664,6 +1664,35 @@ namespace Radios
                             VerbosityLevel.Critical, true);
                     }
                 }
+                else if (!PcMicSwitchAllowedAtStart(out string notSwitched))
+                {
+                    // #686, repair round one: someone else's radio (or one
+                    // never answered for), and this operator is on its local
+                    // network with no declaration that they are away from it,
+                    // so they have a microphone at the radio. The owner's mic
+                    // input is station-global and theirs; it is left alone.
+                    // oldMicInput stays null, so the stop path puts nothing
+                    // back, and _pcMicExpected stays false, because we asked
+                    // for nothing. If the input is not already PC, computer
+                    // audio will not modulate, which is the silent-transmit
+                    // shape, so it is said once, now, at Critical.
+                    string current = theRadio.MicInput ?? "";
+                    Tracing.TraceLine("startOpusOutputChannel: NOT switching mic input to PC — "
+                        + notSwitched + "; the radio's input is '" + current + "' (#686)",
+                        TraceLevel.Warning);
+                    if (!string.Equals(current, "PC", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // DRAFT PROSE (#686): awaiting Noel
+                        string report = Lexicon.Get("audio.mic.not_switched_not_ours", ("current", current));
+                        LastPcMicNotOursReport = report;
+                        PcMicNotOursReports++;
+                        if (!SuppressSpeech) ScreenReaderOutput.Speak(
+                            report,
+                            Speech.SpeechIntent.Interrupt,
+                            VerbosityLevel.Critical,
+                            subject: Speech.SpeechSubject.PcMicLeftForOwner);
+                    }
+                }
                 else
                 {
                     oldMicInput = theRadio.MicInput;
@@ -1690,6 +1719,57 @@ namespace Radios
                 }
             }
             return opusOutputChannel.Started;
+        }
+
+        /// <summary>
+        /// Whether starting PC audio may switch the radio's mic input to PC
+        /// (#686, repair round one). Derived by the coordinator from Noel's
+        /// 2026-10-20 05:25 ruling, "I'd check to see if the user is remote.
+        /// If they are, you'd need to switch to PC", and put to him for
+        /// correction.
+        /// <list type="bullet">
+        /// <item>On a radio declared Mine: yes, as it always was.</item>
+        /// <item>Otherwise (Unset counts as not Mine), only when this operator
+        /// is REMOTE, meaning they have no microphone at the radio, so PC is
+        /// the only way their audio can reach the transmitter. Remote is
+        /// <see cref="RemoteRig"/> (the connection travels SmartLink,
+        /// <c>Radio.IsWan</c>), OR the operator's own standing declaration
+        /// <c>RadioConfig.NoPhysicalAccess</c> ("This radio is operated
+        /// remotely; I cannot reach its front panel"). The second is needed
+        /// because a tailnet path makes a distant operator look local to
+        /// <c>IsWan</c>, and it invents nothing: it is the existing
+        /// declaration of exactly "I am not at the radio".</item>
+        /// </list>
+        /// <paramref name="why"/> names the deciding signal, for the trace.
+        /// A one-time act at start; the healer never re-asserts PC on a radio
+        /// not declared Mine, remote or not (see <see cref="checkPcMicSelection"/>).
+        /// </summary>
+        private bool PcMicSwitchAllowedAtStart(out string why)
+        {
+            string serial = theRadio?.Serial;
+            var ownership = RadioConfig.OwnershipOf(serial);
+            if (ownership == RadioOwnership.Mine)
+            {
+                why = "radio declared Mine";
+                return true;
+            }
+            if (RemoteRig)
+            {
+                why = "ownership " + ownership + ", but the connection is SmartLink (RemoteRig), so this operator has no microphone at the radio";
+                Tracing.TraceLine("startOpusOutputChannel: switching mic input to PC on a radio not declared Mine — " + why + " (#686)",
+                    TraceLevel.Info);
+                return true;
+            }
+            bool noPhysicalAccess = !string.IsNullOrEmpty(serial) && RadioConfig.LoadForRadio(serial).NoPhysicalAccess;
+            if (noPhysicalAccess)
+            {
+                why = "ownership " + ownership + ", but the operator declared this radio operated remotely (NoPhysicalAccess), so they have no microphone at it";
+                Tracing.TraceLine("startOpusOutputChannel: switching mic input to PC on a radio not declared Mine — " + why + " (#686)",
+                    TraceLevel.Info);
+                return true;
+            }
+            why = "ownership " + ownership + " and a local connection (RemoteRig false, NoPhysicalAccess not declared)";
+            return false;
         }
 
         private void stopOpusOutputChannel()
@@ -1849,6 +1929,15 @@ namespace Radios
             // every second, and from the one ownership answer every other
             // shared write asks: RadioConfig.OwnershipOf. The owner's path
             // below is unchanged.
+            //
+            // A REMOTE guest is no exception (repair round one). The start
+            // switches a remote guest to PC once, because they have no
+            // microphone at the radio (PcMicSwitchAllowedAtStart); that is a
+            // one-time act. This is an ongoing override, and the invariant
+            // forbids it on someone else's radio: if the owner picks up the
+            // hand mic while a remote guest is on, it stays picked up, and
+            // the guest is told why their audio stopped reaching the
+            // transmitter.
             var ownership = RadioConfig.OwnershipOf(theRadio.Serial);
             if (ownership != RadioOwnership.Mine)
             {
