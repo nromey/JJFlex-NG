@@ -50,44 +50,4 @@ internal static class HomeLayoutRestore
         if (rescueMode) return Route.FromRescuePage;
         return disconnectShellUp ? Route.FromDisconnectShell : Route.None;
     }
-
-    /// <summary>
-    /// Whether the meters panel was open when a collapse took it, so the
-    /// restore can give it back (#410, repair round one).
-    /// </summary>
-    /// <remarks>
-    /// <para><b>Why it is knowable.</b> The meters panel is shown and hidden by
-    /// exactly one operator action, Ctrl+M or its menu item (both reach
-    /// <c>MainWindow.ToggleMetersPanel</c>), and collapsed by exactly two
-    /// things that are not the operator: the disconnect shell and the rescue
-    /// page. So its visibility at the moment of a collapse IS the operator's
-    /// choice, and nothing has to be persisted to know it.</para>
-    /// <para><b>Sticky across collapses.</b> A disconnect followed by the rescue
-    /// page collapses twice; the second sees the panel already collapsed and
-    /// must not forget the first saw it open.</para>
-    /// <para><b>The operator's later word wins.</b> A Ctrl+M press while
-    /// disconnected is a fresh choice, and the panel's own visibility carries
-    /// it from then on, so the owed reopen is dropped.</para>
-    /// </remarks>
-    internal sealed class MetersPanelMemory
-    {
-        internal bool ReopenOwed { get; private set; }
-
-        /// <summary>A collapse is about to take the panel.</summary>
-        internal void Collapsing(bool metersVisibleNow)
-        {
-            if (metersVisibleNow) ReopenOwed = true;
-        }
-
-        /// <summary>The operator pressed Ctrl+M (or chose the menu item).</summary>
-        internal void OperatorToggled() => ReopenOwed = false;
-
-        /// <summary>The surface is being restored: whether to reopen the panel.</summary>
-        internal bool Restoring()
-        {
-            bool owed = ReopenOwed;
-            ReopenOwed = false;
-            return owed;
-        }
-    }
 }
