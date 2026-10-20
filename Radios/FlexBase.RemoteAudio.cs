@@ -1767,7 +1767,13 @@ namespace Radios
                     TraceLevel.Warning);
                 return null;
             }
-            if (swap.MadeBySwitchBack) return () => PutBackAfterSwitchBack(radio, swap, when);
+            if (swap.MadeBySwitchBack)
+            {
+                // Pinned to the session being closed, as it is now: the
+                // queued write must not land in a later one (round six).
+                var pin = new PutBackPin(_micSessionId, run, radio.CurrentCommandConnection);
+                return () => PutBackAfterSwitchBack(radio, swap, pin, when);
+            }
             return () => PutBackNow(radio, swap, when);
         }
 
@@ -1805,17 +1811,41 @@ namespace Radios
         /// switch it undoes. Enqueuing does not wait. If the queue is not
         /// running (the connection is ending) it is written here instead.
         /// </summary>
-        private void PutBackAfterSwitchBack(Radio radio, MicInputSwap swap, string when)
+        private void PutBackAfterSwitchBack(Radio radio, MicInputSwap swap, PutBackPin pin, string when)
         {
             var queue = q;
             if (queue != null && queue.MainLoop)
-                queue.Enqueue((FunctionDel)(() => WriteSwitchBackPutBack(radio, swap, when)),
+                queue.Enqueue((FunctionDel)(() => WriteSwitchBackPutBack(radio, swap, pin, when)),
                     "MicInput put-back after switch-back");
             else
-                WriteSwitchBackPutBack(radio, swap, when);
+                WriteSwitchBackPutBack(radio, swap, pin, when);
         }
 
-        private void WriteSwitchBackPutBack(Radio radio, MicInputSwap swap, string when)
+        /// <summary>
+        /// Where a queued put-back belongs: the PC-audio session being
+        /// closed, the remote-audio run, and the radio's command connection,
+        /// all as they were when it was queued (#686, round six, Codex
+        /// re-verify 4). A stop followed quickly by a restart on the same
+        /// radio opens a NEW session whose start writes PC; the old put-back
+        /// running after it would write the old input over that PC and
+        /// silence the new session's transmit audio. So when it runs, it
+        /// writes only if no newer session has opened and nothing else has
+        /// changed.
+        /// </summary>
+        private sealed class PutBackPin
+        {
+            public PutBackPin(long session, long run, CommandConnection connection)
+            {
+                Session = session;
+                Run = run;
+                Connection = connection;
+            }
+            public long Session { get; }
+            public long Run { get; }
+            public CommandConnection Connection { get; }
+        }
+
+        private void WriteSwitchBackPutBack(Radio radio, MicInputSwap swap, PutBackPin pin, string when)
         {
             try
             {
@@ -1823,6 +1853,24 @@ namespace Radios
                 {
                     Tracing.TraceLine("PutBackSavedMicInput (" + when + "): NOT writing '" + swap.Saved
                         + "' - the radio it was saved from is no longer the one connected (#686)",
+                        TraceLevel.Warning);
+                    return;
+                }
+                string stale = null;
+                lock (_micSwitchLock)
+                {
+                    if (_micSessionOpen || _micSessionId != pin.Session)
+                        stale = "a newer PC-audio session has opened (session " + _micSessionId
+                            + (_micSessionOpen ? ", open" : ", closed") + "; queued for " + pin.Session + ")";
+                    else if (Interlocked.Read(ref _remoteAudioRun) != pin.Run)
+                        stale = "a newer remote-audio run has begun";
+                    else if (!ReferenceEquals(radio.CurrentCommandConnection, pin.Connection))
+                        stale = "the radio's command connection has changed";
+                }
+                if (stale != null)
+                {
+                    Tracing.TraceLine("PutBackSavedMicInput (" + when + "): NOT writing '" + swap.Saved
+                        + "' - " + stale + ", so this queued put-back belongs to a session that is over (#686)",
                         TraceLevel.Warning);
                     return;
                 }
@@ -1908,6 +1956,7 @@ namespace Radios
             }
             _pcMicExpected = false;
             _pcMicDiverged = false;
+            Volatile.Write(ref _pcMicSwitchQuietUntil, PcMicNoSwitchQuiet);
         }
 
         /// <summary>
@@ -2203,10 +2252,15 @@ namespace Radios
                         attempt = new MicSwitchAttempt(radio, pressedInSession, swap, _micInputSwap, _pcMicExpected);
                         _micInputSwap = swap;
                         _pcMicExpected = true;     // intent, as MicSource marks it
-                        // The switch answers this divergence episode, so the
-                        // healer stays quiet while it is in flight; it opens
-                        // a new episode itself once the radio reports PC.
-                        _pcMicDiverged = true;
+                        // A new episode, as MicSource resets it, and a short
+                        // quiet while the switch is in flight so the healer
+                        // does not announce the same input again as news. The
+                        // quiet is a deadline on the healer's own clock, not
+                        // a latch, so it cannot stay set (round six): the
+                        // radio's answer ends it at once, and nothing waits
+                        // on it.
+                        _pcMicDiverged = false;
+                        Volatile.Write(ref _pcMicSwitchQuietUntil, _pcMicCheckClock() + PcMicSwitchQuietMs);
                         outcome = MicSwitchBackOutcome.Switching;
                     }
                 }
@@ -2272,6 +2326,13 @@ namespace Radios
             lock (_micSwitchLock)
             {
                 var radio = attempt.Radio;
+                if (!refused && _micSessionOpen && _micSessionId == attempt.Session
+                    && ReferenceEquals(theRadio, radio) && ReferenceEquals(_micInputSwap, attempt.Swap))
+                {
+                    // Accepted and still current: the quiet ends, and the
+                    // healer judges the next report normally (round six).
+                    Volatile.Write(ref _pcMicSwitchQuietUntil, PcMicNoSwitchQuiet);
+                }
                 if (refused)
                 {
                     if (!_micSessionOpen || _micSessionId != attempt.Session)
@@ -2289,6 +2350,7 @@ namespace Radios
                         _micInputSwap = attempt.PriorSwap;
                         _pcMicExpected = attempt.PriorExpected;
                         _pcMicDiverged = true;
+                        Volatile.Write(ref _pcMicSwitchQuietUntil, PcMicNoSwitchQuiet);
                         LastQueuedMicSwitchBack = MicSwitchBackOutcome.RefusedByRadio;
                     }
                 }
@@ -2400,6 +2462,18 @@ namespace Radios
         private long _pcMicCheckTime = PcMicNeverChecked;
         private Func<long> _pcMicCheckClock = () => System.Environment.TickCount64;
 
+        /// <summary>
+        /// Until when, on <see cref="_pcMicCheckClock"/>, the healer holds its
+        /// divergence report because a Switch Mic Input Back to PC is in
+        /// flight (#686, round six). The switch sets it one check interval
+        /// ahead; the radio's acceptance or refusal ends it at once. A
+        /// deadline rather than a latch, so a radio that answers nothing and
+        /// reports nothing still cannot mute the healer past it.
+        /// </summary>
+        private long _pcMicSwitchQuietUntil = PcMicNoSwitchQuiet;
+        internal const long PcMicNoSwitchQuiet = long.MinValue;
+        internal const long PcMicSwitchQuietMs = 1000;
+
         /// <summary>The check has not run yet, so the next one is due
         /// whatever the clock says.</summary>
         internal const long PcMicNeverChecked = long.MinValue;
@@ -2455,6 +2529,10 @@ namespace Radios
                 }
                 return;
             }
+
+            // A switch-back in flight: hold the report until the radio
+            // answers or one check interval passes (#686, round six).
+            if (now < Volatile.Read(ref _pcMicSwitchQuietUntil)) return;
 
             if (_pcMicDiverged) return; // already reported this episode
 

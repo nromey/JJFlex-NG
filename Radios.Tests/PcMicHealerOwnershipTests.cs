@@ -949,6 +949,66 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void AQueuedPutBackNeverLandsInTheNextSession()
+        {
+            // Codex re-verify 4, blocker: the stop comes while the switch's
+            // answer is outstanding, so its put-back is queued; computer audio
+            // starts again on the same radio before the queue runs, and the
+            // new start writes PC. The old put-back belongs to the session
+            // that ended: it must write nothing, or it silences the new
+            // session's transmit audio.
+            using var rig = GuestRadioMovedToMic();
+            using var held = new HeldQueue(rig.Rig);
+
+            PressOnly(rig);
+            held.Drain();                                    // the switch is sent; no answer yet
+            rig.StopPcAudio();                               // its put-back is queued
+            Assert.Equal(1, held.Count);
+            rig.StartPcAudio();                              // a new session writes PC
+            held.Drain();                                    // the old put-back runs now
+
+            Assert.Equal("mic input PC", rig.MicWrites.Last());
+            Assert.Equal("PC", rig.MicInput);
+        }
+
+        [Fact]
+        public void AnAcceptedSwitchEndsTheQuietSoTheNextMoveIsReported()
+        {
+            // Codex re-verify 4, follow-up: the radio accepts but never sends
+            // mic_selection=PC, then reports a different input. The healer
+            // must judge that report normally, not stay muted.
+            using var rig = GuestRadioMovedToMic();
+
+            Press(rig);
+            rig.Vendor.ReplyOk(SwitchSequence(rig));         // accepted; no PC status follows
+            rig.RadioReports("BAL");
+            rig.Clock += 500;                                // still inside the switch's own quiet
+            rig.Check();
+
+            Assert.Equal(1, rig.Rig.PcMicNotOursReports);
+            Assert.Equal(NotOursSentence("BAL"), rig.Rig.LastPcMicNotOursReport);
+        }
+
+        [Fact]
+        public void ASwitchTheRadioNeverAnswersCannotMuteTheHealer()
+        {
+            // No reply and no status at all. The quiet holds for one check
+            // interval and then ends by itself: nothing waits on it, and the
+            // healer reports what the radio last said.
+            using var rig = GuestRadioMovedToMic();
+
+            Press(rig);
+            rig.Clock += 500;
+            rig.Check();
+            Assert.Equal(0, rig.Rig.PcMicNotOursReports);    // in flight: quiet
+
+            rig.Clock += 1_000;
+            rig.Check();
+            Assert.Equal(1, rig.Rig.PcMicNotOursReports);
+            Assert.Equal(NotOursSentence("MIC"), rig.Rig.LastPcMicNotOursReport);
+        }
+
+        [Fact]
         public void SwitchBackWithNoRadioRefusesAndSaysSo()
         {
             using var rig = GuestRadioMovedToMic();
@@ -1012,11 +1072,13 @@ namespace Radios.Tests
             using var rig = GuestRadioMovedToMic();
             rig.Check();
             Assert.Equal(1, rig.Rig.PcMicNotOursReports);
+            rig.Clock += 400;
             Press(rig);
 
-            // In flight: the radio has not reported PC yet, and the healer
-            // does not report the same MIC again as news.
-            rig.Clock += 1_000;
+            // In flight, inside the switch's quiet: the radio has not
+            // answered or reported PC yet, and the healer does not report the
+            // same MIC again as news.
+            rig.Clock += 600;
             rig.Check();
             Assert.Equal(1, rig.Rig.PcMicNotOursReports);
 
