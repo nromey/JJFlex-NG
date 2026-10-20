@@ -8975,9 +8975,9 @@ namespace Radios
 
         /// <summary>
         /// The slice an RX mode write lands on: our RX VFO's slice, else the
-        /// active slice if it is ours, else none. Shared by <see cref="RXMode"/>,
-        /// <see cref="RequestMode"/> and <see cref="RXModeAsReported"/> so the
-        /// three can never disagree about which slice they mean (#312).
+        /// active slice if it is ours, else none. Shared by <see cref="RXMode"/>
+        /// and <see cref="RequestMode"/> so the two can never disagree about
+        /// which slice they mean (#312).
         /// </summary>
         private Slice RXModeTarget()
         {
@@ -9000,9 +9000,10 @@ namespace Radios
         /// </summary>
         /// <remarks>
         /// <para><b>Sent is not applied.</b> It means the write was queued to
-        /// the slice. Anything confirming a change to the operator must then
-        /// read <see cref="RXModeAsReported"/> until it agrees, the RX sibling
-        /// of the TXModeAsReported discipline (#164).</para>
+        /// the slice, and nothing more. Reading the slice's DemodMode back does
+        /// not prove more: FlexLib's setter writes that field before the
+        /// command goes out, so a read-back is our own echo (Codex, #312 repair
+        /// round one). Say "switching", never "set" (#164).</para>
         /// </remarks>
         public ModeRequestOutcome RequestMode(string value)
         {
@@ -9025,33 +9026,6 @@ namespace Radios
             }
             q.Enqueue((FunctionDel)(() => { s.DemodMode = value; }), "RXDemodMode");
             return ModeRequestOutcome.Sent;
-        }
-
-        /// <summary>
-        /// The RX mode the slice an RX mode write targets reports right now —
-        /// not <see cref="RXMode"/>'s cache. Empty when there is no such slice.
-        /// </summary>
-        /// <remarks>
-        /// <para>What this proves, exactly: the queued write ran and the slice
-        /// now holds the new mode, and nothing the radio has said since has
-        /// contradicted it. FlexLib's DemodMode setter updates the slice locally
-        /// as it sends the command, so this is the same standard
-        /// TXModeAsReported gives the Fixer, no stronger (#164).</para>
-        /// </remarks>
-        public string RXModeAsReported
-        {
-            get
-            {
-                try
-                {
-                    return RXModeTarget()?.DemodMode ?? "";
-                }
-                catch (Exception ex)
-                {
-                    Tracing.TraceLine("RXModeAsReported: " + ex.Message, TraceLevel.Warning);
-                    return "";
-                }
-            }
         }
 
         /// <summary>

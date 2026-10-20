@@ -6568,10 +6568,8 @@ public partial class MainWindow : UserControl
         if (stop.Correction == null)
         {
             // A channel stop, or the segment on a mode already permitted
-            // there. Unchanged from before #312, except that it retires any
-            // earlier stop still waiting for the radio to agree.
+            // there. Unchanged from before #312.
             if (stop.ChannelMode != null) RigControl.Mode = stop.ChannelMode;
-            Radios.SixtyMeterModeDelivery.CancelPending();
             // Queue, not interrupt, exactly as before; keyed so a newer stop
             // retires an unheard older one rather than both being rescued
             // after an interrupt.
@@ -6580,10 +6578,11 @@ public partial class MainWindow : UserControl
             return;
         }
 
-        // Repair round one: "mode set to CW" is said only once the slice
-        // reports CW. Refused while transmitting or with no slice of ours, the
-        // sentence says the segment needs CW and that it was not changed.
-        _ = Radios.SixtyMeterModeDelivery.DeliverAsync(RigControl, stop.Arrival, stop.Correction,
+        // Repair round two: says only what is known. A request that went out
+        // is "switching"; a refusal (transmitting, no slice of ours) says the
+        // mode was not changed. "Mode set" is never claimed, because nothing
+        // here hears the radio agree.
+        Radios.SixtyMeterModeDelivery.Deliver(RigControl, stop.Arrival, stop.Correction,
             Radios.Speech.SpeechIntent.Queue);
     }
 

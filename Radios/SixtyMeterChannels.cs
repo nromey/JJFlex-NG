@@ -91,30 +91,33 @@ namespace Radios
 
         /// <summary>
         /// A mode the radio must be moved to on arrival at a 60m frequency, and
-        /// the clause that says so — <c>", mode set to CW for digital segment"</c>.
+        /// the label of what requires it ("digital segment", "Channel 1").
         /// </summary>
-        public sealed record ModeCorrection(string RequiredMode, string SegmentLabel, string Advisory);
+        /// <remarks>
+        /// Carries no sentence (#312, repair round two): what may be SAID
+        /// depends on whether the request left, which only
+        /// <see cref="SixtyMeterModeDelivery"/> knows.
+        /// </remarks>
+        public sealed record ModeCorrection(string RequiredMode, string SegmentLabel);
 
         /// <summary>
         /// <see cref="GetModeAdvisory"/> turned into what every arrival path acts
         /// on: null when nothing has to change (not a 60m allocation, or already
-        /// on a permitted mode), otherwise the mode to set and the advisory
-        /// clause to append to whatever the path already says (#312).
+        /// on a permitted mode), otherwise the mode to ask for and why (#312).
         /// </summary>
         /// <remarks>
-        /// One composition for every path that can land on 60m — the band jump,
-        /// the channel rotation and typed frequency entry — so the three cannot
-        /// grow three wordings for one correction. The band jump had this inline
-        /// and was, until #312, the only path that applied it at all.
+        /// One decision for every path that can land on 60m — the band jump,
+        /// the channel rotation and typed frequency entry — and one way of
+        /// saying it, <see cref="SixtyMeterModeDelivery"/>. The band jump had
+        /// this inline and was, until #312, the only path that applied it at
+        /// all.
         /// </remarks>
         public static ModeCorrection? GetModeCorrection(
             string countryCode, ulong frequencyHz, string? currentMode)
         {
             var advisory = GetModeAdvisory(countryCode, frequencyHz, currentMode ?? "");
             if (advisory?.RequiredMode is not { } required) return null;
-            return new ModeCorrection(required, advisory.Value.SegmentLabel,
-                Lexicon.Get("settings.band.mode_advisory",
-                    ("mode", required), ("segment", advisory.Value.SegmentLabel)));
+            return new ModeCorrection(required, advisory.Value.SegmentLabel);
         }
 
         /// <summary>

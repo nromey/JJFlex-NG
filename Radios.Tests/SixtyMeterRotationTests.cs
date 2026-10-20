@@ -34,7 +34,7 @@ namespace Radios.Tests
             Assert.Equal(5_351_500UL, stop.FrequencyHz);
             Assert.Null(stop.ChannelMode);
             Assert.Equal("CW", stop.Correction?.RequiredMode);
-            Assert.Equal(", mode set to CW for digital segment", stop.Correction!.Advisory);
+            Assert.Equal("digital segment", stop.Correction!.SegmentLabel);
             Assert.Equal($"60 meter digital and CW segment, {5.3515:F4} megahertz", stop.Arrival);
         }
 
@@ -95,14 +95,14 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void The_mode_correction_is_the_band_jump_clause_for_a_typed_frequency_in_the_segment()
+        public void The_mode_correction_for_a_typed_frequency_in_the_segment_is_CW()
         {
             // 5.360 MHz: inside the digital segment, on no channel.
             var c = SixtyMeterChannels.GetModeCorrection("US", 5_360_000, "USB");
 
             Assert.NotNull(c);
             Assert.Equal("CW", c!.RequiredMode);
-            Assert.Equal(", mode set to CW for digital segment", c.Advisory);
+            Assert.Equal("digital segment", c.SegmentLabel);
         }
 
         [Fact]
@@ -122,7 +122,7 @@ namespace Radios.Tests
 
             Assert.NotNull(c);
             Assert.Equal("USB", c!.RequiredMode);
-            Assert.Equal(", mode set to USB for Channel 1", c.Advisory);
+            Assert.Equal("Channel 1", c.SegmentLabel);
         }
     }
 }

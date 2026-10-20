@@ -3,7 +3,6 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text.Json;
-using System.Threading.Tasks;
 using Flex.Smoothlake.FlexLib;
 using Radios.Speech;
 using Xunit;
@@ -11,34 +10,37 @@ using Xunit;
 namespace Radios.Tests
 {
     /// <summary>
-    /// The 60 m mode correction is said only when it is true (#312, repair
-    /// round one). Drives a REAL <see cref="FlexBase"/> — its own Mode guard,
-    /// its own slice targeting, its own command queue — and reads what got
-    /// PAST the speech gate from the silent recording channel (#171), not what
-    /// a caller intended to say.
+    /// The 60 m mode correction says only what is known (#312, repair rounds
+    /// one and two). Drives a REAL <see cref="FlexBase"/> — its own Mode
+    /// guard, its own slice targeting, its own command queue — and reads what
+    /// got PAST the speech gate from the silent recording channel (#171), not
+    /// what a caller intended to say.
     /// </summary>
     /// <remarks>
-    /// <para><b>The false claim, shown red on HEAD 1415e47a before this repair.</b>
-    /// A scratch test replayed SixtyMeterChannelNavigate's digital-segment
-    /// sequence there (Rotate, then <c>Mode = ModeToSet</c>, then speak the
-    /// announcement) against this same offline rig: the transmitting case and
-    /// the no-slice case both said "mode set to CW" while the slice stayed on
-    /// USB or did not exist (2 of 3 failed; the accepted case passed).</para>
-    /// <para><b>What this cannot see.</b> The radio itself: the slice is
-    /// FlexLib's object with no connection, so "applied" here means the queued
-    /// write ran and the slice now reports the mode — the same standard
-    /// TXModeAsReported gives the Fixer (#164), no stronger. Nor NVDA: the
-    /// recorder runs with rendering off. That three call sites hand their
-    /// arrival to this helper is read in the source, not exercised.</para>
+    /// <para><b>Ruled 2026-10-20 (round two).</b> A request that went out is
+    /// "switching" and claims nothing more; a refusal is certain and says the
+    /// mode was not changed, about the MODE only. No "mode set": round one's
+    /// read-back of Slice.DemodMode was FlexLib's own local echo.</para>
+    /// <para><b>Shown red before each repair.</b> On HEAD 1415e47a a scratch
+    /// replay of the rotation's sequence said "mode set to CW" while
+    /// transmitting and with no slice (2 of 3 failed). On round one
+    /// (d1159ff4, reverted only for the meters half) this class's wording
+    /// assertions failed 4 of 8: the sent case said "mode set to CW", and the
+    /// refusals said "and nothing was changed ..." / "and the mode was not
+    /// changed".</para>
+    /// <para><b>What this cannot see.</b> The radio: the slice is FlexLib's
+    /// object with no connection, which is exactly why "switching" is all a
+    /// sent request may claim. NVDA: the recorder runs with rendering off.
+    /// The band jump's and typed entry's arrivals are assembled in
+    /// JJFlexWpf.Tests' QuickTypeCommitTests through the same Compose.</para>
     /// </remarks>
     [Collection(SpeechOutputStaticsCollection.Name)]
     public sealed class SixtyMeterModeDeliveryTests : IDisposable
     {
         private const BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
-        private const string Arrival = "60 meter digital and CW segment, 5.3515 megahertz";
 
         private readonly string _path;
-        private FlexBase? _rig;
+        private readonly System.Collections.Generic.List<FlexBase> _rigs = new();
 
         public SixtyMeterModeDeliveryTests()
         {
@@ -57,7 +59,7 @@ namespace Radios.Tests
             OutputChannelRecorder.Configure(render: false, record: false);
             ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Chatty;
             try { File.Delete(_path); } catch { }
-            if (_rig != null) { try { _rig.Dispose(); } catch { } }
+            foreach (var r in _rigs) { try { r.Dispose(); } catch { } }
         }
 
         private (FlexBase rig, Slice? slice) Rig(bool withSlice, bool transmitting, bool running = true)
@@ -75,21 +77,17 @@ namespace Radios.Tests
             rig.q.MainLoop = running;
             typeof(FlexBase).GetField("_Transmit", Private)!.SetValue(rig, transmitting);
             Assert.Equal(transmitting, rig.Transmit);
-            _rig = rig;
+            _rigs.Add(rig);
             return (rig, slice);
         }
 
-        /// <summary>The command loop's one job, done by the test between polls.</summary>
-        private static Func<int, Task> DrainingDelay(FlexBase rig) => _ =>
+        /// <summary>The rotation's own stop: Channel 5 on USB, one press up.</summary>
+        private static SixtyMeterChannels.RotationStop IntoTheSegmentFromUsb()
         {
-            while (rig.q.Count > 0) ((FlexBase.FunctionDel)rig.q.Dequeue().Item)();
-            return Task.CompletedTask;
-        };
-
-        private static Func<int, Task> StalledDelay => _ => Task.CompletedTask;
-
-        private static SixtyMeterChannels.ModeCorrection DigitalSegmentFromUsb()
-            => SixtyMeterChannels.GetModeCorrection("US", 5_351_500, "USB")!;
+            var stop = SixtyMeterChannels.Rotate("US", 4, +1, "USB")!;
+            Assert.NotNull(stop.Correction);
+            return stop;
+        }
 
         private JsonElement[] Spoken()
         {
@@ -109,97 +107,75 @@ namespace Radios.Tests
             return e.GetProperty("text").GetString()!;
         }
 
+        private static string Segment => $"60 meter digital and CW segment, {5.3515:F4} megahertz";
+
         [Fact]
-        public async Task Accepted_says_mode_set_and_the_slice_has_the_mode()
+        public void Sent_says_switching_and_claims_nothing_more()
         {
             var (rig, slice) = Rig(withSlice: true, transmitting: false);
+            var stop = IntoTheSegmentFromUsb();
 
-            string? said = await SixtyMeterModeDelivery.DeliverAsync(rig, Arrival, DigitalSegmentFromUsb(),
-                SpeechIntent.Queue, DrainingDelay(rig));
+            string said = SixtyMeterModeDelivery.Deliver(rig, stop.Arrival, stop.Correction!, SpeechIntent.Queue);
 
-            Assert.Equal("CW", slice!.DemodMode);
-            Assert.Equal(Arrival + ", mode set to CW for digital segment", said);
+            Assert.Equal(1, rig.q.Count); // positive control: the request really went out
+            Assert.Equal(Segment + ", digital segment needs CW, switching", said);
             Assert.Equal(said, SpokenPastTheGate());
+            Assert.DoesNotContain("set to", said);
+            // Even after the write runs, nothing on this path heard the radio:
+            // the slice changing is FlexLib's local echo, so the sentence above
+            // is all that may be said.
+            ((FlexBase.FunctionDel)rig.q.Dequeue().Item)();
+            Assert.Equal("CW", slice!.DemodMode);
         }
 
         [Fact]
-        public async Task Transmitting_never_claims_the_mode_and_says_nothing_was_changed()
+        public void Transmitting_says_the_mode_was_not_changed_and_nothing_about_the_frequency()
         {
             var (rig, slice) = Rig(withSlice: true, transmitting: true);
+            var stop = IntoTheSegmentFromUsb();
 
-            string? said = await SixtyMeterModeDelivery.DeliverAsync(rig, Arrival, DigitalSegmentFromUsb(),
-                SpeechIntent.Queue, DrainingDelay(rig));
+            string said = SixtyMeterModeDelivery.Deliver(rig, stop.Arrival, stop.Correction!, SpeechIntent.Queue);
 
             Assert.Equal("USB", slice!.DemodMode);
             Assert.Equal(0, rig.q.Count);
-            Assert.Equal(Arrival + ", digital segment needs CW, and nothing was changed because you are transmitting",
-                SpokenPastTheGate());
-            Assert.DoesNotContain("mode set to", said);
+            Assert.Equal(Segment + ", digital segment needs CW, mode not changed while transmitting", SpokenPastTheGate());
+            Assert.DoesNotContain("nothing was changed", said);
         }
 
         [Fact]
-        public async Task No_slice_of_ours_never_claims_the_mode()
+        public void No_slice_of_ours_says_the_mode_was_not_changed()
         {
             var (rig, _) = Rig(withSlice: false, transmitting: false);
+            var stop = IntoTheSegmentFromUsb();
 
-            await SixtyMeterModeDelivery.DeliverAsync(rig, Arrival, DigitalSegmentFromUsb(),
-                SpeechIntent.Queue, DrainingDelay(rig));
+            SixtyMeterModeDelivery.Deliver(rig, stop.Arrival, stop.Correction!, SpeechIntent.Queue);
 
             Assert.Equal(0, rig.q.Count);
-            Assert.Equal(Arrival + ", digital segment needs CW, and the mode was not changed", SpokenPastTheGate());
+            Assert.Equal(Segment + ", digital segment needs CW, mode not changed", SpokenPastTheGate());
         }
 
         [Fact]
-        public async Task A_command_loop_that_is_not_running_never_claims_the_mode()
+        public void A_command_loop_that_is_not_running_says_the_mode_was_not_changed()
         {
             var (rig, slice) = Rig(withSlice: true, transmitting: false, running: false);
+            var stop = IntoTheSegmentFromUsb();
 
-            await SixtyMeterModeDelivery.DeliverAsync(rig, Arrival, DigitalSegmentFromUsb(),
-                SpeechIntent.Queue, DrainingDelay(rig));
+            SixtyMeterModeDelivery.Deliver(rig, stop.Arrival, stop.Correction!, SpeechIntent.Queue);
 
             Assert.Equal("USB", slice!.DemodMode);
-            Assert.Equal(Arrival + ", digital segment needs CW, and the mode was not changed", SpokenPastTheGate());
+            Assert.Equal(Segment + ", digital segment needs CW, mode not changed", SpokenPastTheGate());
         }
 
         [Fact]
-        public async Task Sent_but_never_applied_says_the_radio_has_not_confirmed()
-        {
-            // The write went out to the queue and nothing ran it: the
-            // enqueue is not proof, so the sentence must not say "set".
-            var (rig, slice) = Rig(withSlice: true, transmitting: false);
-
-            string? said = await SixtyMeterModeDelivery.DeliverAsync(rig, Arrival, DigitalSegmentFromUsb(),
-                SpeechIntent.Queue, StalledDelay, confirmWindowMs: 200);
-
-            Assert.Equal(1, rig.q.Count); // positive control: it WAS requested
-            Assert.Equal("USB", slice!.DemodMode);
-            Assert.Equal(Arrival + ", digital segment needs CW, and the radio has not confirmed the mode change", said);
-            Assert.Equal(said, SpokenPastTheGate());
-        }
-
-        [Fact]
-        public async Task A_newer_arrival_retires_one_still_waiting_and_it_says_nothing()
-        {
-            var (rig, _) = Rig(withSlice: true, transmitting: false);
-            Func<int, Task> movedOn = _ => { SixtyMeterModeDelivery.CancelPending(); return Task.CompletedTask; };
-
-            string? said = await SixtyMeterModeDelivery.DeliverAsync(rig, Arrival, DigitalSegmentFromUsb(),
-                SpeechIntent.Queue, movedOn);
-
-            Assert.Null(said);
-            Assert.Empty(Spoken());
-        }
-
-        [Fact]
-        public async Task The_recorder_sees_the_gate_negative_control()
+        public void The_recorder_sees_the_gate_negative_control()
         {
             // Without this, "gated is false" above could be a recorder that
             // never reports gating at all.
             ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Critical;
             var (rig, _) = Rig(withSlice: true, transmitting: false);
+            var stop = IntoTheSegmentFromUsb();
 
-            await SixtyMeterModeDelivery.DeliverAsync(rig, Arrival, DigitalSegmentFromUsb(),
-                SpeechIntent.Queue, DrainingDelay(rig));
+            SixtyMeterModeDelivery.Deliver(rig, stop.Arrival, stop.Correction!, SpeechIntent.Queue);
 
             Assert.True(Assert.Single(Spoken()).GetProperty("gated").GetBoolean());
         }
@@ -217,6 +193,15 @@ namespace Radios.Tests
             Assert.Equal(1, rig.q.Count);
             ((FlexBase.FunctionDel)rig.q.Dequeue().Item)();
             Assert.Equal("CW", slice!.DemodMode);
+        }
+
+        [Fact]
+        public void RequestMode_reports_each_refusal_and_a_send()
+        {
+            Assert.Equal(ModeRequestOutcome.RefusedTransmitting, Rig(true, transmitting: true).rig.RequestMode("CW"));
+            Assert.Equal(ModeRequestOutcome.RefusedNoSlice, Rig(false, transmitting: false).rig.RequestMode("CW"));
+            Assert.Equal(ModeRequestOutcome.RefusedNotRunning, Rig(true, transmitting: false, running: false).rig.RequestMode("CW"));
+            Assert.Equal(ModeRequestOutcome.Sent, Rig(true, transmitting: false).rig.RequestMode("CW"));
         }
     }
 }

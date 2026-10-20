@@ -981,21 +981,14 @@ public class FreqOutHandlers
             EarconPlayer.DingTone();
         string display = FormatFreqForSpeech(freqMhz.Value);
         // No rig, no mode to correct: the correction is only asked for with a
-        // rig, and with one it is said only when true (#312, repair round one).
+        // rig, and with one only what is known is said (#312, repair round two).
         var outcome = QuickTypeCommitOutcome(License?.Country ?? "US", freqHz, Rig?.Mode, display);
         var rig = Rig;
         if (rig != null && outcome.Correction != null)
-        {
-            _ = SixtyMeterModeDelivery.DeliverAsync(rig, outcome.Arrival, outcome.Correction,
+            SixtyMeterModeDelivery.Deliver(rig, outcome.Arrival, outcome.Correction,
                 Radios.Speech.SpeechIntent.Interrupt);
-        }
         else
-        {
-            // The radio is moving: a 60 m arrival still waiting for agreement
-            // must not speak late over this one.
-            SixtyMeterModeDelivery.CancelPending();
             Radios.ScreenReaderOutput.Speak(outcome.Arrival, VerbosityLevel.Terse, true);
-        }
         CancelQuickType();
     }
 
@@ -1008,10 +1001,10 @@ public class FreqOutHandlers
     /// frequency now asks for the same correction the band jump and the channel
     /// rotation ask for, through <see cref="SixtyMeterChannels.GetModeCorrection"/>:
     /// into the digital segment on a voice mode, CW; onto a channel, the
-    /// channel's mode. The arrival carries NO mode clause: whether "mode set to"
-    /// is true depends on the radio taking the write, which
-    /// <see cref="SixtyMeterModeDelivery"/> finds out and says (repair round
-    /// one). With no current mode known (no rig) there is no correction.
+    /// channel's mode. The arrival carries NO mode clause: what may be said
+    /// depends on whether the request left, which
+    /// <see cref="SixtyMeterModeDelivery"/> knows and says (repair round two).
+    /// With no current mode known (no rig) there is no correction.
     /// </remarks>
     internal static (SixtyMeterChannels.ModeCorrection? Correction, string Arrival) QuickTypeCommitOutcome(
         string country, ulong freqHz, string? currentMode, string display)
@@ -3556,6 +3549,21 @@ public class FreqOutHandlers
     private string? _lastSubBandKey; // tracks license sub-band division for boundary notifications
 
     /// <summary>
+    /// What a band jump owes the mode, and its arrival sentence with no mode
+    /// clause (#312, repair round two). Pure, so it can be tested without a
+    /// window. A correction is only asked for on 60 m with a rig.
+    /// </summary>
+    internal static (SixtyMeterChannels.ModeCorrection? Correction, string Arrival) BandJumpOutcome(
+        string bandName, string freqStr, bool sixtyMetersWithRig, string country, ulong targetFreq, string mode)
+    {
+        string arrival = Lexicon.Get("settings.band.jump",
+            ("band", bandName), ("freq", freqStr), ("advisory", ""));
+        return sixtyMetersWithRig
+            ? (SixtyMeterChannels.GetModeCorrection(country, targetFreq, mode), arrival)
+            : (null, arrival);
+    }
+
+    /// <summary>
     /// Jump to a specific band. Uses band memory to restore last frequency
     /// for the current mode on that band.
     /// </summary>
@@ -3622,28 +3630,18 @@ public class FreqOutHandlers
 
         // 60m mode advisory: auto-correct mode if inappropriate for the target
         // segment. The correction is shared with the channel rotation and
-        // typed frequency entry since #312, and so, since #312's repair round
-        // one, is the way it is said: "mode set to" only once the slice reports
-        // the mode, and plainly "not changed" when the request was refused
-        // (transmitting, or no slice of ours). Until then this path assigned
-        // Rig.Mode and claimed the change on the next line, which Mode's
-        // silent refusals could make false.
-        SixtyMeterChannels.ModeCorrection? correction = null;
-        if (targetBand == Bands.BandNames.m60 && Rig != null)
-        {
-            string country = License?.Country ?? "US";
-            correction = SixtyMeterChannels.GetModeCorrection(country, targetFreq, mode);
-        }
-        // Any band jump moves the radio: a 60 m arrival still waiting for
-        // agreement must not speak late over this one.
-        SixtyMeterModeDelivery.CancelPending();
-
-        string arrival = Lexicon.Get("settings.band.jump",
-            ("band", bandName), ("freq", freqStr), ("advisory", ""));
-        if (correction != null && Rig != null)
-            _ = SixtyMeterModeDelivery.DeliverAsync(Rig, arrival, correction, Radios.Speech.SpeechIntent.Interrupt);
+        // typed frequency entry since #312, and so, since #312's repair
+        // rounds, is the way it is said: "switching" when the request went
+        // out, "mode not changed" when it was refused (transmitting, or no
+        // slice of ours), and never "mode set", because nothing here hears the
+        // radio agree. Until then this path assigned Rig.Mode and claimed the
+        // change on the next line, which Mode's silent refusals made false.
+        var jump = BandJumpOutcome(bandName, freqStr,
+            targetBand == Bands.BandNames.m60 && Rig != null, License?.Country ?? "US", targetFreq, mode);
+        if (jump.Correction != null && Rig != null)
+            SixtyMeterModeDelivery.Deliver(Rig, jump.Arrival, jump.Correction, Radios.Speech.SpeechIntent.Interrupt);
         else
-            Radios.ScreenReaderOutput.Speak(arrival, VerbosityLevel.Terse, interrupt: true);
+            Radios.ScreenReaderOutput.Speak(jump.Arrival, VerbosityLevel.Terse, interrupt: true);
         EarconPlayer.BandBoundaryBeep();
 
         // Save band memory
