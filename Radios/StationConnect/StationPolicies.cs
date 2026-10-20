@@ -56,17 +56,49 @@ namespace Radios.StationConnect
         public bool RadioEndBoundaryAfterSend =>
             ProfileNow != null && ProfileNow.RadioEndBoundaryAtSequence > SentAtProfileSequence;
 
-        /// <summary>Convenience: a RADIO-REPORTED global profile list observed
-        /// AFTER the send. The radio re-reports its lists, unasked, a few
-        /// milliseconds after the last slice a global load restores (measured
-        /// 2026-10-17 to 2026-10-20, #639); a list reported before the send —
-        /// FlexLib's connect-time ask, or our own fresh ask, both of which are
-        /// answered before the load goes out — has a lower sequence and does
-        /// not count.</summary>
+        /// <summary>Convenience: ANY radio-reported global profile list observed
+        /// after the send, including the answer to an inventory ask of ours
+        /// that was still outstanding at the send. <b>Not completion
+        /// evidence on its own</b> (#639, Codex B1): our bounded fresh read
+        /// can give up on cached names and let the load go out with its ask
+        /// unanswered, and the late answer then looks exactly like this. See
+        /// <see cref="UnsolicitedGlobalListAfterSend"/>.</summary>
         public bool RadioReportedGlobalListAfterSend =>
             ProfileNow?.GlobalList != null
             && ProfileNow.GlobalList.Provenance == ObservationProvenance.RadioReported
             && ProfileNow.GlobalList.Sequence > SentAtProfileSequence;
+
+        /// <summary>Convenience: a radio-reported global list observed after
+        /// the send that was NOT the answer to a <c>profile global info</c> of
+        /// ours (<see cref="ProfileEvidenceSnapshot.UnsolicitedGlobalList"/>).
+        /// The radio sends one of these, unasked, a few milliseconds after the
+        /// last slice a global load restores (measured 2026-10-17 to
+        /// 2026-10-20, #639).</summary>
+        public bool UnsolicitedGlobalListAfterSend =>
+            ProfileNow?.UnsolicitedGlobalList != null
+            && ProfileNow.UnsolicitedGlobalList.Sequence > SentAtProfileSequence;
+
+        /// <summary>Convenience: <see cref="UnsolicitedGlobalListAfterSend"/>,
+        /// AND that list arrived after every own slice the load has produced so
+        /// far (by <see cref="ObservationOrdinal"/>, which both logs stamp). A
+        /// slice reported after the list re-opens the question: the measured
+        /// order is slices, then the list after the LAST of them, so a list
+        /// that precedes a slice was not the end of the load.</summary>
+        public bool UnsolicitedGlobalListAfterNewestNewOwnSlice
+        {
+            get
+            {
+                if (!UnsolicitedGlobalListAfterSend || StationNow == null) return false;
+                long listOrdinal = ProfileNow.UnsolicitedGlobalList.Ordinal;
+                bool any = false;
+                foreach (var slice in StationNow.NewSince(SentAtStationSequence, StationBefore))
+                {
+                    any = true;
+                    if (slice.Ordinal > listOrdinal) return false;
+                }
+                return any;
+            }
+        }
 
         /// <summary>Convenience: own slices reported after the send whose
         /// identity was not present before it.</summary>
@@ -146,11 +178,14 @@ namespace Radios.StationConnect
 
     /// <summary>
     /// <b>The production default since 2026-10-20 (#639).</b> A sent global
-    /// load is Confirmed when the radio has RE-REPORTED ITS GLOBAL PROFILE
-    /// LIST after the send AND at least one own slice has been reported ready
-    /// after the send that was not present at the send. Rejection is
-    /// rejection; anything short of both facts is Unconfirmed, and the
-    /// coordinator keeps judging inside the station phase as evidence arrives.
+    /// load is Confirmed when three things hold: at least one own slice has
+    /// been reported ready after the send that was not present at the send;
+    /// the radio has sent its global profile list ON ITS OWN ACCOUNT after
+    /// the send — a list that is not the answer to a <c>profile global info</c>
+    /// of ours; and that list arrived AFTER the newest of those slices. A
+    /// rejection is Rejected; anything short of all three is Unconfirmed, and
+    /// the coordinator keeps judging inside the station phase as evidence
+    /// arrives, so a later slice re-opens the wait for a later list.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -158,81 +193,111 @@ namespace Radios.StationConnect
     /// established that the load WORKS: <c>JJRadioDefault</c> came back
     /// byte-identical across three loads. It did not find a distinct
     /// end-of-load message, and FlexLib surfaces none. What every archived
-    /// trace of the bench 8600 shows instead — seven connects from 2026-10-17
-    /// to 2026-10-20, a three-slice profile on 2026-10-19 06:00 and 06:35 and
-    /// a one-slice profile on 2026-10-19 17:42 to 19:01 and 2026-10-20 04:44
-    /// and 04:45 — is one order, every time: the load is sent; 260 to 480 ms
-    /// later the restored slices are reported ready; 2 to 5 ms after the LAST
-    /// of them the radio sends <c>profile global list=</c> again, together
-    /// with the transmit and microphone lists, unasked. Three slices: load
-    /// 11101, slices 11554, 11559, 11561, list 11566. One slice: load 13083,
-    /// slice 13342, list 13347. One of the 2026-10-20 connects was over
-    /// SmartLink (<c>IsWan=True</c>; load 163634, slice 163910, list 163912),
-    /// so the order holds on both transports for the one-slice profile.
+    /// trace of the bench 8600 shows instead — 21 loads in ten trace files
+    /// from 2026-10-19 and 2026-10-20 (Codex's census, 2026-10-20): three
+    /// three-slice loads on LAN, eighteen one-slice loads of which six were
+    /// over SmartLink — is one order, every time: the load is sent; 259 to
+    /// 689 ms later the restored slices are reported ready; 2 to 5 ms after
+    /// the LAST of them the radio sends <c>profile global list=</c> again,
+    /// together with the transmit and microphone lists, with nothing of ours
+    /// having asked. Three slices: load 11101, slices 11554, 11559, 11561,
+    /// list 11566. One slice: load 13083, slice 13342, list 13347. SmartLink:
+    /// load 163634, slice 163910, list 163912. The radio's
+    /// <c>profile global current=</c> is not usable here: FlexLib raises it
+    /// only on a CHANGE, and on an owner's reconnect the wanted profile is
+    /// usually already current.
     /// </para>
     /// <para>
-    /// <b>Why the list report is the radio's own.</b> FlexLib asks for the
-    /// lists once, at connect (<c>GetProfileLists</c> in its connect
-    /// sequence, before the subscriptions), and the coordinator's fresh ask
-    /// for the global inventory is ANSWERED before the load is sent, because
-    /// the coordinator waits for that answer and only then dispatches. During
-    /// the coordinator's wait nothing of ours asks for the global list, so a
-    /// radio-reported list with a sequence after the send came from the radio
-    /// on its own account. The radio's <c>profile global current=</c> is not
-    /// usable here: FlexLib raises it only on a CHANGE, and on an owner's
-    /// reconnect the wanted profile is usually already current.
+    /// <b>Why the list's ORIGIN has to be established, not just its
+    /// freshness (Codex B1, 2026-10-20).</b> The coordinator's fresh
+    /// inventory read (<c>ReadRadioProfileList</c>) is bounded; when the
+    /// radio is slow it gives up on the cached names with <c>Reported</c>
+    /// still true, the planner proceeds, and the load goes out with our
+    /// <c>profile global info</c> still unanswered. Its late answer then
+    /// arrives as a radio-reported list with a sequence after the send and
+    /// looks exactly like the post-load re-report. With the FIRST slice of a
+    /// multi-slice restore that would have confirmed an unfinished load and
+    /// started the post-station writes while the radio was still rebuilding.
+    /// So <c>ReadRadioProfileList</c> now records every global ask in the
+    /// evidence log before it goes out, the log takes the next radio-reported
+    /// list as that ask's answer, and only a list with NO ask outstanding is
+    /// <see cref="ProfileEvidenceSnapshot.UnsolicitedGlobalList"/>. An ask the
+    /// radio never answers holds this closed for the attempt (the load's own
+    /// re-report is consumed as the answer): fail-closed, not a timer.
     /// </para>
     /// <para>
-    /// <b>What this is not.</b> It is a measured regularity of this radio's
-    /// behaviour on this firmware, not a documented end-of-load message. If a
-    /// radio ever re-lists its profiles BEFORE the last restored slice is
-    /// ready, this policy confirms early: the result's slice count is low,
-    /// the layout recorded at "station established" is partial until the
-    /// next place flush rewrites it, and the post-station writes — which do
-    /// not depend on the slice count — run while slices are still arriving.
-    /// Nothing is written to a slice on that account. If a restored slice is
-    /// ever traced AFTER the list re-report, this boundary is early and the
-    /// policy must change.
+    /// <b>Why the list must follow the newest slice.</b> The one other
+    /// unsolicited list the radio is known to send is the answer to FlexLib's
+    /// connect-time <c>profile global info</c>, which is not ours and so not
+    /// accounted for. It is answered before the station phase in every trace,
+    /// and because the radio handles its command channel in order (the #782
+    /// fence rests on the same fact) a late answer to a query sent before the
+    /// load arrives before the load's first slice. Requiring the list to
+    /// carry a higher <see cref="ObservationOrdinal"/> than every new own
+    /// slice therefore rejects it, and more generally rejects any list that
+    /// is not the one the radio sends after the last restored slice. The two
+    /// logs have separate sequences, which is why the ordinal exists.
     /// </para>
     /// <para>
-    /// <b>What stays fail-closed, and the bench that would open each.</b> A
-    /// saved profile with ZERO slices never confirms (the list arrives, no
-    /// slice does) and ends Unconfirmed at the phase deadline — save an empty
-    /// station, connect, and read whether the list is still re-reported; if
-    /// it is, a zero-slice rule can be written on that trace. A load whose
-    /// restored slices REUSE the indices of slices present at the send is not
-    /// counted by <see cref="StationSnapshot.NewSince"/> and ends Unconfirmed
-    /// at the deadline — the operator-requested load after company left, with
-    /// client-local slices already on the radio, is the case; the fix is in
-    /// the station tracker's identity rule, not here. The 6300, and a
-    /// multi-slice profile over SmartLink, are unobserved: the bench is one
-    /// connect with the trace read for the order of <c>sliceAdded</c> and
-    /// <c>ProfileGlobalList</c> after <c>global load ... SENT</c>.
+    /// <b>What this is not.</b> It is a measured regularity of one radio's
+    /// behaviour, not a documented end-of-load message, and the policy has no
+    /// model or transport input. A FLEX-6300, or a multi-slice profile over
+    /// SmartLink, is UNMEASURED and NOT held closed by this code: if the same
+    /// evidence arrives there, it confirms. Whether to gate those on a bench
+    /// is an open question for Noel (ASK-639-measured-scope, 2026-10-20); a
+    /// gate was not written here because the behaviour is the profile
+    /// subsystem's, which the 6000 and 8000 series share, and because a
+    /// per-model gate would cost every unmeasured model the whole phase bound
+    /// and the unconfirmed sentence until somebody benches it. A firmware
+    /// that re-lists after EACH restored slice would confirm this policy
+    /// early; none is known. If a restored slice is ever traced AFTER the
+    /// list re-report, this boundary is early and the policy must change.
+    /// </para>
+    /// <para>
+    /// <b>What is Unconfirmed by construction, and what it costs.</b> A saved
+    /// profile with ZERO slices never confirms (the list arrives, no slice
+    /// does); a load whose restored slices all REUSE the indices of slices
+    /// present at the send is not counted by
+    /// <see cref="StationSnapshot.NewSince"/> (a mixed load confirms on its
+    /// new index); a radio that never re-lists, or whose answer to our ask
+    /// never comes, never confirms. Every one of those now spends what
+    /// remains of the station phase's budget (<see cref="StationDeadlines.StationPhaseMs"/>,
+    /// 20 s from the phase's start, not from the send) before ending
+    /// Unconfirmed, where the retired placeholder ended in a millisecond.
+    /// Same outcome, no post-station writes either way; the cost is the
+    /// wait. The benches: save an empty station and connect, for the
+    /// zero-slice rule; the operator-requested load after company left with
+    /// client-local slices on the radio, for index reuse (the fix belongs in
+    /// the tracker's identity rule); one connect on a 6300, and one with a
+    /// multi-slice profile over SmartLink, reading the trace for the order
+    /// of <c>sliceAdded</c> and <c>ProfileGlobalList</c> after
+    /// <c>global load ... SENT</c>.
     /// </para>
     /// <para>
     /// <b>Where it is judged.</b> Only <c>StationCoordinator.LoadExistingRoute</c>
     /// asks a completion policy, and every global load the application sends
     /// goes through it: the connect (operation 1), the post-import re-entry,
-    /// and the operator-requested load. The radio's response to
-    /// <c>profile global load</c> is the same command on all three, so one
-    /// policy judges one kind of evidence; the unobserved variables are the
-    /// radio and the transport, named above, not the path.
+    /// and the operator-requested load.
     /// </para>
     /// </remarks>
     public sealed class LoadCompletionByGlobalListReportPolicy : ILoadCompletionPolicy
     {
         public static readonly LoadCompletionByGlobalListReportPolicy Instance = new LoadCompletionByGlobalListReportPolicy();
-        public string Name => "the radio re-reported its global profile list after the load, and an own slice materialized";
+        public string Name => "the radio re-reported its global profile list, unasked, after the newest own slice the load restored";
         public LoadCompletion Judge(LoadEvidence e)
         {
             if (e == null) return LoadCompletion.Unconfirmed;
             if (e.Rejected) return LoadCompletion.Rejected;
-            // The list alone is not a station: a zero-slice profile and a load
-            // whose slices never materialized both look like this.
-            if (!e.RadioReportedGlobalListAfterSend) return LoadCompletion.Unconfirmed;
+            // A list that answers an ask of ours is inventory, not the radio
+            // reporting the load; the list alone is not a station either (a
+            // zero-slice profile and a load whose slices never materialized
+            // both look like that).
+            if (!e.UnsolicitedGlobalListAfterSend) return LoadCompletion.Unconfirmed;
             // A slice alone may be the first of several: the list is what the
-            // radio was measured to send after the LAST one.
+            // radio was measured to send after the LAST one, so the list must
+            // follow the newest slice, and a later slice re-opens the wait.
             if (e.NewOwnSlicesSinceSend == 0) return LoadCompletion.Unconfirmed;
+            if (!e.UnsolicitedGlobalListAfterNewestNewOwnSlice) return LoadCompletion.Unconfirmed;
             return LoadCompletion.Confirmed;
         }
     }
@@ -418,11 +483,11 @@ namespace Radios.StationConnect
         /// <summary>
         /// BENCH B IS ANSWERED, 2026-10-17 (#499), and in the code since
         /// 2026-10-20 (#639): the radio re-reports its global profile list a
-        /// few milliseconds after the last slice a load restores, and that
-        /// plus a materialized own slice is what
-        /// <see cref="LoadCompletionByGlobalListReportPolicy"/> requires. The
-        /// measurement, its limits and the benches that would widen it are on
-        /// that class. Until then this was
+        /// few milliseconds after the last slice a load restores, and that —
+        /// unasked by us, after the newest restored slice — plus a materialized
+        /// own slice is what <see cref="LoadCompletionByGlobalListReportPolicy"/>
+        /// requires. The measurement, its limits and the benches that would
+        /// widen it are on that class. Until then this was
         /// <see cref="LoadCompletionUnconfirmedPolicy"/>, which ended every
         /// owner connect Unconfirmed the instant the load was sent and kept
         /// transmit, microphone, owner initialisation and live audio from

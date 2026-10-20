@@ -224,11 +224,13 @@ namespace Radios.Tests.StationConnect
             // connect said "Station restore not confirmed" to a restore the
             // trace showed working. The evidence the default now accepts is
             // the radio's own re-report of its global profile list after the
-            // load — observed 2 to 5 ms after the LAST restored slice in every
-            // archived trace from 2026-10-17 to 2026-10-20, one-slice and
-            // three-slice profiles alike — plus at least one own slice reported
-            // ready after the send. The measurement and its limits are on the
-            // policy class; the behaviour is in LoadCompletionPolicyTests.
+            // load — observed 2 to 5 ms after the LAST restored slice in all
+            // 21 loads archived on 2026-10-19 and 2026-10-20, one-slice and
+            // three-slice profiles alike — not the answer to an ask of ours,
+            // arriving after the newest restored slice (Codex B1, repair round
+            // one), plus at least one own slice reported ready after the send.
+            // The measurement and its limits are on the policy class; the
+            // behaviour is in LoadCompletionPolicyTests and Codex639EvidenceTests.
             // This line asserted LoadCompletionUnconfirmedPolicy until 2026-10-20.
             Assert.IsType<LoadCompletionByGlobalListReportPolicy>(StationPolicies.Defaults().LoadCompletion);
 

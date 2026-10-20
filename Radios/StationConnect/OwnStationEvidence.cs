@@ -14,12 +14,12 @@ namespace Radios.StationConnect
     public sealed class OwnSlice
     {
         public OwnSlice(int index, string letter, uint handle, uint panadapterStreamId, long sequence, int attemptGeneration)
-            : this(index, letter, handle, panadapterStreamId, sequence, attemptGeneration, 0, 0, "", 0)
+            : this(index, letter, handle, panadapterStreamId, sequence, attemptGeneration, 0, 0, "", 0, ObservationOrdinal.Next())
         {
         }
 
         private OwnSlice(int index, string letter, uint handle, uint panadapterStreamId, long sequence, int attemptGeneration,
-            long freqHz, long freqSequence, string mode, long modeSequence)
+            long freqHz, long freqSequence, string mode, long modeSequence, long ordinal)
         {
             Index = index;
             Letter = letter ?? "";
@@ -31,7 +31,14 @@ namespace Radios.StationConnect
             FreqSequence = freqSequence;
             Mode = mode ?? "";
             ModeSequence = modeSequence;
+            Ordinal = ordinal;
         }
+
+        /// <summary>The <see cref="ObservationOrdinal"/> at which this slice was
+        /// reported ready, for ordering against observations in OTHER logs (the
+        /// profile evidence log's list reports). Kept through the frequency and
+        /// mode receipts: it is the slice's arrival, not its latest field.</summary>
+        public long Ordinal { get; }
 
         // Each field is its OWN receipt (Track G2 re-review, section 5). The
         // handler used to snapshot both Freq and DemodMode on either
@@ -56,10 +63,10 @@ namespace Radios.StationConnect
         public long ModeSequence { get; }
 
         internal OwnSlice WithFrequency(long freqHz, long freqSequence) =>
-            new OwnSlice(Index, Letter, Handle, PanadapterStreamId, Sequence, AttemptGeneration, freqHz, freqSequence, Mode, ModeSequence);
+            new OwnSlice(Index, Letter, Handle, PanadapterStreamId, Sequence, AttemptGeneration, freqHz, freqSequence, Mode, ModeSequence, Ordinal);
 
         internal OwnSlice WithMode(string mode, long modeSequence) =>
-            new OwnSlice(Index, Letter, Handle, PanadapterStreamId, Sequence, AttemptGeneration, FreqHz, FreqSequence, mode, modeSequence);
+            new OwnSlice(Index, Letter, Handle, PanadapterStreamId, Sequence, AttemptGeneration, FreqHz, FreqSequence, mode, modeSequence, Ordinal);
 
         /// <summary>The radio's slice index: the identity, stable for the slice's life.</summary>
         public int Index { get; }

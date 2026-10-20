@@ -30,12 +30,28 @@ namespace Radios.StationConnect
             Sequence = sequence;
             AttemptGeneration = attemptGeneration;
             AtMs = atMs;
+            Ordinal = ObservationOrdinal.Next();
         }
         public IReadOnlyList<string> Names { get; }
         public ObservationProvenance Provenance { get; }
         public long Sequence { get; }
         public int AttemptGeneration { get; }
         public long AtMs { get; }
+
+        /// <summary>The <see cref="ObservationOrdinal"/> at which this list was
+        /// observed, for ordering against the station tracker's slices.</summary>
+        public long Ordinal { get; }
+
+        /// <summary>
+        /// True when this radio-reported list is the ANSWER to a
+        /// <c>profile global info</c> this application sent and had not yet
+        /// had answered (<see cref="ProfileEvidenceLog.GlobalInventoryAsked"/>).
+        /// The radio sends one list status per ask, so the oldest outstanding
+        /// ask is taken as answered by the next radio-reported list. Such a
+        /// list is inventory, not a report of anything the radio did on its
+        /// own, and is never completion evidence (#639, Codex B1).
+        /// </summary>
+        public bool AnswersOurAsk { get; internal set; }
         public bool Contains(string name) =>
             !string.IsNullOrEmpty(name) && Names.Any(n => string.Equals(n, name, StringComparison.Ordinal));
     }
@@ -99,6 +115,23 @@ namespace Radios.StationConnect
 
         /// <summary>The latest global inventory, or null when none has been observed this attempt.</summary>
         public InventoryObservation GlobalList { get; }
+
+        /// <summary>
+        /// The latest RADIO-REPORTED global inventory that was NOT the answer
+        /// to an ask of ours, or null. The radio sends its global list on its
+        /// own account in two known cases: FlexLib's connect-time
+        /// <c>profile global info</c> (not ours, and answered before the
+        /// station phase in every trace), and the re-report it makes a few
+        /// milliseconds after the last slice a global load restores. The
+        /// completion policy reads this, never <see cref="GlobalList"/>, so a
+        /// late answer to our own bounded inventory read cannot be mistaken
+        /// for the load finishing (#639, Codex B1).
+        /// </summary>
+        public InventoryObservation UnsolicitedGlobalList { get; internal set; }
+
+        /// <summary>How many <c>profile global info</c> asks of ours have gone
+        /// out this attempt without a radio-reported list arriving since.</summary>
+        public int OutstandingGlobalAsks { get; internal set; }
 
         /// <summary>The latest global selection, or null.</summary>
         public SelectionObservation GlobalSelection { get; }
@@ -211,6 +244,8 @@ namespace Radios.StationConnect
         private readonly object _lock = new object();
         private readonly IStationClock _clock;
         private InventoryObservation _globalList;
+        private InventoryObservation _unsolicitedGlobalList;
+        private int _outstandingGlobalAsks;
         private SelectionObservation _globalSelection;
         private SelectionObservation _txSelection;
         private SelectionObservation _micSelection;
@@ -239,6 +274,8 @@ namespace Radios.StationConnect
             lock (_lock)
             {
                 _globalList = null;
+                _unsolicitedGlobalList = null;
+                _outstandingGlobalAsks = 0;
                 _globalSelection = null;
                 _txSelection = null;
                 _micSelection = null;
@@ -257,13 +294,59 @@ namespace Radios.StationConnect
             Changed?.Invoke();
         }
 
+        /// <summary>
+        /// This application is about to send <c>profile global info</c>. Call
+        /// it BEFORE the command goes out, so the answer cannot arrive ahead of
+        /// the record; call <see cref="GlobalInventoryAskWithdrawn"/> if the
+        /// send then fails. The next radio-reported global list is taken as
+        /// this ask's answer and is never completion evidence. An ask the
+        /// radio never answers therefore holds the completion policy closed
+        /// for the attempt — the load's own list re-report is consumed as the
+        /// answer — which is the fail-closed direction (#639, Codex B1).
+        /// </summary>
+        public void GlobalInventoryAsked(int attemptGeneration)
+        {
+            lock (_lock)
+            {
+                if (attemptGeneration != _attemptGeneration) return;
+                _sequence++;
+                _outstandingGlobalAsks++;
+            }
+            Changed?.Invoke();
+        }
+
+        /// <summary>The ask recorded by <see cref="GlobalInventoryAsked"/> never
+        /// reached the radio (the send threw or the transport refused it).</summary>
+        public void GlobalInventoryAskWithdrawn(int attemptGeneration)
+        {
+            lock (_lock)
+            {
+                if (attemptGeneration != _attemptGeneration) return;
+                if (_outstandingGlobalAsks > 0) _outstandingGlobalAsks--;
+            }
+            Changed?.Invoke();
+        }
+
         public void GlobalListObserved(IReadOnlyList<string> names, ObservationProvenance provenance, int attemptGeneration)
         {
             lock (_lock)
             {
                 if (attemptGeneration != _attemptGeneration) return;
                 _sequence++;
-                _globalList = new InventoryObservation(names?.ToList(), provenance, _sequence, attemptGeneration, _clock.NowMs);
+                var obs = new InventoryObservation(names?.ToList(), provenance, _sequence, attemptGeneration, _clock.NowMs);
+                _globalList = obs;
+                if (provenance == ObservationProvenance.RadioReported)
+                {
+                    if (_outstandingGlobalAsks > 0)
+                    {
+                        _outstandingGlobalAsks--;
+                        obs.AnswersOurAsk = true;
+                    }
+                    else
+                    {
+                        _unsolicitedGlobalList = obs;
+                    }
+                }
             }
             Changed?.Invoke();
         }
@@ -372,6 +455,8 @@ namespace Radios.StationConnect
                     MicReported = _micReported,
                     TxChainFieldsReported = _txChainFields.ToList(),
                     ConnectFenceAtSequence = _connectFenceAt,
+                    UnsolicitedGlobalList = _unsolicitedGlobalList,
+                    OutstandingGlobalAsks = _outstandingGlobalAsks,
                 };
             }
         }

@@ -295,7 +295,13 @@ namespace Radios.Tests.StationConnect
             Station = new StationTracker(Clock);
             Profiles = new ProfileEvidenceLog(Clock);
             Waiter = new ScriptedWaiter(Clock);
-            Port.DeliverFreshInventory = names => Profiles.GlobalListObserved(names, ObservationProvenance.RadioReported, Gen);
+            // As production does it (#639): the ask is recorded before it goes
+            // out, and the radio's answer is taken as that ask's answer.
+            Port.DeliverFreshInventory = names =>
+            {
+                Profiles.GlobalInventoryAsked(Gen);
+                Profiles.GlobalListObserved(names, ObservationProvenance.RadioReported, Gen);
+            };
             Port.LatestInventory = () => Profiles.Snapshot().GlobalList;
             NewAttempt();
         }
@@ -372,9 +378,21 @@ namespace Radios.Tests.StationConnect
         /// <summary>A discovery packet did not list the client.</summary>
         public void ClientRemovedByDiscovery(uint handle) => Roster.ClientRemoved(handle, Gen, RosterRemovalOrigin.Discovery);
 
-        /// <summary>A radio-reported global inventory.</summary>
+        /// <summary>A radio-reported global inventory. With no ask of ours
+        /// outstanding it is the radio's own (FlexLib's connect-time answer, or
+        /// the post-load re-report); with one outstanding it is that ask's
+        /// answer, as the production log would take it.</summary>
         public void RadioReportsGlobalList(params string[] names) =>
             Profiles.GlobalListObserved(names, ObservationProvenance.RadioReported, Gen);
+
+        /// <summary>
+        /// Our own fresh <c>profile global info</c> went out and has NOT been
+        /// answered: the bounded read in <c>ReadRadioProfileList</c> gave up on
+        /// the cached names, the planner proceeded on them, and the load is
+        /// about to be sent with the ask still outstanding (#639, Codex B1).
+        /// The next <see cref="RadioReportsGlobalList"/> is its late answer.
+        /// </summary>
+        public void OurInventoryAskIsStillOutstanding() => Profiles.GlobalInventoryAsked(Gen);
 
         public void RadioReportsGlobalSelection(string name) =>
             Profiles.GlobalSelectionObserved(name, ObservationProvenance.RadioReported, Gen);

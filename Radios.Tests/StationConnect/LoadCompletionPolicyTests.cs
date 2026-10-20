@@ -76,16 +76,21 @@ namespace Radios.Tests.StationConnect
                 Station.Reset(Gen);
             }
 
-            /// <summary>Everything up to the send: the connect-time list, a fresh ask's answer, then the send.</summary>
+            /// <summary>Everything up to the send: FlexLib's connect-time list
+            /// (not our ask), then our fresh ask and its answer, then the send.</summary>
             public Evidence ArmAtSend()
             {
                 Profiles.GlobalListObserved(new[] { "Default", "K5NER" }, ObservationProvenance.RadioReported, Gen);
+                Profiles.GlobalInventoryAsked(Gen);
                 Profiles.GlobalListObserved(new[] { "Default", "K5NER" }, ObservationProvenance.RadioReported, Gen);
                 ProfileSeqAtSend = Profiles.Sequence;
                 StationSeqAtSend = Station.Sequence;
                 Before = Station.Snapshot();
                 return this;
             }
+
+            /// <summary>Our fresh ask went out and was NOT answered before the send.</summary>
+            public Evidence OurAskOutstanding() { Profiles.GlobalInventoryAsked(Gen); return this; }
 
             public void SliceReady(int index) => Station.OwnSliceAdded(index, ((char)('A' + index)).ToString(), 0x1A2B3C4D, 0x40000001, Gen);
             public void ListReported(ObservationProvenance provenance = ObservationProvenance.RadioReported) =>
@@ -153,17 +158,92 @@ namespace Radios.Tests.StationConnect
         }
 
         [Fact]
-        public void Policy_ASliceThenTheList_IsConfirmed_InEitherOrder()
+        public void Policy_TheSliceThenTheList_IsConfirmed()
         {
             var measured = new Evidence().ArmAtSend();
             measured.SliceReady(0);
             measured.ListReported();
-            Assert.Equal(LoadCompletion.Confirmed, Policy.Judge(measured.Now()));
+            var evidence = measured.Now();
+            Assert.True(evidence.UnsolicitedGlobalListAfterSend);
+            Assert.True(evidence.UnsolicitedGlobalListAfterNewestNewOwnSlice);
+            Assert.Equal(LoadCompletion.Confirmed, Policy.Judge(evidence));
+        }
 
-            var reversed = new Evidence().ArmAtSend();
-            reversed.ListReported();
-            reversed.SliceReady(0);
-            Assert.Equal(LoadCompletion.Confirmed, Policy.Judge(reversed.Now()));
+        [Fact]
+        public void Policy_TheListThenTheSlice_IsUnconfirmed_UntilAListFollowsTheNewestSlice()
+        {
+            // Until repair round one this asserted Confirmed for the reversed
+            // order (Codex B1). A list that precedes a slice was not sent after
+            // the last restored slice, whatever else it was.
+            var e = new Evidence().ArmAtSend();
+            e.ListReported();
+            e.SliceReady(0);
+            Assert.True(e.Now().UnsolicitedGlobalListAfterSend);
+            Assert.False(e.Now().UnsolicitedGlobalListAfterNewestNewOwnSlice);
+            Assert.Equal(LoadCompletion.Unconfirmed, Policy.Judge(e.Now()));
+
+            e.ListReported();
+            Assert.Equal(LoadCompletion.Confirmed, Policy.Judge(e.Now()));
+        }
+
+        [Fact]
+        public void Policy_ALaterSlice_ReopensTheWait_UntilALaterList()
+        {
+            // The three-slice restore where the first list arrived too early:
+            // slice, list, slice is not done; slice, list, slice, list is.
+            var e = new Evidence().ArmAtSend();
+            e.SliceReady(0);
+            e.ListReported();
+            Assert.Equal(LoadCompletion.Confirmed, Policy.Judge(e.Now()));
+            e.SliceReady(1);
+            Assert.Equal(LoadCompletion.Unconfirmed, Policy.Judge(e.Now()));
+            e.SliceReady(2);
+            Assert.Equal(LoadCompletion.Unconfirmed, Policy.Judge(e.Now()));
+            e.ListReported();
+            Assert.Equal(LoadCompletion.Confirmed, Policy.Judge(e.Now()));
+            Assert.Equal(3, e.Now().NewOwnSlicesSinceSend);
+        }
+
+        [Fact]
+        public void Policy_AListThatAnswersOurOutstandingAsk_IsNotTheRadiosReport()
+        {
+            // Codex B1: our bounded inventory read gave up; the load went out
+            // with the ask outstanding; the answer lands after the first slice.
+            var e = new Evidence().ArmAtSend().OurAskOutstanding();
+            e.SliceReady(0);
+            e.ListReported();
+            var evidence = e.Now();
+            Assert.True(evidence.RadioReportedGlobalListAfterSend, "freshness alone reads it as after the send");
+            Assert.False(evidence.UnsolicitedGlobalListAfterSend, "but it answered our ask");
+            Assert.True(evidence.ProfileNow.GlobalList.AnswersOurAsk);
+            Assert.Equal(0, evidence.ProfileNow.OutstandingGlobalAsks);
+            Assert.Equal(LoadCompletion.Unconfirmed, Policy.Judge(evidence));
+
+            // The radio's own re-report, after that, confirms.
+            e.ListReported();
+            Assert.Equal(LoadCompletion.Confirmed, Policy.Judge(e.Now()));
+        }
+
+        [Fact]
+        public void Policy_AnAskThatIsNeverAnswered_ConsumesTheRadiosReport_AndStaysUnconfirmed()
+        {
+            var e = new Evidence().ArmAtSend().OurAskOutstanding();
+            e.SliceReady(0);
+            e.ListReported();                                   // taken as the ask's answer
+            Assert.Equal(LoadCompletion.Unconfirmed, Policy.Judge(e.Now()));
+        }
+
+        [Fact]
+        public void Policy_AWithdrawnAsk_LeavesNothingOutstanding()
+        {
+            // The send threw, or the transport refused it: the ask is withdrawn
+            // and the next list is the radio's own.
+            var e = new Evidence().ArmAtSend();
+            e.Profiles.GlobalInventoryAsked(Evidence.Gen);
+            e.Profiles.GlobalInventoryAskWithdrawn(Evidence.Gen);
+            e.SliceReady(0);
+            e.ListReported();
+            Assert.Equal(LoadCompletion.Confirmed, Policy.Judge(e.Now()));
         }
 
         [Fact]
@@ -196,7 +276,8 @@ namespace Radios.Tests.StationConnect
         public void Policy_TheNameSaysWhatItRequires_AndNotTheBench()
         {
             Assert.Contains("global profile list", Policy.Name);
-            Assert.Contains("own slice", Policy.Name);
+            Assert.Contains("unasked", Policy.Name);
+            Assert.Contains("newest own slice", Policy.Name);
             Assert.DoesNotContain("bench", Policy.Name);
         }
 
@@ -265,20 +346,94 @@ namespace Radios.Tests.StationConnect
         }
 
         [Fact]
-        public void ProductionDefaults_TheListBeforeTheSliceIsReady_StillConfirmsOnceTheSliceIs()
+        public void ProductionDefaults_AListBeforeTheNewestSlice_DoesNotConfirm_TheRadiosOwnListAfterItDoes()
         {
-            // Over a slower transport FlexLib may declare the slice ready (its
-            // panadapter ready, full status in) after the radio's list status
-            // has already been parsed. The list observation stays in the
-            // snapshot, so the next judgement after the slice is ready confirms.
+            // Until repair round one (Codex B1, 2026-10-20) this test asserted
+            // the OPPOSITE — a list, then a slice, confirmed — and so pinned
+            // the permissive order: a list that arrived before the first slice
+            // of a multi-slice restore, plus that first slice, confirmed the
+            // whole load. The measured order is slices THEN the list, 2 to
+            // 5 ms after the last of them, so a list that precedes a slice was
+            // not the end of the load; the wait re-opens and only a list after
+            // the newest slice closes it.
             var h = new StationHarness(StationPolicies.Defaults());
             h.ArrangeOwnerReconnect();
-            h.Waiter.Then(() => h.RadioReportsGlobalList(h.Port.InventoryNames.ToArray()))
-                    .Then(() => h.OwnSliceArrives());
+            int confirmedAfterWait = -1;
+            h.Waiter.Then(() => h.RadioReportsGlobalList(h.Port.InventoryNames.ToArray()))   // a list nobody of ours asked for
+                    .Then(() => h.OwnSliceArrives())                                          // the first restored slice
+                    .Then(() => h.OwnSliceArrives())                                          // the second
+                    .Then(() => { h.RadioReportsGlobalList(h.Port.InventoryNames.ToArray()); confirmedAfterWait = h.Waiter.Waits; });
 
             var r = h.Run();
 
             Assert.Equal(StationOutcome.RestoredConfirmed, r.Outcome);
+            Assert.Equal(2, r.OwnSlicesAtEnd);
+            Assert.Equal(4, confirmedAfterWait);
+            Assert.Equal(4, h.Waiter.Waits);
+            h.AssertExactlyOneLoadAndNothingElse("K5NER");
+        }
+
+        [Fact]
+        public void ProductionDefaults_ALateAnswerToOurOwnOutstandingAsk_IsNotTheRadiosReport_AndTheLoadStaysUnconfirmed()
+        {
+            // Codex B1, 2026-10-20: the coordinator's bounded inventory read
+            // gave up on cached names and the load went out with our
+            // "profile global info" unanswered. The late answer arrives after
+            // the send, after the first restored slice, as a radio-reported
+            // list — exactly the shape of the post-load re-report. It is
+            // inventory, not the load finishing, and must not confirm.
+            var h = new StationHarness(StationPolicies.Defaults());
+            h.ArrangeOwnerReconnect();
+            h.OurInventoryAskIsStillOutstanding();
+            h.Port.OnGlobalLoadSent = _ => h.OwnSliceArrives();
+            h.Waiter.Then(() => h.RadioReportsGlobalList(h.Port.InventoryNames.ToArray()));  // the late answer
+
+            var r = h.Run();
+
+            Assert.Equal(StationOutcome.Unconfirmed, r.Outcome);
+            Assert.True(r.LoadOutstanding);
+            Assert.False(r.StationEstablished);
+            Assert.Equal(1, r.OwnSlicesAtEnd);
+            h.AssertExactlyOneLoadAndNothingElse("K5NER");
+        }
+
+        [Fact]
+        public void ProductionDefaults_AfterTheLateAnswerIsConsumed_TheRadiosOwnListStillConfirms()
+        {
+            // The positive control for the ask accounting: the late answer is
+            // consumed as the answer, and the radio's own re-report after the
+            // last slice — the measured evidence — confirms as before.
+            var h = new StationHarness(StationPolicies.Defaults());
+            h.ArrangeOwnerReconnect();
+            h.OurInventoryAskIsStillOutstanding();
+            h.Waiter.Then(() => h.RadioReportsGlobalList(h.Port.InventoryNames.ToArray()))   // the late answer, consumed
+                    .Then(() => h.RadioCompletesTheLoadAsMeasured(slices: 3));
+
+            var r = h.Run();
+
+            Assert.Equal(StationOutcome.RestoredConfirmed, r.Outcome);
+            Assert.Equal(3, r.OwnSlicesAtEnd);
+            Assert.Equal(2, h.Waiter.Waits);
+            h.AssertExactlyOneLoadAndNothingElse("K5NER");
+        }
+
+        [Fact]
+        public void ProductionDefaults_AnAskTheRadioNeverAnswers_HoldsTheLoadUnconfirmed_FailClosed()
+        {
+            // Our ask is outstanding and the radio never answers it; the load's
+            // own re-report is then taken as the answer and nothing confirms.
+            // Honest, and the safe direction: the alternative is guessing which
+            // list was which.
+            var h = new StationHarness(StationPolicies.Defaults());
+            h.ArrangeOwnerReconnect();
+            h.OurInventoryAskIsStillOutstanding();
+            h.Port.OnGlobalLoadSent = _ => h.RadioCompletesTheLoadAsMeasured(slices: 1);
+
+            var r = h.Run();
+
+            Assert.Equal(StationOutcome.Unconfirmed, r.Outcome);
+            Assert.True(r.LoadOutstanding);
+            Assert.Equal(1, r.OwnSlicesAtEnd);
             h.AssertExactlyOneLoadAndNothingElse("K5NER");
         }
 
