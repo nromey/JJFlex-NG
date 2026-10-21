@@ -1,3 +1,3 @@
-<!-- Fragment for docs/CHANGELOG.md, Unreleased section. Junkbox #520. DRAFT PROSE (#520): awaiting Noel. -->
+<!-- Fragment for docs/CHANGELOG.md, Unreleased section. Junkbox #520. Wording by Noel, 2026-10-21. -->
 
 - **The Flex Control knob no longer acts on turns it saved up while nobody was listening** — when the knob gets bumped or twirled while JJ Flexible isn't connected to it, the knob saves those turns and hands them all over the moment it connects, and the radio used to jump by however many steps had piled up. Now JJ Flexible lets the knob get all of that off its chest first: it ignores the knob's turns and presses until the knob has gone quiet for half a second, and then it's ready to tune. If you happen to be turning the knob as it connects, nothing happens until you pause for a moment. Every turn and press after that arrives.
