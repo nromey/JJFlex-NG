@@ -272,6 +272,7 @@
   "settings.guard.action.mic_profile_create": { "text": "create a microphone profile on it", "delivery": null },
   "settings.guard.action.mic_profile_delete": { "text": "delete a microphone profile from it", "delivery": null },
   "settings.guard.action.autosave": "change its profile autosave setting",
+  "settings.guard.action.mic_input_pc": { "text": "switch its mic input to PC", "delivery": null },
   "settings.guard.action.registration": "change its SmartLink registration",
   "settings.guard.action.rem_on": "change its remote power setting",
   "settings.guard.action.rename": "change its name",

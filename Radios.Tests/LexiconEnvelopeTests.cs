@@ -1140,25 +1140,23 @@ namespace Radios.Tests
                 // a radio not declared Mine (Unset or SomeoneElses). There it
                 // no longer puts the mic input back to PC, so the legacy
                 // audio.mic.diverged ("Setting it back to PC.") would be
-                // false; this says the transmit audio is going nowhere and
-                // why, and names the remedy the way #777's refusals do.
-                // Classified rather than frozen (#720). It is a MESSAGE, not
-                // TextOnly: unlike the #726 and #777 blocks above, nobody asked
-                // for it - the application says it on its own account when a
+                // false; this says the radio will not hear the operator and
+                // points at the Radio menu's Switch Mic Input Back to PC, in
+                // Noel's own phrase (07:58). Classified rather than frozen
+                // (#720). It is a MESSAGE, not TextOnly: nobody asked for it -
+                // the application says it on its own account when a
                 // divergence starts. Forgettable because that is what its
                 // producer actually does: one presentation per divergence
-                // episode, no retry, no retained debt; the producer re-reads
-                // the radio every second and a new episode is a new sentence.
-                // Receipt warning because it reports a transmit that will
-                // carry nothing. request-scoped is the one built-in contract
-                // and is an APPROXIMATION here: the premise (the mic input is
-                // still off PC) can stop being true, and no domain owner has
-                // registered a contract that evaluates it. By #617's own test
-                // ("if it did not land, is saying it later still true?") the
-                // honest shelf life is persistent, which needs that contract
-                // and a past-tense historyKey in Noel's words - a question for
-                // Noel, not a default. Its sibling audio.mic.diverged is legacy
-                // and still frozen; DECIDE BOTH TOGETHER. DRAFT awaiting Noel.
+                // episode, no retry, no retained debt. Receipt warning because
+                // it reports a transmit that will carry nothing.
+                // request-scoped is the one built-in contract and is an
+                // APPROXIMATION here: the premise can stop being true, and no
+                // domain owner has registered a contract that evaluates it. By
+                // #617's own test the honest shelf life is persistent, which
+                // needs that contract and a past-tense historyKey in Noel's
+                // words - a question for Noel, not a default. Its sibling
+                // audio.mic.diverged is legacy and still frozen; DECIDE BOTH
+                // TOGETHER. DRAFT awaiting Noel.
                 "audio.mic.diverged_not_ours",
                 // Same track, repair round one: the start-time sibling. On a
                 // radio not declared Mine, from its local network with no
@@ -1170,7 +1168,6 @@ namespace Radios.Tests
                 // reasoning of the line above, with the same persistent-versus-
                 // forgettable question for Noel. DECIDE ALL THREE TOGETHER.
                 // DRAFT awaiting Noel.
-                "audio.mic.not_switched_not_ours",
 
                 // Junkbox #312, repair rounds one and two, 2026-10-20: what a
                 // 60 m arrival says about the mode it asked for, replacing
@@ -1305,6 +1302,38 @@ namespace Radios.Tests
                 "settings.profile.report_saved_loaded",
                 "settings.restore_export.saved_loaded",
                 "settings.restore_export.saved_nothing_moved",
+
+                // Same track, follow-up (Noel 07:55, 08:09): the answers to the
+                // Radio menu's Switch Mic Input Back to PC, and the action
+                // fragment the change-nothing refusal takes as {action}.
+                // TextOnly on the #726 and #777 reasoning: each is spoken ONLY
+                // in answer to the operator's own press, never on the
+                // application's account, and an answer that says whether the
+                // radio did what was asked must not be shortened by the
+                // verbosity machinery. The repair round's start-time sentence
+                // audio.mic.not_switched_not_ours was RETIRED the same morning,
+                // when Noel ruled (08:10) that the start always switches to PC;
+                // it never reached main. DRAFTS awaiting Noel.
+                // The confirmed and not-confirmed answers (switch_back_done,
+                // switch_back_not_confirmed) were RETIRED the same day, when
+                // Noel ruled (09:41) the item should do what a manual change
+                // does: queue the write and claim nothing ("switching").
+                "audio.mic.switch_back_switching",
+                "audio.mic.switch_back_no_pc_audio",
+                "audio.mic.switch_back_already_pc",
+                // Same reasoning, same day: the answer when the press was made in
+                // a computer-audio session that ended before it could act, so a
+                // later session's saved value is never touched by it. DRAFT.
+                "audio.mic.switch_back_session_changed",
+                "settings.guard.action.mic_input_pc",
+                // Same track, round five (Noel 12:28: "do it the way we do the
+                // full duplex check ... verify later then automatically speak
+                // it"): the one late answer to the same press, spoken once
+                // when the radio refuses the switch. TextOnly for the same
+                // reason as its siblings: it exists only because the operator
+                // pressed Switch Mic Input Back to PC, and it says whether the
+                // radio did what was asked. DRAFT awaiting Noel.
+                "audio.mic.switch_back_refused",
             };
 
             Assert.Equal(3151, unclassified);
