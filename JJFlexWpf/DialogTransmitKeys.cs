@@ -10,11 +10,11 @@ using Keys = System.Windows.Forms.Keys;
 namespace JJFlexWpf;
 
 /// <summary>
-/// The THIRD door into the push-to-talk pipeline (#778c): Ctrl+Space and
-/// Shift+Space pressed in any WPF window that is not Home. Ruled by Noel,
-/// 2026-10-21 06:30: <i>"To me, they should send to PTT, ctrl+space and
-/// shift+space should never be used to activate a button in a dialog."</i>
-/// Every dialog, a layer open or not.
+/// The THIRD door into the push-to-talk pipeline (#778c): Ctrl+Space,
+/// Shift+Space and Escape-while-transmitting pressed in any WPF window that
+/// is not Home. Ruled by Noel, 2026-10-21 06:30: <i>"To me, they should send
+/// to PTT, ctrl+space and shift+space should never be used to activate a
+/// button in a dialog."</i> Every dialog, a layer open or not.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -25,52 +25,82 @@ namespace JJFlexWpf;
 /// dialog pressed whatever had focus, and a layer open in a dialog refused
 /// them out loud instead. The class-level preview handler
 /// (<c>KeyCommands.AnyWindowPreviewKeyDown</c>) runs ahead of every control
-/// and asks here first.
+/// and asks here first. <c>MessageBox.Show</c> is NOT a WPF window (its
+/// <c>ShowCore</c> calls the native API), so a native message box is outside
+/// this door; the help says so.
 /// </para>
 /// <para>
 /// <b>One pipeline, three doors.</b> This class decides and then calls
-/// MainWindow's <c>HandleDialogPttEdge</c> and <c>HandleDialogLockToggle</c>
-/// through the two delegates below, exactly as <see cref="SystemWideKeys"/>
-/// reaches <c>HandleSystemWidePttEdge</c>. Both land in <c>PttKeyDownEdge</c>
-/// and <c>PttKeyUpEdge</c>, so the repeat guard, the JAWS absorber (#216) and
-/// the safety controller are shared, not copied. Nothing here touches the
-/// controller, the rig or RF.
+/// MainWindow through the delegates below, exactly as <see cref="SystemWideKeys"/>
+/// reaches <c>HandleSystemWidePttEdge</c>. Push to talk lands in
+/// <c>PttKeyDownEdge</c> and <c>PttKeyUpEdge</c>; the lock in
+/// <c>LockKeyDownEdge</c> and <c>LockKeyUpEdge</c>; Escape in the controller's
+/// <c>EscapeUnlock</c>, as Home's step 3 does. So the repeat guard, the JAWS
+/// absorbers (#216) and the safety controller are shared, not copied. Nothing
+/// here touches the controller, the rig or RF.
 /// </para>
 /// <para>
-/// <b>The release must always be seen.</b> A dialog that keys and misses the
-/// release leaves the radio transmitting, so every way a hold can end is a
-/// release here: the Space key-up arriving in the window, whatever the
-/// modifiers are doing by then (Ctrl is often let go first); the keyed window
-/// losing activation to another window; the keyed window closing. The last
-/// two come through <see cref="IHoldWindow"/>, which is the window reduced to
-/// those two events so a test can stand in for it without constructing one.
+/// <b>Escape unkeys first (repair round one, B1; ruled by Noel 2026-10-21
+/// 07:37).</b> While the controller is transmitting, Escape in a dialog
+/// unkeys and is consumed; the dialog stays open and a second Escape closes
+/// it, matching Home's step 3. An Audio Check session keeps its own two-stage
+/// Escape: while one is active this door declines Escape and
+/// <c>AudioWorkshopDialog.OnPreviewKeyDown</c> takes it.
+/// </para>
+/// <para>
+/// <b>An Audio Check owns the transmitter (B3; ruled by Noel 2026-10-21
+/// 07:38).</b> While a session is active, in ANY phase including the
+/// post-unkey wait, Ctrl+Space and Shift+Space are refused here with the
+/// ordinary refusal: the low tone, and the layer's very short sentence at
+/// Chatty, or at every level when the tone cannot sound. Keying under a
+/// session bypassed its power setup and could leave a lock the session's own
+/// stop no longer answered.
+/// </para>
+/// <para>
+/// <b>The release must always be seen, and at once (F2).</b> Every way a hold
+/// can end is a release here: the Space key-up arriving in the window,
+/// whatever the modifiers are doing by then; the keyed window losing
+/// activation; the keyed window closing. A key-up goes through the ordinary
+/// edge, which may defer it while a screen reader's synthetic pairs are being
+/// absorbed. Window loss is not a key-up: it goes through
+/// <see cref="ReleaseNow"/>, which drops the deferral and unkeys immediately,
+/// and the window stays subscribed until the controller has actually left the
+/// hold, not merely until the first key-up.
+/// </para>
+/// <para>
+/// <b>A held Shift+Space toggles once (B2).</b> Under NVDA the repeats carry
+/// <c>IsRepeat</c> and are consumed without a toggle. Under JAWS a held key
+/// arrives as synthesised down/up pairs, which the lock edge absorbs with its
+/// own <c>PttHoldFilter</c>, the same machinery push to talk uses.
 /// </para>
 /// <para>
 /// <b>Text boxes, ruled by Noel 2026-10-21 06:42.</b> In a focused editable
 /// text control Shift+Space keeps typing a space (WPF binds
 /// <c>EditingCommands.ShiftSpace</c> there, and a fast typist still has Shift
 /// down from a capital), so the lock does NOT take it there. Ctrl+Space types
-/// nothing in a TextBox or PasswordBox, so it still keys. The one WPF control
-/// that binds Ctrl+Space itself is RichTextBox (<c>EditingCommands.ResetFormat</c>,
-/// registered only where the editor accepts rich content), and this tree has
-/// none; see the #778c report for the search.
+/// nothing in a TextBox or PasswordBox, so it still keys. With a value layer
+/// open over the text box the layer wins and refuses Shift+Space like any key
+/// it does not take (Noel, 06:34: "if the layer's open, the layer is open").
+/// The one WPF control that binds Ctrl+Space itself is RichTextBox
+/// (<c>EditingCommands.ResetFormat</c>), and this tree has none.
 /// </para>
 /// <para>
-/// <b>No double keying.</b> With the system-wide chord (#307) enabled the
-/// low-level hook swallows every push-to-talk edge before any window sees it
-/// (<c>SystemWideKeyDecider</c> returns <c>Swallow</c> true for PttDown and
-/// PttUp), so a Ctrl+Space in our own dialog reaches the hook door only and
-/// this one never fires. With it disabled, only this door fires. If both ever
-/// did, <c>PttKeyDownEdge</c>'s <c>_pttKeyDown</c> guard makes the second
-/// down a no-op.
+/// <b>The system-wide chord does not take Ctrl+Space away from a dialog.</b>
+/// Its defaults are Ctrl+Alt+Space for push to talk and Alt+Shift+Space for
+/// the lock, and a valid global chord needs two modifiers, so with the hook
+/// on at its defaults plain Ctrl+Space still reaches this door and keys once;
+/// the hook swallows only the chords it is configured for. A press can only
+/// reach both doors if an operator configures the hook onto plain Ctrl+Space,
+/// and then <c>PttKeyDownEdge</c>'s <c>_pttKeyDown</c> guard and the
+/// controller's own idempotence make the second down a no-op.
 /// </para>
 /// </remarks>
 internal static class DialogTransmitKeys
 {
-    /// <summary>What a Space chord pressed in a dialog is.</summary>
+    /// <summary>What a key pressed in a dialog is to this door.</summary>
     internal enum Verdict
     {
-        /// <summary>Not Ctrl+Space or Shift+Space, or a modifier set this door does not own. The control gets it.</summary>
+        /// <summary>Not a transmit key, or a modifier set this door does not own. The control gets it.</summary>
         NotOurs,
 
         /// <summary>Ctrl+Space, first down: key the transmitter.</summary>
@@ -79,11 +109,17 @@ internal static class DialogTransmitKeys
         /// <summary>Ctrl+Space, a held repeat: nothing to key, but the control must not see it either.</summary>
         PushToTalkRepeat,
 
-        /// <summary>Shift+Space on a non-text control: toggle the transmit lock.</summary>
+        /// <summary>Shift+Space on a non-text control, first down: toggle the transmit lock.</summary>
         LockToggle,
+
+        /// <summary>Shift+Space, a held repeat: toggled already; consumed so it toggles once.</summary>
+        LockRepeat,
 
         /// <summary>Shift+Space in an editable text control: it types a space, as it always has.</summary>
         TypesASpace,
+
+        /// <summary>Escape: unkeys if the controller is transmitting, otherwise not ours.</summary>
+        Escape,
     }
 
     /// <summary>
@@ -102,21 +138,36 @@ internal static class DialogTransmitKeys
     /// <summary>A push-to-talk edge, true for down and false for up, into MainWindow's pipeline.</summary>
     internal static Action<bool>? PttEdge { get; set; }
 
-    /// <summary>The transmit lock toggle, as Shift+Space does it on Home.</summary>
+    /// <summary>The transmit lock's down edge, as Shift+Space does it on Home: repeats and pairs absorbed there.</summary>
     internal static Action? ToggleLock { get; set; }
 
     /// <summary>Whether the controller is in a push-to-talk hold right now, read BEFORE a release runs.</summary>
     internal static Func<bool>? HoldInFlight { get; set; }
+
+    /// <summary>Escape while transmitting: unkey through the controller, as Home's step 3 does. True when it unkeyed.</summary>
+    internal static Func<bool>? EscapeUnkey { get; set; }
+
+    /// <summary>The keyed window is gone or lost focus: unkey NOW, dropping any deferred release.</summary>
+    internal static Action? ReleaseNow { get; set; }
+
+    /// <summary>An Audio Check session is active, in any phase, and owns the transmitter.</summary>
+    internal static Func<bool>? SessionOwnsTransmitter { get; set; }
 
     // ── the decision ─────────────────────────────────────────────────────
 
     /// <summary>The pure decision: which chord, first down or repeat, and whether a text control has focus.</summary>
     internal static Verdict Decide(Keys chord, bool isRepeat, bool editableTextFocused)
     {
-        if ((chord & Keys.KeyCode) != Keys.Space) return Verdict.NotOurs;
+        Keys code = chord & Keys.KeyCode;
         Keys mods = chord & Keys.Modifiers;
+        if (code == Keys.Escape) return Verdict.Escape;
+        if (code != Keys.Space) return Verdict.NotOurs;
         if (mods == Keys.Control) return isRepeat ? Verdict.PushToTalkRepeat : Verdict.PushToTalkDown;
-        if (mods == Keys.Shift) return editableTextFocused ? Verdict.TypesASpace : Verdict.LockToggle;
+        if (mods == Keys.Shift)
+        {
+            if (editableTextFocused) return Verdict.TypesASpace;
+            return isRepeat ? Verdict.LockRepeat : Verdict.LockToggle;
+        }
         return Verdict.NotOurs;
     }
 
@@ -163,7 +214,31 @@ internal static class DialogTransmitKeys
     /// </summary>
     internal static bool KeyDown(IHoldWindow window, Keys chord, bool isRepeat, bool editableTextFocused)
     {
-        switch (Decide(chord, isRepeat, editableTextFocused))
+        var verdict = Decide(chord, isRepeat, editableTextFocused);
+        if (verdict == Verdict.NotOurs || verdict == Verdict.TypesASpace) return false;
+
+        if (verdict == Verdict.Escape)
+        {
+            // An active Audio Check keeps its own two-stage Escape; the
+            // workshop's handler runs after this one and must see the key.
+            if (SessionOwnsTransmitter?.Invoke() == true) return false;
+            if (EscapeUnkey?.Invoke() != true) return false;
+            EndHold();
+            return true;
+        }
+
+        if (SessionOwnsTransmitter?.Invoke() == true)
+        {
+            // Refused, not ignored: consumed so no button is pressed, and the
+            // operator hears why nothing keyed. Repeats stay quiet.
+            if (verdict == Verdict.PushToTalkDown || verdict == Verdict.LockToggle)
+                RefuseTransmitKey(verdict == Verdict.PushToTalkDown
+                    ? "audio.value_layer.ptt_not_here"
+                    : "audio.value_layer.lock_not_here");
+            return true;
+        }
+
+        switch (verdict)
         {
             case Verdict.PushToTalkDown:
                 BeginHold(window);
@@ -171,10 +246,9 @@ internal static class DialogTransmitKeys
                 return true;
 
             case Verdict.PushToTalkRepeat:
-                // The repeat guard lives in PttKeyDownEdge's caller on Home
-                // (e.IsRepeat) and in the hook's decider; here too, so the
-                // edge sees one down per press. Consumed so the held key does
-                // not start pressing the focused button either.
+            case Verdict.LockRepeat:
+                // The edge sees one down per press; the held key does not
+                // start pressing the focused button either.
                 return true;
 
             case Verdict.LockToggle:
@@ -188,32 +262,48 @@ internal static class DialogTransmitKeys
 
     /// <summary>
     /// A key came up in any window. Space, whatever the modifiers now say, is
-    /// a release: through the same edge Home's PreviewKeyUp uses, which unkeys
-    /// a hold and otherwise only clears the repeat guard. Returns whether a
-    /// hold was in flight, read BEFORE the edge ran, so the very key-up that
-    /// unkeyed is marked handled and does not fall through to the control.
+    /// a release through the same edge Home's PreviewKeyUp uses, which unkeys
+    /// a hold (or defers it while synthetic pairs are being absorbed) and
+    /// otherwise only clears the repeat guard. Returns whether a hold was in
+    /// flight, read BEFORE the edge ran, so the very key-up that unkeyed is
+    /// marked handled and does not fall through to the control. The window
+    /// stays subscribed while a deferred release is still pending.
     /// </summary>
     internal static bool KeyUp(Keys code)
     {
         if ((code & Keys.KeyCode) != Keys.Space) return false;
         bool wasHold = HoldInFlight?.Invoke() == true;
-        EndHold();
         PttEdge?.Invoke(false);
+        if (HoldInFlight?.Invoke() != true) EndHold();
         return wasHold;
     }
 
     /// <summary>
     /// The keyed window lost the keyboard without a key-up we could see:
-    /// focus moved to another window, or the window closed. Unkey through the
-    /// same edge. Idempotent; nothing to do when no hold is tracked here.
+    /// focus moved to another window, or the window closed. Window loss is
+    /// not a key-up, so it does not go through the deferring edge; it unkeys
+    /// at once. Idempotent; nothing to do when no hold is tracked here.
     /// </summary>
     internal static void HoldWindowLost(string why)
     {
         if (_holdWindow == null) return;
-        Tracing.TraceLine("PTT: the dialog that keyed push to talk " + why
-            + " before the key came up; releasing through the pipeline", TraceLevel.Warning);
         EndHold();
-        PttEdge?.Invoke(false);
+        if (HoldInFlight?.Invoke() != true) return;
+        Tracing.TraceLine("PTT: the dialog that keyed push to talk " + why
+            + " before the key came up; releasing now, ahead of any deferred release", TraceLevel.Warning);
+        if (ReleaseNow != null) ReleaseNow();
+        else PttEdge?.Invoke(false);
+    }
+
+    private static void RefuseTransmitKey(string lexiconKey)
+    {
+        bool toneWillSound = EarconPlayer.IsOn(EarconPlayer.EarconCategory.CommandsAndConfirmations);
+        EarconPlayer.LeaderInvalidTone();
+        if (Radios.Speech.RefusalVoice.ToneStandsAlone(Radios.ScreenReaderOutput.CurrentVerbosity, toneWillSound)) return;
+        Radios.ScreenReaderOutput.SpeakYieldingToSafety(
+            Radios.Lexicon.Get(lexiconKey),
+            Radios.VerbosityLevel.Critical,
+            subject: Radios.Speech.SpeechSubject.TransmitKeyRefused);
     }
 
     private static void BeginHold(IHoldWindow window)
@@ -249,7 +339,8 @@ internal static class DialogTransmitKeys
     {
         if (sender is not Window window) return false;
         var chord = WpfKeyConverter.ToWinFormsKeys(e);
-        if ((chord & Keys.KeyCode) != Keys.Space) return false;
+        Keys code = chord & Keys.KeyCode;
+        if (code != Keys.Space && code != Keys.Escape) return false;
         var focused = (e.OriginalSource as DependencyObject)
                       ?? System.Windows.Input.Keyboard.FocusedElement as DependencyObject;
         return KeyDown(WindowHold.For(window), chord, e.IsRepeat, IsEditableText(focused));

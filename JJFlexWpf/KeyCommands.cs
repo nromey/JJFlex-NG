@@ -3043,11 +3043,13 @@ public class KeyCommands
                     // anything. In a WPF dialog, DialogTransmitKeys keys the
                     // radio on Ctrl+Space and Shift+Space in the Window class
                     // handler before DoCommand is ever reached (#778c), so a
-                    // dialog's layer sees neither chord. What is left: the
+                    // dialog's layer sees neither chord, except Shift+Space
+                    // over an editable text box, which the door leaves to the
+                    // text box and the layer then refuses. What is left: the
                     // WinForms log form for all of them; Home with focus
-                    // outside the fields or the radio off; and the brackets in
-                    // a dialog or Logging mode, which stay refused until the
-                    // filter layer binds them (ASK-778c-filter-layer-brackets).
+                    // outside the fields or the radio off; and the bare, Shift
+                    // and Ctrl brackets in a dialog or Logging mode. The
+                    // bracket ruling of 06:37 is the next wave's own track.
                     break;
 
                 case Radios.ValueLayerKeyResult.ClosedPassThrough:
@@ -3331,6 +3333,17 @@ public class KeyCommands
         if (kc == null || e.Handled) return;
         if (DialogTransmitKeys.OnPreviewKeyDown(sender, e))
         {
+            // Escape that unkeyed (repair round one, B1) also drops an armed
+            // mode, exactly as the Escape-while-transmitting block below does
+            // when nothing unkeys: a forced drop KEEPS the value, never
+            // restores, because mid-transmit is no time to write.
+            var took = e.Key == System.Windows.Input.Key.System ? e.SystemKey : e.Key;
+            if (took == System.Windows.Input.Key.Escape)
+            {
+                kc._leaderKeyActive = false;
+                kc._leaderHelpArmed = false;
+                if (kc._valueLayer != null) { kc._valueLayer.Drop(); kc._valueLayer = null; }
+            }
             e.Handled = true;
             return;
         }
@@ -5624,10 +5637,10 @@ public class KeyCommands
     /// picked, so this owns the words and nothing else.
     /// </summary>
     private static string LayerFineStep()
-        // DRAFT PROSE (#778): awaiting Noel. His 14:33 ruling asked for "a
-        // fine-step sentence"; this is the brief's draft wording, appended to
-        // the typed-number sentence because that is the sentence that is
-        // already telling the operator to use the arrows.
+        // Approved by Noel 2026-10-21 06:34. His 14:33 ruling asked for "a
+        // fine-step sentence"; it is appended to the typed-number sentence
+        // because that is the sentence already telling the operator to use
+        // the arrows.
         => Radios.Lexicon.Get("audio.value_layer.fine_step");
 
     /// <summary>
@@ -5684,22 +5697,28 @@ public class KeyCommands
     /// Shift+Space are taken by <see cref="DialogTransmitKeys"/> in the Window
     /// class handler, ahead of the layer, and KEY THE RADIO through the same
     /// edges Home uses; a layer in a dialog is never asked about them any
-    /// more. When a layer IS asked about one, it is because nothing would act
-    /// on it: the WinForms log form, which has no Window class handler and no
-    /// transmit branch; Home with focus outside the Home fields or the radio
-    /// powered off; Logging mode or a dialog for the brackets. Letting it go
-    /// there would only hand a transmit chord to the focused control (Codex,
-    /// #778b, B1 and B2), so it is refused out loud instead.
+    /// more, except with an editable text box focused, where Shift+Space is
+    /// the text box's (Noel 06:42) and a live layer then refuses it like any
+    /// key it does not take (Noel 06:34: "if the layer's open, the layer is
+    /// open"). When a layer IS asked about a Space chord, it is because
+    /// nothing would act on it: the WinForms log form, which has no Window
+    /// class handler and no transmit branch, or Home with focus outside the
+    /// Home fields or the radio powered off. Letting it go there would only
+    /// hand a transmit chord to the focused control (Codex, #778b, B1 and
+    /// B2), so it is refused out loud instead.
     /// </para>
     /// <para>
-    /// BRACKETS ARE STILL IN THIS SET, AND THAT IS BEHIND NOEL'S RULING, NOT
-    /// HIS RULING. On 2026-10-21 06:37 he ruled that inside a layer every
-    /// bracket chord belongs to the layer, and only a layer that can adjust
-    /// filters (JJ key F) moves them. The filter layer has no bracket binding
-    /// of its own yet (<c>EnterFilterLayer</c>, <c>FilterTargetsFor</c>), so
-    /// taking brackets out here today would make the filter layer refuse them
-    /// too. The build waits on the filter layer's bindings:
-    /// <c>for-claude/ASK-778c-filter-layer-brackets.md</c>.
+    /// Brackets, per route, as built: on Home with the radio on and not in
+    /// Logging mode, the bare, Shift and Ctrl forms move the filter at step 2
+    /// before any layer is asked; Ctrl+Shift+bracket runs its registry row
+    /// wherever this instance's table has one (the main table, in any window;
+    /// not the log form's copy); the Alt forms pass every layer as Alt chords
+    /// and run their rows; and the bare, Shift and Ctrl forms in a dialog, the
+    /// log form, Logging mode or with the radio off are refused with the layer's
+    /// bracket sentence. Noel ruled on 2026-10-21 06:37 that inside a layer
+    /// brackets belong to the layer; that is the next junkbox wave's own
+    /// track, which first gives the filter layer bracket keys of its own.
+    /// This merge changes nothing about brackets.
     /// </para>
     /// <para>
     /// Round two asked the ROUTE (fromDialog) instead. That was true for WPF
@@ -5734,13 +5753,19 @@ public class KeyCommands
     /// </summary>
     /// <remarks>
     /// Since #778c the push-to-talk and lock sentences are no longer reached
-    /// from a WPF dialog: <see cref="DialogTransmitKeys"/> keys the radio
-    /// there before the layer is asked. They are still reached from the
-    /// WinForms log form (no Window class handler, no transmit branch) and
-    /// from Home when its own gate has passed on the chord (focus outside the
-    /// Home fields, or the radio powered off). The bracket sentence is still
-    /// reached wherever step 2 does not run: a dialog, the log form, Logging
-    /// mode, the radio off.
+    /// from a WPF dialog through the LAYER: <see cref="DialogTransmitKeys"/>
+    /// keys the radio there before the layer is asked. The same two sentences
+    /// ARE spoken by the door itself while an Audio Check session owns the
+    /// transmitter (repair round one, B3; Noel 07:38), and a live layer over
+    /// an editable text box still refuses Shift+Space, which the door left to
+    /// the text box. From the layer they are still reached in the WinForms
+    /// log form (no Window class handler, no transmit branch) and on Home when
+    /// its own gate has passed on the chord (focus outside the Home fields, or
+    /// the radio powered off). The bracket sentence is reached for the bare,
+    /// Shift and Ctrl forms wherever step 2 does not run: a dialog, the log
+    /// form, Logging mode, the radio off. Ctrl+Shift+bracket is refused only
+    /// where the table has no row for it (the log form); the Alt forms never
+    /// reach it.
     /// </remarks>
     private string? LayerKeyUnavailableHere(Keys k)
     {
@@ -5783,14 +5808,12 @@ public class KeyCommands
     /// 06:37 he ruled the question directly, and the other way: "When you're
     /// in a layer, brackets shouldn't adjust filters unless you're in a layer
     /// that could adjust the filters ... a random layer shouldn't do
-    /// filters." So inside a layer every bracket chord belongs to the layer,
-    /// and only the filter layer moves filters with them. The brackets stay
-    /// in this set for now ONLY because the filter layer has no bracket
-    /// binding of its own yet, and removing them first would take a working
-    /// key from the one layer meant to keep it. The build is in
-    /// <c>for-claude/ASK-778c-filter-layer-brackets.md</c>; when it lands, the
-    /// bracket lines below go, and <c>MainWindow_PreviewKeyDown</c> asks the
-    /// layer before its step 2 while a layer is live.
+    /// filters." That ruling is built by the next junkbox wave's own bracket
+    /// track (ruled 07:40), which first gives the filter layer bracket keys of
+    /// its own, because today it has none (<c>EnterFilterLayer</c>,
+    /// <c>FilterTargetsFor</c>) and removing the brackets from this set first
+    /// would take a working key from the one layer meant to keep it. #778c
+    /// changed nothing about brackets; this remark records only what is.
     /// </para>
     /// <para>
     /// Escape while transmitting is not here because it never reaches the

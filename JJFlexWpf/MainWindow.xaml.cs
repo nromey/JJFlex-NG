@@ -311,6 +311,9 @@ public partial class MainWindow : UserControl
         DialogTransmitKeys.ToggleLock = HandleDialogLockToggle;
         DialogTransmitKeys.HoldInFlight =
             () => _pttController != null && _pttController.State == PttSafetyController.PttState.PttHold;
+        DialogTransmitKeys.EscapeUnkey = HandleDialogEscapeUnkey;
+        DialogTransmitKeys.ReleaseNow = HandleDialogHoldLost;
+        DialogTransmitKeys.SessionOwnsTransmitter = () => Dialogs.AudioWorkshopDialog.AnAudioCheckIsActive;
         try
         {
             var systemWide = Radios.SystemWideKeysConfig.Load(Radios.RadioConfig.AppDataRoot);
@@ -2663,8 +2666,8 @@ public partial class MainWindow : UserControl
         // any other key and the layer refuses it with its ordinary answer,
         // as a layer in a dialog already did; Home's focus does not move
         // behind an open layer. Ctrl+Tab and Ctrl+Shift+Tab (pane
-        // navigation) are read as covered by "tab gets refused" and take the
-        // same route. With no layer live nothing here changed.
+        // navigation) take the same route (ruled by Noel 2026-10-21 07:41:
+        // "yep that's right"). With no layer live nothing here changed.
         if (rawKey == Key.Tab && !KeyCommands.AValueLayerIsLive)
             return;
 
@@ -2770,7 +2773,11 @@ public partial class MainWindow : UserControl
         {
             if (rawKey == Key.Space && Keyboard.Modifiers == ModifierKeys.Shift)
             {
-                _pttController.ToggleLock();
+                // #778c repair round one, B2 (PRE-EXISTING here): a held
+                // Shift+Space toggles ONCE. Windows' repeats carry IsRepeat;
+                // a screen reader's synthesised pairs are absorbed by the
+                // lock edge's own filter. Same rule as the dialog door.
+                if (!e.IsRepeat) LockKeyDownEdge();
                 e.Handled = true;
                 return;
             }
@@ -2824,8 +2831,72 @@ public partial class MainWindow : UserControl
             bool wasHold = _pttController != null
                            && _pttController.State == PttSafetyController.PttState.PttHold;
             PttKeyUpEdge();
+            LockKeyUpEdge();
             if (wasHold) e.Handled = true;
         }
+    }
+
+    // ── The transmit lock's edges (#778c repair round one, B2) ──
+    //
+    // Shift+Space is a TOGGLE, so a held key is the hazard push to talk never
+    // had: every extra down flips the transmitter the other way. Windows'
+    // repeats are dropped by the callers (IsRepeat); a screen reader's
+    // synthesised down/up pairs are absorbed here with the same filter push
+    // to talk uses, a second instance so the two keys cannot confuse each
+    // other's timing. Both doors (Home's step 3 and the dialog door) call
+    // these, so the rule is one rule.
+
+    /// <summary>
+    /// The clock the lock edges read, in milliseconds. Replaceable so a test
+    /// can lay down a screen reader's pair cadence deterministically.
+    /// </summary>
+    internal Func<long> PttClock = () => Environment.TickCount64;
+
+    private readonly Radios.PttHoldFilter _lockHoldFilter = BuildLockHoldFilter();
+    private long _lockLastUpMs = long.MinValue;
+
+    /// <summary>
+    /// The lock's own absorber. No physical-key probe: a toggle has nothing to
+    /// keep held, so the deferral is only a question of time, answered lazily
+    /// at the next down rather than by a timer.
+    /// </summary>
+    private static Radios.PttHoldFilter BuildLockHoldFilter()
+    {
+        var f = new Radios.PttHoldFilter();
+        f.SetKeyRepeatDelay(Radios.KeyRepeatTiming.DelayMs());
+        return f;
+    }
+
+    /// <summary>
+    /// A first (non-repeat) Shift+Space down: toggle the lock, unless the
+    /// filter says this down is a screen reader's synthetic re-down of a key
+    /// that never physically came up.
+    /// </summary>
+    private void LockKeyDownEdge()
+    {
+        if (_pttController == null) return;
+        long now = PttClock();
+        // A deferral left over from the last release: if its window has
+        // passed, the hold really ended and this is a new press. The PTT
+        // filter resolves this by timer because it has a release to perform;
+        // a toggle has nothing to perform, so it asks here.
+        if (_lockHoldFilter.ReleasePending && _lockLastUpMs != long.MinValue
+            && now - _lockLastUpMs >= _lockHoldFilter.DeferMs)
+            _lockHoldFilter.DeferralElapsed(now);
+        if (_lockHoldFilter.NoteDown(now) == Radios.PttHoldFilter.DownAction.ContinueHold)
+        {
+            Tracing.TraceLine("Lock: a synthesised re-down of a held Shift+Space was absorbed (#778c B2)", TraceLevel.Info);
+            return;
+        }
+        _pttController.ToggleLock();
+    }
+
+    /// <summary>Every Space key-up, on both doors: the lock filter learns the release timing.</summary>
+    private void LockKeyUpEdge()
+    {
+        long now = PttClock();
+        _lockLastUpMs = now;
+        _lockHoldFilter.NoteUp(now);
     }
 
     // ── One push-to-talk edge pipeline, two doors (#307, Sprint 48 Track B) ──
@@ -2926,8 +2997,39 @@ public partial class MainWindow : UserControl
     /// </summary>
     internal void HandleDialogPttEdge(bool down) => PttEdgeFromOutsideHome(down);
 
-    /// <summary>The dialog door's transmit lock: Shift+Space in any WPF window that is not Home (#778c).</summary>
+    /// <summary>The dialog door's transmit lock: a first Shift+Space down in any WPF window that is not Home (#778c).</summary>
     internal void HandleDialogLockToggle() => LockToggleFromOutsideHome();
+
+    /// <summary>
+    /// The dialog door's Escape (#778c repair round one, B1): while the
+    /// controller is transmitting, locked or held, unkey as Home's step 3
+    /// does and report true so the door consumes the key and the dialog stays
+    /// open. False when nothing was transmitting, so Escape closes the dialog
+    /// as usual.
+    /// </summary>
+    internal bool HandleDialogEscapeUnkey()
+    {
+        if (_pttController == null || !_pttController.IsTransmitting) return false;
+        _pttController.EscapeUnlock();
+        return true;
+    }
+
+    /// <summary>
+    /// The dialog that keyed a hold lost focus or closed (#778c repair round
+    /// one, F2). Window loss is not a key-up: the operator cannot release a
+    /// key into a window that is gone, and a screen reader's synthetic pair
+    /// is not what happened, so the absorber's deferral does not apply. Stop
+    /// any pending deferral, clear the in-flight hold (the filter keeps what
+    /// it has learned), and unkey at once if the controller is still holding.
+    /// </summary>
+    internal void HandleDialogHoldLost()
+    {
+        _pttDeferTimer?.Stop();
+        _pttHoldFilter.Reset();
+        _pttKeyDown = false;
+        if (_pttController != null && _pttController.State == PttSafetyController.PttState.PttHold)
+            _pttController.PttUp();
+    }
 
     /// <summary>
     /// The gate the two doors outside Home share. Home's step 3 is silent
@@ -2942,7 +3044,8 @@ public partial class MainWindow : UserControl
             if (down) Radios.ScreenReaderOutput.SpeakNoRadioConnected();
             return;
         }
-        if (down) PttKeyDownEdge(); else PttKeyUpEdge();
+        if (down) PttKeyDownEdge();
+        else { PttKeyUpEdge(); LockKeyUpEdge(); }
     }
 
     private void LockToggleFromOutsideHome()
@@ -2952,7 +3055,7 @@ public partial class MainWindow : UserControl
             Radios.ScreenReaderOutput.SpeakNoRadioConnected();
             return;
         }
-        _pttController.ToggleLock();
+        LockKeyDownEdge();
     }
 
     /// <summary>

@@ -444,8 +444,9 @@ public sealed class ValueLayerRoutingTests : IDisposable
             data.Add(Keys.M | Keys.Shift, fromDialog);     // mute all slices (a registry row)
             data.Add(Keys.Tab, fromDialog);                // navigation, no row
             data.Add(Keys.Tab | Keys.Shift, fromDialog);
-            // #778c: pane navigation, read as covered by "once in a layer,
-            // tab gets refused" (Noel 06:32). On the main route this is the
+            // #778c: pane navigation, refused with Tab (Noel 06:32 "once in a
+            // layer, tab gets refused"; 07:41 "yep that's right" for these two
+            // chords). On the main route this is the
             // answer MainWindow_PreviewKeyDown now gets for Tab while a layer
             // is live, because its early Tab return is gated on
             // KeyCommands.AValueLayerIsLive (pinned from source in Radios.Tests).
