@@ -37,6 +37,15 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     public static Func<PttSafetyController?>? PttControllerSource { get; set; }
 
     private AudioCheckSession? _session;
+
+    /// <summary>
+    /// Is an Audio Check session active right now, in ANY phase, including
+    /// the post-unkey wait for playback? While it is, the session owns the
+    /// transmitter: the dialog transmit door (#778c, <see cref="DialogTransmitKeys"/>)
+    /// refuses push to talk and the lock, and leaves Escape to this dialog's
+    /// own two-stage handler. Read-only; the session itself is untouched.
+    /// </summary>
+    internal static bool AnAudioCheckIsActive => _instance?._session?.Active == true;
     private TextBox? _micReadingBox;
     private Button? _startCheckButton;
     private CycleFieldControl? _listenMethodControl;
@@ -230,7 +239,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             // long as the rig, so a closed dialog left subscribed is a closed
             // dialog kept alive by the radio.
             BindMeterInventory(null);
-            _instance = null;
+            if (ReferenceEquals(_instance, this)) _instance = null;
         };
     }
 

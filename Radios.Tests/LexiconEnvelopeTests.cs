@@ -846,6 +846,15 @@ namespace Radios.Tests
             // was shown reachable by mutating it one higher and watching it go
             // red — not by adding the three deltas, which would be a
             // prediction wearing a measurement's clothes.
+            //
+            // 3,144 at the junkbox fold (2026-10-21), three fewer: Noel's Fold 6
+            // ruling took the "on it" / "from it" tail off every profile
+            // refusal piece, the three shipped legacy fragments
+            // settings.guard.action.profile_load, profile_save and
+            // profile_delete among them. Rewording a frozen key is exactly what
+            // the manifest refuses, so they leave it and are classified below
+            // beside their four transmit and microphone siblings, as the
+            // fragments they are.
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -924,6 +933,87 @@ namespace Radios.Tests
                 // two blocks above.
                 "connect.ownership.reason",
 
+                // Junkbox #778, 2026-10-19: the value layers' answer to a key
+                // that has nowhere to go and is no near miss, now that such a
+                // key stays in the layer instead of leaving it. Classified
+                // rather than frozen because it was written here (Noel's
+                // 2026-10-05 ruling; #720). delivery: null - TextOnly - on the
+                // #726 reasoning two blocks above: it is spoken ONLY in answer
+                // to a press, through the engine's own refusal path where #528
+                // already decides whether words or the tone are heard, and the
+                // application never says it on its own account. Its sibling
+                // audio.value_layer.near_miss is legacy and still frozen; WHEN
+                // THE PASS REACHES IT, DECIDE BOTH TOGETHER. The wording was
+                // RULED by Noel 2026-10-19 14:33 (#778 queue question 2).
+                "audio.value_layer.unknown_key",
+                // Same track, same reasoning: the line for a bare digit, which
+                // a value layer refuses because forwarded it would start
+                // frequency entry. RULED by Noel 14:33-14:34 ("just say
+                // selected number").
+                "audio.value_layer.typed_number",
+                // #778b, same reasoning: the fine-step sentence the engine
+                // appends to the digit line where Shift with the arrows really
+                // is the fine step. Noel asked for one at 14:33; this wording
+                // is a DRAFT awaiting him.
+                "audio.value_layer.fine_step",
+                // #778b, same reasoning: the three very short sentences for push
+                // to talk, the transmit lock and a bracket key pressed while a
+                // layer is open where nothing would act on them. Spoken only in
+                // answer to that press, and only at Chatty (Noel, 2026-10-19
+                // 20:55; below Chatty the refusal tone alone). DRAFTS awaiting Noel.
+                "audio.value_layer.ptt_not_here",
+                "audio.value_layer.lock_not_here",
+                "audio.value_layer.bracket_not_here",
+
+                // Junkbox #777, 2026-10-19: a global-profile write (Save, or
+                // Delete since round two) refused because the radio is
+                // declared someone else's, or its ownership was never
+                // answered; the verb comes from settings.guard.action.* the
+                // way settings.guard.refused does it. Classified rather than
+                // frozen (#720). delivery: null - TextOnly - on the #726
+                // reasoning: each is spoken ONLY in answer to the operator's
+                // own press (the menu's Save Station Setup to Radio, or the
+                // Profiles dialog's Save or Delete), the application never
+                // says either on its own account, and a refusal whose sentence
+                // names the remedy must not be shortened by the verbosity
+                // machinery. Their siblings settings.guard.layout_save_blocked
+                // and .layout_save_roster_unknown are legacy and still frozen;
+                // WHEN THE PASS REACHES THEM, DECIDE ALL FOUR TOGETHER. Both
+                // wordings were APPROVED by Noel 2026-10-19 (#777 Q4, Q5).
+                "settings.guard.profile_write_not_our_radio",
+                "settings.guard.profile_write_ownership_unknown",
+                // Round three, Noel's 2026-10-19 ruling that transmit and
+                // microphone profiles are refused like global ones: the verb
+                // and kind the two sentences above take as {action} for those
+                // kinds. FRAGMENTS of a sentence, never spoken alone, so
+                // TextOnly is the only honest classification. The two
+                // sentences above were APPROVED the same day; these four
+                // were APPROVED by Noel at the 2026-10-21 fold (Fold 6), with
+                // the "on it" / "from it" tail removed.
+                "settings.guard.action.tx_profile_create",
+                "settings.guard.action.tx_profile_delete",
+                "settings.guard.action.mic_profile_create",
+                "settings.guard.action.mic_profile_delete",
+                // The global fragments, shared with the change-nothing hold's
+                // settings.guard.refused. Legacy and frozen until the same
+                // fold, when Noel's Fold 6 ruling took the same tail off them
+                // so every refusal reads alike ("load the profile", "save the
+                // profile", "delete the profile"); a reworded key cannot stay
+                // in the manifest, so they are classified here on the
+                // reasoning of the four above: fragments, never spoken alone.
+                "settings.guard.action.profile_load",
+                "settings.guard.action.profile_save",
+                "settings.guard.action.profile_delete",
+                // Same track, round two (Codex B3): the honest receipt for a
+                // save whose command did not go out within its bound, which
+                // until then was announced as saved. Spoken only in answer to
+                // the press that asked for the save; TextOnly on the same
+                // reasoning; the existing receipts settings.profile.saved and
+                // settings.station_layout.saved beside them are legacy and
+                // still frozen - DECIDE EACH PAIR TOGETHER. APPROVED as
+                // written by Noel at the 2026-10-21 fold (Fold 6).
+                "settings.profile.save_not_sent",
+                "settings.station_layout.save_not_sent",
                 // #456: new listenback control labels, dialog body/status prose,
                 // and fragments. TextOnly describes these persistent UI values;
                 // the dialog echoes its status value through its existing speech
@@ -1063,9 +1153,222 @@ namespace Radios.Tests
                 "audio.iq.ack.not_recorded",
                 "audio.iq.ack.listener_request",
                 "audio.iq.ack.antenna_unchanged",
+
+                // Junkbox #686, 2026-10-20: the microphone healer's report on
+                // a radio not declared Mine (Unset or SomeoneElses). There it
+                // no longer puts the mic input back to PC, so the legacy
+                // audio.mic.diverged ("Setting it back to PC.") would be
+                // false; this says the radio will not hear the operator and
+                // points at the Radio menu's Switch Mic Input Back to PC, in
+                // Noel's own phrase (07:58). Classified rather than frozen
+                // (#720). It is a MESSAGE, not TextOnly: nobody asked for it -
+                // the application says it on its own account when a
+                // divergence starts. Forgettable because that is what its
+                // producer actually does: one presentation per divergence
+                // episode, no retry, no retained debt. Receipt warning because
+                // it reports a transmit that will carry nothing.
+                // request-scoped is the one built-in contract and is an
+                // APPROXIMATION here: the premise can stop being true, and no
+                // domain owner has registered a contract that evaluates it. By
+                // #617's own test the honest shelf life is persistent, which
+                // needs that contract and a past-tense historyKey in Noel's
+                // words - a question for Noel, not a default. Its sibling
+                // audio.mic.diverged is legacy and still frozen; DECIDE BOTH
+                // TOGETHER. APPROVED by Noel at the 2026-10-21 fold (Fold 4),
+                // its second sentence reworded in his words.
+                "audio.mic.diverged_not_ours",
+                // Same track, repair round one: the start-time sibling. On a
+                // radio not declared Mine, from its local network with no
+                // NoPhysicalAccess declaration, starting PC audio no longer
+                // switches the owner's mic input to PC, and when that input is
+                // not PC this says computer audio will not reach the
+                // transmitter and names both remedies. Said once per PC-audio
+                // start, on the application's own account; classified on the
+                // reasoning of the line above, with the same persistent-versus-
+                // forgettable question for Noel. DECIDE ALL THREE TOGETHER.
+                // DRAFT awaiting Noel.
+
+                // Junkbox #312, repair rounds one and two, 2026-10-20: what a
+                // 60 m arrival says about the mode it asked for, replacing
+                // "mode set to ..." which could be false. Round two (ruled by
+                // Noel): the request went out ("switching", claiming no
+                // confirmation, because nothing on the path hears the radio
+                // agree), or it was refused while transmitting, or there was
+                // no slice of ours or no running command loop. The refusals
+                // speak about the MODE only, so they cannot contradict the
+                // arrival's frequency in the same sentence. FRAGMENTS appended
+                // to an arrival (the band jump's, the rotation's, or typed
+                // entry's), never spoken alone, so TextOnly is the only honest
+                // classification. Their sibling settings.band.mode_advisory
+                // ("mode set to ...") had no caller since round two and was
+                // RETIRED, deleted from the lexicon, on Noel's 2026-10-21 07:39
+                // ruling ("yes, retire the sentences"). APPROVED as written
+                // by Noel at the 2026-10-21 fold (Fold 2).
+                "settings.band.mode_not_set",
+                "settings.band.mode_not_set_transmitting",
+                "settings.band.mode_switching",
+
+                // Junkbox #639, 2026-10-20: the brief clause the connect
+                // briefing speaks when the station phase ends Unconfirmed.
+                // REWORDED, which is what forced it out of the manifest: it
+                // read "Station restore not confirmed; nothing added on top."
+                // and Noel said on 2026-10-19 that "'nothing was restored on
+                // top' makes no sense to me." It now says what happened and
+                // what it cost the operator (the transmit and microphone setup
+                // that runs only on a confirmed station was skipped), in a
+                // whole sentence. Until the same day it was spoken on EVERY
+                // owner connect, because the completion default was the bench
+                // B placeholder; it is now reachable only when the evidence
+                // genuinely did not arrive. The wording was APPROVED as
+                // written by Noel at the 2026-10-21 fold (Fold 3).
+                //
+                // delivery: forgettable, request-scoped, no receipt. It is a
+                // standalone thing the application says on its own account, so
+                // not TextOnly. Its premise is what THIS connect's station
+                // phase concluded, which cannot stop being true, so
+                // request-scoped is the honest contract; and the connect
+                // briefing retains it by SpeechSubject.ProfileStationOutcome
+                // through its own owed-utterance mechanics, not through this
+                // descriptor, so a retained shelf life here would be a second
+                // record of one obligation. No receipt: the long form carries
+                // the remedy and nothing is alarming about an unconfirmed
+                // restore that kept the slices. Its siblings -- the long form
+                // settings.profile_station.unconfirmed, and failed_brief and
+                // not_restored_brief, which say "nothing else changed" and
+                // "nothing changed on top" in the same family -- are legacy and
+                // still frozen. WHEN THE PASS REACHES THEM, DECIDE ALL FOUR
+                // TOGETHER.
+                "settings.profile_station.unconfirmed_brief",
+
+                // Junkbox #469, 2026-10-20: the profile comparison report now
+                // refuses while keyed and runs in the background, so it needs
+                // its own start sentence (one for a run that loads profiles,
+                // one for a radio where the comparison is left out), its own
+                // transmit refusal, and its own failure sentence: the restore
+                // capture's start sentence named a "restore" capture (since
+                // retired, below), and its not_while_transmitting said "this
+                // export" and was RETIRED on Noel's 2026-10-21 11:03 ruling.
+                // Classified rather than frozen because they were written here
+                // (#720). delivery: null - TextOnly - on the #726 reasoning:
+                // each is spoken ONLY in answer to the operator's own press of
+                // the Tools menu item, the start and refusal at once and the
+                // failure as the delayed answer to that press, and the
+                // application never says any of them on its own account. Their
+                // siblings settings.profile.report_saved and the
+                // settings.restore_export.* family are legacy and still frozen;
+                // WHEN THE PASS REACHES THEM, DECIDE THE TWO REPORTS' SENTENCES
+                // TOGETHER. APPROVED by Noel at the 2026-10-21 fold (Fold 7). The start and
+                // refusal sentences were reworded in his words; the failure
+                // sentence is as written.
+                "settings.profile.report_start",
+                "settings.profile.report_start_no_walk",
+                "settings.profile.report_not_while_transmitting",
+                "settings.profile.report_failed",
+                // Repair round one (Codex's four blockers, 2026-10-20), same
+                // reasoning and classification as the block above. The start
+                // sentence now names what the walk loads, through the three
+                // FRAGMENTS settings.profile.report_kinds.*, which are never
+                // spoken alone; a fourth start sentence covers a run that has
+                // nothing to compare; the transmit refusal names what the run
+                // would load. The walker's three lines for a key-up mid-walk
+                // are spoken as progress, in answer to the press that started
+                // the walk, and the two reports' finished sentences for a walk
+                // stopped by a key-up are the delayed answer to that press.
+                // Siblings settings.restore_export.saved_* are legacy and
+                // frozen; DECIDE THEM WITH THESE. APPROVED by Noel at the 2026-10-21 fold (Fold 7).
+                "settings.profile.report_start_nothing_to_compare",
+                "settings.profile.report_kinds.global",
+                "settings.profile.report_kinds.tx",
+                "settings.profile.report_kinds.mic",
+                "settings.profile.report_kinds.and",
+                "settings.profile_walk.stopped_keyed",
+                // Same round, the restore capture's start sentence, which had
+                // the comparison's defect one method over: one sentence,
+                // "every stored profile is loaded", whatever would load. Three
+                // sentences now, chosen from its plan. The legacy
+                // settings.restore_export.start was RETIRED, deleted from the
+                // lexicon, on Noel's 2026-10-21 07:39 ruling. APPROVED by Noel at the 2026-10-21 fold (Fold 7).
+                // The start sentences were reworded in his words.
+                "settings.restore_export.start_walk",
+                "settings.restore_export.start_nothing_to_walk",
+                "settings.restore_export.start_no_walk",
+                // Round two, Noel's ruling 2026-10-20 ("I'd say what profile
+                // radio's on now"): a walk stopped by a key-up puts NOTHING
+                // back, so the wait-and-put-back sentences of round one are
+                // gone. What replaces them says which profile the radio is on
+                // and that the original was not put back, built from the
+                // fragments below, which are never spoken alone; the stop
+                // line, both finished sentences and both files use the same
+                // words. Also: the list-missing start sentences (an unreadable
+                // list is not "nothing to compare") and the restore refusal
+                // that names only the kinds it would load. Same classification
+                // and reasoning as above. APPROVED by Noel at the 2026-10-21 fold (Fold 7).
+                // The list-missing start sentences and the restore refusal
+                // were reworded in his words.
+                // Round four (Noel, 2026-10-20: stop naming profiles after a
+                // transmit stop and claim nothing we cannot prove): every
+                // fragment that named a profile after a stop is gone. The stop
+                // line (settings.profile_walk.stopped_keyed, classified above)
+                // and the two finished sentences now carry one fixed piece of
+                // advice instead. APPROVED by Noel at the 2026-10-21 fold (Fold 7).
+                // As written.
+                "settings.profile.report_saved_stopped",
+                "settings.restore_export.saved_stopped",
+                "settings.profile.report_start_list_missing",
+                "settings.profile.report_start_lists_missing",
+                "settings.restore_export.not_while_transmitting_kinds",
+                // Round six (Codex reverify5: "sent back" is unprovable too,
+                // because Done means queued and FlexLib's setter can skip the
+                // send): a run that requested any load ends with the stop
+                // line's manual route and claims nothing about what reached the
+                // radio; one that requested none says only that it was not
+                // moved, which is provable. The legacy
+                // settings.restore_export.saved_put_back / saved_not_put_back
+                // ("back on", which nothing can prove) were RETIRED, deleted
+                // from the lexicon, on Noel's 2026-10-21 07:39 ruling.
+                // Same classification and reasoning as above. APPROVED by Noel at the 2026-10-21 fold (Fold 7).
+                // As written.
+                "settings.profile.report_saved_loaded",
+                "settings.restore_export.saved_loaded",
+                "settings.restore_export.saved_nothing_moved",
+
+                // Same track, follow-up (Noel 07:55, 08:09): the answers to the
+                // Radio menu's Switch Mic Input Back to PC, and the action
+                // fragment the change-nothing refusal takes as {action}.
+                // TextOnly on the #726 and #777 reasoning: each is spoken ONLY
+                // in answer to the operator's own press, never on the
+                // application's account, and an answer that says whether the
+                // radio did what was asked must not be shortened by the
+                // verbosity machinery. The repair round's start-time sentence
+                // audio.mic.not_switched_not_ours was RETIRED the same morning,
+                // when Noel ruled (08:10) that the start always switches to PC;
+                // it never reached main. APPROVED as written by Noel at the
+                // 2026-10-21 fold (Fold 4).
+                // The confirmed and not-confirmed answers (switch_back_done,
+                // switch_back_not_confirmed) were RETIRED the same day, when
+                // Noel ruled (09:41) the item should do what a manual change
+                // does: queue the write and claim nothing ("switching").
+                "audio.mic.switch_back_switching",
+                "audio.mic.switch_back_no_pc_audio",
+                "audio.mic.switch_back_already_pc",
+                // Same reasoning, same day: the answer when the press was made in
+                // a computer-audio session that ended before it could act, so a
+                // later session's saved value is never touched by it.
+                // APPROVED as written by Noel at the 2026-10-21 fold (Fold 4).
+                "audio.mic.switch_back_session_changed",
+                "settings.guard.action.mic_input_pc",
+                // Same track, round five (Noel 12:28: "do it the way we do the
+                // full duplex check ... verify later then automatically speak
+                // it"): the one late answer to the same press, spoken once
+                // when the radio refuses the switch. TextOnly for the same
+                // reason as its siblings: it exists only because the operator
+                // pressed Switch Mic Input Back to PC, and it says whether the
+                // radio did what was asked. APPROVED as written by Noel at
+                // the 2026-10-21 fold (Fold 4).
+                "audio.mic.switch_back_refused",
             };
 
-            Assert.Equal(3152, unclassified);
+            Assert.Equal(3143, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

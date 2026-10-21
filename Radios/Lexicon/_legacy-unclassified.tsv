@@ -2204,7 +2204,6 @@ settings.band.license_technician	465fc7e7fda65034
 settings.band.list_bottom	ebdd2a01ebccd160
 settings.band.list_edge	0030d80e16d9d2c4
 settings.band.list_top	daab28e9def67bae
-settings.band.mode_advisory	8591fb2ca2c8e234
 settings.band.mode_cw	11c403c78d8946ef
 settings.band.mode_data	4520fd4d75953492
 settings.band.mode_image	54eb8e1b23759138
@@ -2383,9 +2382,6 @@ settings.guard.action.network	3f31f36cd2415e6e
 settings.guard.action.oscillator	d92dd91236b750e4
 settings.guard.action.ports	6131f8d1dc28b6f9
 settings.guard.action.private_ip	24d6f0ce61fb80c1
-settings.guard.action.profile_delete	94e3ddbc8acb5f03
-settings.guard.action.profile_load	dc541d94f8928d2a
-settings.guard.action.profile_save	61728452905f5e7d
 settings.guard.action.registration	73c14819d94ef35e
 settings.guard.action.rem_on	6fda9395303412ab
 settings.guard.action.rename	bf164e9822d4287c
@@ -2804,7 +2800,6 @@ settings.profile_station.requested.loaded	84a8a479786af920
 settings.profile_station.requested.not_sent	d7f4192a926e16b0
 settings.profile_station.requested.sent_unconfirmed	7fc3a57713cc2f18
 settings.profile_station.unconfirmed	ddd1ded66d334b53
-settings.profile_station.unconfirmed_brief	aa576e60b8d8a17f
 settings.profile_station.why.not_chosen	1f9443fab9037d5a
 settings.ptt.alc_out_of_range	4d043a5578372fff
 settings.ptt.final_warning_not_a_number	81b98b6979183632
@@ -2926,11 +2921,7 @@ settings.repeat.no_previous_message	8f917f2c7f178182
 settings.repeat.no_recent_cw	48488027ef1573a4
 settings.restore_export.busy	dfb905fe055d9e05
 settings.restore_export.failed	a1319ffca4bfd36d
-settings.restore_export.not_while_transmitting	e65a34b700a73ac7
 settings.restore_export.saved_no_walk	66a0398e2a094b86
-settings.restore_export.saved_not_put_back	17d1582fcad7f743
-settings.restore_export.saved_put_back	4764d1ea70c27f20
-settings.restore_export.start	1cf4d45c3027818a
 settings.rit.off	15c68f1933e48946
 settings.rit.on	26c35169607f687f
 settings.ritxit.adjust_mode	293f739242f7f911

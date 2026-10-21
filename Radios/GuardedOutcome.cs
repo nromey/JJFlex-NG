@@ -39,9 +39,10 @@ namespace Radios
         /// <summary>The write went out. Say so.</summary>
         Done = 0,
 
-        /// <summary>The change-nothing hold declined it, and the refusal has
-        /// ALREADY been spoken, naming the setting and the route. Stay
-        /// silent; a second sentence would overwrite the useful one.</summary>
+        /// <summary>The change-nothing hold — or, for a global profile, the
+        /// ownership gate (#777) — declined it, and the refusal has ALREADY
+        /// been spoken, naming the setting and the route. Stay silent; a
+        /// second sentence would overwrite the useful one.</summary>
         Refused = 1,
 
         /// <summary>Nothing was sent, for a reason the caller already knows

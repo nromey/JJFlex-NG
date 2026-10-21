@@ -183,9 +183,29 @@ namespace Radios
             _ => type.ToString(),
         };
 
+        /// <summary>What one profile load came to, as far as this app can know.
+        /// QUEUED, never "sent": SelectProfileGuarded's Done means the command
+        /// was queued, and FlexLib's setters can skip the send when their own
+        /// cache already holds the name (#469 round six). Used only to decide
+        /// whether a walk captured a profile and to word why it did not.</summary>
+        internal enum ProfileLoadResult
+        {
+            /// <summary>Not queued: refused before dispatch (change nothing,
+            /// ownership) or failed.</summary>
+            NotQueued,
+            /// <summary>Queued; FlexLib's field did not read it back in time.</summary>
+            QueuedNotSettled,
+            /// <summary>Queued; the field read it back and the state settled.
+            /// Still not the radio's own report.</summary>
+            QueuedAndSettled,
+        }
+
         /// <summary>
-        /// Loads a profile by name and waits for the radio to settle.
-        /// Returns true if the profile selection was confirmed within the timeout.
+        /// Loads a profile by name and waits for the radio to settle. Says
+        /// whether the load was QUEUED, which until #469 round five was
+        /// discarded: a load refused before dispatch then waited on a field
+        /// that never changed and was indistinguishable from a slow radio.
+        /// Queued is not sent, and neither is the radio's answer.
         /// </summary>
         /// <remarks>
         /// The confirmation await below is weaker than it looks: FlexLib's
@@ -199,12 +219,17 @@ namespace Radios
         /// taken then reads transition state and files it under the profile's
         /// name.
         /// </remarks>
-        private static bool LoadProfileAndWait(FlexBase rig, ProfileTypes profileType, string name, int timeoutMs = 3000)
+        private static ProfileLoadResult LoadProfileAndWait(FlexBase rig, ProfileTypes profileType, string name, int timeoutMs = 3000)
         {
             Tracing.TraceLine($"ProfileReporter: Loading {profileType} profile '{name}'", TraceLevel.Info);
 
             var prof = new Profile_t(name, profileType, false);
-            rig.SelectProfile(prof);
+            var dispatched = rig.SelectProfileGuarded(prof);
+            if (dispatched != GuardedOutcome.Done)
+            {
+                Tracing.TraceLine($"ProfileReporter: {profileType} profile '{name}' was not queued ({dispatched})", TraceLevel.Warning);
+                return ProfileLoadResult.NotQueued;
+            }
 
             // Wait for the selection to be accepted (see remarks: this is the
             // request landing, not the load finishing).
@@ -226,11 +251,11 @@ namespace Radios
             if (!settled)
             {
                 Tracing.TraceLine($"ProfileReporter: Timed out waiting for {profileType} profile '{name}' to settle", TraceLevel.Warning);
-                return false;
+                return ProfileLoadResult.QueuedNotSettled;
             }
 
             WaitForSettle(rig);
-            return true;
+            return ProfileLoadResult.QueuedAndSettled;
         }
 
         /// <summary>
@@ -298,10 +323,10 @@ namespace Radios
         /// <summary>
         /// What a profile walk did to the radio: which profiles were captured,
         /// which could not be read, and — the part <c>CaptureAllProfiles</c>
-        /// used to throw away — whether the originally loaded profile was
-        /// confirmed back in place afterwards. A failed restore leaves the
-        /// radio on the wrong profile, and until 2026-08-30 nothing recorded
-        /// that it had happened.
+        /// used to throw away — whether a put-back of the starting selection
+        /// was requested. Whether it reached the radio is not known and is not
+        /// recorded (#469 round six). Until 2026-08-30 nothing recorded even
+        /// the request.
         /// </summary>
         public sealed class ProfileWalkOutcome
         {
@@ -333,11 +358,31 @@ namespace Radios
             /// single request is a different fact from a load that hung.</summary>
             public int LoadAttempts;
 
+            /// <summary>A put-back of the starting selection was REQUESTED.
+            /// Whether it reached the radio is not known, and nothing says it
+            /// did (#469 round six).</summary>
             public bool RestoreAttempted;
 
-            /// <summary>True only when the radio confirmed the original
-            /// profile back in place.</summary>
-            public bool RestoreConfirmed;
+
+            /// <summary>#469: the radio was keyed, so the walk stopped and did
+            /// NOT put the original profile back — never automatically, ruled
+            /// by Noel 2026-10-20 ("I'd say what profile radio's on now"). Set
+            /// whether the key-up came before a load (see
+            /// <see cref="StoppedBefore"/>) or after the last one, and the
+            /// caller must not start a walk of a later type.</summary>
+            public bool StoppedForTransmit;
+
+            /// <summary>The first profile NOT loaded because the radio was
+            /// keyed; null when the walk did not stop, or when it stopped after
+            /// its last profile, at the put-back.</summary>
+            public string StoppedBefore;
+
+            /// <summary>The last profile the walk REQUESTED a load of, or null.
+            /// Evidence for the saved files only, labelled there as "requested":
+            /// the request can be refused before it is dispatched (the
+            /// change-nothing and ownership gates in SelectProfileGuarded), so
+            /// it never means "sent" and is never spoken (#469 round four).</summary>
+            public string LastRequested;
         }
 
         // ── #418: the three-state profile list, and its renderings ──
@@ -444,8 +489,9 @@ namespace Radios
         /// <summary>
         /// THE profile walker — the only one. Loads every profile of the given
         /// type in turn, calls <paramref name="captureWhileLoaded"/> while each
-        /// one is on the radio, then puts the original profile back and CHECKS
-        /// that the radio agreed. Both reports ride this: the comparison
+        /// one is on the radio, then requests the starting selection again.
+        /// Whether that reached the radio is not known, and nothing here
+        /// claims it did. Both reports ride this: the comparison
         /// report captures snapshots, the restore-grade export writes keyed
         /// sections.
         /// </summary>
@@ -489,20 +535,16 @@ namespace Radios
             }
 
             // Record the currently selected profile so we can restore it.
+            //
+            // #469 round three: null stays null. FlexLib leaves these fields
+            // null until the radio's "current" status arrives, and stores ""
+            // only when that status carries an empty value (ParseProfilesStatus
+            // splits "current=" into an empty value and UpdateProfileListSelection
+            // stores it). Folding null into "" used to turn "not yet reported"
+            // into "none was selected", which a stopped walk then said aloud.
             try
             {
-                switch (profileType)
-                {
-                    case ProfileTypes.global:
-                        outcome.OriginalSelection = rig.theRadio.ProfileGlobalSelection ?? "";
-                        break;
-                    case ProfileTypes.tx:
-                        outcome.OriginalSelection = rig.theRadio.ProfileTXSelection ?? "";
-                        break;
-                    case ProfileTypes.mic:
-                        outcome.OriginalSelection = rig.theRadio.ProfileMICSelection ?? "";
-                        break;
-                }
+                outcome.OriginalSelection = StartingSelection(rig.theRadio, profileType);
             }
             catch (Exception ex)
             {
@@ -512,9 +554,76 @@ namespace Radios
 
             Tracing.TraceLine($"ProfileReporter: Capturing {profiles.Count} {label} profiles (current: '{outcome.OriginalSelection}')", TraceLevel.Info);
 
+            RunWalk(outcome, profiles,
+                name => LoadProfileAndWait(rig, profileType, name),
+                () => rig.Transmit,
+                captureWhileLoaded, progressCallback, unreadableCallback);
+
+            return outcome;
+        }
+
+        /// <summary>
+        /// The selection a walk starts from, exactly as FlexLib holds it: null
+        /// when the radio has not reported one, "" only when it reported an
+        /// empty one, otherwise the name. Never folds null into "" (#469 round
+        /// three). Read before any load of this walk is requested, so it is
+        /// not this walk's own request echoed back.
+        /// </summary>
+        internal static string StartingSelection(Radio radio, ProfileTypes type)
+        {
+            switch (type)
+            {
+                case ProfileTypes.global: return radio.ProfileGlobalSelection;
+                case ProfileTypes.tx: return radio.ProfileTXSelection;
+                case ProfileTypes.mic: return radio.ProfileMICSelection;
+                default: return null;
+            }
+        }
+
+        /// <summary>
+        /// The walk itself, reaching the radio only through the two
+        /// functions passed in, so a test can drive every path — a load that
+        /// fails, a key-up before a load, a key-up after the last one, a
+        /// starting profile nobody could read — without a radio.
+        /// <see cref="WalkProfiles"/> is the only production caller and passes
+        /// the real ones.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>#469: transmit is asked before EVERY load, and once more
+        /// before the put-back.</b> Both reports used to ask only when they
+        /// started, so a walk begun unkeyed kept sending profile loads after
+        /// the operator, or another client on the radio, keyed up — and a TX
+        /// profile carries power and the rest of the transmit setup.</para>
+        /// <para><b>Keyed, the walk stops and puts NOTHING back.</b> Putting the
+        /// starting profile back is itself a profile load, so it is never done
+        /// while keyed, and never later behind the operator's back either
+        /// (round one's wait-for-unkey was removed on Noel's ruling). The walk
+        /// speaks one fixed sentence that names no profile and claims nothing
+        /// about where the radio was left (round four: nothing here can prove
+        /// it), and the callers start no later type.</para>
+        /// <para><b>Unkeyed, a put-back of the starting selection is
+        /// requested,</b> and nothing records or says that it reached the
+        /// radio (round six): queued is not sent, FlexLib's setter can skip
+        /// the send, and its selection field is written by that same setter.</para>
+        /// </remarks>
+        internal static void RunWalk(
+            ProfileWalkOutcome outcome, IReadOnlyList<string> profiles,
+            Func<string, ProfileLoadResult> load, Func<bool> keyed,
+            Action<string> captureWhileLoaded, Action<string> progressCallback,
+            Action<string, string> unreadableCallback)
+        {
+            string label = TypeLabel(outcome.ProfileType);
             int count = 0;
             foreach (var name in profiles)
             {
+                if (keyed())
+                {
+                    outcome.StoppedForTransmit = true;
+                    outcome.StoppedBefore = name;
+                    Tracing.TraceLine($"ProfileReporter: {label} walk stopped before '{name}' — the radio is transmitting", TraceLevel.Warning);
+                    break;
+                }
+
                 count++;
                 string progressMsg = $"Loading {label} profile {count} of {profiles.Count}: {name}";
                 progressCallback?.Invoke(progressMsg);
@@ -524,7 +633,9 @@ namespace Radios
                 try
                 {
                     outcome.LoadAttempts++;
-                    if (LoadProfileAndWait(rig, profileType, name))
+                    outcome.LastRequested = name;
+                    var result = load(name);
+                    if (result == ProfileLoadResult.QueuedAndSettled)
                     {
                         outcome.LastLoaded = name;
                         captureWhileLoaded?.Invoke(name);
@@ -532,7 +643,9 @@ namespace Radios
                     }
                     else
                     {
-                        problem = "the radio did not confirm loading this profile in time";
+                        problem = result == ProfileLoadResult.NotQueued
+                            ? "the load was not queued; it was refused or failed before it reached the radio"
+                            : "the radio did not confirm loading this profile in time";
                     }
                 }
                 catch (Exception ex)
@@ -553,29 +666,98 @@ namespace Radios
                 }
             }
 
-            // Put the original profile back — and check, because a restore
-            // that silently fails strands the radio on the last profile
-            // walked while everything else reports success.
+            // Keyed after the last profile is the same case as keyed before
+            // one: the put-back is a load, so it is not sent (Codex's round-one
+            // blocker 1, where this path once left the radio moved and said
+            // nothing). A walk that never loaded did not move the radio.
+            if (!outcome.StoppedForTransmit && outcome.LoadAttempts > 0 && keyed())
+            {
+                outcome.StoppedForTransmit = true;
+                Tracing.TraceLine($"ProfileReporter: {label} walk keyed after its last profile — the original is not put back", TraceLevel.Warning);
+            }
+
+            if (outcome.StoppedForTransmit)
+            {
+                Tracing.TraceLine($"ProfileReporter: {label} walk stopped for transmit — last load requested '{outcome.LastRequested ?? "(none)"}', app's last recorded selection before the walk '{outcome.OriginalSelection ?? "(none recorded)"}', nothing put back", TraceLevel.Error);
+                progressCallback?.Invoke(TransmitStopSentence());
+                return;
+            }
+
+            // Request the starting selection again. Whether it reached the
+            // radio is not known and is never claimed (#469 round six); the
+            // result goes to the trace only.
             if (!string.IsNullOrEmpty(outcome.OriginalSelection))
             {
                 outcome.RestoreAttempted = true;
-                progressCallback?.Invoke($"Putting back the {label} profile that was loaded: {outcome.OriginalSelection}");
+                progressCallback?.Invoke($"Asking the radio to load the {label} profile recorded before the walk: {outcome.OriginalSelection}");
                 try
                 {
-                    outcome.RestoreConfirmed = LoadProfileAndWait(rig, profileType, outcome.OriginalSelection);
+                    var result = load(outcome.OriginalSelection);
+                    Tracing.TraceLine($"ProfileReporter: put-back of {label} profile '{outcome.OriginalSelection}' requested — {result}", TraceLevel.Info);
                 }
                 catch (Exception ex)
                 {
-                    outcome.RestoreConfirmed = false;
-                    Tracing.TraceLine($"ProfileReporter: restore of {label} profile '{outcome.OriginalSelection}' threw: {ex.Message}", TraceLevel.Warning);
-                }
-                if (!outcome.RestoreConfirmed)
-                {
-                    Tracing.TraceLine($"ProfileReporter: the radio did NOT confirm {label} profile '{outcome.OriginalSelection}' back in place — it may still be on '{outcome.LastLoaded}'", TraceLevel.Error);
+                    Tracing.TraceLine($"ProfileReporter: put-back of {label} profile '{outcome.OriginalSelection}' threw: {ex.Message}", TraceLevel.Warning);
                 }
             }
+        }
 
-            return outcome;
+        /// <summary>
+        /// What a saved file may say about one kind's starting profile after
+        /// an ordinary (unkeyed) walk that requested loads: the app's recorded
+        /// selection, labelled for what it is, and whether a put-back was
+        /// requested, never whether it reached the radio, because nothing here
+        /// can know that (#469 round six). Null when the walk requested no load.
+        /// </summary>
+        internal static string PutBackNote(ProfileWalkOutcome o)
+        {
+            if (o.LoadAttempts == 0) return null;
+            string kind = TypeLabel(o.ProfileType);
+            if (o.OriginalSelection == null)
+                return "No " + kind + " selection was recorded before the walk, so no put-back was requested.";
+            if (o.OriginalSelection.Length == 0)
+                return "The " + kind + " selection recorded before the walk was empty, so no put-back was requested.";
+            return "A put-back of " + o.OriginalSelection + ", the app's last recorded " + kind
+                + " selection before the walk (it may be the app's own earlier request), was requested;"
+                + " whether it reached the radio is not known.";
+        }
+
+        /// <summary>
+        /// The one sentence spoken when a walk stops because the radio was
+        /// keyed. It names no profile and claims nothing about where the radio
+        /// was left, because nothing here can prove it: FlexLib's selection
+        /// getter is written locally by its own setter before the command goes
+        /// out, and a load request can be refused before it is dispatched.
+        /// Ruled by Noel, 2026-10-20, after three rounds of trying to say more:
+        /// "I'm not sure that this is a hugely necessary step for a case that
+        /// will happen so rarely" (#469 round four). The finished sentences end
+        /// with the same advice.
+        /// </summary>
+        public static string TransmitStopSentence()
+            => Lexicon.Get("settings.profile_walk.stopped_keyed");
+
+        /// <summary>
+        /// The labelled evidence a saved file may carry for a stopped walk:
+        /// what the walk requested (never "sent"), and the app's last recorded
+        /// selection before it began (never "original": the getter may hold
+        /// the app's own earlier request). Lines in "key = value" form.
+        /// </summary>
+        internal static List<(string Key, string Value)> StoppedWalkEvidence(ProfileWalkOutcome o)
+        {
+            string kind = TypeLabel(o.ProfileType);
+            return new List<(string, string)>
+            {
+                ("last " + kind + " profile the walk requested",
+                    o.LastRequested == null
+                        ? "none — no load was requested"
+                        : o.LastRequested + " (requested only; it may have been refused before it reached the radio, or not applied)"),
+                ("app's last recorded " + kind + " selection before the walk",
+                    o.OriginalSelection == null
+                        ? "none recorded"
+                        : o.OriginalSelection.Length == 0
+                            ? "recorded as empty"
+                            : o.OriginalSelection + " (may be the app's own earlier request, not the radio's state)"),
+            };
         }
 
         /// <summary>
@@ -598,10 +780,424 @@ namespace Radios
         }
 
         /// <summary>
+        /// Why a walking entry point declined to run. The reporter only says
+        /// which refusal it was; the sentence comes from
+        /// <see cref="ComparisonRefusedSentence"/> or the restore capture's
+        /// caller.
+        /// </summary>
+        public enum WalkRefusal
+        {
+            /// <summary>It ran.</summary>
+            None,
+            /// <summary>Another profile walk holds the in-flight flag — the
+            /// restore capture, or another comparison report.</summary>
+            WalkAlreadyRunning,
+            /// <summary>The radio is keyed and THIS run would load profiles,
+            /// which change power, filters and antennas. A run that would load
+            /// nothing is read-only and is never refused for transmit.</summary>
+            Transmitting,
+        }
+
+        // ══ #469 repair round one: reserving the walk at the press ══
+        //
+        // The flag used to be taken only when the reporter ran, which is AFTER
+        // the menu's four-second settle. Two presses inside that window both
+        // passed the menu's advisory WalkInProgress check, both spoke a start
+        // sentence, and then one of them said "busy" — a start announced for
+        // a walk that never ran. A press now RESERVES the walk: the flag is
+        // taken at once, the second press hears busy and nothing else, and
+        // the reservation is handed to the reporter, which runs under it
+        // rather than taking the flag a second time. The holder releases it
+        // with Dispose on every path, a refusal after the settle included.
+
+        /// <summary>
+        /// A held profile-walk flag. Taken by <see cref="TryReserveWalk"/>,
+        /// released exactly once by <see cref="Dispose"/>; releasing twice is
+        /// harmless and never clears a flag some later walk has taken.
+        /// </summary>
+        public sealed class WalkReservation : IDisposable
+        {
+            private int _released;
+
+            internal WalkReservation() { }
+
+            /// <summary>True until <see cref="Dispose"/> has run.</summary>
+            public bool IsHeld => Volatile.Read(ref _released) == 0;
+
+            public void Dispose()
+            {
+                if (Interlocked.Exchange(ref _released, 1) == 0)
+                    Interlocked.Exchange(ref _walkInFlight, 0);
+            }
+        }
+
+        /// <summary>
+        /// Take the profile-walk flag now, or return null when another walk
+        /// holds it. The caller owns the result and must dispose it on every
+        /// path.
+        /// </summary>
+        public static WalkReservation TryReserveWalk()
+        {
+            if (Interlocked.CompareExchange(ref _walkInFlight, 1, 0) != 0)
+            {
+                Tracing.TraceLine("ProfileReporter: walk reservation refused — a profile walk is already running", TraceLevel.Warning);
+                return null;
+            }
+            return new WalkReservation();
+        }
+
+        private static void RequireHeld(WalkReservation reservation)
+        {
+            if (reservation == null || !reservation.IsHeld)
+                throw new ArgumentException(
+                    "a profile walk must run under a reservation that is still held", nameof(reservation));
+        }
+
+        // ══ #469 repair round one: one decider for what the comparison loads ══
+        //
+        // The start sentence promised "each stored profile is loaded" from a
+        // policy check alone, while the report loads only global and TX
+        // profiles, only a type with two or more stored, and never mic. The
+        // plan below is the single answer: the radio's lists are read ONCE,
+        // the policy is asked ONCE, and the start sentence, the transmit
+        // refusal and the walk itself all read the same plan, so none of them
+        // can say something the others do not do.
+
+        /// <summary>
+        /// What one profile walk — the comparison report's or the restore
+        /// capture's — will do on this radio, decided before anything is said
+        /// or loaded. Each walk has its own maker, because they load different
+        /// sets: <see cref="PlanComparison"/> and <see cref="PlanRestoreCapture"/>.
+        /// </summary>
+        public sealed class ProfileWalkPlan
+        {
+            /// <summary>Policy: the change-nothing hold is off and the operator
+            /// opted this radio in to profile loading (#414, #450). False means
+            /// the report leaves the comparison out and says why.</summary>
+            public bool ProfilesMayBeLoaded { get; internal set; }
+
+            /// <summary>The radio's own lists, global, TX and mic, read once.
+            /// The report prints these, so it cannot disagree with the
+            /// plan.</summary>
+            public IReadOnlyDictionary<ProfileTypes, FlexBase.RadioProfileList> Lists { get; internal set; }
+
+            /// <summary>The types the walk will actually load, in order. Empty
+            /// means nothing on the radio moves.</summary>
+            public IReadOnlyList<ProfileTypes> TypesToLoad { get; internal set; }
+
+            public bool WillLoad => TypesToLoad.Count > 0;
+        }
+
+        /// <summary>
+        /// The policy half: whether this radio permits the comparison to load
+        /// profiles at all. Not under the change-nothing hold (#414), and only
+        /// on a radio the operator opted in to profile loading (#450). It does
+        /// not read the lists; <see cref="PlanComparison"/> does.
+        /// </summary>
+        public static bool ComparisonMayLoadProfiles(FlexBase rig)
+            => !rig.ChangeNothingActive
+               && rig.ProfileIntent == ProfileGuestIntent.LoadMineAndPutBack;
+
+        /// <summary>
+        /// The types a comparison loads, given the policy answer and the
+        /// radio's lists: global, then TX, each only when the radio reported
+        /// two or more of it — one profile has nothing to be compared with.
+        /// Mic profiles are listed by the report and never loaded by it.
+        /// Pure, so a test can hold every case.
+        /// </summary>
+        internal static IReadOnlyList<ProfileTypes> TypesTheComparisonLoads(
+            bool profilesMayBeLoaded,
+            IReadOnlyDictionary<ProfileTypes, FlexBase.RadioProfileList> lists)
+        {
+            var result = new List<ProfileTypes>();
+            if (!profilesMayBeLoaded || lists == null) return result;
+            foreach (var t in new[] { ProfileTypes.global, ProfileTypes.tx })
+            {
+                if (lists.TryGetValue(t, out var l) && l != null && l.Reported && l.Names.Count >= 2)
+                    result.Add(t);
+            }
+            return result;
+        }
+
+        internal static ProfileWalkPlan MakeComparisonPlan(
+            bool profilesMayBeLoaded,
+            IReadOnlyDictionary<ProfileTypes, FlexBase.RadioProfileList> lists)
+            => new ProfileWalkPlan
+            {
+                ProfilesMayBeLoaded = profilesMayBeLoaded,
+                Lists = lists,
+                TypesToLoad = TypesTheComparisonLoads(profilesMayBeLoaded, lists),
+            };
+
+        /// <summary>
+        /// Read the radio's lists and decide what the comparison will do.
+        /// Asks the radio (a bounded wait per list), so never on the UI
+        /// thread. Read-only: nothing on the radio changes.
+        /// </summary>
+        public static ProfileWalkPlan PlanComparison(FlexBase rig)
+        {
+            var lists = new Dictionary<ProfileTypes, FlexBase.RadioProfileList>();
+            foreach (var t in new[] { ProfileTypes.global, ProfileTypes.tx, ProfileTypes.mic })
+                lists[t] = ReadListSafely(rig, t);
+            var plan = MakeComparisonPlan(ComparisonMayLoadProfiles(rig), lists);
+            Tracing.TraceLine("ProfileReporter: comparison plan — "
+                + (plan.WillLoad ? "loads " + string.Join(" then ", plan.TypesToLoad.Select(TypeLabel))
+                    : plan.ProfilesMayBeLoaded ? "nothing to compare, loads nothing"
+                    : "profile loading not permitted here, loads nothing"), TraceLevel.Info);
+            return plan;
+        }
+
+        /// <summary>The kinds a plan loads, as the start sentences and the
+        /// transmit refusal name them: "global", "global and TX", "global, TX
+        /// and mic". The words come from the lexicon; only the list
+        /// punctuation is here.</summary>
+        internal static string KindsPhrase(IReadOnlyList<ProfileTypes> types)
+        {
+            var words = types.Select(t => Lexicon.Get(t == ProfileTypes.global
+                    ? "settings.profile.report_kinds.global"
+                    : t == ProfileTypes.tx
+                        ? "settings.profile.report_kinds.tx"
+                        : "settings.profile.report_kinds.mic")).ToList();
+            if (words.Count <= 1) return words.FirstOrDefault() ?? "";
+            string and = Lexicon.Get("settings.profile.report_kinds.and");
+            return string.Join(", ", words.Take(words.Count - 1)) + " " + and + " " + words[words.Count - 1];
+        }
+
+        /// <summary>
+        /// The sentence spoken when the comparison report starts, true to the
+        /// plan: it names the kinds that will be loaded, or, when nothing will
+        /// be, makes no promise of loading.
+        /// </summary>
+        public static string ComparisonStartSentence(ProfileWalkPlan plan)
+        {
+            if (plan.WillLoad)
+                return Lexicon.Get("settings.profile.report_start",
+                    ("kinds", KindsPhrase(plan.TypesToLoad)));
+            if (!plan.ProfilesMayBeLoaded)
+                return Lexicon.Get("settings.profile.report_start_no_walk");
+            // #469 round two (Codex's blocker 2): a list the radio never
+            // reported, or that could not be asked for, is NOT an empty one.
+            // "Nothing to compare" is said only when both lists arrived and
+            // neither holds two; otherwise the sentence says which list did
+            // not arrive.
+            var missing = new[] { ProfileTypes.global, ProfileTypes.tx }
+                .Where(t => plan.Lists == null || !plan.Lists.TryGetValue(t, out var l) || l == null || !l.Reported)
+                .ToList();
+            if (missing.Count == 0)
+                return Lexicon.Get("settings.profile.report_start_nothing_to_compare");
+            return Lexicon.Get(missing.Count == 1
+                    ? "settings.profile.report_start_list_missing"
+                    : "settings.profile.report_start_lists_missing",
+                ("kinds", KindsPhrase(missing)));
+        }
+
+        /// <summary>
+        /// The transmit refusal for this plan, or null when there is nothing
+        /// to refuse: unkeyed, or keyed on a plan that loads nothing, which is
+        /// a read-only report and runs. When it refuses, its reason names what
+        /// the run would actually have loaded.
+        /// </summary>
+        public static string ComparisonTransmitRefusal(ProfileWalkPlan plan, bool keyed)
+        {
+            if (!keyed || !plan.WillLoad) return null;
+            return Lexicon.Get("settings.profile.report_not_while_transmitting",
+                ("kinds", KindsPhrase(plan.TypesToLoad)));
+        }
+
+        /// <summary>
+        /// The types the restore capture loads: global, TX and mic, each
+        /// whenever the radio reported at least one stored — the capture's job
+        /// is every stored profile, so a single one is walked — and none under
+        /// the change-nothing hold. Pure, so a test can hold every case.
+        /// </summary>
+        internal static IReadOnlyList<ProfileTypes> TypesTheRestoreCaptureLoads(
+            bool walkPermitted,
+            IReadOnlyDictionary<ProfileTypes, FlexBase.RadioProfileList> lists)
+        {
+            var result = new List<ProfileTypes>();
+            if (!walkPermitted || lists == null) return result;
+            foreach (var t in new[] { ProfileTypes.global, ProfileTypes.tx, ProfileTypes.mic })
+            {
+                if (lists.TryGetValue(t, out var l) && l != null && l.Reported && l.Names.Count >= 1)
+                    result.Add(t);
+            }
+            return result;
+        }
+
+        internal static ProfileWalkPlan MakeRestorePlan(
+            bool walkPermitted,
+            IReadOnlyDictionary<ProfileTypes, FlexBase.RadioProfileList> lists)
+            => new ProfileWalkPlan
+            {
+                ProfilesMayBeLoaded = walkPermitted,
+                Lists = lists,
+                TypesToLoad = TypesTheRestoreCaptureLoads(walkPermitted, lists),
+            };
+
+        /// <summary>
+        /// Read the radio's lists and decide what the restore capture will
+        /// load (#469, the same class as the comparison's start sentence: the
+        /// capture said "every stored profile is loaded" whatever would load).
+        /// The capture's file prints these same lists, so the file, the start
+        /// sentence and the transmit refusal cannot disagree. Asks the radio,
+        /// so never on the UI thread; read-only.
+        /// </summary>
+        public static ProfileWalkPlan PlanRestoreCapture(FlexBase rig)
+        {
+            var lists = new Dictionary<ProfileTypes, FlexBase.RadioProfileList>();
+            foreach (var t in new[] { ProfileTypes.global, ProfileTypes.tx, ProfileTypes.mic })
+                lists[t] = ReadListSafely(rig, t);
+            var plan = MakeRestorePlan(RestoreCaptureWouldWalk(rig), lists);
+            Tracing.TraceLine("RestoreGradeExport: plan — "
+                + (plan.WillLoad ? "loads " + string.Join(" then ", plan.TypesToLoad.Select(TypeLabel))
+                    : plan.ProfilesMayBeLoaded ? "no stored profile could be read, loads nothing"
+                    : "change nothing is on, loads nothing"), TraceLevel.Info);
+            return plan;
+        }
+
+        /// <summary>
+        /// The restore capture's start sentence, true to its plan: it names
+        /// the kinds that will be loaded, or, when nothing will be, makes no
+        /// promise of loading.
+        /// </summary>
+        public static string RestoreStartSentence(ProfileWalkPlan plan)
+        {
+            if (plan.WillLoad)
+                return Lexicon.Get("settings.restore_export.start_walk",
+                    ("kinds", KindsPhrase(plan.TypesToLoad)));
+            return plan.ProfilesMayBeLoaded
+                ? Lexicon.Get("settings.restore_export.start_nothing_to_walk")
+                : Lexicon.Get("settings.restore_export.start_no_walk");
+        }
+
+        /// <summary>The restore capture's transmit refusal for this plan, or
+        /// null: unkeyed, or keyed on a plan that loads nothing, which is a
+        /// read-only capture and runs. When it refuses, it names the kinds the
+        /// plan would load and nothing more (#469 round two, Codex's blocker
+        /// 3: the legacy sentence said "every stored profile" even when some
+        /// lists had not arrived).</summary>
+        public static string RestoreTransmitRefusal(ProfileWalkPlan plan, bool keyed)
+            => keyed && plan.WillLoad
+                ? Lexicon.Get("settings.restore_export.not_while_transmitting_kinds",
+                    ("kinds", KindsPhrase(plan.TypesToLoad)))
+                : null;
+
+        /// <summary>The sentence for a refused restore capture after the
+        /// settle, true to why it refused: the plan-specific transmit refusal,
+        /// never the legacy "every stored profile" (#469 round three).</summary>
+        public static string RestoreRefusedSentence(RestoreGradeExport export, ProfileWalkPlan plan)
+            => export.Refused == WalkRefusal.Transmitting
+                ? RestoreTransmitRefusal(plan, keyed: true)
+                : Lexicon.Get("settings.restore_export.busy");
+
+        /// <summary>What one comparison run produced.</summary>
+        public sealed class ComparisonReport
+        {
+            /// <summary>The report text; null when it refused.</summary>
+            public string Text;
+            public WalkRefusal Refused;
+            /// <summary>The radio was keyed during the walk, so it stopped and
+            /// put nothing back.</summary>
+            public bool StoppedForTransmit;
+            /// <summary>Some walk requested at least one profile load. That is
+            /// the whole test for the pointer sentence (#469 round six).</summary>
+            public bool AnyLoadRequested;
+        }
+
+        /// <summary>The sentence for a refused run, true to why it refused.</summary>
+        public static string ComparisonRefusedSentence(ComparisonReport report, ProfileWalkPlan plan)
+            => report.Refused == WalkRefusal.Transmitting
+                ? ComparisonTransmitRefusal(plan, keyed: true)
+                : Lexicon.Get("settings.restore_export.busy");
+
+        /// <summary>
+        /// The sentence that answers the press when the report is saved. A run
+        /// that requested any profile load ends with the manual route, and
+        /// claims nothing about what reached the radio (#469 round six). After a transmit stop it says the
+        /// comparison may be incomplete and gives the same manual route as the
+        /// stop line, naming no profile and claiming nothing about where the
+        /// radio was left (#469 round four).
+        /// </summary>
+        public static string ComparisonFinishedSentence(ComparisonReport report, string path)
+        {
+            if (!report.StoppedForTransmit)
+            {
+                if (!report.AnyLoadRequested)
+                    return Lexicon.Get("settings.profile.report_saved", ("path", path));
+                return Lexicon.Get("settings.profile.report_saved_loaded", ("path", path));
+            }
+            return Lexicon.Get("settings.profile.report_saved_stopped", ("path", path));
+        }
+
+        /// <summary>
         /// Generate a full report including profile comparisons and meter enumeration.
         /// Sprint 20: Enhanced report with load-snapshot profile comparison and meter listing.
+        /// Reserves the walk itself and plans on the spot; returns null when it
+        /// refused, and the overload with an <c>out</c> parameter says why.
+        /// The menu uses the reservation overload instead, so it can reserve at
+        /// the press and plan before it speaks.
         /// </summary>
         public static string GenerateReport(FlexBase rig, Action<string> progressCallback = null)
+            => GenerateReport(rig, progressCallback, out _);
+
+        /// <summary>
+        /// <see cref="GenerateReport(FlexBase, Action{string})"/>, saying why
+        /// it refused when it returns null.
+        /// </summary>
+        public static string GenerateReport(FlexBase rig, Action<string> progressCallback,
+            out WalkRefusal refusal)
+        {
+            using (var reservation = TryReserveWalk())
+            {
+                if (reservation == null)
+                {
+                    refusal = WalkRefusal.WalkAlreadyRunning;
+                    return null;
+                }
+                var report = GenerateReport(reservation, PlanComparison(rig), rig, progressCallback);
+                refusal = report.Refused;
+                return report.Text;
+            }
+        }
+
+        /// <summary>
+        /// Run the comparison report under a walk the caller has already
+        /// reserved, doing exactly what <paramref name="plan"/> says. The
+        /// caller still owns the reservation and releases it.
+        /// </summary>
+        /// <remarks>
+        /// #469: this report walks profiles exactly as the restore capture
+        /// does, so it runs under the SAME in-flight flag for its whole run.
+        /// Until #469 it only CHECKED the flag (at the menu) and never set it,
+        /// so a restore capture started during a comparison report, or a
+        /// second report, sailed through the guard that exists to stop two
+        /// walks restoring each other's wrong state. The flag covers the
+        /// read-only sections too: they read the profile selection a walk
+        /// moves. Keyed transmit is asked again here, after the menu's settle,
+        /// and only when the plan loads something; a read-only report runs
+        /// keyed, because nothing in it changes the radio.
+        /// </remarks>
+        public static ComparisonReport GenerateReport(
+            WalkReservation reservation, ProfileWalkPlan plan, FlexBase rig,
+            Action<string> progressCallback)
+        {
+            RequireHeld(reservation);
+            if (plan == null) throw new ArgumentNullException(nameof(plan));
+            WalkHeldProbe?.Invoke("comparison report");
+
+            if (plan.WillLoad && rig.Transmit)
+            {
+                Tracing.TraceLine("ProfileReporter: comparison report refused — the radio is transmitting and this run would load profiles", TraceLevel.Warning);
+                return new ComparisonReport { Refused = WalkRefusal.Transmitting };
+            }
+
+            var result = new ComparisonReport();
+            result.Text = GenerateReportCore(rig, plan, progressCallback, result);
+            return result;
+        }
+
+        private static string GenerateReportCore(FlexBase rig, ProfileWalkPlan plan,
+            Action<string> progressCallback, ComparisonReport result)
         {
             var sb = new StringBuilder();
             sb.AppendLine($"JJFlexRadio Profile Report");
@@ -610,9 +1206,9 @@ namespace Radios
             sb.AppendLine(new string('=', 60));
 
             // List all profiles by type — the RADIO's own lists (#418), each
-            // with its three-state reading. A type whose list could not be
-            // read still gets its heading: a section silently missing is the
-            // gap this report exists to prevent.
+            // with its three-state reading, as the plan read them. A type
+            // whose list could not be read still gets its heading: a section
+            // silently missing is the gap this report exists to prevent.
             var types = new[] {
                 ProfileTypes.global,
                 ProfileTypes.tx,
@@ -622,7 +1218,9 @@ namespace Radios
             var readings = new Dictionary<ProfileTypes, FlexBase.RadioProfileList>();
             foreach (var ptype in types)
             {
-                var list = ReadListSafely(rig, ptype);
+                var list = plan.Lists != null && plan.Lists.TryGetValue(ptype, out var planned) && planned != null
+                    ? planned
+                    : ReadListSafely(rig, ptype);
                 readings[ptype] = list;
 
                 sb.AppendLine();
@@ -709,10 +1307,7 @@ namespace Radios
             //
             // The read-only sections above still run, so a shorter report
             // reads as the setting working rather than the feature breaking.
-            bool guestRefusesWalk =
-                rig.ProfileIntent != ProfileGuestIntent.LoadMineAndPutBack;
-
-            if (rig.ChangeNothingActive || guestRefusesWalk)
+            if (!plan.ProfilesMayBeLoaded)
             {
                 sb.AppendLine();
                 sb.AppendLine(new string('=', 60));
@@ -742,13 +1337,19 @@ namespace Radios
                     TraceLevel.Warning);
             }
             else
-            foreach (var ptype in new[] { ProfileTypes.global, ProfileTypes.tx })
+            // The plan's types and nothing else (#469): the start sentence
+            // named exactly these, so the walk loads exactly these.
+            foreach (var ptype in plan.TypesToLoad)
             {
                 var list = readings[ptype];
-                if (!list.Reported || list.Names.Count < 2) continue;
 
-                progressCallback?.Invoke($"Comparing {ptype} profiles...");
+                // Traced, not spoken (#469): the walker's first "Loading ...
+                // profile 1 of N" line follows at once and would interrupt it,
+                // so the first spoken progress is the first thing that takes
+                // time — the restore capture's rule.
+                Tracing.TraceLine($"ProfileReporter: comparing {TypeLabel(ptype)} profiles", TraceLevel.Info);
                 var snapshots = CaptureAllProfiles(rig, ptype, out var walk, progressCallback, list);
+                if (walk.LoadAttempts > 0) result.AnyLoadRequested = true;
                 if (snapshots.Count >= 2)
                 {
                     sb.AppendLine();
@@ -759,24 +1360,65 @@ namespace Radios
                     FormatProfileComparison(sb, snapshots);
                 }
 
-                // The walk's restore used to be fire-and-forget: a failed
-                // restore left the radio on the wrong profile and the report
-                // said nothing. Now the report says so, loudly.
-                if (walk.RestoreAttempted && !walk.RestoreConfirmed)
+                // What the app requested for the starting profile, and nothing
+                // about whether it reached the radio (#469 round six).
+                if (!walk.StoppedForTransmit) AppendComparisonPutBack(sb, walk);
+
+                // #469: keyed part-way. The walk stopped loading, and no later
+                // type is started; the report says where it stopped, and names
+                // no profile as where the radio was left.
+                if (walk.StoppedForTransmit)
                 {
-                    sb.AppendLine();
-                    sb.AppendLine($"CAUTION: the radio did not confirm {TypeLabel(ptype)} profile");
-                    sb.AppendLine($"'{walk.OriginalSelection}' back in place after this comparison.");
-                    sb.AppendLine($"It may still be on '{walk.LastLoaded}'. Reload your profile");
-                    sb.AppendLine("from the Radio menu before operating.");
+                    result.StoppedForTransmit = true;
+                    AppendComparisonStopped(sb, walk);
+                    break;
                 }
             }
 
-            // Meter enumeration
-            progressCallback?.Invoke("Enumerating meters...");
+            // Meter enumeration. Instant, so nothing is spoken for it: the
+            // next thing the operator hears is the saved path (#469).
             FormatMeterSection(sb, rig);
 
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// The comparison report's note on one kind's starting profile after
+        /// an ordinary (unkeyed) walk that requested loads: <see cref="PutBackNote"/>
+        /// and the manual route. Nothing when the walk requested no load.
+        /// </summary>
+        internal static void AppendComparisonPutBack(StringBuilder sb, ProfileWalkOutcome walk)
+        {
+            string note = PutBackNote(walk);
+            if (note == null) return;
+            sb.AppendLine();
+            sb.AppendLine(note);
+            sb.AppendLine("Your profile may not be the one you started with; load it again from Profiles, in the Radio menu, if needed.");
+        }
+
+        /// <summary>
+        /// The comparison report's section for a walk stopped by a key-up
+        /// (#469): what was not compared, and the labelled evidence. It does
+        /// not say where the radio was left, because that is not known.
+        /// </summary>
+        internal static void AppendComparisonStopped(StringBuilder sb, ProfileWalkOutcome walk)
+        {
+            string label = TypeLabel(walk.ProfileType);
+            sb.AppendLine();
+            sb.AppendLine(new string('=', 60));
+            sb.AppendLine("PROFILE LOADING STOPPED");
+            sb.AppendLine(new string('=', 60));
+            sb.AppendLine("The radio was keyed during the comparison, so no more profiles");
+            sb.AppendLine("were requested and nothing was put back while transmitting.");
+            sb.AppendLine(walk.StoppedBefore != null
+                ? $"Loading stopped before {label} profile '{walk.StoppedBefore}' was requested; that profile and every one after it are not compared here."
+                : $"The radio was keyed after the last {label} profile was requested, so nothing was put back.");
+            // Evidence, each value labelled for what it is (#469 round four):
+            // which profile the radio is on is NOT known, and is not claimed.
+            foreach (var (key, value) in StoppedWalkEvidence(walk))
+                sb.AppendLine(char.ToUpperInvariant(key[0]) + key.Substring(1) + ": " + value + ".");
+            sb.AppendLine("Which profile the radio is on now is not known.");
+            sb.AppendLine(TransmitStopSentence());
         }
 
         /// <summary>
@@ -1494,29 +2136,41 @@ namespace Radios
             /// so the file holds only live settings.</summary>
             public bool WalkRan;
 
-            /// <summary>True when nothing was disturbed, or everything the walk
-            /// loaded was confirmed back where it started.</summary>
-            public bool EverythingPutBack;
+            /// <summary>Some walk requested at least one profile load. False
+            /// means no load was even attempted, which is the only case where
+            /// "it was not moved" is provable (#469 round six).</summary>
+            public bool AnyLoadRequested;
+
+            /// <summary>Why the reservation overload declined to run (#469);
+            /// <see cref="WalkRefusal.None"/> when it ran.</summary>
+            public WalkRefusal Refused;
+
+            /// <summary>The radio was keyed during the walk, so it stopped and
+            /// put nothing back (#469); the file says what was not captured.</summary>
+            public bool StoppedForTransmit;
         }
 
         private static int _walkInFlight;
 
         /// <summary>
         /// True while a profile walk is running. Both walking entry points —
-        /// this export and the comparison report — load profiles on the radio,
-        /// and two walks at once would restore each other's wrong state.
+        /// the restore capture and the comparison report — take this flag for
+        /// their whole run and release it on every exit, because both load
+        /// profiles on the radio and two walks at once would restore each
+        /// other's wrong state. Until #469 only the restore capture set it.
         /// </summary>
         public static bool WalkInProgress
             => System.Threading.Volatile.Read(ref _walkInFlight) != 0;
 
         /// <summary>
-        /// Build the restore-grade capture. Walks every global, TX and mic
-        /// profile (in that order — a global load drags TX and mic selections
-        /// with it, so the later walks re-right what the earlier ones moved),
-        /// captures the radio's reported state under each, then puts the
-        /// original profiles back and checks. Returns null if a walk is
-        /// already in flight.
+        /// TEST SEAM ONLY. Called by each walking entry point immediately
+        /// after it has taken the in-flight flag, with the entry point's name,
+        /// so a test can start the OTHER entry point while the flag is
+        /// genuinely held by production code and watch it refuse (#469). Null
+        /// in production; nothing in the application assigns it.
         /// </summary>
+        internal static Action<string> WalkHeldProbe;
+
         /// <summary>
         /// Whether this model has anywhere to SHOW the front-panel
         /// screensaver. Pure, so a test can hold it to the models we ship.
@@ -1540,26 +2194,95 @@ namespace Radios
             catch { return false; }
         }
 
+        /// <summary>
+        /// Build the restore-grade capture. Walks every global, TX and mic
+        /// profile (in that order — a global load drags TX and mic selections
+        /// with it, so the later walks re-right what the earlier ones moved),
+        /// captures the radio's reported state under each, then puts the
+        /// original profiles back and checks. Reserves the walk itself and
+        /// returns null if one is already in flight; the menu reserves at the
+        /// press and uses the reservation overload instead (#469).
+        /// </summary>
         public static RestoreGradeExport GenerateRestoreGradeExport(
             FlexBase rig, Action<string> progressCallback = null)
         {
-            if (Interlocked.CompareExchange(ref _walkInFlight, 1, 0) != 0)
+            using (var reservation = TryReserveWalk())
             {
-                Tracing.TraceLine("RestoreGradeExport: refused — a profile walk is already running", TraceLevel.Warning);
-                return null;
-            }
-            try
-            {
-                return GenerateRestoreGradeExportCore(rig, progressCallback);
-            }
-            finally
-            {
-                Interlocked.Exchange(ref _walkInFlight, 0);
+                if (reservation == null)
+                {
+                    Tracing.TraceLine("RestoreGradeExport: refused — a profile walk is already running", TraceLevel.Warning);
+                    return null;
+                }
+                return GenerateRestoreGradeExport(reservation, rig, progressCallback);
             }
         }
 
+        /// <summary>
+        /// The restore-grade capture, run under a walk the caller has already
+        /// reserved; the caller still owns the reservation and releases it.
+        /// Never null. Refuses, with <see cref="RestoreGradeExport.Refused"/>
+        /// set and no text, when the radio is keyed and the walk would run —
+        /// asked HERE as well as at the press, because the menu's settle is
+        /// four seconds long (#469). Under the change-nothing hold the capture
+        /// is read-only and runs keyed.
+        /// </summary>
+        public static RestoreGradeExport GenerateRestoreGradeExport(
+            WalkReservation reservation, FlexBase rig, Action<string> progressCallback)
+        {
+            RequireHeld(reservation);
+            return GenerateRestoreGradeExport(reservation, PlanRestoreCapture(rig), rig, progressCallback);
+        }
+
+        /// <summary>
+        /// The restore-grade capture under a reservation the caller holds,
+        /// doing exactly what <paramref name="plan"/> (from
+        /// <see cref="PlanRestoreCapture"/>) says: the menu plans first so its
+        /// start sentence names what will load, and the file then prints the
+        /// same lists the sentence was decided from.
+        /// </summary>
+        public static RestoreGradeExport GenerateRestoreGradeExport(
+            WalkReservation reservation, ProfileWalkPlan plan, FlexBase rig, Action<string> progressCallback)
+        {
+            RequireHeld(reservation);
+            if (plan == null) throw new ArgumentNullException(nameof(plan));
+            WalkHeldProbe?.Invoke("restore capture");
+            if (plan.WillLoad && rig.Transmit)
+            {
+                Tracing.TraceLine("RestoreGradeExport: refused — the radio is transmitting and the walk would load profiles", TraceLevel.Warning);
+                return new RestoreGradeExport { Refused = WalkRefusal.Transmitting };
+            }
+            return GenerateRestoreGradeExportCore(rig, plan, progressCallback);
+        }
+
+        /// <summary>
+        /// Whether the restore capture walks on this radio: always, except
+        /// under the change-nothing hold. (It does not ask the #450 opt-in;
+        /// that difference from the comparison report is recorded as a
+        /// question for Noel, not decided here.)
+        /// </summary>
+        public static bool RestoreCaptureWouldWalk(FlexBase rig) => !rig.ChangeNothingActive;
+
+        /// <summary>
+        /// The sentence that answers the restore-capture press when the file
+        /// is written: the existing three, plus the one for a walk stopped
+        /// because the radio was keyed, which names no profile and claims
+        /// nothing about where the radio was left (#469 round four).
+        /// </summary>
+        public static string RestoreFinishedSentence(RestoreGradeExport export, string path)
+        {
+            string key;
+            if (!export.WalkRan) key = "settings.restore_export.saved_no_walk";
+            else if (export.StoppedForTransmit)
+                return Lexicon.Get("settings.restore_export.saved_stopped", ("path", path));
+            else if (!export.AnyLoadRequested)
+                key = "settings.restore_export.saved_nothing_moved";
+            else
+                key = "settings.restore_export.saved_loaded";
+            return Lexicon.Get(key, ("path", path));
+        }
+
         private static RestoreGradeExport GenerateRestoreGradeExportCore(
-            FlexBase rig, Action<string> progressCallback)
+            FlexBase rig, ProfileWalkPlan plan, Action<string> progressCallback)
         {
             var result = new RestoreGradeExport();
             var sb = new StringBuilder();
@@ -1626,7 +2349,11 @@ namespace Radios
             var lists = new Dictionary<ProfileTypes, FlexBase.RadioProfileList>();
             foreach (var t in profileTypes)
             {
-                lists[t] = ReadListSafely(rig, t);
+                // #469: the plan's reading, so the file and the start sentence
+                // were decided from the same lists.
+                lists[t] = plan.Lists != null && plan.Lists.TryGetValue(t, out var planned) && planned != null
+                    ? planned
+                    : ReadListSafely(rig, t);
                 capture.Add(ProfileCountLine(lists[t]));
                 var crossCheck = ProfileCrossCheckLine(lists[t]);
                 if (crossCheck != null) capture.Add(crossCheck);
@@ -1732,7 +2459,7 @@ namespace Radios
 
             // ── The walk ──
             var outcomes = new List<ProfileWalkOutcome>();
-            if (rig.ChangeNothingActive)
+            if (!plan.ProfilesMayBeLoaded)
             {
                 // Same reasoning as the comparison report: walking means
                 // loading every profile on a radio the operator asked us to
@@ -1744,7 +2471,6 @@ namespace Radios
                 sb.AppendLine();
                 Tracing.TraceLine("RestoreGradeExport: walk skipped — change nothing is on for this radio", TraceLevel.Warning);
                 result.WalkRan = false;
-                result.EverythingPutBack = true; // nothing was touched
             }
             else
             {
@@ -1763,12 +2489,34 @@ namespace Radios
                     // and "we could not see them" is the whole point (#418).
                     if (!lists[t].Reported || lists[t].Names.Count == 0)
                         AppendUnwalkedTypeSection(sb, lists[t]);
+
+                    // #469: keyed part-way. No later type is started, and the
+                    // file says what is missing, so a capture taken before a
+                    // reset cannot pass for a complete one.
+                    if (outcome.StoppedForTransmit)
+                    {
+                        result.StoppedForTransmit = true;
+                        var notWalked = profileTypes
+                            .SkipWhile(x => x != t).Skip(1)
+                            .Select(x => TypeLabel(x) + " profiles").ToList();
+                        sb.AppendLine("[profile walk stopped]");
+                        sb.AppendLine("reason = the radio was keyed during the walk, so no more profiles were requested and nothing was put back while transmitting");
+                        sb.AppendLine(outcome.StoppedBefore != null
+                            ? "stopped before = " + TypeLabel(t) + " profile " + outcome.StoppedBefore
+                              + " was requested; it and every " + TypeLabel(t) + " profile after it are not in this file"
+                            : "stopped after = the last " + TypeLabel(t) + " profile was requested, so nothing was put back");
+                        foreach (var (key, value) in StoppedWalkEvidence(outcome))
+                            sb.AppendLine(key + " = " + value);
+                        sb.AppendLine("profile the radio is on now = not known");
+                        sb.AppendLine("not walked at all = " + (notWalked.Count == 0 ? "none" : string.Join(", ", notWalked)));
+                        sb.AppendLine("to capture them = unkey, then run this export again");
+                        sb.AppendLine();
+                        break;
+                    }
                 }
-                // A walk that never sent a load request did not move the
-                // radio; only one that did needs its restore confirmed.
-                result.EverythingPutBack = outcomes.All(o =>
-                    o.LoadAttempts == 0
-                    || (o.RestoreAttempted && o.RestoreConfirmed));
+                // Only a capture that requested no load at all may say the
+                // radio was not moved (#469 round six).
+                result.AnyLoadRequested = outcomes.Any(o => o.LoadAttempts > 0);
             }
 
             // ── [memories] — not profile contents, but the reset takes them ──
@@ -1823,7 +2571,8 @@ namespace Radios
             AppendSettingLines(sb, memLines);
             sb.AppendLine();
 
-            // ── [after the walk] — where the radio was left ──
+            // ── [after the walk] — what was requested for each starting profile;
+        //    whether it reached the radio is not known (#469 round six) ──
             sb.AppendLine("[after the walk]");
             if (!result.WalkRan)
             {
@@ -1833,36 +2582,7 @@ namespace Radios
             {
                 foreach (var o in outcomes)
                 {
-                    string typeWord = TypeLabel(o.ProfileType);
-                    string key = typeWord + " profile put back";
-                    string value;
-                    if (o.RadioList != null && o.RadioList.CouldNotAsk)
-                        value = "no load was ever sent — the " + typeWord
-                            + " profile list could not be read (" + o.RadioList.Problem
-                            + "), so the radio was not moved";
-                    else if (o.RadioList != null && !o.RadioList.Reported)
-                        value = "no load was ever sent — the radio never reported its "
-                            + typeWord + " profile list, so the radio was not moved";
-                    else if (o.RadioList != null && o.RadioList.Names.Count == 0)
-                        value = "nothing was loaded — the radio reports no stored "
-                            + typeWord + " profiles, so there was nothing to put back";
-                    else if (o.LoadAttempts == 0 && o.Unreadable.Count > 0)
-                        value = "no load was ever sent — there was no radio connection, so the radio was not moved";
-                    else if (o.LoadAttempts == 0)
-                        value = "nothing was loaded, so there was nothing to put back";
-                    else if (o.RestoreAttempted && o.RestoreConfirmed)
-                        value = "yes, " + o.OriginalSelection + " confirmed by the radio";
-                    else if (o.RestoreAttempted)
-                        value = "NO — the radio did not confirm " + o.OriginalSelection
-                            + "; it may still be on " + (o.LastLoaded ?? "an unknown profile")
-                            + ". Reload your profile from the Radio menu before operating";
-                    else if (o.OriginalSelection == null)
-                        value = "unknown — the starting selection could not be read; the radio is left on "
-                            + (o.LastLoaded ?? "an unknown profile");
-                    else
-                        value = "no profile was selected when the walk began; the radio is left on "
-                            + (o.LastLoaded ?? "an unknown profile");
-                    sb.AppendLine(key + " = " + value);
+                    sb.AppendLine(TypeLabel(o.ProfileType) + " profile put back = " + AfterTheWalkValue(o));
                 }
             }
             sb.AppendLine();
@@ -1870,6 +2590,37 @@ namespace Radios
 
             result.Text = sb.ToString();
             return result;
+        }
+
+        /// <summary>
+        /// The restore capture's "[after the walk]" value for one kind: what
+        /// became of its starting profile, said only as far as it is known.
+        /// Nothing here says a put-back reached the radio (#469 round six).
+        /// Pure, so a test can hold every case.
+        /// </summary>
+        internal static string AfterTheWalkValue(ProfileWalkOutcome o)
+        {
+            string typeWord = TypeLabel(o.ProfileType);
+            if (o.RadioList != null && o.RadioList.CouldNotAsk)
+                return "no load was ever sent — the " + typeWord
+                    + " profile list could not be read (" + o.RadioList.Problem
+                    + "), so the radio was not moved";
+            if (o.RadioList != null && !o.RadioList.Reported)
+                return "no load was ever sent — the radio never reported its "
+                    + typeWord + " profile list, so the radio was not moved";
+            if (o.RadioList != null && o.RadioList.Names.Count == 0)
+                return "nothing was loaded — the radio reports no stored "
+                    + typeWord + " profiles, so there was nothing to put back";
+            if (o.StoppedForTransmit)
+                return o.LastRequested == null
+                    ? "nothing was requested, so nothing needed putting back"
+                    : "NO — the radio was keyed, so nothing was put back while transmitting; "
+                      + "which profile the radio is on now is not known. " + TransmitStopSentence();
+            if (o.LoadAttempts == 0 && o.Unreadable.Count > 0)
+                return "no load was ever sent — there was no radio connection, so the radio was not moved";
+            if (o.LoadAttempts == 0)
+                return "nothing was loaded, so there was nothing to put back";
+            return PutBackNote(o) + " Your profile may not be the one you started with; load it again from Profiles, in the Radio menu, if needed";
         }
 
         /// <summary>

@@ -47,19 +47,26 @@ namespace Radios.Tests.StationConnect
         }
 
         // ==================================================================
-        // The defaults: fail closed, and cost the connect nothing but the refusal
+        // The defaults: judge on radio-reported evidence, fail closed without it
         // ==================================================================
 
         [Fact]
-        public void ProductionDefaults_NobodyElseOn_SendTheOwnersLoadOnce_LeaveItHonestlyUnconfirmed_AndFillNothing()
+        public void ProductionDefaults_NobodyElseOn_SendTheOwnersLoadOnce_AndWithoutTheMeasuredEvidence_LeaveItHonestlyUnconfirmed()
         {
             // Case 1 of the 2026-09-22 ruling: nobody else on the radio, so
-            // the global load is sent; completion cannot be proven (B is
-            // closed) and is said so; nothing is topped up (D is closed).
+            // the global load is sent. Until 2026-10-20 this test said
+            // "completion cannot be proven (B is closed)" and delivered the
+            // positive-control boundary, which the production default did not
+            // read. #639 retired that placeholder: the default now confirms on
+            // what the radio was MEASURED to do (a slice, then the global list
+            // re-reported — LoadCompletionPolicyTests), and this test keeps the
+            // other half: a radio that delivers a slice but never re-lists its
+            // profiles is left honestly Unconfirmed at the deadline, with the
+            // slice kept and nothing topped up.
             var h = new StationHarness(StationPolicies.Defaults());
             h.ArrangeOwnerReconnect();
             h.RadioHonoursPanafallRequests();
-            h.Port.OnGlobalLoadSent = _ => h.DeliverGenuineCompletion(); // the radio does everything right
+            h.Port.OnGlobalLoadSent = _ => h.OwnSliceArrives();
 
             var r = h.Run();
 
@@ -134,13 +141,17 @@ namespace Radios.Tests.StationConnect
         }
 
         [Fact]
-        public void DefaultCompletionPolicy_LeavesASentLoadUnconfirmed_WithNoDefaultFill()
+        public void TheRetiredPlaceholderPolicy_LeavesASentLoadUnconfirmed_WithNoDefaultFill()
         {
+            // LoadCompletionUnconfirmedPolicy was the production default until
+            // 2026-10-20 (#639) and is kept for tests that need a load to stay
+            // outstanding. This pins what it does when asked for: NotProvable
+            // ends the phase at once, the slice is kept, nothing is filled.
             var policies = StationHarness.PositiveControlPolicies();
             policies.LoadCompletion = LoadCompletionUnconfirmedPolicy.Instance;
             var h = new StationHarness(policies);
             h.ArrangeOwnerReconnect();
-            // The radio does everything right — and it still cannot be proven.
+            // The radio does everything right — and this policy cannot read it.
             h.Port.OnGlobalLoadSent = _ => h.DeliverGenuineCompletion();
 
             var r = h.Run();

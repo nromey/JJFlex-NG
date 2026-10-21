@@ -131,6 +131,16 @@ namespace Radios.Speech
         public const string NoTransmitAudio = "no-transmit-audio";
 
         /// <summary>
+        /// A transmit key pressed in a dialog while something else owns the
+        /// transmitter (#778c): an Audio Check session is running, so the
+        /// dialog door refuses push to talk and the lock with the layer's own
+        /// very short sentences. One of these is true at a time, and the next
+        /// refused press retires an unheard earlier one; it says nothing a
+        /// value layer's status says, so it does not share that subject.
+        /// </summary>
+        public const string TransmitKeyRefused = "transmit-key-refused";
+
+        /// <summary>
         /// Reflected power is high enough to warn about, whether or not a cut
         /// follows (#224, #571).
         ///
@@ -499,5 +509,40 @@ namespace Radios.Speech
         /// next clear.
         /// </summary>
         public const string AtuMemories = "atu-memories";
+
+        /// <summary>
+        /// A global-profile write refused because the radio is not declared
+        /// the operator's, or its ownership is not yet answered (junkbox
+        /// #777). Spoken from the funnel every global save passes through,
+        /// in answer to the operator's own press on the Profiles dialog's
+        /// Save, so the next such press covers it. Its own subject because it
+        /// is a statement about WHOSE radio this is, not about the hold or the
+        /// roster, and the operator's remedy — Settings, under Radios — is
+        /// different from either. The menu route speaks the same sentence
+        /// through the menu-close path, which carries no subject today.
+        /// </summary>
+        public const string GlobalProfileWriteRefusal = "global-profile-write-refusal";
+
+        /// <summary>
+        /// The radio's microphone input left PC while computer transmit audio
+        /// was running, on a radio NOT declared the operator's, so JJ Flex left
+        /// the owner's choice alone and said so instead of putting it back
+        /// (junkbox #686). Spoken once per divergence episode by
+        /// <c>checkPcMicSelection</c>; the next episode's report covers it.
+        /// Its own subject because it is a statement about where the transmit
+        /// audio is going on somebody else's radio, not a refusal of anything
+        /// the operator pressed, so <see cref="GlobalProfileWriteRefusal"/>
+        /// says nothing about it and must not retire it.
+        /// </summary>
+        public const string PcMicLeftForOwner = "pc-mic-left-for-owner";
+
+        /// <summary>
+        /// Where the 60m channel rotation (Alt+Shift+Up / Alt+Shift+Down) just
+        /// landed — a channel, or the digital segment with any mode it set
+        /// (junkbox #312). True until the next press of the rotation moves the
+        /// radio again, which says the same kind of thing about the new stop, so
+        /// the newer stop covers an unheard older one.
+        /// </summary>
+        public const string SixtyMeterStop = "sixty-meter-stop";
     }
 }

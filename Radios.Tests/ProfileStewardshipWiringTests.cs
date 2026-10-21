@@ -248,8 +248,18 @@ namespace Radios.Tests
             // GenerateReport loads every stored profile in turn to compare
             // them. That is a write wearing the word "report", and its restore
             // is best-effort by construction.
-            Assert.Contains("rig.ProfileIntent != ProfileGuestIntent.LoadMineAndPutBack",
-                Read(Reporter), StringComparison.Ordinal);
+            //
+            // #469 moved the decision into ComparisonMayLoadProfiles, read once
+            // into the comparison plan, so the menu's sentences and the
+            // report's skip ask one question; ComparisonReportGuardTests drives
+            // the plan. This pins that the report itself still consults it.
+            string reporter = Read(Reporter);
+            Assert.Contains("rig.ProfileIntent == ProfileGuestIntent.LoadMineAndPutBack",
+                reporter, StringComparison.Ordinal);
+            Assert.Contains("if (!plan.ProfilesMayBeLoaded)",
+                reporter, StringComparison.Ordinal);
+            Assert.Contains("MakeComparisonPlan(ComparisonMayLoadProfiles(rig), lists)",
+                reporter, StringComparison.Ordinal);
         }
     }
 }

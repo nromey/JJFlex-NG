@@ -513,6 +513,39 @@ namespace Radios
         }
 
         /// <summary>
+        /// An interrupting one-shot that WAITS for the safety speaking turn
+        /// instead of cutting it (#778b round five). With no transmit-safety
+        /// sentence or alarm holding the turn, and none waiting for it, this
+        /// is <see cref="Speak(string, Speech.SpeechIntent, VerbosityLevel, string?, Speech.SpeechCoalesceKind, string?, bool, Func{bool}?, string, int, string)"/>
+        /// with <see cref="Speech.SpeechIntent.Interrupt"/>, spoken at once.
+        /// Otherwise it is said after the last of them; see
+        /// <see cref="Speech.SpeechArbiter.EmitYieldingToSafety"/>. The
+        /// verbosity gate is the same one, applied now.
+        /// </summary>
+        /// <remarks>
+        /// For speech that must be heard at Off and must never take the reader
+        /// from a safety announcement: today, a value layer's refusal when its
+        /// tone cannot sound. Opt-in; no other speech changes.
+        /// </remarks>
+        public static void SpeakYieldingToSafety(
+            string message,
+            VerbosityLevel level,
+            string? subject = null,
+            [CallerFilePath] string callerFile = "",
+            [CallerLineNumber] int callerLine = 0,
+            [CallerMemberName] string callerMember = "")
+        {
+            if (string.IsNullOrEmpty(message)) return;
+            string origin = FormatOrigin(callerFile, callerLine, callerMember);
+            if ((int)level > (int)CurrentVerbosity)
+            {
+                RecordGated(message, level, Speech.SpeechIntent.Interrupt, origin);
+                return;
+            }
+            _arbiter.EmitYieldingToSafety(message, level, origin, subject);
+        }
+
+        /// <summary>
         /// An operator alarm's warning (#566): Critical level, Urgent intent,
         /// under the arbiter's alarm-aware priority contract. Critical because
         /// the overload above checks level before intent and a Terse Urgent
