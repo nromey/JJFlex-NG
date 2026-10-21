@@ -2382,9 +2382,6 @@ settings.guard.action.network	3f31f36cd2415e6e
 settings.guard.action.oscillator	d92dd91236b750e4
 settings.guard.action.ports	6131f8d1dc28b6f9
 settings.guard.action.private_ip	24d6f0ce61fb80c1
-settings.guard.action.profile_delete	94e3ddbc8acb5f03
-settings.guard.action.profile_load	dc541d94f8928d2a
-settings.guard.action.profile_save	61728452905f5e7d
 settings.guard.action.registration	73c14819d94ef35e
 settings.guard.action.rem_on	6fda9395303412ab
 settings.guard.action.rename	bf164e9822d4287c

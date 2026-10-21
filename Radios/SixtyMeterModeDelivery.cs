@@ -42,7 +42,6 @@ namespace Radios
             ModeRequestOutcome outcome)
         {
             var args = new (string, object?)[] { ("mode", correction.RequiredMode), ("segment", correction.SegmentLabel) };
-            // DRAFT PROSE (#312): awaiting Noel.
             string key = outcome switch
             {
                 ModeRequestOutcome.Sent => "settings.band.mode_switching",

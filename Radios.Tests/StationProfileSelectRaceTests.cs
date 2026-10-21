@@ -38,10 +38,10 @@ namespace Radios.Tests
         private static string Kind(ProfileTypes type) => type == ProfileTypes.tx ? "tx" : "mic";
 
         [Theory]
-        [InlineData(RadioOwnership.SomeoneElses, ProfileTypes.tx, "did not create a transmit profile on it")]
-        [InlineData(RadioOwnership.Unset, ProfileTypes.tx, "did not create a transmit profile on it")]
-        [InlineData(RadioOwnership.SomeoneElses, ProfileTypes.mic, "did not create a microphone profile on it")]
-        [InlineData(RadioOwnership.Unset, ProfileTypes.mic, "did not create a microphone profile on it")]
+        [InlineData(RadioOwnership.SomeoneElses, ProfileTypes.tx, "did not create the transmit profile.")]
+        [InlineData(RadioOwnership.Unset, ProfileTypes.tx, "did not create the transmit profile.")]
+        [InlineData(RadioOwnership.SomeoneElses, ProfileTypes.mic, "did not create the microphone profile.")]
+        [InlineData(RadioOwnership.Unset, ProfileTypes.mic, "did not create the microphone profile.")]
         public void AGuestsSelectWhoseNameIsGoneAtDispatchIsRefusedAndSendsNothing(
             RadioOwnership ownership, ProfileTypes type, string verb)
         {

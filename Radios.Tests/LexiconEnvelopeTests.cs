@@ -846,6 +846,15 @@ namespace Radios.Tests
             // was shown reachable by mutating it one higher and watching it go
             // red — not by adding the three deltas, which would be a
             // prediction wearing a measurement's clothes.
+            //
+            // 3,144 at the junkbox fold (2026-10-21), three fewer: Noel's Fold 6
+            // ruling took the "on it" / "from it" tail off every profile
+            // refusal piece, the three shipped legacy fragments
+            // settings.guard.action.profile_load, profile_save and
+            // profile_delete among them. Rewording a frozen key is exactly what
+            // the manifest refuses, so they leave it and are classified below
+            // beside their four transmit and microphone siblings, as the
+            // fragments they are.
             int unclassified = 0;
             var classified = new List<string>();
 
@@ -977,23 +986,32 @@ namespace Radios.Tests
                 // microphone profiles are refused like global ones: the verb
                 // and kind the two sentences above take as {action} for those
                 // kinds. FRAGMENTS of a sentence, never spoken alone, so
-                // TextOnly is the only honest classification; global keeps
-                // the approved legacy fragments settings.guard.action.profile_save
-                // / profile_delete, which stay frozen and are shared with the
-                // hold's refusal. These four are DRAFTS awaiting Noel; the two
-                // sentences above were APPROVED the same day.
+                // TextOnly is the only honest classification. The two
+                // sentences above were APPROVED the same day; these four
+                // were APPROVED by Noel at the 2026-10-21 fold (Fold 6), with
+                // the "on it" / "from it" tail removed.
                 "settings.guard.action.tx_profile_create",
                 "settings.guard.action.tx_profile_delete",
                 "settings.guard.action.mic_profile_create",
                 "settings.guard.action.mic_profile_delete",
+                // The global fragments, shared with the change-nothing hold's
+                // settings.guard.refused. Legacy and frozen until the same
+                // fold, when Noel's Fold 6 ruling took the same tail off them
+                // so every refusal reads alike ("load the profile", "save the
+                // profile", "delete the profile"); a reworded key cannot stay
+                // in the manifest, so they are classified here on the
+                // reasoning of the four above: fragments, never spoken alone.
+                "settings.guard.action.profile_load",
+                "settings.guard.action.profile_save",
+                "settings.guard.action.profile_delete",
                 // Same track, round two (Codex B3): the honest receipt for a
                 // save whose command did not go out within its bound, which
                 // until then was announced as saved. Spoken only in answer to
                 // the press that asked for the save; TextOnly on the same
                 // reasoning; the existing receipts settings.profile.saved and
                 // settings.station_layout.saved beside them are legacy and
-                // still frozen - DECIDE EACH PAIR TOGETHER. DRAFTS awaiting
-                // Noel.
+                // still frozen - DECIDE EACH PAIR TOGETHER. APPROVED as
+                // written by Noel at the 2026-10-21 fold (Fold 6).
                 "settings.profile.save_not_sent",
                 "settings.station_layout.save_not_sent",
                 // #456: new listenback control labels, dialog body/status prose,
@@ -1156,7 +1174,8 @@ namespace Radios.Tests
                 // needs that contract and a past-tense historyKey in Noel's
                 // words - a question for Noel, not a default. Its sibling
                 // audio.mic.diverged is legacy and still frozen; DECIDE BOTH
-                // TOGETHER. DRAFT awaiting Noel.
+                // TOGETHER. APPROVED by Noel at the 2026-10-21 fold (Fold 4),
+                // its second sentence reworded in his words.
                 "audio.mic.diverged_not_ours",
                 // Same track, repair round one: the start-time sibling. On a
                 // radio not declared Mine, from its local network with no
@@ -1183,7 +1202,8 @@ namespace Radios.Tests
                 // classification. Their sibling settings.band.mode_advisory
                 // ("mode set to ...") had no caller since round two and was
                 // RETIRED, deleted from the lexicon, on Noel's 2026-10-21 07:39
-                // ruling ("yes, retire the sentences"). DRAFTS awaiting Noel.
+                // ruling ("yes, retire the sentences"). APPROVED as written
+                // by Noel at the 2026-10-21 fold (Fold 2).
                 "settings.band.mode_not_set",
                 "settings.band.mode_not_set_transmitting",
                 "settings.band.mode_switching",
@@ -1199,8 +1219,8 @@ namespace Radios.Tests
                 // whole sentence. Until the same day it was spoken on EVERY
                 // owner connect, because the completion default was the bench
                 // B placeholder; it is now reachable only when the evidence
-                // genuinely did not arrive. The wording is a DRAFT awaiting
-                // Noel.
+                // genuinely did not arrive. The wording was APPROVED as
+                // written by Noel at the 2026-10-21 fold (Fold 3).
                 //
                 // delivery: forgettable, request-scoped, no receipt. It is a
                 // standalone thing the application says on its own account, so
@@ -1237,7 +1257,9 @@ namespace Radios.Tests
                 // siblings settings.profile.report_saved and the
                 // settings.restore_export.* family are legacy and still frozen;
                 // WHEN THE PASS REACHES THEM, DECIDE THE TWO REPORTS' SENTENCES
-                // TOGETHER. All four wordings are DRAFTS awaiting Noel.
+                // TOGETHER. APPROVED by Noel at the 2026-10-21 fold (Fold 7). The start and
+                // refusal sentences were reworded in his words; the failure
+                // sentence is as written.
                 "settings.profile.report_start",
                 "settings.profile.report_start_no_walk",
                 "settings.profile.report_not_while_transmitting",
@@ -1253,7 +1275,7 @@ namespace Radios.Tests
                 // the walk, and the two reports' finished sentences for a walk
                 // stopped by a key-up are the delayed answer to that press.
                 // Siblings settings.restore_export.saved_* are legacy and
-                // frozen; DECIDE THEM WITH THESE. All DRAFTS awaiting Noel.
+                // frozen; DECIDE THEM WITH THESE. APPROVED by Noel at the 2026-10-21 fold (Fold 7).
                 "settings.profile.report_start_nothing_to_compare",
                 "settings.profile.report_kinds.global",
                 "settings.profile.report_kinds.tx",
@@ -1265,7 +1287,8 @@ namespace Radios.Tests
                 // "every stored profile is loaded", whatever would load. Three
                 // sentences now, chosen from its plan. The legacy
                 // settings.restore_export.start was RETIRED, deleted from the
-                // lexicon, on Noel's 2026-10-21 07:39 ruling. DRAFTS.
+                // lexicon, on Noel's 2026-10-21 07:39 ruling. APPROVED by Noel at the 2026-10-21 fold (Fold 7).
+                // The start sentences were reworded in his words.
                 "settings.restore_export.start_walk",
                 "settings.restore_export.start_nothing_to_walk",
                 "settings.restore_export.start_no_walk",
@@ -1279,13 +1302,16 @@ namespace Radios.Tests
                 // words. Also: the list-missing start sentences (an unreadable
                 // list is not "nothing to compare") and the restore refusal
                 // that names only the kinds it would load. Same classification
-                // and reasoning as above. All DRAFTS awaiting Noel.
+                // and reasoning as above. APPROVED by Noel at the 2026-10-21 fold (Fold 7).
+                // The list-missing start sentences and the restore refusal
+                // were reworded in his words.
                 // Round four (Noel, 2026-10-20: stop naming profiles after a
                 // transmit stop and claim nothing we cannot prove): every
                 // fragment that named a profile after a stop is gone. The stop
                 // line (settings.profile_walk.stopped_keyed, classified above)
                 // and the two finished sentences now carry one fixed piece of
-                // advice instead. DRAFTS.
+                // advice instead. APPROVED by Noel at the 2026-10-21 fold (Fold 7).
+                // As written.
                 "settings.profile.report_saved_stopped",
                 "settings.restore_export.saved_stopped",
                 "settings.profile.report_start_list_missing",
@@ -1300,7 +1326,8 @@ namespace Radios.Tests
                 // settings.restore_export.saved_put_back / saved_not_put_back
                 // ("back on", which nothing can prove) were RETIRED, deleted
                 // from the lexicon, on Noel's 2026-10-21 07:39 ruling.
-                // Same classification and reasoning as above. DRAFTS.
+                // Same classification and reasoning as above. APPROVED by Noel at the 2026-10-21 fold (Fold 7).
+                // As written.
                 "settings.profile.report_saved_loaded",
                 "settings.restore_export.saved_loaded",
                 "settings.restore_export.saved_nothing_moved",
@@ -1315,7 +1342,8 @@ namespace Radios.Tests
                 // verbosity machinery. The repair round's start-time sentence
                 // audio.mic.not_switched_not_ours was RETIRED the same morning,
                 // when Noel ruled (08:10) that the start always switches to PC;
-                // it never reached main. DRAFTS awaiting Noel.
+                // it never reached main. APPROVED as written by Noel at the
+                // 2026-10-21 fold (Fold 4).
                 // The confirmed and not-confirmed answers (switch_back_done,
                 // switch_back_not_confirmed) were RETIRED the same day, when
                 // Noel ruled (09:41) the item should do what a manual change
@@ -1325,7 +1353,8 @@ namespace Radios.Tests
                 "audio.mic.switch_back_already_pc",
                 // Same reasoning, same day: the answer when the press was made in
                 // a computer-audio session that ended before it could act, so a
-                // later session's saved value is never touched by it. DRAFT.
+                // later session's saved value is never touched by it.
+                // APPROVED as written by Noel at the 2026-10-21 fold (Fold 4).
                 "audio.mic.switch_back_session_changed",
                 "settings.guard.action.mic_input_pc",
                 // Same track, round five (Noel 12:28: "do it the way we do the
@@ -1334,11 +1363,12 @@ namespace Radios.Tests
                 // when the radio refuses the switch. TextOnly for the same
                 // reason as its siblings: it exists only because the operator
                 // pressed Switch Mic Input Back to PC, and it says whether the
-                // radio did what was asked. DRAFT awaiting Noel.
+                // radio did what was asked. APPROVED as written by Noel at
+                // the 2026-10-21 fold (Fold 4).
                 "audio.mic.switch_back_refused",
             };
 
-            Assert.Equal(3147, unclassified);
+            Assert.Equal(3144, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

@@ -235,7 +235,7 @@ namespace Radios.Tests
             Assert.StartsWith("The radio's microphone input changed to MIC,", heard);
             Assert.DoesNotContain("Someone", heard);
             Assert.Contains("will not hear your transmitted audio", heard);
-            Assert.Contains("The Radio menu has Switch Mic Input Back to PC.", heard);
+            Assert.Contains("Use Switch Mic Input Back to PC, found in the Radio menu, to put it back.", heard);
             Assert.DoesNotContain("Setting it back to PC", heard);
             Assert.DoesNotContain("{current}", heard);
             Assert.Equal(1, rig.Rig.PcMicNotOursReports);

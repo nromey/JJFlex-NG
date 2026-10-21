@@ -292,18 +292,18 @@ namespace Radios.Tests
         // ------------------------------------------------------------------
 
         [Theory]
-        [InlineData("settings.guard.profile_write_not_our_radio", "settings.guard.action.profile_save", "did not save a profile on it")]
-        [InlineData("settings.guard.profile_write_not_our_radio", "settings.guard.action.profile_delete", "did not delete a profile from it")]
-        [InlineData("settings.guard.profile_write_not_our_radio", "settings.guard.action.tx_profile_create", "did not create a transmit profile on it")]
-        [InlineData("settings.guard.profile_write_not_our_radio", "settings.guard.action.tx_profile_delete", "did not delete a transmit profile from it")]
-        [InlineData("settings.guard.profile_write_not_our_radio", "settings.guard.action.mic_profile_create", "did not create a microphone profile on it")]
-        [InlineData("settings.guard.profile_write_not_our_radio", "settings.guard.action.mic_profile_delete", "did not delete a microphone profile from it")]
-        [InlineData("settings.guard.profile_write_ownership_unknown", "settings.guard.action.profile_save", "did not save a profile on it")]
-        [InlineData("settings.guard.profile_write_ownership_unknown", "settings.guard.action.profile_delete", "did not delete a profile from it")]
-        [InlineData("settings.guard.profile_write_ownership_unknown", "settings.guard.action.tx_profile_create", "did not create a transmit profile on it")]
-        [InlineData("settings.guard.profile_write_ownership_unknown", "settings.guard.action.tx_profile_delete", "did not delete a transmit profile from it")]
-        [InlineData("settings.guard.profile_write_ownership_unknown", "settings.guard.action.mic_profile_create", "did not create a microphone profile on it")]
-        [InlineData("settings.guard.profile_write_ownership_unknown", "settings.guard.action.mic_profile_delete", "did not delete a microphone profile from it")]
+        [InlineData("settings.guard.profile_write_not_our_radio", "settings.guard.action.profile_save", "did not save the profile.")]
+        [InlineData("settings.guard.profile_write_not_our_radio", "settings.guard.action.profile_delete", "did not delete the profile.")]
+        [InlineData("settings.guard.profile_write_not_our_radio", "settings.guard.action.tx_profile_create", "did not create the transmit profile.")]
+        [InlineData("settings.guard.profile_write_not_our_radio", "settings.guard.action.tx_profile_delete", "did not delete the transmit profile.")]
+        [InlineData("settings.guard.profile_write_not_our_radio", "settings.guard.action.mic_profile_create", "did not create the microphone profile.")]
+        [InlineData("settings.guard.profile_write_not_our_radio", "settings.guard.action.mic_profile_delete", "did not delete the microphone profile.")]
+        [InlineData("settings.guard.profile_write_ownership_unknown", "settings.guard.action.profile_save", "did not save the profile.")]
+        [InlineData("settings.guard.profile_write_ownership_unknown", "settings.guard.action.profile_delete", "did not delete the profile.")]
+        [InlineData("settings.guard.profile_write_ownership_unknown", "settings.guard.action.tx_profile_create", "did not create the transmit profile.")]
+        [InlineData("settings.guard.profile_write_ownership_unknown", "settings.guard.action.tx_profile_delete", "did not delete the transmit profile.")]
+        [InlineData("settings.guard.profile_write_ownership_unknown", "settings.guard.action.mic_profile_create", "did not create the microphone profile.")]
+        [InlineData("settings.guard.profile_write_ownership_unknown", "settings.guard.action.mic_profile_delete", "did not delete the microphone profile.")]
         public void TheRefusalNamesTheVerbAndWhereTheOwnershipAnswerLives(string key, string actionKey, string verb)
         {
             // #638: Don's own radio sat at an unanswered ownership question he

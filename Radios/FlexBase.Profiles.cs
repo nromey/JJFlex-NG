@@ -2955,9 +2955,10 @@ namespace Radios
         /// profile kind an ownership refusal refers to (Noel, 2026-10-19:
         /// transmit and microphone profiles are refused exactly like global
         /// ones, saving and deleting alike, and the sentence names what it
-        /// refused). Global keeps the fragments Noel approved the same day —
-        /// "save a profile on it", "delete a profile from it" — which read
-        /// true of a global profile. A transmit or microphone profile reaches
+        /// refused). Global keeps its own fragments, "save the profile" and
+        /// "delete the profile" since Noel's 2026-10-21 fold took the "on it"
+        /// / "from it" tail off every one, which read true of a global
+        /// profile. A transmit or microphone profile reaches
         /// the radio only by being CREATED, so that is its verb, and those
         /// four fragments name the kind.
         /// </summary>
@@ -2966,7 +2967,6 @@ namespace Radios
             switch (type)
             {
                 case ProfileTypes.tx:
-                    // DRAFT PROSE (#777 round three): awaiting Noel — the four tx/mic fragments.
                     return delete ? "settings.guard.action.tx_profile_delete" : "settings.guard.action.tx_profile_create";
                 case ProfileTypes.mic:
                     return delete ? "settings.guard.action.mic_profile_delete" : "settings.guard.action.mic_profile_create";
@@ -3073,9 +3073,8 @@ namespace Radios
             {
                 Tracing.TraceLine("SaveCurrentStationLayout:" + outcome + " for " + name + "; nothing saved, dirty flag kept",
                     TraceLevel.Warning);
-                // DRAFT PROSE (#777): awaiting Noel. True for Failed (the
-                // command never went out) and for a Refused race alike: the
-                // station was not saved.
+                // True for Failed (the command never went out) and for a
+                // Refused race alike: the station was not saved.
                 return Lexicon.Get("settings.station_layout.save_not_sent", ("profileName", name));
             }
 
