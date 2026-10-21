@@ -1246,8 +1246,8 @@ namespace Radios.Tests
                 // one for a radio where the comparison is left out), its own
                 // transmit refusal, and its own failure sentence: the restore
                 // capture's start sentence named a "restore" capture (since
-                // retired, below) and its not_while_transmitting says "this
-                // export".
+                // retired, below), and its not_while_transmitting said "this
+                // export" and was RETIRED on Noel's 2026-10-21 11:03 ruling.
                 // Classified rather than frozen because they were written here
                 // (#720). delivery: null - TextOnly - on the #726 reasoning:
                 // each is spoken ONLY in answer to the operator's own press of
@@ -1368,7 +1368,7 @@ namespace Radios.Tests
                 "audio.mic.switch_back_refused",
             };
 
-            Assert.Equal(3144, unclassified);
+            Assert.Equal(3143, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

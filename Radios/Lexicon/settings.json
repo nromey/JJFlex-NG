@@ -875,7 +875,6 @@
   "settings.repeat.no_recent_cw": "No recent CW",
   "settings.restore_export.busy": "A profile walk is already running. Let it finish first.",
   "settings.restore_export.failed": "The restore capture failed: {error}",
-  "settings.restore_export.not_while_transmitting": "Not while transmitting. Unkey first — this export loads every stored profile, and profiles change transmit settings.",
   "settings.restore_export.saved_no_walk": "Restore capture written to {path}. The profile walk was skipped because change nothing is on for this radio, so the file holds live settings only.",
   "settings.restore_export.not_while_transmitting_kinds": { "text": "Unkey before starting the capture. It loads your stored {kinds} profiles on the radio, and profiles change transmit settings.", "delivery": null },
   "settings.restore_export.start_walk": { "text": "Capturing settings for restore. Your stored {kinds} profiles are loaded on the radio in turn, so you may hear the radio do things you don't expect. This may take a minute or two. Progress will be spoken as the process proceeds.", "delivery": null },
