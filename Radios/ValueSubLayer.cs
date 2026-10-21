@@ -595,9 +595,9 @@ namespace Radios
         /// of a key always wins: a layer that binds the brackets gets them,
         /// even though the host names them here. Noel ruled on 2026-10-21
         /// 06:37 that inside a layer every bracket chord belongs to the layer
-        /// and only the filter layer moves filters with them; the filter
-        /// layer has no bracket binding yet, so the brackets are still named
-        /// here until it does (ASK-778c-filter-layer-brackets).
+        /// and only the filter layer moves filters with them; that is the
+        /// next junkbox wave's own track, and this code is as it was before
+        /// the ruling.
         /// </para>
         /// </remarks>
         public Func<Keys, bool>? PassThroughKeys;
@@ -776,8 +776,11 @@ namespace Radios
     /// mid-hunt, and, on Home, push to talk, the transmit lock and the
     /// bracket filter keys, which the main window handles in branches the key
     /// registry never lists. In a WPF dialog the two Space chords are taken
-    /// by the window ahead of this engine and key the radio (#778c); the
-    /// brackets there are refused until the filter layer binds them. A
+    /// by the window ahead of this engine and key the radio (#778c), apart
+    /// from Shift+Space over an editable text box, which the window leaves to
+    /// the text box and this engine then refuses; the bare, Shift and Ctrl
+    /// brackets in a dialog are refused, Ctrl+Shift+bracket runs where the
+    /// host's table has its row, and the Alt forms pass as Alt chords. A
     /// layer's own use of a key always beats that list.
     /// Confirm never writes; only cancel writes. (Volume mode predated this
     /// pattern and differed — its Escape kept the adjustments and its unknown

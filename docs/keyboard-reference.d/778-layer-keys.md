@@ -1,4 +1,4 @@
-<!-- Fragment for docs/help/md/keyboard-reference.md. Junkbox #778, both halves, and #778c.
+<!-- Fragment for docs/help/md/keyboard-reference.md. Junkbox #778, both halves, and #778c with its repair round.
 
 Replaces the "Any other key that means something elsewhere..." bullet and the near-miss bullet
 in the audio layer (today's lines 165 and 166) and the same bullet in the filter layer (today's
@@ -9,37 +9,40 @@ Line 166 today quotes "B is not a key in the Audio layer. Ctrl+B: ..." as the ne
 sentence; the shipped sentence has no such prefix (#695) and the bullet below says what is
 actually spoken.
 
-Tab is named below as of #778c. Noel ruled it on 2026-10-21 at 06:32 ("Once in a layer, tab gets
-refused"): on Home, as in a dialog, a live layer refuses Tab and Shift+Tab, and Ctrl+Tab and
-Ctrl+Shift+Tab with them (the track's reading of the ruling, flagged in its report). Before that
-round MainWindow_PreviewKeyDown returned on Tab before asking the layer, so Home's focus moved
-behind an open layer; ASK-778b-main-window-tab.md is answered.
+Rulings this fragment rests on, all Noel, 2026-10-21: 06:29 Alt and F1 keep working in a layer;
+06:30 Ctrl+Space and Shift+Space in a dialog go to transmit, never to a button; 06:32 Tab is
+refused in a layer on Home too, and 07:41 Ctrl+Tab and Ctrl+Shift+Tab with it; 06:34 "if the
+layer's open, the layer is open" (a layer over a text box refuses Shift+Space); 06:42 in a text
+box Shift+Space types a space and Ctrl+Space still keys; 07:37 Escape in a dialog unkeys first,
+then a second Escape closes; 07:38 while an Audio Check is running the dialog keys are refused
+with the tone. Brackets inside a layer were ruled at 06:37 and 07:40 to be the next wave's own
+track; this fragment says only what brackets do today.
 
-Push to talk and the transmit lock from a dialog, ruled 06:30 ("ctrl+space and shift+space
-should never be used to activate a button in a dialog"): in every WPF window Ctrl+Space keys and
-Shift+Space locks, a layer open or not, through the same push-to-talk pipeline Home uses
-(DialogTransmitKeys, the third door beside Home and the system-wide chord). Shift+Space in an
-editable text box still types a space (ruled 06:42). The WinForms full log form is not a WPF
-window and is unchanged. The brackets inside a layer were ruled the other way at 06:37 (they
-belong to the layer; only the filter layer moves filters), but the filter layer has no bracket
-keys of its own yet, so that change is not built in this round and the bracket bullet says so;
-see ASK-778c-filter-layer-brackets.md.
+Routes, so the prose can be checked: the dialog door is DialogTransmitKeys, in the Window class
+preview handler, ahead of the layer and of every control, feeding the same MainWindow edges as
+Home's step 3 and the system-wide chord. It cannot see a native message box (MessageBox.Show is
+not a WPF window), the WinForms full log form, or WinForms-hosted surfaces. The system-wide
+chord's defaults are Ctrl+Alt+Space and Alt+Shift+Space, so plain Ctrl+Space in a dialog is the
+door's even with the hook on. A held Shift+Space toggles once on both doors (Windows' repeats
+dropped; a screen reader's synthesised pairs absorbed by the lock's own PttHoldFilter).
 
 "On Home" below means the main window. Push to talk there also needs focus in the Home fields
-or field groups and the radio powered on, as it always has; that gate is the main window's and
-did not change. The low refusal tone is the ordinary refusal earcon, in the Commands and
-confirmations category; it follows the sound switches, not the speech verbosity, so it plays at
-Off. When it cannot play (all sounds off, or that category off) the layer's sentence is spoken at
-every verbosity instead, Off included, for every refusal in a layer, not only these three
-(ValueSubLayer.Refuse, #778b round four; Noel, 2026-10-19 21:18: "yes, we'd need to let the user
-know somehow"). Until round four that fallback was dropped at Off, so this comment was false;
-ValueLayerRefusalDeliveryTests now holds it. -->
+or field groups and the radio powered on, as it always has. The low refusal tone is the ordinary
+refusal earcon, in the Commands and confirmations category; it follows the sound switches, not
+the speech verbosity, so it plays at Off. When it cannot play, the sentence is spoken at every
+verbosity, Off included (ValueSubLayer.Refuse, #778b round four; the dialog door uses the same
+rule, RefusalVoice.ToneStandsAlone). -->
 
 <!-- DRAFT (#778c) -->
-- **Enter, Escape and the JJ key are the only ways out.** Any other key the layer doesn't use is refused and the layer stays where it was: a letter it doesn't use, the space bar, `Tab` and `Shift+Tab` (and `Ctrl+Tab`, so your place on Home doesn't move while a layer is open), and real hotkeys alike, like `Ctrl+F` or a band key. You get the refusal tone, and at chatty verbosity the layer's own answer: the list of letters above if you haven't picked anything yet, or "Not a key in the Audio layer. Press H to list available keys for this layer." once you have. If you've switched the sounds off, or just the Commands and confirmations sounds, there is no tone to hear, so the answer is spoken at every verbosity, Off included: a refused key is never silent. Until now any key that meant something elsewhere closed the layer and then did its job, and the "layer closed" was usually talked over by that job, so you couldn't tell.
+- **Enter, Escape and the JJ key are the only ways out.** Any other key the layer doesn't use is refused and the layer stays where it was: a letter it doesn't use, the space bar, `Tab`, `Shift+Tab`, `Ctrl+Tab` and `Ctrl+Shift+Tab` (so your place on Home doesn't move while a layer is open), and real hotkeys alike, like `Ctrl+F` or a band key. You get the refusal tone, and at chatty verbosity the layer's own answer: the list of letters above if you haven't picked anything yet, or "Not a key in the Audio layer. Press H to list available keys for this layer." once you have. If you've switched the sounds off, or just the Commands and confirmations sounds, there is no tone to hear, so the answer is spoken at every verbosity, Off included: a refused key is never silent. The menus on `Alt` and `F1` help work exactly as they always did.
 <!-- DRAFT (#778c) -->
-- **Push to talk and the transmit lock work in every window, and leave the layer open.** `Ctrl+Space` keys the radio while you hold it and `Shift+Space` locks and unlocks the transmitter, on Home (with the radio on and you in the Home fields, as always) and in every dialog, the Audio Workshop and Settings included, a layer open or not. Until now, in a dialog those two chords pressed whichever button or checkbox had focus. One exception, on purpose: in a text box `Shift+Space` still types a space, so a capital letter followed quickly by a space can never lock the transmitter; `Ctrl+Space` in a text box still keys, because it never typed anything. The release is always honoured: if the dialog closes or loses focus while you are holding `Ctrl+Space`, the radio unkeys. With the radio off, or no radio connected, a dialog answers the way the system-wide key does, "No radio connected" (at chatty, "JJ Flexible Home, no radio connected"). The full log form is different: it has never had push to talk, and a layer open there refuses both with the low refusal tone, and at chatty only a very short sentence (at every verbosity if your sounds are off), "No push to talk here." or "No transmit lock here." `Ctrl+Shift` with a bracket (the transmit filter's low edge) and the verbosity cycle (`Ctrl+Shift+V`) work inside a layer on Home and in windows like the Audio Workshop; the full log form has neither, so there they are refused too. The menus on `Alt` and `F1` help work exactly as they always did.
+- **Push to talk and the transmit lock work in the app's own dialogs, and leave a layer open.** `Ctrl+Space` keys the radio while you hold it and `Shift+Space` locks and unlocks the transmitter, on Home (with the radio on and you in the Home fields, as always) and in every dialog the app draws itself, Settings and the Audio Workshop included, a layer open or not. They never press the button or checkbox you are on. The release is always honoured: let go, close the dialog, or switch to another window while holding `Ctrl+Space`, and the radio unkeys at once. A held `Shift+Space` locks once, under NVDA and under JAWS. `Escape` while the radio is transmitting unkeys first and leaves the dialog open; a second `Escape` closes it, the same as on Home. Four places are different, and the help is honest about each:
+  - In a text box, `Shift+Space` types a space, so a capital letter followed quickly by a space can never lock the transmitter. `Ctrl+Space` in a text box still keys. With a layer open over that text box, the layer wins and refuses `Shift+Space` like any other key it doesn't use.
+  - While an Audio Check is running in the Audio Workshop, it owns the transmitter: `Ctrl+Space` and `Shift+Space` are refused with the low tone and, at chatty, "No push to talk here." or "No transmit lock here." `Escape` there stops the check first, as it always has.
+  - The small Yes, No and OK message boxes are Windows' own, not the app's, so these keys do not reach the radio from them.
+  - The full log form has never had push to talk, and a layer open there refuses both chords with the low tone and, at chatty, the same two sentences.
+  With the radio off or no radio connected, a dialog answers "No radio connected" (at chatty, "JJ Flexible Home, no radio connected") and nothing keys.
 <!-- DRAFT (#778c) -->
-- **The bracket filter keys inside a layer, for now.** On Home, with the radio on, the brackets still move the filter while a layer is open, and in any other window a layer refuses them with the low tone and, at chatty, "That filter key does nothing here." This is changing: inside a layer the brackets are going to belong to the layer, with only the filter layer moving filters with them, so a layer that has nothing to do with filters will refuse them everywhere. That lands once the filter layer has bracket keys of its own.
+- **The bracket filter keys inside a layer, today.** On Home with the radio on, `[` and `]`, with or without `Shift` or `Ctrl`, still move the filter while a layer is open. `Ctrl+Shift` with a bracket (the transmit filter's low edge) and the verbosity cycle (`Ctrl+Shift+V`) work inside a layer on Home and in dialogs like the Audio Workshop, but not in the full log form, which has never had them. `Alt` with a bracket cycles filter presets on Home only, as it always has, and a layer lets it through there like every other `Alt` chord; in a dialog it does nothing, as before. `Ctrl+Alt` with a bracket (the transmit filter's high edge) works wherever `Ctrl+Shift` with a bracket does. In a dialog or the full log form, a plain, `Shift` or `Ctrl` bracket is refused inside a layer with the low tone and, at chatty, "That filter key does nothing here."
 - **A slip is named.** A key that means nothing anywhere, and sits one modifier away from a key that *does* mean something in here, names the key you nearly pressed: "Ctrl+B: Binaural receive on or off."
 - **A typed number does nothing yet.** The digit keys `1` to `9`, and the keypad digit keys, are refused: "A typed number does nothing in the Audio layer. Use arrow keys to change the selected number." Where holding Shift with the arrows gives a finer step, it adds "Shift with the arrows moves it in fine steps." On the frequency field a loose digit starts typing a frequency, so a value you meant for the layer could have become a retune. `0` is still the centre jump, and with NumLock off the keypad's arrows, Home and End still do their layer jobs.
