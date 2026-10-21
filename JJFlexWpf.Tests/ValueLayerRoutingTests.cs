@@ -141,6 +141,15 @@ public sealed class ValueLayerRoutingTests : IDisposable
     }
 
     // ── Push to talk, the lock and the plain brackets: refused wherever a layer is asked ──
+    //
+    // #778c: "wherever a layer is asked" no longer includes a WPF dialog for
+    // the two Space chords. There DialogTransmitKeys keys the radio in the
+    // Window class handler before DoCommand is ever reached, so the
+    // fromDialog cases below for Ctrl+Space and Shift+Space are the ENGINE's
+    // answer if it were asked, which in production it now is not; they are
+    // kept because the engine's answer must stay true for the routes that do
+    // still reach it (the WinForms log form, Home with its gate passed). The
+    // door itself is tested in DialogTransmitKeysTests, on the controller.
 
     // The main window's own chords, which no key table has a row for.
     private static readonly Keys[] MainWindowOnlyChords =
