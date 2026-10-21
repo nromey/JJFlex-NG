@@ -679,7 +679,6 @@ namespace Radios
             if (outcome.StoppedForTransmit)
             {
                 Tracing.TraceLine($"ProfileReporter: {label} walk stopped for transmit — last load requested '{outcome.LastRequested ?? "(none)"}', app's last recorded selection before the walk '{outcome.OriginalSelection ?? "(none recorded)"}', nothing put back", TraceLevel.Error);
-                // DRAFT PROSE (#469): awaiting Noel
                 progressCallback?.Invoke(TransmitStopSentence());
                 return;
             }
@@ -735,7 +734,6 @@ namespace Radios
         /// with the same advice.
         /// </summary>
         public static string TransmitStopSentence()
-            // DRAFT PROSE (#469): awaiting Noel
             => Lexicon.Get("settings.profile_walk.stopped_keyed");
 
         /// <summary>
@@ -972,7 +970,6 @@ namespace Radios
         /// </summary>
         public static string ComparisonStartSentence(ProfileWalkPlan plan)
         {
-            // DRAFT PROSE (#469): awaiting Noel
             if (plan.WillLoad)
                 return Lexicon.Get("settings.profile.report_start",
                     ("kinds", KindsPhrase(plan.TypesToLoad)));
@@ -1003,7 +1000,6 @@ namespace Radios
         public static string ComparisonTransmitRefusal(ProfileWalkPlan plan, bool keyed)
         {
             if (!keyed || !plan.WillLoad) return null;
-            // DRAFT PROSE (#469): awaiting Noel
             return Lexicon.Get("settings.profile.report_not_while_transmitting",
                 ("kinds", KindsPhrase(plan.TypesToLoad)));
         }
@@ -1066,7 +1062,6 @@ namespace Radios
         /// </summary>
         public static string RestoreStartSentence(ProfileWalkPlan plan)
         {
-            // DRAFT PROSE (#469): awaiting Noel
             if (plan.WillLoad)
                 return Lexicon.Get("settings.restore_export.start_walk",
                     ("kinds", KindsPhrase(plan.TypesToLoad)));
@@ -1082,7 +1077,6 @@ namespace Radios
         /// 3: the legacy sentence said "every stored profile" even when some
         /// lists had not arrived).</summary>
         public static string RestoreTransmitRefusal(ProfileWalkPlan plan, bool keyed)
-            // DRAFT PROSE (#469): awaiting Noel
             => keyed && plan.WillLoad
                 ? Lexicon.Get("settings.restore_export.not_while_transmitting_kinds",
                     ("kinds", KindsPhrase(plan.TypesToLoad)))
@@ -1130,10 +1124,8 @@ namespace Radios
             {
                 if (!report.AnyLoadRequested)
                     return Lexicon.Get("settings.profile.report_saved", ("path", path));
-                // DRAFT PROSE (#469): awaiting Noel
                 return Lexicon.Get("settings.profile.report_saved_loaded", ("path", path));
             }
-            // DRAFT PROSE (#469): awaiting Noel
             return Lexicon.Get("settings.profile.report_saved_stopped", ("path", path));
         }
 
@@ -2281,13 +2273,10 @@ namespace Radios
             string key;
             if (!export.WalkRan) key = "settings.restore_export.saved_no_walk";
             else if (export.StoppedForTransmit)
-                // DRAFT PROSE (#469): awaiting Noel
                 return Lexicon.Get("settings.restore_export.saved_stopped", ("path", path));
             else if (!export.AnyLoadRequested)
-                // DRAFT PROSE (#469): awaiting Noel
                 key = "settings.restore_export.saved_nothing_moved";
             else
-                // DRAFT PROSE (#469): awaiting Noel
                 key = "settings.restore_export.saved_loaded";
             return Lexicon.Get(key, ("path", path));
         }

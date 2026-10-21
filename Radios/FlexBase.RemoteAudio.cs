@@ -2259,17 +2259,14 @@ namespace Radios
             lock (_micSwitchLock)
             {
                 if (!_micSessionOpen || _micSessionId != pressedInSession)
-                    // DRAFT PROSE (#686): awaiting Noel
                     return new MicSwitchBackResult(MicSwitchBackOutcome.PcAudioNotRunning,
                         Lexicon.Get("audio.mic.switch_back_no_pc_audio"));
             }
             if (string.Equals(radio.MicInput ?? "", "PC", StringComparison.OrdinalIgnoreCase))
-                // DRAFT PROSE (#686): awaiting Noel
                 return new MicSwitchBackResult(MicSwitchBackOutcome.AlreadyPc,
                     Lexicon.Get("audio.mic.switch_back_already_pc"));
 
             q.Enqueue((FunctionDel)(() => RunQueuedMicSwitchBack(radio, pressedInSession)), "MicInput switch-back");
-            // DRAFT PROSE (#686): awaiting Noel
             return new MicSwitchBackResult(MicSwitchBackOutcome.Switching,
                 Lexicon.Get("audio.mic.switch_back_switching"));
         }
@@ -2330,7 +2327,6 @@ namespace Radios
                         + (sessionOpenNow ? " is open" : " has closed")
                         + (ReferenceEquals(theRadio, radio) ? "" : " on a different radio")
                         + " - nothing written (#686)", TraceLevel.Warning);
-                    // DRAFT PROSE (#686): awaiting Noel
                     SpeakMicSwitchBack(Lexicon.Get("audio.mic.switch_back_session_changed"));
                     return;
                 case MicSwitchBackOutcome.Held:
@@ -2417,7 +2413,6 @@ namespace Radios
                 + (refused && skipped == null ? "; the saved put-back is undone" : "") + " (#686)",
                 refused ? TraceLevel.Warning : TraceLevel.Info);
             if (refused && skipped == null)
-                // DRAFT PROSE (#686): awaiting Noel
                 SpeakMicSwitchBack(Lexicon.Get("audio.mic.switch_back_refused"));
         }
 
@@ -2623,7 +2618,6 @@ namespace Radios
                     + " — NOT re-asserting: ownership is " + ownership
                     + ", and on a radio not declared Mine the owner's choice stands (#686)",
                     TraceLevel.Warning);
-                // DRAFT PROSE (#686): awaiting Noel
                 string report = Lexicon.Get("audio.mic.diverged_not_ours", ("current", current));
                 LastPcMicNotOursReport = report;
                 PcMicNotOursReports++;

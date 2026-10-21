@@ -54,11 +54,11 @@ namespace Radios.Tests
 
             Assert.Equal(GuardedOutcome.Refused, outcome);
             Assert.Empty(fixture.Vendor.Transport.Commands);
-            // What NVDA would have spoken, assembled: the verb is "save a
-            // profile on it", true whether the name exists on the radio or not.
+            // What NVDA would have spoken, assembled: the verb is "save the
+            // profile", true whether the name exists on the radio or not.
             string heard = fixture.Rig.LastGlobalProfileWriteRefusal;
             Assert.Equal(Expected(ownership, SaveAction), heard);
-            Assert.Contains("did not save a profile on it", heard);
+            Assert.Contains("did not save the profile.", heard);
             Assert.Contains("Settings, under Per-radio settings", heard);
             Assert.DoesNotContain("replace", heard);
             Assert.DoesNotContain("{action}", heard);
@@ -134,7 +134,7 @@ namespace Radios.Tests
             Assert.Empty(fixture.Vendor.Transport.Commands);
             string heard = fixture.Rig.LastGlobalProfileWriteRefusal;
             Assert.Equal(Expected(ownership, DeleteAction), heard);
-            Assert.Contains("did not delete a profile from it", heard);
+            Assert.Contains("did not delete the profile.", heard);
             Assert.Contains("Settings, under Per-radio settings", heard);
         }
 
@@ -309,10 +309,10 @@ namespace Radios.Tests
         // ------------------------------------------------------------------
 
         [Theory]
-        [InlineData(RadioOwnership.Unset, ProfileTypes.tx, "did not delete a transmit profile from it")]
-        [InlineData(RadioOwnership.SomeoneElses, ProfileTypes.tx, "did not delete a transmit profile from it")]
-        [InlineData(RadioOwnership.Unset, ProfileTypes.mic, "did not delete a microphone profile from it")]
-        [InlineData(RadioOwnership.SomeoneElses, ProfileTypes.mic, "did not delete a microphone profile from it")]
+        [InlineData(RadioOwnership.Unset, ProfileTypes.tx, "did not delete the transmit profile.")]
+        [InlineData(RadioOwnership.SomeoneElses, ProfileTypes.tx, "did not delete the transmit profile.")]
+        [InlineData(RadioOwnership.Unset, ProfileTypes.mic, "did not delete the microphone profile.")]
+        [InlineData(RadioOwnership.SomeoneElses, ProfileTypes.mic, "did not delete the microphone profile.")]
         public void ATransmitOrMicrophoneDeleteOnARadioThatIsNotOursIsRefusedBeforeAnythingIsQueued(
             RadioOwnership ownership, ProfileTypes type, string verb)
         {
@@ -352,10 +352,10 @@ namespace Radios.Tests
         }
 
         [Theory]
-        [InlineData(RadioOwnership.Unset, ProfileTypes.tx, "did not create a transmit profile on it")]
-        [InlineData(RadioOwnership.SomeoneElses, ProfileTypes.tx, "did not create a transmit profile on it")]
-        [InlineData(RadioOwnership.Unset, ProfileTypes.mic, "did not create a microphone profile on it")]
-        [InlineData(RadioOwnership.SomeoneElses, ProfileTypes.mic, "did not create a microphone profile on it")]
+        [InlineData(RadioOwnership.Unset, ProfileTypes.tx, "did not create the transmit profile.")]
+        [InlineData(RadioOwnership.SomeoneElses, ProfileTypes.tx, "did not create the transmit profile.")]
+        [InlineData(RadioOwnership.Unset, ProfileTypes.mic, "did not create the microphone profile.")]
+        [InlineData(RadioOwnership.SomeoneElses, ProfileTypes.mic, "did not create the microphone profile.")]
         public void SelectingATransmitOrMicrophoneNameTheRadioDoesNotHaveIsRefusedOnARadioThatIsNotOurs(
             RadioOwnership ownership, ProfileTypes type, string verb)
         {

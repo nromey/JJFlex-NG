@@ -76,7 +76,7 @@ public sealed class StationProfileRoundTwoReviewTests : IDisposable
         Assert.Equal(exists, fixture.Vendor.Radio.ProfileGlobalList.Contains(Name));
         Assert.Equal(GuardedOutcome.Refused, fixture.Rig.SaveProfileGuarded(new Profile_t(Name, ProfileTypes.global, false), true));
         Assert.Empty(fixture.Vendor.Transport.Commands);
-        Assert.Contains("did not save a profile on it", fixture.Rig.LastGlobalProfileWriteRefusal);
+        Assert.Contains("did not save the profile.", fixture.Rig.LastGlobalProfileWriteRefusal);
         Assert.DoesNotContain("replace", fixture.Rig.LastGlobalProfileWriteRefusal);
     }
 
@@ -91,7 +91,7 @@ public sealed class StationProfileRoundTwoReviewTests : IDisposable
         fixture.Vendor.Status("profile global current=");
         Assert.True(string.IsNullOrEmpty(fixture.Rig.CurrentGlobalProfileName));
         string error = fixture.Rig.SaveCurrentStationLayout();
-        Assert.Contains("did not save a profile on it", error);
+        Assert.Contains("did not save the profile.", error);
         Assert.DoesNotContain("replace", error);
         Assert.Empty(fixture.Vendor.Transport.Commands);
     }

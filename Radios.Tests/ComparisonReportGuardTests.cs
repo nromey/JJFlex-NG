@@ -218,7 +218,8 @@ namespace Radios.Tests
             // loaded on the radio in turn", for every run that might load.
             Assert.Equal(
                 "Writing the profile comparison report. Your stored global and TX profiles are loaded on the radio in turn, "
-                + "and you will hear things change as it goes. This takes a minute or two; progress is spoken.",
+                + "so you may hear the radio do things you don't expect. This may take a minute or two. "
+                + "Progress will be spoken as the process proceeds.",
                 ProfileReporter.ComparisonStartSentence(ProfileReporter.MakeComparisonPlan(true, Lists(3, 2, 9))));
             Assert.Contains("Your stored TX profiles are loaded",
                 ProfileReporter.ComparisonStartSentence(ProfileReporter.MakeComparisonPlan(true, Lists(1, 2, 0))));
@@ -231,7 +232,7 @@ namespace Radios.Tests
         {
             string nothing = ProfileReporter.ComparisonStartSentence(
                 ProfileReporter.MakeComparisonPlan(true, Lists(1, 1, 6)));
-            Assert.Equal("Writing the profile report. There is nothing to compare, so the radio is left as it is.", nothing);
+            Assert.Equal("Writing the profile report. There is nothing to compare, so the radio's settings are not changed.", nothing);
             Assert.DoesNotContain("load", nothing, StringComparison.OrdinalIgnoreCase);
 
             // Not permitted here: the sentence says so, and that the
@@ -279,7 +280,7 @@ namespace Radios.Tests
             var plan = ProfileReporter.MakeComparisonPlan(true, Lists(3, 3, 0));
 
             Assert.Equal(
-                "Not while transmitting. Unkey first — this report loads your global and TX profiles on the radio, "
+                "Unkey before starting the report. It loads your global and TX profiles on the radio, "
                 + "and profiles change transmit settings.",
                 ProfileReporter.ComparisonTransmitRefusal(plan, keyed: true));
             Assert.Null(ProfileReporter.ComparisonTransmitRefusal(plan, keyed: false));
@@ -748,13 +749,13 @@ namespace Radios.Tests
             both[ProfileTypes.global].Reported = false;
             both[ProfileTypes.tx].Reported = false;
             Assert.Equal("Writing the profile report. The radio's global and TX profile lists did not arrive, "
-                + "so nothing is compared and the radio is left as it is.",
+                + "so nothing is compared and the radio's settings are not changed.",
                 ProfileReporter.ComparisonStartSentence(ProfileReporter.MakeComparisonPlan(true, both)));
 
             var one = Lists(3, 1, 0);
             one[ProfileTypes.global].Reported = false;
             Assert.Equal("Writing the profile report. The radio's global profile list did not arrive, "
-                + "so nothing is compared and the radio is left as it is.",
+                + "so nothing is compared and the radio's settings are not changed.",
                 ProfileReporter.ComparisonStartSentence(ProfileReporter.MakeComparisonPlan(true, one)));
 
             // An offline radio could not ask for either list: also not "nothing".
@@ -778,7 +779,7 @@ namespace Radios.Tests
             partial[ProfileTypes.tx].Reported = false;
             partial[ProfileTypes.mic].Reported = false;
             string refusal = ProfileReporter.RestoreTransmitRefusal(ProfileReporter.MakeRestorePlan(true, partial), keyed: true);
-            Assert.Equal("Not while transmitting. Unkey first — this capture loads your stored global profiles on the radio, "
+            Assert.Equal("Unkey before starting the capture. It loads your stored global profiles on the radio, "
                 + "and profiles change transmit settings.", refusal);
             Assert.DoesNotContain("every stored profile", refusal);
             Assert.Contains("global, TX and mic",
@@ -922,7 +923,8 @@ namespace Radios.Tests
         {
             Assert.Equal(
                 "Capturing settings for restore. Your stored global, TX and mic profiles are loaded on the radio in turn, "
-                + "and you will hear things change as it goes. This takes a minute or two; progress is spoken.",
+                + "so you may hear the radio do things you don't expect. This may take a minute or two. "
+                + "Progress will be spoken as the process proceeds.",
                 ProfileReporter.RestoreStartSentence(ProfileReporter.MakeRestorePlan(true, Lists(2, 1, 1))));
             Assert.Contains("Your stored global and mic profiles are loaded",
                 ProfileReporter.RestoreStartSentence(ProfileReporter.MakeRestorePlan(true, Lists(1, 0, 4))));
@@ -936,9 +938,9 @@ namespace Radios.Tests
         public void When_the_restore_capture_will_load_nothing_its_start_sentence_promises_no_loading()
         {
             string none = ProfileReporter.RestoreStartSentence(ProfileReporter.MakeRestorePlan(true, Lists(0, 0, 0)));
-            Assert.Equal("Capturing settings for restore. No stored profiles could be read from the radio, so it is left as it is.", none);
+            Assert.Equal("Capturing settings for restore. No stored profiles could be read from the radio, so the radio's settings are not changed.", none);
             string held = ProfileReporter.RestoreStartSentence(ProfileReporter.MakeRestorePlan(false, Lists(3, 3, 3)));
-            Assert.Equal("Capturing settings for restore. Change nothing is on for this radio, so it is left as it is "
+            Assert.Equal("Capturing settings for restore. Change nothing is on for this radio, so the radio's settings are not changed, "
                 + "and the file holds live settings only.", held);
             foreach (string sentence in new[] { none, held })
                 Assert.DoesNotContain("loaded on the radio", sentence);

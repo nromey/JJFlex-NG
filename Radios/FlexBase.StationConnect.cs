@@ -1366,7 +1366,8 @@ namespace Radios
                     // retired the placeholder that made EVERY owner connect end
                     // here. A restore the radio completed as measured is
                     // RestoredConfirmed and says nothing.
-                    // DRAFT PROSE (#639): awaiting Noel -- the brief form. Noel,
+                    // The brief form, APPROVED by Noel at the 2026-10-21 fold
+                    // (Fold 3). Noel,
                     // 2026-10-19: "'nothing was restored on top' makes no sense
                     // to me." It now says what happened and what it cost: the
                     // restore was not confirmed, so the transmit and microphone

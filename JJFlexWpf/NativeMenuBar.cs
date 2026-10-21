@@ -2674,7 +2674,6 @@ public class NativeMenuBar : IDisposable
                             // On a pool thread an escaped exception ends the
                             // process, so every failure is caught, traced and said.
                             Tracing.TraceLine($"Profile comparison report: {ex}", TraceLevel.Error);
-                            // DRAFT PROSE (#469): awaiting Noel
                             Radios.ScreenReaderOutput.Speak(
                                 Radios.Lexicon.Get("settings.profile.report_failed", ("error", ex.Message)),
                                 Radios.VerbosityLevel.Critical, interrupt: true);
@@ -2760,7 +2759,6 @@ public class NativeMenuBar : IDisposable
                                 SpeakAfterMenuClose(keyedRefusal);
                                 return;
                             }
-                            // DRAFT PROSE (#469): awaiting Noel
                             SpeakAfterMenuClose(ProfileReporter.RestoreStartSentence(plan));
                             // Give the start announcement room to finish: the first
                             // progress line interrupts, and the one sentence that
@@ -3979,7 +3977,6 @@ public class NativeMenuBar : IDisposable
                         case Radios.GuardedOutcome.Refused:
                             break;
                         default:
-                            // DRAFT PROSE (#777): awaiting Noel
                             SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile.save_not_sent", ("profile", profile.Name)),
                                 Radios.VerbosityLevel.Critical);
                             break;
