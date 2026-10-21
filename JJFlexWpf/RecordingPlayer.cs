@@ -55,6 +55,8 @@ public static class RecordingPlayer
     /// subscriber must marshal.
     /// </summary>
     public static event Action? StateChanged;
+    /// <summary>Raised after a recording ends naturally and its completion notice is queued.</summary>
+    public static event Action<string>? PlaybackCompleted;
 
     private static readonly object Gate = new();
     private static WaveFileReader? _reader;
@@ -238,12 +240,14 @@ public static class RecordingPlayer
         WaveFileReader? reader;
         EndOfFileSampleProvider? provider;
         bool limited;
+        string completedPath;
         lock (Gate)
         {
             if (expected != null && !ReferenceEquals(_provider, expected)) return;
             reader = _reader;
             provider = _provider;
             limited = _gain?.Limited ?? false;
+            completedPath = _path;
             _reader = null;
             _provider = null;
             _gain = null;
@@ -271,6 +275,7 @@ public static class RecordingPlayer
         if (!string.IsNullOrEmpty(spokenReason))
             ScreenReaderOutput.Speak(spokenReason, VerbosityLevel.Terse, interrupt: false);
         if (limited) ScreenReaderOutput.Speak(Lexicon.Get("audio.take.limiter_engaged"), VerbosityLevel.Terse);
+        if (expected != null) PlaybackCompleted?.Invoke(completedPath);
     }
 
     /// <summary>Say why it will not play, with the tone that means refusal.</summary>

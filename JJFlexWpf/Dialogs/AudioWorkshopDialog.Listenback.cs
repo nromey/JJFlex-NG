@@ -15,8 +15,9 @@ namespace JJFlexWpf.Dialogs;
 public partial class AudioWorkshopDialog
 {
     private TextBox? _takeStatus;
+    private TextBox? _iqStatistics;
     private ComboBox? _iqRate, _iqAntenna;
-    private CheckBox? _iqSeparate, _iqFdx, _iqHearSelfDuringTake;
+    private CheckBox? _iqSeparate, _iqFdx, _iqHearSelfDuringTake, _iqAutoCompare;
     private Button? _iqDiagnostic, _iqPreflight, _sliceRecordButton, _slicePlayButton;
     private ListenbackRun? _iqRun;
     private FlexBase? _iqRunRig;
@@ -27,6 +28,7 @@ public partial class AudioWorkshopDialog
     private string? _lastIqDirectory;
     private bool _iqWasOffAir;
     private DateTime _radioTakeAt;
+    private string? _pendingAutoPlayback, _pendingAutoPrevious;
 
     private static string IqStateText(string state)
     {
@@ -64,6 +66,9 @@ public partial class AudioWorkshopDialog
         _iqHearSelfDuringTake = new CheckBox { Content = Lexicon.Get("audio.iq.hear_during_take"),
             IsChecked = false, Margin = new Thickness(2) };
         AddToSection(HearYourselfContent, _iqHearSelfDuringTake);
+        _iqAutoCompare = new CheckBox { Content = Lexicon.Get("audio.iq.auto_compare"),
+            IsChecked = false, Margin = new Thickness(2) };
+        AddToSection(HearYourselfContent, _iqAutoCompare);
         _iqAntenna = new ComboBox { Margin = new Thickness(2) };
         AutomationProperties.SetName(_iqAntenna, Lexicon.Get("audio.iq.antenna_label"));
         JJFlexHelp.SetText(_iqAntenna, Lexicon.Get("audio.iq.antenna_help"));
@@ -78,6 +83,15 @@ public partial class AudioWorkshopDialog
         IqButton("detune_minus", () => _ = PlayIqAsync(NewestIqDirectory(), -1000));
         IqButton("play_sent", () => _ = PlaySentAsync());
         IqButton("compare_previous", () => _ = ComparePreviousIqAsync());
+        _iqStatistics = new TextBox { IsReadOnly = true, IsReadOnlyCaretVisible = true,
+            AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 120,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Margin = new Thickness(2),
+            Text = Lexicon.Get("audio.iq.statistics_empty") };
+        AutomationProperties.SetName(_iqStatistics, Lexicon.Get("audio.iq.statistics_label"));
+        JJFlexHelp.SetText(_iqStatistics, Lexicon.Get("audio.iq.statistics_help"));
+        AddToSection(HearYourselfContent, _iqStatistics);
+        RecordingPlayer.PlaybackCompleted += OnIqPlaybackCompleted;
+        Closed += (_, _) => RecordingPlayer.PlaybackCompleted -= OnIqPlaybackCompleted;
         _iqWatch.Tick += async (_, _) =>
         {
             if (_iqRun != null && _iqRun.Capture.Ended.IsCompleted && !_iqBusy)
@@ -257,6 +271,7 @@ public partial class AudioWorkshopDialog
             await run.StopAsync(reason);
             if (!ReferenceEquals(runRig, _rig)) return;
             if (_iqClosing) { AnnounceClosedRecovery(run.Restored); return; }
+            string? previousDirectory = PreviousIqDirectory(run.DirectoryPath);
             _lastIqDirectory = run.DirectoryPath;
             var take = TakeReader.Inspect(run.DirectoryPath);
             if (!run.Restored) IqStatus(Lexicon.Get("audio.iq.recovery_pending"), true);
@@ -266,7 +281,7 @@ public partial class AudioWorkshopDialog
                 TakeAnalysisResult? measured = null;
                 if (take.Get("mode") is "USB" or "LSB")
                     measured = await Task.Run(() => { SsbTakeRenderer.Render(run.DirectoryPath); return TakeAnalysis.Run(run.DirectoryPath); });
-                EarconPlayer.ConfirmTone();
+                await UpdateIqStatisticsAsync(run.DirectoryPath, previousDirectory);
                 if (_iqWasOffAir && !run.HasRadioKeying) IqStatus(Lexicon.Get("audio.iq.never_keyed"), true);
                 else IqStatus(Lexicon.Get(_iqWasOffAir ? "audio.iq.take_result" : "audio.iq.diagnostic_result", ("state", IqStateText(take.State)),
                     ("seconds", (double.Parse(take.Get("pairs-written") ?? "0", System.Globalization.CultureInfo.InvariantCulture) /
@@ -288,8 +303,19 @@ public partial class AudioWorkshopDialog
                 }
                 if (_iqWasOffAir && run.HasRadioKeying && !_iqClosing && File.Exists(Path.Combine(run.DirectoryPath, "heard.wav")))
                 {
-                    RecordingPlayer.Play(Path.Combine(run.DirectoryPath, "heard.wav"),
-                        Lexicon.Get("audio.iq.playing"), _rig, offAirListeningGain: true);
+                    // confirm.wav is 200 ms. Let its click finish before the
+                    // decoded take enters the playback mixer.
+                    EarconPlayer.ConfirmTone();
+                    await Task.Delay(240);
+                    if (_iqClosing) return;
+                    string heardPath = Path.Combine(run.DirectoryPath, "heard.wav");
+                    if (_iqAutoCompare?.IsChecked == true)
+                    {
+                        _pendingAutoPlayback = heardPath;
+                        _pendingAutoPrevious = previousDirectory;
+                    }
+                    if (!RecordingPlayer.Play(heardPath, Lexicon.Get("audio.iq.playing"), _rig,
+                        offAirListeningGain: true)) _pendingAutoPlayback = _pendingAutoPrevious = null;
                 }
             }
         }
@@ -340,6 +366,45 @@ public partial class AudioWorkshopDialog
             .Where(d => File.Exists(Path.Combine(d, "heard.wav")))
             .OrderByDescending(d => File.GetLastWriteTimeUtc(Path.Combine(d, "take.txt"))).FirstOrDefault();
     }
+    private static string? PreviousIqDirectory(string current)
+    {
+        string root = Path.Combine(RadioConfig.AppDataRoot, "Recordings", "takes");
+        return !Directory.Exists(root) ? null : Directory.EnumerateDirectories(root)
+            .Where(d => d != current && File.Exists(Path.Combine(d, "heard.wav")) &&
+                File.Exists(Path.Combine(d, "take.txt")))
+            .OrderByDescending(d => File.GetLastWriteTimeUtc(Path.Combine(d, "take.txt"))).FirstOrDefault();
+    }
+    private static string FormatIqStatistics(string label, TakeStatistics? stats)
+    {
+        if (stats == null) return label + ": no earlier take.";
+        if (!stats.Available) return label + ": " + stats.Reason + ".";
+        return string.Join(Environment.NewLine, new[] {
+            $"{label} integrated loudness: {stats.Lufs:F1} LUFS",
+            $"{label} peak: {stats.PeakDbfs:F1} dBFS",
+            $"{label} RMS: {stats.RmsDbfs:F1} dBFS",
+            $"{label} brightness, highs versus lows: {stats.BrightnessDb:+0.0;-0.0;0.0} dB",
+            $"{label} punch, crest: {stats.PunchDb:F1} dB",
+            $"{label} splatter, out-of-filter: {stats.SplatterDbfs:F1} dBFS" });
+    }
+    private async Task UpdateIqStatisticsAsync(string current, string? previous, string? method = null)
+    {
+        var values = await Task.Run(() => (Current: TakeStatistics.Measure(current),
+            Previous: previous == null ? null : TakeStatistics.Measure(previous)));
+        if (_iqClosing || _iqStatistics == null) return;
+        _iqStatistics.Text = FormatIqStatistics("This take", values.Current) + Environment.NewLine +
+            FormatIqStatistics("Last take", values.Previous) + Environment.NewLine +
+            "Comparison method: " + (method ?? "not compared yet");
+    }
+    private void OnIqPlaybackCompleted(string path)
+    {
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (_iqClosing || path != _pendingAutoPlayback) return;
+            string? previous = _pendingAutoPrevious;
+            _pendingAutoPlayback = _pendingAutoPrevious = null;
+            _ = CompareIqPairAsync(previous, Path.GetDirectoryName(path)!, auto: true);
+        }));
+    }
     private bool TryPlayNewestIq(RecordingStore.RecordingFile? file, bool radioHasTake)
     {
         string? directory = NewestIqDirectory();
@@ -363,6 +428,9 @@ public partial class AudioWorkshopDialog
             var rendered = await Task.Run(() => SsbTakeRenderer.Render(directory, detune));
             if (_iqClosing) return;
             string playbackKey = take.State == "incomplete" ? "audio.iq.playing_incomplete" : detune == 0 ? "audio.iq.playing" : "audio.iq.playing_detuned";
+            EarconPlayer.ConfirmTone();
+            await Task.Delay(240);
+            if (_iqClosing) return;
             RecordingPlayer.Play(rendered.Path, Lexicon.Get(playbackKey), _rig, offAirListeningGain: true);
         }
         catch (Exception ex) { IqFailure(ex); }
@@ -384,6 +452,9 @@ public partial class AudioWorkshopDialog
                 throw new InvalidDataException("sent-checksum");
             await Task.Run(() => TakeAudio.ReadMono(path));
             if (_iqClosing) return;
+            EarconPlayer.ConfirmTone();
+            await Task.Delay(240);
+            if (_iqClosing) return;
             RecordingPlayer.Play(path, Lexicon.Get("audio.iq.playing_sent"), _rig);
         }
         catch (Exception ex) { IqFailure(ex); }
@@ -391,9 +462,12 @@ public partial class AudioWorkshopDialog
     }
     private static string DifferenceSentence(AudioDifference difference) => Lexicon.Get("audio.iq.difference",
         ("level_word", Lexicon.Get(difference.LevelDb >= 0 ? "audio.iq.louder" : "audio.iq.quieter")),
-        ("level", difference.LevelDb.ToString("F1")), ("tilt", difference.TiltDb.ToString("F1")),
+        ("level", Math.Abs(difference.LevelDb).ToString("F1")),
+        ("brightness_word", Lexicon.Get(difference.TiltDb >= 0 ? "audio.iq.brighter" : "audio.iq.darker")),
+        ("high_word", Lexicon.Get(difference.TiltDb >= 0 ? "audio.iq.stronger" : "audio.iq.weaker")),
+        ("tilt", Math.Abs(difference.TiltDb).ToString("F1")),
         ("crest_word", Lexicon.Get(difference.CrestDb < 0 ? "audio.iq.more_compressed" : "audio.iq.more_peaky")),
-        ("crest", difference.CrestDb.ToString("F1")), ("stop", difference.StopbandDb.ToString("F1")));
+        ("crest", Math.Abs(difference.CrestDb).ToString("F1")), ("stop", difference.StopbandDb.ToString("+0.0;-0.0;0.0")));
     private async Task ComparePreviousIqAsync()
     {
         if (_iqBusy || _iqRun != null || _rig?.Transmit == true) return;
@@ -403,21 +477,46 @@ public partial class AudioWorkshopDialog
             string root = Path.Combine(RadioConfig.AppDataRoot, "Recordings", "takes");
             var pair = Directory.Exists(root) ? Directory.EnumerateDirectories(root).Where(d => File.Exists(Path.Combine(d, "heard.wav")))
                 .OrderByDescending(d => File.GetLastWriteTimeUtc(Path.Combine(d, "take.txt"))).Take(2).ToArray() : Array.Empty<string>();
-            if (pair.Length < 2) { IqStatus(Lexicon.Get("audio.iq.need_two")); return; }
-            var difference = await Task.Run(() => TakeAnalysis.CompareTakes(pair[1], pair[0]));
+            if (pair.Length == 0) { IqStatus(Lexicon.Get("audio.iq.need_two")); return; }
+            if (pair.Length == 1) { await CompareIqPairAsync(null, pair[0], auto: false); return; }
+            await CompareIqPairAsync(pair[1], pair[0], auto: false);
+        }
+        catch (Exception ex) { IqFailure(ex); }
+        finally { _iqBusy = false; }
+    }
+    private async Task CompareIqPairAsync(string? previous, string current, bool auto)
+    {
+        try
+        {
+            if (previous == null)
+            {
+                await UpdateIqStatisticsAsync(current, null, "not comparable; no last take");
+                IqStatus(Lexicon.Get(auto ? "audio.iq.auto_unavailable" : "audio.iq.need_two"));
+                return;
+            }
+            var difference = await Task.Run(() => TakeAnalysis.CompareTakes(previous, current));
+            if (_iqClosing || auto && _lastIqDirectory != current) return;
             string methodKey = difference.Reason == "overall-average" ? "audio.iq.compared_average" : "audio.iq.compared_aligned";
             string method = Lexicon.Get(methodKey);
             string numbers = difference.Reason == "overall-average"
                 ? Lexicon.Get("audio.iq.average_difference",
                     ("level_word", Lexicon.Get(difference.LevelDb >= 0 ? "audio.iq.louder" : "audio.iq.quieter")),
                     ("level", Math.Abs(difference.LevelDb).ToString("F1")),
-                    ("tilt", difference.TiltDb.ToString("+0.0;-0.0;0.0")))
+                    ("brightness_word", Lexicon.Get(difference.TiltDb >= 0 ? "audio.iq.brighter" : "audio.iq.darker")),
+                    ("high_word", Lexicon.Get(difference.TiltDb >= 0 ? "audio.iq.stronger" : "audio.iq.weaker")),
+                    ("tilt", Math.Abs(difference.TiltDb).ToString("F1")))
                 : DifferenceSentence(difference);
+            await UpdateIqStatisticsAsync(current, previous,
+                difference.Comparable ? method : "not comparable; " + difference.Reason);
             IqStatus(difference.Comparable ? Lexicon.Get("audio.iq.previous_comparison") + " " + method + " " + numbers :
-                Lexicon.Get("audio.iq.unlike_or_unaligned"), !difference.Comparable);
+                Lexicon.Get(auto ? "audio.iq.auto_unavailable" : "audio.iq.unlike_or_unaligned"),
+                !difference.Comparable && !auto);
         }
-        catch (Exception ex) { IqFailure(ex); }
-        finally { _iqBusy = false; }
+        catch (Exception ex)
+        {
+            if (auto) IqStatus(Lexicon.Get("audio.iq.auto_unavailable"));
+            else IqFailure(ex);
+        }
     }
     private async Task PreflightAsync()
     {

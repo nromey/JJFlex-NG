@@ -11072,6 +11072,7 @@ namespace Radios
         private CommandConnection _lbArrangementConnection;
         private int _lbArrangementStarting;
         private int _lbArrangementEnding;
+        private string _lbSetupFailure;
 
         /// Apply the verified loopback recipe: snapshot full-duplex flag, TX
         /// antenna, monitor state, RF power and slice roster, then set FDX
@@ -11086,6 +11087,7 @@ namespace Radios
             if (_loopbackArranged) return true;
             if (System.Threading.Volatile.Read(ref _lbArrangementEnding) != 0) return false;
             if (System.Threading.Interlocked.Exchange(ref _lbArrangementStarting, 1) != 0) return false;
+            _lbSetupFailure = null;
             bool setupChanged = false;
             Radio arrangementRadio = null;
             CommandConnection arrangementConnection = null;
@@ -11111,11 +11113,13 @@ namespace Radios
             arrangementRadio = theRadio;
             arrangementConnection = arrangementRadio.CurrentCommandConnection;
             _lbSavedFdx = confirmedPriorFullDuplex ?? FullDuplexState(arrangementRadio, arrangementConnection);
-            _lbSavedTxAnt = TXAntennaName;
-            _lbSavedMonitor = theRadio.TXMonitor;
-            _lbSavedPower = XmitPower;
+            var tx = SliceForTransmitSetting();
+            _lbSavedTxAnt = ListenbackPrior("tx-antenna", TXAntennaName, tx);
+            _lbSavedMonitor = ListenbackPrior("monitor", theRadio.TXMonitor ? "1" : "0") == "1";
+            _lbSavedPower = int.Parse(ListenbackPrior("rf-power", XmitPower.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                System.Globalization.CultureInfo.InvariantCulture);
             lock (mySlices)
-                _lbSavedMutes = mySlices.Select(s => (Slice: s, Muted: s.Mute)).ToList();
+                _lbSavedMutes = mySlices.Select(s => (Slice: s, Muted: ListenbackPriorMute(s))).ToList();
             LoopbackSliceResources resources;
             lock (mySlices)
                 resources = new LoopbackSliceResources(mySlices, arrangementRadio.PanadapterList);
@@ -11131,6 +11135,7 @@ namespace Radios
             }
             catch (Exception ex)
             {
+                _lbSetupFailure = ex.Message;
                 Tracing.TraceLine("StartLoopbackArrangement full duplex: " + ex.Message, TraceLevel.Error);
                 try { await SetFullDuplexConfirmedAsync(_lbSavedFdx, arrangementRadio, arrangementConnection,
                     note => Tracing.TraceLine("Loopback full duplex setup rollback: " + note, TraceLevel.Info)).ConfigureAwait(false); }
@@ -11146,19 +11151,43 @@ namespace Radios
                 _lbSavedMutes = null;
                 return false;
             }
-            TXAntennaName = xvt;                       // TX slice → XVT port
-            XmitPower = 1;                             // integer floor above silent
-            Monitor = OffOnValues.off;                 // monitor stacked over the
-                                                       // delayed loop is an echo
+            if (confirmedPriorFullDuplex.HasValue)
+            {
+                // Off-air takes restore by raw reply. Cache-sensitive setters
+                // can skip these writes on the very next take.
+                if (tx == null || !await LoopbackSliceCommandAsync(arrangementRadio, arrangementConnection,
+                    tx, $"slice set {tx.Index} txant={xvt}", "tx antenna setup").ConfigureAwait(false))
+                    throw new InvalidOperationException("tx-antenna-setup-unconfirmed");
+                if (!await LoopbackRadioCommandAsync(arrangementRadio, arrangementConnection,
+                    "transmit set rfpower=1", "RF power setup").ConfigureAwait(false))
+                    throw new InvalidOperationException("rf-power-setup-unconfirmed");
+                if (!await LoopbackRadioCommandAsync(arrangementRadio, arrangementConnection,
+                    "transmit set mon=0", "monitor setup").ConfigureAwait(false))
+                    throw new InvalidOperationException("monitor-setup-unconfirmed");
+            }
+            else
+            {
+                TXAntennaName = xvt;
+                XmitPower = 1;
+                Monitor = OffOnValues.off;
+            }
             // Drive management: where a transverter band is defined, start at
             // maximum attenuation so the adjacent-port coupling lands as far
             // into the receiver's linear range as the hardware allows.
             _lbDriveBand = findAnyValidXvtr();
             if (_lbDriveBand != null)
             {
-                _lbSavedDriveDbm = _lbDriveBand.MaxPower;
+                _lbSavedDriveDbm = double.Parse(ListenbackPrior("xvtr-drive",
+                    _lbDriveBand.MaxPower.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                    System.Globalization.CultureInfo.InvariantCulture);
                 var band = _lbDriveBand;
-                q.Enqueue((FunctionDel)(() => { band.MaxPower = -10.0; }), "LoopbackDrive");
+                if (confirmedPriorFullDuplex.HasValue)
+                {
+                    if (!await LoopbackRadioCommandAsync(arrangementRadio, arrangementConnection,
+                        $"xvtr set {band.Index} max_power=-10", "transverter drive setup").ConfigureAwait(false))
+                        throw new InvalidOperationException("xvtr-drive-setup-unconfirmed");
+                }
+                else q.Enqueue((FunctionDel)(() => { band.MaxPower = -10.0; }), "LoopbackDrive");
             }
 
             foreach (var saved in _lbSavedMutes)
@@ -11166,7 +11195,7 @@ namespace Radios
                 Tracing.TraceLine($"Loopback prior mute: slice={saved.Slice.Index} muted={saved.Muted}", TraceLevel.Info);
                 if (!saved.Muted && !await LoopbackSliceCommandAsync(arrangementRadio, arrangementConnection,
                     saved.Slice, $"slice set {saved.Slice.Index} audio_mute=1", "mute setup").ConfigureAwait(false))
-                    throw new InvalidOperationException("loopback-mute-refused");
+                    throw new InvalidOperationException("slice-mute-setup-unconfirmed");
             }
 
             // NewSlice's queued creation waits for the owned pan and slice.
@@ -11213,6 +11242,7 @@ namespace Radios
             }
             catch (Exception ex)
             {
+                _lbSetupFailure = ex.Message;
                 Tracing.TraceLine("StartLoopbackArrangement failed: " + ex, TraceLevel.Error);
                 if (setupChanged)
                     try
@@ -11269,6 +11299,27 @@ namespace Radios
                 ? $"Loopback ears RF gain: radio reports low={low} high={high} step={step}; sending {gain}"
                 : $"Loopback ears RF gain: unusable radio reply; sending {gain}", TraceLevel.Info);
             return gain;
+        }
+
+        private async Task<bool> LoopbackRadioCommandAsync(Radio radio, CommandConnection connection,
+            string command, string purpose)
+        {
+            var reply = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            await IqQueue(() =>
+            {
+                if (!ReferenceEquals(theRadio, radio) || !radio.Connected ||
+                    !ReferenceEquals(radio.CurrentCommandConnection, connection))
+                    throw new InvalidOperationException("loopback-connection-changed");
+                int sent = radio.SendReplyCommand((sequence, code, response) =>
+                {
+                    Tracing.TraceLine($"Loopback {purpose}: reply {sequence} {code:X8} {response}", TraceLevel.Info);
+                    reply.TrySetResult(code == 0);
+                }, command);
+                Tracing.TraceLine($"Loopback {purpose}: sent {sent} {command}", TraceLevel.Info);
+            }).ConfigureAwait(false);
+            using var timeout = new CancellationTokenSource(ListenbackConfirmationWait);
+            try { return await reply.Task.WaitAsync(timeout.Token).ConfigureAwait(false); }
+            catch (OperationCanceledException) { return false; }
         }
 
         private async Task<bool> LoopbackSliceCommandAsync(Radio radio, CommandConnection connection,

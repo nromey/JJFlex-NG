@@ -23,20 +23,23 @@ public sealed class ListenbackRoundThreeTests : IDisposable
     { await run.StopAsync("dialog-closed"); return run.Restored; }
 
     [Theory]
-    [InlineData(false, true, false, false, false, false, "0,32,8")]
-    [InlineData(true, true, false, false, false, false, "0,32,8")]
-    [InlineData(true, true, false, false, true, false, "0,48,8")]
-    [InlineData(true, true, false, false, true, true, "0,32,8")]
-    [InlineData(true, true, false, false, false, false, null)]
-    [InlineData(false, false, false, false, false, false, "0,32,8")]
-    [InlineData(false, true, true, false, false, false, "0,32,8")]
-    [InlineData(false, true, true, true, false, false, "0,32,8")]
-    public async Task Start_records_the_confirmed_created_antenna_and_operator_restore_can_remove_it(bool offAir, bool separate, bool holdEcho, bool cancel, bool retainEars, bool hearSelf, string gainReply)
+    [InlineData(false, true, false, false, false, false, "0,32,8", false)]
+    [InlineData(true, true, false, false, false, false, "0,32,8", false)]
+    [InlineData(true, true, false, false, true, false, "0,48,8", false)]
+    [InlineData(true, true, false, false, true, true, "0,32,8", false)]
+    [InlineData(true, true, false, false, false, false, null, false)]
+    [InlineData(true, true, false, false, false, false, "0,32,8", true)]
+    [InlineData(false, false, false, false, false, false, "0,32,8", false)]
+    [InlineData(false, true, true, false, false, false, "0,32,8", false)]
+    [InlineData(false, true, true, true, false, false, "0,32,8", false)]
+    public async Task Start_records_the_confirmed_created_antenna_and_operator_restore_can_remove_it(bool offAir, bool separate, bool holdEcho, bool cancel, bool retainEars, bool hearSelf, string gainReply, bool backToBack)
     {
         using var c = new RadioCase(); var radio = c.F.Vendor.Radio;
+        if (backToBack) c.F.Vendor.Status("transmit rfpower=20 sb_monitor=1");
         string priorTxAnt = c.Tx.TXAnt;
         int priorPower = radio.RFPower;
         bool priorMonitor = radio.TXMonitor, priorDuplex = radio.FullDuplexEnabled;
+        bool restoringWithoutEcho = false;
         Slice alreadyMuted = null;
         if (offAir)
         {
@@ -49,6 +52,12 @@ public sealed class ListenbackRoundThreeTests : IDisposable
         Field(c.Tx.Panadapter, "_rx_antenna_list", new[] { "ANT1", "XVT-A", "XVT-B" });
         c.F.Vendor.Transport.CommandWritten = command =>
         {
+            if (restoringWithoutEcho && (command.StartsWith("transmit set ") ||
+                command == "slice set 1 txant=ANT1" || command == "slice set 1 audio_mute=0"))
+            {
+                c.F.Vendor.ReplyOk(c.F.Vendor.LastSequence); // accepted by the radio, no FlexLib status echo
+                return;
+            }
             if (command.StartsWith("display panafall create"))
             {
                 c.Ears = c.Add(0, 1.8);
@@ -63,7 +72,7 @@ public sealed class ListenbackRoundThreeTests : IDisposable
                 c.F.Vendor.ReplyOk(c.F.Vendor.LastSequence);
                 // A separate status, after the pan setter and the old optimistic
                 // snapshot. The pan setter itself never updates Slice.RXAnt.
-                if (separate && !holdEcho) c.F.Vendor.Status("slice 0 RF_frequency=14.2 mode=USB rxant=XVT-B");
+                if (separate && !holdEcho) c.F.Vendor.Status($"slice 0 RF_frequency={c.Tx.Freq.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)} mode={c.Tx.DemodMode} rxant=XVT-B");
                 c.F.Vendor.Status($"stream 0x20000000 type=dax_iq client_handle=0x{radio.ClientHandle:X} daxiq_channel=1 daxiq_rate=24000 active=1 pan=0x{c.Ears.Panadapter.StreamID:X} payload_endian=little");
             }
             else if (command.StartsWith("display pan rfgain_info 0x"))
@@ -159,16 +168,21 @@ public sealed class ListenbackRoundThreeTests : IDisposable
             c.F.Vendor.Status("display pan 0x40000001 center=7.1 rxant=ANT2");
             if (retainEars) Field(c.Ears, "_isTransmitSlice", true);
             c.F.Vendor.Transport.Written.Clear();
+            restoringWithoutEcho = backToBack;
             Assert.Equal(!retainEars, await c.Pump(c.F.Rig.RestoreListenbackSnapshotAsync(snapshot, true)));
+            restoringWithoutEcho = false;
             Assert.Equal(retainEars, c.F.Rig.PendingListenbackRecovery != null);
             if (offAir)
             {
-                Assert.False(c.Tx.Mute);
+                if (!backToBack) Assert.False(c.Tx.Mute);
                 Assert.True(alreadyMuted.Mute);
                 Assert.Contains("slice set 1 audio_mute=0", c.F.Vendor.Transport.Commands);
-                Assert.Equal(priorTxAnt, c.Tx.TXAnt);
-                Assert.Equal(priorPower, radio.RFPower);
-                Assert.Equal(priorMonitor, radio.TXMonitor);
+                if (!backToBack)
+                {
+                    Assert.Equal(priorTxAnt, c.Tx.TXAnt);
+                    Assert.Equal(priorPower, radio.RFPower);
+                    Assert.Equal(priorMonitor, radio.TXMonitor);
+                }
                 Assert.Equal(priorDuplex, radio.FullDuplexEnabled);
                 string restore = File.ReadAllText(Directory.GetFiles(run.DirectoryPath, "restore-*.txt")
                     .OrderByDescending(File.GetLastWriteTimeUtc).First());
@@ -204,6 +218,31 @@ public sealed class ListenbackRoundThreeTests : IDisposable
                 Assert.Equal("XVT-B", snapshot.Resources.Single(r => r.Kind == "slice" && r.Id == 0).Antenna);
             }
             if (!offAir) Assert.DoesNotContain(snapshot.Resources, r => r.Kind == "slice" && r.Id == 1);
+            if (backToBack)
+            {
+                // The raw restore replies succeeded, but FlexLib still reports
+                // the take's old setup values because no status echoed them.
+                Assert.True(c.Tx.Mute);
+                Assert.Equal("XVT-A", c.Tx.TXAnt);
+                Assert.Equal(1, radio.RFPower);
+                Assert.False(radio.TXMonitor);
+                c.F.Vendor.Transport.Written.Clear();
+                var next = await c.Pump(c.F.Rig.StartListenbackAsync(new ListenbackOptions(OffAir: true), default));
+                try
+                {
+                    var prior = c.F.Rig.PendingListenbackRecovery;
+                    Assert.Equal("ANT1", prior.Settings.Single(s => s.Name == "tx-antenna").Value);
+                    Assert.Equal("20", prior.Settings.Single(s => s.Name == "rf-power").Value);
+                    Assert.Equal("1", prior.Settings.Single(s => s.Name == "monitor").Value);
+                    Assert.Contains(prior.Settings, s => s.Name == "slice-mute-1" && s.Value == "0");
+                    var commands = c.F.Vendor.Transport.Commands;
+                    Assert.Contains("slice set 1 txant=XVT-A", commands);
+                    Assert.Contains("transmit set rfpower=1", commands);
+                    Assert.Contains("transmit set mon=0", commands);
+                    Assert.Contains("slice set 1 audio_mute=1", commands);
+                }
+                finally { await c.Pump(Stop(next)); }
+            }
         }
         finally { Field(c.F.Rig, "_Transmit", false); await c.Pump(Stop(run)); }
     }

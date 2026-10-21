@@ -112,4 +112,25 @@ public sealed class ListenbackTakeCompareTests
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
+
+    [Fact]
+    public void Take_statistics_measure_keyed_gap_free_audio_and_refuse_corrupt_input()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "jjflex-statistics-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string first = Take(root, "first", 7);
+            var stats = TakeStatistics.Measure(first);
+            Assert.True(stats.Available, stats.Reason);
+            Assert.True(double.IsFinite(stats.Lufs));
+            Assert.True(double.IsFinite(stats.PeakDbfs));
+            Assert.True(double.IsFinite(stats.RmsDbfs));
+            Assert.True(double.IsFinite(stats.BrightnessDb));
+            Assert.True(stats.PunchDb >= 0);
+            Assert.True(double.IsFinite(stats.SplatterDbfs));
+            using (var file = File.OpenWrite(Path.Combine(first, "rf.iq"))) file.WriteByte(0);
+            Assert.False(TakeStatistics.Measure(first).Available);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
 }

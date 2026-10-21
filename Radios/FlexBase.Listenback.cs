@@ -13,6 +13,31 @@ namespace Radios;
 public partial class FlexBase
 {
     private readonly SemaphoreSlim _iqLease = new(1, 1);
+    // A successful reply-only restore can leave FlexLib's status cache at the
+    // arrangement value. Keep the reply-proven value for this connection only.
+    private RadioRecoverySnapshot _lastReplyRestoredTake;
+    private Radio _lastReplyRestoredRadio;
+    private CommandConnection _lastReplyRestoredConnection;
+    private Dictionary<string, object> _lastReplyRestoredIdentities;
+    private Dictionary<string, object> _pendingListenbackIdentities;
+    private string _pendingListenbackDirectory;
+    private CommandConnection _pendingListenbackConnection;
+
+    private string ListenbackPrior(string name, string cached, object identity = null)
+    {
+        var snapshot = _lastReplyRestoredTake;
+        if (snapshot == null || !ReferenceEquals(theRadio, _lastReplyRestoredRadio) ||
+            !ReferenceEquals(theRadio?.CurrentCommandConnection, _lastReplyRestoredConnection)) return cached;
+        var saved = snapshot.Settings.FirstOrDefault(s => s.Name == name);
+        if (saved?.RequestedValue != cached) return cached;
+        if (identity != null && (!_lastReplyRestoredIdentities.TryGetValue(name, out var original) ||
+            !ReferenceEquals(identity, original))) return cached;
+        return saved.Value;
+    }
+
+    private bool ListenbackPriorMute(Slice slice) =>
+        ListenbackPrior("slice-mute-" + slice.Index.ToString(CultureInfo.InvariantCulture),
+            slice.Mute ? "1" : "0", slice) == "1";
     private RadioRecoveryStore IqRecovery => new(Path.Combine(RadioConfig.AppDataRoot, "listenback-recovery"));
     public RadioRecoverySnapshot PendingListenbackRecovery => theRadio == null ? null : IqRecovery.Find(theRadio.Serial);
     public Func<RadioRecoverySnapshot> CaptureListenbackRecoveryReader()
@@ -137,12 +162,13 @@ public partial class FlexBase
                 "radio set full_duplex_enabled=" + (priorFullDuplex ? "1" : "0"), "radio", "full_duplex_enabled", RequestedValue: "1"));
             if (options.OffAir)
             {
-                snapshot.Settings.Add(new("tx-antenna", tx.TXAnt, $"slice set {tx.Index} txant={tx.TXAnt}", $"slice {tx.Index}", "txant", "slice", (uint)tx.Index, RequestedValue: expectedLoopbackAntenna))
+                string priorAntenna = ListenbackPrior("tx-antenna", tx.TXAnt, tx);
+                snapshot.Settings.Add(new("tx-antenna", priorAntenna, $"slice set {tx.Index} txant={priorAntenna}", $"slice {tx.Index}", "txant", "slice", (uint)tx.Index, RequestedValue: expectedLoopbackAntenna))
                 ; identities["tx-antenna"] = tx;
                 // The shared arrangement mutes every previously audible owned slice.
                 // Persist those prior values before it sends its first radio write.
                 lock (mySlices)
-                    foreach (var slice in mySlices.Where(s => !s.Mute))
+                    foreach (var slice in mySlices.Where(s => !ListenbackPriorMute(s)))
                     {
                         string name = "slice-mute-" + slice.Index.ToString(CultureInfo.InvariantCulture);
                         snapshot.Settings.Add(new(name, "0", $"slice set {slice.Index} audio_mute=0",
@@ -150,15 +176,24 @@ public partial class FlexBase
                         snapshot.Resources.Add(DescribeRecoveryResource(slice));
                         identities[name] = slice;
                     }
-                snapshot.Settings.Add(new("rf-power", radio.RFPower.ToString(CultureInfo.InvariantCulture), $"transmit set rfpower={radio.RFPower}", "transmit", "rfpower", RequestedValue: "1"));
-                snapshot.Settings.Add(new("monitor", radio.TXMonitor ? "1" : "0", "transmit set mon=" + (radio.TXMonitor ? "1" : "0"), "transmit", "sb_monitor", RequestedValue: "0"));
+                string priorPower = ListenbackPrior("rf-power", radio.RFPower.ToString(CultureInfo.InvariantCulture));
+                string priorMonitor = ListenbackPrior("monitor", radio.TXMonitor ? "1" : "0");
+                snapshot.Settings.Add(new("rf-power", priorPower, $"transmit set rfpower={priorPower}", "transmit", "rfpower", RequestedValue: "1"));
+                snapshot.Settings.Add(new("monitor", priorMonitor, "transmit set mon=" + priorMonitor, "transmit", "sb_monitor", RequestedValue: "0"));
                 var band = findAnyValidXvtr();
-                if (band != null) snapshot.Settings.Add(new("xvtr-drive", band.MaxPower.ToString(CultureInfo.InvariantCulture),
-                    $"xvtr set {band.Index} max_power={band.MaxPower.ToString(CultureInfo.InvariantCulture)}", $"xvtr {band.Index}", "max_power", RequestedValue: "-10"));
+                if (band != null)
+                {
+                    string priorDrive = ListenbackPrior("xvtr-drive", band.MaxPower.ToString(CultureInfo.InvariantCulture));
+                    snapshot.Settings.Add(new("xvtr-drive", priorDrive,
+                        $"xvtr set {band.Index} max_power={priorDrive}", $"xvtr {band.Index}", "max_power", RequestedValue: "-10"));
+                }
             }
             snapshot.ResourceNotes.Add("preexisting-pan-ids=" + string.Join(",", radio.PanadapterList.Select(p => p.StreamID)));
             snapshot.ResourceNotes.Add("preexisting-slice-indices=" + string.Join(",", radio.SliceList.Select(s => s.Index)));
             store.Save(snapshot); // No mutating command precedes this durable write.
+            _pendingListenbackIdentities = identities;
+            _pendingListenbackDirectory = directory;
+            _pendingListenbackConnection = connection;
             writer = new IqTakeWriter(directory, options.Rate, new Dictionary<string, string> {
                 ["serial"] = radio.Serial, ["kind"] = options.OffAir ? "off-air" : "receive-only-diagnostic" });
             writer.Header.Event("prior-radio-state", snapshot);
@@ -174,7 +209,7 @@ public partial class FlexBase
                 if (!await StartLoopbackArrangementAsync(priorFullDuplex).ConfigureAwait(false))
                 {
                     snapshot.ResourceCreationPending = false; store.Save(snapshot);
-                    throw new InvalidOperationException("arrangement-refused");
+                    throw new InvalidOperationException(_lbSetupFailure ?? "arrangement-refused");
                 }
                 ownedLoopback = _lbResources;
                 if (ownedLoopback?.Slice != null)
@@ -426,27 +461,17 @@ public partial class FlexBase
             }
             if (options.OffAir)
             {
-                var desired = new[] {
-                    new SavedRadioSetting("tx-antenna", expectedLoopbackAntenna, "", $"slice {tx.Index}", "txant"),
-                    new SavedRadioSetting("rf-power", "1", "", "transmit", "rfpower"),
-                    new SavedRadioSetting("full-duplex", "1", "", "radio", "full_duplex_enabled"),
-                    new SavedRadioSetting("monitor", "0", "", "transmit", "sb_monitor") };
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
-                timeout.CancelAfter(TimeSpan.FromSeconds(4));
-                if (tx.TXAnt != expectedLoopbackAntenna || radio.RFPower != 1 || !FullDuplexState(radio, connection) || radio.TXMonitor)
-                    throw new InvalidOperationException("arrangement-not-confirmed");
-                foreach (var target in desired)
-                {
-                    if (target.Name == "full-duplex") continue; // proved by the successful set reply above
-                    if (snapshot.Settings.FirstOrDefault(s => s.Name == target.Name)?.Value == target.Value) continue;
-                    while (true)
-                    {
-                        if (!SameConnection()) throw new InvalidOperationException("connection-ended");
-                        lock (setupEvidence) if (setupEvidence.Any(raw => ListenbackRestoreEvidence.Matches(target, raw))) break;
-                        try { await Task.Delay(20, timeout.Token).ConfigureAwait(false); }
-                        catch (OperationCanceledException) when (!cancellation.IsCancellationRequested) { throw new InvalidOperationException("arrangement-not-confirmed"); }
-                    }
-                }
+                // Each setup command above has a successful reply from this
+                // connection. Cache differences here are diagnostic: a prior
+                // raw restore may have received no status echo.
+                writer.Header.Write("arrangement-cache-observation", new {
+                    TxAntenna = tx.TXAnt, TxAntennaMatches = tx.TXAnt == expectedLoopbackAntenna,
+                    RfPower = radio.RFPower, RfPowerMatches = radio.RFPower == 1,
+                    FullDuplex = FullDuplexState(radio, connection),
+                    FullDuplexMatches = FullDuplexState(radio, connection),
+                    Monitor = radio.TXMonitor, MonitorMatches = !radio.TXMonitor });
+                if (!SameConnection()) throw new InvalidOperationException("arrangement-connection-ended");
+                if (!FullDuplexState(radio, connection)) throw new InvalidOperationException("full-duplex-setup-unconfirmed");
             }
             run = new ListenbackRun(capture, async () =>
             {
@@ -490,7 +515,10 @@ public partial class FlexBase
         pan.ClientHandle, pan.StreamID, pan.CenterFreq, "", pan.RXAnt);
 
     public Task<bool> RestoreListenbackSnapshotAsync(RadioRecoverySnapshot snapshot, bool operatorApproved) =>
-        RestoreListenbackSnapshotAsync(snapshot, operatorApproved, null);
+        RestoreListenbackSnapshotAsync(snapshot, operatorApproved,
+            snapshot?.TakeDirectory == _pendingListenbackDirectory &&
+            ReferenceEquals(theRadio?.CurrentCommandConnection, _pendingListenbackConnection)
+                ? _pendingListenbackIdentities : null);
 
     private async Task<bool> RestoreListenbackSnapshotAsync(RadioRecoverySnapshot snapshot, bool operatorApproved,
         Dictionary<string, object> identities)
@@ -708,6 +736,13 @@ public partial class FlexBase
                 (RequiresWriteProof(setting) ? "reply-confirmed; see confirmation basis" : "reply-and-status-confirmed") : "command-not-confirmed");
         }, true).ConfigureAwait(false);
         trace.Write("complete", new { Confirmed = restored, snapshot.ResourceCreationPending });
+        if (restored && identities != null && Connected())
+        {
+            _lastReplyRestoredRadio = radio;
+            _lastReplyRestoredConnection = connection;
+            _lastReplyRestoredTake = snapshot;
+            _lastReplyRestoredIdentities = new Dictionary<string, object>(identities);
+        }
         return restored;
     }
 }
