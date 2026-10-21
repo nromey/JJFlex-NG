@@ -1,4 +1,0 @@
-<!-- Fragment for docs/CHANGELOG.md, Unreleased section. Junkbox #639. Wording by Noel, 2026-10-21. -->
-
-- **Your saved station now counts as restored when it actually is** — since late September, every time you connected to your own radio and your saved station came back, the app still said "Station restore not confirmed" and quietly skipped the rest of its connect-time setup. Previously, the restore itself actually worked, but the app simply had no way to tell it finished.
-- **The "not confirmed" sentence says what it means** — on the connects where the app genuinely cannot tell whether your station came back, it used to say "nothing added on top", which meant nothing to anyone but its author. It now says the restore was not confirmed, indicating that the transmit and microphone setup process was skipped.
