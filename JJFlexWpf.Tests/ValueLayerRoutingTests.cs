@@ -163,9 +163,9 @@ public sealed class ValueLayerRoutingTests : IDisposable
         Keys.OemCloseBrackets | Keys.Control,        // pull
     };
 
-    private const string Ptt = "No push to talk here.";
-    private const string LockLine = "No transmit lock here.";
-    private const string Bracket = "That filter key does nothing here.";
+    private const string Ptt = "You can't use push to talk here.";
+    private const string LockLine = "You can't use the transmit lock here.";
+    private const string Bracket = "You can't use that filter key here.";
 
     private static string SentenceFor(Keys k)
         => (k & Keys.KeyCode) != Keys.Space ? Bracket

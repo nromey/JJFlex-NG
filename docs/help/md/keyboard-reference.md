@@ -126,6 +126,15 @@ One more thing worth knowing: the JJ key's built-in help (`Ctrl+J` then `H`) use
 
 If what you actually want is help for the control you're sitting on, that's Ctrl+F1 — F1 on its own opens this file. If you want to search every command in the app by name, that's `Ctrl+/` for the Command Finder. The JJ help announcement ends by pointing you at both.
 
+### Inside a value layer
+
+- Enter, Escape or the JJ key leaves a layer. Other keys play a tone and keep you in the layer.
+- Ctrl+Space is push to talk, on Home and in the app's dialogs, even with a layer open.
+- Shift+Space locks the transmitter from Home; it doesn't work in dialogs yet.
+- Escape while keyed unkeys first; a second Escape closes the dialog.
+- On Home, the bracket keys still move the filter while a layer is open.
+- The number keys 1 to 9 do nothing inside a layer. 0 still jumps to the centre.
+
 ### The audio layer — Ctrl+J, then V (Alt+P lands you on pan)
 
 Volume mode and pan mode were two doors into the same room, so they're one layer now. Press `Ctrl+J`, then `V`, and you're in the audio layer: pick a target with a letter, then ride Up and Down. Every press speaks the new value. The layer stays put while you adjust and while you switch targets — set your mic, hop to PC output, nudge it, hop back — and Enter or Escape ends it. If you're a JAWS or NVDA user this layered-keystroke pattern will feel like home.
@@ -162,8 +171,6 @@ And the keys that work on whatever you've picked:
 - **Enter** — keep everything and leave.
 - **Escape** — put back *everything* you moved in the layer — the switches too — out loud, and leave. Overshot three things? One key.
 - **H** — the layer's keys as a list you can arrow through, count first. `Shift slash` opens the JJ key explorer instead: the whole map as a tree, with this layer's branch already open.
-- Any other key that means something elsewhere keeps your changes, announces the layer closed, and then does its normal job — you can't get stuck in here.
-- A key that means nothing anywhere, and sits one modifier away from a key that *does* mean something in here, is treated as a slip rather than an exit. You get the refusal tone, the layer stays where it was, and at chatty verbosity it names the key you nearly pressed: "B is not a key in the Audio layer. Ctrl+B: Binaural receive on or off." Reaching for `Ctrl+B` and landing on plain `B` used to end the layer without a word.
 
 `Ctrl+J`, then `Alt+P` opens the same layer with pan already picked, so the old pan mode is one keystroke shorter rather than gone. Stereo placement is how you keep two signals apart — slice A a little left, slice B a little right, and a pileup turns into two conversations instead of one mush. Hard left and hard right aren't separation, they're exile; what you want is *slightly* off center, and that's what the fine control is for. It speaks the number and nothing else: "Pan 40" on a 0-to-100 scale where 0 is hard left, 50 is center, and 100 is hard right, precise enough to jot down and dial in again tomorrow. It used to add a word after the figure at chatty verbosity — "Pan 40, slightly left" — and that word is gone, because "left" covered everything from 15 to 34 and you can't get back to where you were from a word. The scale is the same one slice volume uses, and neither of them announces a unit you'd only hear again on the next nudge.
 
@@ -194,7 +201,6 @@ Press `Ctrl+J`, then `F`, and you're on the receive filter of the slice you're o
 - **Enter** — keep everything and leave.
 - **Escape** — put back everything you moved, on both sides, out loud, and leave.
 - **H** — list the layer's keys, count first. `Shift slash` does the same for now.
-- Any other key that means something elsewhere keeps your changes, announces the layer closed, and does its normal job. A key that means nothing anywhere but sits one modifier from one of the letters above — `Ctrl+S` when you meant `S` — is a slip, not an exit: the layer stays, and at chatty verbosity it names the key you were reaching for.
 
 The edges step by a fixed amount and never speed up, however long you hold the key — an edge is placed by the number, and your ear won't tell you when you've reached 2,700 hertz. The step is the same one the bracket keys use, chosen by how wide the filter is right now: 10 hertz under 200 wide, 25 under 500, 50 under 3,500, 100 under 5,000, and 200 above that. Transmit steps by that same ladder, so pressing `T` changes which filter you're working on and nothing else.
 
@@ -227,7 +233,6 @@ And the keys every layer has:
 - **Enter** — keep everything and leave.
 - **Escape** — put back every switch you flipped, out loud, and leave.
 - **H** — the layer's keys as a list you can arrow through, count first. `Shift slash` opens the JJ key explorer with this layer's branch open.
-- A key that means nothing anywhere, and sits one modifier from a key that does mean something in here, is a slip rather than an exit: the layer stays and names the key you were reaching for.
 
 The compander is not in this room, on purpose. It shapes your voice on transmit rather than fighting noise on receive, so its switch sits in the audio layer beside its level. The tracking notch manager (`Ctrl+J`, `Alt+N`) and the noise-profile capture (`Ctrl+J`, `Alt+Q`) are things you *open* or *do* rather than switches, so they stay on the Alt tier at the top level.
 

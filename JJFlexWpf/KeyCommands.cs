@@ -5779,9 +5779,9 @@ public class KeyCommands
         if (InPlaceVerdictFor(k) != InPlaceVerdict.NotFromHere) return null;
         Keys code = k & Keys.KeyCode;
         Keys mods = k & Keys.Modifiers;
-        // DRAFT PROSE (#778): awaiting Noel. Very short, by his ruling; "here"
-        // rather than "this window", because on the main window it is focus,
-        // not the window, that decides.
+        // Noel's wording (#778, 2026-10-21): "You can't use <function> here.";
+        // "here" rather than "this window", because on the main window it is
+        // focus, not the window, that decides.
         string key = code == Keys.Space
             ? (mods == Keys.Control ? "audio.value_layer.ptt_not_here" : "audio.value_layer.lock_not_here")
             : "audio.value_layer.bracket_not_here";

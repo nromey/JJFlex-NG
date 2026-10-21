@@ -1544,7 +1544,7 @@ namespace Radios.Tests
                 Number = v => "Power " + v,
                 DescribeEntry = (cur, entry) => "Power layer.",
                 DescribeClosed = () => "Power layer closed",
-                DescribeUnavailableHere = k => k == (Keys.Space | Keys.Control) ? "No push to talk here." : null,
+                DescribeUnavailableHere = k => k == (Keys.Space | Keys.Control) ? "You can't use push to talk here." : null,
                 Cues = tones.Cues,
             });
             int saidBefore = h.Said.Count;
@@ -1553,7 +1553,7 @@ namespace Radios.Tests
             Assert.True(h.Layer.IsLive);
             Assert.Equal(1, tones.Invalid);
             if (level == VerbosityLevel.Chatty)
-                Assert.Equal("No push to talk here.", h.LastSaid);
+                Assert.Equal("You can't use push to talk here.", h.LastSaid);
             else
                 Assert.Equal(saidBefore, h.Said.Count);
         }

@@ -520,7 +520,7 @@ public sealed class DialogTransmitKeysTests : IDisposable
         // not built until a quick JAWS tap has been measured, so Shift+Space
         // in a dialog is taken (no button is pressed, no box is ticked) and
         // refused through the same path the Audio Check refusal uses: the
-        // low tone and "No transmit lock here." at Chatty. The controller
+        // low tone and "You can't use the transmit lock here." at Chatty. The controller
         // does not move, from Idle or from Locked.
         AssertTheDeskIsSafe(); WireDoor();
         var (button, checkBox) = FocusedControlKinds();
@@ -531,11 +531,11 @@ public sealed class DialogTransmitKeysTests : IDisposable
         var w = new FakeWindow();
 
         string onButton = SpokenAfter(() => Assert.True(Down(w, Keys.Space | Keys.Shift, text: button)));
-        Assert.Equal("No transmit lock here.", onButton);     // the mutation control: let the verdict fall through unhandled, or drop the refusal, and this fails
+        Assert.Equal("You can't use the transmit lock here.", onButton);     // the mutation control: let the verdict fall through unhandled, or drop the refusal, and this fails
         Assert.Equal(from, _controller.State);
 
         string onCheckBox = SpokenAfter(() => Assert.True(Down(w, Keys.Space | Keys.Shift, text: checkBox)));
-        Assert.Equal("No transmit lock here.", onCheckBox);
+        Assert.Equal("You can't use the transmit lock here.", onCheckBox);
         Assert.Equal(from, _controller.State);
 
         // A held key's repeats are consumed too, and quietly: one refusal
@@ -575,7 +575,7 @@ public sealed class DialogTransmitKeysTests : IDisposable
         _sessionActive = true;
         var w = new FakeWindow();
         string said = SpokenAfter(() => Assert.True(Down(w, Keys.Space | Keys.Control)));
-        Assert.Equal("No push to talk here.", said);
+        Assert.Equal("You can't use push to talk here.", said);
         Assert.Equal(Idle, _controller.State);
         Assert.Equal(0, _downs);
         Assert.Null(DialogTransmitKeys.HoldWindow);
@@ -591,7 +591,7 @@ public sealed class DialogTransmitKeysTests : IDisposable
         _sessionActive = true;
         var w = new FakeWindow();
         string said = SpokenAfter(() => Assert.True(Down(w, Keys.Space | Keys.Shift)));
-        Assert.Equal("No transmit lock here.", said);
+        Assert.Equal("You can't use the transmit lock here.", said);
         Assert.Equal(Idle, _controller.State);
     }
 
@@ -677,7 +677,7 @@ public sealed class DialogTransmitKeysTests : IDisposable
         // Shift+Space is refused before the radio is asked, so with the radio
         // off it says what it says everywhere else in a dialog.
         string lockSaid = SpokenAfter(() => Assert.True(Down(w, Keys.Space | Keys.Shift)));
-        Assert.Equal("No transmit lock here.", lockSaid);
+        Assert.Equal("You can't use the transmit lock here.", lockSaid);
         Assert.Equal(Idle, _controller.State);
     }
 

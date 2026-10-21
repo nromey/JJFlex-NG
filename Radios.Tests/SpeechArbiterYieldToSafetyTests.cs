@@ -38,7 +38,7 @@ namespace Radios.Tests
         private const string Cut = "Transmit stopped. You are no longer on the air.";
         private const string Alarm = "PA temperature 61 degrees C. Release transmit now.";
         private const string Alarm2 = "SWR 3 to 1. Check the antenna.";
-        private const string Refusal = "No push to talk here.";
+        private const string Refusal = "You can't use push to talk here.";
         private static readonly string LayerStatus = SpeechSubject.ValueLayerStatus("audio");
         private static string Subject(string id = "pa") => SpeechSubject.OperatorAlarm(id);
         private static int Words(string s) => NvdaCompletionChannel.SplitWords(s).Length;
@@ -160,15 +160,15 @@ namespace Radios.Tests
         public void Several_refusals_during_one_alarm_are_answered_once_with_the_newest()
         {
             _arbiter.UrgentAlarm(Alarm, VerbosityLevel.Critical, "AlarmDelivery", Subject(), () => Alarm);
-            Refuse("No push to talk here.");
-            Refuse("No transmit lock here.");
+            Refuse("You can't use push to talk here.");
+            Refuse("You can't use the transmit lock here.");
             Assert.Equal(1, _arbiter.YieldingToSafetyCount);
 
             _clock.Advance(2000);
             Complete(Alarm);
             _clock.Advance(200);
 
-            Assert.Equal(new[] { Alarm, "No transmit lock here." }, Messages);
+            Assert.Equal(new[] { Alarm, "You can't use the transmit lock here." }, Messages);
         }
 
         [Fact]
