@@ -3270,6 +3270,14 @@ public class KeyCommands
     }
 
     /// <summary>
+    /// Is a value sub-layer live on the owning (main) instance? For the main
+    /// window's Tab gate (#778c): Tab is refused while a layer is live and is
+    /// left to WPF otherwise, and the main window has no instance of its own
+    /// to ask. False where no routing owner exists (tests, the log form).
+    /// </summary>
+    internal static bool AValueLayerIsLive => _globalRoutingOwner?._valueLayer != null;
+
+    /// <summary>
     /// Preview key-UP in any WPF window: a Space release is a push-to-talk
     /// release through the dialog door (#778c), the same edge Home's
     /// PreviewKeyUp uses. Marked handled only when it unkeyed a hold, so a

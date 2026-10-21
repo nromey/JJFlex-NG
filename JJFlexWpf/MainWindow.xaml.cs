@@ -2657,8 +2657,15 @@ public partial class MainWindow : UserControl
         // pressed while Alt owns the keyboard.
         Tracing.TraceLine($"KEYROUTE wpf.MainWindow_PreviewKeyDown key={rawKey} viaSystem={e.Key == Key.System} mods={Keyboard.Modifiers} handled={e.Handled} focus={Keyboard.FocusedElement?.GetType().Name}", TraceLevel.Info);
         // Let regular Tab (and Ctrl+Tab / Ctrl+Shift+Tab) pass through to
-        // WPF default handling / child-panel PreviewKeyDown handlers.
-        if (rawKey == Key.Tab)
+        // WPF default handling / child-panel PreviewKeyDown handlers —
+        // UNLESS a value layer is live (#778c; Noel, 2026-10-21 06:32: "Once
+        // in a layer, tab gets refused"). Then Tab falls on to step 4 like
+        // any other key and the layer refuses it with its ordinary answer,
+        // as a layer in a dialog already did; Home's focus does not move
+        // behind an open layer. Ctrl+Tab and Ctrl+Shift+Tab (pane
+        // navigation) are read as covered by "tab gets refused" and take the
+        // same route. With no layer live nothing here changed.
+        if (rawKey == Key.Tab && !KeyCommands.AValueLayerIsLive)
             return;
 
         // 1. Former hard-wired meta-commands (Ctrl+Shift+M tuning mode,

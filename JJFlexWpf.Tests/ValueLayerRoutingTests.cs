@@ -411,6 +411,18 @@ public sealed class ValueLayerRoutingTests : IDisposable
             Assert.False(KeyCommands.IsInPlaceChord(k), k.ToString());
     }
 
+    [Fact]
+    public void With_no_routing_owner_no_value_layer_is_live_anywhere()
+    {
+        // #778c: the main window's Tab gate asks this static. The setDefault
+        // constructor used here installs no routing owner, so it answers no
+        // even with a layer open on THIS instance: it speaks for the owning
+        // instance only, which on Home is the one DoCommandHandler dispatches to.
+        var commands = OpenAudioLayerOnVoxGain(fromDialog: false);
+        Assert.NotNull(commands.LiveValueLayer);
+        Assert.False(KeyCommands.AValueLayerIsLive);
+    }
+
     // ── Real hotkeys are refused: they no longer close the layer and act ──
 
     public static TheoryData<Keys, bool> RefusedKeys()
@@ -423,6 +435,13 @@ public sealed class ValueLayerRoutingTests : IDisposable
             data.Add(Keys.M | Keys.Shift, fromDialog);     // mute all slices (a registry row)
             data.Add(Keys.Tab, fromDialog);                // navigation, no row
             data.Add(Keys.Tab | Keys.Shift, fromDialog);
+            // #778c: pane navigation, read as covered by "once in a layer,
+            // tab gets refused" (Noel 06:32). On the main route this is the
+            // answer MainWindow_PreviewKeyDown now gets for Tab while a layer
+            // is live, because its early Tab return is gated on
+            // KeyCommands.AValueLayerIsLive (pinned from source in Radios.Tests).
+            data.Add(Keys.Tab | Keys.Control, fromDialog);
+            data.Add(Keys.Tab | Keys.Control | Keys.Shift, fromDialog);
             data.Add(Keys.Space, fromDialog);              // a Home field's toggle key, no row
         }
         return data;

@@ -3058,10 +3058,18 @@ namespace Radios.Tests
                 Assert.True(at > start && at < step4, branch + " must come before the registry dispatch");
             }
 
-            // And Tab returns before ANY of it, which is why a layer on the
-            // main window never sees Tab at all (reported for #778b).
-            int tab = source.IndexOf("if (rawKey == Key.Tab)", start, StringComparison.Ordinal);
-            Assert.True(tab > start && tab < step4);
+            // Tab returns before ANY of it UNLESS a value layer is live (#778c;
+            // Noel, 2026-10-21 06:32: "Once in a layer, tab gets refused").
+            // Until this round the return was unconditional, so a layer on the
+            // main window never saw Tab at all and Home's focus moved behind
+            // an open layer. The gate is the owning instance's static, because
+            // the main window has no KeyCommands of its own to ask.
+            int tab = source.IndexOf("if (rawKey == Key.Tab && !KeyCommands.AValueLayerIsLive)", start, StringComparison.Ordinal);
+            Assert.True(tab > start && tab < step4, "the Tab return must be gated on a live layer and sit before the registry dispatch");
+            Assert.DoesNotContain("if (rawKey == Key.Tab)\n", source.Substring(start, step4 - start).Replace("\r\n", "\n"));
+
+            string commands = ReadSource("JJFlexWpf/KeyCommands.cs");
+            Assert.Contains("internal static bool AValueLayerIsLive => _globalRoutingOwner?._valueLayer != null;", commands);
         }
 
         [Fact]
