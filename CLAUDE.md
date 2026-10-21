@@ -1,4 +1,4 @@
-﻿# JJ Flexible Radio Access
+# JJ Flexible Radio Access
 
 Windows desktop application for controlling FlexRadio transceivers (6000/8000 series). Alternative UI to SmartSDR, created by Jim Shaffer, maintained by Noel Romey (K5NER). Current version: 4.1.16. **FlexLib version depends on which branch you are on, and this matters:**
 
@@ -1372,7 +1372,7 @@ As tracks complete, Claude Desktop handles merges and keeps the user informed:
    Filtering to classes that construct no window is safe on a live desk:
 
    ```bash
-   dotnet test JJFlexWpf.Tests/JJFlexWpf.Tests.csproj -c Debug -p:Platform=x64      --filter "FullyQualifiedName~KeyTreeTests|FullyQualifiedName~LayerHelpRowsTests|FullyQualifiedName~KeyLayerHelpTests|FullyQualifiedName~LeaderNearMissTests|FullyQualifiedName~HomeFieldChordTests|FullyQualifiedName~DelegateSurfaceTests|FullyQualifiedName~NoiseReductionPerChannelTests|FullyQualifiedName~PerChannelDenoiserBankTests|FullyQualifiedName~DeepFilterNet3EngineTests|FullyQualifiedName~EngineLatencyTests"
+   dotnet test JJFlexWpf.Tests/JJFlexWpf.Tests.csproj -c Debug -p:Platform=x64      --filter "FullyQualifiedName~KeyTreeTests|FullyQualifiedName~LayerHelpRowsTests|FullyQualifiedName~KeyLayerHelpTests|FullyQualifiedName~LeaderNearMissTests|FullyQualifiedName~HomeFieldChordTests|FullyQualifiedName~DelegateSurfaceTests|FullyQualifiedName~NoiseReductionPerChannelTests|FullyQualifiedName~PerChannelDenoiserBankTests|FullyQualifiedName~DeepFilterNet3EngineTests|FullyQualifiedName~EngineLatencyTests|FullyQualifiedName~HomeLayoutRestoreTests|FullyQualifiedName~QuickTypeCommitTests|FullyQualifiedName~ValueLayerRoutingTests|FullyQualifiedName~DialogTransmitKeysTests"
    ```
 
    **Say which classes the run covered**, because the set grows and a class
@@ -1399,6 +1399,11 @@ As tracks complete, Claude Desktop handles merges and keeps the user informed:
    `EngineLatencyTests` were added 2026-10-17** with Sprint 48 Track G (#731, #732). They exercise
    audio buffers and native engines only; no window. **On x86, four of them fail by design until #739**
    (the RNNoise package ships a 64-bit DLL as its 32-bit one), so run this filter on x64.
+
+   **`HomeLayoutRestoreTests`, `QuickTypeCommitTests`, `ValueLayerRoutingTests` and `DialogTransmitKeysTests`
+   were added 2026-10-21** with the junkbox merge (#410, #520, #778). The iterator lane ran all four on a
+   live desk through the junkbox; none constructs a window (`ValueLayerRoutingTests` asserts it in
+   `AssertTheDeskIsSafe`). The filter now names fourteen classes, 208 tests on the merge.
 
    **`HomeFieldChordTests` and `DelegateSurfaceTests` were added 2026-09-20**,
    both verified to construct zero windows. **Do not check that by grepping for
