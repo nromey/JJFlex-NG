@@ -96,6 +96,27 @@ public sealed class ListenbackTakeCompareTests
     }
 
     [Fact]
+    public void Comparison_reuses_the_renders_that_were_played()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "jjflex-compare-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string first = Take(root, "first", 7);
+            string second = Take(root, "second", 41);
+            SsbTakeRenderer.Render(first);
+            SsbTakeRenderer.Render(second);
+            var renderedAt = new DateTime(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+            string firstWav = Path.Combine(first, "heard.wav"), secondWav = Path.Combine(second, "heard.wav");
+            File.SetLastWriteTimeUtc(firstWav, renderedAt);
+            File.SetLastWriteTimeUtc(secondWav, renderedAt);
+            Assert.True(TakeAnalysis.CompareTakes(first, second, reuseRenders: true).Comparable);
+            Assert.Equal(renderedAt, File.GetLastWriteTimeUtc(firstWav));
+            Assert.Equal(renderedAt, File.GetLastWriteTimeUtc(secondWav));
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    [Fact]
     public void Corrupt_and_unlike_takes_still_refuse_numbers()
     {
         string root = Path.Combine(Path.GetTempPath(), "jjflex-compare-" + Guid.NewGuid().ToString("N"));
@@ -128,6 +149,11 @@ public sealed class ListenbackTakeCompareTests
             Assert.True(double.IsFinite(stats.BrightnessDb));
             Assert.True(stats.PunchDb >= 0);
             Assert.True(double.IsFinite(stats.SplatterDbfs));
+            string render = Path.Combine(first, "heard.wav");
+            var renderedAt = new DateTime(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(render, renderedAt);
+            Assert.True(TakeStatistics.Measure(first, reuseRender: true).Available);
+            Assert.Equal(renderedAt, File.GetLastWriteTimeUtc(render));
             using (var file = File.OpenWrite(Path.Combine(first, "rf.iq"))) file.WriteByte(0);
             Assert.False(TakeStatistics.Measure(first).Available);
         }

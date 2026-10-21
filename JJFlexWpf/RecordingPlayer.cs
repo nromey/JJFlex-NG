@@ -96,11 +96,12 @@ public static class RecordingPlayer
     /// ambiguity is exactly what this whole finding was made of.
     /// </summary>
     public static bool Play(string path, string? announcement = null, FlexBase? liveRig = null,
-        bool offAirListeningGain = false) =>
-        PlayWithMixer(path, announcement, liveRig, offAirListeningGain, EarconPlayer.AddRecordingPlayback);
+        bool offAirListeningGain = false, bool? priorLiveMute = null) =>
+        PlayWithMixer(path, announcement, liveRig, offAirListeningGain, EarconPlayer.AddRecordingPlayback,
+            priorLiveMute);
 
     internal static bool PlayWithMixer(string path, string? announcement, FlexBase? liveRig,
-        bool offAirListeningGain, Func<ISampleProvider, bool> addPlayback)
+        bool offAirListeningGain, Func<ISampleProvider, bool> addPlayback, bool? priorLiveMute = null)
     {
         if (string.IsNullOrEmpty(path))
         {
@@ -176,7 +177,7 @@ public static class RecordingPlayer
             _path = path;
             _name = Path.GetFileNameWithoutExtension(path);
             _liveRig = liveRig;
-            _priorLiveMute = liveRig?.LocalReceiveMutedForTakePlayback ?? false;
+            _priorLiveMute = priorLiveMute ?? liveRig?.LocalReceiveMutedForTakePlayback ?? false;
             if (liveRig != null) liveRig.LocalReceiveMutedForTakePlayback = true;
         }
 

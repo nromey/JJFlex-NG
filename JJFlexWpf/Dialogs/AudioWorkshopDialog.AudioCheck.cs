@@ -1117,7 +1117,16 @@ public partial class AudioWorkshopDialog
 
             if (_awaitPlaybackTicks == int.MinValue)
             {
-                // No playback wanted — just the post-unkey grace, then done.
+                // The off-air file has its own playback path. Once both the
+                // controller and radio confirm key-up, waiting for two more
+                // timer ticks cannot make teardown safer. Keep the hardware
+                // PTT warning above active until the radio actually releases.
+                if (_method == AudioCheckListenMethods.OffAir)
+                {
+                    if (!_ptt.IsTransmitting && !rig.Transmit) End(null);
+                    return;
+                }
+                // Other no-playback methods retain their post-unkey grace.
                 if (_postUnkeyTicks >= 3)
                     End(Lexicon.Get("audio.check.ended"));
                 return;

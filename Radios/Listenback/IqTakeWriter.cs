@@ -114,8 +114,15 @@ public sealed class IqTakeWriter : IDisposable
         {
             if (_leading == null) { _leading = block with { Samples = block.Samples.ToArray() }; return; }
             var first = _leading.Header;
+            double radioJump = h.SecondsSince(first);
+            double arrivalGap = (h.ArrivalTicks - first.ArrivalTicks) / (double)Stopwatch.Frequency;
+            // A burst can deliver two genuine packets milliseconds apart even
+            // though their radio clocks are one full packet apart. Suspect the
+            // head only when its successor is NOT contiguous by radio time and
+            // the unexplained jump is much larger than the arrival gap.
+            bool contiguousClock = Math.Abs(radioJump * _rate - _leading.Samples.Length / 2) < .75;
             bool suspect = first.HasRadioClock && h.HasRadioClock && first.IntegerKind == h.IntegerKind &&
-                h.SecondsSince(first) > 60 && (h.ArrivalTicks - first.ArrivalTicks) / (double)Stopwatch.Frequency is >= 0 and < 1 &&
+                !contiguousClock && radioJump > arrivalGap + .05 && arrivalGap is >= 0 and < 1 &&
                 block.DroppedPackets == 0 && _leading.DroppedPackets == 0;
             if (_following == null && suspect) { _following = block with { Samples = block.Samples.ToArray() }; return; }
             _startupSettled = true;

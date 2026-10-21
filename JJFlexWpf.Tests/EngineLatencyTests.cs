@@ -125,6 +125,26 @@ public sealed class EngineLatencyTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PreMutedTakePlaybackHandsItsOriginalMuteToThePlayer(bool priorMute)
+    {
+        NoiseReductionPerChannelTests.AssertWindowless();
+        string path = Path.Combine(Path.GetTempPath(), "jjflex-premuted-take-" + Guid.NewGuid().ToString("N") + ".wav");
+        var rig = (FlexBase)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(FlexBase));
+        try
+        {
+            using (var writer = new WaveFileWriter(path, new WaveFormat(44100, 16, 1)))
+                writer.Write(new byte[882], 0, 882);
+            rig.LocalReceiveMutedForTakePlayback = true; // the click's live-audio gate
+            Assert.False(RecordingPlayer.PlayWithMixer(path, "A test take.", rig, false,
+                _ => false, priorLiveMute: priorMute));
+            Assert.Equal(priorMute, rig.LocalReceiveMutedForTakePlayback);
+        }
+        finally { RecordingPlayer.Stop(); try { File.Delete(path); } catch { } }
+    }
+
     [Fact]
     public async Task PlaybackStartedOffTheUiThreadRestoresLiveAudioWhenTheFileEnds()
     {

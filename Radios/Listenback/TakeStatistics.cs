@@ -11,12 +11,16 @@ public sealed record TakeStatistics(bool Available, string Reason = "", double L
     double PeakDbfs = 0, double RmsDbfs = 0, double BrightnessDb = 0,
     double PunchDb = 0, double SplatterDbfs = 0)
 {
-    public static TakeStatistics Measure(string directory)
+    public static TakeStatistics Measure(string directory, bool reuseRender = false)
     {
         var take = TakeReader.Inspect(directory);
         if (!take.Playable) return new(false, "take is not playable");
         if (take.Get("mode") is not ("USB" or "LSB")) return new(false, "this mode has no speech render");
-        SsbTakeRenderer.Render(directory);
+        // The Workshop has just rendered the current take for playback and
+        // earlier takes already have a render. Rewriting either file here
+        // delays playback and can race a reader using heard.wav.
+        if (!reuseRender || !File.Exists(Path.Combine(directory, "heard.wav")))
+            SsbTakeRenderer.Render(directory);
         var (rate, heard) = TakeAudio.ReadMono(Path.Combine(directory, "heard.wav"));
         var spans = TakeTimeline.WithoutGaps(TakeTimeline.KeyedSpans(take, heard.Length), TakeTimeline.Gaps(take));
         var selected = spans.SelectMany(span => heard.Skip((int)Math.Clamp(span.Start, 0, heard.Length))

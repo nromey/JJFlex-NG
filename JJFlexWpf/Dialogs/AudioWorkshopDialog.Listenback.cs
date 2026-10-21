@@ -29,6 +29,8 @@ public partial class AudioWorkshopDialog
     private bool _iqWasOffAir;
     private DateTime _radioTakeAt;
     private string? _pendingAutoPlayback, _pendingAutoPrevious;
+    private string _iqAnalysisDetails = "";
+    private string _iqComparisonMethod = "not compared yet";
 
     private static string IqStateText(string state)
     {
@@ -159,7 +161,8 @@ public partial class AudioWorkshopDialog
         ScreenReaderOutput.Speak(outcome.Message, outcome.Success ? VerbosityLevel.Terse : VerbosityLevel.Critical,
             interrupt: !outcome.Success);
     }
-    private void IqStatus(string text, bool failure = false, string? subject = null)
+    private void IqStatus(string text, bool failure = false, string? subject = null,
+        bool speak = true, bool interrupt = false, string? spokenText = null)
     {
         if (_iqClosing)
         {
@@ -167,6 +170,8 @@ public partial class AudioWorkshopDialog
             return;
         }
         if (_takeStatus != null) _takeStatus.Text = text;
+        if (!speak) return;
+        string said = spokenText ?? text;
         if (failure) EarconPlayer.LeaderInvalidTone();
         if (failure)
         {
@@ -175,12 +180,13 @@ public partial class AudioWorkshopDialog
             Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() =>
             {
                 if (_iqClosing) PostClosedIqStatus(text, true);
-                else ScreenReaderOutput.Speak(text, VerbosityLevel.Critical, interrupt: true);
+                else ScreenReaderOutput.Speak(said, VerbosityLevel.Critical, interrupt: true);
             }));
         }
-        else if (subject != null)
-            ScreenReaderOutput.Speak(text, Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse, subject: subject);
-        else ScreenReaderOutput.Speak(text, VerbosityLevel.Terse);
+        else if (subject != null || interrupt)
+            ScreenReaderOutput.Speak(said, interrupt ? Radios.Speech.SpeechIntent.Interrupt :
+                Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse, subject: subject);
+        else ScreenReaderOutput.Speak(said, VerbosityLevel.Terse);
     }
     private void AnnounceClosedRecovery(bool restored) => PostClosedIqStatus(
         Lexicon.Get(restored ? "audio.iq.restored" : "audio.iq.no_recovery"), !restored);
@@ -265,7 +271,9 @@ public partial class AudioWorkshopDialog
         var run = _iqRun;
         var runRig = _iqRunRig;
         EarconPlayer.FeatureOffTone();
-        IqStatus(Lexicon.Get("audio.iq.finishing"));
+        // Key-up is already spoken by the session; this long interim line
+        // otherwise competes with the short result at playback start.
+        IqStatus(Lexicon.Get("audio.iq.finishing"), speak: !_iqWasOffAir);
         try
         {
             await run.StopAsync(reason);
@@ -273,6 +281,8 @@ public partial class AudioWorkshopDialog
             if (_iqClosing) { AnnounceClosedRecovery(run.Restored); return; }
             string? previousDirectory = PreviousIqDirectory(run.DirectoryPath);
             _lastIqDirectory = run.DirectoryPath;
+            _iqAnalysisDetails = "";
+            _iqComparisonMethod = "not compared yet";
             var take = TakeReader.Inspect(run.DirectoryPath);
             if (!run.Restored) IqStatus(Lexicon.Get("audio.iq.recovery_pending"), true);
             else if (!take.Playable) IqStatus(Lexicon.Get("audio.iq.corrupt", ("check", take.Reason)), true);
@@ -280,43 +290,40 @@ public partial class AudioWorkshopDialog
             {
                 TakeAnalysisResult? measured = null;
                 if (take.Get("mode") is "USB" or "LSB")
-                    measured = await Task.Run(() => { SsbTakeRenderer.Render(run.DirectoryPath); return TakeAnalysis.Run(run.DirectoryPath); });
-                await UpdateIqStatisticsAsync(run.DirectoryPath, previousDirectory);
+                    await Task.Run(() => SsbTakeRenderer.Render(run.DirectoryPath));
+                if (!_iqWasOffAir && take.Get("mode") is ("USB" or "LSB"))
+                    measured = await Task.Run(() => TakeAnalysis.Run(run.DirectoryPath));
+                string seconds = (double.Parse(take.Get("pairs-written") ?? "0", System.Globalization.CultureInfo.InvariantCulture) /
+                    int.Parse(take.Get("rate-requested"), System.Globalization.CultureInfo.InvariantCulture)).ToString("F1");
                 if (_iqWasOffAir && !run.HasRadioKeying) IqStatus(Lexicon.Get("audio.iq.never_keyed"), true);
                 else IqStatus(Lexicon.Get(_iqWasOffAir ? "audio.iq.take_result" : "audio.iq.diagnostic_result", ("state", IqStateText(take.State)),
-                    ("seconds", (double.Parse(take.Get("pairs-written") ?? "0", System.Globalization.CultureInfo.InvariantCulture) /
-                        int.Parse(take.Get("rate-requested"), System.Globalization.CultureInfo.InvariantCulture)).ToString("F1")),
+                    ("seconds", seconds),
                     ("antenna", take.Get("receive-antenna")), ("gain", take.Get("rf-gain")),
                     ("ratio", ListenbackResultText.Ratio(take.Get("pairs-per-arrival-span"))), ("gaps", take.Get("gaps") ?? "0"),
                     ("classifier", take.Get("classifier") ?? Lexicon.Get("audio.iq.unknown"))) +
-                    (take.Get("startup-signature") == "detected" ? " " + Lexicon.Get("audio.iq.startup_signature") : ""));
-                if (measured != null && _takeStatus != null && !_iqClosing)
-                {
-                    string details = measured.Alignment.Aligned ?
-                        Lexicon.Get("audio.iq.aligned", ("ms", measured.Alignment.LagMilliseconds(int.Parse(take.Get("rate-echoed"))).ToString("F1"))) :
-                        Lexicon.Get(UnalignedKey(measured.Alignment.Reason));
-                    if (measured.Difference.Comparable) details += " " + DifferenceSentence(measured.Difference);
-                    if (measured.Tone.Reason != "no-recorded-keyed-tone") details += " " + Lexicon.Get(measured.Tone.Identified ? "audio.iq.tone_identified" : "audio.iq.tone_not_identified",
-                        ("hz", measured.Tone.OffsetHz.ToString("F1")), ("db", measured.Tone.AboveRestDb.ToString("F1")));
-                    _takeStatus.Text += " " + details;
-                    ScreenReaderOutput.Speak(details, VerbosityLevel.Terse);
-                }
+                    (take.Get("startup-signature") == "detected" ? " " + Lexicon.Get("audio.iq.startup_signature") : ""),
+                    speak: !_iqWasOffAir);
                 if (_iqWasOffAir && run.HasRadioKeying && !_iqClosing && File.Exists(Path.Combine(run.DirectoryPath, "heard.wav")))
                 {
-                    // confirm.wav is 200 ms. Let its click finish before the
-                    // decoded take enters the playback mixer.
-                    EarconPlayer.ConfirmTone();
-                    await Task.Delay(240);
-                    if (_iqClosing) return;
                     string heardPath = Path.Combine(run.DirectoryPath, "heard.wav");
                     if (_iqAutoCompare?.IsChecked == true)
                     {
                         _pendingAutoPlayback = heardPath;
                         _pendingAutoPrevious = previousDirectory;
                     }
-                    if (!RecordingPlayer.Play(heardPath, Lexicon.Get("audio.iq.playing"), _rig,
-                        offAirListeningGain: true)) _pendingAutoPlayback = _pendingAutoPrevious = null;
+                    string shortSummary = Lexicon.Get("audio.iq.take_summary_short",
+                        ("state", IqStateText(take.State)), ("seconds", seconds));
+                    if (take.State != "clean") shortSummary += " " + Lexicon.Get("audio.iq.take_summary_gaps",
+                        ("gaps", take.Get("gaps") ?? "0"));
+                    if (!await PlayTakeAfterClickAsync(heardPath, shortSummary + " " + Lexicon.Get("audio.iq.playing"),
+                        _rig, offAirListeningGain: true)) _pendingAutoPlayback = _pendingAutoPrevious = null;
                 }
+                // Analysis and measurements are useful details, but neither
+                // must keep the listener waiting for the already-rendered audio.
+                if (_iqWasOffAir && take.Get("mode") is ("USB" or "LSB"))
+                    measured = await Task.Run(() => TakeAnalysis.Run(run.DirectoryPath));
+                if (measured != null) _iqAnalysisDetails = FormatIqAnalysisDetails(measured, take);
+                await UpdateIqStatisticsAsync(run.DirectoryPath, previousDirectory);
             }
         }
         catch (Exception ex) { if (ReferenceEquals(runRig, _rig)) IqFailure(ex); }
@@ -374,6 +381,26 @@ public partial class AudioWorkshopDialog
                 File.Exists(Path.Combine(d, "take.txt")))
             .OrderByDescending(d => File.GetLastWriteTimeUtc(Path.Combine(d, "take.txt"))).FirstOrDefault();
     }
+    private async Task<bool> PlayTakeAfterClickAsync(string path, string announcement,
+        FlexBase? rig, bool offAirListeningGain = false)
+    {
+        RecordingPlayer.Stop();
+        bool priorMute = rig?.LocalReceiveMutedForTakePlayback ?? false;
+        if (rig != null) rig.LocalReceiveMutedForTakePlayback = true;
+        bool started = false;
+        try
+        {
+            // confirm.wav lasts 200 ms. Mute live receive before this click,
+            // then let the click finish before adding the take to the mixer.
+            EarconPlayer.ConfirmTone();
+            await Task.Delay(240);
+            if (_iqClosing || !ReferenceEquals(rig, _rig)) return false;
+            started = RecordingPlayer.Play(path, announcement, rig, offAirListeningGain,
+                priorLiveMute: priorMute);
+            return started;
+        }
+        finally { if (!started && rig != null) rig.LocalReceiveMutedForTakePlayback = priorMute; }
+    }
     private static string FormatIqStatistics(string label, TakeStatistics? stats)
     {
         if (stats == null) return label + ": no earlier take.";
@@ -386,14 +413,28 @@ public partial class AudioWorkshopDialog
             $"{label} punch, crest: {stats.PunchDb:F1} dB",
             $"{label} splatter, out-of-filter: {stats.SplatterDbfs:F1} dBFS" });
     }
+    private static string FormatIqAnalysisDetails(TakeAnalysisResult measured, TakeInspection take)
+    {
+        string details = measured.Alignment.Aligned ?
+            Lexicon.Get("audio.iq.aligned", ("ms", measured.Alignment.LagMilliseconds(
+                int.Parse(take.Get("rate-echoed"))).ToString("F1"))) :
+            Lexicon.Get(UnalignedKey(measured.Alignment.Reason));
+        if (measured.Difference.Comparable) details += " " + DifferenceSentence(measured.Difference);
+        if (measured.Tone.Reason != "no-recorded-keyed-tone") details += " " + Lexicon.Get(
+            measured.Tone.Identified ? "audio.iq.tone_identified" : "audio.iq.tone_not_identified",
+            ("hz", measured.Tone.OffsetHz.ToString("F1")), ("db", measured.Tone.AboveRestDb.ToString("F1")));
+        return details;
+    }
     private async Task UpdateIqStatisticsAsync(string current, string? previous, string? method = null)
     {
-        var values = await Task.Run(() => (Current: TakeStatistics.Measure(current),
-            Previous: previous == null ? null : TakeStatistics.Measure(previous)));
-        if (_iqClosing || _iqStatistics == null) return;
+        if (method != null) _iqComparisonMethod = method;
+        var values = await Task.Run(() => (Current: TakeStatistics.Measure(current, reuseRender: true),
+            Previous: previous == null ? null : TakeStatistics.Measure(previous, reuseRender: true)));
+        if (_iqClosing || _iqStatistics == null || _lastIqDirectory != current) return;
         _iqStatistics.Text = FormatIqStatistics("This take", values.Current) + Environment.NewLine +
             FormatIqStatistics("Last take", values.Previous) + Environment.NewLine +
-            "Comparison method: " + (method ?? "not compared yet");
+            "Comparison method: " + _iqComparisonMethod +
+            (_iqAnalysisDetails.Length == 0 ? "" : Environment.NewLine + "Take analysis: " + _iqAnalysisDetails);
     }
     private void OnIqPlaybackCompleted(string path)
     {
@@ -428,10 +469,8 @@ public partial class AudioWorkshopDialog
             var rendered = await Task.Run(() => SsbTakeRenderer.Render(directory, detune));
             if (_iqClosing) return;
             string playbackKey = take.State == "incomplete" ? "audio.iq.playing_incomplete" : detune == 0 ? "audio.iq.playing" : "audio.iq.playing_detuned";
-            EarconPlayer.ConfirmTone();
-            await Task.Delay(240);
-            if (_iqClosing) return;
-            RecordingPlayer.Play(rendered.Path, Lexicon.Get(playbackKey), _rig, offAirListeningGain: true);
+            await PlayTakeAfterClickAsync(rendered.Path, Lexicon.Get(playbackKey), _rig,
+                offAirListeningGain: true);
         }
         catch (Exception ex) { IqFailure(ex); }
         finally { _iqBusy = false; }
@@ -452,10 +491,7 @@ public partial class AudioWorkshopDialog
                 throw new InvalidDataException("sent-checksum");
             await Task.Run(() => TakeAudio.ReadMono(path));
             if (_iqClosing) return;
-            EarconPlayer.ConfirmTone();
-            await Task.Delay(240);
-            if (_iqClosing) return;
-            RecordingPlayer.Play(path, Lexicon.Get("audio.iq.playing_sent"), _rig);
+            await PlayTakeAfterClickAsync(path, Lexicon.Get("audio.iq.playing_sent"), _rig);
         }
         catch (Exception ex) { IqFailure(ex); }
         finally { _iqBusy = false; }
@@ -491,10 +527,12 @@ public partial class AudioWorkshopDialog
             if (previous == null)
             {
                 await UpdateIqStatisticsAsync(current, null, "not comparable; no last take");
-                IqStatus(Lexicon.Get(auto ? "audio.iq.auto_unavailable" : "audio.iq.need_two"));
+                IqStatus(Lexicon.Get(auto ? "audio.iq.auto_unavailable" : "audio.iq.need_two"),
+                    subject: auto ? "audio.iq.auto_comparison" : null, interrupt: auto);
                 return;
             }
-            var difference = await Task.Run(() => TakeAnalysis.CompareTakes(previous, current));
+            var difference = await Task.Run(() => TakeAnalysis.CompareTakes(previous, current,
+                reuseRenders: true));
             if (_iqClosing || auto && _lastIqDirectory != current) return;
             string methodKey = difference.Reason == "overall-average" ? "audio.iq.compared_average" : "audio.iq.compared_aligned";
             string method = Lexicon.Get(methodKey);
@@ -506,15 +544,24 @@ public partial class AudioWorkshopDialog
                     ("high_word", Lexicon.Get(difference.TiltDb >= 0 ? "audio.iq.stronger" : "audio.iq.weaker")),
                     ("tilt", Math.Abs(difference.TiltDb).ToString("F1")))
                 : DifferenceSentence(difference);
+            string spokenNumbers = Lexicon.Get("audio.iq.auto_difference",
+                ("level_word", Lexicon.Get(difference.LevelDb >= 0 ? "audio.iq.louder" : "audio.iq.quieter")),
+                ("level", Math.Abs(difference.LevelDb).ToString("F1")),
+                ("brightness_word", Lexicon.Get(difference.TiltDb >= 0 ? "audio.iq.brighter" : "audio.iq.darker")),
+                ("high_word", Lexicon.Get(difference.TiltDb >= 0 ? "audio.iq.stronger" : "audio.iq.weaker")),
+                ("tilt", Math.Abs(difference.TiltDb).ToString("F1")));
             await UpdateIqStatisticsAsync(current, previous,
                 difference.Comparable ? method : "not comparable; " + difference.Reason);
             IqStatus(difference.Comparable ? Lexicon.Get("audio.iq.previous_comparison") + " " + method + " " + numbers :
                 Lexicon.Get(auto ? "audio.iq.auto_unavailable" : "audio.iq.unlike_or_unaligned"),
-                !difference.Comparable && !auto);
+                !difference.Comparable && !auto,
+                subject: auto ? "audio.iq.auto_comparison" : null, interrupt: auto,
+                spokenText: auto && difference.Comparable ? Lexicon.Get("audio.iq.auto_result_intro") + " " + spokenNumbers : null);
         }
         catch (Exception ex)
         {
-            if (auto) IqStatus(Lexicon.Get("audio.iq.auto_unavailable"));
+            if (auto) IqStatus(Lexicon.Get("audio.iq.auto_unavailable"),
+                subject: "audio.iq.auto_comparison", interrupt: true);
             else IqFailure(ex);
         }
     }

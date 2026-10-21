@@ -1021,6 +1021,9 @@ namespace Radios.Tests
                 "audio.iq.keyed_line",
                 "audio.iq.recording_offair",
                 "audio.iq.take_result",
+                // #456 Round 12: short spoken take result and post-playback comparison.
+                "audio.iq.take_summary_short",
+                "audio.iq.take_summary_gaps",
                 "audio.iq.startup_signature",
                 "audio.iq.adding_listener",
                 "audio.iq.removing_listener",
@@ -1041,6 +1044,8 @@ namespace Radios.Tests
                 // Round 11 hear-yourself comparison and copyable measurements.
                 "audio.iq.auto_compare",
                 "audio.iq.auto_unavailable",
+                "audio.iq.auto_result_intro",
+                "audio.iq.auto_difference",
                 "audio.iq.statistics_label",
                 "audio.iq.statistics_help",
                 "audio.iq.statistics_empty",

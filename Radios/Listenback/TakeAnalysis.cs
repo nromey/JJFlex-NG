@@ -168,13 +168,17 @@ public static class TakeAnalysis
         return new(above >= 20, above >= 20 ? "predicted-tone-above-rest" : "tone-not-identified", offset, above);
     }
 
-    public static AudioDifference CompareTakes(string previousDirectory, string currentDirectory)
+    public static AudioDifference CompareTakes(string previousDirectory, string currentDirectory,
+        bool reuseRenders = false)
     {
         var a = TakeReader.Inspect(previousDirectory); var b = TakeReader.Inspect(currentDirectory);
         if (!a.Playable || !b.Playable) return new(false, "corrupt-take");
         string mismatch = AudioDifferential.Compatibility(a, b);
         if (mismatch != "") return new(false, "unlike-takes:" + mismatch);
-        SsbTakeRenderer.Render(previousDirectory); SsbTakeRenderer.Render(currentDirectory);
+        if (!reuseRenders || !File.Exists(Path.Combine(previousDirectory, "heard.wav")))
+            SsbTakeRenderer.Render(previousDirectory);
+        if (!reuseRenders || !File.Exists(Path.Combine(currentDirectory, "heard.wav")))
+            SsbTakeRenderer.Render(currentDirectory);
         var (rate, first) = TakeAudio.ReadMono(Path.Combine(previousDirectory, "heard.wav"));
         var (_, second) = TakeAudio.ReadMono(Path.Combine(currentDirectory, "heard.wav"));
         var firstSpans = TakeTimeline.WithoutGaps(TakeTimeline.KeyedSpans(a, first.Length), TakeTimeline.Gaps(a));
