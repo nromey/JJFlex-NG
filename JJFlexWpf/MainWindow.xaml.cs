@@ -302,6 +302,15 @@ public partial class MainWindow : UserControl
         // leader's second key goes through KeyCommands' own switch. The
         // chords are app-level configuration, loaded here because the hook
         // exists before any operator or radio does.
+        // #778c: the THIRD door, Ctrl+Space and Shift+Space pressed in any
+        // WPF dialog. Same shape as the system-wide wiring below: the door
+        // decides, these callers gate on a powered radio, and the edges are
+        // shared. Wired outside the try because it needs no hook and must
+        // not fall with one.
+        DialogTransmitKeys.PttEdge = HandleDialogPttEdge;
+        DialogTransmitKeys.ToggleLock = HandleDialogLockToggle;
+        DialogTransmitKeys.HoldInFlight =
+            () => _pttController != null && _pttController.State == PttSafetyController.PttState.PttHold;
         try
         {
             var systemWide = Radios.SystemWideKeysConfig.Load(Radios.RadioConfig.AppDataRoot);
@@ -2897,7 +2906,29 @@ public partial class MainWindow : UserControl
     /// from another program into a radio that is not there must not fail
     /// silently (#307) — and the UP is simply nothing to release.
     /// </summary>
-    internal void HandleSystemWidePttEdge(bool down)
+    internal void HandleSystemWidePttEdge(bool down) => PttEdgeFromOutsideHome(down);
+
+    /// <summary>The system-wide transmit lock: what Shift+Space does inside the window.</summary>
+    internal void HandleSystemWideLockToggle() => LockToggleFromOutsideHome();
+
+    /// <summary>
+    /// The dialog door (#778c): Ctrl+Space pressed in any WPF window that is
+    /// not Home, from <see cref="DialogTransmitKeys"/>. Same gate and same
+    /// edges as the system-wide door; Home's own step 3 gate (focus in the
+    /// Home fields) does not apply, because the dialog IS the focus.
+    /// </summary>
+    internal void HandleDialogPttEdge(bool down) => PttEdgeFromOutsideHome(down);
+
+    /// <summary>The dialog door's transmit lock: Shift+Space in any WPF window that is not Home (#778c).</summary>
+    internal void HandleDialogLockToggle() => LockToggleFromOutsideHome();
+
+    /// <summary>
+    /// The gate the two doors outside Home share. Home's step 3 is silent
+    /// with the radio off because the key falls through to the focused Home
+    /// field; a door that CONSUMES the key instead (so no button is pressed)
+    /// owes the operator a word, and this is the #307 word.
+    /// </summary>
+    private void PttEdgeFromOutsideHome(bool down)
     {
         if (_pttController == null || !_radioPowerOn)
         {
@@ -2907,8 +2938,7 @@ public partial class MainWindow : UserControl
         if (down) PttKeyDownEdge(); else PttKeyUpEdge();
     }
 
-    /// <summary>The system-wide transmit lock: what Shift+Space does inside the window.</summary>
-    internal void HandleSystemWideLockToggle()
+    private void LockToggleFromOutsideHome()
     {
         if (_pttController == null || !_radioPowerOn)
         {

@@ -3065,6 +3065,61 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void In_a_dialog_the_transmit_keys_are_taken_ahead_of_the_layer_and_share_the_edges_with_home()
+        {
+            // #778c (Noel, 2026-10-21 06:30: Ctrl+Space and Shift+Space
+            // "should never be used to activate a button in a dialog"). The
+            // door is DialogTransmitKeys; this pins the three things its own
+            // tests cannot see because they need a window.
+            string commands = ReadSource("JJFlexWpf/KeyCommands.cs");
+
+            // 1. The door runs in the Window class handler BEFORE the mode
+            //    check, so a live layer no longer refuses push to talk from a
+            //    dialog and no focused control sees the chord.
+            int handler = commands.IndexOf("private static void AnyWindowPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)", StringComparison.Ordinal);
+            Assert.True(handler >= 0);
+            int door = commands.IndexOf("if (DialogTransmitKeys.OnPreviewKeyDown(sender, e))", handler, StringComparison.Ordinal);
+            int modeCheck = commands.IndexOf("if (!kc._leaderKeyActive && kc._valueLayer == null)", handler, StringComparison.Ordinal);
+            Assert.True(door > handler && modeCheck > door, "the transmit door must run before the leader/layer check");
+
+            // 2. The release has its own class handler: a key-up is never a
+            //    command and the preview key-down route never sees one.
+            Assert.Contains("System.Windows.Input.Keyboard.PreviewKeyUpEvent,", commands);
+            Assert.Contains("new System.Windows.Input.KeyEventHandler(AnyWindowPreviewKeyUp));", commands);
+            Assert.Contains("if (DialogTransmitKeys.OnPreviewKeyUp(e)) e.Handled = true;", commands);
+
+            // 3. One pipeline, three doors: the dialog door's delegates point
+            //    at MainWindow callers that share one gate with the
+            //    system-wide door, and that gate ends in the same two edges
+            //    Home's step 3 and PreviewKeyUp call. No second keying path.
+            string main = ReadSource("JJFlexWpf/MainWindow.xaml.cs");
+            Assert.Contains("DialogTransmitKeys.PttEdge = HandleDialogPttEdge;", main);
+            Assert.Contains("DialogTransmitKeys.ToggleLock = HandleDialogLockToggle;", main);
+            Assert.Contains("DialogTransmitKeys.HoldInFlight =", main);
+            Assert.Contains("internal void HandleDialogPttEdge(bool down) => PttEdgeFromOutsideHome(down);", main);
+            Assert.Contains("internal void HandleSystemWidePttEdge(bool down) => PttEdgeFromOutsideHome(down);", main);
+            Assert.Contains("internal void HandleDialogLockToggle() => LockToggleFromOutsideHome();", main);
+            Assert.Contains("internal void HandleSystemWideLockToggle() => LockToggleFromOutsideHome();", main);
+            int gate = main.IndexOf("private void PttEdgeFromOutsideHome(bool down)", StringComparison.Ordinal);
+            Assert.True(gate >= 0);
+            string gateBody = main.Substring(gate, main.IndexOf("private void LockToggleFromOutsideHome()", gate, StringComparison.Ordinal) - gate);
+            Assert.Contains("if (down) PttKeyDownEdge(); else PttKeyUpEdge();", gateBody);
+            Assert.Contains("if (down) Radios.ScreenReaderOutput.SpeakNoRadioConnected();", gateBody);
+
+            // The door itself never touches the controller or the rig: it only
+            // calls its three delegates. Nothing in it names PttSafetyController
+            // as a call, FlexBase, or Transmit.
+            string doorSource = ReadSource("JJFlexWpf/DialogTransmitKeys.cs");
+            Assert.DoesNotContain("_pttController", doorSource);
+            Assert.DoesNotContain(".PttDown()", doorSource);
+            Assert.DoesNotContain(".PttUp()", doorSource);
+            Assert.DoesNotContain(".Transmit", doorSource);
+            Assert.DoesNotContain("PttSafetyController.", doorSource.Replace("<see cref=\"PttSafetyController", ""));
+            Assert.Equal(2, Regex.Matches(doorSource, @"PttEdge\?\.Invoke\(false\)").Count);   // key-up, and the window lost
+            Assert.Equal(1, Regex.Matches(doorSource, @"PttEdge\?\.Invoke\(true\)").Count);
+        }
+
+        [Fact]
         public void Only_the_dialog_window_handlers_pass_the_dialog_route_and_the_verdict_does_not_ask_it()
         {
             // #778b, Codex F1 (round two) and B2 (round three). Which route a

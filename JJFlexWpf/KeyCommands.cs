@@ -3257,24 +3257,68 @@ public class KeyCommands
             typeof(System.Windows.Window),
             System.Windows.Input.Keyboard.KeyDownEvent,
             new System.Windows.Input.KeyEventHandler(AnyWindowKeyDown));
+        // #778c: the release half of push to talk from a dialog. The down
+        // half rides AnyWindowPreviewKeyDown; the up must be its own class
+        // handler because a key-up is never a command and the preview
+        // key-down route never sees one. Without it a hold keyed in a dialog
+        // could only end by the window closing or losing focus.
+        System.Windows.EventManager.RegisterClassHandler(
+            typeof(System.Windows.Window),
+            System.Windows.Input.Keyboard.PreviewKeyUpEvent,
+            new System.Windows.Input.KeyEventHandler(AnyWindowPreviewKeyUp));
         _context.Trace("KeyCommands: global window routing installed");
     }
 
     /// <summary>
-    /// Preview (tunnel) phase: active ONLY while a leader or a value layer
-    /// is armed. Then every key routes through DoCommand ahead of the
-    /// dialog's own handling — exact parity with the main window, where
-    /// ProcessCmdKey feeds an armed mode before any control sees the key.
-    /// Without this, a focused TextBox or list would eat a layer's arrows
-    /// at its own KeyDown, and a leader follow-on letter could both
-    /// dispatch AND type into the field. The modes stay polite on their
-    /// own: the value layer passes Alt chords and F1 through untouched, and
-    /// bare modifier presses fall out of DoCommand unhandled.
+    /// Preview key-UP in any WPF window: a Space release is a push-to-talk
+    /// release through the dialog door (#778c), the same edge Home's
+    /// PreviewKeyUp uses. Marked handled only when it unkeyed a hold, so a
+    /// Space that pressed a button still completes its click on the way up.
     /// </summary>
+    private static void AnyWindowPreviewKeyUp(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Handled) return;
+        if (DialogTransmitKeys.OnPreviewKeyUp(e)) e.Handled = true;
+    }
+
+    /// <summary>
+    /// Preview (tunnel) phase. Two jobs, in this order.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>First, always: the transmit keys (#778c).</b> Ctrl+Space and
+    /// Shift+Space in any WPF window are push to talk and the transmit lock,
+    /// exactly as on Home, a layer or leader live or not (Noel, 2026-10-21
+    /// 06:30: they "should never be used to activate a button in a dialog").
+    /// <see cref="DialogTransmitKeys"/> decides and hands the edge to the one
+    /// pipeline; it runs ahead of the mode check below so a live layer no
+    /// longer refuses push to talk from a dialog, and ahead of every control
+    /// so a focused button is never pressed by it. The one exception is
+    /// Shift+Space with an editable text control focused, which types a
+    /// space (Noel 06:42), and which this door declines so the TextBox gets
+    /// it as before.
+    /// </para>
+    /// <para>
+    /// <b>Then, ONLY while a leader or a value layer is armed:</b> every key
+    /// routes through DoCommand ahead of the dialog's own handling — exact
+    /// parity with the main window, where ProcessCmdKey feeds an armed mode
+    /// before any control sees the key. Without this, a focused TextBox or
+    /// list would eat a layer's arrows at its own KeyDown, and a leader
+    /// follow-on letter could both dispatch AND type into the field. The
+    /// modes stay polite on their own: the value layer passes Alt chords and
+    /// F1 through untouched, and bare modifier presses fall out of DoCommand
+    /// unhandled.
+    /// </para>
+    /// </remarks>
     private static void AnyWindowPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
         var kc = _globalRoutingOwner;
         if (kc == null || e.Handled) return;
+        if (DialogTransmitKeys.OnPreviewKeyDown(sender, e))
+        {
+            e.Handled = true;
+            return;
+        }
         if (!kc._leaderKeyActive && kc._valueLayer == null)
         {
             // TWO live modes: the leader itself and a value sub-layer (#305 —
