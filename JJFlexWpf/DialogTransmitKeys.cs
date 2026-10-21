@@ -57,21 +57,29 @@ namespace JJFlexWpf;
 /// stop no longer answered.
 /// </para>
 /// <para>
-/// <b>The release must always be seen, and at once (F2).</b> Every way a hold
-/// can end is a release here: the Space key-up arriving in the window,
-/// whatever the modifiers are doing by then; the keyed window losing
-/// activation; the keyed window closing. A key-up goes through the ordinary
-/// edge, which may defer it while a screen reader's synthetic pairs are being
-/// absorbed. Window loss is not a key-up: it goes through
-/// <see cref="ReleaseNow"/>, which drops the deferral and unkeys immediately,
-/// and the window stays subscribed until the controller has actually left the
-/// hold, not merely until the first key-up.
+/// <b>The release must always be seen (F2).</b> Every way a hold can end is a
+/// release here: the Space key-up arriving in the window, whatever the
+/// modifiers are doing by then; the keyed window losing activation; the keyed
+/// window closing. A key-up goes through the ordinary edge, which may defer
+/// it while a screen reader's synthetic pairs are being absorbed. Window loss
+/// is not a key-up: it goes through <see cref="ReleaseNow"/>, which drops the
+/// deferral and unkeys immediately. The window stays subscribed until the
+/// controller has actually left the hold, not merely until the first key-up;
+/// when a deferred release finally runs, MainWindow's timer calls
+/// <see cref="HoldReleased"/> and the subscriptions go (repair round two,
+/// Codex F2). And <see cref="ReleaseNow"/> acts only when the hold in flight
+/// is this door's: a hold Home or the system-wide chord keyed after the
+/// dialog's ended is not the dialog's to release.
 /// </para>
 /// <para>
 /// <b>A held Shift+Space toggles once (B2).</b> Under NVDA the repeats carry
 /// <c>IsRepeat</c> and are consumed without a toggle. Under JAWS a held key
-/// arrives as synthesised down/up pairs, which the lock edge absorbs with its
-/// own <c>PttHoldFilter</c>, the same machinery push to talk uses.
+/// arrives as synthesised down/up pairs. The lock edge classifies each press
+/// by its own length (<c>Radios.LockPressClassifier</c>, repair round two):
+/// a down after a quiet gap toggles at once; a down soon after the last up
+/// is decided at its up, where a pair's few-millisecond press is ignored and
+/// a human press toggles. Nothing guesses whether the key is still held,
+/// because that guess swallowed a deliberate unlock in round one.
 /// </para>
 /// <para>
 /// <b>Text boxes, ruled by Noel 2026-10-21 06:42.</b> In a focused editable
@@ -283,6 +291,8 @@ internal static class DialogTransmitKeys
     /// focus moved to another window, or the window closed. Window loss is
     /// not a key-up, so it does not go through the deferring edge; it unkeys
     /// at once. Idempotent; nothing to do when no hold is tracked here.
+    /// Whether the hold in flight is really this door's is MainWindow's
+    /// question, answered inside <see cref="ReleaseNow"/>.
     /// </summary>
     internal static void HoldWindowLost(string why)
     {
@@ -294,6 +304,14 @@ internal static class DialogTransmitKeys
         if (ReleaseNow != null) ReleaseNow();
         else PttEdge?.Invoke(false);
     }
+
+    /// <summary>
+    /// The hold ended somewhere other than a key-up this door saw: the
+    /// deferred release ran to ground in MainWindow's timer. The dialog that
+    /// keyed it has nothing left to release, so it stops listening. Idempotent;
+    /// nothing to do when no hold is tracked here.
+    /// </summary>
+    internal static void HoldReleased() => EndHold();
 
     private static void RefuseTransmitKey(string lexiconKey)
     {

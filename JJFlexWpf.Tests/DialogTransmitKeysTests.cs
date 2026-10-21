@@ -60,7 +60,7 @@ public sealed class DialogTransmitKeysTests : IDisposable
     private readonly FlexBase _rig;
     private readonly PttSafetyController _controller;
     private readonly PttHoldFilter _pttFilter = new();
-    private readonly PttHoldFilter _lockFilter = new();
+    private readonly LockPressClassifier _lockPresses = new();
     private readonly MainWindow _main;
     private readonly VerbosityLevel _verbosityBefore;
     private long _clock = 100_000;
@@ -91,7 +91,8 @@ public sealed class DialogTransmitKeysTests : IDisposable
     /// </summary>
     private void WireDoor()
     {
-        Put("_lockHoldFilter", _lockFilter);
+        _lockPresses.SetKeyRepeatDelay(500);   // the measured machine's repeat delay (~512 ms)
+        Put("_lockPresses", _lockPresses);
         Put("PttClock", (Func<long>)(() => _clock));
         Door("PttEdge", (Action<bool>)(down =>
         {
@@ -131,6 +132,28 @@ public sealed class DialogTransmitKeysTests : IDisposable
         var m = typeof(MainWindow).GetMethod(method, Any);
         Assert.True(m != null, "production entry MainWindow." + method + " is missing");
         return m!.Invoke(_main, args);
+    }
+
+    private object? Get(string field)
+    {
+        var f = typeof(MainWindow).GetField(field, Any);
+        Assert.True(f != null, "production field MainWindow." + field + " is missing");
+        return f!.GetValue(_main);
+    }
+
+    /// <summary>
+    /// The deferred-release timer ran out. Invokes the production Tick
+    /// delegate directly, as Codex's probe did, so no dispatcher is pumped
+    /// and no wall clock is waited on: this represents expiry, not timing.
+    /// </summary>
+    private void DeferTimerExpires()
+    {
+        var timer = (System.Windows.Threading.DispatcherTimer?)Get("_pttDeferTimer");
+        Assert.True(timer != null, "no deferral timer was armed");
+        timer!.Stop();
+        var tick = (EventHandler?)typeof(System.Windows.Threading.DispatcherTimer).GetField("Tick", Any)?.GetValue(timer);
+        Assert.True(tick != null, "the production timer has no Tick handler");
+        tick!(timer, EventArgs.Empty);
     }
 
     private static void Door(string property, Delegate value)
@@ -328,6 +351,59 @@ public sealed class DialogTransmitKeysTests : IDisposable
         Assert.Null(DialogTransmitKeys.HoldWindow);
     }
 
+    // ── Repair round two, Codex F2: a finished hold forgets its dialog, and a dialog releases only its own hold ──
+
+    [Fact]
+    public void When_the_deferred_release_finally_runs_the_dialog_is_forgotten_and_a_later_system_wide_hold_survives_its_window_loss()
+    {
+        // Codex's sequence: dialog hold, deferred up, timer expiry, then a
+        // system-wide hold, then the OLD dialog deactivates. Before this
+        // round the stale owner released the new hold.
+        AssertTheDeskIsSafe(); WireDoor();
+        var w = new FakeWindow();
+        Assert.True(Down(w, Keys.Space | Keys.Control));
+        _pttFilter.NoteDown(Environment.TickCount64);
+        Assert.True(DialogTransmitKeys.KeyUp(Keys.Space));
+        Assert.Equal(Hold, _controller.State);
+        Assert.True(_pttFilter.ReleasePending);
+
+        DeferTimerExpires();
+        Assert.Equal(Idle, _controller.State);
+        Assert.False(_pttFilter.ReleasePending);
+        Assert.Null(DialogTransmitKeys.HoldWindow);       // the mutation control: skip HoldReleased() in the Tick and this fails
+
+        Call("HandleSystemWidePttEdge", true);
+        Assert.Equal(Hold, _controller.State);
+        w.LoseFocus();
+        Assert.Equal(Hold, _controller.State);            // not the dialog's to release
+        Assert.Equal(0, _releases);
+        Call("HandleSystemWidePttEdge", false);
+    }
+
+    [Fact]
+    public void A_dialogs_window_loss_does_not_release_a_hold_another_door_keyed()
+    {
+        // The owner check on its own: the system-wide chord keys first, the
+        // dialog's Ctrl+Space lands as a redundant down (the edge's repeat
+        // guard) but subscribes the dialog, and the dialog then deactivates.
+        // The hold in flight was never the dialog's.
+        AssertTheDeskIsSafe(); WireDoor();
+        Call("HandleSystemWidePttEdge", true);
+        Assert.Equal(Hold, _controller.State);
+        var w = new FakeWindow();
+        Assert.True(Down(w, Keys.Space | Keys.Control));
+        Assert.Same(w, DialogTransmitKeys.HoldWindow);
+        Assert.Equal(Hold, _controller.State);
+
+        w.LoseFocus();
+        Assert.Equal(Hold, _controller.State);            // the mutation control: drop the door check in HandleDialogHoldLost and this fails
+        Assert.Equal(1, _releases);                       // the door asked; MainWindow declined
+        Assert.Null(DialogTransmitKeys.HoldWindow);
+        Thread.Sleep(PttHoldFilter.ImplausibleReleaseMs + 20);
+        Call("HandleSystemWidePttEdge", false);
+        Assert.Equal(Idle, _controller.State);
+    }
+
     // ── B1: Escape while transmitting unkeys first ──
 
     [Fact]
@@ -356,6 +432,32 @@ public sealed class DialogTransmitKeysTests : IDisposable
         Assert.True(Down(w, Keys.Escape));
         Assert.Equal(Idle, _controller.State);
         Assert.Null(DialogTransmitKeys.HoldWindow);
+    }
+
+    [Fact]
+    public void Escape_during_a_deferred_release_forgets_the_hold_so_the_next_ctrl_space_keys()
+    {
+        // Repair round two, Codex B1: Escape unkeyed, but the hold filter's
+        // pending deferral read the next Ctrl+Space as a continuation of a
+        // hold Escape had already ended, and consumed it without keying.
+        AssertTheDeskIsSafe(); WireDoor();
+        var w = new FakeWindow();
+        Assert.True(Down(w, Keys.Space | Keys.Control));
+        _pttFilter.NoteDown(Environment.TickCount64);
+        Assert.True(DialogTransmitKeys.KeyUp(Keys.Space));
+        Assert.Equal(Hold, _controller.State);
+        Assert.True(_pttFilter.ReleasePending);
+
+        Assert.True(Down(w, Keys.Escape));
+        Assert.Equal(Idle, _controller.State);
+        Assert.False(_pttFilter.ReleasePending);          // the mutation control: drop ResetPttInput() from HandleDialogEscapeUnkey and this fails
+        Assert.False((bool)Get("_pttKeyDown")!);
+        var timer = Get("_pttDeferTimer") as System.Windows.Threading.DispatcherTimer;
+        Assert.False(timer?.IsEnabled ?? false, "the deferral timer must be stopped by Escape");
+
+        Assert.True(Down(w, Keys.Space | Keys.Control));
+        Assert.Equal(Hold, _controller.State);            // keys fresh, not swallowed
+        Assert.Equal(2, _downs);
     }
 
     [Fact]
@@ -402,53 +504,173 @@ public sealed class DialogTransmitKeysTests : IDisposable
         Assert.Equal(Idle, _controller.State);
     }
 
-    [Fact]
-    public void A_screen_readers_synthesised_pairs_for_a_held_shift_space_toggle_once()
+    // Repair round two: the lock no longer guesses whether the key is still
+    // held (Codex B2 swallowed a deliberate unlock). Each shape below is
+    // replayed through the dialog door into the real lock edges, from BOTH
+    // starting states. The state is asserted after EVERY event, because an
+    // odd number of stray toggles lands on the right state by parity and
+    // hides the defect (round one's first test did exactly that).
+
+    private void LockDown(FakeWindow w, long at)
     {
-        // JAWS delivers a held key as down/up pairs: the first at the Windows
-        // repeat delay (~512 ms), then about every 250 ms, each up a few ms
-        // after its down (memory: project_jaws_does_not_deliver_held_keys).
-        // Through the real lock edge and its own PttHoldFilter, the first
-        // down toggles and every re-down inside the deferral is absorbed.
+        _clock = at;
+        Assert.True(Down(w, Keys.Space | Keys.Shift));
+    }
+
+    private void SpaceUp(long at)
+    {
+        _clock = at;
+        DialogTransmitKeys.KeyUp(Keys.Space);
+    }
+
+    private PttSafetyController.PttState Start(bool locked)
+    {
+        if (locked) { _controller.ToggleLock(); Assert.Equal(Locked, _controller.State); }
+        return locked ? Locked : Idle;
+    }
+
+    private PttSafetyController.PttState Other(PttSafetyController.PttState s) => s == Locked ? Idle : Locked;
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_held_shift_space_under_nvda_toggles_once(bool startLocked)
+    {
+        // One down, Windows' repeats carrying IsRepeat, one up two seconds on.
         AssertTheDeskIsSafe(); WireDoor();
         var w = new FakeWindow();
-        // Asserted after EVERY pair: an odd number of unabsorbed toggles would
-        // land on Locked by parity and hide the defect (the first version of
-        // this test did exactly that, and a mutation control caught it).
-        void Pair(long at)
+        var from = Start(startLocked);
+        var to = Other(from);
+
+        LockDown(w, 100_000);
+        Assert.Equal(to, _controller.State);
+        for (int i = 0; i < 5; i++)
         {
-            _clock = at; Assert.True(Down(w, Keys.Space | Keys.Shift));
-            Assert.Equal(Locked, _controller.State);
-            _clock = at + 5; DialogTransmitKeys.KeyUp(Keys.Space);
+            _clock += 33;
+            Assert.True(Down(w, Keys.Space | Keys.Shift, repeat: true));
+            Assert.Equal(to, _controller.State);
         }
+        SpaceUp(102_000);
+        Assert.Equal(to, _controller.State);
+        Assert.Equal(1, _locks);
+    }
 
-        Pair(100_000);
-        Pair(100_512);
-        Pair(100_762);
-        Pair(101_012);
-        Pair(101_262);
-        Assert.Equal(5, _locks);                 // every pair reached the edge; the edge toggled once
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_held_shift_space_under_jaws_toggles_once_from_the_measured_cold_stream(bool startLocked)
+    {
+        // The measured stream as the edges see it (Radios.Tests.PttHoldFilterTests
+        // .The_measured_jaws_stream_arms_on_the_second_pair): down, the first
+        // up at the repeat delay, then pairs every 250 ms with the up 5 ms
+        // after its down. Codex's cold replay re-keyed at 762 ms on round
+        // one's filter; here the first down toggles and nothing else does.
+        AssertTheDeskIsSafe(); WireDoor();
+        var w = new FakeWindow();
+        var from = Start(startLocked);
+        var to = Other(from);
 
-        // The operator really lets go; a fresh press well after the deferral
-        // is a new press and unlocks.
-        _clock = 104_000;
-        Assert.True(Down(w, Keys.Space | Keys.Shift));
-        Assert.Equal(Idle, _controller.State);
+        LockDown(w, 100_000); Assert.Equal(to, _controller.State);
+        SpaceUp(100_517);     Assert.Equal(to, _controller.State);
+        long t = 100_762;
+        for (int i = 0; i < 6; i++)
+        {
+            LockDown(w, t);   Assert.Equal(to, _controller.State);
+            SpaceUp(t + 5);   Assert.Equal(to, _controller.State);
+            t += 250;
+        }
+        Assert.Equal(7, _locks);                 // every pair reached the edge; the edge toggled once
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_held_shift_space_under_jaws_toggles_once_from_the_other_measured_first_press_shape(bool startLocked)
+    {
+        // The 2026-08-26 trace's shape: an up 3 ms after the first down, the
+        // re-down at the repeat delay, then the 250 ms stream.
+        AssertTheDeskIsSafe(); WireDoor();
+        var w = new FakeWindow();
+        var from = Start(startLocked);
+        var to = Other(from);
+
+        LockDown(w, 100_000); Assert.Equal(to, _controller.State);
+        SpaceUp(100_003);     Assert.Equal(to, _controller.State);
+        long t = 100_501;
+        for (int i = 0; i < 6; i++)
+        {
+            LockDown(w, t);   Assert.Equal(to, _controller.State);
+            SpaceUp(t + 3);   Assert.Equal(to, _controller.State);
+            t += 250;
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_deliberate_tap_straight_after_a_jaws_stream_toggles(bool startLocked)
+    {
+        // Codex B2: five synthesised pairs, then a 120 ms press 133 ms after
+        // the last up. Round one swallowed it and left the transmitter locked
+        // with nothing said. It is decided at its up, by its own length.
+        AssertTheDeskIsSafe(); WireDoor();
+        var w = new FakeWindow();
+        var from = Start(startLocked);
+        var to = Other(from);
+
+        foreach (long at in new long[] { 100_000, 100_512, 100_762, 101_012, 101_262 })
+        {
+            LockDown(w, at); Assert.Equal(to, _controller.State);
+            SpaceUp(at + 5); Assert.Equal(to, _controller.State);
+        }
+        LockDown(w, 101_400);
+        Assert.Equal(to, _controller.State);     // pending: too soon after the last up to tell
+        SpaceUp(101_520);
+        Assert.Equal(from, _controller.State);   // the mutation control: toggle on every pending up and the pairs above fail; never toggle at the up and this fails
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Two_real_taps_300_ms_apart_toggle_twice(bool startLocked)
+    {
+        AssertTheDeskIsSafe(); WireDoor();
+        var w = new FakeWindow();
+        var from = Start(startLocked);
+        var to = Other(from);
+
+        LockDown(w, 100_000); Assert.Equal(to, _controller.State);
+        SpaceUp(100_120);     Assert.Equal(to, _controller.State);
+        LockDown(w, 100_300); Assert.Equal(to, _controller.State);     // inside the window: its up decides
+        SpaceUp(100_420);     Assert.Equal(from, _controller.State);   // a human-length press toggles
     }
 
     [Fact]
-    public void Two_human_taps_of_shift_space_lock_then_unlock()
+    public void Two_human_taps_of_shift_space_well_apart_lock_then_unlock_at_their_downs()
     {
-        // The control for the pair test: a human tap's up is never implausibly
-        // fast, so nothing is absorbed and each tap toggles.
         AssertTheDeskIsSafe(); WireDoor();
         var w = new FakeWindow();
-        _clock = 100_000; Assert.True(Down(w, Keys.Space | Keys.Shift));
-        _clock = 100_120; DialogTransmitKeys.KeyUp(Keys.Space);
-        Assert.Equal(Locked, _controller.State);
-        _clock = 100_500; Assert.True(Down(w, Keys.Space | Keys.Shift));
-        _clock = 100_620; DialogTransmitKeys.KeyUp(Keys.Space);
+        LockDown(w, 100_000); Assert.Equal(Locked, _controller.State);
+        SpaceUp(100_120);
+        LockDown(w, 102_000); Assert.Equal(Idle, _controller.State);
+        SpaceUp(102_120);     Assert.Equal(Idle, _controller.State);
+    }
+
+    [Fact]
+    public void The_system_wide_lock_toggles_at_once_even_inside_the_window_because_its_up_never_comes()
+    {
+        // SystemWideKeys posts one toggle per chord and swallows the chord's
+        // own release, so a system-wide press cannot be decided at an up.
+        AssertTheDeskIsSafe(); WireDoor();
+        var w = new FakeWindow();
+        LockDown(w, 100_000); Assert.Equal(Locked, _controller.State);
+        SpaceUp(100_120);
+        _clock = 100_300;
+        Call("HandleSystemWideLockToggle");
         Assert.Equal(Idle, _controller.State);
+        _clock = 100_500;
+        Call("HandleSystemWideLockToggle");
+        Assert.Equal(Locked, _controller.State);
     }
 
     [Fact]
@@ -492,6 +714,70 @@ public sealed class DialogTransmitKeysTests : IDisposable
         Assert.Equal("No transmit lock here.", said);
         Assert.Equal(Idle, _controller.State);
         Assert.Equal(0, _locks);
+    }
+
+    [Fact]
+    public void A_second_workshops_close_leaves_the_first_sessions_guard_standing()
+    {
+        // Repair round two, Codex B3. Settings constructs a second
+        // AudioWorkshopDialog beside the tracked one; before this round
+        // EVERY workshop's Closed handler cleared the static pointer, so
+        // closing the second one made the first's active check invisible to
+        // the door. Unconstructed objects, as Codex's probe: no window, no
+        // session start, no transmit. What this test cannot see is the real
+        // Closed lambda running (it reaches controls and the earcon player),
+        // so the guarded statement itself is pinned from source in
+        // Radios.Tests.ValueSubLayerTests; here the pointer is cleared the
+        // way the fixed handler clears it, and the control shows the old
+        // unguarded assignment would have dropped the guard.
+        AssertTheDeskIsSafe(); WireDoor();
+        var workshopType = typeof(JJFlexWpf.Dialogs.AudioWorkshopDialog);
+        var first = RuntimeHelpers.GetUninitializedObject(workshopType);
+        var second = RuntimeHelpers.GetUninitializedObject(workshopType);
+        var sessionType = workshopType.GetNestedType("AudioCheckSession", BindingFlags.NonPublic);
+        Assert.True(sessionType != null, "AudioWorkshopDialog.AudioCheckSession is missing");
+        var session = RuntimeHelpers.GetUninitializedObject(sessionType!);
+        var activeField = sessionType!.GetField("<Active>k__BackingField", Any);
+        Assert.True(activeField != null, "AudioCheckSession.Active backing field is missing");
+        activeField!.SetValue(session, true);
+        var sessionField = workshopType.GetField("_session", Any);
+        Assert.True(sessionField != null, "AudioWorkshopDialog._session is missing");
+        sessionField!.SetValue(first, session);
+        var instance = workshopType.GetField("_instance", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.True(instance != null, "AudioWorkshopDialog._instance is missing");
+        var guard = workshopType.GetProperty("AnAudioCheckIsActive", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.True(guard != null, "AudioWorkshopDialog.AnAudioCheckIsActive is missing");
+        var before = instance!.GetValue(null);
+        try
+        {
+            instance.SetValue(null, first);
+            Door("SessionOwnsTransmitter", (Func<bool>)(() => (bool)guard!.GetValue(null)!));
+            var w = new FakeWindow();
+            Assert.True((bool)guard!.GetValue(null)!);
+            Assert.True(Down(w, Keys.Space | Keys.Shift));
+            Assert.Equal(Idle, _controller.State);          // refused: the check owns the transmitter
+
+            // The second workshop closes: the fixed handler clears the
+            // pointer only when it is this workshop.
+            if (ReferenceEquals(instance.GetValue(null), second)) instance.SetValue(null, null);
+            Assert.True((bool)guard.GetValue(null)!, "the first workshop's session is still active and still guarded");
+            Assert.True(Down(w, Keys.Space | Keys.Shift));
+            Assert.Equal(Idle, _controller.State);          // still refused
+
+            // Control: the OLD handler's unguarded clear is what the probe
+            // reproduced, and the guard then misses the live session.
+            instance.SetValue(null, null);
+            Assert.False((bool)guard.GetValue(null)!);
+
+            // The tracked workshop's own close does clear it.
+            instance.SetValue(null, first);
+            if (ReferenceEquals(instance.GetValue(null), first)) instance.SetValue(null, null);
+            Assert.False((bool)guard.GetValue(null)!);
+        }
+        finally
+        {
+            instance.SetValue(null, before);
+        }
     }
 
     // ── The radio's own gate ──

@@ -239,7 +239,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             // long as the rig, so a closed dialog left subscribed is a closed
             // dialog kept alive by the radio.
             BindMeterInventory(null);
-            _instance = null;
+            if (ReferenceEquals(_instance, this)) _instance = null;
         };
     }
 
