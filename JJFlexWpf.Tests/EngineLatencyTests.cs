@@ -5,8 +5,11 @@ using NAudio.Wave;
 using Radios;
 using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using JJFlexWpf.Dialogs;
+using Radios.Listenback;
 using Xunit;
 
 namespace JJFlexWpf.Tests;
@@ -23,6 +26,119 @@ namespace JJFlexWpf.Tests;
 /// </remarks>
 public sealed class EngineLatencyTests
 {
+    [Theory]
+    [InlineData(-0.02)]
+    [InlineData(-0.49)]
+    [InlineData(0.49)]
+    public void SubHalfDbLevelIsSpokenAsTheSameLevelInEveryComparison(double level)
+    {
+        var difference = new AudioDifference(true, "overall-average", LevelDb: level);
+        Assert.Contains("same level", AudioWorkshopDialog.DifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("same level", AudioWorkshopDialog.ReferenceDifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("same level", AudioWorkshopDialog.AverageDifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("same level", AudioWorkshopDialog.AutoComparisonSentence(difference), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData(-0.5, "quieter")]
+    [InlineData(0.5, "louder")]
+    public void HalfDbLevelKeepsItsDirectionInEveryComparison(double level, string word)
+    {
+        var difference = new AudioDifference(true, "overall-average", LevelDb: level);
+        Assert.Contains($"{word} by 0.5 dB", AudioWorkshopDialog.DifferenceSentence(difference));
+        Assert.Contains($"{word} by 0.5 dB", AudioWorkshopDialog.ReferenceDifferenceSentence(difference));
+        Assert.Contains($"{word} by 0.5 dB", AudioWorkshopDialog.AverageDifferenceSentence(difference));
+        Assert.Contains($"{word} by 0.5 dB", AudioWorkshopDialog.AutoComparisonSentence(difference));
+    }
+
+    [Theory]
+    [InlineData(-0.49, "same tone")]
+    [InlineData(0.49, "same tone")]
+    [InlineData(-0.5, "darker")]
+    [InlineData(0.5, "brighter")]
+    public void TiltUsesTheSameAudibleThresholdInEveryComparison(double tilt, string phrase)
+    {
+        var difference = new AudioDifference(true, "overall-average", TiltDb: tilt);
+        Assert.Contains(phrase, AudioWorkshopDialog.DifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(phrase, AudioWorkshopDialog.ReferenceDifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(phrase, AudioWorkshopDialog.AverageDifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(phrase, AudioWorkshopDialog.AutoComparisonSentence(difference), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData(-0.49, "punch is unchanged")]
+    [InlineData(0.49, "punch is unchanged")]
+    [InlineData(-0.5, "more compressed by 0.5 dB")]
+    [InlineData(0.5, "more peaky by 0.5 dB")]
+    public void CrestUsesTheSameAudibleThreshold(double crest, string phrase)
+    {
+        var difference = new AudioDifference(true, "aligned-spans", CrestDb: crest);
+        Assert.Contains(phrase, AudioWorkshopDialog.DifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(phrase, AudioWorkshopDialog.ReferenceDifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData(-0.49, "out-of-filter energy is unchanged")]
+    [InlineData(0.49, "out-of-filter energy is unchanged")]
+    [InlineData(-0.5, "fell by 0.5 dB")]
+    [InlineData(0.5, "rose by 0.5 dB")]
+    public void StopbandUsesTheSameAudibleThreshold(double stopband, string phrase)
+    {
+        var difference = new AudioDifference(true, "aligned-spans", StopbandDb: stopband);
+        Assert.Contains(phrase, AudioWorkshopDialog.DifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(phrase, AudioWorkshopDialog.ReferenceDifferenceSentence(difference), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void EveryComparisonCombinationStartsAFullSentenceAfterAStop()
+    {
+        foreach (double level in new[] { -0.5, 0, 0.5 })
+        {
+            foreach (double tilt in new[] { -0.5, 0, 0.5 })
+            {
+                foreach (double crest in new[] { -0.5, 0, 0.5 })
+                {
+                    foreach (double stopband in new[] { -0.5, 0, 0.5 })
+                    {
+                        var difference = new AudioDifference(true, "aligned-spans", level, tilt, crest, stopband);
+                        foreach (string sentence in new[] { AudioWorkshopDialog.DifferenceSentence(difference),
+                            AudioWorkshopDialog.ReferenceDifferenceSentence(difference),
+                            AudioWorkshopDialog.AverageDifferenceSentence(difference),
+                            AudioWorkshopDialog.AutoComparisonSentence(difference) })
+                        {
+                            Assert.EndsWith(".", sentence);
+                            Assert.False(Regex.IsMatch(sentence, @"\.\s+[a-z]"), sentence);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void SentReferenceAndPreviousTakeComparisonsNameTheirOwnSubjects()
+    {
+        foreach (double level in new[] { -0.5, 0, 0.5 })
+        {
+            foreach (double tilt in new[] { -0.5, 0, 0.5 })
+            {
+                foreach (double crest in new[] { -0.5, 0, 0.5 })
+                {
+                    foreach (double stopband in new[] { -0.5, 0, 0.5 })
+                    {
+                        var difference = new AudioDifference(true, "aligned-spans", level, tilt, crest, stopband);
+                        string reference = AudioWorkshopDialog.ReferenceDifferenceSentence(difference);
+                        string previous = AudioWorkshopDialog.DifferenceSentence(difference);
+                        Assert.Contains("received audio", reference, StringComparison.OrdinalIgnoreCase);
+                        Assert.Contains("what was sent", reference, StringComparison.OrdinalIgnoreCase);
+                        Assert.DoesNotContain("last take", reference, StringComparison.OrdinalIgnoreCase);
+                        Assert.Contains("last take", previous, StringComparison.OrdinalIgnoreCase);
+                        Assert.DoesNotContain("reference", previous, StringComparison.OrdinalIgnoreCase);
+                    }
+                }
+            }
+        }
+    }
     /// <summary>
     /// Noel's +30 dB ruling (2026-10-20 09:01) is for the quiet, fixed-scale off-air render only.
     /// A take this computer recorded is at microphone level and must play exactly as recorded:

@@ -162,7 +162,7 @@ public partial class AudioWorkshopDialog
             interrupt: !outcome.Success);
     }
     private void IqStatus(string text, bool failure = false, string? subject = null,
-        bool speak = true, bool interrupt = false, string? spokenText = null)
+        bool speak = true, string? spokenText = null)
     {
         if (_iqClosing)
         {
@@ -183,9 +183,9 @@ public partial class AudioWorkshopDialog
                 else ScreenReaderOutput.Speak(said, VerbosityLevel.Critical, interrupt: true);
             }));
         }
-        else if (subject != null || interrupt)
-            ScreenReaderOutput.Speak(said, interrupt ? Radios.Speech.SpeechIntent.Interrupt :
-                Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse, subject: subject);
+        else if (subject != null)
+            ScreenReaderOutput.Speak(said, Radios.Speech.SpeechIntent.Queue,
+                VerbosityLevel.Terse, subject: subject);
         else ScreenReaderOutput.Speak(said, VerbosityLevel.Terse);
     }
     private void AnnounceClosedRecovery(bool restored) => PostClosedIqStatus(
@@ -419,7 +419,7 @@ public partial class AudioWorkshopDialog
             Lexicon.Get("audio.iq.aligned", ("ms", measured.Alignment.LagMilliseconds(
                 int.Parse(take.Get("rate-echoed"))).ToString("F1"))) :
             Lexicon.Get(UnalignedKey(measured.Alignment.Reason));
-        if (measured.Difference.Comparable) details += " " + DifferenceSentence(measured.Difference);
+        if (measured.Difference.Comparable) details += " " + ReferenceDifferenceSentence(measured.Difference);
         if (measured.Tone.Reason != "no-recorded-keyed-tone") details += " " + Lexicon.Get(
             measured.Tone.Identified ? "audio.iq.tone_identified" : "audio.iq.tone_not_identified",
             ("hz", measured.Tone.OffsetHz.ToString("F1")), ("db", measured.Tone.AboveRestDb.ToString("F1")));
@@ -496,14 +496,51 @@ public partial class AudioWorkshopDialog
         catch (Exception ex) { IqFailure(ex); }
         finally { _iqBusy = false; }
     }
-    private static string DifferenceSentence(AudioDifference difference) => Lexicon.Get("audio.iq.difference",
-        ("level_word", Lexicon.Get(difference.LevelDb >= 0 ? "audio.iq.louder" : "audio.iq.quieter")),
-        ("level", Math.Abs(difference.LevelDb).ToString("F1")),
-        ("brightness_word", Lexicon.Get(difference.TiltDb >= 0 ? "audio.iq.brighter" : "audio.iq.darker")),
-        ("high_word", Lexicon.Get(difference.TiltDb >= 0 ? "audio.iq.stronger" : "audio.iq.weaker")),
-        ("tilt", Math.Abs(difference.TiltDb).ToString("F1")),
-        ("crest_word", Lexicon.Get(difference.CrestDb < 0 ? "audio.iq.more_compressed" : "audio.iq.more_peaky")),
-        ("crest", Math.Abs(difference.CrestDb).ToString("F1")), ("stop", difference.StopbandDb.ToString("+0.0;-0.0;0.0")));
+    private const double AudibleComparisonDb = 0.5;
+    private static bool Changed(double db) => Math.Abs(db) >= AudibleComparisonDb;
+
+    private static string LevelAndToneSentence(AudioDifference difference, bool sentReference = false)
+    {
+        bool levelChanged = Changed(difference.LevelDb), toneChanged = Changed(difference.TiltDb);
+        string key = (sentReference, levelChanged, toneChanged) switch
+        {
+            (false, false, false) => "audio.iq.same_level_tone",
+            (false, true, false) => "audio.iq.level_changed_tone_same",
+            (false, false, true) => "audio.iq.level_same_tone_changed",
+            (false, true, true) => "audio.iq.level_and_tone_changed",
+            (true, false, false) => "audio.iq.reference_same_level_tone",
+            (true, true, false) => "audio.iq.reference_level_changed_tone_same",
+            (true, false, true) => "audio.iq.reference_level_same_tone_changed",
+            _ => "audio.iq.reference_level_and_tone_changed"
+        };
+        return Lexicon.Get(key,
+            ("level_word", Lexicon.Get(difference.LevelDb >= 0 ? "audio.iq.louder" : "audio.iq.quieter")),
+            ("level", Math.Abs(difference.LevelDb).ToString("F1")),
+            ("brightness_word", Lexicon.Get(difference.TiltDb >= 0 ? "audio.iq.brighter" : "audio.iq.darker")),
+            ("high_word", Lexicon.Get(difference.TiltDb >= 0 ? "audio.iq.stronger" : "audio.iq.weaker")),
+            ("tilt", Math.Abs(difference.TiltDb).ToString("F1")));
+    }
+    private static string AlignedDifferenceSentence(AudioDifference difference, bool sentReference)
+    {
+        bool crestChanged = Changed(difference.CrestDb), stopChanged = Changed(difference.StopbandDb);
+        if (!Changed(difference.LevelDb) && !Changed(difference.TiltDb) &&
+            !crestChanged && !stopChanged)
+            return Lexicon.Get(sentReference ? "audio.iq.reference_all_measures_same" : "audio.iq.all_measures_same");
+        string punch = crestChanged ? Lexicon.Get("audio.iq.punch_changed",
+            ("crest_word", Lexicon.Get(difference.CrestDb < 0 ? "audio.iq.more_compressed" : "audio.iq.more_peaky")),
+            ("crest", Math.Abs(difference.CrestDb).ToString("F1"))) : Lexicon.Get("audio.iq.punch_same");
+        string stopband = stopChanged ? Lexicon.Get("audio.iq.stopband_changed",
+            ("direction", Lexicon.Get(difference.StopbandDb >= 0 ? "audio.iq.rose" : "audio.iq.fell")),
+            ("stop", Math.Abs(difference.StopbandDb).ToString("F1"))) : Lexicon.Get("audio.iq.stopband_same");
+        return LevelAndToneSentence(difference, sentReference) + " " + punch + " " + stopband;
+    }
+    internal static string DifferenceSentence(AudioDifference difference) =>
+        AlignedDifferenceSentence(difference, sentReference: false);
+    internal static string ReferenceDifferenceSentence(AudioDifference difference) =>
+        AlignedDifferenceSentence(difference, sentReference: true);
+    internal static string AverageDifferenceSentence(AudioDifference difference) => LevelAndToneSentence(difference);
+    internal static string AutoComparisonSentence(AudioDifference difference) =>
+        Lexicon.Get("audio.iq.auto_result_intro") + " " + LevelAndToneSentence(difference);
     private async Task ComparePreviousIqAsync()
     {
         if (_iqBusy || _iqRun != null || _rig?.Transmit == true) return;
@@ -528,7 +565,7 @@ public partial class AudioWorkshopDialog
             {
                 await UpdateIqStatisticsAsync(current, null, "not comparable; no last take");
                 IqStatus(Lexicon.Get(auto ? "audio.iq.auto_unavailable" : "audio.iq.need_two"),
-                    subject: auto ? "audio.iq.auto_comparison" : null, interrupt: auto);
+                    subject: auto ? "audio.iq.auto_comparison" : null);
                 return;
             }
             var difference = await Task.Run(() => TakeAnalysis.CompareTakes(previous, current,
@@ -537,31 +574,20 @@ public partial class AudioWorkshopDialog
             string methodKey = difference.Reason == "overall-average" ? "audio.iq.compared_average" : "audio.iq.compared_aligned";
             string method = Lexicon.Get(methodKey);
             string numbers = difference.Reason == "overall-average"
-                ? Lexicon.Get("audio.iq.average_difference",
-                    ("level_word", Lexicon.Get(difference.LevelDb >= 0 ? "audio.iq.louder" : "audio.iq.quieter")),
-                    ("level", Math.Abs(difference.LevelDb).ToString("F1")),
-                    ("brightness_word", Lexicon.Get(difference.TiltDb >= 0 ? "audio.iq.brighter" : "audio.iq.darker")),
-                    ("high_word", Lexicon.Get(difference.TiltDb >= 0 ? "audio.iq.stronger" : "audio.iq.weaker")),
-                    ("tilt", Math.Abs(difference.TiltDb).ToString("F1")))
+                ? AverageDifferenceSentence(difference)
                 : DifferenceSentence(difference);
-            string spokenNumbers = Lexicon.Get("audio.iq.auto_difference",
-                ("level_word", Lexicon.Get(difference.LevelDb >= 0 ? "audio.iq.louder" : "audio.iq.quieter")),
-                ("level", Math.Abs(difference.LevelDb).ToString("F1")),
-                ("brightness_word", Lexicon.Get(difference.TiltDb >= 0 ? "audio.iq.brighter" : "audio.iq.darker")),
-                ("high_word", Lexicon.Get(difference.TiltDb >= 0 ? "audio.iq.stronger" : "audio.iq.weaker")),
-                ("tilt", Math.Abs(difference.TiltDb).ToString("F1")));
             await UpdateIqStatisticsAsync(current, previous,
                 difference.Comparable ? method : "not comparable; " + difference.Reason);
             IqStatus(difference.Comparable ? Lexicon.Get("audio.iq.previous_comparison") + " " + method + " " + numbers :
                 Lexicon.Get(auto ? "audio.iq.auto_unavailable" : "audio.iq.unlike_or_unaligned"),
                 !difference.Comparable && !auto,
-                subject: auto ? "audio.iq.auto_comparison" : null, interrupt: auto,
-                spokenText: auto && difference.Comparable ? Lexicon.Get("audio.iq.auto_result_intro") + " " + spokenNumbers : null);
+                subject: auto ? "audio.iq.auto_comparison" : null,
+                spokenText: auto && difference.Comparable ? AutoComparisonSentence(difference) : null);
         }
         catch (Exception ex)
         {
             if (auto) IqStatus(Lexicon.Get("audio.iq.auto_unavailable"),
-                subject: "audio.iq.auto_comparison", interrupt: true);
+                subject: "audio.iq.auto_comparison");
             else IqFailure(ex);
         }
     }
