@@ -585,14 +585,19 @@ namespace Radios
         /// row for (the verbosity cycle, Ctrl+Shift+bracket in the main
         /// table), because only then does the host's dispatcher act on it. Push
         /// to talk, the lock and the plain brackets are handled by the main
-        /// window BEFORE any layer is asked, so when a layer is asked about one
-        /// nothing would act on it, and the host answers
-        /// <see cref="DescribeUnavailableHere"/> instead.
+        /// window on Home, and the two Space chords by every WPF dialog's
+        /// Window class handler (#778c), BEFORE any layer is asked, so when a
+        /// layer is asked about one nothing would act on it, and the host
+        /// answers <see cref="DescribeUnavailableHere"/> instead.
         /// </para>
         /// <para>
         /// Asked AFTER every key the layer binds itself, so a layer's own use
-        /// of a key always wins (Noel, 14:36): a layer that binds the brackets
-        /// gets them, even though the host names them here.
+        /// of a key always wins: a layer that binds the brackets gets them,
+        /// even though the host names them here. Noel ruled on 2026-10-21
+        /// 06:37 that inside a layer every bracket chord belongs to the layer
+        /// and only the filter layer moves filters with them; that is the
+        /// next junkbox wave's own track, and this code is as it was before
+        /// the ruling.
         /// </para>
         /// </remarks>
         public Func<Keys, bool>? PassThroughKeys;
@@ -765,12 +770,18 @@ namespace Radios
     /// picked gets the layer's list of letters; a digit says the arrows
     /// change the value; anything else gets the layer's own recovery line.
     /// Two kinds of key work with the layer still live: Alt chords and F1,
-    /// left as they were pending Noel's answer, and the keys the host names
+    /// kept by Noel's ruling of 2026-10-21 06:29, and the keys the host names
     /// as ACTING IN PLACE (<see cref="ValueSubLayerDefinition.PassThroughKeys"/>)
     /// — the verbosity cycle, so the operator can flip words-versus-numbers
-    /// mid-hunt, and push to talk, the transmit lock and the bracket filter
-    /// keys, which the main window handles in branches the key registry
-    /// never lists. A layer's own use of a key always beats that list.
+    /// mid-hunt, and, on Home, push to talk, the transmit lock and the
+    /// bracket filter keys, which the main window handles in branches the key
+    /// registry never lists. In a WPF dialog the two Space chords are taken
+    /// by the window ahead of this engine and key the radio (#778c), apart
+    /// from Shift+Space over an editable text box, which the window leaves to
+    /// the text box and this engine then refuses; the bare, Shift and Ctrl
+    /// brackets in a dialog are refused, Ctrl+Shift+bracket runs where the
+    /// host's table has its row, and the Alt forms pass as Alt chords. A
+    /// layer's own use of a key always beats that list.
     /// Confirm never writes; only cancel writes. (Volume mode predated this
     /// pattern and differed — its Escape kept the adjustments and its unknown
     /// keys were swallowed with a hint. That divergence was named as debt in
@@ -1110,10 +1121,8 @@ namespace Radios
 
             // System chords travel on with the layer live: Alt combos
             // (Alt+F4, menu accelerators) and F1 help — the volume-mode rule.
-            // Left exactly as they were by #778b on purpose: whether the menu
-            // bar and help should be refused inside a layer too is a question
-            // put to Noel, not a ruling anyone has made, and refusing them by
-            // guesswork could trap an operator.
+            // Ruled by Noel 2026-10-21 06:29 ("keep them"): the menu bar and
+            // help keep working inside a layer. Not a question any more.
             if ((k & Keys.Alt) != 0 || code == Keys.F1)
                 return ValueLayerKeyResult.PassThrough;
 
@@ -1294,14 +1303,17 @@ namespace Radios
 
             // A key that acts in place where its handler is, and that nothing
             // here would act on (#778b rounds two and three, Codex B1 and B2):
-            // push to talk pressed in a dialog or the log form, where the main
-            // window's transmit handler is not on the route, or on the main
-            // window when that handler has already passed on it. Letting it go
+            // push to talk pressed in the WinForms log form, where no transmit
+            // handler is on the route, or on the main window when its handler
+            // has already passed on it (focus outside the Home fields, radio
+            // off); a bracket anywhere step 2 does not run. Letting it go
             // would hand a transmit chord to whatever control has focus, with
             // the layer still open, while the help promised it keys the radio.
             // So it is refused and the layer stays, and the sentence says the
             // TRUTH about it — not "not a key in this layer", which is false for
-            // push to talk.
+            // push to talk. A WPF dialog no longer gets here for the two Space
+            // chords: since #778c its Window class handler keys the radio on
+            // them before this engine is asked (Noel, 2026-10-21 06:30).
             // Ruled by Noel 2026-10-19 20:55: "I would speak it if on chatty,
             // play a low tone otherwise. If we speak it, make it a very short
             // message, the tone really should be enough, similar to the DMR

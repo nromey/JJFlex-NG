@@ -131,6 +131,16 @@ namespace Radios.Speech
         public const string NoTransmitAudio = "no-transmit-audio";
 
         /// <summary>
+        /// A transmit key pressed in a dialog while something else owns the
+        /// transmitter (#778c): an Audio Check session is running, so the
+        /// dialog door refuses push to talk and the lock with the layer's own
+        /// very short sentences. One of these is true at a time, and the next
+        /// refused press retires an unheard earlier one; it says nothing a
+        /// value layer's status says, so it does not share that subject.
+        /// </summary>
+        public const string TransmitKeyRefused = "transmit-key-refused";
+
+        /// <summary>
         /// Reflected power is high enough to warn about, whether or not a cut
         /// follows (#224, #571).
         ///

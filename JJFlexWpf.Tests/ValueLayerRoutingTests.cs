@@ -141,6 +141,15 @@ public sealed class ValueLayerRoutingTests : IDisposable
     }
 
     // ── Push to talk, the lock and the plain brackets: refused wherever a layer is asked ──
+    //
+    // #778c: "wherever a layer is asked" no longer includes a WPF dialog for
+    // the two Space chords. There DialogTransmitKeys keys the radio in the
+    // Window class handler before DoCommand is ever reached, so the
+    // fromDialog cases below for Ctrl+Space and Shift+Space are the ENGINE's
+    // answer if it were asked, which in production it now is not; they are
+    // kept because the engine's answer must stay true for the routes that do
+    // still reach it (the WinForms log form, Home with its gate passed). The
+    // door itself is tested in DialogTransmitKeysTests, on the controller.
 
     // The main window's own chords, which no key table has a row for.
     private static readonly Keys[] MainWindowOnlyChords =
@@ -411,6 +420,18 @@ public sealed class ValueLayerRoutingTests : IDisposable
             Assert.False(KeyCommands.IsInPlaceChord(k), k.ToString());
     }
 
+    [Fact]
+    public void With_no_routing_owner_no_value_layer_is_live_anywhere()
+    {
+        // #778c: the main window's Tab gate asks this static. The setDefault
+        // constructor used here installs no routing owner, so it answers no
+        // even with a layer open on THIS instance: it speaks for the owning
+        // instance only, which on Home is the one DoCommandHandler dispatches to.
+        var commands = OpenAudioLayerOnVoxGain(fromDialog: false);
+        Assert.NotNull(commands.LiveValueLayer);
+        Assert.False(KeyCommands.AValueLayerIsLive);
+    }
+
     // ── Real hotkeys are refused: they no longer close the layer and act ──
 
     public static TheoryData<Keys, bool> RefusedKeys()
@@ -423,6 +444,14 @@ public sealed class ValueLayerRoutingTests : IDisposable
             data.Add(Keys.M | Keys.Shift, fromDialog);     // mute all slices (a registry row)
             data.Add(Keys.Tab, fromDialog);                // navigation, no row
             data.Add(Keys.Tab | Keys.Shift, fromDialog);
+            // #778c: pane navigation, refused with Tab (Noel 06:32 "once in a
+            // layer, tab gets refused"; 07:41 "yep that's right" for these two
+            // chords). On the main route this is the
+            // answer MainWindow_PreviewKeyDown now gets for Tab while a layer
+            // is live, because its early Tab return is gated on
+            // KeyCommands.AValueLayerIsLive (pinned from source in Radios.Tests).
+            data.Add(Keys.Tab | Keys.Control, fromDialog);
+            data.Add(Keys.Tab | Keys.Control | Keys.Shift, fromDialog);
             data.Add(Keys.Space, fromDialog);              // a Home field's toggle key, no row
         }
         return data;
