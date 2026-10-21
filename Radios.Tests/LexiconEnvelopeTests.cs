@@ -1180,10 +1180,10 @@ namespace Radios.Tests
                 // arrival's frequency in the same sentence. FRAGMENTS appended
                 // to an arrival (the band jump's, the rotation's, or typed
                 // entry's), never spoken alone, so TextOnly is the only honest
-                // classification. Their sibling settings.band.mode_advisory is
-                // legacy, still frozen, and since round two has no caller;
-                // WHEN THE PASS REACHES IT, DECIDE ALL FOUR TOGETHER. DRAFTS
-                // awaiting Noel.
+                // classification. Their sibling settings.band.mode_advisory
+                // ("mode set to ...") had no caller since round two and was
+                // RETIRED, deleted from the lexicon, on Noel's 2026-10-21 07:39
+                // ruling ("yes, retire the sentences"). DRAFTS awaiting Noel.
                 "settings.band.mode_not_set",
                 "settings.band.mode_not_set_transmitting",
                 "settings.band.mode_switching",
@@ -1225,8 +1225,9 @@ namespace Radios.Tests
                 // its own start sentence (one for a run that loads profiles,
                 // one for a radio where the comparison is left out), its own
                 // transmit refusal, and its own failure sentence: the restore
-                // capture's settings.restore_export.start names a "restore"
-                // capture and its not_while_transmitting says "this export".
+                // capture's start sentence named a "restore" capture (since
+                // retired, below) and its not_while_transmitting says "this
+                // export".
                 // Classified rather than frozen because they were written here
                 // (#720). delivery: null - TextOnly - on the #726 reasoning:
                 // each is spoken ONLY in answer to the operator's own press of
@@ -1263,8 +1264,8 @@ namespace Radios.Tests
                 // the comparison's defect one method over: one sentence,
                 // "every stored profile is loaded", whatever would load. Three
                 // sentences now, chosen from its plan. The legacy
-                // settings.restore_export.start is no longer spoken and stays
-                // frozen; DECIDE IT (retire or reword) WITH THESE. DRAFTS.
+                // settings.restore_export.start was RETIRED, deleted from the
+                // lexicon, on Noel's 2026-10-21 07:39 ruling. DRAFTS.
                 "settings.restore_export.start_walk",
                 "settings.restore_export.start_nothing_to_walk",
                 "settings.restore_export.start_no_walk",
@@ -1296,8 +1297,9 @@ namespace Radios.Tests
                 // line's manual route and claims nothing about what reached the
                 // radio; one that requested none says only that it was not
                 // moved, which is provable. The legacy
-                // settings.restore_export.saved_put_back / saved_not_put_back are
-                // no longer spoken and stay frozen; DECIDE THEM WITH THESE.
+                // settings.restore_export.saved_put_back / saved_not_put_back
+                // ("back on", which nothing can prove) were RETIRED, deleted
+                // from the lexicon, on Noel's 2026-10-21 07:39 ruling.
                 // Same classification and reasoning as above. DRAFTS.
                 "settings.profile.report_saved_loaded",
                 "settings.restore_export.saved_loaded",
@@ -1336,7 +1338,7 @@ namespace Radios.Tests
                 "audio.mic.switch_back_refused",
             };
 
-            Assert.Equal(3151, unclassified);
+            Assert.Equal(3147, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

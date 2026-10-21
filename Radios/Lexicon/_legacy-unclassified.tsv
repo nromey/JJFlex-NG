@@ -2204,7 +2204,6 @@ settings.band.license_technician	465fc7e7fda65034
 settings.band.list_bottom	ebdd2a01ebccd160
 settings.band.list_edge	0030d80e16d9d2c4
 settings.band.list_top	daab28e9def67bae
-settings.band.mode_advisory	8591fb2ca2c8e234
 settings.band.mode_cw	11c403c78d8946ef
 settings.band.mode_data	4520fd4d75953492
 settings.band.mode_image	54eb8e1b23759138
@@ -2927,9 +2926,6 @@ settings.restore_export.busy	dfb905fe055d9e05
 settings.restore_export.failed	a1319ffca4bfd36d
 settings.restore_export.not_while_transmitting	e65a34b700a73ac7
 settings.restore_export.saved_no_walk	66a0398e2a094b86
-settings.restore_export.saved_not_put_back	17d1582fcad7f743
-settings.restore_export.saved_put_back	4764d1ea70c27f20
-settings.restore_export.start	1cf4d45c3027818a
 settings.rit.off	15c68f1933e48946
 settings.rit.on	26c35169607f687f
 settings.ritxit.adjust_mode	293f739242f7f911
