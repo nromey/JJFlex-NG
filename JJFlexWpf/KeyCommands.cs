@@ -3040,12 +3040,14 @@ public class KeyCommands
                     // when nothing would act on it. On Home, with its own
                     // gates met, MainWindow_PreviewKeyDown acts on push to
                     // talk, the lock and the brackets before it asks a layer
-                    // anything. In a WPF dialog, DialogTransmitKeys keys the
-                    // radio on Ctrl+Space and Shift+Space in the Window class
-                    // handler before DoCommand is ever reached (#778c), so a
-                    // dialog's layer sees neither chord, except Shift+Space
-                    // over an editable text box, which the door leaves to the
-                    // text box and the layer then refuses. What is left: the
+                    // anything. In a WPF dialog, DialogTransmitKeys takes
+                    // Ctrl+Space (keys the radio) and Shift+Space (refused for
+                    // now, until the dialog lock is measured at the bench;
+                    // round three) in the Window class handler before
+                    // DoCommand is ever reached (#778c), so a dialog's layer
+                    // sees neither chord, except Shift+Space over an editable
+                    // text box, which the door leaves to the text box and the
+                    // layer then refuses. What is left: the
                     // WinForms log form for all of them; Home with focus
                     // outside the fields or the radio off; and the bare, Shift
                     // and Ctrl brackets in a dialog or Logging mode. The
@@ -5695,8 +5697,11 @@ public class KeyCommands
     /// being asked, and the layer stays open: that is the in-place behaviour.
     /// In a WPF dialog (#778c; Noel, 2026-10-21 06:30) Ctrl+Space and
     /// Shift+Space are taken by <see cref="DialogTransmitKeys"/> in the Window
-    /// class handler, ahead of the layer, and KEY THE RADIO through the same
-    /// edges Home uses; a layer in a dialog is never asked about them any
+    /// class handler, ahead of the layer: Ctrl+Space KEYS THE RADIO through
+    /// the same edges Home uses, and Shift+Space is refused there for now,
+    /// with the door's own tone and sentence, until the dialog lock has been
+    /// measured at the bench (round three; Noel 10:55). A layer in a dialog
+    /// is never asked about them any
     /// more, except with an editable text box focused, where Shift+Space is
     /// the text box's (Noel 06:42) and a live layer then refuses it like any
     /// key it does not take (Noel 06:34: "if the layer's open, the layer is
@@ -5754,11 +5759,13 @@ public class KeyCommands
     /// <remarks>
     /// Since #778c the push-to-talk and lock sentences are no longer reached
     /// from a WPF dialog through the LAYER: <see cref="DialogTransmitKeys"/>
-    /// keys the radio there before the layer is asked. The same two sentences
-    /// ARE spoken by the door itself while an Audio Check session owns the
-    /// transmitter (repair round one, B3; Noel 07:38), and a live layer over
-    /// an editable text box still refuses Shift+Space, which the door left to
-    /// the text box. From the layer they are still reached in the WinForms
+    /// takes both chords there before the layer is asked. The door itself
+    /// speaks the lock sentence for every Shift+Space it takes (round three:
+    /// the dialog lock waits for the bench) and the push-to-talk sentence
+    /// while an Audio Check session owns the transmitter (repair round one,
+    /// B3; Noel 07:38), and a live layer over an editable text box still
+    /// refuses Shift+Space, which the door left to the text box. From the
+    /// layer they are still reached in the WinForms
     /// log form (no Window class handler, no transmit branch) and on Home when
     /// its own gate has passed on the chord (focus outside the Home fields, or
     /// the radio powered off). The bracket sentence is reached for the bare,

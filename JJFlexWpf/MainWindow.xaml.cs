@@ -302,13 +302,14 @@ public partial class MainWindow : UserControl
         // leader's second key goes through KeyCommands' own switch. The
         // chords are app-level configuration, loaded here because the hook
         // exists before any operator or radio does.
-        // #778c: the THIRD door, Ctrl+Space and Shift+Space pressed in any
-        // WPF dialog. Same shape as the system-wide wiring below: the door
+        // #778c: the THIRD door, Ctrl+Space pressed in any WPF dialog
+        // (Shift+Space there is consumed and refused inside the door until
+        // the dialog lock has been measured at the bench; round three, Noel
+        // 10:55). Same shape as the system-wide wiring below: the door
         // decides, these callers gate on a powered radio, and the edges are
         // shared. Wired outside the try because it needs no hook and must
         // not fall with one.
         DialogTransmitKeys.PttEdge = HandleDialogPttEdge;
-        DialogTransmitKeys.ToggleLock = HandleDialogLockToggle;
         DialogTransmitKeys.HoldInFlight =
             () => _pttController != null && _pttController.State == PttSafetyController.PttState.PttHold;
         DialogTransmitKeys.EscapeUnkey = HandleDialogEscapeUnkey;
@@ -2659,6 +2660,11 @@ public partial class MainWindow : UserControl
         // Key.System is reported separately because it is how WPF marks a key
         // pressed while Alt owns the keyboard.
         Tracing.TraceLine($"KEYROUTE wpf.MainWindow_PreviewKeyDown key={rawKey} viaSystem={e.Key == Key.System} mods={Keyboard.Modifiers} handled={e.Handled} focus={Keyboard.FocusedElement?.GetType().Name}", TraceLevel.Info);
+        // #778c round three: the measurement the dialog lock waits on. One
+        // line per Space key event under a detailed capture, ahead of every
+        // branch that can return; it changes nothing about what the key does.
+        if (rawKey == Key.Space)
+            SpaceKeyTimingTrace.Note(down: true, WpfKeyConverter.ToWinFormsKeys(e), e.IsRepeat, SpaceKeyTimingTrace.HomeDoor);
         // Let regular Tab (and Ctrl+Tab / Ctrl+Shift+Tab) pass through to
         // WPF default handling / child-panel PreviewKeyDown handlers —
         // UNLESS a value layer is live (#778c; Noel, 2026-10-21 06:32: "Once
@@ -2773,12 +2779,7 @@ public partial class MainWindow : UserControl
         {
             if (rawKey == Key.Space && Keyboard.Modifiers == ModifierKeys.Shift)
             {
-                // #778c repair rounds one and two, B2 (PRE-EXISTING here): a
-                // held Shift+Space toggles ONCE. Windows' repeats carry
-                // IsRepeat; a screen reader's synthesised pairs are told
-                // apart by the lock edge's classifier. Same rule as the
-                // dialog door.
-                if (!e.IsRepeat) LockKeyDownEdge();
+                _pttController.ToggleLock();
                 e.Handled = true;
                 return;
             }
@@ -2795,8 +2796,8 @@ public partial class MainWindow : UserControl
                 // #778c repair round two, Codex B1 (PRE-EXISTING here): the
                 // controller's transition is not the whole of it. The input
                 // state the edges keep (a deferred release, the repeat
-                // guard, a pending lock press) must go too, or the next
-                // Ctrl+Space is read as continuing a hold that Escape ended.
+                // guard) must go too, or the next Ctrl+Space is read as
+                // continuing a hold that Escape ended.
                 _pttController.EscapeUnlock();
                 ResetPttInput();
                 e.Handled = true;
@@ -2832,82 +2833,16 @@ public partial class MainWindow : UserControl
 
         if (rawKey == Key.Space)
         {
+            // #778c round three: the measurement trace, see the key-down.
+            SpaceKeyTimingTrace.Note(down: false, WpfKeyConverter.ToWinFormsKeys(e), e.IsRepeat, SpaceKeyTimingTrace.HomeDoor);
             // Read the state BEFORE the edge runs: a consumed release takes the
             // controller out of PttHold, and asking afterwards would let the
             // very key-up that unkeyed fall through to the focused control.
             bool wasHold = _pttController != null
                            && _pttController.State == PttSafetyController.PttState.PttHold;
             PttKeyUpEdge();
-            LockKeyUpEdge();
             if (wasHold) e.Handled = true;
         }
-    }
-
-    // ── The transmit lock's edges (#778c repair rounds one and two, B2) ──
-    //
-    // Shift+Space is a TOGGLE, so a held key is the hazard push to talk never
-    // had: every extra down flips the transmitter the other way. Windows'
-    // repeats are dropped by the callers (IsRepeat). A screen reader's
-    // synthesised down/up pairs are told apart by the classifier below, which
-    // never guesses whether the key is still held: round one borrowed push
-    // to talk's hold filter here, and its guess swallowed a deliberate unlock
-    // (Codex B2). Every door (Home's step 3, the dialog door, the system-wide
-    // chord) calls these, so the rule is one rule on one instance.
-
-    /// <summary>
-    /// The clock the lock edges read, in milliseconds. Replaceable so a test
-    /// can lay down a screen reader's pair cadence deterministically.
-    /// </summary>
-    internal Func<long> PttClock = () => Environment.TickCount64;
-
-    private readonly Radios.LockPressClassifier _lockPresses = BuildLockPressClassifier();
-
-    private static Radios.LockPressClassifier BuildLockPressClassifier()
-    {
-        var c = new Radios.LockPressClassifier();
-        c.SetKeyRepeatDelay(Radios.KeyRepeatTiming.DelayMs());
-        return c;
-    }
-
-    /// <summary>
-    /// A first (non-repeat) Shift+Space down from a door that will deliver
-    /// its key-up: toggle now after a quiet gap; too soon after the last up,
-    /// let the press's own length decide at its up.
-    /// </summary>
-    private void LockKeyDownEdge()
-    {
-        if (_pttController == null) return;
-        switch (_lockPresses.NoteDown(PttClock()))
-        {
-            case Radios.LockPressClassifier.DownAction.Toggle:
-                _pttController.ToggleLock();
-                break;
-            case Radios.LockPressClassifier.DownAction.Ignore:
-                Tracing.TraceLine("Lock: a re-down of a Shift+Space that never came up was ignored (#778c B2)", TraceLevel.Info);
-                break;
-            // Pending: decided at the up.
-        }
-    }
-
-    /// <summary>
-    /// The system-wide chord's toggle: the hook posts one per press and never
-    /// an up, so the press is decided here and now.
-    /// </summary>
-    private void LockKeyDownEdgeWithoutUp()
-    {
-        if (_pttController == null) return;
-        _lockPresses.NoteDownWithoutUp(PttClock());
-        _pttController.ToggleLock();
-    }
-
-    /// <summary>
-    /// Every Space key-up, on every door: a pending press of human length
-    /// toggles here; a synthesised pair's up toggles nothing.
-    /// </summary>
-    private void LockKeyUpEdge()
-    {
-        if (_lockPresses.NoteUp(PttClock()) == Radios.LockPressClassifier.UpAction.Toggle)
-            _pttController?.ToggleLock();
     }
 
     // ── One push-to-talk edge pipeline, two doors (#307, Sprint 48 Track B) ──
@@ -2966,9 +2901,9 @@ public partial class MainWindow : UserControl
     /// <summary>
     /// Forget everything the edges know about a hold, without touching the
     /// controller: the deferred release, the repeat guard, the hold filter's
-    /// press in flight (what it has learned about the reader stays), the
-    /// lock press in flight, and the door. Called by every path that ends a
-    /// transmission OUTSIDE the key edges (#778c repair round two, Codex B1):
+    /// press in flight (what it has learned about the reader stays), and the
+    /// door. Called by every path that ends a transmission OUTSIDE the key
+    /// edges (#778c repair round two, Codex B1):
     /// Escape on Home and in a dialog, a dialog losing its hold to window
     /// loss, the radio turning transmit off on its own, and the radio
     /// closing. Without it a deferred release left pending swallows the next
@@ -2978,7 +2913,6 @@ public partial class MainWindow : UserControl
     {
         _pttDeferTimer?.Stop();
         _pttHoldFilter.Reset();
-        _lockPresses.Reset();
         _pttKeyDown = false;
         _pttHoldDoor = PttDoor.None;
     }
@@ -3039,12 +2973,16 @@ public partial class MainWindow : UserControl
     /// </summary>
     internal void HandleSystemWidePttEdge(bool down) => PttEdgeFromOutsideHome(down, PttDoor.SystemWide);
 
-    /// <summary>
-    /// The system-wide transmit lock: what Shift+Space does inside the
-    /// window, decided at the down because the hook never delivers an up
-    /// (its decider swallows the chord's own release).
-    /// </summary>
-    internal void HandleSystemWideLockToggle() => LockToggleFromOutsideHome(upWillFollow: false);
+    /// <summary>The system-wide transmit lock: what Shift+Space does inside the window.</summary>
+    internal void HandleSystemWideLockToggle()
+    {
+        if (_pttController == null || !_radioPowerOn)
+        {
+            Radios.ScreenReaderOutput.SpeakNoRadioConnected();
+            return;
+        }
+        _pttController.ToggleLock();
+    }
 
     /// <summary>
     /// The dialog door (#778c): Ctrl+Space pressed in any WPF window that is
@@ -3053,9 +2991,6 @@ public partial class MainWindow : UserControl
     /// Home fields) does not apply, because the dialog IS the focus.
     /// </summary>
     internal void HandleDialogPttEdge(bool down) => PttEdgeFromOutsideHome(down, PttDoor.Dialog);
-
-    /// <summary>The dialog door's transmit lock: a first Shift+Space down in any WPF window that is not Home (#778c). Its up arrives through <see cref="HandleDialogPttEdge"/>.</summary>
-    internal void HandleDialogLockToggle() => LockToggleFromOutsideHome(upWillFollow: true);
 
     /// <summary>
     /// The dialog door's Escape (#778c repair round one, B1): while the
@@ -3110,19 +3045,7 @@ public partial class MainWindow : UserControl
             if (down) Radios.ScreenReaderOutput.SpeakNoRadioConnected();
             return;
         }
-        if (down) PttKeyDownEdge(door);
-        else { PttKeyUpEdge(); LockKeyUpEdge(); }
-    }
-
-    private void LockToggleFromOutsideHome(bool upWillFollow)
-    {
-        if (_pttController == null || !_radioPowerOn)
-        {
-            Radios.ScreenReaderOutput.SpeakNoRadioConnected();
-            return;
-        }
-        if (upWillFollow) LockKeyDownEdge();
-        else LockKeyDownEdgeWithoutUp();
+        if (down) PttKeyDownEdge(door); else PttKeyUpEdge();
     }
 
     /// <summary>

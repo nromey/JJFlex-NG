@@ -3049,7 +3049,7 @@ namespace Radios.Tests
             foreach (string branch in new[]
             {
                 "_freqOutHandlers.HandleFilterHotkey(e);",
-                "if (!e.IsRepeat) LockKeyDownEdge();",   // #778c repair round: the shared lock edge, repeats dropped
+                "_pttController.ToggleLock();",          // #778c round three: Home's lock is main's again (Noel 10:55)
                 "PttKeyDownEdge(PttDoor.Home);",         // round two: the edge records which door keyed the hold
                 "_pttController.EscapeUnlock();",
             })
@@ -3103,18 +3103,19 @@ namespace Radios.Tests
             //    Home's step 3 and PreviewKeyUp call. No second keying path.
             string main = ReadSource("JJFlexWpf/MainWindow.xaml.cs");
             Assert.Contains("DialogTransmitKeys.PttEdge = HandleDialogPttEdge;", main);
-            Assert.Contains("DialogTransmitKeys.ToggleLock = HandleDialogLockToggle;", main);
             Assert.Contains("DialogTransmitKeys.HoldInFlight =", main);
             Assert.Contains("internal void HandleDialogPttEdge(bool down) => PttEdgeFromOutsideHome(down, PttDoor.Dialog);", main);
             Assert.Contains("internal void HandleSystemWidePttEdge(bool down) => PttEdgeFromOutsideHome(down, PttDoor.SystemWide);", main);
-            Assert.Contains("internal void HandleDialogLockToggle() => LockToggleFromOutsideHome(upWillFollow: true);", main);
-            Assert.Contains("internal void HandleSystemWideLockToggle() => LockToggleFromOutsideHome(upWillFollow: false);", main);
             int gate = main.IndexOf("private void PttEdgeFromOutsideHome(bool down, PttDoor door)", StringComparison.Ordinal);
             Assert.True(gate >= 0);
-            string gateBody = main.Substring(gate, main.IndexOf("private void LockToggleFromOutsideHome(bool upWillFollow)", gate, StringComparison.Ordinal) - gate);
-            Assert.Contains("if (down) PttKeyDownEdge(door);", gateBody);
-            Assert.Contains("else { PttKeyUpEdge(); LockKeyUpEdge(); }", gateBody);
+            string gateBody = main.Substring(gate, main.IndexOf("private void StartPttDeferTimer(int ms)", gate, StringComparison.Ordinal) - gate);
+            Assert.Contains("if (down) PttKeyDownEdge(door); else PttKeyUpEdge();", gateBody);
             Assert.Contains("if (down) Radios.ScreenReaderOutput.SpeakNoRadioConnected();", gateBody);
+            // Round three (Noel 10:55): the dialog door has no lock delegate
+            // any more. Shift+Space in a dialog is consumed and refused inside
+            // the door, through the same path as the Audio Check refusal.
+            Assert.DoesNotContain("DialogTransmitKeys.ToggleLock", main);
+            Assert.DoesNotContain("HandleDialogLockToggle", main);
 
             // Repair round one. B1: Escape from a dialog unkeys through the
             // controller, as Home's step 3 does (Noel 07:37). F2: window loss
@@ -3150,7 +3151,7 @@ namespace Radios.Tests
             int helper = main.IndexOf("private void ResetPttInput()", StringComparison.Ordinal);
             Assert.True(helper >= 0);
             string helperBody = main.Substring(helper, 400);
-            foreach (string line in new[] { "_pttDeferTimer?.Stop();", "_pttHoldFilter.Reset();", "_lockPresses.Reset();", "_pttKeyDown = false;", "_pttHoldDoor = PttDoor.None;" })
+            foreach (string line in new[] { "_pttDeferTimer?.Stop();", "_pttHoldFilter.Reset();", "_pttKeyDown = false;", "_pttHoldDoor = PttDoor.None;" })
                 Assert.Contains(line, helperBody);
             int home = main.IndexOf("private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)", StringComparison.Ordinal);
             int homeStep4 = main.IndexOf("DoCommandHandler(winFormsKey)", home, StringComparison.Ordinal);
@@ -3183,35 +3184,6 @@ namespace Radios.Tests
             Assert.Contains("if (ReferenceEquals(_instance, this)) _instance = null;", workshop);
             Assert.DoesNotContain("            _instance = null;\n", workshop.Replace("\r\n", "\n"));
 
-            // B2, on BOTH doors: a held Shift+Space toggles once. Home's step 3
-            // drops Windows' repeats and calls the shared lock edge; every
-            // Space key-up on Home feeds the lock edge too. Round two: the
-            // edge classifies each press by its own length
-            // (Radios.LockPressClassifier) and never guesses whether the key
-            // is still held; the hold filter is gone from the lock. The
-            // system-wide door, which never delivers an up, is decided at
-            // its down.
-            int step3Lock = main.IndexOf("if (!e.IsRepeat) LockKeyDownEdge();", home, StringComparison.Ordinal);
-            Assert.True(step3Lock > home && step3Lock < homeStep4, "Home's Shift+Space must drop repeats and use the shared lock edge");
-            Assert.DoesNotContain("_pttController.ToggleLock();\n", main.Substring(home, homeStep4 - home).Replace("\r\n", "\n"));
-            int keyUp = main.IndexOf("private void MainWindow_PreviewKeyUp(object sender, KeyEventArgs e)", StringComparison.Ordinal);
-            Assert.True(keyUp >= 0);
-            string keyUpBody = main.Substring(keyUp, 900);
-            Assert.Contains("PttKeyUpEdge();", keyUpBody);
-            Assert.Contains("LockKeyUpEdge();", keyUpBody);
-            int lockEdge = main.IndexOf("private void LockKeyDownEdge()", StringComparison.Ordinal);
-            Assert.True(lockEdge >= 0);
-            Assert.Contains("case Radios.LockPressClassifier.DownAction.Toggle:", main.Substring(lockEdge, 900));
-            Assert.Contains("private readonly Radios.LockPressClassifier _lockPresses = BuildLockPressClassifier();", main);
-            Assert.DoesNotContain("_lockHoldFilter", main);
-            Assert.DoesNotContain("_lockLastUpMs", main);
-            int lockUp = main.IndexOf("private void LockKeyUpEdge()", StringComparison.Ordinal);
-            Assert.True(lockUp >= 0);
-            Assert.Contains("== Radios.LockPressClassifier.UpAction.Toggle", main.Substring(lockUp, 400));
-            int noUp = main.IndexOf("private void LockKeyDownEdgeWithoutUp()", StringComparison.Ordinal);
-            Assert.True(noUp >= 0);
-            Assert.Contains("_lockPresses.NoteDownWithoutUp(PttClock());", main.Substring(noUp, 300));
-
             // The door itself never touches the controller or the rig: it only
             // calls its three delegates. Nothing in it names PttSafetyController
             // as a call, FlexBase, or Transmit.
@@ -3224,6 +3196,107 @@ namespace Radios.Tests
             Assert.DoesNotContain("PttSafetyController.", doorSource.Replace("<see cref=\"PttSafetyController", ""));
             Assert.Equal(2, Regex.Matches(doorSource, @"PttEdge\?\.Invoke\(false\)").Count);   // key-up, and the window lost
             Assert.Equal(1, Regex.Matches(doorSource, @"PttEdge\?\.Invoke\(true\)").Count);
+        }
+
+        [Fact]
+        public void Homes_lock_and_the_system_wide_lock_read_exactly_as_main_and_the_dialog_lock_is_refused_for_now()
+        {
+            // #778c repair round three. Noel, 2026-10-21 10:55: "wait for the
+            // bench". Codex found (B5) that a lock press decided at its key-up
+            // stayed pending through Escape at Idle, a close or a window
+            // switch, and a later unrelated Space release locked the
+            // transmitter. So the lock classifier is gone entirely, Home's
+            // Shift+Space and the system-wide lock go back to what main does,
+            // and Shift+Space in a dialog is consumed and refused until a
+            // quick JAWS tap has been measured. This is a SOURCE PIN, stated
+            // as one: Home's handlers cannot be driven without a window, so
+            // the three snippets below are main's text (d9a079cf) verbatim,
+            // and the pin fails if any of them drifts from it.
+            string main = ReadSource("JJFlexWpf/MainWindow.xaml.cs").Replace("\r\n", "\n");
+            int home = main.IndexOf("private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)", StringComparison.Ordinal);
+            int homeStep4 = main.IndexOf("DoCommandHandler(winFormsKey)", home, StringComparison.Ordinal);
+            Assert.True(home >= 0 && homeStep4 > home);
+
+            // 1. Home's step 3: one toggle per key-down event, exactly main's.
+            const string step3LockAsOnMain =
+                "            if (rawKey == Key.Space && Keyboard.Modifiers == ModifierKeys.Shift)\n" +
+                "            {\n" +
+                "                _pttController.ToggleLock();\n" +
+                "                e.Handled = true;\n" +
+                "                return;\n" +
+                "            }\n";
+            int step3Lock = main.IndexOf(step3LockAsOnMain, home, StringComparison.Ordinal);
+            Assert.True(step3Lock > home && step3Lock < homeStep4, "Home's Shift+Space branch must read exactly as main's");
+
+            // 2. The system-wide lock: main's handler, body and all.
+            const string systemWideLockAsOnMain =
+                "    /// <summary>The system-wide transmit lock: what Shift+Space does inside the window.</summary>\n" +
+                "    internal void HandleSystemWideLockToggle()\n" +
+                "    {\n" +
+                "        if (_pttController == null || !_radioPowerOn)\n" +
+                "        {\n" +
+                "            Radios.ScreenReaderOutput.SpeakNoRadioConnected();\n" +
+                "            return;\n" +
+                "        }\n" +
+                "        _pttController.ToggleLock();\n" +
+                "    }\n";
+            Assert.Contains(systemWideLockAsOnMain, main);
+
+            // 3. The Space key-up on Home: main's body. The one line ahead of
+            //    it, the round-three measurement trace, is pinned below and is
+            //    the only difference.
+            const string keyUpAsOnMain =
+                "            // Read the state BEFORE the edge runs: a consumed release takes the\n" +
+                "            // controller out of PttHold, and asking afterwards would let the\n" +
+                "            // very key-up that unkeyed fall through to the focused control.\n" +
+                "            bool wasHold = _pttController != null\n" +
+                "                           && _pttController.State == PttSafetyController.PttState.PttHold;\n" +
+                "            PttKeyUpEdge();\n" +
+                "            if (wasHold) e.Handled = true;\n" +
+                "        }\n";
+            int keyUp = main.IndexOf("private void MainWindow_PreviewKeyUp(object sender, KeyEventArgs e)", StringComparison.Ordinal);
+            Assert.True(keyUp >= 0);
+            Assert.Contains(keyUpAsOnMain, main.Substring(keyUp, 1200));
+
+            // Nothing of the lock classifier, round two's edges, or round one's
+            // hold filter survives, in MainWindow or in Radios.
+            foreach (string gone in new[]
+            {
+                "LockPressClassifier", "_lockPresses", "BuildLockPressClassifier", "LockKeyDownEdge", "LockKeyUpEdge",
+                "LockToggleFromOutsideHome", "HandleDialogLockToggle", "PttClock", "_lockHoldFilter", "_lockLastUpMs",
+            })
+                Assert.DoesNotContain(gone, main);
+            Assert.False(File.Exists(Path.Combine(RepoRoot(), "Radios", "LockPressClassifier.cs")), "Radios/LockPressClassifier.cs must be gone");
+            Assert.False(File.Exists(Path.Combine(RepoRoot(), "Radios.Tests", "LockPressClassifierTests.cs")), "its tests must be gone with it");
+
+            // The dialog door: no lock delegate; Shift+Space on a non-text
+            // control is refused through RefuseTransmitKey, the same path the
+            // Audio Check refusal takes, and nothing else in the door speaks.
+            string door = ReadSource("JJFlexWpf/DialogTransmitKeys.cs");
+            Assert.DoesNotContain("ToggleLock", door);
+            Assert.Contains("case Verdict.LockRefused:", door);
+            Assert.Contains("RefuseTransmitKey(\"audio.value_layer.lock_not_here\");", door);
+            Assert.Equal(1, Regex.Matches(door, @"private static void RefuseTransmitKey\(").Count);
+            Assert.Equal(2, Regex.Matches(door, @"RefuseTransmitKey\(").Count - 1);   // the lock, and the push-to-talk refusal under an Audio Check
+
+            // Item 5: the measurement trace. One line per Space key event, on
+            // Home's two preview handlers and on the dialog door's two entries,
+            // gated at TraceLevel.Verbose (the level StartDetailedCapture
+            // raises the switch to), and nowhere else: no other key is traced.
+            string trace = ReadSource("JJFlexWpf/SpaceKeyTimingTrace.cs");
+            Assert.Contains("TraceLevel.Verbose", trace);
+            Assert.Equal(1, Regex.Matches(trace, @"Tracing\.TraceLine\(").Count);
+            string homeDown = main.Substring(home, homeStep4 - home);
+            Assert.Contains("if (rawKey == Key.Space)\n            SpaceKeyTimingTrace.Note(down: true,", homeDown);
+            Assert.True(homeDown.IndexOf("SpaceKeyTimingTrace.Note(down: true,", StringComparison.Ordinal)
+                        < homeDown.IndexOf("if (rawKey == Key.Tab && !KeyCommands.AValueLayerIsLive)", StringComparison.Ordinal),
+                "the Home key-down trace must run before any branch can return");
+            Assert.Contains("SpaceKeyTimingTrace.Note(down: false,", main.Substring(keyUp, 1200));
+            Assert.Equal(2, Regex.Matches(main, @"SpaceKeyTimingTrace\.Note\(").Count);
+            Assert.Equal(2, Regex.Matches(main, @"SpaceKeyTimingTrace\.HomeDoor").Count);
+            Assert.Equal(2, Regex.Matches(door, @"SpaceKeyTimingTrace\.Note\(").Count);
+            Assert.Equal(2, Regex.Matches(door, @"SpaceKeyTimingTrace\.DialogDoor").Count);
+            Assert.DoesNotContain("SpaceKeyTimingTrace", ReadSource("JJFlexWpf/KeyCommands.cs"));
         }
 
         [Fact]
