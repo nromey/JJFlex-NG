@@ -18,6 +18,7 @@ public sealed class AudioCheckStartRaceTests
     [Theory]
     [InlineData("cross-door", 1)]
     [InlineData("cancel-record", 0)]
+    [InlineData("cancel-record-failed", 0)]
     [InlineData("cancel-loopback", 0)]
     [InlineData("cancel-before-key", 0)]
     [InlineData("cancel-off-air", 0)]
@@ -49,5 +50,27 @@ public sealed class AudioCheckStartRaceTests
         Assert.Equal(expectedKeys, result[0]); // positive control: first check really keyed
         Assert.Equal(expectedKeys, result[1]); // delayed arrangement never keys again
         Assert.Equal(0, result[2]); // no arrangement survives its lost start
+
+        Assert.Equal(0, result[3]); // a cancelled start never speaks a stale recorder failure
+    }
+
+    [Fact]
+    public void Escape_close_rig_change_and_disconnect_revoke_a_pending_start()
+    {
+        var root = IntegrationPassTree.Root;
+        var dialog = CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(root, "JJFlexWpf", "Dialogs", "AudioWorkshopDialog.xaml.cs"))).GetRoot();
+        var escape = dialog.DescendantNodes().OfType<MethodDeclarationSyntax>().Single(m => m.Identifier.Text == "OnPreviewKeyDown");
+        var pendingEscape = escape.DescendantNodes().OfType<IfStatementSyntax>()
+            .Single(x => x.Condition.ToString().Contains("Key.Escape") && x.Condition.ToString().Contains("_checkStarts.IsBusy"));
+        Assert.Contains("CancelCheckStart()", pendingEscape.Statement.ToString());
+
+        var setRig = dialog.DescendantNodes().OfType<MethodDeclarationSyntax>().Single(m => m.Identifier.Text == "SetRig");
+        var changed = setRig.DescendantNodes().OfType<IfStatementSyntax>()
+            .First(x => x.Condition.ToString().Contains("!ReferenceEquals(oldRig, rig)"));
+        Assert.Contains("CancelCheckStart()", changed.Statement.ToString()); // replacement and disconnect
+
+        var closed = dialog.DescendantNodes().OfType<AssignmentExpressionSyntax>()
+            .Single(x => x.Left.ToString() == "Closed" && x.IsKind(SyntaxKind.AddAssignmentExpression));
+        Assert.Contains("CancelCheckStart()", closed.Right.ToString());
     }
 }

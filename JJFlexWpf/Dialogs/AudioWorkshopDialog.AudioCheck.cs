@@ -238,7 +238,16 @@ public partial class AudioWorkshopDialog
         AutomationProperties.SetName(_loopbackButton, "Loopback Check, transverter port");
         _loopbackButton.Click += async (s, e) =>
         {
-            if (_loopbackStarting) { CancelCheckStart(); return; }
+            if (_loopbackStarting)
+            {
+                if (!_checkStarts.IsCancelled)
+                {
+                    CancelCheckStart();
+                    // DRAFT PROSE (#787): awaiting Noel.
+                    ScreenReaderOutput.Speak(Lexicon.Get("audio.check.start_cancelled"), VerbosityLevel.Terse);
+                }
+                return;
+            }
             if (_session?.Active == true && _session.IsLoopback) _session.StopCheck();
             else await StartLoopbackCheckAsync();
         };
@@ -292,7 +301,12 @@ public partial class AudioWorkshopDialog
     /// </summary>
     private async Task StartLoopbackCheckAsync()
     {
-        if (_checkStarts.IsBusy) return;
+        if (_checkStarts.IsBusy)
+        {
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.stop_current_first"),
+                VerbosityLevel.Critical, interrupt: true);
+            return;
+        }
         if (_iqBusy || _iqRun != null) { IqStatus(Lexicon.Get("audio.iq.stop_other"), true); return; }
         if (_session != null && _session.Active)
         {
@@ -390,7 +404,12 @@ public partial class AudioWorkshopDialog
     {
         if (_checkStarts.IsBusy)
         {
-            CancelCheckStart();
+            if (!_checkStarts.IsCancelled)
+            {
+                CancelCheckStart();
+                // DRAFT PROSE (#787): awaiting Noel.
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.check.start_cancelled"), VerbosityLevel.Terse);
+            }
             return;
         }
         if (_iqBusy) { _iqCancellation?.Cancel(); return; }
@@ -804,7 +823,8 @@ public partial class AudioWorkshopDialog
                 var armed = await rig.StartSliceRecordAsync(_recorderTarget);
                 if (!armed.Success)
                 {
-                    RecorderControls.Speak(armed);
+                    if (start.IsCurrent && !_owner._iqClosing && ReferenceEquals(rig, Rig))
+                        RecorderControls.Speak(armed);
                     return false;
                 }
                 // Never blind-toggle a recorder that is already running: a

@@ -130,7 +130,8 @@ public partial class FlexBase
         internal Slice Slice;
         internal Radio Radio;
         internal CommandConnection Connection;
-        internal bool Recording, Playing, Retired;
+        internal bool Recording, Playing;
+        internal volatile bool Retired;
         internal readonly SemaphoreSlim Gate = new(1, 1);
         internal Radio.SliceRemovedEventHandler Removed;
         // Which door started what this slice is doing, or null for a door
@@ -224,7 +225,6 @@ public partial class FlexBase
     // ── Wire ────────────────────────────────────────────────────────────
 
     private bool StateIsLive(SliceRecorderState state) => !state.Retired && state.Radio != null &&
-        state.Radio.SliceList.Contains(state.Slice) && mySlices.Contains(state.Slice) &&
         ReferenceEquals(theRadio, state.Radio) && state.Radio.Connected &&
         ReferenceEquals(state.Connection, state.Radio.CurrentCommandConnection) &&
         state.Connection?.State == CommandConnectionState.Connected;
@@ -247,8 +247,18 @@ public partial class FlexBase
                 slice.PropertyChanged += state.Status;
                 state.Removed = removed =>
                 {
-                    if (ReferenceEquals(removed, slice))
-                        lock (_sliceRecorders) DropStateLocked(slice);
+                    if (!ReferenceEquals(removed, slice)) return;
+                    // FlexLib raises this event while holding its slice-list
+                    // lock during disconnect. Retire now so queries and the
+                    // warning cannot use the removed slice. Do the cleanup
+                    // after the event returns; it must not wait for our lock.
+                    state.Retired = true;
+                    ThreadPool.QueueUserWorkItem(_ =>
+                    {
+                        lock (_sliceRecorders)
+                            if (_sliceRecorders.TryGetValue(slice, out var current) && ReferenceEquals(current, state))
+                                DropStateLocked(slice);
+                    });
                 };
                 state.Radio.SliceRemoved += state.Removed;
                 _sliceRecorders[slice] = state;

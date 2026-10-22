@@ -258,7 +258,18 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     {
         if (e.Key == Key.Escape && _checkStarts.IsBusy)
         {
-            CancelCheckStart();
+            if (_checkStarts.IsCancelled)
+            {
+                // A cancelled start keeps admission closed during rollback,
+                // but its rollback no longer holds this window open.
+                Close();
+            }
+            else
+            {
+                CancelCheckStart();
+                // DRAFT PROSE (#787): awaiting Noel.
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.check.start_cancelled_escape"), VerbosityLevel.Terse);
+            }
             e.Handled = true;
             return;
         }

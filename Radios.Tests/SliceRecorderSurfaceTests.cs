@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using Flex.Smoothlake.FlexLib;
 using Radios.Tests.StationConnect;
@@ -261,11 +262,46 @@ public sealed class SliceRecorderSurfaceTests : IDisposable
         c.F.Vendor.Status("slice 1 in_use=0");
         await Task.Delay(300);
         Assert.Equal(0, warned);
+        Assert.True(await WaitUntil(() => !states.Keys.Cast<object>().Any()));
         Assert.Empty(states.Keys.Cast<object>());
         Assert.False(c.F.Rig.IsSliceRecording(SliceRecorderTarget.Letter('B')));
         Assert.False(c.F.Rig.IsSlicePlaying(SliceRecorderTarget.Letter('B')));
         Assert.Null(state.GetType().GetField("Status", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(state));
         Assert.Null(state.GetType().GetField("CapWarning", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(state));
+    }
+
+    [Fact]
+    public async Task Removing_a_slice_while_a_recorder_query_checks_liveness_does_not_deadlock()
+    {
+        using var c = new RadioCase();
+        Assert.True((await c.Pump(c.F.Rig.StartSliceRecordAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        var radio = c.F.Vendor.Radio;
+        var slices = typeof(Radio).GetField("_slices", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(radio)!;
+        var recorders = typeof(FlexBase).GetField("_sliceRecorders", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(c.F.Rig)!;
+        var state = ((System.Collections.IDictionary)recorders)[c.Tx]!;
+        var live = typeof(FlexBase).GetMethod("StateIsLive", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var removed = typeof(Radio).GetMethod("OnSliceRemoved", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        using var sliceHeld = new ManualResetEventSlim();
+        using var recorderHeld = new ManualResetEventSlim();
+        var disconnect = Task.Run(() =>
+        {
+            lock (slices)
+            {
+                sliceHeld.Set();
+                Assert.True(recorderHeld.Wait(TimeSpan.FromSeconds(2)));
+                removed.Invoke(radio, new object[] { c.Tx });
+            }
+        });
+        var query = Task.Run(() =>
+        {
+            Assert.True(sliceHeld.Wait(TimeSpan.FromSeconds(2)));
+            lock (recorders)
+            {
+                recorderHeld.Set();
+                live.Invoke(c.F.Rig, new[] { state });
+            }
+        });
+        await Task.WhenAll(disconnect, query).WaitAsync(TimeSpan.FromSeconds(2));
     }
 
     [Theory]

@@ -12,6 +12,7 @@ public sealed class AudioCheckStartGate
     private readonly object _sync = new();
     private Lease _pending;
     public bool IsBusy { get { lock (_sync) return _pending != null; } }
+    public bool IsCancelled { get { lock (_sync) return _pending?.Cancelled == true; } }
     public Lease TryBegin()
     {
         lock (_sync)

@@ -32,6 +32,7 @@ public class Host
     /*StartAudioCheckSessionAsync*/
     public static async Task<int[]> Run(string scenario)
     {
+        RecorderControls.Spoken = 0;
         var h = new Host();
         if (scenario is "cancel-off-air" or "off-air-excludes-ordinary")
         {
@@ -42,7 +43,7 @@ public class Host
             var run = new FakeRun();
             h._rig.OffAir.SetResult(run);
             await pending;
-            return new[] { h.ptt.Keys, h.ptt.Keys, scenario == "cancel-off-air" && !run.Stopped ? 1 : 0 };
+            return new[] { h.ptt.Keys, h.ptt.Keys, scenario == "cancel-off-air" && !run.Stopped ? 1 : 0, RecorderControls.Spoken };
         }
         if (scenario == "cancel-loopback")
         {
@@ -50,20 +51,20 @@ public class Host
             h.CancelCheckStart();
             h._rig.Arrange.SetResult(true);
             await pending;
-            return new[] { 0, h.ptt.Keys, h._rig.LoopbackArranged ? 1 : 0 };
+            return new[] { 0, h.ptt.Keys, h._rig.LoopbackArranged ? 1 : 0, RecorderControls.Spoken };
         }
         if (scenario == "cancel-before-key") h._rig.PowerChanged = h.CancelCheckStart;
         var first = new AudioCheckSession(h, h._rig, h.ptt, AudioCheckListenMethods.RecordPlayback, AudioCheckPowerModes.LowPower, 1);
         var ordinary = h.StartAudioCheckSessionAsync(first);
         var loopback = scenario == "cross-door" ? h.StartLoopbackCheckAsync() : Task.CompletedTask;
-        if (scenario == "cancel-record") h.CancelCheckStart();
-        h._rig.Record.SetResult(new(true, "recorded", "slice"));
+        if (scenario is "cancel-record" or "cancel-record-failed") h.CancelCheckStart();
+        h._rig.Record.SetResult(new(scenario != "cancel-record-failed", "recorded", "slice"));
         await ordinary;
         int before = h.ptt.Keys;
         h._session?.StopCheck();
         h._rig.Arrange.SetResult(true);
         await loopback;
-        return new[] { before, h.ptt.Keys, h._rig.LoopbackArranged ? 1 : 0 };
+        return new[] { before, h.ptt.Keys, h._rig.LoopbackArranged ? 1 : 0, RecorderControls.Spoken };
     }
     private sealed class AudioCheckSession
     {
@@ -130,5 +131,5 @@ public enum AudioCheckPowerModes { DummyLoad, LowPower }
 public enum VerbosityLevel { Terse, Critical }
 public static class Lexicon { public static string Get(string s, params (string, object)[] args) => s; }
 public static class ScreenReaderOutput { public static void Speak(string s, VerbosityLevel v, bool interrupt=false) { } public static void Supersede(string a, string b) { } }
-public static class RecorderControls { public static void Speak(RecorderOutcome r) { } public static async Task ReportStopFailureAsync(Task<RecorderOutcome> t) { await t; } }
+public static class RecorderControls { public static int Spoken; public static void Speak(RecorderOutcome r) { Spoken++; } public static async Task ReportStopFailureAsync(Task<RecorderOutcome> t) { await t; } }
 namespace JJTrace { public static class Tracing { public static void TraceLine(string s, System.Diagnostics.TraceLevel l) { } } }

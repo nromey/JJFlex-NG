@@ -87,6 +87,8 @@
   "audio.check.remote_monitor_note": "Over remote, monitor audio arrives delayed; record and play back is recommended.",
   "audio.check.still_transmitting": "Still transmitting. Stop the check first.",
   "audio.check.stop_current_first": "Stop the current check first.",
+  "audio.check.start_cancelled": {"text": "Audio check start cancelled; radio cleanup may take a few seconds.", "delivery": null},
+  "audio.check.start_cancelled_escape": {"text": "Audio check start cancelled; radio cleanup may take a few seconds, so press Escape again to close.", "delivery": null},
   "audio.check.transmit_off": "Transmit off.",
   "audio.check.transmitter_released": "Transmitter released.",
   "audio.cleanup.no_radio_yet": "No radio connected — cleanup starts working once you connect.",
