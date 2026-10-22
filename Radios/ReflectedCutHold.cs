@@ -244,8 +244,12 @@ namespace Radios
         private VoxLevers? _vox;
         private Action? _refusalTone;
         private readonly List<FlexBase.VoxSetting> _pausedSettings = new List<FlexBase.VoxSetting>();
-        private bool _voxRestoreCancelled;
+        /// <summary>The paused settings the OPERATOR touched inside the window; each of these is left as they set it (N7).</summary>
+        private readonly HashSet<FlexBase.VoxSetting> _restoreCancelled = new HashSet<FlexBase.VoxSetting>();
         private bool _voxNoteGiven;
+        /// <summary>The note is owed but waiting for the cut sentence to be spoken first (N4).</summary>
+        private bool _voxNotePending;
+        private bool _voxNoteNow;
 
         /// <summary>Clock in milliseconds; <c>Environment.TickCount64</c> in production.</summary>
         public ReflectedCutHold(Func<long> clock)
@@ -305,13 +309,22 @@ namespace Radios
         /// <returns>This hold's generation.</returns>
         public int Begin(TransmitSafety.ReflectedCut rung, in TransmitPowerReading reading, string? antennaName,
                          in TransmitSetup atCut, long nowMs, VoxLevers? vox = null, Action? refusalTone = null)
-            => Begin(ReasonFor(rung, reading, antennaName), antennaName, atCut, nowMs, vox, refusalTone);
+            => Begin(ReasonFor(rung, reading, antennaName), antennaName, atCut, nowMs, vox, refusalTone, voxNoteNow: true);
 
-        /// <summary>The same, from what a transmit check's cut knew (<see cref="ReflectedCutNotice"/>).</summary>
-        public int Begin(in ReflectedCutNotice notice, in TransmitSetup atCut, long nowMs, VoxLevers? vox = null, Action? refusalTone = null)
-            => Begin(ReasonFor(notice), notice.Antenna, atCut, nowMs, vox, refusalTone);
+        /// <summary>
+        /// The same, from what a transmit check's cut knew
+        /// (<see cref="ReflectedCutNotice"/>). <paramref name="voxNoteNow"/>
+        /// false holds the VOX-paused note back until
+        /// <see cref="SpeakPendingVoxNote"/>: on this path the cut's own
+        /// Urgent sentence is spoken AFTER the hold begins, and Urgent flushes
+        /// the queue, so a note given now would be cut off (N4).
+        /// </summary>
+        public int Begin(in ReflectedCutNotice notice, in TransmitSetup atCut, long nowMs, VoxLevers? vox = null,
+                         Action? refusalTone = null, bool voxNoteNow = true)
+            => Begin(ReasonFor(notice), notice.Antenna, atCut, nowMs, vox, refusalTone, voxNoteNow);
 
-        private int Begin(string reason, string? antennaName, in TransmitSetup atCut, long nowMs, VoxLevers? vox, Action? refusalTone)
+        private int Begin(string reason, string? antennaName, in TransmitSetup atCut, long nowMs, VoxLevers? vox,
+                          Action? refusalTone, bool voxNoteNow)
         {
             (int gen, EndReason reason0, string detail0)? ended = null;
             int generation;
@@ -332,8 +345,10 @@ namespace Radios
                 _vox = vox;
                 _refusalTone = refusalTone;
                 _pausedSettings.Clear();
-                _voxRestoreCancelled = false;
+                _restoreCancelled.Clear();
                 _voxNoteGiven = false;
+                _voxNotePending = false;
+                _voxNoteNow = voxNoteNow;
                 RefusedPresses = 0;
                 LastRefusalSentence = "";
 
@@ -386,14 +401,69 @@ namespace Radios
             // and under their own sound switches (Noel, 2026-10-22 05:38), after
             // the cut sentence, which is Urgent and goes first. Once per hold,
             // however many settings end up paused; nothing is said when they
-            // come back.
-            if (_voxNoteGiven) return;
+            // come back. On the controller's own path the sentence has already
+            // been spoken, so the note goes now; on the kill switch's path the
+            // sentence is still to come, so the note waits for
+            // SpeakPendingVoxNote (N4).
+            if (_voxNoteGiven || _voxNotePending) return;
+            if (_voxNoteNow) SpeakVoxNoteLocked(nowMs: _clock());
+            else _voxNotePending = true;
+        }
+
+        /// <summary>
+        /// The VOX-paused note, with the seconds the hold actually has left
+        /// (N5): five at the cut, fewer when a mid-window mode change paused
+        /// the first setting late.
+        /// </summary>
+        // DRAFT PROSE (#571): awaiting Noel
+        private void SpeakVoxNoteLocked(long nowMs)
+        {
             _voxNoteGiven = true;
-            try { _vox.PausedTone?.Invoke(); } catch { }
+            _voxNotePending = false;
+            int remaining = Math.Max(1, (int)Math.Ceiling((HoldMs - (nowMs - _beganMs)) / 1000.0));
+            try { _vox?.PausedTone?.Invoke(); } catch { }
             ScreenReaderOutput.Speak(
-                Lexicon.Get("audio.ptt.cut_hold_vox_paused", ("seconds", HoldSeconds)),
+                remaining == 1
+                    ? Lexicon.Get("audio.ptt.cut_hold_vox_paused_last_second")
+                    : Lexicon.Get("audio.ptt.cut_hold_vox_paused", ("seconds", remaining)),
                 SpeechIntent.Queue, VerbosityLevel.Terse,
                 subject: SpeechSubject.VoxPausedAfterCut);
+        }
+
+        /// <summary>
+        /// The cut's own sentence has been spoken: give the VOX-paused note
+        /// that <see cref="Begin(in ReflectedCutNotice, in TransmitSetup, long, VoxLevers?, Action?, bool)"/>
+        /// held back (N4). Nothing when no note is owed, or the hold has ended.
+        /// </summary>
+        public void SpeakPendingVoxNote()
+        {
+            lock (_gate)
+            {
+                _voxNoteNow = true;   // anything paused from here on is told at once
+                if (!_holding || !_voxNotePending) return;
+                SpeakVoxNoteLocked(_clock());
+            }
+        }
+
+        /// <summary>
+        /// The TX slice's mode changed, from the rig's own event rather than
+        /// the next poll (N6): re-pause the new mode's autonomous keying now,
+        /// so it is not live for up to a poll interval. Not a change that
+        /// lifts, as <see cref="Tick"/> says.
+        /// </summary>
+        public void NoteMode(string? mode, long nowMs)
+        {
+            lock (_gate)
+            {
+                if (!_holding) return;
+                string m = mode ?? "";
+                if (string.Equals(_atCut.TxMode, m, StringComparison.Ordinal)) return;
+                Tracing.TraceLine("CutHold: the mode changed from " + Name(_atCut.TxMode) + " to " + Name(m)
+                    + " inside the hold (event) — not a change that clears the fault; pausing the new mode's VOX setting if it is on",
+                    TraceLevel.Info);
+                _atCut = _atCut.WithTxMode(m);
+                PauseVoxIfOnLocked(firstTime: false);
+            }
         }
 
         // ──────────────────────────────────────────────────────────────────
@@ -426,18 +496,29 @@ namespace Radios
                 if (nowMs - _beganMs >= HoldMs)
                 {
                     ended = EndHoldLocked(EndReason.Expired, "the window ran out", nowMs, immediate: false);
-                    RaiseEnded(ended);
-                    return false;
+                    sentence = "";
+                    tone = null;
                 }
+                else
+                {
+                    RefusedPresses++;
+                    int remaining = Math.Max(1, (int)Math.Ceiling((HoldMs - (nowMs - _beganMs)) / 1000.0));
+                    sentence = RefusalSentence(_reason, _antennaCheck, remaining);
+                    LastRefusalSentence = sentence;
+                    tone = _refusalTone;
 
-                RefusedPresses++;
-                int remaining = Math.Max(1, (int)Math.Ceiling((HoldMs - (nowMs - _beganMs)) / 1000.0));
-                sentence = RefusalSentence(_reason, _antennaCheck, remaining);
-                LastRefusalSentence = sentence;
-                tone = _refusalTone;
+                    Tracing.TraceLine("CutHold: REFUSED to key from " + door + " — " + remaining + " s of the hold left; "
+                        + "press " + RefusedPresses + " of this hold", TraceLevel.Warning);
+                }
+            }
 
-                Tracing.TraceLine("CutHold: REFUSED to key from " + door + " — " + remaining + " s of the hold left; "
-                    + "press " + RefusedPresses + " of this hold", TraceLevel.Warning);
+            // Outside the lock, as the class's contract says (N3): an Ended
+            // handler takes the owner's wiring lock, and the owner takes that
+            // lock BEFORE this one when it begins a hold.
+            if (ended != null)
+            {
+                RaiseEnded(ended);
+                return false;
             }
 
             try { tone?.Invoke(); } catch { }
@@ -597,11 +678,17 @@ namespace Radios
                         ended = EndHoldLocked(EndReason.Lifted, "you changed the tune power", nowMs, immediate: false);
                         break;
                     case "Vox":
-                        if (_pausedSettings.Count > 0)
+                        // The Vox setter writes the setting the TX slice's
+                        // mode uses, so that is the one the operator touched
+                        // (N7): only its restore stands down. A setting paused
+                        // in the other mode is still the hold's to put back.
                         {
-                            _voxRestoreCancelled = true;
-                            Tracing.TraceLine("CutHold: you changed VOX during the hold, so the hold will not put it back itself",
-                                              TraceLevel.Info);
+                            var touched = string.Equals(_atCut.TxMode, "CW", StringComparison.Ordinal)
+                                ? FlexBase.VoxSetting.CwBreakIn
+                                : FlexBase.VoxSetting.SimpleVox;
+                            if (_pausedSettings.Contains(touched) && _restoreCancelled.Add(touched))
+                                Tracing.TraceLine("CutHold: you changed " + touched + " during the hold, so the hold will not put that one back itself",
+                                                  TraceLevel.Info);
                         }
                         break;
                 }
@@ -689,16 +776,16 @@ namespace Radios
             if (_pausedSettings.Count == 0) return;
             var toRestore = _pausedSettings.ToArray();
             _pausedSettings.Clear();
-            if (_voxRestoreCancelled)
-            {
-                Tracing.TraceLine("CutHold: VOX left as you set it during the hold (" + string.Join(", ", toRestore) + " not restored)",
-                                  TraceLevel.Info);
-                return;
-            }
+            _voxNotePending = false;   // a note never given for a hold that is over is not owed
             var vox = _vox;
             if (vox == null) return;
             foreach (var which in toRestore)
             {
+                if (_restoreCancelled.Contains(which))
+                {
+                    Tracing.TraceLine("CutHold: " + which + " left as you set it during the hold (not restored)", TraceLevel.Info);
+                    continue;
+                }
                 try
                 {
                     bool issued = vox.Write(which, true, immediate);

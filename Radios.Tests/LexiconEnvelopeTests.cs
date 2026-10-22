@@ -1002,6 +1002,9 @@ namespace Radios.Tests
                 // tone under its own switches, not a receipt the lexicon
                 // owns. Nothing is said when VOX comes back.
                 "audio.ptt.cut_hold_vox_paused",
+                // Repair round 2 (Opus N5): the note says the seconds the hold
+                // actually has left, and this is its singular form.
+                "audio.ptt.cut_hold_vox_paused_last_second",
 
                 // Junkbox #777, 2026-10-19: a global-profile write (Save, or
                 // Delete since round two) refused because the radio is
