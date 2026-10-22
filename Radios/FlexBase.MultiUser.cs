@@ -688,6 +688,42 @@ namespace Radios
         public event Action<string> OperatorChangedRadioSetting;
 
         /// <summary>
+        /// The APPLICATION wrote a radio-persisted setting on the operator's
+        /// behalf, inside <see cref="AppInitiatedSettingChanges"/>: the
+        /// setter's own name for it and the value written, as a string. Raised
+        /// for the setters the hold after a reflected-power cut snapshots
+        /// (TX antenna, RF power, tune power), so the radio's later ECHO of
+        /// that write is not read as the operator's repair (#571, Astra B2).
+        /// Raised whether or not the rig is connected — the write itself may
+        /// go nowhere, but a subscriber comparing baselines needs to know it
+        /// was made. Raised on whatever thread ran the setter.
+        /// </summary>
+        public event Action<string, string> AppInitiatedRadioSettingWritten;
+
+        /// <summary>
+        /// One of this class's operator-facing setters wrote a radio-persisted
+        /// setting: tell whoever is listening WHO wrote it. The application's
+        /// own writes (<see cref="AppInitiatedSettingChanges"/> in force) go
+        /// to <see cref="AppInitiatedRadioSettingWritten"/>; the operator's go
+        /// through <see cref="NoteOperatorChangedRadioSetting"/> exactly as
+        /// before. The three snapshot setters call this; every other setter
+        /// still calls the operator hook directly and is unchanged.
+        /// </summary>
+        internal void NoteRadioSettingWritten(string what, string value)
+        {
+            if (_appInitiatedSettingDepth > 0)
+            {
+                try { AppInitiatedRadioSettingWritten?.Invoke(what, value ?? ""); }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("AppInitiatedRadioSettingWritten subscriber threw: " + ex.Message, TraceLevel.Warning);
+                }
+                return;
+            }
+            NoteOperatorChangedRadioSetting(what);
+        }
+
+        /// <summary>
         /// How long the settings surface must be quiet before a batch counts
         /// as settled. A Settings-dialog Apply or a preset application lands
         /// several values in quick succession; the timer restarts on each, so

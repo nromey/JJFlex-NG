@@ -125,7 +125,7 @@ namespace Radios
                 }
                 Tracing.TraceLine($"Antenna:TX request slice {s.Index} ({basis}): '{s.TXAnt}' -> '{value}'",
                                   TraceLevel.Info);
-                NoteOperatorChangedRadioSetting("TXAntennaName");
+                NoteRadioSettingWritten("TXAntennaName", value);   // the hold after a cut needs to know whose write this is (#571)
                 _txAntRequested = value;
                 _txAntRequestedSlice = s.Index;
                 s.TXAnt = value;

@@ -11318,7 +11318,7 @@ namespace Radios
             }
             set
             {
-                NoteOperatorChangedRadioSetting("XmitPower");
+                NoteRadioSettingWritten("XmitPower", value.ToString());   // the hold after a cut needs to know whose write this is (#571)
                 q.Enqueue((FunctionDel)(() => { theRadio.RFPower = value; }));
             }
         }
@@ -11382,7 +11382,7 @@ namespace Radios
             }
             set
             {
-                NoteOperatorChangedRadioSetting("TunePower");
+                NoteRadioSettingWritten("TunePower", value.ToString());   // the hold after a cut needs to know whose write this is (#571)
                 q.Enqueue((FunctionDel)(() => { theRadio.TunePower = value; }));
             }
         }
@@ -11965,6 +11965,11 @@ namespace Radios
         /// <param name="str">the text string</param>
         public bool SendCW(string str)
         {
+            // The hold after a reflected-power cut (#571; Noel 21:16, "nothing
+            // re-keys"): a CW message keys the radio through break-in, and
+            // break-in may still be on in a mode the cut did not pause. The
+            // hook speaks the refusal; nothing is buffered or queued.
+            if (CwKeyingRefused("a CW message")) return false;
             lock (cwBuffer)
             {
                 if (CWBuffering)
@@ -11981,6 +11986,7 @@ namespace Radios
 
         public bool SendCW(char c)
         {
+            if (CwKeyingRefused("CW typing")) return false;   // #571, as the string form above
             if (CWBuffering)
             {
                 cwBuffer.Text += c;
