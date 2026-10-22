@@ -709,8 +709,59 @@ namespace Radios
         /// before. The three snapshot setters call this; every other setter
         /// still calls the operator hook directly and is unchanged.
         /// </summary>
+        /// <summary>
+        /// True while a write made inside <see cref="AppInitiatedSettingChanges"/>
+        /// is nonetheless THE OPERATOR'S OWN CHOICE, carried out by the app:
+        /// Dummy Load Mode zeroing the power is the case (#571, Opus N1). The
+        /// app scope keeps the receipt and the save offer quiet, as it must;
+        /// this inner scope says the change is still the operator's, so the
+        /// hold after a reflected-power cut lifts on it, exactly as it lifts
+        /// on the operator turning the power knob. Depth-counted like its parent.
+        /// </summary>
+        private int _operatorChoseSettingDepth;
+
+        private sealed class OperatorChoseSettingScope : IDisposable
+        {
+            private FlexBase _owner;
+            public OperatorChoseSettingScope(FlexBase owner)
+            {
+                _owner = owner;
+                System.Threading.Interlocked.Increment(ref owner._operatorChoseSettingDepth);
+            }
+            public void Dispose()
+            {
+                var o = System.Threading.Interlocked.Exchange(ref _owner, null);
+                if (o != null)
+                    System.Threading.Interlocked.Decrement(ref o._operatorChoseSettingDepth);
+            }
+        }
+
+        /// <summary>
+        /// Declare that the setting changes made until the returned scope is
+        /// disposed are the OPERATOR's choice, carried out by the application,
+        /// even where they sit inside <see cref="AppInitiatedSettingChanges"/>.
+        /// A refused press after a reflected-power cut tells the operator to
+        /// change the power; Dummy Load Mode is one of the ways they do that,
+        /// and it must count (Noel, 2026-10-21 20:47). Use it only around a
+        /// write the operator commanded; an app-originated restore (the Audio
+        /// Check putting its saved power back) must NOT be inside it.
+        /// </summary>
+        public IDisposable OperatorChoseThisChange() => new OperatorChoseSettingScope(this);
+
         internal void NoteRadioSettingWritten(string what, string value)
         {
+            if (_operatorChoseSettingDepth > 0)
+            {
+                // The operator's own command, carried out by the app: the hold
+                // lifts on it (the lift signal), and the receipt and save offer
+                // stay quiet (the app scope's job, unchanged).
+                try { OperatorChangedRadioSetting?.Invoke(what); }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("OperatorChangedRadioSetting subscriber threw: " + ex.Message, TraceLevel.Warning);
+                }
+                return;
+            }
             if (_appInitiatedSettingDepth > 0)
             {
                 try { AppInitiatedRadioSettingWritten?.Invoke(what, value ?? ""); }
