@@ -47,6 +47,13 @@ public static class RecorderControls
             subject: outcome.Subject);
     }
 
+    /// <summary>Observe a teardown that has no control awaiting its result.</summary>
+    public static async Task ReportStopFailureAsync(Task<RecorderOutcome> stop)
+    {
+        var result = await Guarded(() => stop, SpeechSubject.SliceRecorder(""));
+        if (!result.Success) Speak(result);
+    }
+
     private static RecorderOutcome NoRadio(string subject) =>
         new(false, Lexicon.Get("audio.no_radio_connected"), subject);
 

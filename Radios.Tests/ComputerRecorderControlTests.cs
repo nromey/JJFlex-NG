@@ -87,6 +87,26 @@ public sealed class ComputerRecorderControlTests : IDisposable
     }
 
     [Fact]
+    public void Disconnected_stop_is_reachable_from_menu_registry_and_home()
+    {
+        Assert.False(System.Linq.Enumerable.Single(AudioMenuLayout.Entries, e => e.Id == "record-to-file").NeedsRadio);
+        string keys = System.IO.File.ReadAllText(System.IO.Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "KeyCommands.cs"));
+        Assert.Contains("\"Record to File\", false, FunctionGroups.Audio, KeyScope.Global)", keys);
+        Assert.Contains("new(Keys.None, CommandValues.RecordToFile, KeyScope.Global)", keys);
+        string home = System.IO.File.ReadAllText(System.IO.Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "MainWindow.xaml"));
+        Assert.Contains("DisconnectedRecorderStop", home);
+    }
+
+    [Fact]
+    public void Playback_help_describes_refusal_without_promising_a_queued_play()
+    {
+        string help = System.IO.File.ReadAllText(System.IO.Path.Combine(IntegrationPassTree.Root, "docs", "help", "md", "leader-key.md"));
+        var line = System.Linq.Enumerable.Single(help.Split('\n'), l => l.StartsWith("- **Ctrl+P**"));
+        Assert.Contains("refuses to start while you are transmitting", line);
+        Assert.DoesNotContain("waits until", line);
+    }
+
+    [Fact]
     public async Task Record_to_file_starts_with_a_radio_and_stops_without_one()
     {
         var engine = new FakeEngine();

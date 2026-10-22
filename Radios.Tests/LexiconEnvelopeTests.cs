@@ -1223,6 +1223,10 @@ namespace Radios.Tests
                 "audio.recorder.stop_play_from_computer_button",
                 "audio.fields.computer_recorder_help",
 
+                // DRAFT PROSE (#787): pending-start cancellation confirmation.
+                "audio.check.start_cancelled",
+                "audio.check.start_cancelled_escape",
+
             };
 
             Assert.Equal(3152, unclassified);

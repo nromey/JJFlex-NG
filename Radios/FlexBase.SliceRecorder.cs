@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Flex.Smoothlake.FlexLib;
 using JJTrace;
+using Radios.Listenback;
 
 namespace Radios;
 
@@ -59,7 +60,7 @@ public readonly struct SliceRecorderTarget : IEquatable<SliceRecorderTarget>
 public sealed record RecorderOutcome(bool Success, string Message, string Subject, bool AlreadyInState = false);
 
 /// <summary>
-/// The radio's own per-slice recorder (#787): ONE reply-checked surface that
+/// The radio's own per-slice recorder (#787): one reply-and-status-checked surface that
 /// every door uses — the Audio Check's "Record and play back", the Audio
 /// Workshop's Record slice and Play recording buttons, JJ Flexible Home, the
 /// Slice menu and the JJ key.
@@ -77,15 +78,10 @@ public sealed record RecorderOutcome(bool Success, string Message, string Subjec
 /// <c>SliceRecorderOneSurfaceTests</c> holds the tree to that.
 /// </para>
 /// <para>
-/// <b>Facts this rests on.</b> Verified telemetry on the 8600 (2026-08-07
-/// live): the buffer caps at 120 seconds and behaves ring-like at the cap —
-/// the most recent audio is kept — and two takes can coexist. The record tap
-/// sits upstream of the transmit audio mute, so it captures demodulated audio
-/// even with full duplex off. On Don's 6300 over SmartLink (2026-10-21):
-/// recordings are kept PER SLICE (a recording on slice A is not offered on
-/// slice B); the recorder captures transmit audio after the transmit filter
-/// with the monitor off; playback replaces the slice's live audio rather than
-/// mixing with it. The radio offers no way to download a recording.
+/// <b>Recorder behavior.</b> The buffer keeps the most recent 120 seconds.
+/// Recordings are kept per slice. The recorder captures received audio and
+/// transmit audio after the transmit filter, with the monitor off. Playback
+/// replaces the slice's live audio. The radio offers no recording download.
 /// </para>
 /// <para>
 /// <b>Per-slice state.</b> Each slice has its own recorder in the radio, so
@@ -109,7 +105,7 @@ public sealed record RecorderOutcome(bool Success, string Message, string Subjec
 /// </remarks>
 public partial class FlexBase
 {
-    /// <summary>The radio's record buffer, in seconds (verified live, 2026-08-07).</summary>
+    /// <summary>The radio's record buffer, in seconds.</summary>
     public const int SliceRecordBufferSeconds = 120;
 
     /// <summary>
@@ -122,12 +118,22 @@ public partial class FlexBase
     /// <summary>How long Play waits for the radio to report a recording after stopping one. Settable for tests.</summary>
     internal TimeSpan SlicePlayableWait { get; set; } = TimeSpan.FromSeconds(2);
 
+    internal TimeSpan SliceRecorderConfirmationWait { get; set; } = TimeSpan.FromSeconds(4);
+
+    // Per-instance output seam keeps deterministic failure tests silent.
+    internal Action<RecorderOutcome> RecorderStopFailureOutput { get; set; } = outcome =>
+        ScreenReaderOutput.Speak(outcome.Message, Speech.SpeechIntent.Queue,
+            VerbosityLevel.Critical, subject: outcome.Subject);
+
     private sealed class SliceRecorderState
     {
         internal Slice Slice;
         internal Radio Radio;
         internal CommandConnection Connection;
         internal bool Recording, Playing;
+        internal volatile bool Retired;
+        internal readonly SemaphoreSlim Gate = new(1, 1);
+        internal Radio.SliceRemovedEventHandler Removed;
         // Which door started what this slice is doing, or null for a door
         // that does not need to clean up after itself (Home, the menus, the
         // keys). The Audio Workshop tags its buttons' work so that closing the
@@ -137,7 +143,6 @@ public partial class FlexBase
         internal PropertyChangedEventHandler Status;
     }
 
-    private readonly SemaphoreSlim _sliceRecorderGate = new(1, 1);
     private readonly Dictionary<Slice, SliceRecorderState> _sliceRecorders = new(ReferenceEqualityComparer.Instance);
     private TransmitChangeDel _sliceRecorderKeyed;
 
@@ -194,7 +199,7 @@ public partial class FlexBase
     public bool IsSliceRecording(SliceRecorderTarget target)
     {
         var slice = ResolveSliceRecorderTarget(target);
-        if (slice == null) return false;
+        if (!SliceRecorderTargetIsOurs(slice)) return false;
         lock (_sliceRecorders)
             if (_sliceRecorders.TryGetValue(slice, out var state) && StateIsLive(state)) return state.Recording || slice.RecordOn;
         return slice.RecordOn;
@@ -204,7 +209,7 @@ public partial class FlexBase
     public bool IsSlicePlaying(SliceRecorderTarget target)
     {
         var slice = ResolveSliceRecorderTarget(target);
-        if (slice == null) return false;
+        if (!SliceRecorderTargetIsOurs(slice)) return false;
         lock (_sliceRecorders)
             if (_sliceRecorders.TryGetValue(slice, out var state) && StateIsLive(state)) return state.Playing;
         return slice.PlayOn;
@@ -219,7 +224,7 @@ public partial class FlexBase
 
     // ── Wire ────────────────────────────────────────────────────────────
 
-    private bool StateIsLive(SliceRecorderState state) => state.Radio != null &&
+    private bool StateIsLive(SliceRecorderState state) => !state.Retired && state.Radio != null &&
         ReferenceEquals(theRadio, state.Radio) && state.Radio.Connected &&
         ReferenceEquals(state.Connection, state.Radio.CurrentCommandConnection) &&
         state.Connection?.State == CommandConnectionState.Connected;
@@ -240,6 +245,22 @@ public partial class FlexBase
                 };
                 state.Status = (_, args) => OnRecorderSliceStatus(state, args.PropertyName);
                 slice.PropertyChanged += state.Status;
+                state.Removed = removed =>
+                {
+                    if (!ReferenceEquals(removed, slice)) return;
+                    // FlexLib raises this event while holding its slice-list
+                    // lock during disconnect. Retire now so queries and the
+                    // warning cannot use the removed slice. Do the cleanup
+                    // after the event returns; it must not wait for our lock.
+                    state.Retired = true;
+                    ThreadPool.QueueUserWorkItem(_ =>
+                    {
+                        lock (_sliceRecorders)
+                            if (_sliceRecorders.TryGetValue(slice, out var current) && ReferenceEquals(current, state))
+                                DropStateLocked(slice);
+                    });
+                };
+                state.Radio.SliceRemoved += state.Removed;
                 _sliceRecorders[slice] = state;
             }
             return state;
@@ -249,8 +270,15 @@ public partial class FlexBase
     private void DropStateLocked(Slice slice)
     {
         if (!_sliceRecorders.TryGetValue(slice, out var state)) return;
+        state.Retired = true;
+        state.Recording = state.Playing = false;
         state.CapWarning?.Dispose();
+        state.CapWarning = null;
         if (state.Status != null) slice.PropertyChanged -= state.Status;
+        state.Status = null;
+        if (state.Removed != null) state.Radio.SliceRemoved -= state.Removed;
+        state.Removed = null;
+        state.Owner = null;
         _sliceRecorders.Remove(slice);
     }
 
@@ -263,7 +291,8 @@ public partial class FlexBase
         {
             // The radio finished the buffer on its own, or something else
             // stopped it: our state follows the radio's.
-            if (property == nameof(Slice.PlayOn) && !state.Slice.PlayOn && state.Playing) state.Playing = false;
+            if (state.Retired) return;
+            if (property == nameof(Slice.PlayOn)) state.Playing = state.Slice.PlayOn;
             if (property == nameof(Slice.RecordOn) && !state.Slice.RecordOn && state.Recording)
             {
                 state.Recording = false;
@@ -280,12 +309,32 @@ public partial class FlexBase
         var radio = state.Radio;
         var connection = state.Connection;
         var reply = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var statusSeen = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var status = new RadioStatusTap(radio);
+        bool sentCommand = false;
+        bool? reported = null;
+        status.Status += raw =>
+        {
+            // The trailing space prevents slice 10 from confirming slice 1.
+            if (!raw.Contains($"|slice {slice.Index} ", StringComparison.Ordinal)) return;
+            var values = RadioStatusTap.Values(raw);
+            if (!values.TryGetValue(property, out string value)) return;
+            if (value != "0" && value != "1" && !(property == "play" && value == "disabled")) return;
+            lock (_sliceRecorders)
+            {
+                if (!sentCommand || !StateIsLive(state)) return;
+                reported = value == "1";
+                if (property == "record") state.Recording = reported.Value;
+                else state.Playing = reported.Value;
+                statusSeen.TrySetResult(true);
+            }
+        };
         await IqQueue(() =>
         {
             if (!StateIsLive(state) || !ReferenceEquals(radio, theRadio) || !ReferenceEquals(connection, radio.CurrentCommandConnection) ||
-                !radio.SliceList.Contains(slice) || !mySlices.Contains(slice) ||
                 (property == "play" && enabled && (Transmit || radio.Mox || !slice.PlayEnabled)))
                 throw new InvalidOperationException("slice-recorder-connection-or-state-changed");
+            lock (_sliceRecorders) sentCommand = true;
             int sent = radio.SendReplyCommand((sequence, code, text) =>
             {
                 Tracing.TraceLine($"Slice recorder reply: sequence={sequence} code={code:X8} text={text} command={command}", TraceLevel.Info);
@@ -293,10 +342,16 @@ public partial class FlexBase
             }, command);
             Tracing.TraceLine($"Slice recorder sent: sequence={sent} command={command}", TraceLevel.Info);
         }).ConfigureAwait(false);
-        try { return await reply.Task.WaitAsync(TimeSpan.FromSeconds(4)).ConfigureAwait(false); }
-        catch (TimeoutException)
+        try
         {
-            Tracing.TraceLine($"Slice recorder reply timeout: {command}", TraceLevel.Warning);
+            using var timeout = new CancellationTokenSource(SliceRecorderConfirmationWait);
+            if (!await reply.Task.WaitAsync(timeout.Token).ConfigureAwait(false)) return false;
+            await statusSeen.Task.WaitAsync(timeout.Token).ConfigureAwait(false);
+            lock (_sliceRecorders) return StateIsLive(state) && reported == enabled;
+        }
+        catch (OperationCanceledException)
+        {
+            Tracing.TraceLine($"Slice recorder reply/status timeout: {command}", TraceLevel.Warning);
             return false;
         }
     }
@@ -312,6 +367,33 @@ public partial class FlexBase
     }
 
     // ── The two-minute warning ──────────────────────────────────────────
+
+    private async Task<bool> StopAndReportAsync(SliceRecorderState state, string property)
+    {
+        bool stopped = await SendSafelyAsync(state, property, false).ConfigureAwait(false);
+        if (!stopped && !state.Retired)
+        {
+            string letter = LetterOf(state.Slice);
+            RecorderStopFailureOutput(Outcome(false, property == "record" ? "audio.recorder.record_stop_unconfirmed" :
+                "audio.recorder.play_stop_unconfirmed", letter));
+        }
+        return stopped;
+    }
+
+    private async Task<RecorderOutcome> WithRecorderAsync(SliceRecorderTarget target,
+        Func<SliceRecorderState, Task<RecorderOutcome>> action)
+    {
+        var slice = ResolveSliceRecorderTarget(target);
+        if (!SliceRecorderTargetIsOurs(slice)) return Unreachable(target, slice);
+        var state = StateFor(slice);
+        await state.Gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (!StateIsLive(state)) return Unreachable(target, null);
+            return await action(state).ConfigureAwait(false);
+        }
+        finally { state.Gate.Release(); }
+    }
 
     private void ArmCapWarning(SliceRecorderState state)
     {
@@ -352,46 +434,29 @@ public partial class FlexBase
 
     private async Task StopPlayingForTransmitAsync(SliceRecorderState state)
     {
-        await _sliceRecorderGate.WaitAsync().ConfigureAwait(false);
+        await state.Gate.WaitAsync().ConfigureAwait(false);
         try
         {
             if (!state.Playing) return;
             Tracing.TraceLine($"Slice recorder: transmit began, stopping playback on slice {LetterOf(state.Slice)}", TraceLevel.Info);
-            if (await SendSafelyAsync(state, "play", false).ConfigureAwait(false)) state.Playing = false;
+            if (await StopAndReportAsync(state, "play").ConfigureAwait(false)) state.Playing = false;
         }
-        finally { _sliceRecorderGate.Release(); }
+        finally { state.Gate.Release(); }
     }
 
     // ── Record ──────────────────────────────────────────────────────────
 
     /// <summary>Start recording on the target slice, or say why not.</summary>
-    public async Task<RecorderOutcome> StartSliceRecordAsync(SliceRecorderTarget target, object owner = null)
-    {
-        await _sliceRecorderGate.WaitAsync().ConfigureAwait(false);
-        try { return await StartRecordLockedAsync(target, owner).ConfigureAwait(false); }
-        finally { _sliceRecorderGate.Release(); }
-    }
+    public Task<RecorderOutcome> StartSliceRecordAsync(SliceRecorderTarget target, object owner = null) =>
+        WithRecorderAsync(target, state => StartRecordLockedAsync(state, target, owner));
 
     /// <summary>Stop recording on the target slice, whoever started it.</summary>
-    public async Task<RecorderOutcome> StopSliceRecordAsync(SliceRecorderTarget target, object owner = null)
-    {
-        await _sliceRecorderGate.WaitAsync().ConfigureAwait(false);
-        try { return await StopRecordLockedAsync(target, owner).ConfigureAwait(false); }
-        finally { _sliceRecorderGate.Release(); }
-    }
+    public Task<RecorderOutcome> StopSliceRecordAsync(SliceRecorderTarget target, object owner = null) =>
+        WithRecorderAsync(target, state => StopRecordLockedAsync(state, target, owner));
 
     /// <summary>Record on the target slice, or stop the recording it is making.</summary>
-    public async Task<RecorderOutcome> ToggleSliceRecordAsync(SliceRecorderTarget target, object owner = null)
-    {
-        await _sliceRecorderGate.WaitAsync().ConfigureAwait(false);
-        try
-        {
-            return IsSliceRecording(target)
-                ? await StopRecordLockedAsync(target, owner).ConfigureAwait(false)
-                : await StartRecordLockedAsync(target, owner).ConfigureAwait(false);
-        }
-        finally { _sliceRecorderGate.Release(); }
-    }
+    public Task<RecorderOutcome> ToggleSliceRecordAsync(SliceRecorderTarget target, object owner = null) =>
+        WithRecorderAsync(target, state => (state.Recording || state.Slice.RecordOn) ? StopRecordLockedAsync(state, target, owner) : StartRecordLockedAsync(state, target, owner));
 
     private RecorderOutcome Unreachable(SliceRecorderTarget target, Slice slice)
     {
@@ -404,16 +469,15 @@ public partial class FlexBase
         return new(false, Lexicon.Get("audio.recorder.no_slice"), Speech.SpeechSubject.SliceRecorder(""));
     }
 
-    private async Task<RecorderOutcome> StartRecordLockedAsync(SliceRecorderTarget target, object owner = null)
+    private async Task<RecorderOutcome> StartRecordLockedAsync(SliceRecorderState state, SliceRecorderTarget target, object owner = null)
     {
-        var slice = ResolveSliceRecorderTarget(target);
+        var slice = state.Slice;
         if (!SliceRecorderTargetIsOurs(slice)) return Unreachable(target, slice);
         string letter = LetterOf(slice);
-        var state = StateFor(slice);
         if (state.Recording || slice.RecordOn)
         {
             // Never blind-toggle a recorder that is already running: a re-arm
-            // race once nearly wiped an operator's takes (2026-08-07).
+            // could otherwise overwrite the take the operator is making.
             return Outcome(true, "audio.recorder.already_recording", letter, already: true);
         }
         if (state.Playing || slice.PlayOn)
@@ -422,28 +486,30 @@ public partial class FlexBase
                 return Outcome(false, "audio.recorder.play_stop_unconfirmed", letter);
             state.Playing = false;
         }
+        state.Owner = owner;
+        state.Recording = true;
         bool started = await SendSafelyAsync(state, "record", true).ConfigureAwait(false);
         // A lost start reply leaves the radio's state unknown, so a
         // compensating stop is sent even though the start was not confirmed.
-        state.Recording = true;
         if (!started)
         {
-            if (await SendSafelyAsync(state, "record", false).ConfigureAwait(false)) state.Recording = false;
+            if (!await SendSafelyAsync(state, "record", false).ConfigureAwait(false))
+                return Outcome(false, "audio.recorder.record_stop_unconfirmed", letter);
+            state.Recording = false;
             return Outcome(false, "audio.recorder.record_unconfirmed", letter);
         }
-        state.Owner = owner;
-        ArmCapWarning(state);
+        lock (_sliceRecorders)
+            if (StateIsLive(state)) ArmCapWarning(state);
         // DRAFT PROSE (#787): awaiting Noel
         bool ears = target.IsLoopbackEars && _loopbackArranged && ReferenceEquals(slice, _lbResources?.Slice);
         return Outcome(true, ears ? "audio.recorder.recording_loopback" : "audio.recorder.recording", letter);
     }
 
-    private async Task<RecorderOutcome> StopRecordLockedAsync(SliceRecorderTarget target, object owner = null)
+    private async Task<RecorderOutcome> StopRecordLockedAsync(SliceRecorderState state, SliceRecorderTarget target, object owner = null)
     {
-        var slice = ResolveSliceRecorderTarget(target);
+        var slice = state.Slice;
         if (!SliceRecorderTargetIsOurs(slice)) return Unreachable(target, slice);
         string letter = LetterOf(slice);
-        var state = StateFor(slice);
         if (!state.Recording && !slice.RecordOn)
             return Outcome(true, "audio.recorder.recording_stopped", letter, already: true);
         if (!await SendSafelyAsync(state, "record", false).ConfigureAwait(false))
@@ -457,43 +523,25 @@ public partial class FlexBase
     // ── Play ────────────────────────────────────────────────────────────
 
     /// <summary>Play the target slice's recording to the speakers, or say why not. Never keys the radio.</summary>
-    public async Task<RecorderOutcome> StartSlicePlayAsync(SliceRecorderTarget target, object owner = null)
-    {
-        await _sliceRecorderGate.WaitAsync().ConfigureAwait(false);
-        try { return await StartPlayLockedAsync(target, owner).ConfigureAwait(false); }
-        finally { _sliceRecorderGate.Release(); }
-    }
+    public Task<RecorderOutcome> StartSlicePlayAsync(SliceRecorderTarget target, object owner = null) =>
+        WithRecorderAsync(target, state => StartPlayLockedAsync(state, target, owner));
 
     /// <summary>Stop the target slice's playback.</summary>
-    public async Task<RecorderOutcome> StopSlicePlayAsync(SliceRecorderTarget target, object owner = null)
-    {
-        await _sliceRecorderGate.WaitAsync().ConfigureAwait(false);
-        try { return await StopPlayLockedAsync(target, owner).ConfigureAwait(false); }
-        finally { _sliceRecorderGate.Release(); }
-    }
+    public Task<RecorderOutcome> StopSlicePlayAsync(SliceRecorderTarget target, object owner = null) =>
+        WithRecorderAsync(target, state => StopPlayLockedAsync(state, target, owner));
 
     /// <summary>Play the target slice's recording, or stop the playback running on it.</summary>
-    public async Task<RecorderOutcome> ToggleSlicePlayAsync(SliceRecorderTarget target, object owner = null)
-    {
-        await _sliceRecorderGate.WaitAsync().ConfigureAwait(false);
-        try
-        {
-            return IsSlicePlaying(target)
-                ? await StopPlayLockedAsync(target, owner).ConfigureAwait(false)
-                : await StartPlayLockedAsync(target, owner).ConfigureAwait(false);
-        }
-        finally { _sliceRecorderGate.Release(); }
-    }
+    public Task<RecorderOutcome> ToggleSlicePlayAsync(SliceRecorderTarget target, object owner = null) =>
+        WithRecorderAsync(target, state => (state.Playing || state.Slice.PlayOn) ? StopPlayLockedAsync(state, target, owner) : StartPlayLockedAsync(state, target, owner));
 
-    private async Task<RecorderOutcome> StartPlayLockedAsync(SliceRecorderTarget target, object owner = null)
+    private async Task<RecorderOutcome> StartPlayLockedAsync(SliceRecorderState state, SliceRecorderTarget target, object owner = null)
     {
-        var slice = ResolveSliceRecorderTarget(target);
+        var slice = state.Slice;
         if (!SliceRecorderTargetIsOurs(slice)) return Unreachable(target, slice);
         string letter = LetterOf(slice);
         // DRAFT PROSE (#787): awaiting Noel. Phase 2 sends a recording to air
         // while keyed; until it is built, Play is refused while transmitting.
         if (Transmit || theRadio.Mox) return Outcome(false, "audio.recorder.play_refused_transmitting", letter);
-        var state = StateFor(slice);
         if (state.Playing && slice.PlayOn) return Outcome(true, "audio.recorder.playing", letter, already: true);
         if (state.Recording || slice.RecordOn)
         {
@@ -509,29 +557,32 @@ public partial class FlexBase
         if (!slice.PlayEnabled) return Outcome(false, "audio.recorder.nothing_to_play", letter);
         if (Transmit || theRadio.Mox) return Outcome(false, "audio.recorder.play_refused_transmitting", letter);
         EnsureKeyedWatch();
-        bool started = await SendSafelyAsync(state, "play", true).ConfigureAwait(false);
+        state.Owner = owner;
         state.Playing = true;
+        bool started = await SendSafelyAsync(state, "play", true).ConfigureAwait(false);
         if (!started)
         {
-            if (await SendSafelyAsync(state, "play", false).ConfigureAwait(false)) state.Playing = false;
+            if (!await SendSafelyAsync(state, "play", false).ConfigureAwait(false))
+                return Outcome(false, "audio.recorder.play_stop_unconfirmed", letter);
+            state.Playing = false;
             return Outcome(false, "audio.recorder.play_unconfirmed", letter);
         }
-        state.Owner = owner;
-        if (Transmit || theRadio.Mox)
+        if (Transmit || theRadio?.Mox == true)
         {
             // Keyed while the play command was in flight.
-            if (await SendSafelyAsync(state, "play", false).ConfigureAwait(false)) state.Playing = false;
+            if (!await SendSafelyAsync(state, "play", false).ConfigureAwait(false))
+                return Outcome(false, "audio.recorder.play_stop_unconfirmed", letter);
+            state.Playing = false;
             return Outcome(false, "audio.recorder.play_stopped_by_transmit", letter);
         }
         return Outcome(true, "audio.recorder.playing", letter);
     }
 
-    private async Task<RecorderOutcome> StopPlayLockedAsync(SliceRecorderTarget target, object owner = null)
+    private async Task<RecorderOutcome> StopPlayLockedAsync(SliceRecorderState state, SliceRecorderTarget target, object owner = null)
     {
-        var slice = ResolveSliceRecorderTarget(target);
+        var slice = state.Slice;
         if (!SliceRecorderTargetIsOurs(slice)) return Unreachable(target, slice);
         string letter = LetterOf(slice);
-        var state = StateFor(slice);
         if (!state.Playing && !slice.PlayOn)
             return Outcome(true, "audio.recorder.playing_stopped", letter, already: true);
         if (!await SendSafelyAsync(state, "play", false).ConfigureAwait(false))
@@ -547,17 +598,15 @@ public partial class FlexBase
     /// </summary>
     public async Task<bool> StopSliceRecorderAsync(SliceRecorderTarget target)
     {
-        await _sliceRecorderGate.WaitAsync().ConfigureAwait(false);
-        try
+        if (!SliceRecorderTargetIsOurs(ResolveSliceRecorderTarget(target))) return true;
+        var outcome = await WithRecorderAsync(target, async state =>
         {
-            var slice = ResolveSliceRecorderTarget(target);
-            if (!SliceRecorderTargetIsOurs(slice)) return true;
             bool ok = true;
-            if (IsSlicePlaying(target)) ok &= (await StopPlayLockedAsync(target).ConfigureAwait(false)).Success;
-            if (IsSliceRecording(target)) ok &= (await StopRecordLockedAsync(target).ConfigureAwait(false)).Success;
-            return ok;
-        }
-        finally { _sliceRecorderGate.Release(); }
+            if (state.Playing || state.Slice.PlayOn) ok &= (await StopPlayLockedAsync(state, target).ConfigureAwait(false)).Success;
+            if (state.Recording || state.Slice.RecordOn) ok &= (await StopRecordLockedAsync(state, target).ConfigureAwait(false)).Success;
+            return new RecorderOutcome(ok, "", "");
+        }).ConfigureAwait(false);
+        return outcome.Success;
     }
 
     /// <summary>
@@ -569,28 +618,29 @@ public partial class FlexBase
     public async Task<bool> StopSliceRecorderOwnedByAsync(object owner)
     {
         if (owner == null) return true;
-        await _sliceRecorderGate.WaitAsync().ConfigureAwait(false);
-        try
+        List<SliceRecorderState> owned;
+        lock (_sliceRecorders) owned = _sliceRecorders.Values.Where(v => ReferenceEquals(v.Owner, owner)).ToList();
+        var results = await Task.WhenAll(owned.Select(StopOwnedAsync)).ConfigureAwait(false);
+        return results.All(ok => ok);
+
+        async Task<bool> StopOwnedAsync(SliceRecorderState state)
         {
-            List<SliceRecorderState> owned;
-            lock (_sliceRecorders) owned = _sliceRecorders.Values.Where(v => ReferenceEquals(v.Owner, owner)).ToList();
-            bool ok = true;
-            foreach (var state in owned)
+            await state.Gate.WaitAsync().ConfigureAwait(false);
+            try
             {
-                if (!StateIsLive(state)) continue;
-                if (state.Playing && await SendSafelyAsync(state, "play", false).ConfigureAwait(false)) state.Playing = false;
-                if (state.Recording && await SendSafelyAsync(state, "record", false).ConfigureAwait(false))
+                if (state.Retired || !ReferenceEquals(state.Owner, owner)) return true;
+                bool ok = true;
+                if (state.Playing) ok &= await StopAndReportAsync(state, "play").ConfigureAwait(false);
+                if (state.Recording) ok &= await StopAndReportAsync(state, "record").ConfigureAwait(false);
+                if (ok)
                 {
-                    state.Recording = false;
                     state.CapWarning?.Dispose();
                     state.CapWarning = null;
+                    state.Owner = null;
                 }
-                bool clean = !state.Playing && !state.Recording;
-                ok &= clean;
-                if (clean) state.Owner = null;
+                return ok;
             }
-            return ok;
+            finally { state.Gate.Release(); }
         }
-        finally { _sliceRecorderGate.Release(); }
     }
 }

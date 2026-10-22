@@ -204,6 +204,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         {
             // A session must never outlive its dialog: unkey (through the
             // controller), restore every changed state, stop playback.
+            CancelCheckStart();
             _session?.ForceEnd("Audio check ended");
             _session = null;
             // The test tone must never outlive its dialog either — closing
@@ -255,6 +256,23 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     /// </summary>
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
+        if (e.Key == Key.Escape && _checkStarts.IsBusy)
+        {
+            if (_checkStarts.IsCancelled)
+            {
+                // A cancelled start keeps admission closed during rollback,
+                // but its rollback no longer holds this window open.
+                Close();
+            }
+            else
+            {
+                CancelCheckStart();
+                // DRAFT PROSE (#787): awaiting Noel.
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.check.start_cancelled_escape"), VerbosityLevel.Terse);
+            }
+            e.Handled = true;
+            return;
+        }
         if (e.Key == Key.Escape && _session?.Active == true)
         {
             _session.StopCheck();
@@ -648,7 +666,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         var oldRig = _rig;
         if (!ReferenceEquals(oldRig, rig))
         {
-            _iqCancellation?.Cancel();
+            CancelCheckStart();
             if (_iqRun != null) _ = FinishIqAsync("connection-changed");
             if (oldRig != null && rig != null)
             {
@@ -692,6 +710,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         {
             // Radio gone: end any live session (nothing to restore on a dead
             // radio — the session skips rig writes when the rig is null).
+            CancelCheckStart();
             _session?.ForceEnd("Radio disconnected, audio check ended");
             _session = null;
             // And release the test tone (the generator died with the rig, but

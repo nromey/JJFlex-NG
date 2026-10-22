@@ -1,0 +1,135 @@
+using System;
+using System.Text;
+using System.Threading.Tasks;
+using System.Threading;
+using Radios;
+
+public class Host
+{
+    private bool _loopbackStarting, _checkStarting, _iqBusy, _iqClosing;
+    private FakeRun _iqRun;
+    private FlexBase _iqRunRig;
+    private object _iqRecoveryReader;
+    private bool _iqWasOffAir;
+    private CancellationTokenSource _iqCancellation;
+    private Control _iqRate, _iqHearSelfDuringTake, _takeStatus;
+    private Watcher _iqWatch = new();
+    private void IqFailure(Exception ex) { }
+    /*StartOffAirAsync*/
+    private FlexBase _rig = new();
+    private AudioCheckSession _session;
+    private Control _micGainControl;
+    private PttSafetyController ptt = new();
+    private Func<PttSafetyController> PttControllerSource => () => ptt;
+    private void IqStatus(string s, bool b=false, string subject=null) { }
+    private void SetLoopbackButtonLabel(bool stopping) { }
+    private void SetStartButtonLabel(string s) { }
+    private string BuildToneAnnouncement() => null;
+    private readonly AudioCheckStartGate _checkStarts = new();
+    private void CancelCheckStart() { _checkStarts.Cancel(); }
+    private void OnSessionEnded() { CancelCheckStart(); }
+    /*StartLoopbackCheckAsync*/
+    /*StartAudioCheckSessionAsync*/
+    public static async Task<int[]> Run(string scenario)
+    {
+        RecorderControls.Spoken = 0;
+        var h = new Host();
+        if (scenario is "cancel-off-air" or "off-air-excludes-ordinary")
+        {
+            var pending = h.StartOffAirAsync(h.ptt);
+            var other = new AudioCheckSession(h, h._rig, h.ptt, AudioCheckListenMethods.Monitor, AudioCheckPowerModes.LowPower, 1);
+            await h.StartAudioCheckSessionAsync(other);
+            if (scenario == "cancel-off-air") h.CancelCheckStart();
+            var run = new FakeRun();
+            h._rig.OffAir.SetResult(run);
+            await pending;
+            return new[] { h.ptt.Keys, h.ptt.Keys, scenario == "cancel-off-air" && !run.Stopped ? 1 : 0, RecorderControls.Spoken };
+        }
+        if (scenario == "cancel-loopback")
+        {
+            var pending = h.StartLoopbackCheckAsync();
+            h.CancelCheckStart();
+            h._rig.Arrange.SetResult(true);
+            await pending;
+            return new[] { 0, h.ptt.Keys, h._rig.LoopbackArranged ? 1 : 0, RecorderControls.Spoken };
+        }
+        if (scenario == "cancel-before-key") h._rig.PowerChanged = h.CancelCheckStart;
+        var first = new AudioCheckSession(h, h._rig, h.ptt, AudioCheckListenMethods.RecordPlayback, AudioCheckPowerModes.LowPower, 1);
+        var ordinary = h.StartAudioCheckSessionAsync(first);
+        var loopback = scenario == "cross-door" ? h.StartLoopbackCheckAsync() : Task.CompletedTask;
+        if (scenario is "cancel-record" or "cancel-record-failed") h.CancelCheckStart();
+        h._rig.Record.SetResult(new(scenario != "cancel-record-failed", "recorded", "slice"));
+        await ordinary;
+        int before = h.ptt.Keys;
+        h._session?.StopCheck();
+        h._rig.Arrange.SetResult(true);
+        await loopback;
+        return new[] { before, h.ptt.Keys, h._rig.LoopbackArranged ? 1 : 0, RecorderControls.Spoken };
+    }
+    private sealed class AudioCheckSession
+    {
+        private Host _owner;
+        private FlexBase Rig => _owner._rig;
+        private PttSafetyController _ptt;
+        private AudioCheckListenMethods _method;
+        private AudioCheckPowerModes _powerMode;
+        private int _lowPowerWatts, _dummySavedPower, _savedPower;
+        private bool _loopback, _dummyEngaged, _powerTouched, _monitorTouched;
+        private SliceRecorderTarget _recorderTarget = SliceRecorderTarget.ActiveSlice;
+        private DateTime _keyedAt;
+        private enum Phase { Keyed, Done }
+        private Phase _phase;
+        private Watcher _watcher = new();
+        public bool Active;
+        public AudioCheckSession(Host owner, FlexBase rig, PttSafetyController ptt, AudioCheckListenMethods method,
+            AudioCheckPowerModes powerMode, int lowPowerWatts, bool loopback = false)
+        { _owner=owner; _ptt=ptt; _method=method; _powerMode=powerMode; _lowPowerWatts=lowPowerWatts; _loopback=loopback; }
+        private void RestoreChangedState(FlexBase rig, bool speak) { }
+        private static string FormatMHz(double f) => f.ToString();
+        private static string SourceFriendlyName(string s) => s;
+        private void HandleUnkey(bool external) { _ptt.EscapeUnlock(); Active=false; _owner.OnSessionEnded(); }
+        private void ForceEnd(string s) { HandleUnkey(false); }
+        /*StartAsync*/
+        /*StopCheck*/
+    }
+}
+public class FlexBase
+{
+    public enum OffOnValues { off, on }
+    public TaskCompletionSource<RecorderOutcome> Record = new();
+    public TaskCompletionSource<bool> Arrange = new();
+    public TaskCompletionSource<FakeRun> OffAir = new();
+    public string OffAirListenbackRefusalReason => "";
+    public object CaptureListenbackRecoveryReader() => null;
+    public Task<FakeRun> StartListenbackAsync(ListenbackOptions options, CancellationToken token) => OffAir.Task;
+    public bool LoopbackArranged, Transmit, DummyLoadMode, RemoteRig, LoopbackDriveManaged;
+    private int _power=20;
+    public Action PowerChanged;
+    public int XmitPower { get => _power; set { _power=value; PowerChanged?.Invoke(); } }
+    public double TXFrequency;
+    public string MicSource;
+    public OffOnValues Monitor;
+    public string LoopbackUnavailableReason => "";
+    public string SliceRecorderLetter(SliceRecorderTarget t) => "A";
+    public Task<RecorderOutcome> StartSliceRecordAsync(SliceRecorderTarget t) => Record.Task;
+    public Task<RecorderOutcome> StopSliceRecordAsync(SliceRecorderTarget t) => Task.FromResult(new RecorderOutcome(true, "stopped", "slice"));
+    public async Task<bool> StartLoopbackArrangementAsync() { LoopbackArranged = await Arrange.Task; return LoopbackArranged; }
+    public Task<string> EndLoopbackArrangementAsync() { LoopbackArranged=false; return Task.FromResult(""); }
+    public IDisposable AppInitiatedSettingChanges() => new Empty();
+}
+public class Empty : IDisposable { public void Dispose() { } }
+public class Control { public int SelectedIndex; public bool IsChecked; public string Text; public void Focus() { } }
+public class Watcher { public void Start() { } }
+public class FakeRun { public bool Stopped; public void OwnKeying(bool b) { }
+    public Task StopAsync(string reason) { Stopped=true; return Task.CompletedTask; } }
+public record ListenbackOptions(int Rate, bool OffAir, bool HearSelfDuringOffAir);
+public static class EarconPlayer { public static void FeatureOnTone() { } }
+public class PttSafetyController { public bool IsTransmitting; public int Keys; public int? SessionTimeoutOverrideSeconds;
+    public void ToggleLock() { Keys++; IsTransmitting=true; } public void EscapeUnlock() { IsTransmitting=false; } }
+public enum AudioCheckListenMethods { Monitor, RecordPlayback, OffAir }
+public enum AudioCheckPowerModes { DummyLoad, LowPower }
+public enum VerbosityLevel { Terse, Critical }
+public static class Lexicon { public static string Get(string s, params (string, object)[] args) => s; }
+public static class ScreenReaderOutput { public static void Speak(string s, VerbosityLevel v, bool interrupt=false) { } public static void Supersede(string a, string b) { } }
+public static class RecorderControls { public static int Spoken; public static void Speak(RecorderOutcome r) { Spoken++; } public static async Task ReportStopFailureAsync(Task<RecorderOutcome> t) { await t; } }
+namespace JJTrace { public static class Tracing { public static void TraceLine(string s, System.Diagnostics.TraceLevel l) { } } }

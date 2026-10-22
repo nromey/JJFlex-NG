@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using Flex.Smoothlake.FlexLib;
 using Radios.Tests.StationConnect;
@@ -180,6 +181,204 @@ public sealed class SliceRecorderSurfaceTests : IDisposable
         Assert.Contains("slice set 1 record=0", c.F.Vendor.Transport.Commands);
         Assert.DoesNotContain("slice set 0 record=0", c.F.Vendor.Transport.Commands);
         Assert.True(c.F.Rig.IsSliceRecording(SliceRecorderTarget.Letter('A')));
+    }
+
+    [Fact]
+    public async Task A_success_reply_without_record_status_does_not_confirm_start()
+    {
+        using var c = new RadioCase();
+        c.F.Vendor.Transport.CommandWritten = command =>
+        {
+            if (command == "slice set 1 record=1") c.F.Vendor.ReplyOk(c.F.Vendor.LastSequence);
+            else c.Respond(command);
+        };
+        var result = await c.Pump(c.F.Rig.StartSliceRecordAsync(SliceRecorderTarget.ActiveSlice));
+        Assert.False(result.Success);
+        Assert.Contains("slice set 1 record=0", c.F.Vendor.Transport.Commands);
+    }
+
+    [Fact]
+    public async Task Record_stopped_before_its_start_reply_is_not_resurrected()
+    {
+        using var c = new RadioCase();
+        c.F.Vendor.Transport.CommandWritten = command =>
+        {
+            if (command == "slice set 1 record=1")
+            {
+                c.F.Vendor.Status("slice 1 record=1");
+                c.F.Vendor.Status("slice 1 record=0");
+                c.F.Vendor.ReplyOk(c.F.Vendor.LastSequence);
+            }
+            else c.Respond(command);
+        };
+        var result = await c.Pump(c.F.Rig.StartSliceRecordAsync(SliceRecorderTarget.ActiveSlice));
+        Assert.False(result.Success);
+        Assert.False(c.F.Rig.IsSliceRecording(SliceRecorderTarget.ActiveSlice));
+    }
+
+    [Fact]
+    public async Task A_slow_other_slice_cannot_hold_up_the_transmit_playback_stop()
+    {
+        using var c = new RadioCase();
+        c.Add(0, 7.1);
+        c.F.Vendor.Status("slice 0 play=0");
+        Assert.True((await c.Pump(c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.Letter('A')))).Success);
+        int held = 0;
+        c.F.Vendor.Transport.CommandWritten = command =>
+        {
+            if (command == "slice set 1 record=1") held = c.F.Vendor.LastSequence;
+            else c.Respond(command);
+        };
+        var record = c.F.Rig.StartSliceRecordAsync(SliceRecorderTarget.ActiveSlice);
+        Assert.True(await c.Pump(WaitUntil(() => held != 0)));
+        var handler = (Delegate)typeof(FlexBase).GetField("TransmitChange", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(c.F.Rig)!;
+        handler.DynamicInvoke(c.F.Rig, true);
+        // Deadline shorter than the recorder reply timeout. The held reply is
+        // released only AFTER we have observed whether A's stop was sent.
+        var until = DateTime.UtcNow.AddMilliseconds(300);
+        async Task<bool> Stopped()
+        {
+            while (DateTime.UtcNow < until && !c.F.Vendor.Transport.Commands.Contains("slice set 0 play=0")) await Task.Delay(5);
+            return c.F.Vendor.Transport.Commands.Contains("slice set 0 play=0");
+        }
+        bool stopped = await c.Pump(Stopped());
+        c.F.Vendor.Status("slice 1 record=1");
+        c.F.Vendor.ReplyOk(held);
+        await c.Pump(record);
+        Assert.True(stopped, "A's transmit stop waited for B's held reply");
+    }
+
+    [Fact]
+    public async Task Removing_a_recording_slice_retires_its_state_subscription_and_warning()
+    {
+        using var c = new RadioCase();
+        typeof(FlexBase).GetProperty("SliceRecordWarningAfter", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(c.F.Rig, TimeSpan.FromMilliseconds(150));
+        int warned = 0;
+        c.F.Rig.SliceRecordingNearlyFull += _ => System.Threading.Interlocked.Increment(ref warned);
+        Assert.True((await c.Pump(c.F.Rig.StartSliceRecordAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        var states = (System.Collections.IDictionary)typeof(FlexBase).GetField("_sliceRecorders", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(c.F.Rig)!;
+        var state = states[c.Tx]!;
+        c.F.Vendor.Status("slice 1 in_use=0");
+        await Task.Delay(300);
+        Assert.Equal(0, warned);
+        Assert.True(await WaitUntil(() => !states.Keys.Cast<object>().Any()));
+        Assert.Empty(states.Keys.Cast<object>());
+        Assert.False(c.F.Rig.IsSliceRecording(SliceRecorderTarget.Letter('B')));
+        Assert.False(c.F.Rig.IsSlicePlaying(SliceRecorderTarget.Letter('B')));
+        Assert.Null(state.GetType().GetField("Status", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(state));
+        Assert.Null(state.GetType().GetField("CapWarning", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(state));
+    }
+
+    [Fact]
+    public async Task Removing_a_slice_while_a_recorder_query_checks_liveness_does_not_deadlock()
+    {
+        using var c = new RadioCase();
+        Assert.True((await c.Pump(c.F.Rig.StartSliceRecordAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        var radio = c.F.Vendor.Radio;
+        var slices = typeof(Radio).GetField("_slices", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(radio)!;
+        var recorders = typeof(FlexBase).GetField("_sliceRecorders", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(c.F.Rig)!;
+        var state = ((System.Collections.IDictionary)recorders)[c.Tx]!;
+        var live = typeof(FlexBase).GetMethod("StateIsLive", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var removed = typeof(Radio).GetMethod("OnSliceRemoved", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        using var sliceHeld = new ManualResetEventSlim();
+        using var recorderHeld = new ManualResetEventSlim();
+        var disconnect = Task.Run(() =>
+        {
+            lock (slices)
+            {
+                sliceHeld.Set();
+                Assert.True(recorderHeld.Wait(TimeSpan.FromSeconds(2)));
+                removed.Invoke(radio, new object[] { c.Tx });
+            }
+        });
+        var query = Task.Run(() =>
+        {
+            Assert.True(sliceHeld.Wait(TimeSpan.FromSeconds(2)));
+            lock (recorders)
+            {
+                recorderHeld.Set();
+                live.Invoke(c.F.Rig, new[] { state });
+            }
+        });
+        await Task.WhenAll(disconnect, query).WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    [Theory]
+    [InlineData("record", true)]
+    [InlineData("record", false)]
+    [InlineData("play", true)]
+    [InlineData("play", false)]
+    public async Task Reply_and_status_are_independent_requirements(string property, bool start)
+    {
+        using var c = new RadioCase();
+        c.F.Rig.SliceRecorderConfirmationWait = TimeSpan.FromMilliseconds(250);
+        c.F.Vendor.Status("slice 1 play=0");
+        if (!start) c.F.Vendor.Status($"slice 1 {property}=1");
+        int sequence = 0;
+        c.F.Vendor.Transport.CommandWritten = command =>
+        {
+            if (command == $"slice set 1 {property}={(start ? 1 : 0)}")
+            { sequence = c.F.Vendor.LastSequence; c.F.Vendor.ReplyOk(sequence); }
+            else c.Respond(command);
+        };
+        var request = property == "record"
+            ? (start ? c.F.Rig.StartSliceRecordAsync(SliceRecorderTarget.ActiveSlice) : c.F.Rig.StopSliceRecordAsync(SliceRecorderTarget.ActiveSlice))
+            : (start ? c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.ActiveSlice) : c.F.Rig.StopSlicePlayAsync(SliceRecorderTarget.ActiveSlice));
+        Assert.True(await c.Pump(WaitUntil(() => sequence != 0)));
+        Assert.False(request.IsCompleted); // OK alone cannot complete it
+        c.F.Vendor.Status($"slice 1 {property}={(start ? 1 : 0)}");
+        Assert.True((await c.Pump(request)).Success);
+    }
+
+    [Theory]
+    [InlineData("transmit", "play")]
+    [InlineData("close", "record")]
+    [InlineData("close", "play")]
+    [InlineData("rollback", "record")]
+    [InlineData("rollback", "play")]
+    public async Task Automatic_failed_stops_report_the_specific_failure(string reason, string property)
+    {
+        using var c = new RadioCase();
+        c.F.Rig.SliceRecorderConfirmationWait = TimeSpan.FromMilliseconds(100);
+        var heard = new System.Collections.Concurrent.ConcurrentQueue<RecorderOutcome>();
+        c.F.Rig.RecorderStopFailureOutput = heard.Enqueue;
+        var owner = new object();
+        c.F.Vendor.Status("slice 1 play=0");
+        if (reason != "rollback")
+        {
+            var started = property == "record" ? c.F.Rig.StartSliceRecordAsync(SliceRecorderTarget.ActiveSlice, owner)
+                : c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.ActiveSlice, owner);
+            Assert.True((await c.Pump(started)).Success);
+        }
+        c.F.Vendor.Transport.CommandWritten = command =>
+        {
+            // A missing status after an OK is still an unconfirmed stop.
+            if (command.Contains(property + "=")) c.F.Vendor.ReplyOk(c.F.Vendor.LastSequence);
+            else c.Respond(command);
+        };
+        if (reason == "transmit")
+        {
+            var handler = (Delegate)typeof(FlexBase).GetField("TransmitChange", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(c.F.Rig)!;
+            handler.DynamicInvoke(c.F.Rig, true);
+            Assert.True(await c.Pump(WaitUntil(() => !heard.IsEmpty)));
+        }
+        else if (reason == "close") Assert.False(await c.Pump(c.F.Rig.StopSliceRecorderOwnedByAsync(owner)));
+        else
+        {
+            var result = property == "record" ? c.F.Rig.StartSliceRecordAsync(SliceRecorderTarget.ActiveSlice, owner)
+                : c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.ActiveSlice, owner);
+            var outcome = await c.Pump(result);
+            Assert.False(outcome.Success);
+            // This path has a caller awaiting its outcome: return the failed
+            // STOP, so a generic start refusal cannot supersede that warning.
+            Assert.Equal(Text(property == "record" ? "audio.recorder.record_stop_unconfirmed" : "audio.recorder.play_stop_unconfirmed", "B"), outcome.Message);
+            Assert.Empty(heard);
+            return;
+        }
+        var failure = Assert.Single(heard);
+        Assert.False(failure.Success);
+        Assert.Equal(Text(property == "record" ? "audio.recorder.record_stop_unconfirmed" : "audio.recorder.play_stop_unconfirmed", "B"), failure.Message);
     }
 
     private static async Task<bool> WaitUntil(Func<bool> condition)

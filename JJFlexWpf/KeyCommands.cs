@@ -605,7 +605,7 @@ public class KeyCommands
                 "Start or stop playing the active slice's recording through your speakers", "Play Active Slice", false, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "play", "playback", "replay", "recording", "recorder", "slice", "active", "listen", "back", "hear", "radio" }, ShortActionLabel = "play active slice" },
             new(CommandValues.RecordToFile, KeyTypes.Command, RecordToFileHandler,
-                "Start or stop recording the radio's audio to a file on this computer", "Record to File", false, FunctionGroups.Audio, KeyScope.Radio)
+                "Start or stop recording the radio's audio to a file on this computer", "Record to File", false, FunctionGroups.Audio, KeyScope.Global)
                 { Keywords = new[] { "record", "recording", "file", "computer", "save", "conversation", "qso", "capture", "tape", "audio" }, ShortActionLabel = "record to file" },
             new(CommandValues.PlayFromComputer, KeyTypes.Command, PlayFromComputerHandler,
                 "Start or stop playing your last computer recording through your speakers", "Play from Computer", false, FunctionGroups.Audio, KeyScope.Global)
@@ -2171,7 +2171,7 @@ public class KeyCommands
         // The recorder (#787). Flat keys await Noel's choice.
         new(Keys.None, CommandValues.RecordActiveSlice, KeyScope.Radio), // unbound: LeaderLayer — Ctrl+J, Ctrl+R
         new(Keys.None, CommandValues.PlayActiveSlice, KeyScope.Radio), // unbound: LeaderLayer — Ctrl+J, Ctrl+P
-        new(Keys.None, CommandValues.RecordToFile, KeyScope.Radio), // unbound: LeaderLayer — Ctrl+J, Ctrl+Shift+R
+        new(Keys.None, CommandValues.RecordToFile, KeyScope.Global), // unbound: LeaderLayer — Ctrl+J, Ctrl+Shift+R
         new(Keys.None, CommandValues.PlayFromComputer, KeyScope.Global), // unbound: LeaderLayer — Ctrl+J, Ctrl+Shift+P
     };
 

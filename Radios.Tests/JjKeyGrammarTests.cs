@@ -510,6 +510,19 @@ namespace Radios.Tests
                 + string.Join(", ", mismatched));
         }
 
+        [Theory]
+        [InlineData(Keys.Control | Keys.R, "RecordActiveSliceHandler")]
+        [InlineData(Keys.Control | Keys.P, "PlayActiveSliceHandler")]
+        [InlineData(Keys.Control | Keys.Shift | Keys.R, "RecordToFileHandler")]
+        [InlineData(Keys.Control | Keys.Shift | Keys.P, "PlayFromComputerHandler")]
+        public void Recorder_chords_route_to_their_declared_actions(Keys chord, string handler)
+        {
+            var arm = LeaderSourceScan.RealSwitchArms().Single(a => a.Labels.Contains(chord));
+            var calls = Regex.Matches(arm.Body, @"\b(\w+Handler)\s*\(")
+                .Select(m => m.Groups[1].Value).ToArray();
+            Assert.Equal(new[] { handler }, calls);
+        }
+
         [Fact]
         public void The_ctrl_shift_audit_can_see_the_tier_it_audits()
         {
