@@ -1181,6 +1181,28 @@ namespace Radios.Tests
                 "audio.iq.setup_pc_microphone",
                 "audio.iq.no_mic_profile",
 
+                // #787 Tape Deck track 2: the ONE slice recorder surface's
+                // sentences, spoken by every door (Home, the Slice menu, the
+                // JJ key, the Workshop's buttons, the Audio Check). All DRAFT
+                // PROSE awaiting Noel. TextOnly because each is spoken through
+                // RecorderControls.Speak under SpeechSubject.SliceRecorder.
+                "audio.recorder.recording",
+                "audio.recorder.recording_loopback",
+                "audio.recorder.recording_stopped",
+                "audio.recorder.already_recording",
+                "audio.recorder.playing",
+                "audio.recorder.playing_stopped",
+                "audio.recorder.play_refused_transmitting",
+                "audio.recorder.play_stopped_by_transmit",
+                "audio.recorder.nothing_to_play",
+                "audio.recorder.no_slice",
+                "audio.recorder.not_your_slice",
+                "audio.recorder.record_unconfirmed",
+                "audio.recorder.record_stop_unconfirmed",
+                "audio.recorder.play_unconfirmed",
+                "audio.recorder.play_stop_unconfirmed",
+                "audio.recorder.nearly_full",
+
             };
 
             Assert.Equal(3152, unclassified);

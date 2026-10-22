@@ -10967,29 +10967,12 @@ namespace Radios
             set { _ = SetFullDuplexFromPropertyAsync(value); }
         }
 
-        /// <summary>
-        /// Active slice quick-record (SmartSDR's Quick Record). Verified
-        /// telemetry (2026-08-07 live): buffer caps at 120 seconds and behaves
-        /// ring-like at the cap (recent material kept); two takes can coexist.
-        /// The record tap sits upstream of the TX audio mute, so it captures
-        /// demodulated audio even with full duplex off. Callers MUST check
-        /// state before re-arming — a live re-arm race nearly wiped takes.
-        /// </summary>
-        public bool SliceRecordOn
-        {
-            get { return theRadio?.ActiveSlice?.RecordOn == true; }
-            set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.RecordOn = value; }), "RecordOn"); }
-        }
-
-        /// <summary>Active slice quick-play of the record buffer.</summary>
-        public bool SlicePlayOn
-        {
-            get { return theRadio?.ActiveSlice?.PlayOn == true; }
-            set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.PlayOn = value; }), "PlayOn"); }
-        }
-
-        /// <summary>True when the record buffer has playable content.</summary>
-        public bool SlicePlayEnabled => theRadio?.ActiveSlice?.PlayEnabled ?? false;
+        // SliceRecordOn, SlicePlayOn and SlicePlayEnabled lived here until
+        // Tape Deck track 2 (#787). They drove the radio's slice recorder with
+        // no reply check and no refusal while transmitting, beside a second,
+        // reply-checked path that did both. The one recorder surface is now
+        // FlexBase.SliceRecorder.cs, which carries their remarks (the 120-second
+        // ring-like buffer, the re-arm race); do not bring a setter back.
 
         /// <summary>
         /// The radio-reported PTT source ("SW", "Mic", "ACC", "RCA", "TUNE",
@@ -11361,8 +11344,7 @@ namespace Radios
             {
             if (!_loopbackArranged) return "";
             // The listening slice must stop its own buffer before removal.
-            bool recorderStopped = !ReferenceEquals(_workshopRecorderSlice, _lbResources?.Slice) ||
-                await StopWorkshopSliceRecorderAsync().ConfigureAwait(false);
+            bool recorderStopped = await StopSliceRecorderAsync(SliceRecorderTarget.LoopbackEars).ConfigureAwait(false);
             _loopbackArranged = false;
 
             string trouble = recorderStopped ? "" : "The listening slice recorder stop was not confirmed. ";
@@ -11992,25 +11974,10 @@ namespace Radios
             }
         }
 
-        internal OffOnValues Play
-        {
-            get { return (theRadio?.ActiveSlice?.PlayOn == true) ? OffOnValues.on : OffOnValues.off; }
-            set
-            {
-                bool val = (value == OffOnValues.on) ? true : false;
-                q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.PlayOn = val; }));
-            }
-        }
-
-        internal OffOnValues Record
-        {
-            get { return (theRadio?.ActiveSlice?.RecordOn == true) ? OffOnValues.on : OffOnValues.off; }
-            set
-            {
-                bool val = (value == OffOnValues.on) ? true : false;
-                q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.RecordOn = val; }));
-            }
-        }
+        // Two more doors to the radio's slice recorder, internal Play and
+        // Record properties from the original JJFlexRadio, stood here until
+        // Tape Deck track 2 (#787) found them: unused, unchecked, and a third
+        // way to drive the recorder. FlexBase.SliceRecorder.cs is the only one.
 
         private OffOnValues _DAXOnOff;
         /// <summary>

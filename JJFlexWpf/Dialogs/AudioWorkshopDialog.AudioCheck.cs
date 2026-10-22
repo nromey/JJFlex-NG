@@ -23,6 +23,7 @@ public partial class AudioWorkshopDialog
 {
     #region Audio Check Section
     private bool _loopbackStarting;
+    private bool _checkStarting;
 
     private void BuildAudioCheckSection()
     {
@@ -340,7 +341,7 @@ public partial class AudioWorkshopDialog
         var session = new AudioCheckSession(this, rig, ptt,
             AudioCheckListenMethods.Monitor, AudioCheckPowerModes.LowPower, 1,
             loopback: true);
-        if (session.Start())
+        if (await session.StartAsync())
         {
             _session = session;
             SetLoopbackButtonLabel(stopping: true);
@@ -371,7 +372,7 @@ public partial class AudioWorkshopDialog
     /// </summary>
     public void ToggleAudioCheck()
     {
-        if (_loopbackStarting)
+        if (_loopbackStarting || _checkStarting)
         {
             ScreenReaderOutput.Speak(Lexicon.Get("audio.check.stop_current_first"), VerbosityLevel.Terse);
             return;
@@ -409,16 +410,36 @@ public partial class AudioWorkshopDialog
             ?? (int)AudioCheckPowerModes.DummyLoad);
         int lowPowerWatts = Math.Clamp(_checkWattsControl?.Value ?? 10, 1, 100);
 
-        var session = new AudioCheckSession(this, _rig, ptt, method, powerMode, lowPowerWatts);
-        if (session.Start())
+        _ = StartAudioCheckSessionAsync(new AudioCheckSession(this, _rig, ptt, method, powerMode, lowPowerWatts));
+    }
+
+    /// <summary>
+    /// Start a session and adopt it. Async since #787: Record and play back
+    /// waits for the radio to confirm its recorder before keying. A second
+    /// press while that answer is pending is told to wait rather than
+    /// starting a second session (the same guard the Loopback Check uses).
+    /// </summary>
+    private async Task StartAudioCheckSessionAsync(AudioCheckSession session)
+    {
+        _checkStarting = true;
+        try
         {
-            _session = session;
-            SetStartButtonLabel("Stop Audio Check");
-            // Land on Mic Gain — arrows adjust immediately, one Shift+Tab
-            // reads the live mic reading, one more reaches Stop (the
-            // three-stop check cluster, see ApplyTxAudioTabOrder).
-            _micGainControl?.Focus();
+            if (await session.StartAsync())
+            {
+                _session = session;
+                SetStartButtonLabel("Stop Audio Check");
+                // Land on Mic Gain — arrows adjust immediately, one Shift+Tab
+                // reads the live mic reading, one more reaches Stop (the
+                // three-stop check cluster, see ApplyTxAudioTabOrder).
+                _micGainControl?.Focus();
+            }
         }
+        catch (Exception ex)
+        {
+            JJTrace.Tracing.TraceLine("Audio Check start: " + ex, System.Diagnostics.TraceLevel.Error);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.could_not_start"), VerbosityLevel.Critical);
+        }
+        finally { _checkStarting = false; }
     }
 
     private void SetStartButtonLabel(string label)
@@ -444,8 +465,13 @@ public partial class AudioWorkshopDialog
     {
         SetStartButtonLabel("Start Audio Check");
         SetLoopbackButtonLabel(stopping: false);
-        if (_rig != null && !await _rig.StopWorkshopSliceRecorderAsync())
-            ScreenReaderOutput.Speak("The radio slice recorder stop was not confirmed.", VerbosityLevel.Critical);
+        // This stopped every recording the Workshop's buttons had started
+        // until #787. It no longer stops anything: with one recorder behind
+        // every door it would also have stopped the take this check had just
+        // begun playing. The Loopback Check's listening slice is stopped by
+        // EndLoopbackArrangementAsync below, which already says when that stop
+        // was not confirmed, and closing the Workshop stops what the Workshop
+        // started (CloseListenbackAsync).
         SyncSliceRecorderUi();
         if (_iqWasOffAir && _iqRun != null) { _ = FinishIqAsync("operator-stop"); return; }
         if (_rig != null && _rig.LoopbackArranged)
@@ -479,6 +505,15 @@ public partial class AudioWorkshopDialog
     /// processing chain is the more valuable of the two, so it wins the tie.
     /// </remarks>
     private bool _newestTakeIsAFile;
+
+    /// <summary>
+    /// The slice the last Record and play back check recorded on, so Play last
+    /// take plays THAT slice's buffer even after the operator has moved to
+    /// another slice — recordings are kept per slice (benched 2026-10-21).
+    /// Null until a check has recorded; the active slice is used then.
+    /// </summary>
+    private SliceRecorderTarget? _radioTakeTarget;
+    private SliceRecorderTarget RadioTakeTarget => _radioTakeTarget ?? SliceRecorderTarget.ActiveSlice;
 
     /// <summary>
     /// Play the operator's most recent take, or stop the one playing.
@@ -519,12 +554,9 @@ public partial class AudioWorkshopDialog
             RecordingPlayer.Stop();
             return;
         }
-        if (_rig != null && _rig.SlicePlayOn)
+        if (_rig != null && _rig.IsSlicePlaying(RadioTakeTarget))
         {
-            _rig.SlicePlayOn = false;
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.playback_stopped"),
-                VerbosityLevel.Terse, interrupt: true);
-            SyncPlayTakeLabel();
+            _ = StopRadioTakeAsync();
             return;
         }
 
@@ -535,7 +567,7 @@ public partial class AudioWorkshopDialog
             return;
         }
 
-        bool radioHasTake = _rig?.SlicePlayEnabled == true;
+        bool radioHasTake = _rig?.SliceHasRecording(RadioTakeTarget) == true;
         RecordingStore.RecordingFile? file = RecordingStore.Newest();
         if (TryPlayNewestIq(file, radioHasTake)) return;
 
@@ -556,9 +588,30 @@ public partial class AudioWorkshopDialog
             return;
         }
 
-        _rig!.SlicePlayOn = true;
-        ScreenReaderOutput.Speak(Lexicon.Get("audio.check.playing_take"),
-            VerbosityLevel.Terse, interrupt: true);
+        _ = PlayRadioTakeAsync();
+    }
+
+    /// <summary>
+    /// Play the radio's take through the one recorder surface (#787), which
+    /// checks the radio's reply and refuses while transmitting. Success keeps
+    /// the take's own sentence, which says it is the radio's take and not a
+    /// file (#455); a refusal speaks the recorder's sentence.
+    /// </summary>
+    private async Task PlayRadioTakeAsync()
+    {
+        if (_rig == null) return;
+        var outcome = await _rig.StartSlicePlayAsync(RadioTakeTarget);
+        if (outcome.Success)
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.playing_take"), Radios.Speech.SpeechIntent.Interrupt,
+                VerbosityLevel.Terse, subject: outcome.Subject);
+        else RecorderControls.Speak(outcome);
+        SyncPlayTakeLabel();
+    }
+
+    private async Task StopRadioTakeAsync()
+    {
+        if (_rig == null) return;
+        RecorderControls.Speak(await _rig.StopSlicePlayAsync(RadioTakeTarget));
         SyncPlayTakeLabel();
     }
 
@@ -581,7 +634,7 @@ public partial class AudioWorkshopDialog
     private void SyncPlayTakeLabel()
     {
         if (_playTakeButton == null) return;
-        bool playing = RecordingPlayer.IsPlaying || _rig?.SlicePlayOn == true;
+        bool playing = RecordingPlayer.IsPlaying || _rig?.IsSlicePlaying(RadioTakeTarget) == true;
         string label = playing ? "Stop playing" : "Play last take";
         if ((_playTakeButton.Content as string) == label) return;
         _playTakeButton.Content = label;
@@ -635,11 +688,17 @@ public partial class AudioWorkshopDialog
         private Phase _phase = Phase.Idle;
         private DateTime _keyedAt;
         private int _lastMinuteSpoken;
-        private bool _bufferWarned;
         private bool _noKeyWarned;
         private bool _hardwareWarned;
         private int _postUnkeyTicks;
         private int _awaitPlaybackTicks;
+
+        // Record and play back rides the one recorder surface (#787). The
+        // slice is fixed at the start by its LETTER, so a slice change during
+        // the check still stops and plays the slice that recorded.
+        private SliceRecorderTarget _recorderTarget = SliceRecorderTarget.ActiveSlice;
+        private Task<RecorderOutcome>? _recordStop;
+        private Task<RecorderOutcome>? _playStart;
 
         // State the session changed and must restore.
         private int _savedPower;
@@ -648,6 +707,11 @@ public partial class AudioWorkshopDialog
         private bool _dummyEngaged;   // WE turned dummy load on; disable restores power
         private int _dummySavedPower; // pre-engage watts, for the spoken restore line
 
+        // The record buffer's 120-second cap, and the warning ten seconds
+        // before it, belong to the recorder surface now
+        // (FlexBase.SliceRecordBufferSeconds): it warns for every recording,
+        // whichever door started it, so this session no longer counts.
+        //
         // Retired 2026-09-07. This was 180, imposed as a session override on
         // top of the operator's own PTT timeout, and EffectiveTimeoutSeconds
         // takes the MINIMUM of the two — so a check could never run longer than
@@ -661,7 +725,6 @@ public partial class AudioWorkshopDialog
         // [10, HardKillSeconds=900], so deferring to it changes nothing for
         // anyone who has not moved it, and lets an operator who wants a long
         // deliberate run have one. That clamp is what the 900 was written for.
-        private const int RecordBufferSeconds = 120;   // verified live cap
 
         public bool Active { get; private set; }
         public bool IsLoopback => _loopback;
@@ -695,7 +758,7 @@ public partial class AudioWorkshopDialog
         /// Start the check. Returns false (with everything restored and a
         /// spoken explanation) when keying did not happen.
         /// </summary>
-        public bool Start()
+        public async Task<bool> StartAsync()
         {
             var rig = Rig;
             if (rig == null) return false;
@@ -705,6 +768,37 @@ public partial class AudioWorkshopDialog
             // must not double-manage them.
             bool monitorTurnedOn = false;
             bool recorderAlreadyRunning = false;
+
+            // Record and play back arms the radio's recorder FIRST, through
+            // the one reply-checked surface (#787), and waits for the radio to
+            // say yes. A recorder that did not start would make a take with
+            // nothing to play, so the check refuses before anything is changed
+            // or keyed, rather than transmitting for nothing. Until #787 this
+            // was a setter whose reply nobody read.
+            if (!_loopback && _method == AudioCheckListenMethods.RecordPlayback)
+            {
+                string letter = rig.SliceRecorderLetter(SliceRecorderTarget.ActiveSlice);
+                if (letter.Length > 0) _recorderTarget = SliceRecorderTarget.Letter(letter[0]);
+                var armed = await rig.StartSliceRecordAsync(_recorderTarget);
+                if (!armed.Success)
+                {
+                    RecorderControls.Speak(armed);
+                    return false;
+                }
+                // Never blind-toggle a recorder that is already running: a
+                // live re-arm race once nearly wiped an operator's takes.
+                recorderAlreadyRunning = armed.AlreadyInState;
+                if (_owner._iqClosing || !ReferenceEquals(rig, Rig) || _ptt.IsTransmitting)
+                {
+                    // The dialog closed, the radio changed, or something else
+                    // keyed while the radio was answering. Put the recorder back.
+                    if (!recorderAlreadyRunning) _ = rig.StopSliceRecordAsync(_recorderTarget);
+                    if (_ptt.IsTransmitting)
+                        ScreenReaderOutput.Speak(Lexicon.Get("audio.already_transmitting"),
+                            VerbosityLevel.Critical, interrupt: true);
+                    return false;
+                }
+            }
             int effectivePower = _loopback ? 1 : rig.XmitPower;
 
             if (!_loopback)
@@ -752,17 +846,6 @@ public partial class AudioWorkshopDialog
                     rig.Monitor = FlexBase.OffOnValues.on;
                 }
 
-                if (_method == AudioCheckListenMethods.RecordPlayback)
-                {
-                    // Re-arm race guard (a live re-arm nearly wiped an
-                    // operator's takes): stop playback before arming, and
-                    // never blind-toggle a recorder that is already running.
-                    if (rig.SlicePlayOn) rig.SlicePlayOn = false;
-                    if (rig.SliceRecordOn)
-                        recorderAlreadyRunning = true;
-                    else
-                        rig.SliceRecordOn = true;
-                }
             }
 
             // No override: the operator's own PTT timeout governs, and the
@@ -793,7 +876,7 @@ public partial class AudioWorkshopDialog
                 _ptt.SessionTimeoutOverrideSeconds = null;
                 RestoreChangedState(rig, speak: false);
                 if (!_loopback && _method == AudioCheckListenMethods.RecordPlayback && !recorderAlreadyRunning)
-                    rig.SliceRecordOn = false;
+                    _ = rig.StopSliceRecordAsync(_recorderTarget);
                 ScreenReaderOutput.Speak(Lexicon.Get("audio.check.could_not_start"),
                     VerbosityLevel.Critical);
                 return false;
@@ -916,12 +999,15 @@ public partial class AudioWorkshopDialog
                 }
                 ScreenReaderOutput.Speak(Lexicon.Get("audio.check.transmit_off"), VerbosityLevel.Critical);
                 if (rig != null && _method == AudioCheckListenMethods.RecordPlayback)
-                    rig.SliceRecordOn = false;
+                    _ = rig.StopSliceRecordAsync(_recorderTarget);
             }
             if (rig != null)
             {
                 RestoreChangedState(rig, speak: false);
-                if (rig.SlicePlayOn) rig.SlicePlayOn = false;
+                // Only the take THIS check started is stopped; a playback
+                // started from Home or a menu on another slice is left alone.
+                if (_method == AudioCheckListenMethods.RecordPlayback)
+                    _ = rig.StopSlicePlayAsync(_recorderTarget);
             }
             End(reason);
         }
@@ -982,12 +1068,13 @@ public partial class AudioWorkshopDialog
                 }
                 if (_method == AudioCheckListenMethods.RecordPlayback)
                 {
-                    rig.SliceRecordOn = false;
+                    _recordStop = rig.StopSliceRecordAsync(_recorderTarget);
                     msg.Append(' ').Append(Lexicon.Get("audio.check.playing_take_shortly"));
                     // The radio just took a take, so it is now the newer of the
                     // two stores Play last take chooses between (#455).
                     _owner._newestTakeIsAFile = false;
                     _owner._radioTakeAt = DateTime.UtcNow;
+                    _owner._radioTakeTarget = _recorderTarget;
                 }
 
                 // The verdict — the whole point of the check. Peak SC_MIC over
@@ -1080,16 +1167,10 @@ public partial class AudioWorkshopDialog
                     VerbosityLevel.Terse);
             }
 
-            // Record buffer is a 120-second ring — warn before the oldest
-            // material starts falling off.
-            if (_method == AudioCheckListenMethods.RecordPlayback &&
-                !_bufferWarned && elapsed >= RecordBufferSeconds - 10)
-            {
-                _bufferWarned = true;
-                ScreenReaderOutput.Speak(
-                    Lexicon.Get("audio.check.buffer_nearly_full"),
-                    VerbosityLevel.Terse);
-            }
+            // The record buffer's ten-second warning used to be spoken here.
+            // The recorder surface speaks it now, for every recording
+            // (FlexBase.SliceRecorder.cs, ArmCapWarning), so it is said once
+            // and the same way whichever door started the recording.
         }
 
         private void TickPostUnkey(FlexBase rig)
@@ -1135,14 +1216,38 @@ public partial class AudioWorkshopDialog
             // Auto-play-on-unkey (the default flow, performed live: unkey to
             // playback within a second — never demands talking and listening
             // at once).
+            //
+            // Both halves ride the recorder surface (#787): the stop sent at
+            // unkey must be confirmed before playback is asked for, and the
+            // playback itself is reply-checked and refused while transmitting.
             _awaitPlaybackTicks++;
-            if (rig.SlicePlayEnabled)
+            if (_playStart != null)
             {
-                rig.SlicePlayOn = true;
-                ScreenReaderOutput.Speak(
-                    Lexicon.Get("audio.check.playing_take_full_chain"),
-                    VerbosityLevel.Terse);
-                End(null);
+                if (!_playStart.IsCompleted && _awaitPlaybackTicks < 8) return;
+                var played = _playStart.IsCompletedSuccessfully ? _playStart.Result : null;
+                if (played?.Success == true)
+                {
+                    ScreenReaderOutput.Speak(
+                        Lexicon.Get("audio.check.playing_take_full_chain"),
+                        Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse, subject: played.Subject);
+                    End(null);
+                }
+                else End(played?.Message ?? Lexicon.Get("audio.check.no_recording_available"));
+                return;
+            }
+            if (_recordStop != null && !_recordStop.IsCompleted)
+            {
+                if (_awaitPlaybackTicks >= 6) End(Lexicon.Get("audio.check.no_recording_available"));
+                return;
+            }
+            if (_recordStop != null && _recordStop.IsCompletedSuccessfully && !_recordStop.Result.Success)
+            {
+                End(_recordStop.Result.Message);
+                return;
+            }
+            if (rig.SliceHasRecording(_recorderTarget))
+            {
+                _playStart = rig.StartSlicePlayAsync(_recorderTarget);
             }
             else if (_awaitPlaybackTicks >= 6)
             {

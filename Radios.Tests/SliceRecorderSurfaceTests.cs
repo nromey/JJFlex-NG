@@ -1,0 +1,258 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+using Flex.Smoothlake.FlexLib;
+using Radios.Tests.StationConnect;
+using Xunit;
+using static Radios.Tests.ListenbackRoundTwoTests;
+
+namespace Radios.Tests;
+
+/// <summary>
+/// The radio's own per-slice recorder, as ONE surface behind every door
+/// (#787, Tape Deck track 2). What these hold that round 8's tests did not:
+/// each slice has its own recorder, a slice that is not the active one can be
+/// recorded, record and play on one slice exclude each other, a recording
+/// started anywhere can be stopped, keying stops playback, the two-minute
+/// warning belongs to the surface, and a door stops only what it started.
+/// </summary>
+/// <remarks>
+/// What these cannot see: the radio itself. The vendor fixture echoes each
+/// command as status and replies OK; whether a 6300 really keeps two slices'
+/// recordings apart, or records two slices at once, is a bench question and is
+/// in the track report's bench steps.
+/// </remarks>
+[Collection(RadioConfigStaticsCollection.Name)]
+public sealed class SliceRecorderSurfaceTests : IDisposable
+{
+    private readonly RadioConfigStaticsScope _scope = new(nameof(SliceRecorderSurfaceTests));
+    public void Dispose() => _scope.Dispose();
+
+    private static string Text(string key, string letter) => Lexicon.Get(key, ("letter", letter));
+
+    [Fact]
+    public async Task A_slice_you_are_not_listening_to_can_be_recorded_by_its_letter()
+    {
+        using var c = new RadioCase();
+        c.Add(0, 7.1); // slice A, not active; the active slice is B
+        var outcome = await c.Pump(c.F.Rig.ToggleSliceRecordAsync(SliceRecorderTarget.Letter('A')));
+        Assert.True(outcome.Success, outcome.Message);
+        Assert.Equal(Text("audio.recorder.recording", "A"), outcome.Message);
+        Assert.Contains("slice set 0 record=1", c.F.Vendor.Transport.Commands);
+        Assert.DoesNotContain("slice set 1 record=1", c.F.Vendor.Transport.Commands);
+        Assert.True(c.F.Rig.IsSliceRecording(SliceRecorderTarget.Letter('A')));
+        Assert.False(c.F.Rig.IsSliceRecording(SliceRecorderTarget.ActiveSlice));
+        Assert.Equal(Speech.SpeechSubject.SliceRecorder("A"), outcome.Subject);
+    }
+
+    [Fact]
+    public async Task Recording_one_slice_leaves_another_slice_playing()
+    {
+        using var c = new RadioCase();
+        c.Add(0, 7.1);
+        c.F.Vendor.Status("slice 0 play=0"); // slice A holds a recording
+        Assert.True((await c.Pump(c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.Letter('A')))).Success);
+        Assert.True((await c.Pump(c.F.Rig.StartSliceRecordAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        Assert.Contains("slice set 1 record=1", c.F.Vendor.Transport.Commands);
+        Assert.DoesNotContain("slice set 0 play=0", c.F.Vendor.Transport.Commands);
+        Assert.True(c.F.Rig.IsSlicePlaying(SliceRecorderTarget.Letter('A')));
+    }
+
+    [Fact]
+    public async Task Play_on_a_recording_slice_stops_the_recording_first_and_then_plays_it()
+    {
+        using var c = new RadioCase();
+        c.F.Vendor.Transport.CommandWritten = command =>
+        {
+            c.Respond(command);
+            // The radio reports the buffer playable once a recording stops.
+            if (command == "slice set 1 record=0") c.F.Vendor.Status("slice 1 play=0");
+        };
+        c.F.Vendor.Status("slice 1 play=disabled"); // empty until the recording stops
+        Assert.True((await c.Pump(c.F.Rig.ToggleSliceRecordAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        var played = await c.Pump(c.F.Rig.ToggleSlicePlayAsync(SliceRecorderTarget.ActiveSlice));
+        Assert.True(played.Success, played.Message);
+        Assert.Equal(Text("audio.recorder.playing", "B"), played.Message);
+        var commands = c.F.Vendor.Transport.Commands.ToList();
+        int stop = commands.IndexOf("slice set 1 record=0");
+        int play = commands.IndexOf("slice set 1 play=1");
+        Assert.True(stop >= 0 && play > stop, string.Join(" | ", commands));
+        Assert.False(c.F.Rig.IsSliceRecording(SliceRecorderTarget.ActiveSlice));
+    }
+
+    [Fact]
+    public async Task Record_on_a_playing_slice_stops_the_playback_first()
+    {
+        using var c = new RadioCase();
+        c.F.Vendor.Status("slice 1 play=0");
+        Assert.True((await c.Pump(c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        Assert.True((await c.Pump(c.F.Rig.ToggleSliceRecordAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        var commands = c.F.Vendor.Transport.Commands.ToList();
+        int stop = commands.IndexOf("slice set 1 play=0");
+        int record = commands.IndexOf("slice set 1 record=1");
+        Assert.True(stop >= 0 && record > stop, string.Join(" | ", commands));
+        Assert.False(c.F.Rig.IsSlicePlaying(SliceRecorderTarget.ActiveSlice));
+    }
+
+    [Fact]
+    public async Task A_recording_started_somewhere_else_can_still_be_stopped()
+    {
+        using var c = new RadioCase();
+        c.F.Vendor.Status("slice 1 record=1"); // the front panel, an earlier session, a crash
+        Assert.True(c.F.Rig.IsSliceRecording(SliceRecorderTarget.ActiveSlice));
+        var outcome = await c.Pump(c.F.Rig.ToggleSliceRecordAsync(SliceRecorderTarget.ActiveSlice));
+        Assert.True(outcome.Success, outcome.Message);
+        Assert.Equal(Text("audio.recorder.recording_stopped", "B"), outcome.Message);
+        Assert.Contains("slice set 1 record=0", c.F.Vendor.Transport.Commands);
+        Assert.DoesNotContain("slice set 1 record=1", c.F.Vendor.Transport.Commands);
+    }
+
+    [Fact]
+    public async Task Starting_a_recording_that_is_already_running_does_not_rearm_it()
+    {
+        using var c = new RadioCase();
+        c.F.Vendor.Status("slice 1 record=1");
+        var outcome = await c.Pump(c.F.Rig.StartSliceRecordAsync(SliceRecorderTarget.ActiveSlice));
+        Assert.True(outcome.Success);
+        Assert.True(outcome.AlreadyInState);
+        Assert.DoesNotContain(c.F.Vendor.Transport.Commands, x => x.StartsWith("slice set 1 record=", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Keying_stops_a_playback_and_play_never_keys()
+    {
+        using var c = new RadioCase();
+        c.F.Vendor.Status("slice 1 play=0");
+        Assert.True((await c.Pump(c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        Assert.DoesNotContain(c.F.Vendor.Transport.Commands, x => x.StartsWith("xmit", StringComparison.Ordinal));
+        var handler = (Delegate?)typeof(FlexBase).GetField("TransmitChange", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(c.F.Rig);
+        Assert.NotNull(handler);
+        handler!.DynamicInvoke(c.F.Rig, true);
+        await c.Pump(WaitUntil(() => c.F.Vendor.Transport.Commands.Contains("slice set 1 play=0")));
+        Assert.Contains("slice set 1 play=0", c.F.Vendor.Transport.Commands);
+        Assert.False(c.F.Rig.IsSlicePlaying(SliceRecorderTarget.ActiveSlice));
+    }
+
+    [Fact]
+    public async Task Nothing_recorded_and_not_your_slice_are_refused_without_a_command()
+    {
+        using var c = new RadioCase();
+        c.F.Vendor.Status("slice 1 play=disabled"); // how the radio says the buffer is empty
+        var nothing = await c.Pump(c.F.Rig.ToggleSlicePlayAsync(SliceRecorderTarget.ActiveSlice));
+        Assert.False(nothing.Success);
+        Assert.Equal(Text("audio.recorder.nothing_to_play", "B"), nothing.Message);
+        var notOurs = await c.Pump(c.F.Rig.ToggleSliceRecordAsync(SliceRecorderTarget.Letter('C')));
+        Assert.False(notOurs.Success);
+        Assert.Equal(Text("audio.recorder.not_your_slice", "C"), notOurs.Message);
+        Assert.DoesNotContain(c.F.Vendor.Transport.Commands, x => x.Contains(" record=") || x.Contains(" play="));
+    }
+
+    [Fact]
+    public async Task The_two_minute_warning_belongs_to_the_surface_and_a_stop_cancels_it()
+    {
+        using var c = new RadioCase();
+        c.Add(0, 7.1);
+        typeof(FlexBase).GetProperty("SliceRecordWarningAfter", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(c.F.Rig, TimeSpan.FromMilliseconds(150));
+        var warned = new List<string>();
+        c.F.Rig.SliceRecordingNearlyFull += letter => { lock (warned) warned.Add(letter); };
+
+        Assert.True((await c.Pump(c.F.Rig.StartSliceRecordAsync(SliceRecorderTarget.Letter('A')))).Success);
+        Assert.True((await c.Pump(c.F.Rig.StartSliceRecordAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        Assert.True((await c.Pump(c.F.Rig.StopSliceRecordAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        await c.Pump(WaitUntil(() => { lock (warned) return warned.Count > 0; }));
+        await Task.Delay(300);
+        lock (warned) Assert.Equal(new[] { "A" }, warned);
+    }
+
+    [Fact]
+    public async Task A_door_stops_only_what_it_started()
+    {
+        using var c = new RadioCase();
+        c.Add(0, 7.1);
+        var workshop = new object();
+        Assert.True((await c.Pump(c.F.Rig.StartSliceRecordAsync(SliceRecorderTarget.ActiveSlice, workshop))).Success);
+        Assert.True((await c.Pump(c.F.Rig.StartSliceRecordAsync(SliceRecorderTarget.Letter('A')))).Success); // from Home
+        Assert.True(await c.Pump(c.F.Rig.StopSliceRecorderOwnedByAsync(workshop)));
+        Assert.Contains("slice set 1 record=0", c.F.Vendor.Transport.Commands);
+        Assert.DoesNotContain("slice set 0 record=0", c.F.Vendor.Transport.Commands);
+        Assert.True(c.F.Rig.IsSliceRecording(SliceRecorderTarget.Letter('A')));
+    }
+
+    private static async Task<bool> WaitUntil(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!condition() && DateTime.UtcNow < deadline) await Task.Delay(10);
+        return condition();
+    }
+}
+
+/// <summary>
+/// ONE code path sets a slice's record or play (#787). Until Tape Deck track
+/// 2 the Audio Check drove the radio's recorder through setters that read no
+/// reply and did not refuse playback while transmitting, beside a second,
+/// reply-checked path that did both. This reads the authored source and fails
+/// if anything outside the recorder surface sets <c>RecordOn</c> or
+/// <c>PlayOn</c>, sends <c>record=</c> or <c>play=</c> to a slice, or names
+/// the retired setters.
+/// </summary>
+public sealed class SliceRecorderOneSurfaceTests
+{
+    private const string Surface = "Radios/FlexBase.SliceRecorder.cs";
+
+    private static readonly Regex[] Forbidden =
+    {
+        new(@"\.\s*RecordOn\s*=(?!=)", RegexOptions.Compiled),
+        new(@"\.\s*PlayOn\s*=(?!=)", RegexOptions.Compiled),
+        new(@"\b(SliceRecordOn|SlicePlayOn|SlicePlayEnabled)\b", RegexOptions.Compiled),
+        new(@"slice set [^""]*\b(record|play)=", RegexOptions.Compiled),
+    };
+
+    [Fact]
+    public void Only_the_recorder_surface_drives_the_radios_slice_recorder()
+    {
+        var offenders = new List<string>();
+        int scanned = 0;
+        foreach (string file in IntegrationPassTree.AuthoredSource)
+        {
+            string rel = IntegrationPassTree.Relative(file).Replace('\\', '/');
+            if (IntegrationPassTree.IsTest(file) || rel == Surface) continue;
+            scanned++;
+            string[] lines = IntegrationPassTree.Read(file).Split('\n');
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string line = lines[i].TrimStart();
+                if (line.StartsWith("//") || line.StartsWith("///") || line.StartsWith("'") || line.StartsWith("*")) continue;
+                foreach (var pattern in Forbidden)
+                    if (pattern.IsMatch(lines[i])) offenders.Add($"{rel}:{i + 1}: {lines[i].Trim()}");
+            }
+        }
+        Assert.True(scanned > 300, "only " + scanned + " source files were scanned; the tree was not found");
+        Assert.True(offenders.Count == 0,
+            "Something other than " + Surface + " drives the radio's slice recorder. Every door goes "
+            + "through FlexBase.StartSliceRecordAsync and its siblings, which check the radio's reply "
+            + "and refuse playback while transmitting (#787):\n" + string.Join("\n", offenders));
+    }
+
+    [Fact]
+    public void The_scan_sees_each_shape_it_forbids()
+    {
+        // Positive controls: each pattern must catch the shape it exists for,
+        // or a green run above means nothing.
+        string[] shapes =
+        {
+            "theRadio.ActiveSlice.RecordOn = value;",
+            "slice.PlayOn = true;",
+            "if (rig.SlicePlayOn) rig.SlicePlayOn = false;",
+            "bool radioHasTake = _rig?.SlicePlayEnabled == true;",
+            "string command = $\"slice set {slice.Index} record=1\";",
+        };
+        foreach (string shape in shapes)
+            Assert.True(Forbidden.Any(p => p.IsMatch(shape)), "No pattern catches: " + shape);
+        Assert.False(Forbidden.Any(p => p.IsMatch("if (slice.PlayOn == true) return;")),
+            "Reading PlayOn must not count as driving it");
+    }
+}

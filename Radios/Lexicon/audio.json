@@ -1039,5 +1039,21 @@
   "audio.full_duplex.refused": {"text": "The radio refused the full duplex change.", "delivery": null},
   "audio.full_duplex.disagreed_on": {"text": "The radio reports full duplex on, but the accepted command requested off. Check full duplex on the radio.", "delivery": null},
   "audio.full_duplex.disagreed_off": {"text": "The radio reports full duplex off, but the accepted command requested on. Check full duplex on the radio.", "delivery": null},
-  "audio.full_duplex.unconfirmed": {"text": "The radio did not confirm the full duplex change. Check its reported state.", "delivery": null}
+  "audio.full_duplex.unconfirmed": {"text": "The radio did not confirm the full duplex change. Check its reported state.", "delivery": null},
+  "audio.recorder.recording": {"text": "Slice {letter} is recording.", "delivery": null},
+  "audio.recorder.recording_loopback": {"text": "Slice {letter}, the Loopback Check's listening slice, is recording what it hears off the air.", "delivery": null},
+  "audio.recorder.recording_stopped": {"text": "Slice {letter} stopped recording.", "delivery": null},
+  "audio.recorder.already_recording": {"text": "Slice {letter} was already recording, so that recording carries on.", "delivery": null},
+  "audio.recorder.playing": {"text": "Slice {letter} is playing its recording.", "delivery": null},
+  "audio.recorder.playing_stopped": {"text": "Slice {letter} stopped playing its recording.", "delivery": null},
+  "audio.recorder.play_refused_transmitting": {"text": "Slice {letter}'s recording can't play while you are transmitting.", "delivery": null},
+  "audio.recorder.play_stopped_by_transmit": {"text": "Slice {letter} stopped playing because you started transmitting.", "delivery": null},
+  "audio.recorder.nothing_to_play": {"text": "Slice {letter} has no recording to play yet.", "delivery": null},
+  "audio.recorder.no_slice": {"text": "You have no slice of your own to record on.", "delivery": null},
+  "audio.recorder.not_your_slice": {"text": "Slice {letter} is not one of your slices.", "delivery": null},
+  "audio.recorder.record_unconfirmed": {"text": "The radio did not confirm that slice {letter} started recording.", "delivery": null},
+  "audio.recorder.record_stop_unconfirmed": {"text": "The radio did not confirm that slice {letter} stopped recording.", "delivery": null},
+  "audio.recorder.play_unconfirmed": {"text": "The radio did not confirm that slice {letter} started playing.", "delivery": null},
+  "audio.recorder.play_stop_unconfirmed": {"text": "The radio did not confirm that slice {letter} stopped playing.", "delivery": null},
+  "audio.recorder.nearly_full": {"text": "Slice {letter} has recorded for almost two minutes. From now on the radio keeps only the most recent two minutes.", "delivery": null}
 }

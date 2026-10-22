@@ -88,7 +88,7 @@ namespace Radios.Tests
         {
             string body = MethodBody(ReadWorkshop("AudioCheck"), "private void PlayLastTake()");
 
-            int radio = body.IndexOf("SlicePlayEnabled", StringComparison.Ordinal);
+            int radio = body.IndexOf("SliceHasRecording", StringComparison.Ordinal);
             int folder = body.IndexOf("RecordingStore.Newest", StringComparison.Ordinal);
             int denial = body.IndexOf("audio.check.no_recording_yet", StringComparison.Ordinal);
 

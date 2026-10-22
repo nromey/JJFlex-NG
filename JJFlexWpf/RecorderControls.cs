@@ -1,0 +1,74 @@
+using System;
+using System.Threading.Tasks;
+using Radios;
+using Radios.Speech;
+
+namespace JJFlexWpf;
+
+/// <summary>
+/// The one place every recorder DOOR goes through (#787): JJ Flexible Home,
+/// the Slice and Audio menus, the JJ key, the registry commands a flat key
+/// can be bound to, and the Audio Workshop's Record slice and Play recording
+/// buttons. Each door decides only WHICH slice; what happens and what is said
+/// are decided here, so two doors cannot grow two vocabularies for one press.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Two controls, not one with a source choice (Noel, 2026-10-21 11:00): the
+/// radio's per-slice record and play, and a separate "record to file" and
+/// "play from computer" for the computer. The radio half is
+/// <see cref="FlexBase.ToggleSliceRecordAsync"/> and its siblings; the
+/// computer half is <see cref="ComputerRecorder.Current"/>, whose engine is
+/// Tape Deck track 3's and until it lands is a stub that refuses in a plain
+/// sentence.
+/// </para>
+/// <para>
+/// <b>Play never keys the radio, and both Plays are refused while
+/// transmitting</b> (Noel, 2026-10-21 10:57: keyed, Play sending to air is
+/// phase 2). The slice recorder enforces its own refusal; the computer
+/// refusal is enforced here, before the engine is asked, so no engine can
+/// forget it.
+/// </para>
+/// </remarks>
+public static class RecorderControls
+{
+    /// <summary>
+    /// Speak a recorder outcome under its subject. A refusal thunks first and
+    /// speaks at Critical, so it is heard at every verbosity; a success is
+    /// Terse. Both interrupt, because each is the answer to the key just
+    /// pressed.
+    /// </summary>
+    public static void Speak(RecorderOutcome outcome)
+    {
+        if (outcome == null || string.IsNullOrEmpty(outcome.Message)) return;
+        if (!outcome.Success) EarconPlayer.LeaderInvalidTone();
+        ScreenReaderOutput.Speak(outcome.Message, SpeechIntent.Interrupt,
+            outcome.Success ? VerbosityLevel.Terse : VerbosityLevel.Critical,
+            subject: outcome.Subject);
+    }
+
+    private static RecorderOutcome NoRadio(string subject) =>
+        new(false, Lexicon.Get("audio.no_radio_connected"), subject);
+
+    /// <summary>Record on the target slice, or stop the recording it is making.</summary>
+    public static async Task<RecorderOutcome> ToggleSliceRecordAsync(FlexBase? rig, SliceRecorderTarget target,
+        Action<RecorderOutcome>? speak = null, object? owner = null)
+    {
+        var outcome = rig == null
+            ? NoRadio(SpeechSubject.SliceRecorder(""))
+            : await rig.ToggleSliceRecordAsync(target, owner);
+        (speak ?? Speak)(outcome);
+        return outcome;
+    }
+
+    /// <summary>Play the target slice's recording, or stop it playing.</summary>
+    public static async Task<RecorderOutcome> ToggleSlicePlayAsync(FlexBase? rig, SliceRecorderTarget target,
+        Action<RecorderOutcome>? speak = null, object? owner = null)
+    {
+        var outcome = rig == null
+            ? NoRadio(SpeechSubject.SliceRecorder(""))
+            : await rig.ToggleSlicePlayAsync(target, owner);
+        (speak ?? Speak)(outcome);
+        return outcome;
+    }
+}

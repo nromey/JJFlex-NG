@@ -160,12 +160,22 @@ public partial class AudioWorkshopDialog
     }
     private bool SliceRecorderTargetsLoopback => !_iqWasOffAir && _session?.Active == true &&
         _session.IsLoopback && _rig?.LoopbackArranged == true;
+    /// <summary>
+    /// Which slice the Workshop's Record slice and Play recording buttons act
+    /// on: the Loopback Check's listening slice while one runs, otherwise the
+    /// active slice. These two buttons are doors to the one recorder (#787,
+    /// <see cref="FlexBase.ToggleSliceRecordAsync"/>), the same one Home, the
+    /// Slice menu and the JJ key use.
+    /// </summary>
+    private SliceRecorderTarget WorkshopRecorderTarget => SliceRecorderTargetsLoopback
+        ? SliceRecorderTarget.LoopbackEars : SliceRecorderTarget.ActiveSlice;
     private void SyncSliceRecorderUi()
     {
+        var target = WorkshopRecorderTarget;
         if (_sliceRecordButton != null)
         {
             _sliceRecordButton.IsEnabled = _rig != null;
-            string label = _rig?.WorkshopSliceRecording == true
+            string label = _rig?.IsSliceRecording(target) == true
                 ? Lexicon.Get("audio.iq.stop_slice_record") : Lexicon.Get("audio.iq.record_slice");
             _sliceRecordButton.Content = label;
             AutomationProperties.SetName(_sliceRecordButton, label);
@@ -174,9 +184,9 @@ public partial class AudioWorkshopDialog
         {
             // A running playback may always be stopped. New playback needs
             // the target slice's radio-reported PlayEnabled flag.
-            _slicePlayButton.IsEnabled = _rig?.WorkshopSlicePlaying == true ||
-                _rig?.WorkshopSlicePlayEnabled(SliceRecorderTargetsLoopback) == true;
-            string label = _rig?.WorkshopSlicePlaying == true
+            bool playing = _rig?.IsSlicePlaying(target) == true;
+            _slicePlayButton.IsEnabled = playing || _rig?.SliceHasRecording(target) == true;
+            string label = playing
                 ? Lexicon.Get("audio.iq.stop_slice_play") : Lexicon.Get("audio.iq.play_recording");
             _slicePlayButton.Content = label;
             AutomationProperties.SetName(_slicePlayButton, label);
@@ -185,18 +195,14 @@ public partial class AudioWorkshopDialog
     private async Task ToggleSliceRecordAsync()
     {
         if (_rig == null) return;
-        var outcome = await _rig.ToggleWorkshopSliceRecordAsync(SliceRecorderTargetsLoopback);
+        await RecorderControls.ToggleSliceRecordAsync(_rig, WorkshopRecorderTarget, owner: this);
         SyncSliceRecorderUi();
-        ScreenReaderOutput.Speak(outcome.Message, outcome.Success ? VerbosityLevel.Terse : VerbosityLevel.Critical,
-            interrupt: !outcome.Success);
     }
     private async Task ToggleSlicePlayAsync()
     {
         if (_rig == null) return;
-        var outcome = await _rig.ToggleWorkshopSlicePlayAsync(SliceRecorderTargetsLoopback);
+        await RecorderControls.ToggleSlicePlayAsync(_rig, WorkshopRecorderTarget, owner: this);
         SyncSliceRecorderUi();
-        ScreenReaderOutput.Speak(outcome.Message, outcome.Success ? VerbosityLevel.Terse : VerbosityLevel.Critical,
-            interrupt: !outcome.Success);
     }
     private void IqStatus(string text, bool failure = false, string? subject = null,
         bool speak = true, string? spokenText = null)
@@ -386,7 +392,7 @@ public partial class AudioWorkshopDialog
                 throw new OperationCanceledException();
             var session = new AudioCheckSession(this, rig, ptt, AudioCheckListenMethods.OffAir,
                 AudioCheckPowerModes.LowPower, 1, loopback: true);
-            if (!session.Start()) throw new InvalidOperationException("keying-refused");
+            if (!await session.StartAsync()) throw new InvalidOperationException("keying-refused");
             _session = session;
             SetStartButtonLabel("Stop Audio Check");
             EarconPlayer.FeatureOnTone();
@@ -685,7 +691,7 @@ public partial class AudioWorkshopDialog
     }
     private async Task CloseListenbackAsync(FlexBase? rig)
     {
-        if (rig != null) await rig.StopWorkshopSliceRecorderAsync();
+        if (rig != null) await rig.StopSliceRecorderOwnedByAsync(this);
         if (!_iqBusy) await FinishIqAsync("dialog-closed");
     }
 }

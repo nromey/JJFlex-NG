@@ -660,7 +660,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             if (_takeStatus != null) _takeStatus.Text = Lexicon.Get(rig == null ? "audio.no_radio_connected" : "audio.iq.idle");
         }
         if (oldRig != null && !ReferenceEquals(oldRig, rig))
-            _ = oldRig.StopWorkshopSliceRecorderAsync();
+            _ = oldRig.StopSliceRecorderOwnedByAsync(this);
         _rig = rig;
         UpdateRadioControlAvailability();
         if (rig != null)

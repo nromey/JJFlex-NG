@@ -499,5 +499,29 @@ namespace Radios.Speech
         /// next clear.
         /// </summary>
         public const string AtuMemories = "atu-memories";
+
+        /// <summary>
+        /// The radio's own recorder on one slice, named by the slice's letter
+        /// (#787): recording started or stopped, playback started or stopped,
+        /// a refusal, the two-minute warning. One subject per slice because
+        /// each of those states what that slice's recorder is doing now, and
+        /// only the newest is true: an unheard "Slice A is recording" is
+        /// worthless once "Slice A stopped recording" exists. Deliberately NOT
+        /// one subject for every slice: recording slice B must not retire the
+        /// unheard news that slice A started playing, which is still true.
+        /// Every door shares it (Home, the Slice menu, the JJ key, the Audio
+        /// Workshop's buttons and the Audio Check), so two doors cannot leave
+        /// two stale sentences queued about the same slice.
+        /// </summary>
+        public static string SliceRecorder(string letter) => "slice-recorder:" + letter;
+
+        /// <summary>
+        /// The recording made on this computer (#787: "record to file" and
+        /// "play from computer"). One subject for both because there is one
+        /// computer recorder: whether it is recording, whether it is playing,
+        /// or why it refused. The slice recorders never cover it, and it never
+        /// covers them.
+        /// </summary>
+        public const string ComputerRecorder = "computer-recorder";
     }
 }
