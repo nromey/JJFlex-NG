@@ -3719,6 +3719,19 @@ public class KeyCommands
         {
             case MessageKeyAction.SendCw:
             {
+                // The hold after a reflected-power cut (#571; Opus N2). The
+                // rig's SendCW refuses inside the window too, but it returns
+                // its answer through a delegate that discards it, and this
+                // method would then show the message as sent and say "Sending".
+                // So the hold is asked HERE, before anything is sent, shown or
+                // said; it speaks the refusal itself. Same route as the voice
+                // message keys.
+                PttSafetyController ptt = Dialogs.AudioWorkshopDialog.PttControllerSource?.Invoke();
+                if (ptt != null && ptt.RefuseIfHeldAfterCut("a CW message"))
+                {
+                    _context.Trace("SendCWMessage: the message key \"" + label + "\" was refused by the hold after the reflected-power cut; nothing sent, shown or said as sending");
+                    break;
+                }
                 string msg = item.Message;
                 if (msg.Length > 0 && msg[^1] != ' ')
                     msg += " ";
