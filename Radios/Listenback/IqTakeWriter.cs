@@ -245,6 +245,14 @@ public sealed class IqTakeWriter : IDisposable
     }
     public void MarkTone(bool engaged, double frequency)
     { lock (_gate) if (!_finished) Header.Event("tone-at-keying", new { Engaged = engaged, Frequency = frequency }); }
+    /// <summary>
+    /// Whether Reference Audio was feeding the transmitter at this keying edge
+    /// (round 14, #794). Written beside <see cref="MarkTone"/> at the same
+    /// moment, because the keying edge is when the source is settled; the
+    /// provenance block's <c>reference-audio</c> is the same fact at take start.
+    /// </summary>
+    public void MarkReference(bool engaged)
+    { lock (_gate) if (!_finished) Header.Event("reference-at-keying", new { Engaged = engaged }); }
     public void Finish(string reason, long droppedPackets = 0, long droppedPairs = 0, long subscriberFailures = 0)
     {
         lock (_gate)

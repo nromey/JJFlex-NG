@@ -1163,6 +1163,24 @@ namespace Radios.Tests
                 "audio.iq.compared_aligned",
                 "audio.iq.compared_average",
 
+                // #456 Round 14 (#794's header-and-gate half): the three source
+                // words, the one-sentence refusal that asks for another take of
+                // the same kind, and the setup changes named in front of the
+                // numbers (transmit filter, RF power, mic profile, mic input,
+                // computer microphone). All DRAFT PROSE awaiting Noel. TextOnly
+                // because the dialog speaks them through its existing status
+                // path, which already carries the comparison's own subject.
+                "audio.iq.source_tone",
+                "audio.iq.source_voice",
+                "audio.iq.source_reference",
+                "audio.iq.unlike_source",
+                "audio.iq.setup_filter",
+                "audio.iq.setup_power",
+                "audio.iq.setup_profile",
+                "audio.iq.setup_mic_input",
+                "audio.iq.setup_pc_microphone",
+                "audio.iq.no_mic_profile",
+
             };
 
             Assert.Equal(3152, unclassified);

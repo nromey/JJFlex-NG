@@ -199,7 +199,17 @@ public partial class FlexBase
             writer.Header.Event("prior-radio-state", snapshot);
             if (MicSource == "PC" && pipeline != null) sent = new SentAudioWriter(pipeline, directory);
             else writer.Header.Write("sent-absent-reason", MicSource == "PC" ? "PC pipeline unavailable" : "radio microphone jack; DAX MIC is outside this build");
-            edge = (_, keyed) => { if (keyed) { heardKeying = true; run?.NoteRadioKeying(); } writer.Mark("radio-TransmitChange", keyed); if (keyed) writer.MarkTone(TxToneEngaged, TxToneFrequency); };
+            edge = (_, keyed) =>
+            {
+                if (keyed) { heardKeying = true; run?.NoteRadioKeying(); }
+                writer.Mark("radio-TransmitChange", keyed);
+                // What fed the transmitter at the keying edge: the tone, and
+                // since round 14 the reference recording (TxFilePlaying is true
+                // from the moment it is armed; it starts at this key-down). A
+                // comparison refuses to put a number on two takes with
+                // different sources, which it can only do if both wrote this.
+                if (keyed) { writer.MarkTone(TxToneEngaged, TxToneFrequency); writer.MarkReference(TxFilePlaying); }
+            };
             TransmitChange += edge;
             var before = radio.SliceList.ToArray();
             var beforePans = radio.PanadapterList.ToArray();
@@ -379,6 +389,12 @@ public partial class FlexBase
                 ["dummy-load"] = DummyLoadMode.ToString(), ["tx-filter-low"] = TXFilterLow.ToString(CultureInfo.InvariantCulture),
                 ["tx-filter-high"] = TXFilterHigh.ToString(CultureInfo.InvariantCulture), ["mic-input"] = MicSource,
                 ["pc-microphone-device"] = remoteInputDevice?.Name ?? "unavailable",
+                // Round 14 (#794): the two facts a comparison names when they
+                // differ. The profile is the radio's own selection; the
+                // reference flag is the armed state at take start, with the
+                // keying-edge record (reference-at-keying) preferred by readers.
+                ["mic-profile"] = CurrentMicProfileName ?? "",
+                ["reference-audio"] = TxFilePlaying.ToString(),
                 ["mic-gain"] = MicGain.ToString(CultureInfo.InvariantCulture), ["compander"] = Compander.ToString(),
                 ["compander-level"] = CompanderLevel.ToString(CultureInfo.InvariantCulture),
                 ["application"] = typeof(FlexBase).Assembly.GetName().Version?.ToString() ?? "unknown",

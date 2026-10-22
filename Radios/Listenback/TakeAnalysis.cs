@@ -132,15 +132,9 @@ public static class TakeAnalysis
 
     public static ToneSurvivalResult CheckTone(string directory, TakeInspection take, int rate, IReadOnlyList<TakeSpan> spans)
     {
-        bool engaged = string.Equals(take.Get("tone-engaged"), "True", StringComparison.OrdinalIgnoreCase);
-        double.TryParse(take.Get("tone-hz"), NumberStyles.Float, CultureInfo.InvariantCulture, out double hz);
-        var keyedTone = take.Fields.LastOrDefault(p => p.Key == "tone-at-keying").Value;
-        if (keyedTone != null)
-        {
-            using var json = JsonDocument.Parse(keyedTone);
-            engaged = json.RootElement.GetProperty("Engaged").GetBoolean();
-            hz = json.RootElement.GetProperty("Frequency").GetDouble();
-        }
+        // One reader of the keyed-tone record, shared with the comparison gate
+        // (round 14), so the two can never disagree about which take was a tone.
+        bool engaged = TakeSetup.ToneAtKeying(take, out double hz);
         if (!engaged || spans.Count == 0) return new(false, "no-recorded-keyed-tone");
         var span = spans.FirstOrDefault(s => s.Length >= rate / 4 && s.Start >= rate / 4);
         if (span.Length == 0) return new(false, "no-gap-free-tone-and-rest-span");
@@ -174,7 +168,17 @@ public static class TakeAnalysis
         var a = TakeReader.Inspect(previousDirectory); var b = TakeReader.Inspect(currentDirectory);
         if (!a.Playable || !b.Playable) return new(false, "corrupt-take");
         string mismatch = AudioDifferential.Compatibility(a, b);
+        if (mismatch == "source")
+            return new(false, "unlike-takes:source",
+                SetupChanges: new[] { new SetupChange("source", TakeSetup.Source(a), TakeSetup.Source(b)) });
         if (mismatch != "") return new(false, "unlike-takes:" + mismatch);
+        var changes = TakeSetup.Changes(a, b);
+        return CompareAudio(a, b, previousDirectory, currentDirectory, reuseRenders) with { SetupChanges = changes };
+    }
+
+    private static AudioDifference CompareAudio(TakeInspection a, TakeInspection b, string previousDirectory,
+        string currentDirectory, bool reuseRenders)
+    {
         if (!reuseRenders || !File.Exists(Path.Combine(previousDirectory, "heard.wav")))
             SsbTakeRenderer.Render(previousDirectory);
         if (!reuseRenders || !File.Exists(Path.Combine(currentDirectory, "heard.wav")))

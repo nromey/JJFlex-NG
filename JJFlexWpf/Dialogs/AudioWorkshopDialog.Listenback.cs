@@ -576,8 +576,21 @@ public partial class AudioWorkshopDialog
     internal static string ReferenceDifferenceSentence(AudioDifference difference) =>
         AlignedDifferenceSentence(difference, sentReference: true);
     internal static string AverageDifferenceSentence(AudioDifference difference) => LevelAndToneSentence(difference);
+    /// <summary>
+    /// The spoken result of the automatic comparison after an off-air take has
+    /// played back: the intro, then (round 14) any setup difference named in
+    /// front of the numbers, then the numbers. Assembled, as NVDA hears it:
+    /// "Compared with last take. Your microphone profile was Default on your
+    /// last take and is Heil PR 781 on this one. Your new take is quieter by
+    /// 2.1 dB than your last take, with the same tone."
+    /// </summary>
     internal static string AutoComparisonSentence(AudioDifference difference) =>
-        Lexicon.Get("audio.iq.auto_result_intro") + " " + LevelAndToneSentence(difference);
+        Lexicon.Get("audio.iq.auto_result_intro") + " " + WithSetupChanges(difference, LevelAndToneSentence(difference));
+    private static string WithSetupChanges(AudioDifference difference, string numbers)
+    {
+        string changes = ListenbackResultText.SetupChanges(difference);
+        return changes.Length == 0 ? numbers : changes + " " + numbers;
+    }
     private async Task ComparePreviousIqAsync()
     {
         if (_iqBusy || _iqRun != null || _rig?.Transmit == true) return;
@@ -610,13 +623,21 @@ public partial class AudioWorkshopDialog
             if (_iqClosing || auto && _lastIqDirectory != current) return;
             string methodKey = difference.Reason == "overall-average" ? "audio.iq.compared_average" : "audio.iq.compared_aligned";
             string method = Lexicon.Get(methodKey);
-            string numbers = difference.Reason == "overall-average"
+            // Round 14: a setup difference the ruling says to compare anyway
+            // (filter, power, profile, microphone) is named before the numbers.
+            string numbers = WithSetupChanges(difference, difference.Reason == "overall-average"
                 ? AverageDifferenceSentence(difference)
-                : DifferenceSentence(difference);
+                : DifferenceSentence(difference));
+            string changes = ListenbackResultText.SetupChanges(difference);
             await UpdateIqStatisticsAsync(current, previous,
-                difference.Comparable ? method : "not comparable; " + difference.Reason);
-            IqStatus(difference.Comparable ? Lexicon.Get("audio.iq.previous_comparison") + " " + method + " " + numbers :
-                Lexicon.Get(auto ? "audio.iq.auto_unavailable" : "audio.iq.unlike_or_unaligned"),
+                difference.Comparable ? method + (changes.Length == 0 ? "" : " " + changes) : "not comparable; " + difference.Reason);
+            // A take of a different kind (tone against voice, either against
+            // the reference) is refused in one full sentence that says which was
+            // which and asks for another take, on both the automatic and the
+            // manual road. Every other refusal keeps its older sentence.
+            string refusal = difference.Reason == "unlike-takes:source" ? ListenbackResultText.UnlikeSource(difference)
+                : Lexicon.Get(auto ? "audio.iq.auto_unavailable" : "audio.iq.unlike_or_unaligned");
+            IqStatus(difference.Comparable ? Lexicon.Get("audio.iq.previous_comparison") + " " + method + " " + numbers : refusal,
                 !difference.Comparable && !auto,
                 subject: auto ? "audio.iq.auto_comparison" : null,
                 spokenText: auto && difference.Comparable ? AutoComparisonSentence(difference) : null);

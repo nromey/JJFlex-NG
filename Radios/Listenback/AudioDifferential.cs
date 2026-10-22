@@ -9,8 +9,17 @@ public sealed record AudioShape(double RmsDb, double PeakDb, double CrestDb, dou
 {
     public double TiltDb => HighDb - LowDb;
 }
+/// <summary>
+/// A comparison's verdict. <see cref="SetupChanges"/> (round 14) carries the
+/// setup facts that differed between the two takes: for a comparable result,
+/// the differences to NAME in front of the numbers; for a refusal with
+/// <c>Reason</c> <c>unlike-takes:source</c>, one entry keyed <c>source</c>
+/// whose values are the two takes' sources, so the refusal can say which was
+/// which.
+/// </summary>
 public sealed record AudioDifference(bool Comparable, string Reason, double LevelDb = 0,
-    double TiltDb = 0, double CrestDb = 0, double StopbandDb = 0);
+    double TiltDb = 0, double CrestDb = 0, double StopbandDb = 0,
+    IReadOnlyList<SetupChange> SetupChanges = null);
 
 /// <summary>Sample-derived audio comparison; independent of the meter differential.</summary>
 public static class AudioDifferential
@@ -106,11 +115,27 @@ public static class AudioDifferential
         return a == null || b == null ? new(false, "no-keyed-gap-free-speech") :
             new(true, "overall-average", b.Value.Level - a.Value.Level, b.Value.Tilt - a.Value.Tilt);
     }
+    /// <summary>
+    /// The facts two takes must share before their numbers mean anything, or
+    /// "" when they do. The radio, the mode, the IQ rate, both antennas and the
+    /// receive gain, the frequencies, the dummy load and the render scale are
+    /// refusals: a change in any of them changes what the ears heard for
+    /// reasons that have nothing to do with the operator's audio. So is the
+    /// SOURCE (round 14, #794): a tone take against a voice take, or either
+    /// against the reference, is "source".
+    ///
+    /// <para>NOT refusals any more, RULED by Noel 2026-10-22 05:39: the
+    /// transmit filter and the RF power. How narrowing the filter changed the
+    /// sound is what the feature is for, so those are compared and the
+    /// difference named (<see cref="TakeSetup.Changes"/>). An antenna change
+    /// stays a refusal.</para>
+    /// </summary>
     public static string Compatibility(TakeInspection a, TakeInspection b)
     {
-        foreach (string key in new[] { "serial", "mode", "rate-echoed", "receive-antenna", "rf-gain", "tx-antenna", "rf-power",
-            "tx-frequency-mhz", "pan-centre-mhz", "tx-filter-low", "tx-filter-high", "dummy-load", "render-scale" })
+        foreach (string key in new[] { "serial", "mode", "rate-echoed", "receive-antenna", "rf-gain", "tx-antenna",
+            "tx-frequency-mhz", "pan-centre-mhz", "dummy-load", "render-scale" })
             if (a.Get(key) == null || b.Get(key) == null || a.Get(key) != b.Get(key)) return key;
+        if (TakeSetup.Source(a) != TakeSetup.Source(b)) return "source";
         return "";
     }
 }
