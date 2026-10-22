@@ -138,6 +138,19 @@ namespace Radios
             // other two toggles on this menu carry no accelerator either.
             new("binaural", "Binaural", AudioMenuEntryKind.Toggle, true),
 
+            // #787, Tape Deck track 2: the computer recorder. Computer
+            // recording goes under Audio, slice recording under Slice (Noel,
+            // 2026-10-21 11:01). Toggles, so no accelerator column, for the
+            // reason Binaural gives above. Record to File needs a radio (it
+            // records what the radio plays through this computer); Play from
+            // Computer does not, which makes it the first row that works with
+            // no radio. Its P is not an A, so #214's first-letter skip cannot
+            // land on it in the disconnected case either; see
+            // The_first_row_that_works_without_a_radio_does_not_start_with_A.
+            new("sep-recorder", "", AudioMenuEntryKind.Separator, false),
+            new("record-to-file", "Record to File", AudioMenuEntryKind.Toggle, true),
+            new("play-from-computer", "Play from Computer", AudioMenuEntryKind.Toggle, false),
+
             new("sep-levels", "", AudioMenuEntryKind.Separator, false),
 
             new("pc-audio-levels", "PC Audio Levels (this computer)",

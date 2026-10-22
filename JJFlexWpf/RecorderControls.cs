@@ -26,7 +26,7 @@ namespace JJFlexWpf;
 /// <b>Play never keys the radio, and both Plays are refused while
 /// transmitting</b> (Noel, 2026-10-21 10:57: keyed, Play sending to air is
 /// phase 2). The slice recorder enforces its own refusal; the computer
-/// refusal is enforced here, before the engine is asked, so no engine can
+/// refusal is enforced in ComputerRecorder.TogglePlaybackAsync, before the engine is asked, so no engine can
 /// forget it.
 /// </para>
 /// </remarks>
@@ -68,6 +68,31 @@ public static class RecorderControls
         var outcome = rig == null
             ? NoRadio(SpeechSubject.SliceRecorder(""))
             : await rig.ToggleSlicePlayAsync(target, owner);
+        (speak ?? Speak)(outcome);
+        return outcome;
+    }
+
+    /// <summary>
+    /// Start recording to a file on this computer, or stop the recording.
+    /// Stopping needs no radio: a recording outlives the connection it began on.
+    /// </summary>
+    public static async Task<RecorderOutcome> ToggleComputerRecordAsync(FlexBase? rig,
+        Action<RecorderOutcome>? speak = null)
+    {
+        var outcome = await ComputerRecorder.ToggleRecordingAsync(rig);
+        (speak ?? Speak)(outcome);
+        return outcome;
+    }
+
+    /// <summary>
+    /// Play the last computer recording, or the one chosen in the recordings
+    /// dialog, to the speakers; or stop it playing. Needs no radio. Refused
+    /// while transmitting, in ComputerRecorder.TogglePlaybackAsync, before the engine is asked.
+    /// </summary>
+    public static async Task<RecorderOutcome> ToggleComputerPlayAsync(FlexBase? rig,
+        Action<RecorderOutcome>? speak = null)
+    {
+        var outcome = await ComputerRecorder.TogglePlaybackAsync(rig?.Transmit == true);
         (speak ?? Speak)(outcome);
         return outcome;
     }

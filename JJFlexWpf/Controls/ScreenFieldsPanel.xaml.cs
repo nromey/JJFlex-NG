@@ -758,6 +758,10 @@ public partial class ScreenFieldsPanel : UserControl
         };
         AudioContent.Children.Add(_micVerdictDisplay);
 
+        // Record to file and play from computer (#787), with the rest of
+        // what this computer does with the radio's audio.
+        BuildComputerRecorderControls();
+
         // === On-radio outputs group ===
         // "On-radio" is the load-bearing word: these move the radio's own
         // jacks, which a remote PC-audio operator cannot hear.
@@ -1510,8 +1514,9 @@ public partial class ScreenFieldsPanel : UserControl
         _lineoutMuteCheck.IsChecked = _rig.LineoutMute;
         _frontSpeakerMuteCheck.IsChecked = _rig.FrontSpeakerMute;
 
-        // The radio's per-slice recorder (#787).
+        // The radio's per-slice recorder, and the computer's (#787).
         PollSliceRecorder();
+        UpdateComputerRecorderButtons();
     }
 
     /// <summary>

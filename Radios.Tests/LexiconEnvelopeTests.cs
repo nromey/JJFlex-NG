@@ -1210,6 +1210,17 @@ namespace Radios.Tests
                 "audio.fields.recorder_slice",
                 "audio.fields.recorder_slice_option",
                 "audio.fields.recorder_help",
+                // The computer recorder's controls (record to file, play
+                // from computer) and the stub's refusals until Tape Deck
+                // track 3's engine is installed.
+                "audio.recorder.computer_record_unavailable",
+                "audio.recorder.computer_play_unavailable",
+                "audio.recorder.computer_play_refused_transmitting",
+                "audio.recorder.record_to_file_button",
+                "audio.recorder.stop_record_to_file_button",
+                "audio.recorder.play_from_computer_button",
+                "audio.recorder.stop_play_from_computer_button",
+                "audio.fields.computer_recorder_help",
 
             };
 

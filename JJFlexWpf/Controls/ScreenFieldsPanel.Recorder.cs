@@ -124,6 +124,47 @@ public partial class ScreenFieldsPanel
         UpdateSliceRecorderButtons();
     }
 
+    private Button _recordToFileButton = null!;
+    private Button _playFromComputerButton = null!;
+
+    /// <summary>
+    /// Record to file and play from computer, at the end of the PC audio
+    /// group (Noel, 2026-10-21 11:01: computer recording goes under Audio).
+    /// Two plain buttons and no chooser: there is one computer recorder, and
+    /// which recording plays is the recordings dialog's choice.
+    /// </summary>
+    private void BuildComputerRecorderControls()
+    {
+        // DRAFT PROSE (#787): awaiting Noel
+        _recordToFileButton = MakeRecorderButton(Lexicon.Get("audio.recorder.record_to_file_button"));
+        JJFlexHelp.SetText(_recordToFileButton, Lexicon.Get("audio.fields.computer_recorder_help"));
+        _recordToFileButton.Click += async (s, e) =>
+        {
+            await RecorderControls.ToggleComputerRecordAsync(_rig);
+            UpdateComputerRecorderButtons();
+        };
+        AudioContent.Children.Add(_recordToFileButton);
+
+        _playFromComputerButton = MakeRecorderButton(Lexicon.Get("audio.recorder.play_from_computer_button"));
+        JJFlexHelp.SetText(_playFromComputerButton, Lexicon.Get("audio.fields.computer_recorder_help"));
+        _playFromComputerButton.Click += async (s, e) =>
+        {
+            await RecorderControls.ToggleComputerPlayAsync(_rig);
+            UpdateComputerRecorderButtons();
+        };
+        AudioContent.Children.Add(_playFromComputerButton);
+    }
+
+    private void UpdateComputerRecorderButtons()
+    {
+        if (_recordToFileButton == null || _playFromComputerButton == null) return;
+        var recorder = ComputerRecorder.Current;
+        Relabel(_recordToFileButton, Lexicon.Get(recorder.IsRecording
+            ? "audio.recorder.stop_record_to_file_button" : "audio.recorder.record_to_file_button"));
+        Relabel(_playFromComputerButton, Lexicon.Get(recorder.IsPlaying
+            ? "audio.recorder.stop_play_from_computer_button" : "audio.recorder.play_from_computer_button"));
+    }
+
     private void UpdateSliceRecorderButtons()
     {
         if (_homeSliceRecordButton == null || _homeSlicePlayButton == null) return;

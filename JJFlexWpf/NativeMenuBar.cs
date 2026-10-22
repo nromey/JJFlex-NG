@@ -1092,6 +1092,16 @@ public class NativeMenuBar : IDisposable
                     AddChecked(parent, label, MenuToggleBinaural,
                         () => Rig?.Binaural == FlexBase.OffOnValues.on, enabled);
                     break;
+                case "record-to-file":
+                    AddChecked(parent, label,
+                        () => _ = RecorderControls.ToggleComputerRecordAsync(Rig, SpeakRecorderAfterMenuClose),
+                        () => Radios.ComputerRecorder.Current.IsRecording, enabled);
+                    break;
+                case "play-from-computer":
+                    AddChecked(parent, label,
+                        () => _ = RecorderControls.ToggleComputerPlayAsync(Rig, SpeakRecorderAfterMenuClose),
+                        () => Radios.ComputerRecorder.Current.IsPlaying, enabled);
+                    break;
                 case "pc-audio-levels":
                     AddWired(parent, label, MenuPcAudioLevels, enabled);
                     break;
