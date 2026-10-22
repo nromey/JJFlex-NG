@@ -425,6 +425,8 @@ These work while your focus is in the JJ Flexible Home or in Home's field groups
 - **Shift+Space** — Toggle a transmit lock on or off
 - **Escape** — Stop transmitting (while a transmit lock is on)
 
+Ctrl+Space also keys the radio from the app's own dialogs, such as Settings.
+
 ### RX Filter Adjustment
 
 The bracket keys shape your receive filter from anywhere in the radio modes:
