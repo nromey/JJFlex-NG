@@ -2779,7 +2779,7 @@ public partial class MainWindow : UserControl
         {
             if (rawKey == Key.Space && Keyboard.Modifiers == ModifierKeys.Shift)
             {
-                _pttController.ToggleLock();
+                LockKeyDown(e.IsRepeat);
                 e.Handled = true;
                 return;
             }
@@ -2835,6 +2835,9 @@ public partial class MainWindow : UserControl
         {
             // #778c round three: the measurement trace, see the key-down.
             SpaceKeyTimingTrace.Note(down: false, WpfKeyConverter.ToWinFormsKeys(e), e.IsRepeat, SpaceKeyTimingTrace.HomeDoor);
+            // Detection only (#800): a lock release too fast to be human is
+            // counted and traced, and changes nothing.
+            _lockPairDetector.NoteUp(Environment.TickCount64);
             // Read the state BEFORE the edge runs: a consumed release takes the
             // controller out of PttHold, and asking afterwards would let the
             // very key-up that unkeyed fall through to the focused control.
@@ -2972,6 +2975,36 @@ public partial class MainWindow : UserControl
     /// silently (#307) — and the UP is simply nothing to release.
     /// </summary>
     internal void HandleSystemWidePttEdge(bool down) => PttEdgeFromOutsideHome(down, PttDoor.SystemWide);
+
+    /// <summary>
+    /// Detection only (#800): counts a lock-key release that arrives too soon
+    /// after its press to be human, the pattern the controller uses for push
+    /// to talk. No measurement has shown such a pair on Shift+Space under
+    /// either reader, so nothing is built on it; the trace would say so.
+    /// </summary>
+    private readonly Radios.LockKeyPairDetector _lockPairDetector = new Radios.LockKeyPairDetector();
+
+    /// <summary>
+    /// Home's transmit lock key, Shift+Space, decided at key-DOWN with no
+    /// pending state (#800). A held key is ONE press: it toggles the lock
+    /// once, however long it is held and whatever repeats the screen reader
+    /// sends (Noel, 2026-10-21 20:46: "holding it should just lock and unlock
+    /// it for sure"). Until this, every auto-repeat toggled it — on 2026-10-21
+    /// a Shift+Space held about 0.8 s keyed and unkeyed the radio sixteen
+    /// times in under a second into a high-reflection load, and on 2026-10-22
+    /// JAWS was measured delivering a hold the same way: repeat key-downs
+    /// every ~31 ms from 500 ms in. Same rule as the Ctrl+Space branch beside
+    /// it and as the system-wide chord, which latches on its first down.
+    /// Nothing is decided at key-up (#778c, Codex B5): a press decided there
+    /// survived Escape and a window change and keyed on a later unrelated
+    /// Space release.
+    /// </summary>
+    internal void LockKeyDown(bool isRepeat)
+    {
+        if (isRepeat) return;   // a held key is one press
+        _lockPairDetector.NoteDown(Environment.TickCount64);
+        _pttController?.ToggleLock();
+    }
 
     /// <summary>The system-wide transmit lock: what Shift+Space does inside the window.</summary>
     internal void HandleSystemWideLockToggle()

@@ -3049,7 +3049,7 @@ namespace Radios.Tests
             foreach (string branch in new[]
             {
                 "_freqOutHandlers.HandleFilterHotkey(e);",
-                "_pttController.ToggleLock();",          // #778c round three: Home's lock is main's again (Noel 10:55)
+                "LockKeyDown(e.IsRepeat);",              // #800: Home's lock, one toggle per press, decided at key-down
                 "PttKeyDownEdge(PttDoor.Home);",         // round two: the edge records which door keyed the hold
                 "_pttController.EscapeUnlock();",
             })
@@ -3217,16 +3217,34 @@ namespace Radios.Tests
             int homeStep4 = main.IndexOf("DoCommandHandler(winFormsKey)", home, StringComparison.Ordinal);
             Assert.True(home >= 0 && homeStep4 > home);
 
-            // 1. Home's step 3: one toggle per key-down event, exactly main's.
-            const string step3LockAsOnMain =
+            // 1. Home's step 3. UNTIL #800 (2026-10-22) this pinned main's
+            //    text, which called ToggleLock on EVERY key-down, repeats
+            //    included — and so pinned #800's bug as the desired behaviour:
+            //    on 2026-10-21 a Shift+Space held 0.8 s keyed and unkeyed the
+            //    radio sixteen times in under a second. Noel, 20:46: "holding
+            //    it should just lock and unlock it for sure." The pin now says
+            //    the opposite: one toggle per PRESS, decided at key-down from
+            //    the event's own repeat flag, with no state and nothing at
+            //    key-up (Codex B5). The branch hands the flag to LockKeyDown,
+            //    whose body is pinned beside it.
+            const string step3LockOneTogglePerPress =
                 "            if (rawKey == Key.Space && Keyboard.Modifiers == ModifierKeys.Shift)\n" +
                 "            {\n" +
-                "                _pttController.ToggleLock();\n" +
+                "                LockKeyDown(e.IsRepeat);\n" +
                 "                e.Handled = true;\n" +
                 "                return;\n" +
                 "            }\n";
-            int step3Lock = main.IndexOf(step3LockAsOnMain, home, StringComparison.Ordinal);
-            Assert.True(step3Lock > home && step3Lock < homeStep4, "Home's Shift+Space branch must read exactly as main's");
+            int step3Lock = main.IndexOf(step3LockOneTogglePerPress, home, StringComparison.Ordinal);
+            Assert.True(step3Lock > home && step3Lock < homeStep4, "Home's Shift+Space branch must hand the repeat flag to LockKeyDown");
+            const string lockKeyDownEdge =
+                "    internal void LockKeyDown(bool isRepeat)\n" +
+                "    {\n" +
+                "        if (isRepeat) return;   // a held key is one press\n" +
+                "        _lockPairDetector.NoteDown(Environment.TickCount64);\n" +
+                "        _pttController?.ToggleLock();\n" +
+                "    }\n";
+            Assert.Contains(lockKeyDownEdge, main);
+            Assert.Equal(1, Regex.Matches(main, @"\bLockKeyDown\(e\.IsRepeat\);").Count);
 
             // 2. The system-wide lock: main's handler, body and all.
             const string systemWideLockAsOnMain =
@@ -3242,10 +3260,16 @@ namespace Radios.Tests
                 "    }\n";
             Assert.Contains(systemWideLockAsOnMain, main);
 
-            // 3. The Space key-up on Home: main's body. The one line ahead of
-            //    it, the round-three measurement trace, is pinned below and is
-            //    the only difference.
+            // 3. The Space key-up on Home: main's body. Ahead of it, the
+            //    round-three measurement trace (pinned below) and, since #800,
+            //    the lock-key pair DETECTOR — a counter and a trace line, which
+            //    decides nothing and acts on nothing (Phase 2 as settled
+            //    2026-10-22: count and trace, build no guard). Those two lines
+            //    are the only difference from main.
             const string keyUpAsOnMain =
+                "            // Detection only (#800): a lock release too fast to be human is\n" +
+                "            // counted and traced, and changes nothing.\n" +
+                "            _lockPairDetector.NoteUp(Environment.TickCount64);\n" +
                 "            // Read the state BEFORE the edge runs: a consumed release takes the\n" +
                 "            // controller out of PttHold, and asking afterwards would let the\n" +
                 "            // very key-up that unkeyed fall through to the focused control.\n" +
@@ -3256,7 +3280,7 @@ namespace Radios.Tests
                 "        }\n";
             int keyUp = main.IndexOf("private void MainWindow_PreviewKeyUp(object sender, KeyEventArgs e)", StringComparison.Ordinal);
             Assert.True(keyUp >= 0);
-            Assert.Contains(keyUpAsOnMain, main.Substring(keyUp, 1200));
+            Assert.Contains(keyUpAsOnMain, main.Substring(keyUp, 1400));
 
             // Nothing of the lock classifier, round two's edges, or round one's
             // hold filter survives, in MainWindow or in Radios.
