@@ -68,9 +68,9 @@ public partial class AudioWorkshopDialog
         _iqHearSelfDuringTake = new CheckBox { Content = Lexicon.Get("audio.iq.hear_during_take"),
             IsChecked = false, Margin = new Thickness(2) };
         AddToSection(HearYourselfContent, _iqHearSelfDuringTake);
-        _iqAutoCompare = new CheckBox { Content = Lexicon.Get("audio.iq.auto_compare"),
-            IsChecked = false, Margin = new Thickness(2) };
-        AddToSection(HearYourselfContent, _iqAutoCompare);
+        // The comparison box used to be built here, between "Hear yourself
+        // during the take" and the antenna. Round 14 moved it up into the Test
+        // Tone section (BuildComparisonChoice, called from BuildTestToneSection).
         _iqAntenna = new ComboBox { Margin = new Thickness(2) };
         AutomationProperties.SetName(_iqAntenna, Lexicon.Get("audio.iq.antenna_label"));
         JJFlexHelp.SetText(_iqAntenna, Lexicon.Get("audio.iq.antenna_help"));
@@ -103,11 +103,48 @@ public partial class AudioWorkshopDialog
             }
         };
     }
+    /// <summary>
+    /// "Tell me how my sound changed compared to my last take": the choice
+    /// that, after an off-air take has played back, compares it with the take
+    /// before and says what changed. Built INTO the Test Tone section, right
+    /// after the tone's own controls, rather than down in Listen-back where it
+    /// sat until round 14 (Noel, 2026-10-21 20:12: "move the checkbox closer to
+    /// the test tone so it's before the listen source"). It belongs beside the
+    /// tone because the two choices are made together at the start of a take:
+    /// tone or voice, and whether to compare. Round 14's gate makes the pairing
+    /// honest, since a tone take is never compared with a voice take.
+    ///
+    /// <para>The tick is remembered per radio with the Audio Check's other
+    /// choices (<see cref="SavePerRadioPrefs"/>, <see cref="LoadPerRadioPrefs"/>):
+    /// Noel, 18:55 the same evening, "I'd have it remember its setting yes".
+    /// The tone checkbox one stop above is deliberately NOT remembered.</para>
+    ///
+    /// <para>Over SmartLink it is collapsed, out of the tab order
+    /// (<see cref="UpdateIqAvailability"/>): it only ever acts after an
+    /// OFF-AIR take, and an off-air take refuses over SmartLink, so there it is
+    /// a control that can do nothing, and the house rule takes those out of
+    /// the ring.</para>
+    /// </summary>
+    private void BuildComparisonChoice()
+    {
+        _iqAutoCompare = new CheckBox { Content = Lexicon.Get("audio.iq.auto_compare"),
+            IsChecked = false, Margin = new Thickness(2) };
+        AutomationProperties.SetName(_iqAutoCompare, Lexicon.Get("audio.iq.auto_compare"));
+        _iqAutoCompare.Checked += (_, _) => { if (!_polling) SavePerRadioPrefs(); };
+        _iqAutoCompare.Unchecked += (_, _) => { if (!_polling) SavePerRadioPrefs(); };
+        AddToSection(HearYourselfContent, _iqAutoCompare);
+    }
     private void UpdateIqAvailability()
     {
         SyncSliceRecorderUi();
         if (_iqPreflight != null)
             _iqPreflight.Visibility = _rig != null && !_rig.RemoteRig ? Visibility.Visible : Visibility.Collapsed;
+        // Hidden over SmartLink, where the off-air take it follows cannot run.
+        // With no radio it stays visible: the whole Test Tone section is then
+        // disabled, which already keeps it out of the ring while leaving it
+        // discoverable to a review cursor.
+        if (_iqAutoCompare != null)
+            _iqAutoCompare.Visibility = _rig?.RemoteRig == true ? Visibility.Collapsed : Visibility.Visible;
         if (_iqAntenna == null || _iqRun != null || _iqBusy) return;
         var names = new[] { Lexicon.Get("audio.iq.antenna_unchanged") }.Concat(_rig?.ListenbackReceiveAntennas ?? Array.Empty<string>()).ToArray();
         if (!(_iqAntenna.ItemsSource is string[] old) || !old.SequenceEqual(names))

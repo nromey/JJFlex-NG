@@ -53,9 +53,7 @@ public partial class AudioWorkshopDialog
         _tonePresetControl.SelectionChanged += (s, idx) =>
         {
             if (_polling) return;
-            bool custom = idx >= TonePresetHz.Length;
-            if (_toneFreqControl != null)
-                _toneFreqControl.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
+            UpdateToneControlsVisibility(); // the custom field follows the preset
             ToneParamsChanged(speakPassband: true);
         };
         AddToSection(HearYourselfContent, _tonePresetControl);
@@ -95,6 +93,63 @@ public partial class AudioWorkshopDialog
         AutomationProperties.SetName(_toneInfo, "Test tone passband status");
         AutomationProperties.SetLiveSetting(_toneInfo, AutomationLiveSetting.Polite);
         AddToSection(HearYourselfContent, _toneInfo);
+
+        // The tone starts off, so its controls start hidden (round 14).
+        UpdateToneControlsVisibility();
+
+        // "Tell me how my sound changed compared to my last take" closes this
+        // section: after the tone's controls and before Reference Audio and
+        // the Audio Check's listen method. See BuildComparisonChoice for why
+        // it lives here and not in Listen-back.
+        BuildComparisonChoice();
+    }
+
+    /// <summary>
+    /// The tone's frequency, level and monitor controls, the custom frequency
+    /// field and the passband status line are in the tab order only while the
+    /// tone is ON (Noel, 2026-10-21 20:12, "agreed"). They do nothing until
+    /// "Test tone instead of microphone" is ticked, and a control that
+    /// currently does nothing comes out of the ring: the same house rule
+    /// <see cref="UpdateCheckWattsVisibility"/> applies to the watts field.
+    /// </summary>
+    /// <remarks>
+    /// <para>"On" is read from the ENGINE first. The Ctrl+J, Ctrl+G chord arms
+    /// the tone from outside this dialog, and a chord-armed tone must show its
+    /// controls; <see cref="SyncToneArmUi"/> brings the checkbox into line on
+    /// the next meter tick and lands here through
+    /// <see cref="SetToneCheckSilently"/>. The checkbox is consulted as well,
+    /// so the controls appear the moment the box is ticked rather than up to a
+    /// second later when the radio confirms the injection path (#458's pending
+    /// arm), and go again if that arm is refused and the box is cleared.</para>
+    ///
+    /// <para>The custom frequency field keeps its own rule inside that: shown
+    /// only for the Custom preset, as before.</para>
+    ///
+    /// <para>The passband status line, <c>_toneInfo</c>, hides WITH the
+    /// controls. It describes a frequency the operator can no longer see or
+    /// change, and nothing is lost by hiding it: arming re-speaks the passband
+    /// verdict in the arm sentence (<see cref="ArmToneNow"/>), every key-down
+    /// re-checks it (<see cref="BuildToneAnnouncement"/>), and the edge
+    /// warning for a filter moved out from under an ARMED tone
+    /// (<see cref="UpdateToneStatus"/>) only ever fires while the tone is on,
+    /// which is exactly when the line is visible. What goes away is a polite
+    /// live-region announcement about an unarmed tone's passband whenever the
+    /// transmit filter moved, which told the operator about a thing they were
+    /// not doing.</para>
+    /// </remarks>
+    private void UpdateToneControlsVisibility()
+    {
+        bool on = _rig?.TxToneEngaged == true || _toneCheck?.IsChecked == true;
+        var shown = on ? Visibility.Visible : Visibility.Collapsed;
+        if (_tonePresetControl != null) _tonePresetControl.Visibility = shown;
+        if (_toneLevelControl != null) _toneLevelControl.Visibility = shown;
+        if (_toneMonitorCheck != null) _toneMonitorCheck.Visibility = shown;
+        if (_toneInfo != null) _toneInfo.Visibility = shown;
+        if (_toneFreqControl != null)
+        {
+            bool custom = (_tonePresetControl?.SelectedIndex ?? 0) >= TonePresetHz.Length;
+            _toneFreqControl.Visibility = on && custom ? Visibility.Visible : Visibility.Collapsed;
+        }
     }
 
     /// <summary>The effective tone frequency: preset value, or the custom field.</summary>
@@ -133,8 +188,6 @@ public partial class AudioWorkshopDialog
                 _toneFreqControl.SuppressEvents = true;
                 _toneFreqControl.Value = freq;
                 _toneFreqControl.SuppressEvents = false;
-                _toneFreqControl.Visibility = presetIdx >= TonePresetHz.Length
-                    ? Visibility.Visible : Visibility.Collapsed;
             }
             if (_toneLevelControl != null)
             {
@@ -149,6 +202,7 @@ public partial class AudioWorkshopDialog
         {
             _polling = false;
         }
+        UpdateToneControlsVisibility(); // the custom field follows the loaded preset
 
         if (_rig != null)
         {
@@ -284,6 +338,10 @@ public partial class AudioWorkshopDialog
     private void ToneArmChanged(bool armed)
     {
         if (_polling) return;
+        // Show or hide the tone's controls on the tick itself, before the
+        // radio has answered: a refused arm clears the box through
+        // SetToneCheckSilently, which hides them again.
+        UpdateToneControlsVisibility();
 
         if (!armed)
         {
@@ -397,6 +455,9 @@ public partial class AudioWorkshopDialog
         _polling = true;
         try { _toneCheck.IsChecked = value; }
         finally { _polling = false; }
+        // Every silent road into or out of the armed state (the chord, a
+        // refused arm, a radio switch) shows or hides the tone's controls too.
+        UpdateToneControlsVisibility();
     }
 
     /// <summary>

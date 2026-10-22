@@ -747,7 +747,8 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     }
 
     /// <summary>
-    /// Load per-radio Audio Check preferences (listen method, low power) from
+    /// Load per-radio Audio Check preferences (listen method, power mode and
+    /// watts, and since round 14 the "compare with my last take" tick) from
     /// the serial-keyed RadioConfig store and reflect them in the controls.
     /// </summary>
     private void LoadPerRadioPrefs()
@@ -778,6 +779,15 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             _checkWattsControl.Value = Math.Clamp(_radioCfg.AudioCheckLowPowerWatts, 1, 100);
             _checkWattsControl.SuppressEvents = false;
         }
+        if (_iqAutoCompare != null)
+        {
+            // A CheckBox has no SuppressEvents; _polling is how every other
+            // checkbox in this dialog is set without its handler saving the
+            // value straight back (SetToneCheckSilently does the same).
+            _polling = true;
+            try { _iqAutoCompare.IsChecked = _radioCfg.AudioCheckCompareWithLastTake; }
+            finally { _polling = false; }
+        }
         UpdateCheckWattsVisibility();
     }
 
@@ -790,6 +800,8 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             _radioCfg.AudioCheckPowerMode = (AudioCheckPowerModes)_checkPowerControl.SelectedIndex;
         if (_checkWattsControl != null)
             _radioCfg.AudioCheckLowPowerWatts = _checkWattsControl.Value;
+        if (_iqAutoCompare != null)
+            _radioCfg.AudioCheckCompareWithLastTake = _iqAutoCompare.IsChecked == true;
         _radioCfg.SaveForRadio(_radioCfgSerial);
     }
 

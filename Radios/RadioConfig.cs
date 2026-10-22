@@ -471,6 +471,21 @@ namespace Radios
         /// </summary>
         public int AudioCheckLowPowerWatts { get; set; } = 10;
 
+        /// <summary>
+        /// Whether the Hear Yourself comparison box, "Tell me how my sound
+        /// changed compared to my last take", starts ticked for this radio
+        /// (listen-back round 14; Noel, 2026-10-21: "I'd have it remember its
+        /// setting yes"). Per radio, beside the other Audio Check choices,
+        /// because the comparison only ever runs after an off-air take, and
+        /// whether a radio can make one is a fact about the radio (two
+        /// receiver sections, a transverter port, reached over the LAN), not
+        /// about the operator. Default off: a comparison nobody asked for is
+        /// speech nobody asked for. Deliberately NOT the same store as "Test
+        /// tone instead of microphone", which is never remembered, so a tone
+        /// is never sent in place of a voice by surprise.
+        /// </summary>
+        public bool AudioCheckCompareWithLastTake { get; set; }
+
         // ---------------------------------------------------------------
         // PC audio on connect (Threads Track, 2026-08-12). Before this, PC
         // audio state was persisted nowhere: every connect started with it
