@@ -1,0 +1,2 @@
+- In Hear Yourself, "Tell me how my sound changed compared to my last take" now remembers its tick for each radio, sits right after the test tone controls, and those controls stay out of the way until the tone is on.
+- A take is only compared with a take of the same kind: a voice take is no longer measured against an old test-tone take, and when the two don't match it asks you for another take instead of reading out numbers. When your transmit filter, power, microphone or mic profile changed between takes, the comparison says so before the numbers.
