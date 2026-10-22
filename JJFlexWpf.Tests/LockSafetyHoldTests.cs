@@ -99,6 +99,13 @@ public sealed class LockSafetyHoldTests : IDisposable
         f.SetValue(_main, value);
     }
 
+    private void SetProperty(string property, object value)
+    {
+        var p = typeof(MainWindow).GetProperty(property, Any);
+        Assert.True(p != null && p.CanWrite, "production property MainWindow." + property + " is missing or read-only");
+        p.SetValue(_main, value);
+    }
+
     private object Call(string method, params object[] args)
     {
         var m = typeof(MainWindow).GetMethod(method, Any);
@@ -214,17 +221,43 @@ public sealed class LockSafetyHoldTests : IDisposable
     }
 
     [Fact]
-    public void Inside_the_window_the_system_wide_lock_and_the_Transmit_button_do_not_key()
+    public void Inside_the_window_the_system_wide_lock_does_not_key()
     {
         AssertTheDeskIsSafe();
         BeginHold();
         Call("HandleSystemWideLockToggle");
         Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
-        Put("RigControl", _rig);                 // ToggleTransmit's own gate
+        Assert.False(RfCommandedOn());
+        Assert.Equal(1, _controller.CutHold.RefusedPresses);
+
+        // The control: the same door keys once the hold is gone.
+        _controller.CutHold.OperatorChanged("TXAntennaName", Environment.TickCount64);
+        Call("HandleSystemWideLockToggle");
+        Assert.Equal(PttSafetyController.PttState.Locked, _controller.State);
+        Assert.True(RfCommandedOn());
+    }
+
+    [Fact]
+    public void Inside_the_window_the_Transmit_button_does_not_key()
+    {
+        // ToggleTransmit, the Transmit button's and the action toolbar's
+        // handler, has its own gate on RigControl (a property, not a field;
+        // the first build of this test set a field of that name, which does
+        // not exist, and never reached the door it named).
+        AssertTheDeskIsSafe();
+        BeginHold();
+        SetProperty("RigControl", _rig);
         Call("ToggleTransmit");
         Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
         Assert.False(RfCommandedOn());
-        Assert.Equal(2, _controller.CutHold.RefusedPresses);
+        Assert.Equal(1, _controller.CutHold.RefusedPresses);
+
+        // The control: once the hold is gone the button keys through the
+        // controller, which is the only way it can key while one exists.
+        _controller.CutHold.OperatorChanged("TXAntennaName", Environment.TickCount64);
+        Call("ToggleTransmit");
+        Assert.Equal(PttSafetyController.PttState.Locked, _controller.State);
+        Assert.True(RfCommandedOn());
     }
 
     [Fact]

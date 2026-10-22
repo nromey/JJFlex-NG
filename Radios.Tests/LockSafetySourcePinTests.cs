@@ -49,8 +49,18 @@ namespace Radios.Tests
                 "the hold must be consulted before the carrier is recorded as raised");
             Assert.Contains("TransmitKillSwitch.TransmitHeld = door =>", ctl);
 
-            // The tune carrier keys the radio directly and consults nothing: as main has it.
+            // The Transmit button and the system-wide lock reach the hold ONLY
+            // through ToggleLock, so this pins that each still goes there and
+            // not around it. A bypass writing RigControl.Transmit directly would
+            // be invisible to LockSafetyHoldTests on a bare rig (the command
+            // queue drops a write made outside its loop), which is why it is a
+            // pin and not a behaviour test.
             string main = ReadSource("JJFlexWpf/MainWindow.xaml.cs");
+            Assert.Contains("_pttController.ToggleLock();", Body(main, "private void ToggleTransmit()"));
+            Assert.Contains("_pttController.ToggleLock();", Body(main, "internal void HandleSystemWideLockToggle()"));
+            Assert.Contains("_pttController?.ToggleLock();", Body(main, "internal void LockKeyDown(bool isRepeat)"));
+
+            // The tune carrier keys the radio directly and consults nothing: as main has it.
             string tune = Body(main, "public void ToggleTuneCarrier()");
             Assert.Contains("RigControl.TxTune = newState;", tune);
             Assert.DoesNotContain("RefuseIfHeldAfterCut", tune);
