@@ -36,7 +36,7 @@ namespace Radios.Tests
             "Transmit stopped. 58 percent of your power was coming back on ANT2, and your reflected power cutoff is turned on, "
             + "so your transmission was ended. You are no longer on the air. Check ANT2 before keying again.";
         private const string Refusal =
-            "Not keyed. 58 percent of your power was coming back on ANT2 a moment ago, so keying is held for 5 more seconds. "
+            "Unable to key the transmitter. 58 percent of your power was coming back on ANT2, so keying is held for 5 more seconds. "
             + "Check ANT2, or change your antenna, power, frequency or tuner to key now.";
 
         private SpeechArbiter NewArbiter() => new SpeechArbiter(

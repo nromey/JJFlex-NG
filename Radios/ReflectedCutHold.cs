@@ -817,7 +817,7 @@ namespace Radios
         /// speaks percent and the watts rung speaks watts, never the other's.
         /// Names the antenna when known, "the antenna" when not.
         /// </summary>
-        // DRAFT PROSE (#571): awaiting Noel
+        // Noel's wording (#571, 2026-10-22 09:05, answering question 2): "Unable to key the transmitter." opens it, and no "a moment ago".
         public static string ReasonFor(TransmitSafety.ReflectedCut rung, in TransmitPowerReading reading, string? antennaName)
         {
             string antenna = string.IsNullOrWhiteSpace(antennaName)
@@ -846,7 +846,7 @@ namespace Radios
         /// The sentence a refused press hears: not keyed, the reason, how long
         /// the hold has left, what to check, and that a change keys at once.
         /// </summary>
-        // DRAFT PROSE (#571): awaiting Noel
+        // Noel's wording (#571, 2026-10-22 09:05, answering question 2): "Unable to key the transmitter." opens it, and no "a moment ago".
         public static string RefusalSentence(string reason, string antennaCheck, int remainingSeconds)
         {
             return remainingSeconds == 1

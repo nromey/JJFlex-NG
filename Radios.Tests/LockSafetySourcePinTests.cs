@@ -381,13 +381,16 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void The_refusal_and_the_VOX_note_are_keyed_and_in_the_lexicon_and_marked_as_drafts()
+        public void The_refusal_is_Noels_wording_and_the_VOX_note_is_keyed_in_the_lexicon_and_still_a_draft()
         {
             string hold = ReadSource("Radios/ReflectedCutHold.cs");
             Assert.Contains("subject: SpeechSubject.ReflectedPowerCut", hold);
             Assert.Contains("subject: SpeechSubject.VoxPausedAfterCut", hold);
-            // Three: the reason clause, the refusal sentence, and (round 2, N5) the VOX note with its seconds.
-            Assert.Equal(3, Regex.Matches(hold, @"// DRAFT PROSE \(#571\): awaiting Noel").Count);
+            // Noel answered question 2 on 2026-10-22 at 09:05: the reason clause and the refusal are his
+            // wording now ("Unable to key the transmitter." opens it, no "a moment ago"). Only the VOX
+            // note (round 2, N5) is still a draft.
+            Assert.Equal(1, Regex.Matches(hold, @"// DRAFT PROSE \(#571\): awaiting Noel").Count);
+            Assert.Equal(2, Regex.Matches(hold, @"// Noel's wording \(#571, 2026-10-22 09:05").Count);
 
             string audio = ReadSource("Radios/Lexicon/audio.json");
             foreach (string key in new[]
@@ -400,6 +403,8 @@ namespace Radios.Tests
                 Assert.Contains("\"" + key + "\"", hold);
             }
             Assert.Contains("// DRAFT PROSE (#571): awaiting Noel", ReadSource("Radios.Tests/LexiconEnvelopeTests.cs"));
+            Assert.Equal(2, Regex.Matches(audio, @"""Unable to key the transmitter\. \{reason\}, so keying is held for ").Count);
+            Assert.DoesNotContain("a moment ago", audio);
         }
 
         [Fact]

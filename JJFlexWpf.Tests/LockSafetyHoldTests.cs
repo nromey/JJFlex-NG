@@ -203,7 +203,7 @@ public sealed class LockSafetyHoldTests : IDisposable
         Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
         Assert.False(RfCommandedOn(), "the refused press reached the rig");
         Assert.Equal(1, _controller.CutHold.RefusedPresses);
-        Assert.StartsWith("Not keyed. 58 percent of your power was coming back on ANT2", heard);
+        Assert.StartsWith("Unable to key the transmitter. 58 percent of your power was coming back on ANT2", heard);
         Assert.Equal(_controller.CutHold.LastRefusalSentence, heard);
     }
 
@@ -271,7 +271,7 @@ public sealed class LockSafetyHoldTests : IDisposable
         string heard = Spoken(() => VoiceMessageSender.Send(_rig, item));
         Assert.False(VoiceMessageSender.InFlight);
         Assert.Equal(1, _controller.CutHold.RefusedPresses);
-        Assert.StartsWith("Not keyed.", heard);
+        Assert.StartsWith("Unable to key the transmitter.", heard);
     }
 
     [Fact]
@@ -283,7 +283,7 @@ public sealed class LockSafetyHoldTests : IDisposable
         {
             Assert.False(TransmitKillSwitch.RaiseCarrier(_rig, TransmitKillSwitch.Carrier.Mox));
             Assert.Equal(_controller.CutHold.LastRefusalSentence, TransmitKillSwitch.LastRaiseRefusal);
-            Assert.StartsWith("Not keyed.", TransmitKillSwitch.LastRaiseRefusal);
+            Assert.StartsWith("Unable to key the transmitter.", TransmitKillSwitch.LastRaiseRefusal);
         }
         Assert.Equal(1, _controller.CutHold.RefusedPresses);
     }
@@ -409,7 +409,7 @@ public sealed class LockSafetyHoldTests : IDisposable
         string heard = Spoken(() => LockKeyDown(false));
         Assert.False(RfCommandedOn(), "Fixer reflected cut left no hold; the next lock commanded RF on");
         Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
-        Assert.StartsWith("Not keyed. Too much of your power was coming back on ANT1", heard);
+        Assert.StartsWith("Unable to key the transmitter. Too much of your power was coming back on ANT1", heard);
     }
 
     [Fact]
@@ -523,7 +523,7 @@ public sealed class LockSafetyHoldTests : IDisposable
         string heard = Spoken(() => Assert.True(commands.DoCommand(key)));
         Assert.Empty(sent);
         Assert.Empty(shown);
-        Assert.StartsWith("Not keyed. 58 percent of your power was coming back on ANT2", heard);
+        Assert.StartsWith("Unable to key the transmitter. 58 percent of your power was coming back on ANT2", heard);
         Assert.DoesNotContain(ScreenReaderOutput.RecentMessages, m => m.StartsWith("Sending", StringComparison.Ordinal));
 
         // The control: the hold lifted, the same key sends, shows and says.

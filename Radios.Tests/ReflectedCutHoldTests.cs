@@ -761,7 +761,7 @@ namespace Radios.Tests
             _now += 149;
             Assert.True(hold.RefusePress("the lock key", _now, () => true));
 
-            const string expected = "Not keyed. 58 percent of your power was coming back on ANT2 a moment ago, "
+            const string expected = "Unable to key the transmitter. 58 percent of your power was coming back on ANT2, "
                 + "so keying is held for 5 more seconds. Check ANT2, or change your antenna, power, frequency or tuner to key now.";
             Assert.Equal(expected, hold.LastRefusalSentence);
             Assert.True(Delivered(expected), "the refusal did not reach the screen reader at Off");
@@ -773,7 +773,7 @@ namespace Radios.Tests
             var hold = Begin(rung: TransmitSafety.ReflectedCut.Watts, antenna: "ANT1");
             _now += 2600;
             Assert.True(hold.RefusePress("push to talk", _now, () => true));
-            Assert.Equal("Not keyed. 13 watts of your power were coming back on ANT1 a moment ago, "
+            Assert.Equal("Unable to key the transmitter. 13 watts of your power were coming back on ANT1, "
                 + "so keying is held for 3 more seconds. Check ANT1, or change your antenna, power, frequency or tuner to key now.",
                 hold.LastRefusalSentence);
             Assert.DoesNotContain("percent", hold.LastRefusalSentence);
@@ -788,7 +788,7 @@ namespace Radios.Tests
             hold.Begin(ReflectedCutNotice.WithoutReading("ANT2"), Setup(), _now);
             _now += 100;
             Assert.True(hold.RefusePress("the lock key", _now, () => true));
-            Assert.Equal("Not keyed. Too much of your power was coming back on ANT2 a moment ago, "
+            Assert.Equal("Unable to key the transmitter. Too much of your power was coming back on ANT2, "
                 + "so keying is held for 5 more seconds. Check ANT2, or change your antenna, power, frequency or tuner to key now.",
                 hold.LastRefusalSentence);
 
@@ -796,7 +796,7 @@ namespace Radios.Tests
             var hold2 = new ReflectedCutHold(() => _now);
             hold2.Begin(new ReflectedCutNotice(TransmitSafety.ReflectedCut.Watts, WattsCut, "ANT1"), Setup(), _now);
             hold2.RefusePress("the lock key", _now, () => true);
-            Assert.StartsWith("Not keyed. 13 watts of your power were coming back on ANT1", hold2.LastRefusalSentence);
+            Assert.StartsWith("Unable to key the transmitter. 13 watts of your power were coming back on ANT1", hold2.LastRefusalSentence);
         }
 
         [Fact]
@@ -805,7 +805,7 @@ namespace Radios.Tests
             var hold = Begin(antenna: "");
             _now += 100;
             hold.RefusePress("the lock key", _now, () => true);
-            Assert.Equal("Not keyed. 58 percent of your power was coming back on the antenna a moment ago, "
+            Assert.Equal("Unable to key the transmitter. 58 percent of your power was coming back on the antenna, "
                 + "so keying is held for 5 more seconds. Check the antenna, or change your antenna, power, frequency or tuner to key now.",
                 hold.LastRefusalSentence);
         }
