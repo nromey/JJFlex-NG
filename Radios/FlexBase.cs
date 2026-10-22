@@ -11284,14 +11284,14 @@ namespace Radios
 
                 // The zero-and-restore pair is mechanical, not an operator
                 // settings change — it must not arm the provisional-change
-                // receipt or the disconnect save offer (#225). But it IS the
-                // operator's own command (#571, Opus N1): after a reflected-
-                // power cut the refusal tells them to change the power, and
-                // switching to the dummy load is one way they do that, so the
-                // hold must lift on it. The inner scope says so; the outer one
-                // keeps the receipt quiet.
+                // receipt or the disconnect save offer (#225). Whether it is
+                // the OPERATOR'S command is not this setter's to say: the
+                // Transmit menu's item is, and the Audio Check's own engage is
+                // not (#571, Opus N1 and R1). The caller that is the operator's
+                // command wraps this in OperatorChoseThisChange; the setter
+                // itself declares nothing, so the Audio Check's writes stay
+                // app-originated and cannot lift the hold after a cut.
                 using (AppInitiatedSettingChanges())
-                using (OperatorChoseThisChange())
                 {
                     if (value)
                     {

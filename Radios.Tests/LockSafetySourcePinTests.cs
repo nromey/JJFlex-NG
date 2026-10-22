@@ -212,26 +212,49 @@ namespace Radios.Tests
         // ── Repair round 2 (Opus N1 to N7) ──
 
         [Fact]
-        public void Dummy_Load_Mode_is_the_operators_own_change_and_the_Audio_Checks_restores_are_not()
+        public void The_operator_chosen_scope_sits_on_the_menus_Dummy_Load_Mode_command_and_nowhere_in_a_setter()
         {
-            // N1. The one app-scope site that carries out an OPERATOR command on
-            // a snapshot field is the dummy-load toggle; it declares so with the
-            // inner scope, and the who-wrote-it hook asks that scope first. The
-            // Audio Check's three power writes and the injection path's mic
-            // source writes carry no such declaration (their files are read-only
-            // to this track and were only read).
+            // N1 and R1. The scope is opened by the operator's COMMAND, the
+            // Transmit menu's Dummy Load Mode item, around its write of the
+            // setter; the setter itself declares nothing, so the Audio Check's
+            // own engage and release of the same setter stay the app's and
+            // cannot lift the hold. Round 2 had the scope in the setter, which
+            // let the Audio Check's engage lift it (Opus R1); round 2's pin only
+            // checked that the Audio Check FILE never named the scope, which
+            // was true and beside the point.
+            string menu = ReadSource("JJFlexWpf/NativeMenuBar.cs");
+            Assert.Matches(@"using \(Rig\.OperatorChoseThisChange\(\)\)\s*Rig\.DummyLoadMode = !Rig\.DummyLoadMode;", menu);
+
+            // Every operator-facing route to dummy load: the menu item is the
+            // only one. No key table row, no VB command, no Settings control
+            // writes DummyLoadMode; the Audio Check's three writes are the app's.
+            foreach (string file in new[] { "JJFlexWpf/KeyCommands.cs", "globals.vb", "JJFlexWpf/Dialogs/SettingsDialog.xaml.cs" })
+                Assert.DoesNotContain("DummyLoadMode =", ReadSource(file));
+
             string flex = ReadSource("Radios/FlexBase.cs");
-            string dummy = Body(flex, "public bool DummyLoadMode");
-            Assert.Contains("using (AppInitiatedSettingChanges())\n                using (OperatorChoseThisChange())", dummy.Replace("\r\n", "\n"));
+            // The setter's comment names the scope to say it is NOT opened here; the assertion is on the using, not the word.
+            Assert.DoesNotContain("using (OperatorChoseThisChange())", Body(flex, "public bool DummyLoadMode"));
+            Assert.Equal(0, Regex.Matches(flex, @"using \(OperatorChoseThisChange\(\)\)").Count);
+            // The scope is opened in exactly one production place, the menu.
+            int opens = 0;
+            foreach (string file in new[] { "JJFlexWpf/NativeMenuBar.cs", "JJFlexWpf/KeyCommands.cs", "JJFlexWpf/MainWindow.xaml.cs",
+                                            "JJFlexWpf/PttSafetyController.cs", "JJFlexWpf/Dialogs/AudioWorkshopDialog.AudioCheck.cs",
+                                            "JJFlexWpf/Dialogs/AudioWorkshopDialog.InjectionPath.cs", "Radios/FlexBase.cs",
+                                            "Radios/FlexBase.MultiUser.cs", "Radios/FlexBase.Antennas.cs", "Radios/FlexBase.VoxHold.cs" })
+                opens += Regex.Matches(ReadSource(file), @"OperatorChoseThisChange\(\)\)").Count;
+            Assert.Equal(1, opens);
+
             string multi = ReadSource("Radios/FlexBase.MultiUser.cs");
             string note = Body(multi, "internal void NoteRadioSettingWritten(string what, string value)");
             Assert.True(note.IndexOf("if (_operatorChoseSettingDepth > 0)", StringComparison.Ordinal)
                         < note.IndexOf("if (_appInitiatedSettingDepth > 0)", StringComparison.Ordinal),
                 "the operator's choice must be asked before the app scope");
             Assert.Contains("OperatorChangedRadioSetting?.Invoke(what);", note);
-            Assert.DoesNotContain("OperatorChoseThisChange", ReadSource("JJFlexWpf/Dialogs/AudioWorkshopDialog.AudioCheck.cs"));
-            Assert.DoesNotContain("OperatorChoseThisChange", ReadSource("JJFlexWpf/Dialogs/AudioWorkshopDialog.InjectionPath.cs"));
-            Assert.Equal(1, Regex.Matches(flex, @"using \(OperatorChoseThisChange\(\)\)").Count);
+            // R4: the method's doc comment sits on the method.
+            int doc = multi.IndexOf("/// One of this class's operator-facing setters wrote a radio-persisted", StringComparison.Ordinal);
+            int method = multi.IndexOf("internal void NoteRadioSettingWritten(string what, string value)", StringComparison.Ordinal);
+            Assert.True(doc >= 0 && method > doc && method - doc < 1200, "NoteRadioSettingWritten's summary must sit directly on it");
+            Assert.DoesNotContain("private int _operatorChoseSettingDepth", multi.Substring(doc, method - doc));
         }
 
         [Fact]

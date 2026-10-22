@@ -64,31 +64,52 @@ namespace Radios.Tests
         // ── Opus N1: Dummy Load Mode is the operator's own change, carried out by the app ──
 
         [Fact]
-        public void Dummy_Load_Mode_raises_the_operator_changed_signal_for_both_powers_and_not_the_app_write_event()
+        public void The_menus_Dummy_Load_Mode_raises_the_operator_changed_signal_for_both_powers_and_not_the_app_write_event()
         {
+            // The Transmit menu's item is the one operator-facing route to
+            // dummy load, and it opens the scope around the write, as
+            // NativeMenuBar does (pinned from source). Driven here the same way.
             var operatorChanged = new List<string>();
             var appWrote = new List<(string, string)>();
             _rig.OperatorChangedRadioSetting += w => operatorChanged.Add(w);
             _rig.AppInitiatedRadioSettingWritten += (w, v) => appWrote.Add((w, v));
 
-            _rig.DummyLoadMode = true;
+            using (_rig.OperatorChoseThisChange()) _rig.DummyLoadMode = true;
 
             Assert.Equal(new[] { "XmitPower", "TunePower" }, operatorChanged);
             Assert.Empty(appWrote);
 
             operatorChanged.Clear();
-            _rig.DummyLoadMode = false;   // leaving it puts the saved powers back: also the operator's choice
+            using (_rig.OperatorChoseThisChange()) _rig.DummyLoadMode = false;   // leaving it puts the saved powers back: also the operator's choice
             Assert.Equal(new[] { "XmitPower", "TunePower" }, operatorChanged);
             Assert.Empty(appWrote);
         }
 
         [Fact]
-        public void Wired_to_a_hold_Dummy_Load_Mode_lifts_it_and_an_app_restore_does_not()
+        public void The_Audio_Checks_own_dummy_load_engage_is_the_apps_write_not_the_operators()
         {
-            // Opus's probe 1 and its control, through the same two events the
+            // Opus R1: the Audio Check sets rig.DummyLoadMode = true before it
+            // asks the controller to lock, with no operator scope. On 3cf7ee2d
+            // the setter itself declared the scope, so this raised the
+            // operator-changed signal and the check's start lifted the hold.
+            var operatorChanged = new List<string>();
+            var appWrote = new List<(string, string)>();
+            _rig.OperatorChangedRadioSetting += w => operatorChanged.Add(w);
+            _rig.AppInitiatedRadioSettingWritten += (w, v) => appWrote.Add((w, v));
+
+            _rig.DummyLoadMode = true;    // exactly the Audio Check's call: the bare setter
+
+            Assert.Empty(operatorChanged);
+            Assert.Equal(new[] { ("XmitPower", "0"), ("TunePower", "0") }, appWrote);
+        }
+
+        [Fact]
+        public void Wired_to_a_hold_the_menus_Dummy_Load_Mode_lifts_it_and_the_Audio_Checks_engage_and_restore_do_not()
+        {
+            // Opus's probe 1 and its controls, through the same two events the
             // controller subscribes: the operator's command lifts; the Audio
-            // Check's restore (an app-scoped write of the same setter) moves
-            // the baseline and holds.
+            // Check's power restore and its own dummy-load engage (app-scoped
+            // writes of the same setters) move the baseline and hold.
             long now = 1_000_000;
             var hold = new ReflectedCutHold(() => now);
             _rig.OperatorChangedRadioSetting += w => hold.OperatorChanged(w, now);
@@ -97,13 +118,20 @@ namespace Radios.Tests
             var at = new ReflectedCutHold.TransmitSetup("ANT2", 14_250_000, 25, 10, false, "", "USB");
 
             hold.Begin(TransmitSafety.ReflectedCut.Share, reading, "ANT2", at, now);
-            using (_rig.AppInitiatedSettingChanges()) _rig.XmitPower = 25;     // the restore
+            using (_rig.AppInitiatedSettingChanges()) _rig.XmitPower = 25;     // the Audio Check's restore
             Assert.False(hold.Tick(new ReflectedCutHold.TransmitSetup("ANT2", 14_250_000, 25, 10, false, "", "USB"), now += 300),
                 "an app restore's echo lifted the hold");
             Assert.True(hold.Holding);
 
-            _rig.DummyLoadMode = true;                                           // the operator's command
-            Assert.False(hold.Holding, "Dummy Load Mode did not lift the hold");
+            _rig.DummyLoadMode = true;                                           // the Audio Check's engage (R1)
+            Assert.True(hold.Holding, "the Audio Check's own dummy-load engage lifted the hold");
+            Assert.False(hold.Tick(new ReflectedCutHold.TransmitSetup("ANT2", 14_250_000, 0, 0, false, "", "USB"), now += 300),
+                "the engage's 0 W echo lifted the hold");
+            _rig.DummyLoadMode = false;                                          // and its release
+            Assert.True(hold.Holding);
+
+            using (_rig.OperatorChoseThisChange()) _rig.DummyLoadMode = true;    // the operator's menu command
+            Assert.False(hold.Holding, "Dummy Load Mode from the menu did not lift the hold");
             Assert.Equal(ReflectedCutHold.EndReason.Lifted, hold.LastEnd);
             Assert.StartsWith("you changed the RF power", hold.LastEndDetail);
         }

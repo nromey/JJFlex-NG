@@ -1841,7 +1841,14 @@ public class NativeMenuBar : IDisposable
         AddChecked(parent, "Dummy &Load Mode", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
-            Rig.DummyLoadMode = !Rig.DummyLoadMode;
+            // The operator's own command, carried out by the app (#571, Opus
+            // N1 and R1): the setter zeroes the power under the app scope so
+            // the receipt stays quiet, and THIS scope says the change is still
+            // the operator's, so the hold after a reflected-power cut lifts on
+            // it. The Audio Check sets the same property without this scope,
+            // and its engage must not lift the hold.
+            using (Rig.OperatorChoseThisChange())
+                Rig.DummyLoadMode = !Rig.DummyLoadMode;
             EarconPlayer.ToggleTone(Rig.DummyLoadMode);
             if (Rig.DummyLoadMode)
                 SpeakAfterMenuClose(Radios.Lexicon.Get("settings.dummy_load.on"));
