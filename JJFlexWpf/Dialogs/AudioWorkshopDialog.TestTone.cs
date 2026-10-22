@@ -346,6 +346,10 @@ public partial class AudioWorkshopDialog
         if (!armed)
         {
             DisarmTone(speak: true);
+            // The check above ran while the engine still had the tone on, so
+            // it left the controls showing; SyncToneArmUi will not correct
+            // them, because box and engine now agree (round 14 bench, 06:57).
+            UpdateToneControlsVisibility();
             return;
         }
 
