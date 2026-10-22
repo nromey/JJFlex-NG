@@ -144,8 +144,9 @@ namespace Radios.ChainChecks
                     // that lost its kill route does not transmit at all.
                     if (!TransmitKillSwitch.RaiseCarrier(rig, TransmitKillSwitch.Carrier.Tune))
                         return Refuse(TxTuneProbe.SkipReason.RefusedByHost,
-                            "the tune carrier was not raised, because no way to stop it "
-                            + "was in place");
+                            TransmitKillSwitch.LastRaiseRefusal   // held after a reflected-power cut (#571)
+                            ?? "the tune carrier was not raised, because no way to stop it "
+                             + "was in place");
 
                     // The write is queued. Wait for the radio to say it happened
                     // rather than believing the setter — and if it never does, that

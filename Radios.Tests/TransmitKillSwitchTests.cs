@@ -60,6 +60,61 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void TheHoldAfterACutRefusesTheCarrierAndLeavesItsSentenceForTheCheck()
+        {
+            // #571: a transmit check's carrier into the same fault is RF like
+            // any other. The hook speaks for itself (it is the controller's
+            // RefuseIfHeldAfterCut) and hands back the sentence; the gate
+            // refuses before the carrier is recorded as raised, and the
+            // check's detail line gets the same words the operator heard.
+            var rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+            try
+            {
+                string asked = null;
+                TransmitKillSwitch.TransmitHeld = door => { asked = door; return "Not keyed. Marker sentence."; };
+                using (TransmitKillSwitch.Arm(rig, "the transmitter check"))
+                {
+                    Assert.False(TransmitKillSwitch.RaiseCarrier(rig, TransmitKillSwitch.Carrier.Mox));
+                    Assert.Equal("a transmit check", asked);
+                    Assert.Equal("Not keyed. Marker sentence.", TransmitKillSwitch.LastRaiseRefusal);
+
+                    // Positive control, same arm: with the hold answering "not
+                    // held" the same raise goes through, and the stale sentence
+                    // is cleared so the check cannot report a refusal that did
+                    // not happen.
+                    TransmitKillSwitch.TransmitHeld = door => null;
+                    Assert.True(TransmitKillSwitch.RaiseCarrier(rig, TransmitKillSwitch.Carrier.Mox));
+                    Assert.Null(TransmitKillSwitch.LastRaiseRefusal);
+                }
+            }
+            finally { try { rig.Dispose(); } catch { } }
+        }
+
+        [Fact]
+        public void AHoldHookThatThrowsOrIsAbsentNeverHoldsACheck()
+        {
+            // Noel's worry runs this way: a check refused because a hook broke
+            // is "I can't transmit because an alarm hasn't cleared". Absent and
+            // throwing both read as not held.
+            var rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+            try
+            {
+                using (TransmitKillSwitch.Arm(rig, "the transmitter check"))
+                {
+                    Assert.Null(TransmitKillSwitch.TransmitHeld);
+                    Assert.True(TransmitKillSwitch.RaiseCarrier(rig, TransmitKillSwitch.Carrier.Tune));
+                }
+                using (TransmitKillSwitch.Arm(rig, "the transmitter check"))
+                {
+                    TransmitKillSwitch.TransmitHeld = door => throw new InvalidOperationException("gone");
+                    Assert.True(TransmitKillSwitch.RaiseCarrier(rig, TransmitKillSwitch.Carrier.Tune));
+                    Assert.Null(TransmitKillSwitch.LastRaiseRefusal);
+                }
+            }
+            finally { try { rig.Dispose(); } catch { } }
+        }
+
+        [Fact]
         public void ArmingWithNoRadioArmsNothing()
         {
             using (TransmitKillSwitch.Arm(null, "a check with no radio"))

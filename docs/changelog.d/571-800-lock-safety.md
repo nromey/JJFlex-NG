@@ -1,0 +1,4 @@
+<!-- Fragment for docs/CHANGELOG.md, Unreleased section. Junkbox #571 and #800. DRAFT PROSE: awaiting Noel. -->
+
+- **After the reflected-power cutoff ends a transmission, nothing can key the radio back into the same fault for five seconds** — the lock key, push to talk, the system-wide transmit keys, the Transmit button, a voice message key and VOX are all held, and a press during those seconds tells you again how much power was coming back and on which antenna, at every verbosity. Change your antenna, power, frequency or tuner and the hold ends at once, so a fix never has to wait for it; the tune carrier is never held, because tuning is how you fix the fault. If VOX was on, you are told it is paused, and it comes back on by itself. First draft; the wording may change.
+- **Holding Shift+Space locks or unlocks once, however long you hold it** — until now every key repeat toggled the lock, so a slightly long press could key and unkey the radio many times a second.

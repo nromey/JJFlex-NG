@@ -151,6 +151,26 @@ namespace Radios
         public static Func<bool> CutOnReflectedAlarm { get; set; }
 
         /// <summary>
+        /// The hold after a reflected-power cut (#571), published by the PTT
+        /// safety controller the way <see cref="CutOnReflectedAlarm"/> is.
+        /// Asked at every <see cref="RaiseCarrier"/> with the door's name; it
+        /// speaks the refusal itself and returns the sentence it spoke when
+        /// keying is held, or null when it is not. Absent means NOT held: a
+        /// transmit check must not be refused because a hook was never wired,
+        /// which is the direction Noel's "I don't want to get into a situation
+        /// where I can't transmit" points.
+        /// </summary>
+        public static Func<string, string> TransmitHeld { get; set; }
+
+        /// <summary>
+        /// The sentence the last refused <see cref="RaiseCarrier"/> spoke
+        /// because of the hold, for the check's own detail line, so the check
+        /// does not report a missing kill route when the truth is a held
+        /// transmitter. Null after a raise that was not refused that way.
+        /// </summary>
+        public static string LastRaiseRefusal { get; private set; }
+
+        /// <summary>
         /// True from the moment a kill is asked for until the last armed
         /// transmit has finished. Every sampling loop inside a keyed check
         /// polls this, which is how a kill ends a measurement that is midway
@@ -293,6 +313,21 @@ namespace Radios
         public static bool RaiseCarrier(FlexBase rig, Carrier carrier)
         {
             if (rig == null) return false;
+
+            // The hold after a reflected-power cut (#571), consulted before the
+            // gate and outside its lock, because the hook speaks. A check's
+            // carrier into the same fault is RF like any other; the check's
+            // detail line gets the same sentence the operator just heard.
+            LastRaiseRefusal = null;
+            string held = HeldAfterCut();
+            if (held != null)
+            {
+                LastRaiseRefusal = held;
+                Tracing.TraceLine("TransmitKillSwitch: refused to raise the " + carrier
+                    + " carrier — keying is held after a reflected-power cut (#571). Nothing was transmitted.",
+                    TraceLevel.Warning);
+                return false;
+            }
 
             lock (Gate)
             {
@@ -813,6 +848,25 @@ namespace Radios
             catch { return false; }   // unreadable setting never cuts
         }
 
+        /// <summary>
+        /// The hold's answer for a transmit check, or null. A hook that throws
+        /// reads as not held and says so in the trace: the hold is five seconds
+        /// and self-limiting, and a check refused by a broken hook would be the
+        /// "cannot transmit because an alarm hasn't cleared" Noel ruled against.
+        /// </summary>
+        private static string HeldAfterCut()
+        {
+            Func<string, string> ask = TransmitHeld;
+            if (ask == null) return null;
+            try { return ask("a transmit check"); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("TransmitKillSwitch: the transmit-hold hook threw, so the check is NOT held — "
+                                  + ex.Message, TraceLevel.Error);
+                return null;
+            }
+        }
+
         // ------------------------------------------------------------------
 
         /// <summary>
@@ -837,6 +891,8 @@ namespace Radios
             Interlocked.Exchange(ref _killCount, 0);
             Alarm = null;
             CutOnReflectedAlarm = null;
+            TransmitHeld = null;
+            LastRaiseRefusal = null;
         }
     }
 }

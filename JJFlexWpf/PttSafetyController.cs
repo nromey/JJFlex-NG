@@ -193,6 +193,7 @@ namespace JJFlexWpf
             _updateStatusDisplay = updateStatusDisplay;
             EnsureKillWiring();
             PublishCutSetting();
+            PublishHoldGate();
         }
 
         /// <summary>
@@ -231,6 +232,123 @@ namespace JJFlexWpf
         /// Whether the controller is in any transmitting state.
         /// </summary>
         public bool IsTransmitting => State != PttState.Idle;
+
+        // -------------------------------------------------------------------
+        // The hold after a reflected-power cut (#571)
+        // -------------------------------------------------------------------
+        //
+        // For ReflectedCutHold.HoldSeconds after the cut, a press that would
+        // key the transmitter does not key it, and instead repeats why the
+        // transmission was stopped; a change to the transmit setup lifts the
+        // hold at once. The rulings, with Noel's words, are on the class.
+        //
+        // The hold lives in Radios so it can be driven from a test with no
+        // dispatcher; this controller owns it, reads the rig for it, and is the
+        // one place its refusal is consulted from inside the controller. The
+        // doors OUTSIDE the controller — a voice message, a transmit check —
+        // consult it through RefuseIfHeldAfterCut and the kill switch's hook.
+
+        private readonly ReflectedCutHold _cutHold = new ReflectedCutHold(() => Environment.TickCount64);
+        private DispatcherTimer? _cutHoldTimer;
+        private FlexBase? _cutHoldRig;
+
+        /// <summary>The hold after a reflected-power cut, for the doors outside this controller and for tests.</summary>
+        public ReflectedCutHold CutHold => _cutHold;
+
+        /// <summary>
+        /// A press that would key the transmitter has arrived at
+        /// <paramref name="door"/>. When the hold after a reflected-power cut
+        /// is in force and the transmit setup is still as it was at the cut,
+        /// speaks the refusal (the cut's own delivery: alarm tone, Urgent,
+        /// Critical, so it is heard at Off) and returns true; the caller must
+        /// not key. The setup is re-read first, so a change the operator made a
+        /// moment ago lifts the hold and the press keys as normal.
+        /// </summary>
+        public bool RefuseIfHeldAfterCut(string door)
+        {
+            if (!_cutHold.Holding) return false;
+            long now = Environment.TickCount64;
+            FlexBase? rig = null;
+            try { rig = _getRigControl(); } catch { }
+            if (rig != null && _cutHold.Tick(ReflectedCutHold.Snapshot(rig), now)) return false;
+            return _cutHold.RefusePress(door, now, _transmitEpisode.NoTransmissionSince());
+        }
+
+        /// <summary>
+        /// Publish the hold to the kill switch, which gates the transmit
+        /// checks' carrier, the way <see cref="PublishCutSetting"/> publishes
+        /// the cut setting. The newest controller wins, as there.
+        /// </summary>
+        private void PublishHoldGate()
+        {
+            TransmitKillSwitch.TransmitHeld = door => RefuseIfHeldAfterCut(door) ? _cutHold.LastRefusalSentence : null;
+        }
+
+        /// <summary>
+        /// The cut has just ended the transmission (GoIdle has spoken): start
+        /// the hold, pause VOX if it was on, and watch the rig for a change.
+        /// Internal so <c>JJFlexWpf.Tests.LockSafetyHoldTests</c> can start a
+        /// hold on the real controller without a meter stream; the one
+        /// production caller is the cut in <see cref="CheckReflectedPower"/>,
+        /// which a source pin holds to.
+        /// </summary>
+        internal void BeginCutHold(FlexBase rig, TransmitSafety.ReflectedCut cut, in TransmitPowerReading reading, string antenna)
+        {
+            EndCutHoldWiring();
+            _cutHoldRig = rig;
+            _cutHold.Ended += OnCutHoldEnded;
+            rig.OperatorChangedRadioSetting += OnOperatorChangedDuringCutHold;
+
+            _cutHold.Begin(cut, reading, antenna, ReflectedCutHold.Snapshot(rig), Environment.TickCount64,
+                voxIsOn: () => rig.Vox == FlexBase.OffOnValues.on,
+                voxSet: on =>
+                {
+                    // App-initiated, so NoteOperatorChangedRadioSetting does not
+                    // fire (the hold would lift itself) and the disconnect save
+                    // offer is not armed (never saved into a profile).
+                    using (rig.AppInitiatedSettingChanges())
+                        rig.Vox = on ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off;
+                },
+                voxPausedTone: () => EarconPlayer.ToggleTone(false),
+                refusalTone: EarconPlayer.WarningAlarmTone);
+
+            if (!_cutHold.Holding) { EndCutHoldWiring(); return; }   // ended inside Begin; nothing to watch
+
+            _cutHoldTimer?.Stop();
+            _cutHoldTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(ReflectedCutHold.SignalPollMs) };
+            _cutHoldTimer.Tick += CutHoldTimerTick;
+            _cutHoldTimer.Start();
+        }
+
+        private void CutHoldTimerTick(object? sender, EventArgs e)
+        {
+            FlexBase? rig = _cutHoldRig;
+            if (rig == null || !_cutHold.Holding) { EndCutHoldWiring(); return; }
+            _cutHold.Tick(ReflectedCutHold.Snapshot(rig), Environment.TickCount64);
+        }
+
+        private void OnOperatorChangedDuringCutHold(string what)
+        {
+            if (!_dispatcher.CheckAccess())
+            {
+                _dispatcher.BeginInvoke(new Action(() => OnOperatorChangedDuringCutHold(what)));
+                return;
+            }
+            _cutHold.OperatorChanged(what, Environment.TickCount64);
+        }
+
+        private void OnCutHoldEnded(ReflectedCutHold.EndReason reason, string detail) => EndCutHoldWiring();
+
+        /// <summary>Stop watching the rig for the hold. Idempotent; the hold's own state is the hold's.</summary>
+        private void EndCutHoldWiring()
+        {
+            _cutHoldTimer?.Stop();
+            _cutHoldTimer = null;
+            _cutHold.Ended -= OnCutHoldEnded;
+            FlexBase? rig = _cutHoldRig;
+            _cutHoldRig = null;
+            if (rig != null) rig.OperatorChangedRadioSetting -= OnOperatorChangedDuringCutHold;
+        }
 
         // -------------------------------------------------------------------
         // External transmit watch (#236)
@@ -582,6 +700,11 @@ namespace JJFlexWpf
         {
             if (!CanTransmit()) return;
 
+            // The hold after a reflected-power cut (#571): a press that would
+            // start a transmission does not, and says why. Only from Idle —
+            // a down while already transmitting keys nothing anyway.
+            if (State == PttState.Idle && RefuseIfHeldAfterCut("push to talk")) return;
+
             // License-aware TX lockout check
             if (CanTransmitHereCheck != null && !CanTransmitHereCheck())
             {
@@ -637,6 +760,14 @@ namespace JJFlexWpf
         public void ToggleLock()
         {
             if (!CanTransmit() && State == PttState.Idle) return;
+
+            // The hold after a reflected-power cut (#571): from Idle this press
+            // would key, so it is refused and repeats why the transmission was
+            // stopped. The 2026-10-21 case exactly: the cut had unlocked, and a
+            // Shift+Space 149 ms later read as "lock" and keyed 25 W back into
+            // the empty port. An unlock (any transmitting state) is never
+            // refused — the hold only ever stops RF, never keeps it on.
+            if (State == PttState.Idle && RefuseIfHeldAfterCut("the lock key")) return;
 
             if (State == PttState.Idle || State == PttState.PttHold)
             {
@@ -1321,9 +1452,16 @@ namespace JJFlexWpf
                 // longer on the air — in the rung's own unit, never the
                 // other's (#237).
                 EarconPlayer.WarningAlarmTone();
-                GoIdle(TransmitSafety.ReflectedCutTextFor(cut, reading, rig.TXAntennaName ?? ""),
+                string cutAntenna = rig.TXAntennaName ?? "";
+                GoIdle(TransmitSafety.ReflectedCutTextFor(cut, reading, cutAntenna),
                        forceSpeech: true,
                        subject: Radios.Speech.SpeechSubject.ReflectedPowerCut);
+                // And nothing re-keys into the same fault for the next few
+                // seconds (#571). After GoIdle on purpose: the cut sentence is
+                // Urgent and goes first; the hold's VOX note queues behind it.
+                // Only this cut starts a hold — the timeout, the ALC release
+                // and the hard kill do not (Noel, 2026-10-22 05:14).
+                BeginCutHold(rig, cut, reading, cutAntenna);
                 return;
             }
 
@@ -1423,6 +1561,11 @@ namespace JJFlexWpf
                 State = PttState.Idle;
             }
             StopAllTimers();
+            // The hold goes with its owner, and VOX comes back if this hold had
+            // it off and the rig can still be written (#571). If the rig is
+            // already gone, VOX stays off: the accepted, safe-direction failure.
+            _cutHold.Abandon("the PTT controller is going away", Environment.TickCount64);
+            EndCutHoldWiring();
         }
     }
 }

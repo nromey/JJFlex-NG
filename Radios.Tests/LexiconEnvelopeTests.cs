@@ -965,6 +965,40 @@ namespace Radios.Tests
                 "audio.value_layer.lock_not_here",
                 "audio.value_layer.bracket_not_here",
 
+                // Junkbox #571 and #800, 2026-10-22: the hold on keying for
+                // five seconds after a reflected-power cut, and the one note
+                // that VOX was switched off for it. Classified rather than
+                // frozen because they were written here (#720).
+                // DRAFT PROSE (#571): awaiting Noel
+                //
+                // The refusal (and its singular last-second form) is
+                // forgettable, request-scoped, receipt warning: it is spoken
+                // ONLY in answer to a press that would have keyed, through
+                // SpeechIntent.Urgent at Critical so it is heard at Off like
+                // the cut sentence it repeats; the warning alarm tone is the
+                // cut's own and sounds beside it. Forgettable because the
+                // next press inside the window gets a fresh copy with the
+                // seconds counted down, and a copy replayed later would claim
+                // a hold that may have ended. Its shelf life against a later
+                // LEGITIMATE transmission is carried at the call site, not
+                // here: the same validity answer the cut sentence carries.
+                "audio.ptt.cut_hold_refused",
+                "audio.ptt.cut_hold_refused_last_second",
+                // The reason clauses and "the antenna" are FRAGMENTS of that
+                // sentence, never spoken alone: TextOnly, the only honest
+                // classification for a fragment (the #777 reasoning).
+                "audio.ptt.cut_hold_reason_share",
+                "audio.ptt.cut_hold_reason_watts",
+                "audio.ptt.cut_hold_the_antenna",
+                // The VOX note: forgettable, request-scoped, receipt none. Said
+                // once, only when VOX was on at the cut, at Terse through
+                // SpeechIntent.Queue so it follows the operator's verbosity
+                // (Noel, 2026-10-22 05:38: "tell them/tone based on
+                // settings"); the tone beside it is the feature-off toggle
+                // tone under its own switches, not a receipt the lexicon
+                // owns. Nothing is said when VOX comes back.
+                "audio.ptt.cut_hold_vox_paused",
+
                 // Junkbox #777, 2026-10-19: a global-profile write (Save, or
                 // Delete since round two) refused because the radio is
                 // declared someone else's, or its ownership was never

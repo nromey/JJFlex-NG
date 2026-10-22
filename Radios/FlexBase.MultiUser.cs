@@ -677,6 +677,17 @@ namespace Radios
         public IDisposable AppInitiatedSettingChanges() => new AppInitiatedSettingScope(this);
 
         /// <summary>
+        /// The operator changed a radio-persisted setting through one of this
+        /// class's operator-facing setters; the argument is the setter's own
+        /// name for it ("TXAntennaName", "XmitPower", "TunePower", "Vox", ...).
+        /// Never raised for a write made inside
+        /// <see cref="AppInitiatedSettingChanges"/>, nor while disconnected.
+        /// Raised on whatever thread ran the setter. Added for the hold after
+        /// a reflected-power cut (#571).
+        /// </summary>
+        public event Action<string> OperatorChangedRadioSetting;
+
+        /// <summary>
         /// How long the settings surface must be quiet before a batch counts
         /// as settled. A Settings-dialog Apply or a preset application lands
         /// several values in quick succession; the timer restarts on each, so
@@ -706,6 +717,19 @@ namespace Radios
             if (!IsConnected || Disconnecting || theRadio == null) return;
 
             Tracing.TraceLine("NoteOperatorChangedRadioSetting:" + what, TraceLevel.Verbose);
+
+            // The same fact, offered to anyone who needs it at the moment it
+            // happens rather than at disconnect (#571): the hold after a
+            // reflected-power cut lifts on the OPERATOR's change to the
+            // antenna or the power, and this is the one place that already
+            // knows the operator's writes from the app's own. Raised after the
+            // guards above on purpose, so an app-initiated write — the hold's
+            // own VOX switch among them — never reaches a subscriber.
+            try { OperatorChangedRadioSetting?.Invoke(what); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("OperatorChangedRadioSetting subscriber threw: " + ex.Message, TraceLevel.Warning);
+            }
 
             // Same widened meaning as the doc on the property: any
             // radio-persisted change this operator made, not just slices.
