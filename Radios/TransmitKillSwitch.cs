@@ -186,6 +186,16 @@ namespace Radios
         public static Action<ReflectedCutNotice> ReflectedCutHappened { get; set; }
 
         /// <summary>
+        /// The reflected-power cut's sentence has been handed to the speech
+        /// layer (#571, Opus N4). <see cref="Request"/> raises this after its
+        /// Urgent sentence for <see cref="Source.ReflectedPower"/>, whichever
+        /// of the three outcomes it spoke, so the hold's VOX-paused note —
+        /// which is Queue and would be flushed by that Urgent sentence — can
+        /// be given after it rather than cut off by it.
+        /// </summary>
+        public static Action ReflectedCutSpoken { get; set; }
+
+        /// <summary>
         /// What the watcher knew when it cut, handed to <see cref="Request"/>
         /// through this field so the notice carries the rung and the reading
         /// rather than a sentence. Null when Request is called for a
@@ -552,6 +562,7 @@ namespace Radios
                 Say(Lexicon.Get("audio.ptt.kill_before_key"));
                 Tracing.TraceLine("TransmitKillSwitch: stopped before anything keyed",
                                   TraceLevel.Info);
+                if (source == Source.ReflectedPower) NotifyReflectedCutSpoken();
                 return;
             }
 
@@ -568,6 +579,7 @@ namespace Radios
                         : null);
                 Tracing.TraceLine("TransmitKillSwitch: carrier confirmed down",
                                   TraceLevel.Info);
+                if (source == Source.ReflectedPower) NotifyReflectedCutSpoken();
                 return;
             }
 
@@ -575,6 +587,17 @@ namespace Radios
             Say(Lexicon.Get("audio.ptt.kill_not_stopped"));
             Tracing.TraceLine("TransmitKillSwitch: RADIO STILL REPORTS TRANSMITTING after "
                               + ConfirmDownMs + " ms — the stop did not take", TraceLevel.Error);
+            if (source == Source.ReflectedPower) NotifyReflectedCutSpoken();
+        }
+
+        /// <summary>After the cut's own sentence: the hold may give its queued note now (N4).</summary>
+        private static void NotifyReflectedCutSpoken()
+        {
+            try { ReflectedCutSpoken?.Invoke(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("TransmitKillSwitch: the reflected-cut-spoken hook threw — " + ex.Message, TraceLevel.Error);
+            }
         }
 
         private static bool ConfirmDown(FlexBase rig)
@@ -958,6 +981,7 @@ namespace Radios
             CutOnReflectedAlarm = null;
             TransmitHeld = null;
             ReflectedCutHappened = null;
+            ReflectedCutSpoken = null;
             _pendingCut = null;
             _lastRaiseRefusal = null;
         }
