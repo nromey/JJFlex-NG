@@ -288,6 +288,10 @@ namespace JJFlexWpf
         {
             TransmitKillSwitch.TransmitHeld = door => RefuseIfHeldAfterCut(door) ? _cutHold.LastRefusalSentence : null;
             TransmitKillSwitch.ReflectedCutHappened = BeginCutHoldFromKillSwitch;
+            // The kill switch speaks its cut sentence AFTER the hold begins, so
+            // the hold's VOX note waits for this rather than being flushed by
+            // that Urgent sentence (Opus N4).
+            TransmitKillSwitch.ReflectedCutSpoken = _cutHold.SpeakPendingVoxNote;
             FlexBase.RefuseIfTransmitHeld = RefuseIfHeldAfterCut;
             FlexBase.IsTransmitHeld = () => _cutHold.Holding;
         }
@@ -307,7 +311,7 @@ namespace JJFlexWpf
                 Tracing.TraceLine("PTT: a transmit check's reflected-power cut arrived with no rig to hold (" + notice + ")", TraceLevel.Warning);
                 return;
             }
-            BeginCutHold(rig, notice);
+            BeginCutHold(rig, notice, voxNoteNow: false);   // the cut sentence is still to come (N4)
         }
 
         /// <summary>
@@ -327,7 +331,7 @@ namespace JJFlexWpf
         /// generation-stamped, this class's wiring is under its own lock, and
         /// the one dispatcher-bound piece (the poll timer) is posted.
         /// </summary>
-        internal void BeginCutHold(FlexBase rig, in ReflectedCutNotice notice)
+        internal void BeginCutHold(FlexBase rig, in ReflectedCutNotice notice, bool voxNoteNow = true)
         {
             long now = Environment.TickCount64;
             lock (_cutHoldWiring)
@@ -343,6 +347,7 @@ namespace JJFlexWpf
                 _cutHold.Ended += OnCutHoldEnded;
                 rig.OperatorChangedRadioSetting += OnOperatorChangedDuringCutHold;
                 rig.AppInitiatedRadioSettingWritten += OnAppWroteDuringCutHold;
+                rig.ModeChanged += OnModeChangedDuringCutHold;
 
                 // The levers write the radio's own setting as an APP-INITIATED
                 // change, so NoteOperatorChangedRadioSetting does not fire (the
@@ -351,7 +356,8 @@ namespace JJFlexWpf
                 // remember (B5).
                 _cutHoldWiredGeneration = _cutHold.Begin(notice, ReflectedCutHold.Snapshot(rig), now,
                     ReflectedCutHold.LeversFor(rig, () => EarconPlayer.ToggleTone(false)),
-                    refusalTone: EarconPlayer.WarningAlarmTone);
+                    refusalTone: EarconPlayer.WarningAlarmTone,
+                    voxNoteNow: voxNoteNow);
 
                 if (!_cutHold.Holding) { EndCutHoldWiringLocked(); return; }   // ended inside Begin; nothing to watch
             }
@@ -384,6 +390,21 @@ namespace JJFlexWpf
         // whatever thread raised them; nothing here needs the dispatcher.
         private void OnOperatorChangedDuringCutHold(string what) => _cutHold.OperatorChanged(what, Environment.TickCount64);
         private void OnAppWroteDuringCutHold(string what, string value) => _cutHold.AppWrote(what, value);
+
+        /// <summary>
+        /// The rig's mode event fires for the ACTIVE slice, which is usually
+        /// but not always the TX slice, so the TX slice's mode is re-read
+        /// rather than taken from the event (Opus N6). The 250 ms poll remains
+        /// the backstop for a TX slice that is not the active one.
+        /// </summary>
+        private void OnModeChangedDuringCutHold(string mode)
+        {
+            FlexBase? rig = _cutHoldRig;
+            if (rig == null) return;
+            string txMode;
+            try { txMode = rig.TXModeAsReported ?? ""; } catch { return; }
+            _cutHold.NoteMode(txMode, Environment.TickCount64);
+        }
 
         /// <summary>
         /// A hold ended. Only the hold this class is wired to may tear the
@@ -424,6 +445,7 @@ namespace JJFlexWpf
             {
                 rig.OperatorChangedRadioSetting -= OnOperatorChangedDuringCutHold;
                 rig.AppInitiatedRadioSettingWritten -= OnAppWroteDuringCutHold;
+                rig.ModeChanged -= OnModeChangedDuringCutHold;
             }
         }
 
