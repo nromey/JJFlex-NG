@@ -3789,6 +3789,13 @@ public partial class MainWindow : UserControl
     /// </summary>
     public void UnwireRadioEvents()
     {
+        // FIRST, while the rig and its transport are still up (#571, Astra B3):
+        // CloseTheRadio calls this and THEN disposes the rig, and nothing on
+        // that path disposed the PTT controller, so a hold after a cut could
+        // outlive the radio with VOX still off. The hold ends here and the VOX
+        // restore is written immediately, not queued.
+        _pttController?.ReleaseRigForTeardown("radio events unwired");
+
         PollTimerEnabled = false;
         _radioPowerOn = false;
 
@@ -4781,6 +4788,11 @@ public partial class MainWindow : UserControl
 
         Tracing.TraceLine($"TransmitChange: {transmit}", TraceLevel.Info);
 
+        // The radio's own word on RF, to the transmit episode (#571, Astra
+        // B6): a transmission VOX or a hand mic keyed is a transmission, and an
+        // unheard "you are no longer on the air" must not be replayed into it.
+        _pttController?.NoteRadioTransmit(transmit);
+
         // Update Transmit button visual
         TransmitButton.Content = transmit ? "TX On" : "Transmit";
 
@@ -4828,6 +4840,10 @@ public partial class MainWindow : UserControl
         // Manual tune (Ctrl+Shift+T) never gets progress beeps — the operator controls
         // the carrier and uses meter tones/speech to monitor SWR, power, etc.
         bool isAutoATU = e.Type == "auto" && RigControl.HasATU;
+
+        // The ATU's own status, to the transmit episode (#571, Astra B6):
+        // in progress is RF on, every other status is its end.
+        _pttController?.NoteAtuTuning(e.Status == "InProgress");
 
         switch (e.Status)
         {
@@ -6240,6 +6256,11 @@ public partial class MainWindow : UserControl
         // have measured lying (1.008 off an open port, 2026-08-22).
         float capturedSwr = newState ? float.NaN : RigControl.TuneCycleSettledComputedSwr;
         RigControl.TxTune = newState;
+        // Plumbing only (#571, Astra B6): the carrier is RF, so the transmit
+        // episode hears about it and an unheard off-air sentence is withdrawn
+        // rather than replayed under it. The carrier is NOT held and keys
+        // exactly as before (Noel, 2026-10-22 05:42).
+        _pttController?.NoteTuneCarrier(newState);
         TuneToggleButton.IsChecked = newState;
         if (newState)
         {
@@ -6304,6 +6325,7 @@ public partial class MainWindow : UserControl
         // ATU tune uses FlexTunerOn which handles auto/manual tuner logic
         _oldSwr = "";
         RigControl.FlexTunerOn = true;
+        _pttController?.NoteAtuTuning(true);   // #571, Astra B6: an ATU cycle is RF; see ToggleTuneCarrier
         Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.atu_tuning"), VerbosityLevel.Terse, true);
     }
 

@@ -249,8 +249,10 @@ namespace JJFlexWpf
         // consult it through RefuseIfHeldAfterCut and the kill switch's hook.
 
         private readonly ReflectedCutHold _cutHold = new ReflectedCutHold(() => Environment.TickCount64);
+        private readonly object _cutHoldWiring = new object();
         private DispatcherTimer? _cutHoldTimer;
         private FlexBase? _cutHoldRig;
+        private int _cutHoldWiredGeneration;
 
         /// <summary>The hold after a reflected-power cut, for the doors outside this controller and for tests.</summary>
         public ReflectedCutHold CutHold => _cutHold;
@@ -262,7 +264,8 @@ namespace JJFlexWpf
         /// speaks the refusal (the cut's own delivery: alarm tone, Urgent,
         /// Critical, so it is heard at Off) and returns true; the caller must
         /// not key. The setup is re-read first, so a change the operator made a
-        /// moment ago lifts the hold and the press keys as normal.
+        /// moment ago lifts the hold and the press keys as normal. Safe from
+        /// any thread: the Fixer's and the command loop's doors call it.
         /// </summary>
         public bool RefuseIfHeldAfterCut(string door)
         {
@@ -275,87 +278,201 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// Publish the hold to the kill switch, which gates the transmit
-        /// checks' carrier, the way <see cref="PublishCutSetting"/> publishes
-        /// the cut setting. The newest controller wins, as there.
+        /// Publish the hold to the doors outside this class, the way
+        /// <see cref="PublishCutSetting"/> publishes the cut setting: the kill
+        /// switch's carrier gate and its reflected-power cut (a check's cut
+        /// starts the same hold, Astra B1), and the rig's CW keying (B5). The
+        /// newest controller wins, as there.
         /// </summary>
         private void PublishHoldGate()
         {
             TransmitKillSwitch.TransmitHeld = door => RefuseIfHeldAfterCut(door) ? _cutHold.LastRefusalSentence : null;
+            TransmitKillSwitch.ReflectedCutHappened = BeginCutHoldFromKillSwitch;
+            FlexBase.RefuseIfTransmitHeld = RefuseIfHeldAfterCut;
+            FlexBase.IsTransmitHeld = () => _cutHold.Holding;
         }
 
         /// <summary>
-        /// The cut has just ended the transmission (GoIdle has spoken): start
-        /// the hold, pause VOX if it was on, and watch the rig for a change.
-        /// Internal so <c>JJFlexWpf.Tests.LockSafetyHoldTests</c> can start a
-        /// hold on the real controller without a meter stream; the one
-        /// production caller is the cut in <see cref="CheckReflectedPower"/>,
-        /// which a source pin holds to.
+        /// The kill switch's reflected-power cut ended a transmit check (B1):
+        /// the same hold, from what the watcher knew. Arrives on the watcher's
+        /// or the Fixer's thread; the hold is in force before this returns,
+        /// and only the timer is posted to the dispatcher.
+        /// </summary>
+        private void BeginCutHoldFromKillSwitch(ReflectedCutNotice notice)
+        {
+            FlexBase? rig = null;
+            try { rig = _getRigControl(); } catch { }
+            if (rig == null)
+            {
+                Tracing.TraceLine("PTT: a transmit check's reflected-power cut arrived with no rig to hold (" + notice + ")", TraceLevel.Warning);
+                return;
+            }
+            BeginCutHold(rig, notice);
+        }
+
+        /// <summary>
+        /// The controller's own cut has just ended the transmission (GoIdle has
+        /// spoken): start the hold. Internal so
+        /// <c>JJFlexWpf.Tests.LockSafetyHoldTests</c> can start a hold on the
+        /// real controller without a meter stream; the one production caller
+        /// is the cut in <see cref="CheckReflectedPower"/>, which a source pin
+        /// holds to.
         /// </summary>
         internal void BeginCutHold(FlexBase rig, TransmitSafety.ReflectedCut cut, in TransmitPowerReading reading, string antenna)
+            => BeginCutHold(rig, new ReflectedCutNotice(cut, reading, antenna));
+
+        /// <summary>
+        /// Start the hold, pause VOX if it was on, and watch the rig for a
+        /// change. Callable from any thread: the hold itself is locked and
+        /// generation-stamped, this class's wiring is under its own lock, and
+        /// the one dispatcher-bound piece (the poll timer) is posted.
+        /// </summary>
+        internal void BeginCutHold(FlexBase rig, in ReflectedCutNotice notice)
         {
-            // A second cut while a hold is in force: end the first hold HERE,
-            // before the new wiring goes on. Begin would end it itself, but
-            // its Ended event would then land in the wiring just attached and
-            // tear it down, leaving the new hold with no timer and no
-            // operator-changed subscription (found by reading the first build;
-            // LockSafetyHoldTests pins the watch surviving a second cut).
-            _cutHold.Abandon("the controller is starting the next cut's hold", Environment.TickCount64);
-            EndCutHoldWiring();
-            _cutHoldRig = rig;
-            _cutHold.Ended += OnCutHoldEnded;
-            rig.OperatorChangedRadioSetting += OnOperatorChangedDuringCutHold;
+            long now = Environment.TickCount64;
+            lock (_cutHoldWiring)
+            {
+                // A second cut while a hold is in force: end the first hold
+                // HERE, before the new wiring goes on. Its Ended event carries
+                // its own generation, so the handler below tears down only what
+                // belongs to it.
+                _cutHold.Abandon("the controller is starting the next cut's hold", now);
+                EndCutHoldWiringLocked();
 
-            _cutHold.Begin(cut, reading, antenna, ReflectedCutHold.Snapshot(rig), Environment.TickCount64,
-                voxIsOn: () => rig.Vox == FlexBase.OffOnValues.on,
-                voxSet: on =>
-                {
-                    // App-initiated, so NoteOperatorChangedRadioSetting does not
-                    // fire (the hold would lift itself) and the disconnect save
-                    // offer is not armed (never saved into a profile).
-                    using (rig.AppInitiatedSettingChanges())
-                        rig.Vox = on ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off;
-                },
-                voxPausedTone: () => EarconPlayer.ToggleTone(false),
-                refusalTone: EarconPlayer.WarningAlarmTone);
+                _cutHoldRig = rig;
+                _cutHold.Ended += OnCutHoldEnded;
+                rig.OperatorChangedRadioSetting += OnOperatorChangedDuringCutHold;
+                rig.AppInitiatedRadioSettingWritten += OnAppWroteDuringCutHold;
 
-            if (!_cutHold.Holding) { EndCutHoldWiring(); return; }   // ended inside Begin; nothing to watch
+                // The levers write the radio's own setting as an APP-INITIATED
+                // change, so NoteOperatorChangedRadioSetting does not fire (the
+                // hold would lift itself) and the disconnect save offer is not
+                // armed. Which setting was switched off is the hold's to
+                // remember (B5).
+                _cutHoldWiredGeneration = _cutHold.Begin(notice, ReflectedCutHold.Snapshot(rig), now,
+                    ReflectedCutHold.LeversFor(rig, () => EarconPlayer.ToggleTone(false)),
+                    refusalTone: EarconPlayer.WarningAlarmTone);
 
-            _cutHoldTimer?.Stop();
-            _cutHoldTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(ReflectedCutHold.SignalPollMs) };
-            _cutHoldTimer.Tick += CutHoldTimerTick;
-            _cutHoldTimer.Start();
+                if (!_cutHold.Holding) { EndCutHoldWiringLocked(); return; }   // ended inside Begin; nothing to watch
+            }
+
+            if (_dispatcher.CheckAccess()) StartCutHoldTimer();
+            else _dispatcher.BeginInvoke(new Action(StartCutHoldTimer));
+        }
+
+        /// <summary>The poll timer, created on the dispatcher it belongs to.</summary>
+        private void StartCutHoldTimer()
+        {
+            lock (_cutHoldWiring)
+            {
+                if (!_cutHold.Holding || _cutHoldRig == null) return;
+                StopCutHoldTimerLocked();
+                _cutHoldTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(ReflectedCutHold.SignalPollMs) };
+                _cutHoldTimer.Tick += CutHoldTimerTick;
+                _cutHoldTimer.Start();
+            }
         }
 
         private void CutHoldTimerTick(object? sender, EventArgs e)
         {
             FlexBase? rig = _cutHoldRig;
-            if (rig == null || !_cutHold.Holding) { EndCutHoldWiring(); return; }
+            if (rig == null || !_cutHold.Holding) { lock (_cutHoldWiring) EndCutHoldWiringLocked(); return; }
             _cutHold.Tick(ReflectedCutHold.Snapshot(rig), Environment.TickCount64);
         }
 
-        private void OnOperatorChangedDuringCutHold(string what)
+        // The hold is thread-safe, so the rig's events go straight to it on
+        // whatever thread raised them; nothing here needs the dispatcher.
+        private void OnOperatorChangedDuringCutHold(string what) => _cutHold.OperatorChanged(what, Environment.TickCount64);
+        private void OnAppWroteDuringCutHold(string what, string value) => _cutHold.AppWrote(what, value);
+
+        /// <summary>
+        /// A hold ended. Only the hold this class is wired to may tear the
+        /// wiring down: an older hold's end arriving late, on any thread,
+        /// leaves a newer hold's timer and subscriptions alone.
+        /// </summary>
+        private void OnCutHoldEnded(int generation, ReflectedCutHold.EndReason reason, string detail)
         {
-            if (!_dispatcher.CheckAccess())
+            lock (_cutHoldWiring)
             {
-                _dispatcher.BeginInvoke(new Action(() => OnOperatorChangedDuringCutHold(what)));
-                return;
+                if (generation != _cutHoldWiredGeneration) return;
+                EndCutHoldWiringLocked();
             }
-            _cutHold.OperatorChanged(what, Environment.TickCount64);
         }
 
-        private void OnCutHoldEnded(ReflectedCutHold.EndReason reason, string detail) => EndCutHoldWiring();
+        /// <summary>
+        /// The rig is about to be torn down on a path the app controls: the
+        /// normal disconnect (<c>CloseTheRadio</c> through
+        /// <c>MainWindow.UnwireRadioEvents</c>), the application exit, a
+        /// power-off. Ends the hold and puts VOX back NOW, with an immediate
+        /// write rather than a queued one, because the command loop is about
+        /// to stop and a queued write might never run (Astra B3). Idempotent.
+        /// </summary>
+        public void ReleaseRigForTeardown(string why)
+        {
+            _cutHold.Abandon(why, Environment.TickCount64, immediate: true);
+            lock (_cutHoldWiring) EndCutHoldWiringLocked();
+        }
 
         /// <summary>Stop watching the rig for the hold. Idempotent; the hold's own state is the hold's.</summary>
-        private void EndCutHoldWiring()
+        private void EndCutHoldWiringLocked()
         {
-            _cutHoldTimer?.Stop();
-            _cutHoldTimer = null;
+            StopCutHoldTimerLocked();
             _cutHold.Ended -= OnCutHoldEnded;
             FlexBase? rig = _cutHoldRig;
             _cutHoldRig = null;
-            if (rig != null) rig.OperatorChangedRadioSetting -= OnOperatorChangedDuringCutHold;
+            if (rig != null)
+            {
+                rig.OperatorChangedRadioSetting -= OnOperatorChangedDuringCutHold;
+                rig.AppInitiatedRadioSettingWritten -= OnAppWroteDuringCutHold;
+            }
         }
+
+        /// <summary>DispatcherTimer.Stop is thread-affine; stop it where it lives.</summary>
+        private void StopCutHoldTimerLocked()
+        {
+            DispatcherTimer? t = _cutHoldTimer;
+            _cutHoldTimer = null;
+            if (t == null) return;
+            if (_dispatcher.CheckAccess()) t.Stop();
+            else _dispatcher.BeginInvoke(new Action(t.Stop));
+        }
+
+        // -------------------------------------------------------------------
+        // Every allowed RF source tells the episode (Astra B6)
+        // -------------------------------------------------------------------
+        //
+        // The off-air sentence's validity answer ("no transmission since") is
+        // only as good as the episode's knowledge of RF. SetTx and the external
+        // watch were its only inputs; the tune carrier, the ATU cycle and a
+        // transmission the radio keyed on its own (VOX, a hand mic) were not,
+        // so an unheard cut sentence stayed replayable through a legitimate
+        // tune. These three say what the radio and the tune controls are doing;
+        // NoteRf still decides the edge. The tune carrier stays unheld and keys
+        // exactly as before: this is plumbing only.
+
+        private bool _radioReportsTransmit;
+        private bool _tuneCarrierOn;
+        private bool _atuTuning;
+
+        /// <summary>
+        /// The radio's own transmit status changed (MainWindow's
+        /// TransmitChangeHandler). "Off" is the radio's word that RF has
+        /// stopped, so it also clears the tune flags below: a carrier the
+        /// radio's own timeout or another client dropped must not leave a flag
+        /// standing that would hide the next off-to-on edge.
+        /// </summary>
+        public void NoteRadioTransmit(bool on)
+        {
+            _radioReportsTransmit = on;
+            if (!on) { _tuneCarrierOn = false; _atuTuning = false; }
+            NoteRf();
+        }
+
+        /// <summary>The operator's tune carrier (Ctrl+Shift+T, the Transmit menu, the Tune button) went up or down.</summary>
+        public void NoteTuneCarrier(bool on) { _tuneCarrierOn = on; NoteRf(); }
+
+        /// <summary>The radio's ATU cycle started or ended, from the ATU status.</summary>
+        public void NoteAtuTuning(bool on) { _atuTuning = on; NoteRf(); }
 
         // -------------------------------------------------------------------
         // External transmit watch (#236)
@@ -690,11 +807,13 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// RF is on when this controller has keyed, or an external transmit it
-        /// watches is up. The episode advances only on the OFF-to-ON edge of
-        /// that, inside <see cref="Radios.Speech.TransmitEpisode"/>.
+        /// RF is on when this controller has keyed, an external transmit it
+        /// watches is up, the radio reports transmitting, the tune carrier is
+        /// up or the ATU is tuning (Astra B6: every allowed RF source). The
+        /// episode advances only on the OFF-to-ON edge of that, inside
+        /// <see cref="Radios.Speech.TransmitEpisode"/>.
         /// </summary>
-        private void NoteRf() => _transmitEpisode.RfIs(_rfCommandedOn || _externalWatchers > 0);
+        private void NoteRf() => _transmitEpisode.RfIs(_rfCommandedOn || _externalWatchers > 0 || _radioReportsTransmit || _tuneCarrierOn || _atuTuning);
 
         // -------------------------------------------------------------------
         // Public actions (called from key handlers)
@@ -1569,10 +1688,10 @@ namespace JJFlexWpf
             }
             StopAllTimers();
             // The hold goes with its owner, and VOX comes back if this hold had
-            // it off and the rig can still be written (#571). If the rig is
+            // it off and the rig can still be written (#571) -- immediately,
+            // because the command loop may already be stopping. If the rig is
             // already gone, VOX stays off: the accepted, safe-direction failure.
-            _cutHold.Abandon("the PTT controller is going away", Environment.TickCount64);
-            EndCutHoldWiring();
+            ReleaseRigForTeardown("the PTT controller is going away");
         }
     }
 }
