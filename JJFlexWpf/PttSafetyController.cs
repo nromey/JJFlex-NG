@@ -294,6 +294,13 @@ namespace JJFlexWpf
         /// </summary>
         internal void BeginCutHold(FlexBase rig, TransmitSafety.ReflectedCut cut, in TransmitPowerReading reading, string antenna)
         {
+            // A second cut while a hold is in force: end the first hold HERE,
+            // before the new wiring goes on. Begin would end it itself, but
+            // its Ended event would then land in the wiring just attached and
+            // tear it down, leaving the new hold with no timer and no
+            // operator-changed subscription (found by reading the first build;
+            // LockSafetyHoldTests pins the watch surviving a second cut).
+            _cutHold.Abandon("a second cut began before the first hold ended", Environment.TickCount64);
             EndCutHoldWiring();
             _cutHoldRig = rig;
             _cutHold.Ended += OnCutHoldEnded;

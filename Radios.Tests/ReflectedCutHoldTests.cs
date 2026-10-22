@@ -29,6 +29,14 @@ namespace Radios.Tests
     /// controller), the rig's VOX write, and RF. The VOX write is pinned from
     /// source in <c>LockSafetySourcePinTests</c>.
     /// </para>
+    /// <para>
+    /// Expected sentences are LITERALS here, on purpose: this class is in the
+    /// speech-statics collection, so it may not touch the lexicon statics
+    /// itself (the isolation test refuses a class that names them without the
+    /// RadioConfig collection); the production class under test loads what it
+    /// needs. A wording change therefore fails here by design, which is where
+    /// Noel's review of the draft prose will land.
+    /// </para>
     /// </remarks>
     [Collection(SpeechOutputStaticsCollection.Name)]
     public sealed class ReflectedCutHoldTests : IDisposable
@@ -60,7 +68,6 @@ namespace Radios.Tests
 
         public ReflectedCutHoldTests()
         {
-            Lexicon.Load(Lexicon.Partitions);
             string dir = Path.Combine(Path.GetTempPath(), "jjflex-cut-hold-tests");
             Directory.CreateDirectory(dir);
             _path = Path.Combine(dir, Guid.NewGuid().ToString("N") + ".jsonl");
@@ -300,8 +307,7 @@ namespace Radios.Tests
             Assert.Equal(new[] { false }, vox.Writes);
             Assert.True(hold.VoxPaused);
             Assert.Equal(1, vox.Tones);
-            string note = Lexicon.Get("audio.ptt.cut_hold_vox_paused", ("seconds", 5));
-            Assert.Equal("VOX is paused for 5 seconds.", note);
+            const string note = "VOX is paused for 5 seconds.";
             Assert.True(Delivered(note), "the VOX-paused note was not delivered at Terse");
 
             int spokenBefore = Speech().Length;
@@ -361,7 +367,7 @@ namespace Radios.Tests
             ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Critical;   // Off
             var vox = new FakeVox { On = true };
             Begin(vox);
-            string note = Lexicon.Get("audio.ptt.cut_hold_vox_paused", ("seconds", 5));
+            const string note = "VOX is paused for 5 seconds.";
             Assert.True(Gated(note), "the VOX note should be gated at Off; it is not a safety sentence");
             Assert.False(Delivered(note));
             Assert.Equal(1, vox.Tones);

@@ -332,6 +332,29 @@ public sealed class LockSafetyHoldTests : IDisposable
     }
 
     [Fact]
+    public void A_second_cut_during_a_hold_restarts_it_and_keeps_the_controller_watching()
+    {
+        // Found by reading the first build: BeginCutHold wired the Ended
+        // handler and THEN called Begin, whose own end-the-old-hold step
+        // raised Ended into the new wiring and tore it down — so after a
+        // second cut the hold ran with no timer and no operator-changed
+        // subscription, and VOX would have come back only on a press or at
+        // Dispose. The controller now abandons the old hold before wiring.
+        AssertTheDeskIsSafe();
+        BeginHold();
+        BeginHold();
+        Assert.True(_controller.CutHold.Holding);
+        var timer = typeof(PttSafetyController).GetField("_cutHoldTimer", Any);
+        Assert.True(timer != null, "PttSafetyController._cutHoldTimer is missing");
+        Assert.NotNull(timer.GetValue(_controller));
+        var rigField = typeof(PttSafetyController).GetField("_cutHoldRig", Any);
+        Assert.True(rigField != null, "PttSafetyController._cutHoldRig is missing");
+        Assert.Same(_rig, rigField.GetValue(_controller));
+        LockKeyDown(false);
+        Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
+    }
+
+    [Fact]
     public void Disposing_the_controller_ends_the_hold()
     {
         AssertTheDeskIsSafe();
