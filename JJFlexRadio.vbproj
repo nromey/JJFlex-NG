@@ -520,6 +520,8 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>runtimes\win-x64\native\libopus.dll</Link>
     </Content>
+    <Content Include="runtimes\win-x64\native\libFLAC.dll" CopyToOutputDirectory="PreserveNewest" Link="runtimes\win-x64\native\libFLAC.dll" />
+    <Content Include="runtimes\win-x64\native\libFLAC.COPYING.Xiph.txt" CopyToOutputDirectory="PreserveNewest" Link="runtimes\win-x64\native\libFLAC.COPYING.Xiph.txt" />
     <Content Include="runtimes\win-x64\native\prism.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>runtimes\win-x64\native\prism.dll</Link>
@@ -566,6 +568,8 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>runtimes\win-x86\native\libopus.dll</Link>
     </Content>
+    <Content Include="runtimes\win-x86\native\libFLAC.dll" CopyToOutputDirectory="PreserveNewest" Link="runtimes\win-x86\native\libFLAC.dll" />
+    <Content Include="runtimes\win-x86\native\libFLAC.COPYING.Xiph.txt" CopyToOutputDirectory="PreserveNewest" Link="runtimes\win-x86\native\libFLAC.COPYING.Xiph.txt" />
     <Content Include="runtimes\win-x86\native\prism.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>runtimes\win-x86\native\prism.dll</Link>

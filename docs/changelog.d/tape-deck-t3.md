@@ -1,0 +1,1 @@
+Computer recordings now save your receive audio as FLAC files in a Recorded QSOs folder, organized by year and month. A recording keeps the time of missing receive audio as silence, so the conversation stays in place when packets are lost.

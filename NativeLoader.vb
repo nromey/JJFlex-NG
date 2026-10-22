@@ -37,6 +37,11 @@ Public Module NativeLoader
                 GetType(Radios.ScreenReaderOutput).Assembly,
                 AddressOf ResolveNativeLibrary)
 
+            ' Computer-recording playback decodes FLAC in JJFlexWpf.
+            NativeLibrary.SetDllImportResolver(
+                GetType(JJFlexWpf.RecordingPlayer).Assembly,
+                AddressOf ResolveNativeLibrary)
+
             ' DeepFilterNet3 (#731, Sprint 48 Track G) is NOT a DllImport, so it
             ' takes no resolver: the engine loads deepfilter.dll by absolute
             ' path and binds its entry points from that handle, because its C
@@ -120,6 +125,8 @@ Public Module NativeLoader
                 Return "portaudio.dll"
             Case "libopus.dll", "libopus", "opus"
                 Return "libopus.dll"
+            Case "libflac.dll", "libflac", "flac"
+                Return "libFLAC.dll"
             Case "prism.dll", "prism"
                 ' Screen-reader and braille output (ethindp/prism). Talks to
                 ' NVDA, JAWS and SAPI itself - one file, no per-reader clients.

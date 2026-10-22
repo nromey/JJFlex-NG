@@ -359,6 +359,12 @@ submodule cannot.
 
 ## Prebuilt binaries
 
+FLAC: `libFLAC.dll` for x64 and x86 comes from Xiph's `flac-1.5.0-win.zip`,
+SHA-256 `53f1500f0d6e7c61379d7fee50d4a9f7f504c650009506d9ba015530d76c0dde`.
+The binaries have no Windows version resource; both embed `reference libFLAC 1.5.0`.
+The New BSD licence is shipped beside each DLL as `libFLAC.COPYING.Xiph.txt`.
+Only the library DLL is shipped; the zip's command-line tools are not.
+
 - Opus: https://opus-codec.org/downloads/ — or vcpkg, whose port tracks 1.6.1.
 - PortAudio: **do not use vcpkg or the stable tarball**; both are 19.7.0. Build
   from the pinned master commit above.

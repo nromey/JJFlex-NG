@@ -53,6 +53,9 @@ namespace JJPortaudio
         /// </summary>
         public Action<float[]>? PostDecodeProcessor { get; set; }
 
+        /// <summary>Observer of the final receive samples; it must return without blocking.</summary>
+        public Action<float[]>? PostOutputObserver { get; set; }
+
         /// <summary>
         /// Audio Track C: optional TX injection source for input streams.
         /// When set and engaged, its samples REPLACE the microphone samples in
@@ -360,6 +363,7 @@ namespace JJPortaudio
 
             // PC-side audio processing (NR, spectral subtraction, etc.)
             PostDecodeProcessor?.Invoke(buf);
+            PostOutputObserver?.Invoke(buf);
 
             // Measure what is actually going to the speakers, AFTER the gain,
             // the limiter and any noise reduction — rather than computing it

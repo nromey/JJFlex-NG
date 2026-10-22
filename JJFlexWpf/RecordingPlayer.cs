@@ -59,7 +59,7 @@ public static class RecordingPlayer
     public static event Action<string>? PlaybackCompleted;
 
     private static readonly object Gate = new();
-    private static WaveFileReader? _reader;
+    private static WaveStream? _reader;
     private static EndOfFileSampleProvider? _provider;
     private static FixedGainLimiterSampleProvider? _gain;
     private static FlexBase? _liveRig;
@@ -111,7 +111,7 @@ public static class RecordingPlayer
 
         Stop();
 
-        WaveFileReader reader;
+        WaveStream reader;
         try
         {
             if (!File.Exists(path))
@@ -120,7 +120,9 @@ public static class RecordingPlayer
                     ("file", Path.GetFileNameWithoutExtension(path))));
                 return false;
             }
-            reader = new WaveFileReader(path);
+            reader = string.Equals(Path.GetExtension(path), ".flac", StringComparison.OrdinalIgnoreCase)
+                ? new RecordedQsoFlacWaveStream(path)
+                : new WaveFileReader(path);
         }
         catch (Exception ex)
         {
@@ -238,7 +240,7 @@ public static class RecordingPlayer
 
     private static void End(string spokenReason, bool confirmTone = false, EndOfFileSampleProvider? expected = null)
     {
-        WaveFileReader? reader;
+        WaveStream? reader;
         EndOfFileSampleProvider? provider;
         bool limited;
         string completedPath;
@@ -292,7 +294,7 @@ public static class RecordingPlayer
     /// rate a microphone offered and is usually mono; the mixer is 44100 Hz
     /// stereo and will refuse anything else.
     /// </summary>
-    private static ISampleProvider ToMixerFormat(WaveFileReader reader)
+    private static ISampleProvider ToMixerFormat(WaveStream reader)
     {
         WaveFormat want = EarconPlayer.RecordingPlaybackFormat;
         ISampleProvider source = reader.ToSampleProvider();

@@ -328,6 +328,10 @@ namespace Radios
             }
         }
         private audioChannelData opusOutputChannel;
+
+        /// <summary>The receive device rate, available only while computer receive audio runs.</summary>
+        public uint ReceiveAudioSampleRate => opusOutputChannel?.PortAudioStream?.SampleRate ?? 0;
+        public bool ReceiveAudioRunning => opusOutputChannel?.Started == true;
         private audioChannelData opusInputChannel;
         // False when the microphone stream failed to open. Without it every
         // key-up re-attempts a start that cannot succeed and waits a second for
@@ -853,6 +857,8 @@ namespace Radios
             opusOutputChannel.PortAudioStream.OutputGain = PcOutputGainFactor;
             // Wire PC-side audio processing if a pipeline has been configured
             opusOutputChannel.PortAudioStream.PostDecodeProcessor = _audioPostProcessor;
+            opusOutputChannel.PortAudioStream.PostOutputObserver =
+                samples => (ComputerRecorder.Current as ComputerFlacRecorder)?.ReceiveHeard(this, samples);
             Tracing.TraceLine("remoteAudioProc:opusOutputChannel:" + opusOutputChannel.Name + " setup, OutputGain=" + opusOutputChannel.PortAudioStream.OutputGain + ", PostDecodeProcessor=" + (_audioPostProcessor != null ? "yes" : "none"), TraceLevel.Info);
 
             if (!startOpusOutputChannel())
@@ -1200,6 +1206,7 @@ namespace Radios
                 // get opus data, even during transmit (for QSK).
                 byte[] opusBuf = null;
                 double consumedTs = -1;
+                int consumedSequence = -1;
                 lock (opusOutputChannel)
                 {
                     RXAudioStream stream = opusOutputChannel.OpusChannel;
@@ -1230,6 +1237,7 @@ namespace Radios
                                 {
                                     opusBuf = stream._opusRXList.Values[i].payload;
                                     consumedTs = stream._opusRXList.Keys[i];
+                                    consumedSequence = stream._opusRXList.Values[i].Header.packet_count;
                                     stream.LastOpusTimestampConsumed = consumedTs;
                                     break;
                                 }
@@ -1244,6 +1252,8 @@ namespace Radios
                     // than differenced between timestamps. See
                     // ReceiveContinuityMeter for why the difference matters.
                     _opusRxContinuity.Consume(consumedTs);
+                    (ComputerRecorder.Current as ComputerFlacRecorder)?.Receive(this, opusBuf,
+                        consumedSequence, consumedTs, LocalReceiveMutedForTakePlayback);
                     // Local take playback owns this computer-side gate. Keep
                     // consuming timestamps while muted; never send a radio
                     // mute command or make the receive stream fall behind.
@@ -1286,6 +1296,7 @@ namespace Radios
             }
 
             remoteDone:
+            (ComputerRecorder.Current as ComputerFlacRecorder)?.ReceiveEnded(this);
             // Both exits pass through here, so the continuity totals are
             // reported for aborted runs too.
             TraceOpusRxContinuitySummary();
