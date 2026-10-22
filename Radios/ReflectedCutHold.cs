@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
 using JJTrace;
@@ -34,36 +35,58 @@ namespace Radios
     /// amplifier lifts the hold at once, and the next press keys as normal.
     /// Nothing re-keys inside the window: the lock key, push to talk, the
     /// system-wide keys, the Transmit button, a voice message, a transmit
-    /// check, and VOX ("that's fine", "if so, yes that's fine", 21:15 and
-    /// 21:16). The tune carrier and an ATU tune are NOT held: "you should be
-    /// able to tune right away to rectify the problem" (2026-10-22 05:42), and
-    /// a tune is itself a change that lifts the hold. Only the reflected-power
-    /// cut starts a hold; the transmit timeout, the ALC release, the hard kill
-    /// and a temperature over-run do not (05:14).
+    /// check, CW keying, and VOX ("that's fine", "if so, yes that's fine",
+    /// 21:15 and 21:16). The tune carrier and an ATU tune are NOT held: "you
+    /// should be able to tune right away to rectify the problem" (2026-10-22
+    /// 05:42), and a tune is itself a change that lifts the hold. Only the
+    /// reflected-power cut starts a hold, whoever owned the transmission — the
+    /// controller's own or a transmit check's; the transmit timeout, the ALC
+    /// release, the hard kill and a temperature over-run do not (05:14).
     /// </para>
     /// <para>
-    /// <b>VOX is paused by switching the radio's VOX off and back on</b>
-    /// ("switch off and on silently", 05:37), because VOX is decided inside the
-    /// radio and the only lever the app has is the radio's setting. Transmit
-    /// inhibit was offered and rejected: it blocks every microphone and every
-    /// client, and strands the radio if the app dies mid-window. The switch is
-    /// made as an APP-INITIATED write, so the operator-changed hook does not
-    /// fire and the hold does not lift itself; it is never saved into a
-    /// profile; and it is restored on every exit the app controls: expiry, an
-    /// early lift, and the owner going away. If the app dies mid-window VOX
-    /// stays off, which is the accepted, safe-direction failure. The operator
-    /// is told once, when VOX was on, at their verbosity and with their sound
-    /// settings ("tell them/tone based on settings", 05:38); nothing is said
-    /// when VOX comes back.
+    /// <b>VOX is paused by switching the radio's own setting off and back
+    /// on</b> ("switch off and on silently", 05:37), because VOX is decided
+    /// inside the radio and the only lever the app has is the setting.
+    /// Transmit inhibit was offered and rejected: it blocks every microphone
+    /// and every client, and strands the radio if the app dies mid-window. The
+    /// hold records WHICH setting it switched off — <c>SimpleVOXEnable</c> in
+    /// the voice modes, <c>CWBreakIn</c> in CW — and puts back exactly that
+    /// one, so a mode change inside the window cannot make the restore write
+    /// the other (Astra's review, B5); and if the mode changes mid-hold, the
+    /// new mode's setting is paused too if it is on. The switch is made as an
+    /// APP-INITIATED write, so the operator-changed hook does not fire and the
+    /// hold does not lift itself; and it is restored on every exit the app
+    /// controls: expiry, an early lift, and the owner going away — including
+    /// the normal disconnect, where the restore is written immediately rather
+    /// than queued because the command loop is about to stop (B3). If the app
+    /// dies mid-window VOX stays off, which is the accepted, safe-direction
+    /// failure. The operator is told once, when VOX was on, at their verbosity
+    /// and with their sound settings ("tell them/tone based on settings",
+    /// 05:38); nothing is said when VOX comes back.
+    /// </para>
+    /// <para>
+    /// <b>An app write's echo is not the operator's repair</b> (Astra's
+    /// review, B2). When the application itself writes a snapshot field inside
+    /// <c>FlexBase.AppInitiatedSettingChanges</c> — the Audio Check putting
+    /// its saved power back after the cut ended its transmission is the
+    /// ordinary case — the owner tells the hold through <see cref="AppWrote"/>,
+    /// and the hold moves its baseline to the written value. The radio's later
+    /// echo then matches the baseline and lifts nothing; a change the operator
+    /// makes afterwards still differs and still lifts.
     /// </para>
     /// <para>
     /// <b>Shape.</b> Pure and clock-injected so the window, the signals, the
     /// VOX restore and the speech can all be driven from a test with no radio
-    /// and no dispatcher. The owner (the PTT safety controller) reads the
-    /// transmit setup fresh from the rig and hands it in; this class only
-    /// compares. It speaks through <see cref="ScreenReaderOutput"/> itself,
-    /// so a test can assert on what is DELIVERED past the verbosity gate
-    /// rather than on a call that was made before it.
+    /// and no dispatcher. Every public method takes one lock, and every hold
+    /// carries a generation: an end that belongs to an older hold cannot touch
+    /// a newer one, whichever thread it arrives on — the controller's timer
+    /// ticks on the dispatcher, a transmit check's refusal arrives on the
+    /// Fixer's thread, and the kill switch's cut notice arrives on its watcher
+    /// thread. The owner reads the transmit setup fresh from the rig and hands
+    /// it in; this class only compares. It speaks through
+    /// <see cref="ScreenReaderOutput"/> itself, so a test can assert on what
+    /// is DELIVERED past the verbosity gate rather than on a call made before
+    /// it.
     /// </para>
     /// </remarks>
     public sealed class ReflectedCutHold
@@ -91,15 +114,16 @@ namespace Radios
             Expired,
             /// <summary>The transmit setup changed since the cut.</summary>
             Lifted,
-            /// <summary>The owner went away (radio off, controller disposed).</summary>
+            /// <summary>The owner went away (radio closing, controller disposed), or a newer cut replaced this hold.</summary>
             Abandoned,
         }
 
         /// <summary>
         /// The transmit setup as read from the rig at one instant. Compared
         /// field by field against the one taken at the cut; any difference
-        /// lifts the hold. Each field says where it is read from and how
-        /// fresh it is, because that is the question the ruling turns on.
+        /// lifts the hold, except the mode, which re-pauses VOX instead. Each
+        /// field says where it is read from and how fresh it is, because that
+        /// is the question the ruling turns on.
         /// </summary>
         public readonly struct TransmitSetup
         {
@@ -150,8 +174,16 @@ namespace Radios
             /// </summary>
             public string AmplifierSignature { get; }
 
+            /// <summary>
+            /// The TX slice's mode as the radio reports it
+            /// (<c>FlexBase.TXModeAsReported</c>). NOT a change signal: a mode
+            /// change clears no antenna fault. It decides which VOX setting is
+            /// live, so a change re-pauses VOX for the new mode (B5).
+            /// </summary>
+            public string TxMode { get; }
+
             public TransmitSetup(string? txAntenna, ulong txFrequencyHz, int rfPower, int tunePower,
-                                 bool tuning, string? amplifierSignature)
+                                 bool tuning, string? amplifierSignature, string? txMode = null)
             {
                 TxAntenna = txAntenna ?? "";
                 TxFrequencyHz = txFrequencyHz;
@@ -159,28 +191,61 @@ namespace Radios
                 TunePower = tunePower;
                 Tuning = tuning;
                 AmplifierSignature = amplifierSignature ?? "";
+                TxMode = txMode ?? "";
             }
+
+            /// <summary>This setup with one field moved to a value the application wrote (<see cref="AppWrote"/>).</summary>
+            public TransmitSetup WithRfPower(int v) => new TransmitSetup(TxAntenna, TxFrequencyHz, v, TunePower, Tuning, AmplifierSignature, TxMode);
+            public TransmitSetup WithTunePower(int v) => new TransmitSetup(TxAntenna, TxFrequencyHz, RfPower, v, Tuning, AmplifierSignature, TxMode);
+            public TransmitSetup WithTxAntenna(string v) => new TransmitSetup(v, TxFrequencyHz, RfPower, TunePower, Tuning, AmplifierSignature, TxMode);
+            public TransmitSetup WithTxMode(string v) => new TransmitSetup(TxAntenna, TxFrequencyHz, RfPower, TunePower, Tuning, AmplifierSignature, v);
 
             public override string ToString()
                 => "antenna " + (TxAntenna.Length == 0 ? "unknown" : TxAntenna)
                  + ", " + TxFrequencyHz + " Hz, power " + RfPower + ", tune power " + TunePower
+                 + (TxMode.Length == 0 ? "" : ", " + TxMode)
                  + (Tuning ? ", tuning" : "")
                  + (AmplifierSignature.Length == 0 ? "" : ", amplifiers " + AmplifierSignature);
         }
 
+        /// <summary>The owner's two levers on the radio's autonomous keying, by setting.</summary>
+        public sealed class VoxLevers
+        {
+            /// <summary>Which setting the TX slice's mode keys on, if it is on now; None otherwise.</summary>
+            public Func<FlexBase.VoxSetting> CurrentIfOn { get; }
+
+            /// <summary>
+            /// Write one setting as the application's act: (which, on, immediate).
+            /// Returns true when a write was ISSUED to a present radio.
+            /// </summary>
+            public Func<FlexBase.VoxSetting, bool, bool, bool> Write { get; }
+
+            /// <summary>The tone beside the VOX-paused note, under the operator's sound switches. Null plays nothing.</summary>
+            public Action? PausedTone { get; }
+
+            public VoxLevers(Func<FlexBase.VoxSetting> currentIfOn, Func<FlexBase.VoxSetting, bool, bool, bool> write, Action? pausedTone = null)
+            {
+                CurrentIfOn = currentIfOn ?? throw new ArgumentNullException(nameof(currentIfOn));
+                Write = write ?? throw new ArgumentNullException(nameof(write));
+                PausedTone = pausedTone;
+            }
+        }
+
+        private readonly object _gate = new object();
         private readonly Func<long> _clock;
 
+        private int _generation;
         private bool _holding;
         private long _beganMs;
         private TransmitSetup _atCut;
         private string _reason = "";
         private string _antennaCheck = "";
 
-        private Func<bool>? _voxIsOn;
-        private Action<bool>? _voxSet;
+        private VoxLevers? _vox;
         private Action? _refusalTone;
-        private bool _voxPaused;
+        private readonly List<FlexBase.VoxSetting> _pausedSettings = new List<FlexBase.VoxSetting>();
         private bool _voxRestoreCancelled;
+        private bool _voxNoteGiven;
 
         /// <summary>Clock in milliseconds; <c>Environment.TickCount64</c> in production.</summary>
         public ReflectedCutHold(Func<long> clock)
@@ -189,7 +254,14 @@ namespace Radios
         }
 
         /// <summary>True while a hold is in force. Expiry is noticed lazily by <see cref="Tick"/> and by a refused press.</summary>
-        public bool Holding => _holding;
+        public bool Holding { get { lock (_gate) return _holding; } }
+
+        /// <summary>
+        /// Which hold this is: incremented at every <see cref="Begin"/>. An
+        /// owner that wired itself to one hold compares this before tearing
+        /// anything down on that hold's end.
+        /// </summary>
+        public int Generation { get { lock (_gate) return _generation; } }
 
         /// <summary>How many presses this hold refused, across all doors.</summary>
         public int RefusedPresses { get; private set; }
@@ -203,11 +275,18 @@ namespace Radios
         /// <summary>The sentence the last refused press spoke, or empty.</summary>
         public string LastRefusalSentence { get; private set; } = "";
 
-        /// <summary>True while this hold has the radio's VOX switched off on the operator's behalf.</summary>
-        public bool VoxPaused => _voxPaused;
+        /// <summary>True while this hold has at least one of the radio's VOX settings switched off on the operator's behalf.</summary>
+        public bool VoxPaused { get { lock (_gate) return _pausedSettings.Count > 0; } }
 
-        /// <summary>Raised once when a hold ends, by whichever path ended it. VOX has already been restored when this fires.</summary>
-        public event Action<EndReason, string>? Ended;
+        /// <summary>The settings this hold has switched off, in the order it switched them.</summary>
+        public IReadOnlyList<FlexBase.VoxSetting> PausedSettings { get { lock (_gate) return _pausedSettings.ToArray(); } }
+
+        /// <summary>
+        /// Raised once when a hold ends, by whichever path ended it, with that
+        /// hold's generation. VOX has already been restored (or the restore
+        /// attempted) when this fires. Raised outside the lock.
+        /// </summary>
+        public event Action<int, EndReason, string>? Ended;
 
         // ──────────────────────────────────────────────────────────────────
         //  Beginning
@@ -221,64 +300,96 @@ namespace Radios
         /// <param name="antennaName">The TX antenna the cut named, or empty.</param>
         /// <param name="atCut">The transmit setup read at this instant; later reads are compared to it.</param>
         /// <param name="nowMs">The clock now.</param>
-        /// <param name="voxIsOn">Reads the radio's VOX. Null when the owner cannot reach it; VOX is then left alone.</param>
-        /// <param name="voxSet">Writes the radio's VOX AS AN APP-INITIATED CHANGE. The owner wraps the write so the operator-changed hook does not fire.</param>
-        /// <param name="voxPausedTone">The tone beside the VOX-paused note, under the operator's sound switches. Null plays nothing.</param>
+        /// <param name="vox">The owner's levers on the radio's VOX settings. Null leaves VOX alone.</param>
         /// <param name="refusalTone">The tone a refused press plays — the cut's own alarm tone. Null plays nothing.</param>
-        public void Begin(TransmitSafety.ReflectedCut rung, in TransmitPowerReading reading, string? antennaName,
-                          in TransmitSetup atCut, long nowMs,
-                          Func<bool>? voxIsOn = null, Action<bool>? voxSet = null,
-                          Action? voxPausedTone = null, Action? refusalTone = null)
+        /// <returns>This hold's generation.</returns>
+        public int Begin(TransmitSafety.ReflectedCut rung, in TransmitPowerReading reading, string? antennaName,
+                         in TransmitSetup atCut, long nowMs, VoxLevers? vox = null, Action? refusalTone = null)
+            => Begin(ReasonFor(rung, reading, antennaName), antennaName, atCut, nowMs, vox, refusalTone);
+
+        /// <summary>The same, from what a transmit check's cut knew (<see cref="ReflectedCutNotice"/>).</summary>
+        public int Begin(in ReflectedCutNotice notice, in TransmitSetup atCut, long nowMs, VoxLevers? vox = null, Action? refusalTone = null)
+            => Begin(ReasonFor(notice), notice.Antenna, atCut, nowMs, vox, refusalTone);
+
+        private int Begin(string reason, string? antennaName, in TransmitSetup atCut, long nowMs, VoxLevers? vox, Action? refusalTone)
         {
-            if (_holding) EndHold(EndReason.Abandoned, "a second cut began before the first hold ended", nowMs);
+            (int gen, EndReason reason0, string detail0)? ended = null;
+            int generation;
+            lock (_gate)
+            {
+                if (_holding)
+                    ended = EndHoldLocked(EndReason.Abandoned, "a second cut began before the first hold ended", nowMs, immediate: false);
 
-            _holding = true;
-            _beganMs = nowMs;
-            _atCut = atCut;
-            _reason = ReasonFor(rung, reading, antennaName);
-            _antennaCheck = string.IsNullOrWhiteSpace(antennaName)
-                ? Lexicon.Get("audio.ptt.cut_hold_the_antenna")
-                : antennaName!;
-            _voxIsOn = voxIsOn;
-            _voxSet = voxSet;
-            _refusalTone = refusalTone;
-            _voxPaused = false;
-            _voxRestoreCancelled = false;
-            RefusedPresses = 0;
-            LastRefusalSentence = "";
+                _generation++;
+                generation = _generation;
+                _holding = true;
+                _beganMs = nowMs;
+                _atCut = atCut;
+                _reason = reason;
+                _antennaCheck = string.IsNullOrWhiteSpace(antennaName)
+                    ? Lexicon.Get("audio.ptt.cut_hold_the_antenna")
+                    : antennaName!;
+                _vox = vox;
+                _refusalTone = refusalTone;
+                _pausedSettings.Clear();
+                _voxRestoreCancelled = false;
+                _voxNoteGiven = false;
+                RefusedPresses = 0;
+                LastRefusalSentence = "";
 
-            Tracing.TraceLine("CutHold: keying is held for " + HoldSeconds + " s after the reflected-power cut, "
-                + "or until the transmit setup changes; at the cut: " + atCut, TraceLevel.Warning);
+                Tracing.TraceLine("CutHold: hold " + generation + " — keying is held for " + HoldSeconds
+                    + " s after the reflected-power cut, or until the transmit setup changes; at the cut: " + atCut,
+                    TraceLevel.Warning);
 
-            PauseVoxIfOn(voxPausedTone);
+                PauseVoxIfOnLocked(firstTime: true);
+            }
+            RaiseEnded(ended);
+            return generation;
         }
 
-        private void PauseVoxIfOn(Action? voxPausedTone)
+        /// <summary>
+        /// Switch off the setting the current mode keys on, if it is on and
+        /// this hold has not already switched it off. Called at the start and
+        /// again when the mode changes inside the window.
+        /// </summary>
+        private void PauseVoxIfOnLocked(bool firstTime)
         {
-            if (_voxIsOn == null || _voxSet == null) return;
-            bool on;
-            try { on = _voxIsOn(); }
+            if (_vox == null) return;
+            FlexBase.VoxSetting which;
+            try { which = _vox.CurrentIfOn(); }
             catch (Exception ex)
             {
                 Tracing.TraceLine("CutHold: could not read VOX, so it is left alone — " + ex.Message, TraceLevel.Warning);
                 return;
             }
-            if (!on) return;
+            if (which == FlexBase.VoxSetting.None) return;
+            if (_pausedSettings.Contains(which)) return;
 
-            try { _voxSet(false); }
+            bool issued;
+            try { issued = _vox.Write(which, false, false); }
             catch (Exception ex)
             {
-                Tracing.TraceLine("CutHold: COULD NOT switch VOX off — " + ex.Message, TraceLevel.Error);
+                Tracing.TraceLine("CutHold: COULD NOT switch " + which + " off — " + ex.Message, TraceLevel.Error);
                 return;
             }
-            _voxPaused = true;
-            Tracing.TraceLine("CutHold: VOX was on, switched off for the hold (app-initiated, not saved)", TraceLevel.Info);
+            if (!issued)
+            {
+                Tracing.TraceLine("CutHold: the " + which + " off write was not issued, so nothing is paused and nothing will be restored",
+                                  TraceLevel.Warning);
+                return;
+            }
+            _pausedSettings.Add(which);
+            Tracing.TraceLine("CutHold: " + which + " was on, switched off for the hold (app-initiated"
+                + (firstTime ? "" : ", after a mode change") + ")", TraceLevel.Info);
 
             // The one note the operator gets about VOX, at their own verbosity
             // and under their own sound switches (Noel, 2026-10-22 05:38), after
-            // the cut sentence, which is Urgent and goes first. Nothing is said
-            // when VOX comes back.
-            try { voxPausedTone?.Invoke(); } catch { }
+            // the cut sentence, which is Urgent and goes first. Once per hold,
+            // however many settings end up paused; nothing is said when they
+            // come back.
+            if (_voxNoteGiven) return;
+            _voxNoteGiven = true;
+            try { _vox.PausedTone?.Invoke(); } catch { }
             ScreenReaderOutput.Speak(
                 Lexicon.Get("audio.ptt.cut_hold_vox_paused", ("seconds", HoldSeconds)),
                 SpeechIntent.Queue, VerbosityLevel.Terse,
@@ -306,22 +417,30 @@ namespace Radios
         /// </param>
         public bool RefusePress(string door, long nowMs, Func<bool>? stillValid)
         {
-            if (!_holding) return false;
-            if (nowMs - _beganMs >= HoldMs)
+            (int, EndReason, string)? ended = null;
+            string sentence;
+            Action? tone;
+            lock (_gate)
             {
-                EndHold(EndReason.Expired, "the window ran out", nowMs);
-                return false;
+                if (!_holding) return false;
+                if (nowMs - _beganMs >= HoldMs)
+                {
+                    ended = EndHoldLocked(EndReason.Expired, "the window ran out", nowMs, immediate: false);
+                    RaiseEnded(ended);
+                    return false;
+                }
+
+                RefusedPresses++;
+                int remaining = Math.Max(1, (int)Math.Ceiling((HoldMs - (nowMs - _beganMs)) / 1000.0));
+                sentence = RefusalSentence(_reason, _antennaCheck, remaining);
+                LastRefusalSentence = sentence;
+                tone = _refusalTone;
+
+                Tracing.TraceLine("CutHold: REFUSED to key from " + door + " — " + remaining + " s of the hold left; "
+                    + "press " + RefusedPresses + " of this hold", TraceLevel.Warning);
             }
 
-            RefusedPresses++;
-            int remaining = Math.Max(1, (int)Math.Ceiling((HoldMs - (nowMs - _beganMs)) / 1000.0));
-            string sentence = RefusalSentence(_reason, _antennaCheck, remaining);
-            LastRefusalSentence = sentence;
-
-            Tracing.TraceLine("CutHold: REFUSED to key from " + door + " — " + remaining + " s of the hold left; "
-                + "press " + RefusedPresses + " of this hold", TraceLevel.Warning);
-
-            try { _refusalTone?.Invoke(); } catch { }
+            try { tone?.Invoke(); } catch { }
             // Same subject as the cut sentence, on purpose: this IS the cut's
             // explanation, repeated. A copy of the cut sentence that the press
             // interrupted is covered by this fuller one rather than queued
@@ -338,30 +457,49 @@ namespace Radios
 
         /// <summary>
         /// The owner has re-read the transmit setup: compare it to the one at
-        /// the cut, and lift the hold on any difference. Also notices expiry.
-        /// Safe to call when nothing is held.
+        /// the cut, and lift the hold on any difference that could clear the
+        /// fault. A changed MODE does not lift; it re-pauses VOX for the new
+        /// mode. Also notices expiry. Safe to call when nothing is held.
         /// </summary>
         /// <returns>True when this call ended the hold.</returns>
         public bool Tick(in TransmitSetup now, long nowMs)
         {
-            if (!_holding) return false;
-            if (nowMs - _beganMs >= HoldMs)
+            (int, EndReason, string)? ended;
+            lock (_gate)
             {
-                EndHold(EndReason.Expired, "the window ran out", nowMs);
-                return true;
+                if (!_holding) return false;
+                if (nowMs - _beganMs >= HoldMs)
+                {
+                    ended = EndHoldLocked(EndReason.Expired, "the window ran out", nowMs, immediate: false);
+                }
+                else
+                {
+                    string? changed = WhatChanged(_atCut, now);
+                    if (changed == null)
+                    {
+                        if (!string.Equals(_atCut.TxMode, now.TxMode, StringComparison.Ordinal))
+                        {
+                            Tracing.TraceLine("CutHold: the mode changed from " + Name(_atCut.TxMode) + " to "
+                                + Name(now.TxMode) + " inside the hold — not a change that clears the fault; "
+                                + "pausing the new mode's VOX setting if it is on", TraceLevel.Info);
+                            _atCut = _atCut.WithTxMode(now.TxMode);
+                            PauseVoxIfOnLocked(firstTime: false);
+                        }
+                        return false;
+                    }
+                    ended = EndHoldLocked(EndReason.Lifted, changed, nowMs, immediate: false);
+                }
             }
-
-            string? changed = WhatChanged(_atCut, now);
-            if (changed == null) return false;
-            EndHold(EndReason.Lifted, changed, nowMs);
+            RaiseEnded(ended);
             return true;
         }
 
         /// <summary>
         /// The first field of <paramref name="now"/> that differs from
-        /// <paramref name="atCut"/>, in the operator's words, or null when the
-        /// setup is unchanged. Public so the comparison can be tested on its
-        /// own and so the report can name each signal.
+        /// <paramref name="atCut"/> in a way that could clear the fault, in the
+        /// operator's words, or null when the setup is unchanged. The mode is
+        /// deliberately not compared here. Public so the comparison can be
+        /// tested on its own and so the report can name each signal.
         /// </summary>
         public static string? WhatChanged(in TransmitSetup atCut, in TransmitSetup now)
         {
@@ -380,7 +518,7 @@ namespace Radios
             return null;
         }
 
-        private static string Name(string antenna) => antenna.Length == 0 ? "unknown" : antenna;
+        private static string Name(string value) => value.Length == 0 ? "unknown" : value;
 
         /// <summary>
         /// Whether the amplifier picture has changed in a way the OPERATOR
@@ -394,9 +532,10 @@ namespace Radios
         /// <remarks>
         /// Signature pairs are "handle=state", separated by ';', in the
         /// inventory's own order. States spelled as <c>AmplifierState</c>
-        /// names. No amplifier has ever been on the bench (the inventory's own
-        /// remarks say so), so this is read from the vendor library's model,
-        /// not from a measurement.
+        /// names. The amplifier's antenna mapping and the tuner's bypass state
+        /// are NOT in the signature; see the track report. No amplifier has
+        /// ever been on the bench (the inventory's own remarks say so), so this
+        /// is read from the vendor library's model, not from a measurement.
         /// </remarks>
         public static bool AmplifierSignatureChanged(string atCut, string now)
         {
@@ -441,80 +580,145 @@ namespace Radios
         /// </summary>
         public void OperatorChanged(string what, long nowMs)
         {
-            if (!_holding) return;
-            switch (what)
+            (int, EndReason, string)? ended = null;
+            lock (_gate)
             {
-                case "TXAntennaName":
-                case "TXAntenna":
-                    EndHold(EndReason.Lifted, "you changed the transmit antenna", nowMs);
-                    break;
-                case "XmitPower":
-                    EndHold(EndReason.Lifted, "you changed the RF power", nowMs);
-                    break;
-                case "TunePower":
-                    EndHold(EndReason.Lifted, "you changed the tune power", nowMs);
-                    break;
-                case "Vox":
-                    if (_voxPaused)
-                    {
-                        _voxRestoreCancelled = true;
-                        Tracing.TraceLine("CutHold: you changed VOX during the hold, so the hold will not put it back itself",
-                                          TraceLevel.Info);
-                    }
-                    break;
+                if (!_holding) return;
+                switch (what)
+                {
+                    case "TXAntennaName":
+                    case "TXAntenna":
+                        ended = EndHoldLocked(EndReason.Lifted, "you changed the transmit antenna", nowMs, immediate: false);
+                        break;
+                    case "XmitPower":
+                        ended = EndHoldLocked(EndReason.Lifted, "you changed the RF power", nowMs, immediate: false);
+                        break;
+                    case "TunePower":
+                        ended = EndHoldLocked(EndReason.Lifted, "you changed the tune power", nowMs, immediate: false);
+                        break;
+                    case "Vox":
+                        if (_pausedSettings.Count > 0)
+                        {
+                            _voxRestoreCancelled = true;
+                            Tracing.TraceLine("CutHold: you changed VOX during the hold, so the hold will not put it back itself",
+                                              TraceLevel.Info);
+                        }
+                        break;
+                }
             }
+            RaiseEnded(ended);
         }
 
         /// <summary>
-        /// The owner is going away — radio powered off, controller disposed.
-        /// Restores VOX if this hold had it off and the rig can still be
-        /// written, and ends the hold.
+        /// The APPLICATION wrote a snapshot field on the operator's behalf,
+        /// inside <c>FlexBase.AppInitiatedSettingChanges</c> (B2): move the
+        /// baseline to the written value, so the radio's echo of that write
+        /// is not read as the operator's repair. The Audio Check putting its
+        /// saved power back after the cut ended its transmission is the
+        /// ordinary case. <paramref name="value"/> is the setter's value as a
+        /// string; a field this class does not snapshot is ignored.
         /// </summary>
-        public void Abandon(string why, long nowMs)
+        public void AppWrote(string what, string value)
         {
-            if (!_holding) return;
-            EndHold(EndReason.Abandoned, why, nowMs);
+            lock (_gate)
+            {
+                if (!_holding) return;
+                switch (what)
+                {
+                    case "XmitPower":
+                        if (int.TryParse(value, out int p)) { _atCut = _atCut.WithRfPower(p); Trace(what, value); }
+                        break;
+                    case "TunePower":
+                        if (int.TryParse(value, out int t)) { _atCut = _atCut.WithTunePower(t); Trace(what, value); }
+                        break;
+                    case "TXAntennaName":
+                        _atCut = _atCut.WithTxAntenna(value ?? ""); Trace(what, value);
+                        break;
+                }
+            }
+
+            static void Trace(string what, string value) =>
+                Tracing.TraceLine("CutHold: the app wrote " + what + "=" + value + " during the hold — baseline moved, "
+                    + "so its echo is not read as your change", TraceLevel.Info);
         }
 
-        private void EndHold(EndReason reason, string detail, long nowMs)
+        /// <summary>
+        /// The owner is going away — radio closing, powered off, controller
+        /// disposed. Restores any VOX setting this hold had off, IMMEDIATELY
+        /// when asked (the command loop may be stopping), and ends the hold.
+        /// </summary>
+        /// <param name="why">For the trace.</param>
+        /// <param name="nowMs">The clock now.</param>
+        /// <param name="immediate">
+        /// True writes the restore on this thread rather than through the
+        /// command queue — the normal disconnect's order, where
+        /// <c>MainWindow.UnwireRadioEvents</c> runs before the rig is disposed
+        /// and a queued write might never run (B3).
+        /// </param>
+        public void Abandon(string why, long nowMs, bool immediate = false)
+        {
+            (int, EndReason, string)? ended;
+            lock (_gate)
+            {
+                if (!_holding) return;
+                ended = EndHoldLocked(EndReason.Abandoned, why, nowMs, immediate);
+            }
+            RaiseEnded(ended);
+        }
+
+        private (int, EndReason, string) EndHoldLocked(EndReason reason, string detail, long nowMs, bool immediate)
         {
             _holding = false;
             LastEnd = reason;
             LastEndDetail = detail;
             long heldMs = nowMs - _beganMs;
+            int generation = _generation;
 
-            RestoreVox();
+            RestoreVoxLocked(immediate);
 
-            Tracing.TraceLine("CutHold: hold ended after " + heldMs + " ms — " + reason + ": " + detail
+            Tracing.TraceLine("CutHold: hold " + generation + " ended after " + heldMs + " ms — " + reason + ": " + detail
                 + (RefusedPresses == 0 ? "" : "; " + RefusedPresses + " press(es) refused"), TraceLevel.Info);
 
-            _voxIsOn = null;
-            _voxSet = null;
+            _vox = null;
             _refusalTone = null;
-
-            try { Ended?.Invoke(reason, detail); } catch { }
+            return (generation, reason, detail);
         }
 
-        private void RestoreVox()
+        private void RestoreVoxLocked(bool immediate)
         {
-            if (!_voxPaused) return;
-            _voxPaused = false;
+            if (_pausedSettings.Count == 0) return;
+            var toRestore = _pausedSettings.ToArray();
+            _pausedSettings.Clear();
             if (_voxRestoreCancelled)
             {
-                Tracing.TraceLine("CutHold: VOX left as you set it during the hold", TraceLevel.Info);
+                Tracing.TraceLine("CutHold: VOX left as you set it during the hold (" + string.Join(", ", toRestore) + " not restored)",
+                                  TraceLevel.Info);
                 return;
             }
-            if (_voxSet == null) return;
-            try
+            var vox = _vox;
+            if (vox == null) return;
+            foreach (var which in toRestore)
             {
-                _voxSet(true);
-                Tracing.TraceLine("CutHold: VOX switched back on (app-initiated, nothing said)", TraceLevel.Info);
+                try
+                {
+                    bool issued = vox.Write(which, true, immediate);
+                    Tracing.TraceLine(issued
+                        ? "CutHold: " + which + " switched back on — write " + (immediate ? "issued immediately" : "queued") + " (app-initiated, nothing said)"
+                        : "CutHold: " + which + " restore was NOT issued (no radio, or the command loop is not running); it stays off, the safe direction, and the operator can turn it on by hand",
+                        issued ? TraceLevel.Info : TraceLevel.Error);
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("CutHold: COULD NOT switch " + which + " back on — " + ex.Message
+                        + ". It stays off, the safe direction; the operator can turn it on by hand.", TraceLevel.Error);
+                }
             }
-            catch (Exception ex)
-            {
-                Tracing.TraceLine("CutHold: COULD NOT switch VOX back on — " + ex.Message
-                    + ". VOX stays off, the safe direction; the operator can turn it on by hand.", TraceLevel.Error);
-            }
+        }
+
+        private void RaiseEnded((int gen, EndReason reason, string detail)? ended)
+        {
+            if (ended == null) return;
+            try { Ended?.Invoke(ended.Value.gen, ended.Value.reason, ended.Value.detail); } catch { }
         }
 
         // ──────────────────────────────────────────────────────────────────
@@ -537,11 +741,19 @@ namespace Radios
                 case TransmitSafety.ReflectedCut.Watts:
                     return Lexicon.Get("audio.ptt.cut_hold_reason_watts",
                         ("watts", (int)Math.Round(reading.ReflectedWatts)), ("antenna", antenna));
-                default:
+                case TransmitSafety.ReflectedCut.Share:
                     return Lexicon.Get("audio.ptt.cut_hold_reason_share",
                         ("percent", (int)Math.Round(reading.ReflectedShare * 100f)), ("antenna", antenna));
+                default:
+                    return Lexicon.Get("audio.ptt.cut_hold_reason_unknown", ("antenna", antenna));
             }
         }
+
+        /// <summary>The reason for a transmit check's cut: the rung's words when it carried a reading, "too much" when it did not.</summary>
+        public static string ReasonFor(in ReflectedCutNotice notice)
+            => notice.HasReading
+                ? ReasonFor(notice.Rung, notice.Reading, notice.Antenna)
+                : ReasonFor(TransmitSafety.ReflectedCut.None, TransmitPowerReading.None, notice.Antenna);
 
         /// <summary>
         /// The sentence a refused press hears: not keyed, the reason, how long
@@ -565,7 +777,8 @@ namespace Radios
         /// because a rig mid-teardown throws from its getters and a hold must
         /// not take the controller down with it; an unreadable field reads as
         /// its default, which compares as "changed" against a real value at the
-        /// cut — the direction Noel's worry points.
+        /// cut — the direction Noel's worry points (fail open, disclosed in the
+        /// report).
         /// </summary>
         public static TransmitSetup Snapshot(FlexBase rig)
         {
@@ -575,13 +788,15 @@ namespace Radios
             int tunePower = 0;
             bool tuning = false;
             string amps = "";
+            string mode = "";
             try { antenna = rig.TXAntennaName ?? ""; } catch { }
             try { freq = rig.TXFrequencyAsReported; } catch { }
             try { power = rig.XmitPower; } catch { }
             try { tunePower = rig.TunePower; } catch { }
             try { tuning = rig.ATUTuneInProgress || rig.TxTune; } catch { }
             try { amps = AmplifierSignature(rig.Amplifiers); } catch { }
-            return new TransmitSetup(antenna, freq, power, tunePower, tuning, amps);
+            try { mode = rig.TXModeAsReported ?? ""; } catch { }
+            return new TransmitSetup(antenna, freq, power, tunePower, tuning, amps, mode);
         }
 
         /// <summary>"handle=state;handle=state", in the inventory's order.</summary>
@@ -596,5 +811,9 @@ namespace Radios
             }
             return sb.ToString();
         }
+
+        /// <summary>The levers a real rig offers, wired for the controller.</summary>
+        public static VoxLevers LeversFor(FlexBase rig, Action? pausedTone)
+            => new VoxLevers(rig.CurrentVoxSettingIfOn, rig.WriteVoxSetting, pausedTone);
     }
 }

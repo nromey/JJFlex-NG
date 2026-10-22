@@ -657,6 +657,7 @@
   "audio.ptt.blocked_by_license": "Unable to transmit here. Select license options in Settings to change.",
   "audio.ptt.check_microphone": "Check microphone",
   "audio.ptt.cut_hold_reason_share": { "text": "{percent} percent of your power was coming back on {antenna}", "delivery": null },
+  "audio.ptt.cut_hold_reason_unknown": { "text": "too much of your power was coming back on {antenna}", "delivery": null },
   "audio.ptt.cut_hold_reason_watts": { "text": "{watts} watts of your power were coming back on {antenna}", "delivery": null },
   "audio.ptt.cut_hold_refused": { "text": "Not keyed. {reason} a moment ago, so keying is held for {seconds} more seconds. Check {antenna}, or change your antenna, power, frequency or tuner to key now.", "delivery": { "shelfLife": "forgettable", "validity": "request-scoped", "receipt": "warning" } },
   "audio.ptt.cut_hold_refused_last_second": { "text": "Not keyed. {reason} a moment ago, so keying is held for one more second. Check {antenna}, or change your antenna, power, frequency or tuner to key now.", "delivery": { "shelfLife": "forgettable", "validity": "request-scoped", "receipt": "warning" } },

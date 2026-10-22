@@ -163,12 +163,36 @@ namespace Radios
         public static Func<string, string> TransmitHeld { get; set; }
 
         /// <summary>
-        /// The sentence the last refused <see cref="RaiseCarrier"/> spoke
-        /// because of the hold, for the check's own detail line, so the check
-        /// does not report a missing kill route when the truth is a held
-        /// transmitter. Null after a raise that was not refused that way.
+        /// The sentence the last refused <see cref="RaiseCarrier"/> ON THIS
+        /// THREAD spoke because of the hold, for the check's own detail line,
+        /// so the check does not report a missing kill route when the truth
+        /// is a held transmitter. Null after a raise that was not refused that
+        /// way. Thread-static so two checks raising at once cannot read each
+        /// other's sentence: every caller reads it on the thread that called
+        /// <see cref="RaiseCarrier"/>, which is what makes it per-attempt.
         /// </summary>
-        public static string LastRaiseRefusal { get; private set; }
+        public static string LastRaiseRefusal => _lastRaiseRefusal;
+        [ThreadStatic] private static string _lastRaiseRefusal;
+
+        /// <summary>
+        /// A reflected-power cut ended a transmit check (#571, Astra B1). The
+        /// PTT safety controller publishes this the way it publishes
+        /// <see cref="TransmitHeld"/>, and starts the same hold it starts for
+        /// its own cut, VOX pause included — Noel ruled the cut starts a hold,
+        /// whoever owned the transmission. Invoked from <see cref="Request"/>
+        /// for <see cref="Source.ReflectedPower"/>, after RF is off and before
+        /// anything waits, on the requesting thread.
+        /// </summary>
+        public static Action<ReflectedCutNotice> ReflectedCutHappened { get; set; }
+
+        /// <summary>
+        /// What the watcher knew when it cut, handed to <see cref="Request"/>
+        /// through this field so the notice carries the rung and the reading
+        /// rather than a sentence. Null when Request is called for a
+        /// reflected-power cut by anyone but the watcher; the notice then
+        /// carries no reading and the hold's reason says so in words.
+        /// </summary>
+        private static ReflectedCutNotice? _pendingCut;
 
         /// <summary>
         /// True from the moment a kill is asked for until the last armed
@@ -318,11 +342,11 @@ namespace Radios
             // gate and outside its lock, because the hook speaks. A check's
             // carrier into the same fault is RF like any other; the check's
             // detail line gets the same sentence the operator just heard.
-            LastRaiseRefusal = null;
+            _lastRaiseRefusal = null;
             string held = HeldAfterCut();
             if (held != null)
             {
-                LastRaiseRefusal = held;
+                _lastRaiseRefusal = held;
                 Tracing.TraceLine("TransmitKillSwitch: refused to raise the " + carrier
                     + " carrier — keying is held after a reflected-power cut (#571). Nothing was transmitted.",
                     TraceLevel.Warning);
@@ -494,6 +518,23 @@ namespace Radios
             //     check's own boundary stops its source in a finally, on its
             //     own thread; this does not wait for that thread to be alive.
             DisarmSources(rig);
+
+            // 1c. A reflected-power cut starts the hold (#571), here, before
+            //     the alarm and before the 1,500 ms confirm wait below: the
+            //     next press must find keying held, not find a gap while this
+            //     thread sleeps. The notice carries what the watcher knew; a
+            //     Request made for this source by anyone else carries no
+            //     reading, and the hold says so in words.
+            if (source == Source.ReflectedPower)
+            {
+                ReflectedCutNotice notice;
+                lock (Gate)
+                {
+                    notice = _pendingCut ?? ReflectedCutNotice.WithoutReading(AntennaOrEmpty(rig));
+                    _pendingCut = null;
+                }
+                NotifyReflectedCut(notice);
+            }
 
             // 2. The alarm, before anything that waits. A blind operator has no
             //    TX light; this is the first thing that tells them the press
@@ -787,6 +828,9 @@ namespace Radios
             if (cut != TransmitSafety.ReflectedCut.None)
             {
                 float back = reading.ReflectedShare;
+                // What the hold will say (#571): the rung, the reading and the
+                // antenna, handed to Request through the pending notice.
+                lock (Gate) { _pendingCut = new ReflectedCutNotice(cut, reading, antenna); }
                 Tracing.TraceLine(
                     "TransmitKillSwitch: reflected-power CUT on the "
                     + cut.ToString().ToLowerInvariant() + " rung during " + WhatIsArmed + " — "
@@ -848,6 +892,27 @@ namespace Radios
             catch { return false; }   // unreadable setting never cuts
         }
 
+        private static string AntennaOrEmpty(FlexBase rig)
+        {
+            try { return rig?.TXAntennaName ?? ""; } catch { return ""; }
+        }
+
+        private static void NotifyReflectedCut(ReflectedCutNotice notice)
+        {
+            Action<ReflectedCutNotice> hook = ReflectedCutHappened;
+            if (hook == null)
+            {
+                Tracing.TraceLine("TransmitKillSwitch: reflected-power cut with no hold subscriber — nothing holds keying (#571)",
+                                  TraceLevel.Warning);
+                return;
+            }
+            try { hook(notice); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("TransmitKillSwitch: the reflected-cut hold hook threw — " + ex.Message, TraceLevel.Error);
+            }
+        }
+
         /// <summary>
         /// The hold's answer for a transmit check, or null. A hook that throws
         /// reads as not held and says so in the trace: the hold is five seconds
@@ -892,7 +957,9 @@ namespace Radios
             Alarm = null;
             CutOnReflectedAlarm = null;
             TransmitHeld = null;
-            LastRaiseRefusal = null;
+            ReflectedCutHappened = null;
+            _pendingCut = null;
+            _lastRaiseRefusal = null;
         }
     }
 }

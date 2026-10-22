@@ -989,6 +989,10 @@ namespace Radios.Tests
                 // classification for a fragment (the #777 reasoning).
                 "audio.ptt.cut_hold_reason_share",
                 "audio.ptt.cut_hold_reason_watts",
+                // Repair round 1 (Astra B1): the reason when a transmit
+                // check's cut arrives with no reading in hand. Same fragment
+                // classification as its two siblings.
+                "audio.ptt.cut_hold_reason_unknown",
                 "audio.ptt.cut_hold_the_antenna",
                 // The VOX note: forgettable, request-scoped, receipt none. Said
                 // once, only when VOX was on at the cut, at Terse through
