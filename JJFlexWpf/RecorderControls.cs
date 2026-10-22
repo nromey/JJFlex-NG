@@ -50,13 +50,31 @@ public static class RecorderControls
     private static RecorderOutcome NoRadio(string subject) =>
         new(false, Lexicon.Get("audio.no_radio_connected"), subject);
 
+    /// <summary>
+    /// Run one recorder request and turn anything it throws into a spoken
+    /// refusal. Home's buttons are async void click handlers, and an exception
+    /// escaping one of those takes the whole program down; a key that throws
+    /// is a key that silently did nothing. Neither is acceptable for a control
+    /// pressed every day, so the one door every door uses catches here.
+    /// </summary>
+    private static async Task<RecorderOutcome> Guarded(Func<Task<RecorderOutcome>> request, string subject)
+    {
+        try { return await request(); }
+        catch (Exception ex)
+        {
+            JJTrace.Tracing.TraceLine("RecorderControls: " + ex, System.Diagnostics.TraceLevel.Error);
+            // DRAFT PROSE (#787): awaiting Noel
+            return new(false, Lexicon.Get("audio.recorder.failed"), subject);
+        }
+    }
+
     /// <summary>Record on the target slice, or stop the recording it is making.</summary>
     public static async Task<RecorderOutcome> ToggleSliceRecordAsync(FlexBase? rig, SliceRecorderTarget target,
         Action<RecorderOutcome>? speak = null, object? owner = null)
     {
         var outcome = rig == null
             ? NoRadio(SpeechSubject.SliceRecorder(""))
-            : await rig.ToggleSliceRecordAsync(target, owner);
+            : await Guarded(() => rig.ToggleSliceRecordAsync(target, owner), SpeechSubject.SliceRecorder(""));
         (speak ?? Speak)(outcome);
         return outcome;
     }
@@ -67,7 +85,7 @@ public static class RecorderControls
     {
         var outcome = rig == null
             ? NoRadio(SpeechSubject.SliceRecorder(""))
-            : await rig.ToggleSlicePlayAsync(target, owner);
+            : await Guarded(() => rig.ToggleSlicePlayAsync(target, owner), SpeechSubject.SliceRecorder(""));
         (speak ?? Speak)(outcome);
         return outcome;
     }
@@ -79,7 +97,7 @@ public static class RecorderControls
     public static async Task<RecorderOutcome> ToggleComputerRecordAsync(FlexBase? rig,
         Action<RecorderOutcome>? speak = null)
     {
-        var outcome = await ComputerRecorder.ToggleRecordingAsync(rig);
+        var outcome = await Guarded(() => ComputerRecorder.ToggleRecordingAsync(rig), SpeechSubject.ComputerRecorder);
         (speak ?? Speak)(outcome);
         return outcome;
     }
@@ -92,7 +110,7 @@ public static class RecorderControls
     public static async Task<RecorderOutcome> ToggleComputerPlayAsync(FlexBase? rig,
         Action<RecorderOutcome>? speak = null)
     {
-        var outcome = await ComputerRecorder.TogglePlaybackAsync(rig?.Transmit == true);
+        var outcome = await Guarded(() => ComputerRecorder.TogglePlaybackAsync(rig?.Transmit == true), SpeechSubject.ComputerRecorder);
         (speak ?? Speak)(outcome);
         return outcome;
     }

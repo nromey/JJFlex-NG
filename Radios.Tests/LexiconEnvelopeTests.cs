@@ -1213,6 +1213,7 @@ namespace Radios.Tests
                 // The computer recorder's controls (record to file, play
                 // from computer) and the stub's refusals until Tape Deck
                 // track 3's engine is installed.
+                "audio.recorder.failed",
                 "audio.recorder.computer_record_unavailable",
                 "audio.recorder.computer_play_unavailable",
                 "audio.recorder.computer_play_refused_transmitting",

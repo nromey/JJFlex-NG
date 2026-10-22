@@ -1063,6 +1063,7 @@
   "audio.fields.recorder_slice": {"text": "Recorder slice", "delivery": null},
   "audio.fields.recorder_slice_option": {"text": "Slice {letter}", "delivery": null},
   "audio.fields.recorder_help": {"text": "The radio keeps one recording for each slice, up to its last two minutes. Choose a slice here, then record it and play it back. It can be a slice you are not listening to. From anywhere, JJ key then Control R records the slice you are on, and JJ key then Control P plays it.", "delivery": null},
+  "audio.recorder.failed": {"text": "The recorder ran into a problem and could not do that. The diagnostic log has the details.", "delivery": null},
   "audio.recorder.computer_record_unavailable": {"text": "Recording to a file on this computer isn't available yet.", "delivery": null},
   "audio.recorder.computer_play_unavailable": {"text": "Playing a recording from this computer isn't available yet.", "delivery": null},
   "audio.recorder.computer_play_refused_transmitting": {"text": "A recording on this computer can't play while you are transmitting.", "delivery": null},
