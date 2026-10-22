@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -7,6 +8,7 @@ using JJFlexWpf.Tests.Infrastructure;
 using Radios;
 using Radios.Tests.Fixtures;
 using Xunit;
+using Keys = System.Windows.Forms.Keys;
 
 namespace JJFlexWpf.Tests;
 
@@ -407,7 +409,7 @@ public sealed class LockSafetyHoldTests : IDisposable
         string heard = Spoken(() => LockKeyDown(false));
         Assert.False(RfCommandedOn(), "Fixer reflected cut left no hold; the next lock commanded RF on");
         Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
-        Assert.StartsWith("Not keyed. too much of your power was coming back on ANT1", heard);
+        Assert.StartsWith("Not keyed. Too much of your power was coming back on ANT1", heard);
     }
 
     [Fact]
@@ -487,6 +489,49 @@ public sealed class LockSafetyHoldTests : IDisposable
         answer = episode.NoTransmissionSince();
         _controller.NoteRadioTransmit(true);
         Assert.False(answer(), "a stale tune flag hid the next off-to-on edge");
+    }
+
+    [Fact]
+    public void A_refused_CW_message_key_sends_nothing_shows_nothing_as_sent_and_says_the_holds_reason()
+    {
+        // Opus N2: on cbe7412e the rig's SendCW refused but the key path
+        // ignored the answer, wrote the message to the send window and said
+        // "Sending CQ". The hold is now asked ahead of all three.
+        AssertTheDeskIsSafe();
+        ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Chatty;
+        var sent = new List<string>();
+        var shown = new List<string>();
+        var key = Keys.F9 | Keys.Alt | Keys.Shift;
+        var items = new[] { new CWMessageItem(key, "CQ CQ DE K5NER", "CQ") };
+        var context = new KeyCommandContext
+        {
+            GetRigControl = () => _rig,
+            GetPower = () => true,
+            GetCWText = () => items,
+            SendCW = m => sent.Add(m),
+            WriteTextX = (_, text, _, _) => shown.Add(text),
+        };
+        var commands = new KeyCommands(context, setDefault: true);
+        commands.UpdateCWText();
+        // The bare rig's mode is "" and the message key only sends CW in a CW
+        // mode: set the rig's receive mode as the status handler would.
+        var rxMode = typeof(FlexBase).GetField("_RXMode", Any);
+        Assert.True(rxMode != null, "FlexBase._RXMode is missing");
+        rxMode.SetValue(_rig, "CW");
+
+        BeginHold();
+        string heard = Spoken(() => Assert.True(commands.DoCommand(key)));
+        Assert.Empty(sent);
+        Assert.Empty(shown);
+        Assert.StartsWith("Not keyed. 58 percent of your power was coming back on ANT2", heard);
+        Assert.DoesNotContain(ScreenReaderOutput.RecentMessages, m => m.StartsWith("Sending", StringComparison.Ordinal));
+
+        // The control: the hold lifted, the same key sends, shows and says.
+        _controller.CutHold.OperatorChanged("TXAntennaName", Environment.TickCount64);
+        heard = Spoken(() => Assert.True(commands.DoCommand(key)));
+        Assert.Equal(new[] { "CQ CQ DE K5NER " }, sent);
+        Assert.Single(shown);
+        Assert.Equal("Sending CQ", heard);
     }
 
     [Fact]
