@@ -1279,6 +1279,47 @@ public class NativeMenuBar : IDisposable
         => Dialogs.AudioWorkshopDialog.ShowOrFocus(Rig, 0);
 
     /// <summary>
+    /// Slice, Recorder (#787): a record row and a play row for EACH of our
+    /// slices, so a slice you are not listening to can be recorded from the
+    /// menu as well as from Home (Noel, 2026-10-21 11:00). Checked rows, so the
+    /// popup rewrites each one with ": On" or ": Off" when it opens and the
+    /// state is read from the recorder at that moment, not when the menu was
+    /// built. No accelerator column, for the reason AudioMenuLayout gives: a
+    /// key hint would put ": On" inside the keystroke. Every row goes through
+    /// <see cref="RecorderControls"/>, the same door the keys and Home use.
+    /// </summary>
+    private void BuildSliceRecorderItems(IntPtr parent)
+    {
+        if (Rig == null) return;
+        for (int i = 0; i < Math.Min(Rig.MyNumSlices, 8); i++)
+        {
+            string letter = Rig.VFOToLetter(i);
+            if (string.IsNullOrEmpty(letter)) continue;
+            var target = Radios.SliceRecorderTarget.Letter(letter[0]);
+            AddChecked(parent, $"Record Slice {letter}",
+                () => _ = RecorderControls.ToggleSliceRecordAsync(Rig, target, SpeakRecorderAfterMenuClose),
+                () => Rig?.IsSliceRecording(target) == true);
+            AddChecked(parent, $"Play Slice {letter} Recording",
+                () => _ = RecorderControls.ToggleSlicePlayAsync(Rig, target, SpeakRecorderAfterMenuClose),
+                () => Rig?.IsSlicePlaying(target) == true);
+        }
+    }
+
+    /// <summary>
+    /// A recorder outcome, spoken once the menu has closed — the same 500 ms
+    /// wait <see cref="SpeakAfterMenuClose"/> gives NVDA, but keeping the
+    /// outcome's subject and its refusal tone.
+    /// </summary>
+    private void SpeakRecorderAfterMenuClose(Radios.RecorderOutcome outcome)
+    {
+        _window.Dispatcher.BeginInvoke(async () =>
+        {
+            await System.Threading.Tasks.Task.Delay(500);
+            RecorderControls.Speak(outcome);
+        });
+    }
+
+    /// <summary>
     /// Build slice management items (Create/Release Slice).
     /// Sprint 22 Phase 7.
     /// </summary>
@@ -2235,6 +2276,12 @@ public class NativeMenuBar : IDisposable
             // menu below — the same row wired in two places, which is a second
             // copy of the menu's order living outside the menu's order.
             BuildAudioItems(audioSub);
+
+            // The radio's per-slice recorder (#787). Slice record and play
+            // live under Slice (Noel, 2026-10-21 11:01); record to file and
+            // play from computer are on the Audio menu.
+            var recorderSub = AddSubmenu(slice, "Recorder");
+            BuildSliceRecorderItems(recorderSub);
 
             // Slice management
             BuildSliceItems(slice);

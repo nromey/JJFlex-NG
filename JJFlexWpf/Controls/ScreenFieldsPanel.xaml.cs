@@ -904,6 +904,9 @@ public partial class ScreenFieldsPanel : UserControl
             }
         };
         AudioContent.Children.Add(releaseAllButton);
+
+        // The radio's per-slice recorder (#787), beside the slice buttons.
+        BuildSliceRecorderControls();
     }
 
     private void BuildReceiverControls()
@@ -1506,6 +1509,9 @@ public partial class ScreenFieldsPanel : UserControl
         _headphoneMuteCheck.IsChecked = _rig.HeadphoneMute;
         _lineoutMuteCheck.IsChecked = _rig.LineoutMute;
         _frontSpeakerMuteCheck.IsChecked = _rig.FrontSpeakerMute;
+
+        // The radio's per-slice recorder (#787).
+        PollSliceRecorder();
     }
 
     /// <summary>

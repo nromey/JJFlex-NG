@@ -1055,5 +1055,12 @@
   "audio.recorder.record_stop_unconfirmed": {"text": "The radio did not confirm that slice {letter} stopped recording.", "delivery": null},
   "audio.recorder.play_unconfirmed": {"text": "The radio did not confirm that slice {letter} started playing.", "delivery": null},
   "audio.recorder.play_stop_unconfirmed": {"text": "The radio did not confirm that slice {letter} stopped playing.", "delivery": null},
-  "audio.recorder.nearly_full": {"text": "Slice {letter} has recorded for almost two minutes. From now on the radio keeps only the most recent two minutes.", "delivery": null}
+  "audio.recorder.nearly_full": {"text": "Slice {letter} has recorded for almost two minutes. From now on the radio keeps only the most recent two minutes.", "delivery": null},
+  "audio.recorder.record_button": {"text": "Record slice {letter}", "delivery": null},
+  "audio.recorder.stop_record_button": {"text": "Stop recording slice {letter}", "delivery": null},
+  "audio.recorder.play_button": {"text": "Play slice {letter} recording", "delivery": null},
+  "audio.recorder.stop_play_button": {"text": "Stop playing slice {letter}", "delivery": null},
+  "audio.fields.recorder_slice": {"text": "Recorder slice", "delivery": null},
+  "audio.fields.recorder_slice_option": {"text": "Slice {letter}", "delivery": null},
+  "audio.fields.recorder_help": {"text": "The radio keeps one recording for each slice, up to its last two minutes. Choose a slice here, then record it and play it back. It can be a slice you are not listening to.", "delivery": null}
 }

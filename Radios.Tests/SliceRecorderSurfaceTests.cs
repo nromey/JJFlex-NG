@@ -216,7 +216,7 @@ public sealed class SliceRecorderOneSurfaceTests
     {
         var offenders = new List<string>();
         int scanned = 0;
-        foreach (string file in IntegrationPassTree.AuthoredSource)
+        foreach (string file in IntegrationPassTree.AuthoredSource.Concat(IntegrationPassTree.UntrackedSource()))
         {
             string rel = IntegrationPassTree.Relative(file).Replace('\\', '/');
             if (IntegrationPassTree.IsTest(file) || rel == Surface) continue;
@@ -254,5 +254,58 @@ public sealed class SliceRecorderOneSurfaceTests
             Assert.True(Forbidden.Any(p => p.IsMatch(shape)), "No pattern catches: " + shape);
         Assert.False(Forbidden.Any(p => p.IsMatch("if (slice.PlayOn == true) return;")),
             "Reading PlayOn must not count as driving it");
+    }
+}
+
+/// <summary>
+/// Every recorder DOOR — Home, the Slice and Audio menus, the JJ key, the
+/// registry commands, the Workshop's buttons — toggles through
+/// <c>JJFlexWpf/RecorderControls.cs</c>, so a press is spoken the same way
+/// from every door (#787). A door that called the rig's toggle directly would
+/// have to word and speak the outcome itself, which is how a second
+/// vocabulary for one press starts. The Audio Check is not a door in this
+/// sense: it starts and stops the recorder as steps of its own flow, and
+/// calls the Start and Stop methods, which this does not police.
+/// </summary>
+public sealed class RecorderDoorsTests
+{
+    private static readonly System.Text.RegularExpressions.Regex DirectToggle =
+        new(@"(?<!RecorderControls)\.\s*ToggleSlice(Record|Play)Async\s*\(", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly string[] Allowed =
+    {
+        "Radios/FlexBase.SliceRecorder.cs",
+        "JJFlexWpf/RecorderControls.cs",
+    };
+
+    [Fact]
+    public void Doors_toggle_the_recorder_through_RecorderControls()
+    {
+        var offenders = new List<string>();
+        int scanned = 0;
+        foreach (string file in IntegrationPassTree.AuthoredSource.Concat(IntegrationPassTree.UntrackedSource()))
+        {
+            string rel = IntegrationPassTree.Relative(file).Replace('\\', '/');
+            if (IntegrationPassTree.IsTest(file) || Allowed.Contains(rel)) continue;
+            scanned++;
+            string[] lines = IntegrationPassTree.Read(file).Split('\n');
+            for (int i = 0; i < lines.Length; i++)
+            {
+                if (lines[i].TrimStart().StartsWith("//")) continue;
+                if (DirectToggle.IsMatch(lines[i])) offenders.Add($"{rel}:{i + 1}: {lines[i].Trim()}");
+            }
+        }
+        Assert.True(scanned > 300, "only " + scanned + " source files were scanned; the tree was not found");
+        Assert.True(offenders.Count == 0,
+            "A recorder door toggles the rig directly instead of through RecorderControls, so it words and "
+            + "speaks the outcome on its own (#787):\n" + string.Join("\n", offenders));
+    }
+
+    [Fact]
+    public void The_door_scan_tells_a_direct_toggle_from_a_RecorderControls_one()
+    {
+        Assert.Matches(DirectToggle, "var o = await _rig.ToggleSliceRecordAsync(target);");
+        Assert.Matches(DirectToggle, "await rig.ToggleSlicePlayAsync(SliceRecorderTarget.ActiveSlice);");
+        Assert.DoesNotMatch(DirectToggle, "await RecorderControls.ToggleSliceRecordAsync(_rig, target);");
     }
 }

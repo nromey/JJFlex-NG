@@ -1202,6 +1202,14 @@ namespace Radios.Tests
                 "audio.recorder.play_unconfirmed",
                 "audio.recorder.play_stop_unconfirmed",
                 "audio.recorder.nearly_full",
+                // Home's recorder controls and the Slice menu's Recorder rows.
+                "audio.recorder.record_button",
+                "audio.recorder.stop_record_button",
+                "audio.recorder.play_button",
+                "audio.recorder.stop_play_button",
+                "audio.fields.recorder_slice",
+                "audio.fields.recorder_slice_option",
+                "audio.fields.recorder_help",
 
             };
 
