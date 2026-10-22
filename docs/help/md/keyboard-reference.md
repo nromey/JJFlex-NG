@@ -84,6 +84,10 @@ Plain `M` is spoken for: it is the mode layer, ruled and not yet built. Until it
 
 - **Ctrl+X** — Toggle full duplex for the whole radio. The new state is announced when the radio reports it. Home, Transmit and the Transmit menu show the same control. If the radio has not reported full duplex, the control says so.
 - **Ctrl+G** — Arm or disarm the TX test tone (it replaces your microphone while transmitting)
+- **Ctrl+R** — Record the active slice, or stop recording it — the radio's own recorder keeps one recording per slice, up to the last two minutes
+- **Ctrl+P** — Play the active slice's recording through your speakers, or stop it — never on the air, and not while you are transmitting
+- **Ctrl+Shift+R** — Record to file: record what the radio plays through this computer, or stop — the Shift form of Ctrl+R, the other recorder
+- **Ctrl+Shift+P** — Play from computer: play your last recording on this computer, or stop — the Shift form of Ctrl+P
 - **Ctrl+T** — Toggle meter tones on/off
 - **Ctrl+E** — Toggle alert sounds (earcons) on/off — E for earcons; it was `Shift+T`
 - **Ctrl+Q** — Start or stop the QSO signal analyzer — watch the S-meter, then hear what the signal did, QSB and all (see "QSO signal analyzer" below)

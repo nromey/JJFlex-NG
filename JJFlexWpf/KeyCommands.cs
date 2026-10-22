@@ -590,6 +590,27 @@ public class KeyCommands
                 "Release every slice except the one you are on, back to one slice", "Release All Extra Slices", false, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "release", "all", "slices", "extra", "clean", "reset", "single" }, ShortActionLabel = "release extra slices" },
 
+            // ── The recorder (#787, Tape Deck track 2) ──
+            // Two controls, not one with a source choice (Noel, 2026-10-21
+            // 11:00): the radio's per-slice recorder, acting on the ACTIVE
+            // slice from a key, and the computer's record to file. Every
+            // handler goes through RecorderControls, the door Home, the menus
+            // and the Workshop also use. On the JJ key at Ctrl+R, Ctrl+P,
+            // Ctrl+Shift+R and Ctrl+Shift+P; unbound flat, by design, until
+            // Noel picks flat keys from the track's proposal.
+            new(CommandValues.RecordActiveSlice, KeyTypes.Command, RecordActiveSliceHandler,
+                "Start or stop the radio's recorder on the active slice", "Record Active Slice", false, FunctionGroups.Audio, KeyScope.Radio)
+                { Keywords = new[] { "record", "recording", "recorder", "slice", "active", "capture", "tape", "save", "listen", "back", "buddy", "radio" }, ShortActionLabel = "record active slice" },
+            new(CommandValues.PlayActiveSlice, KeyTypes.Command, PlayActiveSliceHandler,
+                "Start or stop playing the active slice's recording through your speakers", "Play Active Slice", false, FunctionGroups.Audio, KeyScope.Radio)
+                { Keywords = new[] { "play", "playback", "replay", "recording", "recorder", "slice", "active", "listen", "back", "hear", "radio" }, ShortActionLabel = "play active slice" },
+            new(CommandValues.RecordToFile, KeyTypes.Command, RecordToFileHandler,
+                "Start or stop recording the radio's audio to a file on this computer", "Record to File", false, FunctionGroups.Audio, KeyScope.Radio)
+                { Keywords = new[] { "record", "recording", "file", "computer", "save", "conversation", "qso", "capture", "tape", "audio" }, ShortActionLabel = "record to file" },
+            new(CommandValues.PlayFromComputer, KeyTypes.Command, PlayFromComputerHandler,
+                "Start or stop playing your last computer recording through your speakers", "Play from Computer", false, FunctionGroups.Audio, KeyScope.Global)
+                { Keywords = new[] { "play", "playback", "replay", "recording", "file", "computer", "last", "listen", "back", "audio" }, ShortActionLabel = "play from computer" },
+
             // ── Former hard-wired meta-commands (QB Track H, 2026-08-07) ──
             // These lived as hard-wired chords in MainWindow_PreviewKeyDown,
             // invisible to the registry, the Command Finder, and the Keys
@@ -1315,6 +1336,19 @@ public class KeyCommands
         Radios.ScreenReaderOutput.Speak(msg, Radios.VerbosityLevel.Terse, true);
     }
 
+    // ── The recorder (#787) ─────────────────────────────────────────
+    // Each is a door through RecorderControls, which words and speaks the
+    // outcome; a refusal (no radio, transmitting, nothing recorded) is a
+    // sentence from there, so these need no radio gate of their own.
+    private void RecordActiveSliceHandler() =>
+        _ = RecorderControls.ToggleSliceRecordAsync(_context.GetRigControl(), Radios.SliceRecorderTarget.ActiveSlice);
+    private void PlayActiveSliceHandler() =>
+        _ = RecorderControls.ToggleSlicePlayAsync(_context.GetRigControl(), Radios.SliceRecorderTarget.ActiveSlice);
+    private void RecordToFileHandler() =>
+        _ = RecorderControls.ToggleComputerRecordAsync(_context.GetRigControl());
+    private void PlayFromComputerHandler() =>
+        _ = RecorderControls.ToggleComputerPlayAsync(_context.GetRigControl());
+
     private void MuteSliceHandler()
     {
         var rig = _context.GetRigControl();
@@ -1813,6 +1847,26 @@ public class KeyCommands
         // into the key list the operator exports from the Hotkey Editor, so a
         // task number in it lands in a file the operator reads and may share,
         // pointing into a register no reader can open. See task #389.
+        // The recorder. Leader-layer for now and on purpose: the flat keys
+        // are Noel's to choose, from the list Tape Deck track 2 proposed, and
+        // until he does the JJ key reaches all four and the Hotkey Editor can
+        // bind any of them. Delete these four lines the day they are bound.
+        [CommandValues.RecordActiveSlice] = new(UnboundReason.LeaderLayer,
+            "Ctrl+J, Ctrl+R records the active slice, or stops it — the radio's own recorder, "
+            + "which keeps one recording per slice, up to the last two minutes. A flat key is "
+            + "still to be chosen; the Hotkey Editor can give it one now."),
+        [CommandValues.PlayActiveSlice] = new(UnboundReason.LeaderLayer,
+            "Ctrl+J, Ctrl+P plays the active slice's recording to your speakers, or stops it. "
+            + "It never transmits, and it is refused while you are transmitting. A flat key is "
+            + "still to be chosen."),
+        [CommandValues.RecordToFile] = new(UnboundReason.LeaderLayer,
+            "Ctrl+J, Ctrl+Shift+R records what the radio plays through this computer to a "
+            + "file, or stops — the Shift form of Ctrl+R, because it is the other recorder. A "
+            + "flat key is still to be chosen."),
+        [CommandValues.PlayFromComputer] = new(UnboundReason.LeaderLayer,
+            "Ctrl+J, Ctrl+Shift+P plays your last recording on this computer, or the one you "
+            + "chose in your recordings, to your speakers; it never transmits. A flat key is "
+            + "still to be chosen."),
         [CommandValues.SmeterDBM] = new(UnboundReason.LeaderLayer,
             "Ctrl+J, Ctrl+S switches the S-meter between S-units and dBm, and the choice is "
             + "remembered for that radio. The chord echoes the key it changes: Ctrl+S "
@@ -2113,6 +2167,12 @@ public class KeyCommands
         // and "Mute Slice" stays available in Command Finder.
         new(Keys.M | Keys.Shift, CommandValues.MuteAllSlices, KeyScope.Radio),
         new(Keys.Oemcomma | Keys.Shift, CommandValues.ReleaseAllExtraSlices, KeyScope.Radio),
+
+        // The recorder (#787). Flat keys await Noel's choice.
+        new(Keys.None, CommandValues.RecordActiveSlice, KeyScope.Radio), // unbound: LeaderLayer — Ctrl+J, Ctrl+R
+        new(Keys.None, CommandValues.PlayActiveSlice, KeyScope.Radio), // unbound: LeaderLayer — Ctrl+J, Ctrl+P
+        new(Keys.None, CommandValues.RecordToFile, KeyScope.Radio), // unbound: LeaderLayer — Ctrl+J, Ctrl+Shift+R
+        new(Keys.None, CommandValues.PlayFromComputer, KeyScope.Global), // unbound: LeaderLayer — Ctrl+J, Ctrl+Shift+P
     };
 
     // ────────────────────────────────────────────────────────────────
@@ -4007,6 +4067,37 @@ public class KeyCommands
             case Keys.M | Keys.Alt:
                 if (rig == null) LeaderNoRadio();
                 else _context.DisplayMemory();
+                break;
+
+            // The recorder (#787, Tape Deck track 2). Record and play are
+            // switches, so the Ctrl tier on their own initials, R and P — both
+            // free at this level since Sprint 48 Track F moved Neural NR into
+            // the noise layer and PC audio into the audio layer. At the TOP
+            // level, not in a layer, because record and play are everyday
+            // actions and #515 rules that frequency is what earns a place here
+            // ("Mute is a top-level kind of thing").
+            //
+            // The computer's recorder is the Ctrl+Shift form of each: #515's
+            // 2026-10-05 ruling admits Ctrl+Shift as the VARIANT of the Ctrl
+            // feature, for true siblings that share an initial — and record
+            // to file IS record, from the other recorder (two controls, Noel
+            // 2026-10-21 11:00). JjKeyGrammarTests.CtrlShiftVariants declares
+            // each and holds that its Ctrl twin exists.
+            //
+            // Acting on the ACTIVE slice (Noel, 2026-10-21 08:59). No rig gate
+            // at the case: RecorderControls speaks every refusal itself, and
+            // stopping a computer recording must work with no radio.
+            case Keys.R | Keys.Control:
+                RecordActiveSliceHandler();
+                break;
+            case Keys.P | Keys.Control:
+                PlayActiveSliceHandler();
+                break;
+            case Keys.R | Keys.Control | Keys.Shift:
+                RecordToFileHandler();
+                break;
+            case Keys.P | Keys.Control | Keys.Shift:
+                PlayFromComputerHandler();
                 break;
 
             // Ctrl+T = meter tones on or off (Sprint 24 Phase 6). A toggle on

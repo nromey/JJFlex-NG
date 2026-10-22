@@ -143,7 +143,11 @@ namespace Radios.Tests
                 Assert.Equal(name, Enum.GetName(type, (CommandValues)value));
             }
 
-            // 127 as of 2026-10-01 (#566, Track IJK), which appended
+            // 131 as of 2026-10-22 (#787, Tape Deck track 2), which appended
+            // RecordActiveSlice = 126, PlayActiveSlice = 127, RecordToFile =
+            // 128 and PlayFromComputer = 129 — the recorder's four controls,
+            // on the JJ key and unbound flat until Noel picks the flat keys.
+            // Was 127 as of 2026-10-01 (#566, Track IJK), which appended
             // OpenOperatorAlarms = 125 — the Operator alarms dialog as an
             // executable, operator-bindable command, unbound by default; the
             // Tools menu already opened it, and a Finder door row described it,
@@ -159,7 +163,7 @@ namespace Radios.Tests
             // build chord (#269). Bump this deliberately when a command is
             // added; a test that counts is how an accidental renumbering gets
             // noticed.
-            Assert.Equal(127, names.Length);
+            Assert.Equal(131, names.Length);
         }
     }
 }

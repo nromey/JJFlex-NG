@@ -1,0 +1,1 @@
+- You can record what a slice is hearing with your radio's own recorder and play it back to yourself: JJ key then Ctrl+R records the slice you're on and JJ key then Ctrl+P plays it, and JJ Flexible Home and the Slice menu's new Recorder submenu let you record any of your slices, even one you aren't listening to.

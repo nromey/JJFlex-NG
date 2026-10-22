@@ -194,6 +194,13 @@ public enum CommandValues
     // only a CommandValues member is executable from the Finder and bindable
     // in the Hotkey Editor. Unbound by default; the Tools menu is the road.
     OpenOperatorAlarms = 125,
+    // #787, Tape Deck track 2: the recorder's four controls. Reached on the
+    // JJ key (Ctrl+J, Ctrl+R / Ctrl+P / Ctrl+Shift+R / Ctrl+Shift+P); no flat
+    // key until Noel chooses one, but the Hotkey Editor can bind them.
+    RecordActiveSlice = 126,
+    PlayActiveSlice = 127,
+    RecordToFile = 128,
+    PlayFromComputer = 129,
 }
 
 /// <summary>
