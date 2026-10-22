@@ -300,7 +300,7 @@ namespace JJFlexWpf
             // tear it down, leaving the new hold with no timer and no
             // operator-changed subscription (found by reading the first build;
             // LockSafetyHoldTests pins the watch surviving a second cut).
-            _cutHold.Abandon("a second cut began before the first hold ended", Environment.TickCount64);
+            _cutHold.Abandon("the controller is starting the next cut's hold", Environment.TickCount64);
             EndCutHoldWiring();
             _cutHoldRig = rig;
             _cutHold.Ended += OnCutHoldEnded;
