@@ -61,6 +61,53 @@ namespace Radios.Tests
                 Assert.Equal(new[] { (what, what == "XmitPower" ? "25" : "40") }, seen);
         }
 
+        // ── Opus N1: Dummy Load Mode is the operator's own change, carried out by the app ──
+
+        [Fact]
+        public void Dummy_Load_Mode_raises_the_operator_changed_signal_for_both_powers_and_not_the_app_write_event()
+        {
+            var operatorChanged = new List<string>();
+            var appWrote = new List<(string, string)>();
+            _rig.OperatorChangedRadioSetting += w => operatorChanged.Add(w);
+            _rig.AppInitiatedRadioSettingWritten += (w, v) => appWrote.Add((w, v));
+
+            _rig.DummyLoadMode = true;
+
+            Assert.Equal(new[] { "XmitPower", "TunePower" }, operatorChanged);
+            Assert.Empty(appWrote);
+
+            operatorChanged.Clear();
+            _rig.DummyLoadMode = false;   // leaving it puts the saved powers back: also the operator's choice
+            Assert.Equal(new[] { "XmitPower", "TunePower" }, operatorChanged);
+            Assert.Empty(appWrote);
+        }
+
+        [Fact]
+        public void Wired_to_a_hold_Dummy_Load_Mode_lifts_it_and_an_app_restore_does_not()
+        {
+            // Opus's probe 1 and its control, through the same two events the
+            // controller subscribes: the operator's command lifts; the Audio
+            // Check's restore (an app-scoped write of the same setter) moves
+            // the baseline and holds.
+            long now = 1_000_000;
+            var hold = new ReflectedCutHold(() => now);
+            _rig.OperatorChangedRadioSetting += w => hold.OperatorChanged(w, now);
+            _rig.AppInitiatedRadioSettingWritten += (w, v) => hold.AppWrote(w, v);
+            var reading = new TransmitPowerReading(17.8f, 10.3f, 4f, 20f, 25);
+            var at = new ReflectedCutHold.TransmitSetup("ANT2", 14_250_000, 25, 10, false, "", "USB");
+
+            hold.Begin(TransmitSafety.ReflectedCut.Share, reading, "ANT2", at, now);
+            using (_rig.AppInitiatedSettingChanges()) _rig.XmitPower = 25;     // the restore
+            Assert.False(hold.Tick(new ReflectedCutHold.TransmitSetup("ANT2", 14_250_000, 25, 10, false, "", "USB"), now += 300),
+                "an app restore's echo lifted the hold");
+            Assert.True(hold.Holding);
+
+            _rig.DummyLoadMode = true;                                           // the operator's command
+            Assert.False(hold.Holding, "Dummy Load Mode did not lift the hold");
+            Assert.Equal(ReflectedCutHold.EndReason.Lifted, hold.LastEnd);
+            Assert.StartsWith("you changed the RF power", hold.LastEndDetail);
+        }
+
         [Fact]
         public void The_operators_own_write_does_not_raise_the_app_write_event()
         {

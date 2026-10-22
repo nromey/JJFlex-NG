@@ -533,6 +533,127 @@ namespace Radios.Tests
             Assert.Equal(1, radio.Tones);
         }
 
+        // ──────────────────────────────────────────────────────────────────
+        //  Repair round 2: Opus N4, N5, N6, N7
+        // ──────────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void On_the_kill_switchs_path_the_VOX_note_waits_for_the_cut_sentence_and_is_given_once_after_it()
+        {
+            // N4: the kill switch speaks its Urgent cut sentence AFTER the hold
+            // begins, and Urgent flushes the queue; a note given at Begin would
+            // be cut off. With voxNoteNow false the note is pending until the
+            // owner says the sentence is out.
+            ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Terse;
+            var radio = new FakeRadio { SimpleVox = true };
+            var hold = new ReflectedCutHold(() => _now);
+            hold.Begin(new ReflectedCutNotice(TransmitSafety.ReflectedCut.Share, ShareCut, "ANT2"), Setup(), _now,
+                       radio.Levers(), voxNoteNow: false);
+            Assert.True(hold.VoxPaused, "VOX is paused at once; only the words wait");
+            Assert.Equal(1, radio.Tones == 0 ? 1 : 0);   // no tone yet either
+            Assert.DoesNotContain(Speech(), e => e.GetProperty("text").GetString()!.StartsWith("VOX", StringComparison.Ordinal));
+
+            _now += 1600;   // ConfirmDown's wait, then the sentence
+            hold.SpeakPendingVoxNote();
+            Assert.True(Delivered("VOX is paused for 4 seconds."), "the note was not given after the sentence");
+            Assert.Equal(1, radio.Tones);
+
+            hold.SpeakPendingVoxNote();   // a second call gives nothing more
+            Assert.Single(Speech(), e => e.GetProperty("text").GetString()!.StartsWith("VOX", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void A_pending_VOX_note_is_dropped_if_the_hold_ends_before_the_sentence_is_out()
+        {
+            ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Terse;
+            var radio = new FakeRadio { SimpleVox = true };
+            var hold = new ReflectedCutHold(() => _now);
+            hold.Begin(new ReflectedCutNotice(TransmitSafety.ReflectedCut.Share, ShareCut, "ANT2"), Setup(), _now,
+                       radio.Levers(), voxNoteNow: false);
+            _now += 300;
+            hold.Tick(Setup(antenna: "ANT1"), _now);   // lifted; VOX restored
+            hold.SpeakPendingVoxNote();
+            Assert.DoesNotContain(Speech(), e => e.GetProperty("text").GetString()!.StartsWith("VOX", StringComparison.Ordinal));
+            Assert.True(radio.SimpleVox);
+        }
+
+        [Fact]
+        public void The_controllers_own_path_gives_the_note_at_once_as_before()
+        {
+            ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Terse;
+            var radio = new FakeRadio { SimpleVox = true };
+            Begin(radio);   // the rung overload: the cut sentence has already been spoken by GoIdle
+            Assert.True(Delivered(VoxNote));
+        }
+
+        [Fact]
+        public void The_VOX_note_says_the_seconds_the_hold_actually_has_left()
+        {
+            // N5: break-in off at the cut in CW, then USB with VOX on four
+            // seconds in. The note used to say five seconds with one left.
+            ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Terse;
+            var radio = new FakeRadio { Mode = "CW", CwBreakIn = false, SimpleVox = true };
+            var hold = Begin(radio, at: Setup(mode: "CW"));
+            Assert.False(hold.VoxPaused);
+            _now += 4000;
+            radio.Mode = "USB";
+            hold.NoteMode("USB", _now);
+            Assert.True(hold.VoxPaused);
+            Assert.True(Delivered("VOX is paused for one more second."), "the note did not say the remaining second");
+            Assert.DoesNotContain(Speech(), e => e.GetProperty("text").GetString() == VoxNote);
+
+            // And three seconds in, it says two.
+            var radio2 = new FakeRadio { Mode = "CW", CwBreakIn = false, SimpleVox = true };
+            _now += 10_000;
+            var hold2 = Begin(radio2, at: Setup(mode: "CW"));
+            _now += 3000;
+            radio2.Mode = "USB";
+            hold2.NoteMode("USB", _now);
+            Assert.True(Delivered("VOX is paused for 2 seconds."));
+        }
+
+        [Fact]
+        public void The_mode_event_re_pauses_at_once_without_waiting_for_a_poll()
+        {
+            // N6: for up to a poll interval after a mode change the new mode's
+            // keying was live. The rig's mode event reaches the hold directly.
+            var radio = new FakeRadio { Mode = "USB", SimpleVox = true, CwBreakIn = true };
+            var hold = Begin(radio);
+            radio.Mode = "CW";
+            hold.NoteMode("CW", _now + 5);          // the event, 5 ms after the change
+            Assert.False(radio.CwBreakIn, "break-in was still live after the mode event");
+            Assert.Equal(new[] { FlexBase.VoxSetting.SimpleVox, FlexBase.VoxSetting.CwBreakIn }, hold.PausedSettings);
+            Assert.True(hold.Holding, "a mode change is not a change that lifts");
+
+            hold.NoteMode("CW", _now + 10);         // the same mode again: nothing new
+            Assert.Equal(2, hold.PausedSettings.Count);
+            _now += 300;
+            Assert.False(hold.Tick(Setup(mode: "CW"), _now));   // the poll finds nothing left to do
+            Assert.Equal(2, radio.Writes.Count);
+        }
+
+        [Fact]
+        public void One_operator_VOX_change_cancels_only_the_restore_of_the_setting_they_touched()
+        {
+            // N7: USB with VOX on at the cut, then CW with break-in on, then the
+            // operator toggles VOX in CW (break-in). Break-in is theirs now;
+            // SimpleVOX is still the hold's to put back.
+            var radio = new FakeRadio { Mode = "USB", SimpleVox = true, CwBreakIn = true };
+            var hold = Begin(radio);
+            radio.Mode = "CW";
+            hold.NoteMode("CW", _now);
+            Assert.Equal(2, hold.PausedSettings.Count);
+            radio.CwBreakIn = true;   // the operator's own hand, in CW
+            hold.OperatorChanged("Vox", _now);
+
+            _now += ReflectedCutHold.HoldMs;
+            hold.Tick(Setup(mode: "CW"), _now);
+            Assert.True(radio.SimpleVox, "SimpleVOX was paused by the hold and untouched by the operator; it must come back");
+            Assert.True(radio.CwBreakIn);
+            Assert.DoesNotContain(radio.Writes, w => w.Which == FlexBase.VoxSetting.CwBreakIn && w.On);   // no restore write for the one they touched
+            Assert.Contains(radio.Writes, w => w.Which == FlexBase.VoxSetting.SimpleVox && w.On);
+        }
+
         [Fact]
         public void If_the_operator_changes_VOX_during_the_hold_the_hold_does_not_put_it_back()
         {
@@ -667,7 +788,7 @@ namespace Radios.Tests
             hold.Begin(ReflectedCutNotice.WithoutReading("ANT2"), Setup(), _now);
             _now += 100;
             Assert.True(hold.RefusePress("the lock key", _now, () => true));
-            Assert.Equal("Not keyed. too much of your power was coming back on ANT2 a moment ago, "
+            Assert.Equal("Not keyed. Too much of your power was coming back on ANT2 a moment ago, "
                 + "so keying is held for 5 more seconds. Check ANT2, or change your antenna, power, frequency or tuner to key now.",
                 hold.LastRefusalSentence);
 

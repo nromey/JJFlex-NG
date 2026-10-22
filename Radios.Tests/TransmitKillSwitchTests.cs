@@ -117,6 +117,38 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void TheHoldIsToldTheCutSentenceIsOut_AfterItIsToldTheCutHappened()
+        {
+            // Opus N4: the hold begins before the kill switch speaks, and the
+            // kill switch's sentence is Urgent, which flushes the queue. So the
+            // hold holds its VOX note back until this second hook, raised after
+            // whichever of the three sentences Request spoke.
+            var rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+            try
+            {
+                var order = new List<string>();
+                TransmitKillSwitch.ReflectedCutHappened = n => order.Add("happened");
+                TransmitKillSwitch.ReflectedCutSpoken = () => order.Add("spoken");
+                using (TransmitKillSwitch.Arm(rig, "the transmitter check"))
+                {
+                    TransmitKillSwitch.RaiseCarrier(rig, TransmitKillSwitch.Carrier.Mox);
+                    TransmitKillSwitch.Request(TransmitKillSwitch.Source.ReflectedPower, "cut sentence");
+                }
+                Assert.Equal(new[] { "happened", "spoken" }, order);
+
+                // Not for the other sources.
+                order.Clear();
+                using (TransmitKillSwitch.Arm(rig, "the transmitter check"))
+                {
+                    TransmitKillSwitch.RaiseCarrier(rig, TransmitKillSwitch.Carrier.Mox);
+                    TransmitKillSwitch.Request(TransmitKillSwitch.Source.EscapeKey);
+                }
+                Assert.Empty(order);
+            }
+            finally { try { rig.Dispose(); } catch { } }
+        }
+
+        [Fact]
         public void OtherKillSourcesDoNotStartAHold()
         {
             // Only the reflected-power cut (Noel, 2026-10-22 05:14): Escape and

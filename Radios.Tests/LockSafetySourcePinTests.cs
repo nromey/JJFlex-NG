@@ -91,7 +91,7 @@ namespace Radios.Tests
 
             string ctl = ReadSource("JJFlexWpf/PttSafetyController.cs");
             Assert.Contains("TransmitKillSwitch.ReflectedCutHappened = BeginCutHoldFromKillSwitch;", Body(ctl, "private void PublishHoldGate()"));
-            Assert.Contains("BeginCutHold(rig, notice);", Body(ctl, "private void BeginCutHoldFromKillSwitch(ReflectedCutNotice notice)"));
+            Assert.Contains("BeginCutHold(rig, notice, voxNoteNow: false);", Body(ctl, "private void BeginCutHoldFromKillSwitch(ReflectedCutNotice notice)"));
         }
 
         [Fact]
@@ -209,6 +209,91 @@ namespace Radios.Tests
             Assert.Contains("[ThreadStatic] private static string _lastRaiseRefusal;", ReadSource("Radios/TransmitKillSwitch.cs"));
         }
 
+        // ── Repair round 2 (Opus N1 to N7) ──
+
+        [Fact]
+        public void Dummy_Load_Mode_is_the_operators_own_change_and_the_Audio_Checks_restores_are_not()
+        {
+            // N1. The one app-scope site that carries out an OPERATOR command on
+            // a snapshot field is the dummy-load toggle; it declares so with the
+            // inner scope, and the who-wrote-it hook asks that scope first. The
+            // Audio Check's three power writes and the injection path's mic
+            // source writes carry no such declaration (their files are read-only
+            // to this track and were only read).
+            string flex = ReadSource("Radios/FlexBase.cs");
+            string dummy = Body(flex, "public bool DummyLoadMode");
+            Assert.Contains("using (AppInitiatedSettingChanges())\n                using (OperatorChoseThisChange())", dummy.Replace("\r\n", "\n"));
+            string multi = ReadSource("Radios/FlexBase.MultiUser.cs");
+            string note = Body(multi, "internal void NoteRadioSettingWritten(string what, string value)");
+            Assert.True(note.IndexOf("if (_operatorChoseSettingDepth > 0)", StringComparison.Ordinal)
+                        < note.IndexOf("if (_appInitiatedSettingDepth > 0)", StringComparison.Ordinal),
+                "the operator's choice must be asked before the app scope");
+            Assert.Contains("OperatorChangedRadioSetting?.Invoke(what);", note);
+            Assert.DoesNotContain("OperatorChoseThisChange", ReadSource("JJFlexWpf/Dialogs/AudioWorkshopDialog.AudioCheck.cs"));
+            Assert.DoesNotContain("OperatorChoseThisChange", ReadSource("JJFlexWpf/Dialogs/AudioWorkshopDialog.InjectionPath.cs"));
+            Assert.Equal(1, Regex.Matches(flex, @"using \(OperatorChoseThisChange\(\)\)").Count);
+        }
+
+        [Fact]
+        public void A_CW_message_key_asks_the_hold_before_it_sends_shows_or_says_anything()
+        {
+            // N2. KeyCommands.SendCWMessage, the one production caller of the
+            // rig's SendCW (the log form's handler is this same method through a
+            // delegate), asks the hold ahead of _context.SendCW, WriteTextX and
+            // the "Sending" sentence. KeyCommandContext.SendCW keeps its shape.
+            string kc = ReadSource("JJFlexWpf/KeyCommands.cs");
+            string send = Body(kc, "protected void SendCWMessage()");
+            int ask = send.IndexOf("ptt.RefuseIfHeldAfterCut(\"a CW message\")", StringComparison.Ordinal);
+            int cw = send.IndexOf("_context.SendCW(msg);", StringComparison.Ordinal);
+            int shown = send.IndexOf("_context.WriteTextX(1, msg, 0, false);", StringComparison.Ordinal);
+            int said = send.IndexOf("settings.cw.sending", StringComparison.Ordinal);
+            Assert.True(ask >= 0 && ask < cw && cw < shown && shown < said, "the hold must be asked before the send, the display and the sentence");
+            Assert.Contains("public Action<string> SendCW { get; init; }", ReadSource("JJFlexWpf/KeyCommandContext.cs"));
+        }
+
+        [Fact]
+        public void The_expiry_branch_of_a_refused_press_raises_Ended_outside_the_lock()
+        {
+            // N3. The class's contract: Ended is raised outside the lock, because
+            // the owner's handler takes the wiring lock, which the owner takes
+            // first when it begins a hold.
+            string hold = ReadSource("Radios/ReflectedCutHold.cs");
+            string refuse = Body(hold, "public bool RefusePress(string door, long nowMs, Func<bool>? stillValid)");
+            int lockOpen = refuse.IndexOf("lock (_gate)", StringComparison.Ordinal);
+            int lockClose = refuse.IndexOf("// Outside the lock", StringComparison.Ordinal);
+            Assert.True(lockOpen >= 0 && lockClose > lockOpen);
+            Assert.DoesNotContain("RaiseEnded(", refuse.Substring(lockOpen, lockClose - lockOpen));
+            Assert.Equal(1, Regex.Matches(refuse, @"RaiseEnded\(").Count);
+        }
+
+        [Fact]
+        public void On_the_kill_switchs_path_the_VOX_note_waits_for_the_cut_sentence()
+        {
+            // N4.
+            string ks = ReadSource("Radios/TransmitKillSwitch.cs");
+            string request = Body(ks, "public static void Request(Source source, string spokenOverride = null)");
+            Assert.Equal(3, Regex.Matches(request, @"if \(source == Source\.ReflectedPower\) NotifyReflectedCutSpoken\(\);").Count);
+            string ctl = ReadSource("JJFlexWpf/PttSafetyController.cs");
+            Assert.Contains("TransmitKillSwitch.ReflectedCutSpoken = _cutHold.SpeakPendingVoxNote;", Body(ctl, "private void PublishHoldGate()"));
+            Assert.Contains("BeginCutHold(rig, notice, voxNoteNow: false);", Body(ctl, "private void BeginCutHoldFromKillSwitch(ReflectedCutNotice notice)"));
+            // The controller's own cut keeps the note immediate: the rung overload defaults voxNoteNow true.
+            Assert.Contains("voxNoteNow: true);", Body(ReadSource("Radios/ReflectedCutHold.cs"),
+                "public int Begin(TransmitSafety.ReflectedCut rung, in TransmitPowerReading reading, string? antennaName,"));
+        }
+
+        [Fact]
+        public void The_rigs_mode_event_reaches_the_hold_during_a_hold()
+        {
+            // N6. FlexBase.ModeChanged fires for the ACTIVE slice's mode, so the
+            // handler re-reads the TX slice's mode; the poll stays as backstop.
+            string ctl = ReadSource("JJFlexWpf/PttSafetyController.cs");
+            Assert.Contains("rig.ModeChanged += OnModeChangedDuringCutHold;", Body(ctl, "internal void BeginCutHold(FlexBase rig, in ReflectedCutNotice notice, bool voxNoteNow = true)"));
+            Assert.Contains("rig.ModeChanged -= OnModeChangedDuringCutHold;", Body(ctl, "private void EndCutHoldWiringLocked()"));
+            Assert.Contains("rig.TXModeAsReported", Body(ctl, "private void OnModeChangedDuringCutHold(string mode)"));
+            Assert.Contains("_cutHold.NoteMode(txMode, Environment.TickCount64);", Body(ctl, "private void OnModeChangedDuringCutHold(string mode)"));
+            Assert.Contains("if (s.Active)", ReadSource("Radios/FlexBase.cs").Substring(ReadSource("Radios/FlexBase.cs").IndexOf("case \"DemodMode\":", StringComparison.Ordinal), 600));
+        }
+
         [Fact]
         public void Only_the_reflected_power_cut_starts_a_hold()
         {
@@ -220,7 +305,7 @@ namespace Radios.Tests
             Assert.Contains("BeginCutHold(rig, cut, reading, cutAntenna);", reflected);
             // The other producer of a hold is the kill switch's reflected cut,
             // through the hook, and nothing else in the controller.
-            Assert.Equal(1, Regex.Matches(ctl, @"\bBeginCutHold\(rig, notice\);").Count);
+            Assert.Equal(1, Regex.Matches(ctl, @"\bBeginCutHold\(rig, notice, voxNoteNow: false\);").Count);
             foreach (string other in new[]
             {
                 "private void EnterHardKillFromTimeout()",
@@ -253,7 +338,7 @@ namespace Radios.Tests
             string voxHold = ReadSource("Radios/FlexBase.VoxHold.cs");
             Assert.Contains("using (AppInitiatedSettingChanges())", Body(voxHold, "public bool WriteVoxSetting(VoxSetting which, bool on, bool immediate)"));
             string ctl = ReadSource("JJFlexWpf/PttSafetyController.cs");
-            Assert.Contains("ReflectedCutHold.LeversFor(rig, () => EarconPlayer.ToggleTone(false))", Body(ctl, "internal void BeginCutHold(FlexBase rig, in ReflectedCutNotice notice)"));
+            Assert.Contains("ReflectedCutHold.LeversFor(rig, () => EarconPlayer.ToggleTone(false))", Body(ctl, "internal void BeginCutHold(FlexBase rig, in ReflectedCutNotice notice, bool voxNoteNow = true)"));
 
             string multi = ReadSource("Radios/FlexBase.MultiUser.cs");
             string note = Body(multi, "internal void NoteOperatorChangedRadioSetting(string what)");
@@ -278,7 +363,8 @@ namespace Radios.Tests
             string hold = ReadSource("Radios/ReflectedCutHold.cs");
             Assert.Contains("subject: SpeechSubject.ReflectedPowerCut", hold);
             Assert.Contains("subject: SpeechSubject.VoxPausedAfterCut", hold);
-            Assert.Equal(2, Regex.Matches(hold, @"// DRAFT PROSE \(#571\): awaiting Noel").Count);
+            // Three: the reason clause, the refusal sentence, and (round 2, N5) the VOX note with its seconds.
+            Assert.Equal(3, Regex.Matches(hold, @"// DRAFT PROSE \(#571\): awaiting Noel").Count);
 
             string audio = ReadSource("Radios/Lexicon/audio.json");
             foreach (string key in new[]
