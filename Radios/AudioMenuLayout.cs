@@ -148,7 +148,7 @@ namespace Radios
             // land on it in the disconnected case either; see
             // The_first_row_that_works_without_a_radio_does_not_start_with_A.
             new("sep-recorder", "", AudioMenuEntryKind.Separator, false),
-            new("record-to-file", "Record to File", AudioMenuEntryKind.Toggle, true),
+            new("record-to-file", "Record to File", AudioMenuEntryKind.Toggle, false),
             new("play-from-computer", "Play from Computer", AudioMenuEntryKind.Toggle, false),
 
             new("sep-levels", "", AudioMenuEntryKind.Separator, false),

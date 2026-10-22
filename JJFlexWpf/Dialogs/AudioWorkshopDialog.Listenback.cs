@@ -272,7 +272,7 @@ public partial class AudioWorkshopDialog
     }
     private async Task ToggleDiagnosticAsync()
     {
-        if (_loopbackStarting) { IqStatus(Lexicon.Get("audio.iq.stop_other"), true); return; }
+        if (_checkStarts.IsBusy) { IqStatus(Lexicon.Get("audio.iq.stop_other"), true); return; }
         if (_iqBusy) { _iqCancellation?.Cancel(); return; }
         if (_iqRun != null) { await FinishIqAsync("operator-stop"); return; }
         if (_rig == null || _session?.Active == true) { IqStatus(Lexicon.Get("audio.iq.stop_other"), true); return; }
@@ -376,6 +376,8 @@ public partial class AudioWorkshopDialog
     {
         var rig = _rig;
         if (rig == null || _iqBusy || _iqRun != null) return;
+        using var start = _checkStarts.TryBegin();
+        if (start == null || _session?.Active == true) return;
         _iqBusy = true; _iqWasOffAir = true; _iqRecoveryReader = rig.CaptureListenbackRecoveryReader();
         _iqCancellation = new CancellationTokenSource();
         SetStartButtonLabel(Lexicon.Get("audio.iq.cancel_start"));
@@ -388,11 +390,11 @@ public partial class AudioWorkshopDialog
             _iqRun = await rig.StartListenbackAsync(new ListenbackOptions(Rate: rate, OffAir: true,
                 HearSelfDuringOffAir: _iqHearSelfDuringTake?.IsChecked == true), _iqCancellation.Token);
             _iqRunRig = rig;
-            if (_iqClosing || _iqCancellation.IsCancellationRequested || !ReferenceEquals(rig, _rig) || ptt.IsTransmitting || rig.Transmit)
+            if (!start.IsCurrent || _iqClosing || _iqCancellation.IsCancellationRequested || !ReferenceEquals(rig, _rig) || ptt.IsTransmitting || rig.Transmit)
                 throw new OperationCanceledException();
             var session = new AudioCheckSession(this, rig, ptt, AudioCheckListenMethods.OffAir,
                 AudioCheckPowerModes.LowPower, 1, loopback: true);
-            if (!await session.StartAsync()) throw new InvalidOperationException("keying-refused");
+            if (!await session.StartAsync(start)) throw new InvalidOperationException("keying-refused");
             _session = session;
             SetStartButtonLabel("Stop Audio Check");
             EarconPlayer.FeatureOnTone();
@@ -659,7 +661,7 @@ public partial class AudioWorkshopDialog
     {
         if (_iqBusy) { _iqCancellation?.Cancel(); return; }
         var rig = _rig;
-        if (rig == null || rig.RemoteRig || _iqRun != null || _session?.Active == true) { IqStatus(Lexicon.Get("audio.iq.stop_other"), true); return; }
+        if (rig == null || _checkStarts.IsBusy || rig.RemoteRig || _iqRun != null || _session?.Active == true) { IqStatus(Lexicon.Get("audio.iq.stop_other"), true); return; }
         _iqBusy = true; _iqRecoveryReader = rig.CaptureListenbackRecoveryReader(); _iqCancellation = new CancellationTokenSource();
         IqStatus(Lexicon.Get("audio.iq.preflight_running"));
         try
@@ -672,7 +674,7 @@ public partial class AudioWorkshopDialog
     }
     private async Task RestoreIqAsync()
     {
-        if (_rig == null || _iqBusy || _iqRun != null) return;
+        if (_rig == null || _checkStarts.IsBusy || _iqBusy || _iqRun != null) return;
         try
         {
             _iqBusy = true;
@@ -684,6 +686,7 @@ public partial class AudioWorkshopDialog
     }
     private void CloseListenback()
     {
+        CancelCheckStart();
         _iqClosing = true;
         _iqCancellation?.Cancel();
         _iqWatch.Stop();

@@ -3064,6 +3064,7 @@ public partial class MainWindow : UserControl
     /// </summary>
     public void WireRadioEvents()
     {
+        HideDisconnectedRecorderStop();
         if (RigControl == null) return;
 
         // Sprint 42 Track D (#395): a connect is genuinely starting — this is
@@ -3617,6 +3618,7 @@ public partial class MainWindow : UserControl
     /// </summary>
     private void RestoreNoRadioShell()
     {
+        ShowDisconnectedRecorderStop();
         try
         {
             // #500, and this is the SECOND collapse route — the one the
