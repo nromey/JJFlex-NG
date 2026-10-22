@@ -387,6 +387,108 @@ public sealed class LockSafetyHoldTests : IDisposable
         Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
     }
 
+    // ──────────────────────────────────────────────────────────────────
+    //  Repair round 1: Codex Astra's B1, B2, B3 and B6 at the production edges
+    // ──────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void A_transmit_checks_reflected_power_cut_starts_the_hold_and_the_next_lock_press_does_not_key()
+    {
+        // Codex's probe (B1), verbatim in substance: arm, raise a Mox check,
+        // request the reflected-power source, finish the arm, press the real
+        // Home lock. On 19cab276 the press commanded RF on.
+        AssertTheDeskIsSafe();
+        using (TransmitKillSwitch.Arm(_rig, "review probe"))
+        {
+            Assert.True(TransmitKillSwitch.RaiseCarrier(_rig, TransmitKillSwitch.Carrier.Mox));
+            TransmitKillSwitch.Request(TransmitKillSwitch.Source.ReflectedPower, "Review probe cut");
+        }
+        Assert.True(_controller.CutHold.Holding, "a transmit check's reflected cut left no hold");
+        string heard = Spoken(() => LockKeyDown(false));
+        Assert.False(RfCommandedOn(), "Fixer reflected cut left no hold; the next lock commanded RF on");
+        Assert.Equal(PttSafetyController.PttState.Idle, _controller.State);
+        Assert.StartsWith("Not keyed. too much of your power was coming back on ANT1", heard);
+    }
+
+    [Fact]
+    public void An_app_power_restores_echo_does_not_lift_the_hold()
+    {
+        // Codex's probe (B2), verbatim in substance: the cut lands at 5 W, the
+        // Audio Check restores 25 W as an app write, the RFPower status handler
+        // assigns _XmitPower, the lock is pressed. On 19cab276 RF went on.
+        AssertTheDeskIsSafe();
+        var power = typeof(FlexBase).GetField("_XmitPower", Any);
+        Assert.NotNull(power);
+        power.SetValue(_rig, 5);
+        BeginHold();
+        Assert.True(_controller.RefuseIfHeldAfterCut("before app restore"));
+        using (_rig.AppInitiatedSettingChanges()) _rig.XmitPower = 25;
+        power.SetValue(_rig, 25);   // the status handler's assignment, modelled; no radio or queue is running
+        LockKeyDown(false);
+        Assert.False(RfCommandedOn(), "An app power restore echo lifted the hold and the lock commanded RF on");
+        Assert.True(_controller.CutHold.Holding);
+
+        // The control: the OPERATOR's power change still lifts it.
+        _rig.XmitPower = 50;          // no app scope; on a bare rig the hook is silent, so model the echo
+        power.SetValue(_rig, 50);
+        LockKeyDown(false);
+        Assert.True(RfCommandedOn());
+    }
+
+    [Fact]
+    public void Releasing_the_rig_for_teardown_ends_the_hold_before_the_rig_goes()
+    {
+        // B3: the controller's teardown release, which UnwireRadioEvents calls
+        // first. The bare rig has no radio, so the levers issue nothing and the
+        // hold says so; the ORDER against CloseTheRadio is pinned from source.
+        AssertTheDeskIsSafe();
+        BeginHold();
+        _controller.ReleaseRigForTeardown("radio events unwired");
+        Assert.False(_controller.CutHold.Holding);
+        Assert.Equal(ReflectedCutHold.EndReason.Abandoned, _controller.CutHold.LastEnd);
+        Assert.Null(typeof(PttSafetyController).GetField("_cutHoldTimer", Any).GetValue(_controller));
+        Assert.Null(typeof(PttSafetyController).GetField("_cutHoldRig", Any).GetValue(_controller));
+        LockKeyDown(false);
+        Assert.Equal(PttSafetyController.PttState.Locked, _controller.State);   // nothing held any more
+    }
+
+    [Fact]
+    public void The_tune_carrier_the_ATU_and_a_radio_keyed_transmit_each_advance_the_episode()
+    {
+        // B6: an unheard "you are no longer on the air" must be withdrawn by
+        // any allowed RF, not only by this controller's own key. The validity
+        // answer the cut sentence carries is NoTransmissionSince(), captured at
+        // the cut; each source below must turn it false.
+        AssertTheDeskIsSafe();
+        var episode = (Radios.Speech.TransmitEpisode)typeof(PttSafetyController).GetField("_transmitEpisode", Any).GetValue(_controller);
+
+        var answer = episode.NoTransmissionSince();
+        Assert.True(answer(), "control: nothing has transmitted yet");
+        _controller.NoteTuneCarrier(true);
+        Assert.False(answer(), "the tune carrier did not advance the episode");
+        _controller.NoteTuneCarrier(false);
+
+        answer = episode.NoTransmissionSince();
+        Assert.True(answer());
+        _controller.NoteAtuTuning(true);
+        Assert.False(answer(), "the ATU cycle did not advance the episode");
+        _controller.NoteAtuTuning(false);
+
+        answer = episode.NoTransmissionSince();
+        Assert.True(answer());
+        _controller.NoteRadioTransmit(true);
+        Assert.False(answer(), "a radio-keyed transmit did not advance the episode");
+        _controller.NoteRadioTransmit(false);
+
+        // The radio's "off" clears a tune flag another client or the radio's
+        // own timeout dropped, so the next edge is seen.
+        _controller.NoteTuneCarrier(true);
+        _controller.NoteRadioTransmit(false);
+        answer = episode.NoTransmissionSince();
+        _controller.NoteRadioTransmit(true);
+        Assert.False(answer(), "a stale tune flag hid the next off-to-on edge");
+    }
+
     [Fact]
     public void Disposing_the_controller_ends_the_hold()
     {
