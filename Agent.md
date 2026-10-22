@@ -9,6 +9,97 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-10-21 — THE JUNKBOX LANDS ON MAIN, LISTEN-BACK TO ROUND 13, AND A BENCH THAT FOUND TWO TRANSMIT-SAFETY DEFECTS
+
+**Written 2026-10-21 at about 21:20.** Covers midnight 2026-10-21 to now; the previous seal was `d9a079cf` (2026-10-20
+22:37), so this is a one-seal day. Main gained 22 commits; `feature/456-iq-listenback` gained 2.
+
+### What the day produced
+
+- **The junkbox merged to main** (`d45deb11`, 18:55, Noel: "merge first and press after"): eleven fixes and the layer
+  keys from `junkbox/integration`. The morning finished #778c (push to talk from dialogs, Escape unkeys first, Tab
+  refused in a layer) in three repair rounds; Codex re-check 3 said MERGE once the dialog lock was removed rather than
+  guarded, on Noel's 10:55 "wait for the bench". Seven changelog fragments and #778's were folded in Noel's own wording
+  (`2478ebfe`, `cdea6ea7`). `00b2573c` adds the four junkbox test classes to the merge-time WPF filter (fourteen classes,
+  208 tests). All eleven junkbox branches were proven contained; the jb778c, jbint and jbfold worktrees are removed and
+  their briefs kept in JJFlex-private.
+- **Help pages follow the changelog rule (Noel 18:43-18:44):** one sentence per key; edge cases go in the register.
+  `8a85ca12` names Alt+Shift+Space as the system-wide lock, makes the digit bullet true, and says Ctrl+Space works in
+  dialogs.
+- **#456 listen-back, rounds 12 and 13 on `feature/456-iq-listenback`, both benched by Noel on the 8600:** round 12
+  (`9566f14a`) made close-together takes clean (the late prior-stream packet is no longer zero-filled), muted the slice
+  before the click, started playback sooner, and made the comparison heard. Round 13 (`e0815a16`) speaks a difference
+  under half a dB as no change, in full sentences, queued after the take summary, with separate subjects for
+  take-against-take and received-against-sent. Noel: "It works." A voice-against-voice comparison was clean tonight.
+- **Tape Deck Ragchew Replay** (the listen-back upgrade): plan and five track briefs drafted (`agile/tape-deck-*`), not
+  launched. Track 1 gained four items tonight: the comparison box remembers, the tone controls hide while the tone is
+  off, the comparison box moves up the tab order, and every take records its source (tone, reference or voice, plus
+  mic profile and input), refusing unlike comparisons and naming a mic change (ruled 20:17-20:18). A required SmartLink
+  check on Don's 6300 joined its bench steps.
+
+### Tonight's bench (main, Noel's 8600, NVDA at IO 12): `agile/junkbox-press-results-2026-10-21.md` in JJFlex-private
+
+Every layer refusal step passed. The findings, all in the register and ordered at the top of the junkbox queue:
+
+- **TRANSMIT SAFETY, #571 (ruled 20:47): a Shift+Space 149 ms after the reflected-power cut re-locked into the same
+  fault**, sending 25 W back into an empty port for two more seconds, and the "Transmit stopped" explanation was
+  withdrawn unheard. Fix: a short fixed window after a cut in which the lock repeats why instead of keying, lifted at
+  once if the antenna, power, band, frequency, tuner or amplifier changed.
+- **TRANSMIT SAFETY, #800 (ruled 20:46): a held Shift+Space on Home toggled the lock on every repeat**, eight lock/unlock
+  pairs in under a second. A held press must be one toggle. Pre-existing on main. Tonight's trace has no KEYTIME lines
+  (no detailed capture was running) and KEYROUTE doesn't log IsRepeat, so how NVDA delivered that hold is not
+  established.
+- **#801, new: Logging mode is dead from the keyboard.** `KeyCommands` reads the VB `ActiveUIMode`, which logging
+  enter/exit never update, so every Logging-scope key is "key not found", Ctrl+Alt+L never opens the full log form, and
+  Ctrl+Shift+L can't leave. Way out today: the Mode menu.
+- **#802, new: under NVDA every contraction is split** ("can t") because `NvdaCompletionChannel.Escape` writes `&apos;`
+  into SSML text, in since `831d9131` (2026-09-06).
+- **Rulings:** layers work from other programs with Prism speech and a floating indicator for sighted users (#749,
+  option one); typed numbers wherever a layer function takes one, with a lone 0 still jumping to centre (#778); Alt
+  and F1 refused inside a layer (reverses the 06:29 keep); naming the key pressed at Chatty, with a setting to turn it
+  off. The knob bench waits until the knob can be connected and tune (#520).
+- **A process miss, filed in memory:** the refusal steps were regression a SendInput run could have done. Press lists
+  are triaged from now on: keying, screen-reader timing and judgement go to Noel; the rest is harness-run. No
+  contortion steps (holding a chord while Alt+Tabbing).
+
+### Nightly promote: DONE on Noel's ruling (21:11)
+
+Noel: "It can probably do a nightly promote this time. These are small changes." **The NAS had no debug build since
+4.1.16.2208 on 2026-10-03**, so `build-debug.bat` ran twice: once with the stale `debug-notes.txt` (still describing
+the 10-03 VOX fixes), then with Noel's approved replacement (`7801e077`, approved 21:13). **4.1.16.2435 is promoted**
+to the Dropbox top level; zip hash matches the NAS copy, 430 entries. Its NOTES name the known issues: the two safety
+defects, the logging keys, the split contractions, and that the dialog keys are checked under NVDA only, with the JAWS
+presses first thing 2026-10-22. Noel at 21:13-21:14: nightly notes need his approval only for a major nightly Don
+will read.
+
+### Codex today
+
+Eight runs, about 1.61 million tokens: listen-back rounds 12 and 13 with their review fixes (`gpt-6-sol` high) and
+four #778c checks (`gpt-6-astra` high). Commits carrying the Codex trailer: 2. All logged in `codex-evaluation.md`.
+
+### Cross-surface activity
+
+- Main: 22 commits. `feature/456-iq-listenback`: 2, pushed. No other worktrees remain.
+- Memory: 8 entries written or changed. The Tony-present rule for Don's radio is lifted (archived); the JJ-layer rule is
+  corrected to "every function also on the JJ layer, quick functions also get a flat key"; new rules on help-page
+  length and on bench lists.
+- The iterator drafted the #571/#800 lock-safety brief at 21:14
+  (`agile/junkbox-briefs/2026-10-21-track-571-800-lock-safety-DRAFT.md`): one Fable track in two phases, the second
+  waiting on the JAWS measurement. Not launched; four questions for Noel open it.
+- Freight Fate: 16 unpushed commits, 1 dirty file. Civ VI Access: 2 dirty files. Pushing those is Noel's call.
+
+### Seal checks
+
+Dependency advisories: none (32 projects clean). Memory drift: 90 path and 56 symbol candidates, none from today's
+entries. MEMORY.md is 15.3 KB, over the 12 KB seal threshold; its trim stays on the can-wait list. Codex instruction
+tests 5/5; Codex loads AGENTS.md; sandbox healthy. CLAUDE.md's filter paragraph re-measured: fourteen of twenty-seven
+classes. NVDA logs archived to JJFlex-private.
+
+### Next
+
+First thing 2026-10-22: the five JAWS presses and the JAWS measurement (`junkbox-press-results-2026-10-21.md`). Then
+Noel reads the lock-safety brief; then more junkbox waves and the Tape Deck tracks.
+
 ## END-OF-DAY SEAL — 2026-10-20 — LISTEN-BACK HEARD ITSELF, SEVEN JUNKBOX MERGES, AND "IT'S RARE" OVERRULING THE MERGE BAR
 
 **Written 2026-10-20 at about 22:40.** Covers the window from the previous seal's commit (`150f64be`, 2026-10-19 night) to

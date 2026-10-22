@@ -1378,10 +1378,11 @@ As tracks complete, Claude Desktop handles merges and keeps the user informed:
    **Say which classes the run covered**, because the set grows and a class
    nobody names silently drops out of coverage the day it is added. See #531.
 
-   **AND THE FILTER COVERS TEN OF TWENTY-THREE. Measured 2026-10-18:**
-   `JJFlexWpf.Tests` holds 23 classes carrying `[Fact]`/`[Theory]` across 22
-   files, and the filter above names ten, so **thirteen are unwatched at merge
-   time**: `CaptureArchivedDialogTests`, `CwCloseTests`, `DeskGuardDecisionTests`,
+   **AND THE FILTER COVERS FOURTEEN OF TWENTY-SEVEN. Re-measured 2026-10-21 from
+   source** (class names ending `Tests` in the 26 files carrying `[Fact]`/`[Theory]`;
+   not from the harness's own view, which would need a test run): the junkbox merge
+   added four classes and put all four in the filter, so **the same thirteen are
+   unwatched at merge time**. It said "ten of twenty-three" from 2026-10-18 until then: `CaptureArchivedDialogTests`, `CwCloseTests`, `DeskGuardDecisionTests`,
    `DialogEarlyExitTests`, `DialogInvariantTests`, `FixerFixDecisionTests`,
    `HarnessTests`, `LayerNearMissTests`, `ProblemLogUpdateTests`, `QuietRunTests`,
    `RadioRowWordingTests`, `RxDuckTimingTests`, `UndeliveredDetailsSurfaceTests`.
