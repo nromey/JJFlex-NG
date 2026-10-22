@@ -701,22 +701,16 @@ namespace Radios
         public event Action<string, string> AppInitiatedRadioSettingWritten;
 
         /// <summary>
-        /// One of this class's operator-facing setters wrote a radio-persisted
-        /// setting: tell whoever is listening WHO wrote it. The application's
-        /// own writes (<see cref="AppInitiatedSettingChanges"/> in force) go
-        /// to <see cref="AppInitiatedRadioSettingWritten"/>; the operator's go
-        /// through <see cref="NoteOperatorChangedRadioSetting"/> exactly as
-        /// before. The three snapshot setters call this; every other setter
-        /// still calls the operator hook directly and is unchanged.
-        /// </summary>
-        /// <summary>
         /// True while a write made inside <see cref="AppInitiatedSettingChanges"/>
         /// is nonetheless THE OPERATOR'S OWN CHOICE, carried out by the app:
-        /// Dummy Load Mode zeroing the power is the case (#571, Opus N1). The
-        /// app scope keeps the receipt and the save offer quiet, as it must;
-        /// this inner scope says the change is still the operator's, so the
-        /// hold after a reflected-power cut lifts on it, exactly as it lifts
-        /// on the operator turning the power knob. Depth-counted like its parent.
+        /// the Transmit menu's Dummy Load Mode item is the case (#571, Opus N1
+        /// and R1). The app scope keeps the receipt and the save offer quiet,
+        /// as it must; this inner scope says the change is still the
+        /// operator's, so the hold after a reflected-power cut lifts on it,
+        /// exactly as it lifts on the operator turning the power knob. The
+        /// COMMAND declares it, never the setter, so the Audio Check's own
+        /// dummy-load engage, which writes the same setter, is still the
+        /// app's. Depth-counted like its parent.
         /// </summary>
         private int _operatorChoseSettingDepth;
 
@@ -742,12 +736,27 @@ namespace Radios
         /// even where they sit inside <see cref="AppInitiatedSettingChanges"/>.
         /// A refused press after a reflected-power cut tells the operator to
         /// change the power; Dummy Load Mode is one of the ways they do that,
-        /// and it must count (Noel, 2026-10-21 20:47). Use it only around a
-        /// write the operator commanded; an app-originated restore (the Audio
-        /// Check putting its saved power back) must NOT be inside it.
+        /// and it must count (Noel, 2026-10-21 20:47). Open it at the
+        /// operator's COMMAND (the menu item), never inside a setter: the Audio
+        /// Check writes the same <see cref="DummyLoadMode"/> setter for its
+        /// own reasons, and that engage, like its power restores, must NOT be
+        /// inside this scope.
         /// </summary>
         public IDisposable OperatorChoseThisChange() => new OperatorChoseSettingScope(this);
 
+        /// <summary>
+        /// One of this class's operator-facing setters wrote a radio-persisted
+        /// setting: tell whoever is listening WHO wrote it. A write the
+        /// operator commanded and the app carried out
+        /// (<see cref="OperatorChoseThisChange"/> in force) raises
+        /// <see cref="OperatorChangedRadioSetting"/> and nothing else; the
+        /// application's own writes (<see cref="AppInitiatedSettingChanges"/>
+        /// in force) go to <see cref="AppInitiatedRadioSettingWritten"/>; the
+        /// operator's direct writes go through
+        /// <see cref="NoteOperatorChangedRadioSetting"/> exactly as before.
+        /// The three snapshot setters call this; every other setter still
+        /// calls the operator hook directly and is unchanged.
+        /// </summary>
         internal void NoteRadioSettingWritten(string what, string value)
         {
             if (_operatorChoseSettingDepth > 0)
