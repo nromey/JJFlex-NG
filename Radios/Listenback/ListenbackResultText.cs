@@ -57,7 +57,8 @@ public static class ListenbackResultText
                     ("previous_low", previous[0]), ("previous_high", previous[1]),
                     ("current_low", current[0]), ("current_high", current[1]));
             case "rf-power":
-                return Lexicon.Get("audio.iq.setup_power", ("previous", change.Previous), ("current", change.Current));
+                return Lexicon.Get("audio.iq.setup_power", ("previous", change.Previous), ("previous_unit", WattWord(change.Previous)),
+                    ("current", change.Current), ("current_unit", WattWord(change.Current)));
             case "mic-profile":
                 return Lexicon.Get("audio.iq.setup_profile",
                     ("previous", ProfileWord(change.Previous)), ("current", ProfileWord(change.Current)));
@@ -69,6 +70,11 @@ public static class ListenbackResultText
                 return "";
         }
     }
+
+    // "1 watt", never "1 watts" (Codex's round 14 check).
+    private static string WattWord(string value) => Lexicon.Get(
+        double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double watts) && watts == 1
+            ? "audio.unit.watt" : "audio.unit.watts");
 
     private static string ProfileWord(string name) =>
         string.IsNullOrWhiteSpace(name) ? Lexicon.Get("audio.iq.no_mic_profile") : name;
