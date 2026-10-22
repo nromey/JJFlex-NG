@@ -41,7 +41,6 @@ public sealed class ComputerRecorderControlTests : IDisposable
         public Task<RecorderOutcome> StopRecordingAsync() { Calls.Add("stop"); return Ok("stopped"); }
         public Task<RecorderOutcome> PlayAsync(string path) { Calls.Add("play " + path); return Ok("playing"); }
         public Task<RecorderOutcome> StopPlaybackAsync() { Calls.Add("stop playback"); return Ok("stopped playing"); }
-        public event Action StateChanged { add { } remove { } }
     }
 
     [Fact]

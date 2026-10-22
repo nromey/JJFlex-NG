@@ -37,7 +37,15 @@ namespace Radios;
 /// <b>Threading.</b> The controls call from the UI thread and await. An engine
 /// should return promptly and do its file work elsewhere; the receive audio
 /// thread must never wait on a file (track 3's research report, "Tap point").
-/// <see cref="StateChanged"/> may be raised on any thread.
+/// </para>
+/// <para>
+/// <b>No change event, on purpose.</b> The doors ask <see cref="IComputerRecorder.IsRecording"/>
+/// and <see cref="IComputerRecorder.IsPlaying"/> when they draw (Home at its 100 ms
+/// poll, the Audio menu when it opens), so nothing would subscribe to one, and a
+/// hook nobody wires is a defect class in this tree. An engine that stops on its
+/// own — end of file, a full disk, a lost device — says why itself, in a sentence
+/// under <see cref="Speech.SpeechSubject.ComputerRecorder"/>, because only it knows.
+/// If the recordings dialog (track 4) needs an event, add it then, with its subscriber.
 /// </para>
 /// </remarks>
 public interface IComputerRecorder
@@ -66,9 +74,6 @@ public interface IComputerRecorder
 
     /// <summary>Stop the playback.</summary>
     Task<RecorderOutcome> StopPlaybackAsync();
-
-    /// <summary>Raised when recording or playback starts or stops, including on its own (end of file, a full disk).</summary>
-    event Action StateChanged;
 }
 
 /// <summary>
@@ -82,9 +87,6 @@ public static class ComputerRecorder
     /// <summary>The installed engine, or the refusing stub until one is installed.</summary>
     public static IComputerRecorder Current => _current;
 
-    /// <summary>Raised after <see cref="Install"/> swaps the engine, so doors can re-subscribe.</summary>
-    public static event Action Installed;
-
     /// <summary>
     /// Install the engine (track 3). Called once at startup; passing null puts
     /// the stub back, which is what tests do.
@@ -92,7 +94,6 @@ public static class ComputerRecorder
     public static void Install(IComputerRecorder engine)
     {
         _current = engine ?? new UnavailableComputerRecorder();
-        Installed?.Invoke();
     }
 
     /// <summary>
@@ -158,6 +159,4 @@ internal sealed class UnavailableComputerRecorder : IComputerRecorder
     public Task<RecorderOutcome> StopRecordingAsync() => Refuse("audio.recorder.computer_record_unavailable");
     public Task<RecorderOutcome> PlayAsync(string path) => Refuse("audio.recorder.computer_play_unavailable");
     public Task<RecorderOutcome> StopPlaybackAsync() => Refuse("audio.recorder.computer_play_unavailable");
-
-    public event Action StateChanged { add { } remove { } }
 }
