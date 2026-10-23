@@ -53,7 +53,7 @@ public partial class MainWindow : UserControl
 
     /// <summary>
     /// Callback to persist UI mode changes to the operator profile.
-    /// Set by ApplicationEvents.vb — routes to globals.ActiveUIMode setter.
+    /// Set by ApplicationEvents.vb — saves only Classic or Modern to the operator profile.
     /// </summary>
     public Action<UIMode>? SaveUIModeCallback { get; set; }
 
@@ -2392,7 +2392,7 @@ public partial class MainWindow : UserControl
 
     /// <summary>
     /// Last non-logging mode (Classic or Modern). Restored when exiting Logging Mode.
-    /// Matches globals.vb LastNonLogMode.
+    /// This window owns the session-only Logging overlay and its return mode.
     /// </summary>
     public UIMode LastNonLogMode { get; set; } = UIMode.Modern;
 

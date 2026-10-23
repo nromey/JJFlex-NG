@@ -1150,10 +1150,7 @@ public class KeyCommands
     {
         var mw = _context.GetMainWindow();
         if (mw == null) return;
-        if (_context.GetActiveUIMode() == 2) // Logging
-            mw.ExitLoggingMode();
-        else
-            mw.EnterLoggingMode();
+        mw.ToggleLoggingMode();
     }
 
     private void ToggleFreqReadoutHandler() => _context.GetMainWindow()?.ToggleFreqReadoutCommand();
