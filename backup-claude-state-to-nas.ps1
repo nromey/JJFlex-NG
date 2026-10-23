@@ -19,7 +19,8 @@
 #   - git covers none of it
 #
 # Layout on the NAS:
-#   historical\claude-state\claude-state-YYYYMMDD-HHMMSS.zip
+#   historical\claude-state\claude-state-YYYYMMDD-HHMMSS.zip          (this desktop)
+#   historical\claude-state\<computer>\claude-state-YYYYMMDD-HHMMSS.zip (any other machine)
 #
 # Runs manually any time, or as part of the end-of-day seal.
 
@@ -37,7 +38,13 @@ param(
     [switch] $IncludeFileHistory,
 
     # Keep the N most recent snapshots on the NAS; 0 keeps everything.
-    [int] $KeepLast = 12
+    [int] $KeepLast = 12,
+
+    # The machine whose snapshots keep the original flat layout, so its dated
+    # series stays unbroken. Any other machine (the laptop) gets its own
+    # subfolder and its own KeepLast, so the two never prune each other and a
+    # laptop zip is never mistaken for this one's.
+    [string] $PrimaryComputer = 'NERSTATION'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -70,6 +77,10 @@ if (-not (Test-Path $ClaudeRoot)) {
 }
 
 $dest = Join-Path (Join-Path $NasRoot 'historical') 'claude-state'
+if ($env:COMPUTERNAME -ne $PrimaryComputer) {
+    $dest = Join-Path $dest $env:COMPUTERNAME.ToLowerInvariant()
+}
+Write-Host "  Folder   : $dest"
 if (-not (Test-Path $dest)) {
     try {
         New-Item -Path $dest -ItemType Directory -Force | Out-Null
