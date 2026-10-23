@@ -131,13 +131,12 @@ public static class ComputerRecorder
     /// transmitting BEFORE the engine is asked (Noel, 2026-10-21 10:57: keyed,
     /// Play sending to air is phase 2), so no engine can forget the refusal.
     /// </summary>
-    public static async Task<RecorderOutcome> TogglePlaybackAsync(bool transmitting, bool voxEnabled = false)
+    public static async Task<RecorderOutcome> TogglePlaybackAsync(bool transmitting)
     {
         var recorder = _current;
         if (recorder.IsPlaying) return await recorder.StopPlaybackAsync().ConfigureAwait(false);
         // DRAFT PROSE (#787): awaiting Noel
         if (transmitting) return Refusal("audio.recorder.computer_play_refused_transmitting");
-        if (voxEnabled) return Refusal("audio.recorder.play_refused_vox");
         return await recorder.PlayAsync(ChosenForPlayback()).ConfigureAwait(false);
     }
 }

@@ -163,13 +163,21 @@ public sealed class SliceRecorderSurfaceTests : IDisposable
     }
 
     [Fact]
-    public async Task Cw_break_in_blocks_local_play_even_when_voice_VOX_is_off()
+    public async Task Cw_break_in_is_paused_for_local_play_and_restored_after_stop()
     {
         using var c = new RadioCase();
         c.F.Vendor.Status("slice 1 mode=CW play=0");
         Field(c.F.Vendor.Radio, "_cwBreakIn", true);
-        Assert.False((await c.Pump(c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.ActiveSlice))).Success);
-        Assert.DoesNotContain("slice set 1 play=1", c.F.Vendor.Transport.Commands);
+        c.F.Vendor.Transport.CommandWritten = command =>
+        {
+            c.Respond(command);
+            if (command == "cw break_in 0") c.F.Vendor.Status("transmit break_in=0");
+        };
+        Assert.True((await c.Pump(c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        Assert.False(c.F.Vendor.Radio.CWBreakIn);
+        Assert.True((await c.Pump(c.F.Rig.StopSlicePlayAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        await c.Pump(WaitUntil(() => c.F.Vendor.Radio.CWBreakIn));
+        Assert.True(c.F.Vendor.Radio.CWBreakIn);
     }
 
     [Theory]
@@ -297,16 +305,104 @@ public sealed class SliceRecorderSurfaceTests : IDisposable
     }
 
     [Fact]
-    public async Task Local_play_with_VOX_on_is_refused_before_the_fake_radio_can_key()
+    public async Task Local_play_with_VOX_on_pauses_and_restores_without_keying_the_fake_radio()
     {
         using var c = new RadioCase();
         Field(c.F.Vendor.Radio, "_simpleVOXEnable", true);
         c.F.Vendor.Status("slice 1 play=0");
         VoxRadio(c);
         var result = await c.Pump(c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.ActiveSlice));
-        Assert.False(result.Success);
+        Assert.True(result.Success, result.Message);
         Assert.False(c.F.Rig.Transmit);
+        Assert.False(c.F.Vendor.Radio.SimpleVOXEnable);
+        Assert.Contains("slice set 1 play=1", c.F.Vendor.Transport.Commands);
+        Assert.True((await c.Pump(c.F.Rig.StopSlicePlayAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        await c.Pump(WaitUntil(() => c.F.Vendor.Radio.SimpleVOXEnable));
+        Assert.True(c.F.Vendor.Radio.SimpleVOXEnable);
+        Assert.False(c.F.Rig.Transmit);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Slice_play_and_cut_hold_restore_vox_only_after_both_release(bool holdReleasesFirst)
+    {
+        using var c = new RadioCase();
+        c.F.Vendor.Status("transmit vox_enable=1");
+        c.F.Vendor.Status("slice 1 play=0");
+        VoxRadio(c);
+        var hold = new ReflectedCutHold(() => 0);
+        void BeginHold() => hold.Begin(ReflectedCutNotice.WithoutReading("ANT1"),
+            ReflectedCutHold.Snapshot(c.F.Rig), 0,
+            ReflectedCutHold.LeversFor(c.F.Rig, null), voxNoteNow: false);
+        if (holdReleasesFirst) BeginHold();
+        Assert.True((await c.Pump(c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        if (!holdReleasesFirst) BeginHold();
+        Assert.False(c.F.Vendor.Radio.SimpleVOXEnable);
+        if (holdReleasesFirst) hold.Abandon("test release", 0);
+        else Assert.True((await c.Pump(c.F.Rig.StopSlicePlayAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        Assert.False(c.F.Vendor.Radio.SimpleVOXEnable);
+        if (holdReleasesFirst)
+            Assert.True((await c.Pump(c.F.Rig.StopSlicePlayAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        else hold.Abandon("test release", 0);
+        Assert.True(await c.Pump(WaitUntil(() => c.F.Vendor.Radio.SimpleVOXEnable)));
+        Assert.False(c.F.Rig.Transmit);
+    }
+
+    [Fact]
+    public async Task Local_play_waits_for_a_radio_vox_off_report_not_the_setters_local_cache()
+    {
+        using var c = new RadioCase();
+        c.F.Vendor.Status("transmit vox_enable=1");
+        c.F.Vendor.Status("slice 1 play=0");
+        c.F.Rig.SliceVoxOffWait = TimeSpan.FromMilliseconds(100);
+        c.F.Vendor.Transport.CommandWritten = command =>
+        {
+            if (command != "transmit set vox_enable=0") c.Respond(command);
+        };
+        var result = await c.Pump(c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.ActiveSlice));
+        Assert.False(result.Success);
+        Assert.Equal(Text("audio.recorder.play_vox_unconfirmed", "B"), result.Message);
         Assert.DoesNotContain("slice set 1 play=1", c.F.Vendor.Transport.Commands);
+    }
+
+    [Theory]
+    [InlineData("natural")]
+    [InlineData("transmit")]
+    [InlineData("removed")]
+    public async Task A_local_play_releases_its_vox_lease_on_each_external_end(string end)
+    {
+        using var c = new RadioCase();
+        c.F.Vendor.Status("transmit vox_enable=1");
+        c.F.Vendor.Status("slice 1 play=0");
+        VoxRadio(c);
+        Assert.True((await c.Pump(c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        Assert.False(c.F.Vendor.Radio.SimpleVOXEnable);
+        if (end == "natural") c.F.Vendor.Status("slice 1 play=0");
+        else if (end == "transmit")
+        {
+            var handler = (Delegate)typeof(FlexBase).GetField("TransmitChange", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(c.F.Rig)!;
+            handler.DynamicInvoke(c.F.Rig, true);
+        }
+        else c.F.Vendor.Status("slice 1 in_use=0");
+        Assert.True(await c.Pump(WaitUntil(() => c.F.Vendor.Radio.SimpleVOXEnable)));
+        Assert.False(c.F.Rig.Transmit);
+    }
+
+    [Fact]
+    public async Task Audio_check_transmit_slice_replay_pauses_vox_and_never_keys()
+    {
+        using var c = new RadioCase();
+        c.F.Vendor.Status("transmit vox_enable=1");
+        c.F.Vendor.Status("slice 1 play=0");
+        VoxRadio(c);
+        var take = await c.Pump(c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.TransmitSlice));
+        Assert.True(take.Success, take.Message);
+        Assert.False(c.F.Rig.Transmit);
+        Assert.False(c.F.Vendor.Radio.SimpleVOXEnable);
+        Assert.True((await c.Pump(c.F.Rig.StopSlicePlayAsync(SliceRecorderTarget.TransmitSlice))).Success);
+        Assert.True(await c.Pump(WaitUntil(() => c.F.Vendor.Radio.SimpleVOXEnable)));
+        Assert.False(c.F.Rig.Transmit);
     }
 
     [Fact]

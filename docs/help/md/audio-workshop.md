@@ -159,4 +159,4 @@ The moment-to-moment listening levels have three homes, none of them here: the A
 **Tip:** If you are running into audio issues — no sound, distorted audio, audio from the wrong device — see the Audio Troubleshooting help page for a step-by-step checklist.
 
 
-The Record and play back Audio Check records the transmit slice even when a different slice is active. For local playback, turn off VOX or CW break-in first. The slice Play control shows the recording length when known; pressing it during an existing transmission sends that recording through the transmit slice until you unkey. Play never keys the radio itself.
+The Record and play back Audio Check records the transmit slice even when a different slice is active. For local playback, JJ Flexible pauses VOX or CW break-in and restores it after the take. The slice Play control shows the recording length when known; pressing it during an existing transmission sends that recording through the transmit slice until you unkey. Play never keys the radio itself.

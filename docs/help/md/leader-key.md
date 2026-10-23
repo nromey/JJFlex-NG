@@ -49,7 +49,7 @@ Ctrl plus a letter switches something on or off, and the letter is the thing's o
 - **Ctrl+X** — Toggle full duplex for the whole radio; X for dupleX. The new state is announced after the radio reports it. The same control is in Home, Transmit and the Transmit menu.
 - **Ctrl+G** — Arm or disarm the TX test tone (replaces your microphone while transmitting)
 - **Ctrl+R** — Record the active slice, or stop recording it. This is the radio's own recorder, which keeps one recording per slice, up to the last two minutes
-- **Ctrl+P** — Play the active slice's recording, or stop it. If you are already transmitting, it plays over the air until you unkey; otherwise it plays locally. Turn off VOX or CW break-in before a local listen. Play never keys the radio
+- **Ctrl+P** — Play the active slice's recording, or stop it. If you are already transmitting, it plays over the air until you unkey; otherwise it plays locally. JJ Flexible pauses VOX or CW break-in for local playback and restores it when playback stops. Play never keys the radio
 - **Ctrl+Shift+R** — Record to file: record what the radio plays through this computer, or stop. The Shift form of Ctrl+R, because it is the other recorder
 - **Ctrl+Shift+P** — Play from computer: play your last recording on this computer, or stop. The Shift form of Ctrl+P
 - **Ctrl+T** — Toggle meter tones on or off

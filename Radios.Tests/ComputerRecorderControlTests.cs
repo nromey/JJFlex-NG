@@ -106,25 +106,28 @@ public sealed class ComputerRecorderControlTests : IDisposable
     }
 
     [Fact]
-    public void Playback_help_describes_refusal_without_promising_a_queued_play()
+    public void Playback_help_describes_automatic_vox_pause_without_promising_a_queued_play()
     {
         string help = System.IO.File.ReadAllText(System.IO.Path.Combine(IntegrationPassTree.Root, "docs", "help", "md", "leader-key.md"));
         var line = System.Linq.Enumerable.Single(help.Split('\n'), l => l.StartsWith("- **Ctrl+P**"));
         Assert.Contains("already transmitting", line);
-        Assert.Contains("VOX", line);
+        Assert.Contains("pauses VOX", line);
         Assert.DoesNotContain("waits until", line);
     }
 
     [Fact]
-    public async Task Local_computer_play_is_refused_with_VOX_on_but_stop_is_available()
+    public async Task Local_computer_play_uses_only_the_speaker_path_even_with_VOX_on()
     {
         var engine = new FakeEngine { LastRecordingPath = "last.flac" };
         ComputerRecorder.Install(engine);
-        Assert.False((await ComputerRecorder.TogglePlaybackAsync(false, voxEnabled: true)).Success);
-        Assert.Empty(engine.Calls);
+        Assert.True((await ComputerRecorder.TogglePlaybackAsync(false)).Success);
+        Assert.Equal(new[] { "play last.flac" }, engine.Calls);
         engine.IsPlaying = true;
-        Assert.True((await ComputerRecorder.TogglePlaybackAsync(false, voxEnabled: true)).Success);
-        Assert.Equal(new[] { "stop playback" }, engine.Calls);
+        Assert.True((await ComputerRecorder.TogglePlaybackAsync(false)).Success);
+        Assert.Equal(new[] { "play last.flac", "stop playback" }, engine.Calls);
+        string controls = System.IO.File.ReadAllText(System.IO.Path.Combine(IntegrationPassTree.Root,
+            "JJFlexWpf", "RecorderControls.cs"));
+        Assert.DoesNotContain("rig?.Vox", controls);
     }
 
     [Fact]

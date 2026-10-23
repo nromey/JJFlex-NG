@@ -79,7 +79,7 @@ If you find yourself wanting the universal behaviour on one of these fields, jus
 
 ## Recording
 
-The Record field follows the slice you select, including a muted slice. A new recording replaces that slice's previous one. The Slice menu's Recorder rows show each slice's recording length. Play uses the transmit slice when you press it during your transmission, and stops when you unkey; a local listen stops if transmission begins. Turn off VOX or CW break-in before listening locally.
+The Record field follows the slice you select, including a muted slice. A new recording replaces that slice's previous one. The Slice menu's Recorder rows show each slice's recording length. Play uses the transmit slice when you press it during your transmission, and stops when you unkey; a local listen stops if transmission begins. JJ Flexible pauses VOX or CW break-in for local playback and restores it when playback stops.
 
 The Audio and Slice group also has Record to file, with **Record what you heard** and **Record in stereo** checkboxes. Both start off: the default is the radio's audio in mono. Choose before recording; the choices cannot change during a take. What-you-heard includes computer volume and noise reduction at 48 kHz; the default uses 24 kHz. Stereo preserves panned slices.
 

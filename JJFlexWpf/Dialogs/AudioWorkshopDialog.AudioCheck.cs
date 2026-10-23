@@ -634,7 +634,7 @@ public partial class AudioWorkshopDialog
 
     /// <summary>
     /// Play the radio's take through the one recorder surface (#787), which
-    /// checks the radio's reply and refuses while transmitting. Success keeps
+    /// checks the radio's reply and pauses VOX for local playback. Success keeps
     /// the take's own sentence, which says it is the radio's take and not a
     /// file (#455); a refusal speaks the recorder's sentence.
     /// </summary>

@@ -38,4 +38,22 @@ public sealed class RecorderRoundThreeWiringTests
         Assert.Contains("engine.Stereo =", fields);
         Assert.Contains("!recorder.IsRecording", fields);
     }
+
+    [Fact]
+    public void Both_Audio_Check_replay_doors_use_the_shared_slice_play_gate()
+    {
+        string check = Source("JJFlexWpf/Dialogs/AudioWorkshopDialog.AudioCheck.cs");
+        Assert.Contains("_rig.StartSlicePlayAsync(RadioTakeTarget)", check);
+        Assert.Contains("rig.StartSlicePlayAsync(_recorderTarget)", check);
+        Assert.DoesNotContain("SlicePlayOn = true", check);
+    }
+
+    [Fact]
+    public void On_air_slice_play_consults_the_cut_hold_before_admission()
+    {
+        string controller = Source("JJFlexWpf/PttSafetyController.cs");
+        Assert.Contains("!RefuseIfHeldAfterCut(\"slice playback\")", controller);
+        string main = Source("JJFlexWpf/MainWindow.xaml.cs");
+        Assert.Contains("_pttController?.AllowsRecorderPlayback(recorderRig) == true", main);
+    }
 }

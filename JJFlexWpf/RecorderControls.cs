@@ -136,8 +136,8 @@ public static class RecorderControls
     public static async Task<RecorderOutcome> ToggleComputerPlayAsync(FlexBase? rig,
         Action<RecorderOutcome>? speak = null)
     {
-        var outcome = await Guarded(() => ComputerRecorder.TogglePlaybackAsync(rig?.Transmit == true,
-            rig?.Vox == FlexBase.OffOnValues.on), SpeechSubject.ComputerRecorder);
+        var outcome = await Guarded(() => ComputerRecorder.TogglePlaybackAsync(rig?.Transmit == true),
+            SpeechSubject.ComputerRecorder);
         (speak ?? Speak)(outcome);
         return outcome;
     }

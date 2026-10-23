@@ -837,5 +837,5 @@ These keys are active when focus is on the row list inside the Archive Browser t
 
 - On each slice's **Record** field, **Space** or **Enter** starts or stops recording that slice. The next field shows its recording length when known.
 - **Ctrl+Tab / Ctrl+Shift+Tab** includes the Home slice strip as well as the field-group headers.
-- **Ctrl+J, Ctrl+R** records the active slice; **Ctrl+J, Ctrl+P** plays it. Play pressed during your transmission sends the recording over the air until you unkey; otherwise it plays locally. Turn off VOX or CW break-in for a local listen. Play never keys or selects a transmit slice.
+- **Ctrl+J, Ctrl+R** records the active slice; **Ctrl+J, Ctrl+P** plays it. Play pressed during your transmission sends the recording over the air until you unkey; otherwise it plays locally. JJ Flexible pauses VOX or CW break-in for local playback and restores it when playback stops. Play never keys or selects a transmit slice.
 - **Ctrl+J, Ctrl+Shift+R** records to a computer file; **Ctrl+J, Ctrl+Shift+P** plays the selected or last computer recording locally. Computer playback to air is not available yet.

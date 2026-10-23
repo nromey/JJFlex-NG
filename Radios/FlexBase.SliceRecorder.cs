@@ -93,7 +93,7 @@ public sealed record RecorderOutcome(bool Success, string Message, string Subjec
 /// now play it back".
 /// </para>
 /// <para>
-/// <b>Intent is fixed at the press.</b> A local listen requires VOX off and
+/// <b>Intent is fixed at the press.</b> A local listen pauses VOX and
 /// stops on a transmit edge. On-air playback joins only our existing
 /// transmission and ends when that transmission ends. Play never requests keying.
 /// </para>
@@ -121,6 +121,7 @@ public partial class FlexBase
     internal TimeSpan SlicePlayableWait { get; set; } = TimeSpan.FromSeconds(2);
 
     internal TimeSpan SliceRecorderConfirmationWait { get; set; } = TimeSpan.FromSeconds(4);
+    internal TimeSpan SliceVoxOffWait { get; set; } = TimeSpan.FromSeconds(1.5);
 
     // Per-instance output seam keeps deterministic failure tests silent.
     internal Action<RecorderOutcome> RecorderStopFailureOutput { get; set; } = outcome =>
@@ -145,6 +146,7 @@ public partial class FlexBase
         internal PropertyChangedEventHandler Status;
         internal PropertyChangedEventHandler RadioStatus;
         internal PlaybackIntent Intent;
+        internal VoxPauseOwner.Lease PlaybackVoxLease;
         internal double? RecordStarted, RecordedSeconds;
     }
 
@@ -174,12 +176,12 @@ public partial class FlexBase
         return radio.TransmitSlice?.DemodMode == "CW" ? !radio.CWBreakIn : !radio.SimpleVOXEnable;
     }
 
-    private bool PlaybackIntentIsCurrent(PlaybackIntent intent)
+    private bool PlaybackIntentIsCurrent(PlaybackIntent intent, bool requireLocalVoxOff = true)
     {
         if (intent == null || intent.Generation != Interlocked.Read(ref _slicePlaybackGeneration) ||
             !ReferenceEquals(intent.Radio, theRadio) || theRadio?.Connected != true) return false;
         bool keyed = Transmit || theRadio.Mox;
-        if (!intent.OnAir) return !keyed && LocalPlaybackVoxOff(theRadio);
+        if (!intent.OnAir) return !keyed && (!requireLocalVoxOff || LocalPlaybackVoxOff(theRadio));
         if (!keyed || !CanTransmit || intent.Transmitter == null ||
             !ReferenceEquals(intent.Transmitter, theRadio.TransmitSlice) ||
             theRadio.TXClientHandle != theRadio.ClientHandle || !SliceRecorderTargetIsOurs(intent.Transmitter)) return false;
@@ -367,6 +369,7 @@ public partial class FlexBase
         if (state.RadioStatus != null) state.Radio.PropertyChanged -= state.RadioStatus;
         state.RadioStatus = null;
         state.Intent = null;
+        ReleasePlaybackVox(state);
         state.Removed = null;
         state.Owner = null;
         _sliceRecorders.Remove(slice);
@@ -391,7 +394,11 @@ public partial class FlexBase
             if (property == nameof(Slice.PlayOn))
             {
                 state.Playing = state.Slice.PlayOn;
-                if (!state.Playing) state.Intent = null;
+                if (!state.Playing)
+                {
+                    state.Intent = null;
+                    ReleasePlaybackVox(state);
+                }
             }
             if (property == nameof(Slice.RecordOn) && !state.Slice.RecordOn && state.Recording)
             {
@@ -545,10 +552,14 @@ public partial class FlexBase
             // A delayed stop belongs to the invalidated press, not to a new
             // press admitted after that edge or safety cut.
             if (state.Intent?.Generation >= generation) return;
-            if (!state.Playing && !state.Slice.PlayOn) { state.Intent = null; return; }
+            if (!state.Playing && !state.Slice.PlayOn) { state.Intent = null; ReleasePlaybackVox(state); return; }
             Tracing.TraceLine($"Slice recorder: playback intent ended, stopping slice {LetterOf(state.Slice)}", TraceLevel.Info);
-            if (await StopAndReportAsync(state, "play").ConfigureAwait(false)) state.Playing = false;
-            state.Intent = null;
+            if (await StopAndReportAsync(state, "play").ConfigureAwait(false))
+            {
+                state.Playing = false;
+                state.Intent = null;
+                ReleasePlaybackVox(state);
+            }
         }
         finally { state.Gate.Release(); }
     }
@@ -649,49 +660,88 @@ public partial class FlexBase
         return WithRecorderAsync(target, state => (state.Playing || state.Slice.PlayOn) ? StopPlayLockedAsync(state, target, owner) : StartPlayLockedAsync(state, target, intent, owner));
     }
 
+    private static void ReleasePlaybackVox(SliceRecorderState state) =>
+        Interlocked.Exchange(ref state.PlaybackVoxLease, null)?.Dispose();
+
     private async Task<RecorderOutcome> StartPlayLockedAsync(SliceRecorderState state, SliceRecorderTarget target, PlaybackIntent intent, object owner = null)
     {
         var slice = state.Slice;
         if (!SliceRecorderTargetIsOurs(slice)) return Unreachable(target, slice);
         string letter = LetterOf(slice);
-        // DRAFT PROSE (#787): awaiting Noel
-        if (!intent.OnAir && !LocalPlaybackVoxOff(theRadio)) return Outcome(false, "audio.recorder.play_refused_vox", letter);
-        if (!PlaybackIntentIsCurrent(intent)) return Outcome(false, "audio.recorder.play_intent_changed", letter);
-        if (state.Playing && slice.PlayOn) return Outcome(true, "audio.recorder.playing", letter, already: true);
-        if (state.Recording || slice.RecordOn)
-        {
-            // "Record that, now play it back": stop the recording first.
-            if (!await SendSafelyAsync(state, "record", false).ConfigureAwait(false))
-                return Outcome(false, "audio.recorder.record_stop_unconfirmed", letter);
-            state.Recording = false;
-            state.CapWarning?.Dispose();
-            state.CapWarning = null;
-            var until = DateTime.UtcNow + SlicePlayableWait;
-            while (!slice.PlayEnabled && DateTime.UtcNow < until) await Task.Delay(50).ConfigureAwait(false);
-        }
-        if (!slice.PlayEnabled) return Outcome(false, "audio.recorder.nothing_to_play", letter);
-        if (!PlaybackIntentIsCurrent(intent)) return Outcome(false, "audio.recorder.play_intent_changed", letter);
-        EnsureKeyedWatch();
-        state.Owner = owner;
-        state.Intent = intent;
-        state.Playing = true;
-        bool started = await SendSafelyAsync(state, "play", true).ConfigureAwait(false);
-        if (!started)
-        {
-            if (!await SendSafelyAsync(state, "play", false).ConfigureAwait(false))
-                return Outcome(false, "audio.recorder.play_stop_unconfirmed", letter);
-            state.Playing = false;
-            return Outcome(false, "audio.recorder.play_unconfirmed", letter);
-        }
-        if (!PlaybackIntentIsCurrent(intent))
-        {
-            // The transmission or permission changed while the command was in flight.
-            if (!await SendSafelyAsync(state, "play", false).ConfigureAwait(false))
-                return Outcome(false, "audio.recorder.play_stop_unconfirmed", letter);
-            state.Playing = false;
+        if (!PlaybackIntentIsCurrent(intent, requireLocalVoxOff: false))
             return Outcome(false, "audio.recorder.play_intent_changed", letter);
+        if (state.Playing && slice.PlayOn) return Outcome(true, "audio.recorder.playing", letter, already: true);
+        VoxPauseOwner.Lease lease = null;
+        try
+        {
+            if (!intent.OnAir)
+            {
+                var setting = intent.Radio.TransmitSlice?.DemodMode == "CW"
+                    ? VoxSetting.CwBreakIn : VoxSetting.SimpleVox;
+                bool needsOffReport = !LocalPlaybackVoxOff(intent.Radio);
+                using var voxStatus = new RadioStatusTap(intent.Radio);
+                var offReported = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                string field = setting == VoxSetting.CwBreakIn ? "break_in" : "vox_enable";
+                voxStatus.Status += raw =>
+                {
+                    if (!raw.Contains("|transmit ", StringComparison.Ordinal)) return;
+                    if (RadioStatusTap.Values(raw).TryGetValue(field, out string value) && value == "0")
+                        offReported.TrySetResult(true);
+                };
+                lease = VoxPauses.Acquire(setting);
+                if (lease == null) return Outcome(false, "audio.recorder.play_vox_unconfirmed", letter);
+                if (needsOffReport)
+                    await Task.WhenAny(offReported.Task, Task.Delay(SliceVoxOffWait)).ConfigureAwait(false);
+                if (!PlaybackIntentIsCurrent(intent, requireLocalVoxOff: false))
+                    return Outcome(false, "audio.recorder.play_intent_changed", letter);
+                if ((needsOffReport && !offReported.Task.IsCompletedSuccessfully) ||
+                    !LocalPlaybackVoxOff(intent.Radio))
+                    return Outcome(false, "audio.recorder.play_vox_unconfirmed", letter);
+            }
+            if (state.Recording || slice.RecordOn)
+            {
+                // "Record that, now play it back": stop the recording first.
+                if (!await SendSafelyAsync(state, "record", false).ConfigureAwait(false))
+                    return Outcome(false, "audio.recorder.record_stop_unconfirmed", letter);
+                state.Recording = false;
+                state.CapWarning?.Dispose();
+                state.CapWarning = null;
+                var until = DateTime.UtcNow + SlicePlayableWait;
+                while (!slice.PlayEnabled && DateTime.UtcNow < until) await Task.Delay(50).ConfigureAwait(false);
+            }
+            if (!slice.PlayEnabled) return Outcome(false, "audio.recorder.nothing_to_play", letter);
+            if (!PlaybackIntentIsCurrent(intent)) return Outcome(false, "audio.recorder.play_intent_changed", letter);
+            EnsureKeyedWatch();
+            state.Owner = owner;
+            state.Intent = intent;
+            state.Playing = true;
+            state.PlaybackVoxLease = lease;
+            bool started = await SendSafelyAsync(state, "play", true).ConfigureAwait(false);
+            if (!started)
+            {
+                if (!await SendSafelyAsync(state, "play", false).ConfigureAwait(false))
+                    return Outcome(false, "audio.recorder.play_stop_unconfirmed", letter);
+                state.Playing = false;
+                ReleasePlaybackVox(state);
+                return Outcome(false, "audio.recorder.play_unconfirmed", letter);
+            }
+            if (!PlaybackIntentIsCurrent(intent))
+            {
+                // The transmission or permission changed while the command was in flight.
+                if (!await SendSafelyAsync(state, "play", false).ConfigureAwait(false))
+                    return Outcome(false, "audio.recorder.play_stop_unconfirmed", letter);
+                state.Playing = false;
+                ReleasePlaybackVox(state);
+                return Outcome(false, "audio.recorder.play_intent_changed", letter);
+            }
+            return Outcome(true, "audio.recorder.playing", letter);
         }
-        return Outcome(true, "audio.recorder.playing", letter);
+        finally
+        {
+            // A confirmed start belongs to the slice state until the radio
+            // reports play off. Every earlier exit gives the lease back here.
+            if (!ReferenceEquals(state.PlaybackVoxLease, lease)) lease?.Dispose();
+        }
     }
 
     private async Task<RecorderOutcome> StopPlayLockedAsync(SliceRecorderState state, SliceRecorderTarget target, object owner = null)
@@ -700,10 +750,14 @@ public partial class FlexBase
         if (!SliceRecorderTargetIsOurs(slice)) return Unreachable(target, slice);
         string letter = LetterOf(slice);
         if (!state.Playing && !slice.PlayOn)
+        {
+            ReleasePlaybackVox(state);
             return Outcome(true, "audio.recorder.playing_stopped", letter, already: true);
+        }
         if (!await SendSafelyAsync(state, "play", false).ConfigureAwait(false))
             return Outcome(false, "audio.recorder.play_stop_unconfirmed", letter);
         state.Playing = false;
+        ReleasePlaybackVox(state);
         return Outcome(true, "audio.recorder.playing_stopped", letter);
     }
 

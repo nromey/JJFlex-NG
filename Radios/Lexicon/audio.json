@@ -1093,7 +1093,7 @@
   "audio.recorder.play_from_computer_button": {"text": "Play from computer", "delivery": null},
   "audio.recorder.stop_play_from_computer_button": {"text": "Stop playing from computer", "delivery": null},
   "audio.fields.computer_recorder_help": {"text": "Record to file saves what the radio plays through this computer to a file. Play from computer plays your last recording, or the one you chose in your recordings. From anywhere, JJ key then Control Shift R records to file, and JJ key then Control Shift P plays from computer.", "delivery": null},
-  "audio.recorder.play_refused_vox": {"text": "Turn off VOX or CW break-in before listening to a recording, because playback could key the transmitter.", "delivery": null},
+  "audio.recorder.play_vox_unconfirmed": {"text": "I could not confirm that VOX or CW break-in is off, so the recording did not play.", "delivery": null},
   "audio.recorder.play_intent_changed": {"text": "Playback could not continue because the transmit state or permission changed; press Play again when you are ready.", "delivery": null},
   "audio.recorder.seconds": {"text": "{seconds} seconds", "delivery": null},
   "audio.recorder.length_recorded": {"text": "{length} recorded", "delivery": null},
