@@ -11,8 +11,8 @@
 #   3. If found, copy it to Dropbox top level as the nightly.
 #      If not found and the tree is clean, invoke build-debug.bat, then copy.
 #      If not found and the tree is dirty, refuse (Y won't reproduce from any commit).
-#   4. Purge any prior nightly artifacts in Dropbox top level first so exactly one
-#      nightly zip + NOTES lives there at any time. Also sweeps stray
+#   4. Copy and verify the new zip + NOTES, then purge older nightly artifacts
+#      so exactly one nightly zip + NOTES lives there. Also sweeps stray
 #      "Setup JJFlex_*-nightly.exe" files left behind by the old release-oriented
 #      version of this script.
 #
@@ -38,10 +38,144 @@ param(
     # conflates unrelated edits). Intended for small, single-purpose dirty
     # states like "I just edited this script; commit it and ship."
     [switch] $AutoCommit,
-    [string] $CommitMessage
+    [string] $CommitMessage,
+    # Bypass the build and backup flow for isolated promotion tests.
+    [switch] $PromoteOnly,
+    [string] $SourceZipPath,
+    [string] $SourceNotesPath,
+    [string] $PromotionVersion
 )
 
 $ErrorActionPreference = 'Stop'
+
+function Invoke-NightlyPromotion {
+    param(
+        [string] $ZipPath,
+        [string] $NotesPath,
+        [string] $Destination,
+        [string] $Version
+    )
+
+    $stageZip = $null
+    $stageNotes = $null
+    $backupZip = $null
+    $backupNotes = $null
+    $zipCommitted = $false
+    $notesCommitted = $false
+    $restorationFailed = $false
+    try {
+        $zip = Get-Item -LiteralPath $ZipPath -ErrorAction Stop
+        $notes = Get-Item -LiteralPath $NotesPath -ErrorAction Stop
+        if ($zip.PSIsContainer -or $notes.PSIsContainer) {
+            throw 'Both nightly sources must be files.'
+        }
+        if (-not (Test-Path -LiteralPath $Destination -PathType Container)) {
+            throw "Dropbox folder not found: $Destination"
+        }
+
+        $destZip = Join-Path $Destination "JJFlex_${Version}_x64_nightly.zip"
+        $destNotes = Join-Path $Destination 'NOTES-nightly.txt'
+        $stageId = [guid]::NewGuid().ToString('N')
+        $stageZip = Join-Path $Destination ".nightly-stage-$stageId.zip"
+        $stageNotes = Join-Path $Destination ".nightly-stage-$stageId.txt"
+        $backupZip = Join-Path $Destination ".nightly-backup-$stageId.zip"
+        $backupNotes = Join-Path $Destination ".nightly-backup-$stageId.txt"
+        $zipExisted = Test-Path -LiteralPath $destZip
+        $notesExisted = Test-Path -LiteralPath $destNotes
+
+        Copy-Item -LiteralPath $zip.FullName -Destination $stageZip -ErrorAction Stop
+        if ((Get-Item -LiteralPath $stageZip).Length -ne $zip.Length) {
+            throw "Zip copy failed verification: $($zip.FullName)"
+        }
+        Copy-Item -LiteralPath $notes.FullName -Destination $stageNotes -ErrorAction Stop
+        if ((Get-Item -LiteralPath $stageNotes).Length -ne $notes.Length) {
+            throw "NOTES copy failed verification: $($notes.FullName)"
+        }
+
+        if ($zipExisted) {
+            [System.IO.File]::Replace($stageZip, $destZip, $backupZip)
+        } else {
+            [System.IO.File]::Move($stageZip, $destZip)
+        }
+        $zipCommitted = $true
+        if ($notesExisted) {
+            [System.IO.File]::Replace($stageNotes, $destNotes, $backupNotes)
+        } else {
+            [System.IO.File]::Move($stageNotes, $destNotes)
+        }
+        $notesCommitted = $true
+        if ((Get-Item -LiteralPath $destZip).Length -ne $zip.Length) {
+            throw "Zip destination failed verification: $destZip"
+        }
+        if ((Get-Item -LiteralPath $destNotes).Length -ne $notes.Length) {
+            throw "NOTES destination failed verification: $destNotes"
+        }
+        Write-Host "Copied and verified zip: $destZip"
+        Write-Host "Copied and verified NOTES: $destNotes"
+    } catch {
+        Write-Host "ERROR: Nightly copy or verification failed: $_"
+        if ($notesCommitted) {
+            try {
+                if ($notesExisted) { Copy-Item -LiteralPath $backupNotes -Destination $destNotes -Force }
+                else { Remove-Item -LiteralPath $destNotes -Force }
+            } catch {
+                $restorationFailed = $true
+                Write-Host "WARNING: Could not restore prior NOTES; backup remains at ${backupNotes}: $_"
+            }
+        }
+        if ($zipCommitted) {
+            try {
+                if ($zipExisted) { Copy-Item -LiteralPath $backupZip -Destination $destZip -Force }
+                else { Remove-Item -LiteralPath $destZip -Force }
+            } catch {
+                $restorationFailed = $true
+                Write-Host "WARNING: Could not restore prior zip; backup remains at ${backupZip}: $_"
+            }
+        }
+        Write-Host 'Prior nightly artifacts were not purged.'
+        return 10
+    } finally {
+        $cleanupPaths = @($stageZip, $stageNotes)
+        if (-not $restorationFailed) { $cleanupPaths += @($backupZip, $backupNotes) }
+        foreach ($path in $cleanupPaths) {
+            if ($path -and (Test-Path -LiteralPath $path)) {
+                Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    try {
+        foreach ($oldZip in @(Get-ChildItem -LiteralPath $Destination -Filter 'JJFlex_*_x64_nightly.zip' -File -ErrorAction Stop)) {
+            if ($oldZip.FullName -ne $destZip) {
+                Remove-Item -LiteralPath $oldZip.FullName -Force -ErrorAction Stop
+                Write-Host "Removed old zip: $($oldZip.Name)"
+            }
+        }
+        foreach ($oldNotes in @(Get-ChildItem -LiteralPath $Destination -Filter 'NOTES-*nightly*.txt' -File -ErrorAction Stop)) {
+            if ($oldNotes.FullName -ne $destNotes) {
+                Remove-Item -LiteralPath $oldNotes.FullName -Force -ErrorAction Stop
+                Write-Host "Removed old NOTES: $($oldNotes.Name)"
+            }
+        }
+        foreach ($oldExe in @(Get-ChildItem -LiteralPath $Destination -Filter 'Setup JJFlex_*-nightly.exe' -File -ErrorAction Stop)) {
+            Remove-Item -LiteralPath $oldExe.FullName -Force -ErrorAction Stop
+            Write-Host "Removed stale release installer: $($oldExe.Name)"
+        }
+    } catch {
+        Write-Host "WARNING: Nightly copied and verified, but purge failed: $_"
+        return 11
+    }
+    return 0
+}
+
+if ($PromoteOnly) {
+    if (-not $PSBoundParameters.ContainsKey('DropboxRoot') -or
+        -not $SourceZipPath -or -not $SourceNotesPath -or -not $PromotionVersion) {
+        Write-Host 'ERROR: -PromoteOnly requires -DropboxRoot, -SourceZipPath, -SourceNotesPath, and -PromotionVersion.'
+        exit 2
+    }
+    exit (Invoke-NightlyPromotion -ZipPath $SourceZipPath -NotesPath $SourceNotesPath -Destination $DropboxRoot -Version $PromotionVersion)
+}
 
 Write-Host ""
 Write-Host "============================================"
@@ -209,44 +343,13 @@ if (-not $sourceZip) {
 }
 
 # --- Promote to Dropbox top level ----------------------------------------
-if (-not (Test-Path $DropboxRoot)) {
-    Write-Error "Dropbox folder not found: $DropboxRoot"
-    exit 3
-}
-
 Write-Host ""
-Write-Host "Cleaning prior nightly artifacts in $DropboxRoot..."
-
-$staleZips = Get-ChildItem -Path $DropboxRoot -Filter 'JJFlex_*_x64_nightly.zip' -File -ErrorAction SilentlyContinue
-foreach ($z in $staleZips) {
-    Remove-Item -LiteralPath $z.FullName -Force
-    Write-Host "  removed: $($z.Name)"
+if (-not $sourceNotes) {
+    Write-Host "ERROR: No matching NOTES file found in $nasDir. Prior nightly was not touched."
+    exit 10
 }
-$staleNotes = Get-ChildItem -Path $DropboxRoot -Filter 'NOTES-*nightly*.txt' -File -ErrorAction SilentlyContinue
-foreach ($n in $staleNotes) {
-    Remove-Item -LiteralPath $n.FullName -Force
-    Write-Host "  removed: $($n.Name)"
-}
-# Sweep stray release installers left behind by the old version of this script.
-$staleExes = Get-ChildItem -Path $DropboxRoot -Filter 'Setup JJFlex_*-nightly.exe' -File -ErrorAction SilentlyContinue
-foreach ($e in $staleExes) {
-    Remove-Item -LiteralPath $e.FullName -Force
-    Write-Host "  removed stale release installer: $($e.Name)"
-}
-
-$destZipName = "JJFlex_${expected}_x64_nightly.zip"
-$destZipPath = Join-Path $DropboxRoot $destZipName
-Copy-Item -LiteralPath $sourceZip.FullName -Destination $destZipPath -Force
-Write-Host ""
-Write-Host "Copied zip:   $destZipName"
-
-if ($sourceNotes) {
-    $destNotesPath = Join-Path $DropboxRoot 'NOTES-nightly.txt'
-    Copy-Item -LiteralPath $sourceNotes.FullName -Destination $destNotesPath -Force
-    Write-Host "Copied NOTES: NOTES-nightly.txt  (from $($sourceNotes.Name))"
-} else {
-    Write-Warning "No matching NOTES file found on NAS -- Dropbox nightly has no notes."
-}
+$promotionStatus = Invoke-NightlyPromotion -ZipPath $sourceZip.FullName -NotesPath $sourceNotes.FullName -Destination $DropboxRoot -Version $expected
+if ($promotionStatus -ne 0) { exit $promotionStatus }
 
 Write-Host ""
 Write-Host "============================================"
