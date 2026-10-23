@@ -151,6 +151,26 @@ namespace Radios.Tests
 
         private IReadOnlyList<SpeechArbiter.OwedSafety> Owed() => _arbiter.OwedSafetyObligations;
 
+        [Fact]
+        public void Vox_followup_survives_the_readers_cancellation_at_the_real_pump_boundary()
+        {
+            const string note = "VOX was paused for the hold on keying.";
+            SpeakSafety(Cut, SpeechSubject.ReflectedPowerCut);
+            var cut = _ch.WaitForCall();
+            _arbiter.SafetyFollowup(note, VerbosityLevel.Terse, "test", SpeechSubject.VoxPausedAfterCut);
+            Assert.Equal(new[] { Cut }, BackendStarts());
+            // The observed zero-word cancellation: the note has not yet been
+            // entrusted to the pump, so withdrawing its queue cannot lose it.
+            int cancels = _ch.CancelCalls;
+            _ch.CancelFromOutside(cut, marksReached: 0, elapsedMs: 14);
+            var next = _ch.WaitForCall();
+            Assert.Equal(note, next.Text);
+            Assert.Equal(cancels, _ch.CancelCalls);
+            _ch.Complete(next);
+            Assert.True(SpinWait.SpinUntil(() => !Owed().Any(o => o.Subject == SpeechSubject.VoxPausedAfterCut), 2000));
+            Assert.Contains(Owed(), o => o.Subject == SpeechSubject.ReflectedPowerCut);
+        }
+
         // ────────────────────────────────────────────────────────────────
         //  The interleaving itself, in both late shapes.
         // ────────────────────────────────────────────────────────────────

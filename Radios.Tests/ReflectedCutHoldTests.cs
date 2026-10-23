@@ -72,6 +72,12 @@ namespace Radios.Tests
             public bool LoopRunning = true;
             public readonly List<(FlexBase.VoxSetting Which, bool On, bool Immediate)> Writes = new();
             public int Tones;
+            public readonly List<(bool Restored, int Delay, Cue Handle)> EndCues = new();
+            public sealed class Cue : IDisposable
+            {
+                public bool Cancelled;
+                public void Dispose() => Cancelled = true;
+            }
 
             public FlexBase.VoxSetting CurrentIfOn()
             {
@@ -88,7 +94,14 @@ namespace Radios.Tests
                 return true;
             }
 
-            public ReflectedCutHold.VoxLevers Levers() => new ReflectedCutHold.VoxLevers(CurrentIfOn, Write, () => Tones++);
+            private ReflectedCutHold.VoxLevers? _levers;
+            public ReflectedCutHold.VoxLevers Levers() => _levers ??= new ReflectedCutHold.VoxLevers(
+                CurrentIfOn, Write, () => Tones++, endedTone: (restored, delay) =>
+                {
+                    var cue = new Cue();
+                    EndCues.Add((restored, delay, cue));
+                    return cue;
+                });
         }
 
         public ReflectedCutHoldTests()
@@ -147,7 +160,132 @@ namespace Radios.Tests
             return hold;
         }
 
-        private const string VoxNote = "VOX is paused for 5 seconds.";
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void Shared_VOX_pause_survives_either_holders_release_order(bool firstEndsFirst)
+        {
+            var radio = new FakeRadio { SimpleVox = true };
+            var levers = radio.Levers();
+            var first = new ReflectedCutHold(() => _now);
+            var second = new ReflectedCutHold(() => _now);
+            first.Begin(TransmitSafety.ReflectedCut.Share, ShareCut, "ANT2", Setup(), _now, levers);
+            second.Begin(TransmitSafety.ReflectedCut.Share, ShareCut, "ANT2", Setup(), _now, levers);
+            (firstEndsFirst ? first : second).Abandon("first holder finished", _now);
+            Assert.False(radio.SimpleVox);
+            (firstEndsFirst ? second : first).Abandon("last holder finished", _now);
+            Assert.True(radio.SimpleVox);
+            Assert.Equal(2, radio.Writes.Count);
+        }
+
+        [Fact]
+        public void VOX_off_cue_waits_until_the_cut_alarm_has_finished()
+        {
+            var radio = new FakeRadio { SimpleVox = true };
+            var hold = Begin(radio);
+            Assert.Equal(0, radio.Tones);
+            _now += 999;
+            hold.Tick(Setup(), _now);
+            Assert.Equal(0, radio.Tones);
+            _now++;
+            hold.Tick(Setup(), _now);
+            Assert.Equal(1, radio.Tones);
+        }
+
+        [Fact]
+        public void VOX_note_enters_the_protected_recovery_ledger_past_the_public_speech_gate()
+        {
+            ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Terse;
+            Begin(new FakeRadio { SimpleVox = true });
+            var field = typeof(ScreenReaderOutput).GetField("_arbiter", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
+            var arbiter = (SpeechArbiter)field.GetValue(null)!;
+            Assert.Contains(arbiter.OwedSafetyObligations, o => o.Subject == SpeechSubject.VoxPausedAfterCut);
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void Hold_end_cues_permission_to_key_and_adds_on_only_for_an_issued_restore(bool voxWasOn)
+        {
+            var radio = new FakeRadio { SimpleVox = voxWasOn };
+            var hold = Begin(radio);
+            _now += ReflectedCutHold.HoldMs;
+            hold.Tick(Setup(), _now);
+            var cue = Assert.Single(radio.EndCues);
+            Assert.Equal(voxWasOn, cue.Restored);
+            Assert.Equal(0, cue.Delay);
+        }
+
+        [Fact]
+        public void Operator_change_or_failed_restore_never_gets_the_on_cue()
+        {
+            var radio = new FakeRadio { SimpleVox = true };
+            var hold = Begin(radio);
+            hold.OperatorChanged("Vox", _now);
+            _now += 5000;
+            hold.Tick(Setup(), _now);
+            Assert.False(Assert.Single(radio.EndCues).Restored);
+
+            var absent = new FakeRadio { SimpleVox = true };
+            var other = Begin(absent);
+            absent.Present = false;
+            _now += 5000;
+            other.Tick(Setup(), _now);
+            Assert.False(Assert.Single(absent.EndCues).Restored);
+        }
+
+        [Fact]
+        public void Early_lift_cues_wait_clear_of_the_alarm_and_new_hold_cancels_them()
+        {
+            var radio = new FakeRadio { SimpleVox = true };
+            var hold = Begin(radio);
+            _now += 100;
+            hold.Tick(Setup(antenna: "ANT1"), _now);
+            Assert.Equal(900, Assert.Single(radio.EndCues).Delay);
+            Assert.Equal(0, radio.Tones); // the old off cue must never play
+            hold.Begin(TransmitSafety.ReflectedCut.Share, ShareCut, "ANT2", Setup(), _now, radio.Levers());
+            Assert.True(radio.EndCues[0].Handle.Cancelled);
+            hold.Abandon("disconnect", _now, immediate: true);
+            Assert.Single(radio.EndCues); // teardown is not permission to key
+        }
+
+        [Fact]
+        public void A_refusal_moves_the_off_cue_clear_of_its_own_alarm()
+        {
+            var radio = new FakeRadio { SimpleVox = true };
+            var hold = Begin(radio);
+            _now += 900;
+            hold.RefusePress("lock", _now, () => true);
+            _now += 100;
+            hold.Tick(Setup(), _now);
+            Assert.Equal(0, radio.Tones);
+            _now += 900;
+            hold.Tick(Setup(), _now);
+            Assert.Equal(1, radio.Tones);
+            _now += 10;
+            hold.Tick(Setup(antenna: "ANT1"), _now);
+            Assert.Equal(400, Assert.Single(radio.EndCues).Delay);
+        }
+
+        [Fact]
+        public void A_deferred_vox_note_keeps_its_tone_clear_of_the_latest_refusal_alarm()
+        {
+            var radio = new FakeRadio { SimpleVox = true };
+            var hold = new ReflectedCutHold(() => _now);
+            hold.Begin(new ReflectedCutNotice(TransmitSafety.ReflectedCut.Share, ShareCut, "ANT2"),
+                Setup(), _now, radio.Levers(), voxNoteNow: false);
+            _now += 1500;
+            hold.RefusePress("lock", _now, () => true);
+            _now += 100;
+            hold.SpeakPendingVoxNote();
+            hold.Tick(Setup(), _now);
+            Assert.Equal(0, radio.Tones);
+            _now += 900;
+            hold.Tick(Setup(), _now);
+            Assert.Equal(1, radio.Tones);
+        }
+
+        private const string VoxNote = "VOX was paused for the hold on keying.";
 
         // ──────────────────────────────────────────────────────────────────
         //  The window
@@ -383,7 +521,7 @@ namespace Radios.Tests
         // ──────────────────────────────────────────────────────────────────
 
         [Fact]
-        public void VOX_on_at_the_cut_is_switched_off_told_once_and_comes_back_at_expiry_silently()
+        public void VOX_on_at_the_cut_is_switched_off_told_once_and_comes_back_at_expiry()
         {
             ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Terse;
             var radio = new FakeRadio { SimpleVox = true };
@@ -392,7 +530,7 @@ namespace Radios.Tests
             Assert.Equal(new[] { (FlexBase.VoxSetting.SimpleVox, false, false) }, radio.Writes);
             Assert.True(hold.VoxPaused);
             Assert.Equal(new[] { FlexBase.VoxSetting.SimpleVox }, hold.PausedSettings);
-            Assert.Equal(1, radio.Tones);
+            Assert.Equal(0, radio.Tones);
             Assert.True(Delivered(VoxNote), "the VOX-paused note was not delivered at Terse");
 
             int spokenBefore = Speech().Length;
@@ -400,7 +538,7 @@ namespace Radios.Tests
             hold.Tick(Setup(), _now);
             Assert.Equal(new[] { (FlexBase.VoxSetting.SimpleVox, false, false), (FlexBase.VoxSetting.SimpleVox, true, false) }, radio.Writes);
             Assert.Equal(spokenBefore, Speech().Length);   // nothing said when VOX comes back
-            Assert.Equal(1, radio.Tones);
+            Assert.Equal(0, radio.Tones);
         }
 
         [Fact]
@@ -451,7 +589,7 @@ namespace Radios.Tests
             Assert.False(hold.Tick(Setup(mode: "CW"), _now));
             Assert.Equal(new[] { FlexBase.VoxSetting.SimpleVox, FlexBase.VoxSetting.CwBreakIn }, hold.PausedSettings);
             Assert.False(radio.CwBreakIn);
-            Assert.Equal(1, radio.Tones);
+            Assert.Equal(0, radio.Tones);
             Assert.Single(Speech(), e => e.GetProperty("text").GetString() == VoxNote);
 
             _now += ReflectedCutHold.HoldMs;
@@ -530,7 +668,7 @@ namespace Radios.Tests
             Begin(radio);
             Assert.True(Gated(VoxNote), "the VOX note should be gated at Off; it is not a safety sentence");
             Assert.False(Delivered(VoxNote));
-            Assert.Equal(1, radio.Tones);
+            Assert.Equal(0, radio.Tones);
         }
 
         // ──────────────────────────────────────────────────────────────────
@@ -555,8 +693,8 @@ namespace Radios.Tests
 
             _now += 1600;   // ConfirmDown's wait, then the sentence
             hold.SpeakPendingVoxNote();
-            Assert.True(Delivered("VOX is paused for 4 seconds."), "the note was not given after the sentence");
-            Assert.Equal(1, radio.Tones);
+            Assert.True(Delivered(VoxNote), "the note was not given after the sentence");
+            Assert.Equal(0, radio.Tones);
 
             hold.SpeakPendingVoxNote();   // a second call gives nothing more
             Assert.Single(Speech(), e => e.GetProperty("text").GetString()!.StartsWith("VOX", StringComparison.Ordinal));
@@ -587,29 +725,17 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void The_VOX_note_says_the_seconds_the_hold_actually_has_left()
+        public void A_late_mode_change_gets_a_historical_note_that_cannot_claim_stale_seconds()
         {
-            // N5: break-in off at the cut in CW, then USB with VOX on four
-            // seconds in. The note used to say five seconds with one left.
             ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Terse;
             var radio = new FakeRadio { Mode = "CW", CwBreakIn = false, SimpleVox = true };
             var hold = Begin(radio, at: Setup(mode: "CW"));
-            Assert.False(hold.VoxPaused);
             _now += 4000;
             radio.Mode = "USB";
             hold.NoteMode("USB", _now);
             Assert.True(hold.VoxPaused);
-            Assert.True(Delivered("VOX is paused for one more second."), "the note did not say the remaining second");
-            Assert.DoesNotContain(Speech(), e => e.GetProperty("text").GetString() == VoxNote);
-
-            // And three seconds in, it says two.
-            var radio2 = new FakeRadio { Mode = "CW", CwBreakIn = false, SimpleVox = true };
-            _now += 10_000;
-            var hold2 = Begin(radio2, at: Setup(mode: "CW"));
-            _now += 3000;
-            radio2.Mode = "USB";
-            hold2.NoteMode("USB", _now);
-            Assert.True(Delivered("VOX is paused for 2 seconds."));
+            Assert.True(Delivered(VoxNote));
+            Assert.DoesNotContain(Speech(), e => e.GetProperty("text").GetString()!.Contains("second"));
         }
 
         [Fact]

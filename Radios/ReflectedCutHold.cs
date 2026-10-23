@@ -44,14 +44,14 @@ namespace Radios
     /// release, the hard kill and a temperature over-run do not (05:14).
     /// </para>
     /// <para>
-    /// <b>VOX is paused by switching the radio's own setting off and back
-    /// on</b> ("switch off and on silently", 05:37), because VOX is decided
+    /// <b>VOX is paused through one per-radio owner of the setting</b>,
+    /// because VOX is decided
     /// inside the radio and the only lever the app has is the setting.
     /// Transmit inhibit was offered and rejected: it blocks every microphone
     /// and every client, and strands the radio if the app dies mid-window. The
-    /// hold records WHICH setting it switched off — <c>SimpleVOXEnable</c> in
+    /// hold leases WHICH setting must stay paused — <c>SimpleVOXEnable</c> in
     /// the voice modes, <c>CWBreakIn</c> in CW — and puts back exactly that
-    /// one, so a mode change inside the window cannot make the restore write
+    /// one only when the last holder releases, so a mode change cannot make the restore write
     /// the other (Astra's review, B5); and if the mode changes mid-hold, the
     /// new mode's setting is paused too if it is on. The switch is made as an
     /// APP-INITIATED write, so the operator-changed hook does not fire and the
@@ -62,7 +62,8 @@ namespace Radios
     /// dies mid-window VOX stays off, which is the accepted, safe-direction
     /// failure. The operator is told once, when VOX was on, at their verbosity
     /// and with their sound settings ("tell them/tone based on settings",
-    /// 05:38); nothing is said when VOX comes back.
+    /// 05:38). A quiet release cue and an on cue for an issued restore follow
+    /// the later ruling; neither introduces more speech.
     /// </para>
     /// <para>
     /// <b>An app write's echo is not the operator's repair</b> (Astra's
@@ -104,6 +105,9 @@ namespace Radios
         /// made without pressing anything.
         /// </summary>
         public const int SignalPollMs = 250;
+
+        // DRAFT TONES (#571): 750 ms alarm plus 250 ms clear space.
+        public const int VoxOffCueDelayMs = 1000;
 
         /// <summary>How a hold ended, for the trace and the owner.</summary>
         public enum EndReason
@@ -222,12 +226,17 @@ namespace Radios
 
             /// <summary>The tone beside the VOX-paused note, under the operator's sound switches. Null plays nothing.</summary>
             public Action? PausedTone { get; }
+            public VoxPauseOwner Owner { get; }
+            /// <summary>Hold ended normally; argument says its release issued a VOX-on write.</summary>
+            public Func<bool, int, IDisposable>? EndedTone { get; }
 
-            public VoxLevers(Func<FlexBase.VoxSetting> currentIfOn, Func<FlexBase.VoxSetting, bool, bool, bool> write, Action? pausedTone = null)
+            public VoxLevers(Func<FlexBase.VoxSetting> currentIfOn, Func<FlexBase.VoxSetting, bool, bool, bool> write, Action? pausedTone = null, VoxPauseOwner? owner = null, Func<bool, int, IDisposable>? endedTone = null)
             {
                 CurrentIfOn = currentIfOn ?? throw new ArgumentNullException(nameof(currentIfOn));
                 Write = write ?? throw new ArgumentNullException(nameof(write));
                 PausedTone = pausedTone;
+                Owner = owner ?? new VoxPauseOwner(which => CurrentIfOn() == which, Write);
+                EndedTone = endedTone;
             }
         }
 
@@ -235,6 +244,7 @@ namespace Radios
         private readonly Func<long> _clock;
 
         private int _generation;
+        private int _voxNoteGeneration;
         private bool _holding;
         private long _beganMs;
         private TransmitSetup _atCut;
@@ -244,8 +254,13 @@ namespace Radios
         private VoxLevers? _vox;
         private Action? _refusalTone;
         private readonly List<FlexBase.VoxSetting> _pausedSettings = new List<FlexBase.VoxSetting>();
-        /// <summary>The paused settings the OPERATOR touched inside the window; each of these is left as they set it (N7).</summary>
-        private readonly HashSet<FlexBase.VoxSetting> _restoreCancelled = new HashSet<FlexBase.VoxSetting>();
+        /// <summary>Every setting held, including an already-off setting owned by another holder.</summary>
+        private readonly Dictionary<FlexBase.VoxSetting, VoxPauseOwner.Lease> _voxLeases = new();
+        private bool _voxTonePending;
+        private long _voxToneDueMs;
+        private long _lastAlarmMs;
+        private long _lastVoxOffToneMs;
+        private IDisposable? _endCue;
         private bool _voxNoteGiven;
         /// <summary>The note is owed but waiting for the cut sentence to be spoken first (N4).</summary>
         private bool _voxNotePending;
@@ -333,8 +348,13 @@ namespace Radios
                 if (_holding)
                     ended = EndHoldLocked(EndReason.Abandoned, "a second cut began before the first hold ended", nowMs, immediate: false);
 
+                _endCue?.Dispose();
+                _endCue = null;
+                _lastAlarmMs = nowMs;
+                _lastVoxOffToneMs = long.MinValue / 2;
                 _generation++;
                 generation = _generation;
+                System.Threading.Volatile.Write(ref _voxNoteGeneration, generation);
                 _holding = true;
                 _beganMs = nowMs;
                 _atCut = atCut;
@@ -345,7 +365,8 @@ namespace Radios
                 _vox = vox;
                 _refusalTone = refusalTone;
                 _pausedSettings.Clear();
-                _restoreCancelled.Clear();
+                _voxLeases.Clear();
+                _voxTonePending = false;
                 _voxNoteGiven = false;
                 _voxNotePending = false;
                 _voxNoteNow = voxNoteNow;
@@ -369,65 +390,46 @@ namespace Radios
         /// </summary>
         private void PauseVoxIfOnLocked(bool firstTime)
         {
-            if (_vox == null) return;
-            FlexBase.VoxSetting which;
-            try { which = _vox.CurrentIfOn(); }
-            catch (Exception ex)
-            {
-                Tracing.TraceLine("CutHold: could not read VOX, so it is left alone — " + ex.Message, TraceLevel.Warning);
-                return;
-            }
-            if (which == FlexBase.VoxSetting.None) return;
-            if (_pausedSettings.Contains(which)) return;
-
-            bool issued;
-            try { issued = _vox.Write(which, false, false); }
-            catch (Exception ex)
-            {
-                Tracing.TraceLine("CutHold: COULD NOT switch " + which + " off — " + ex.Message, TraceLevel.Error);
-                return;
-            }
-            if (!issued)
-            {
-                Tracing.TraceLine("CutHold: the " + which + " off write was not issued, so nothing is paused and nothing will be restored",
-                                  TraceLevel.Warning);
-                return;
-            }
+            if (_vox == null || string.IsNullOrEmpty(_atCut.TxMode)) return;
+            var which = _atCut.TxMode == "CW" ? FlexBase.VoxSetting.CwBreakIn : FlexBase.VoxSetting.SimpleVox;
+            if (_voxLeases.ContainsKey(which)) return;
+            var lease = _vox.Owner.Acquire(which);
+            if (lease == null) return;
+            _voxLeases.Add(which, lease);
+            if (!lease.Paused) return;
             _pausedSettings.Add(which);
-            Tracing.TraceLine("CutHold: " + which + " was on, switched off for the hold (app-initiated"
-                + (firstTime ? "" : ", after a mode change") + ")", TraceLevel.Info);
+            Tracing.TraceLine("CutHold: " + which + " paused through the shared VOX owner", TraceLevel.Info);
 
             // The one note the operator gets about VOX, at their own verbosity
             // and under their own sound switches (Noel, 2026-10-22 05:38), after
             // the cut sentence, which is Urgent and goes first. Once per hold,
-            // however many settings end up paused; nothing is said when they
-            // come back. On the controller's own path the sentence has already
-            // been spoken, so the note goes now; on the kill switch's path the
-            // sentence is still to come, so the note waits for
-            // SpeakPendingVoxNote (N4).
+            // however many settings end up paused. The speech arbiter retains
+            // the note behind that turn. On the kill switch's path the cut has
+            // not been submitted yet, so admission waits for SpeakPendingVoxNote.
             if (_voxNoteGiven || _voxNotePending) return;
             if (_voxNoteNow) SpeakVoxNoteLocked(nowMs: _clock());
             else _voxNotePending = true;
         }
 
         /// <summary>
-        /// The VOX-paused note, with the seconds the hold actually has left
-        /// (N5): five at the cut, fewer when a mid-window mode change paused
-        /// the first setting late.
+        /// A historical account of the pause, retained for recovery behind
+        /// the cut. The hold can end before a long explanation finishes, so
+        /// a recovered note must not claim a remaining number of seconds.
         /// </summary>
         // DRAFT PROSE (#571): awaiting Noel
         private void SpeakVoxNoteLocked(long nowMs)
         {
             _voxNoteGiven = true;
             _voxNotePending = false;
-            int remaining = Math.Max(1, (int)Math.Ceiling((HoldMs - (nowMs - _beganMs)) / 1000.0));
-            try { _vox?.PausedTone?.Invoke(); } catch { }
-            ScreenReaderOutput.Speak(
-                remaining == 1
-                    ? Lexicon.Get("audio.ptt.cut_hold_vox_paused_last_second")
-                    : Lexicon.Get("audio.ptt.cut_hold_vox_paused", ("seconds", remaining)),
-                SpeechIntent.Queue, VerbosityLevel.Terse,
-                subject: SpeechSubject.VoxPausedAfterCut);
+            _voxTonePending = true;
+            _voxToneDueMs = Math.Max(_lastAlarmMs + VoxOffCueDelayMs, nowMs);
+            int generation = _generation;
+            // A historical statement remains true if the cut's speech takes
+            // longer than the hold. Never replay an obsolete seconds-left claim.
+            ScreenReaderOutput.SpeakSafetyFollowup(
+                Lexicon.Get("audio.ptt.cut_hold_vox_pause_notice"), VerbosityLevel.Terse,
+                subject: SpeechSubject.VoxPausedAfterCut,
+                stillValid: () => System.Threading.Volatile.Read(ref _voxNoteGeneration) == generation);
         }
 
         /// <summary>
@@ -506,6 +508,8 @@ namespace Radios
                     sentence = RefusalSentence(_reason, _antennaCheck, remaining);
                     LastRefusalSentence = sentence;
                     tone = _refusalTone;
+                    _lastAlarmMs = nowMs;
+                    if (_voxTonePending) _voxToneDueMs = nowMs + VoxOffCueDelayMs;
 
                     Tracing.TraceLine("CutHold: REFUSED to key from " + door + " — " + remaining + " s of the hold left; "
                         + "press " + RefusedPresses + " of this hold", TraceLevel.Warning);
@@ -566,6 +570,7 @@ namespace Radios
                             _atCut = _atCut.WithTxMode(now.TxMode);
                             PauseVoxIfOnLocked(firstTime: false);
                         }
+                        PlayPendingVoxToneLocked(nowMs);
                         return false;
                     }
                     ended = EndHoldLocked(EndReason.Lifted, changed, nowMs, immediate: false);
@@ -678,18 +683,8 @@ namespace Radios
                         ended = EndHoldLocked(EndReason.Lifted, "you changed the tune power", nowMs, immediate: false);
                         break;
                     case "Vox":
-                        // The Vox setter writes the setting the TX slice's
-                        // mode uses, so that is the one the operator touched
-                        // (N7): only its restore stands down. A setting paused
-                        // in the other mode is still the hold's to put back.
-                        {
-                            var touched = string.Equals(_atCut.TxMode, "CW", StringComparison.Ordinal)
-                                ? FlexBase.VoxSetting.CwBreakIn
-                                : FlexBase.VoxSetting.SimpleVox;
-                            if (_pausedSettings.Contains(touched) && _restoreCancelled.Add(touched))
-                                Tracing.TraceLine("CutHold: you changed " + touched + " during the hold, so the hold will not put that one back itself",
-                                                  TraceLevel.Info);
-                        }
+                        _vox?.Owner.OperatorChanged(_atCut.TxMode == "CW"
+                            ? FlexBase.VoxSetting.CwBreakIn : FlexBase.VoxSetting.SimpleVox);
                         break;
                 }
             }
@@ -747,6 +742,9 @@ namespace Radios
             (int, EndReason, string)? ended;
             lock (_gate)
             {
+                _endCue?.Dispose();
+                _endCue = null;
+                System.Threading.Volatile.Write(ref _voxNoteGeneration, 0);
                 if (!_holding) return;
                 ended = EndHoldLocked(EndReason.Abandoned, why, nowMs, immediate);
             }
@@ -756,12 +754,21 @@ namespace Radios
         private (int, EndReason, string) EndHoldLocked(EndReason reason, string detail, long nowMs, bool immediate)
         {
             _holding = false;
+            if (reason == EndReason.Abandoned) System.Threading.Volatile.Write(ref _voxNoteGeneration, 0);
             LastEnd = reason;
             LastEndDetail = detail;
             long heldMs = nowMs - _beganMs;
             int generation = _generation;
 
-            RestoreVoxLocked(immediate);
+            bool restored = RestoreVoxLocked(immediate);
+            _voxTonePending = false;
+            if (reason != EndReason.Abandoned)
+            {
+                // Leave 250 ms after the 750 ms alarm or 160 ms off pair.
+                int delay = (int)Math.Max(0, Math.Max(_lastAlarmMs + VoxOffCueDelayMs,
+                    _lastVoxOffToneMs + 410) - nowMs);
+                try { _endCue = _vox?.EndedTone?.Invoke(restored, delay); } catch { }
+            }
 
             Tracing.TraceLine("CutHold: hold " + generation + " ended after " + heldMs + " ms — " + reason + ": " + detail
                 + (RefusedPresses == 0 ? "" : "; " + RefusedPresses + " press(es) refused"), TraceLevel.Info);
@@ -771,35 +778,25 @@ namespace Radios
             return (generation, reason, detail);
         }
 
-        private void RestoreVoxLocked(bool immediate)
+        private bool RestoreVoxLocked(bool immediate)
         {
-            if (_pausedSettings.Count == 0) return;
-            var toRestore = _pausedSettings.ToArray();
+            bool restored = false;
+            foreach (var lease in _voxLeases.Values) restored |= lease.Release(immediate);
+            _voxLeases.Clear();
             _pausedSettings.Clear();
-            _voxNotePending = false;   // a note never given for a hold that is over is not owed
-            var vox = _vox;
-            if (vox == null) return;
-            foreach (var which in toRestore)
-            {
-                if (_restoreCancelled.Contains(which))
-                {
-                    Tracing.TraceLine("CutHold: " + which + " left as you set it during the hold (not restored)", TraceLevel.Info);
-                    continue;
-                }
-                try
-                {
-                    bool issued = vox.Write(which, true, immediate);
-                    Tracing.TraceLine(issued
-                        ? "CutHold: " + which + " switched back on — write " + (immediate ? "issued immediately" : "queued") + " (app-initiated, nothing said)"
-                        : "CutHold: " + which + " restore was NOT issued (no radio, or the command loop is not running); it stays off, the safe direction, and the operator can turn it on by hand",
-                        issued ? TraceLevel.Info : TraceLevel.Error);
-                }
-                catch (Exception ex)
-                {
-                    Tracing.TraceLine("CutHold: COULD NOT switch " + which + " back on — " + ex.Message
-                        + ". It stays off, the safe direction; the operator can turn it on by hand.", TraceLevel.Error);
-                }
-            }
+            _voxNotePending = false;
+            return restored;
+        }
+
+        private void PlayPendingVoxToneLocked(long nowMs)
+        {
+            if (!_voxTonePending || nowMs < _voxToneDueMs) return;
+            _voxTonePending = false;
+            bool paused = false;
+            foreach (var lease in _voxLeases.Values) paused |= lease.Paused;
+            if (!paused) return; // the operator may have taken VOX back meanwhile
+            _lastVoxOffToneMs = nowMs;
+            try { _vox?.PausedTone?.Invoke(); } catch { }
         }
 
         private void RaiseEnded((int gen, EndReason reason, string detail)? ended)
@@ -900,7 +897,7 @@ namespace Radios
         }
 
         /// <summary>The levers a real rig offers, wired for the controller.</summary>
-        public static VoxLevers LeversFor(FlexBase rig, Action? pausedTone)
-            => new VoxLevers(rig.CurrentVoxSettingIfOn, rig.WriteVoxSetting, pausedTone);
+        public static VoxLevers LeversFor(FlexBase rig, Action? pausedTone, Func<bool, int, IDisposable>? endedTone = null)
+            => new VoxLevers(rig.CurrentVoxSettingIfOn, rig.WriteVoxSetting, pausedTone, rig.VoxPauses, endedTone);
     }
 }

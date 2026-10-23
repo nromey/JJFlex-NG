@@ -355,7 +355,7 @@ namespace JJFlexWpf
                 // armed. Which setting was switched off is the hold's to
                 // remember (B5).
                 _cutHoldWiredGeneration = _cutHold.Begin(notice, ReflectedCutHold.Snapshot(rig), now,
-                    ReflectedCutHold.LeversFor(rig, () => EarconPlayer.ToggleTone(false)),
+                    ReflectedCutHold.LeversFor(rig, () => EarconPlayer.ToggleTone(false), EarconPlayer.CutHoldEndedTone),
                     refusalTone: EarconPlayer.WarningAlarmTone,
                     voxNoteNow: voxNoteNow);
 

@@ -994,17 +994,12 @@ namespace Radios.Tests
                 // classification as its two siblings.
                 "audio.ptt.cut_hold_reason_unknown",
                 "audio.ptt.cut_hold_the_antenna",
-                // The VOX note: forgettable, request-scoped, receipt none. Said
-                // once, only when VOX was on at the cut, at Terse through
-                // SpeechIntent.Queue so it follows the operator's verbosity
-                // (Noel, 2026-10-22 05:38: "tell them/tone based on
-                // settings"); the tone beside it is the feature-off toggle
-                // tone under its own switches, not a receipt the lexicon
-                // owns. Nothing is said when VOX comes back.
-                "audio.ptt.cut_hold_vox_paused",
-                // Repair round 2 (Opus N5): the note says the seconds the hold
-                // actually has left, and this is its singular form.
-                "audio.ptt.cut_hold_vox_paused_last_second",
+                // DRAFT PROSE (#571): the historical VOX consequence waits
+                // behind the cut and uses protected recovery. It follows the
+                // Terse gate; tone-only at Off. Persistent historical wording
+                // remains true after expiry; the occurrence owns its validity.
+                "audio.ptt.cut_hold_vox_pause_notice",
+                "audio.ptt.cut_hold_vox_pause_history",
 
                 // Junkbox #777, 2026-10-19: a global-profile write (Save, or
                 // Delete since round two) refused because the radio is

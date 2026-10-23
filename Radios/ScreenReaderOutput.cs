@@ -387,6 +387,26 @@ namespace Radios
         }
 
         /// <summary>
+        /// A safety consequence that waits behind the cut, retaining the same
+        /// recovery guarantees without interrupting its explanation. The caller
+        /// still chooses the verbosity and the condition for replay.
+        /// </summary>
+        public static void SpeakSafetyFollowup(string message, VerbosityLevel level, string subject,
+            Func<bool>? stillValid = null,
+            [CallerFilePath] string callerFile = "",
+            [CallerLineNumber] int callerLine = 0,
+            [CallerMemberName] string callerMember = "")
+        {
+            string origin = FormatOrigin(callerFile, callerLine, callerMember);
+            if ((int)level > (int)CurrentVerbosity)
+            {
+                RecordGated(message, level, Speech.SpeechIntent.Queue, origin);
+                return;
+            }
+            _arbiter.SafetyFollowup(message, level, origin, subject, stillValid);
+        }
+
+        /// <summary>
         /// Speak with an explicit intent. This is the form new code should use.
         /// </summary>
         /// <param name="message">What to say.</param>

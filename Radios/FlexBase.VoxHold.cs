@@ -48,6 +48,58 @@ namespace Radios
             CwBreakIn,
         }
 
+        private readonly object _voxPauseGate = new object();
+        private VoxPauseOwner? _voxPauses;
+        private object? _voxPauseRadio;
+
+        /// <summary>
+        /// Shared by every temporary VOX holder on this rig. Acquire the exact
+        /// setting needed, then release the returned lease on every exit path.
+        /// </summary>
+        public VoxPauseOwner VoxPauses
+        {
+            get
+            {
+                lock (_voxPauseGate)
+                {
+                    if (_voxPauses == null || !ReferenceEquals(_voxPauseRadio, theRadio))
+                    {
+                        // An old lease must never restore its snapshot into
+                        // a different radio now attached to this wrapper.
+                        _voxPauses?.Disconnect();
+                        var radio = theRadio;
+                        _voxPauseRadio = radio;
+                        _voxPauses = new VoxPauseOwner(
+                            which => radio != null && ReferenceEquals(radio, theRadio)
+                                ? (which == VoxSetting.CwBreakIn ? radio.CWBreakIn : radio.SimpleVOXEnable)
+                                : throw new InvalidOperationException("The radio is no longer attached."),
+                            (which, on, immediate) => radio != null && ReferenceEquals(radio, theRadio)
+                                && WriteVoxSetting(which, on, immediate),
+                            action =>
+                            {
+                                if (!q.MainLoop) return false;
+                                q.Enqueue((FunctionDel)(() => action()), "VoxPause");
+                                return true;
+                            });
+                        OperatorChangedRadioSetting -= NoteVoxPauseOperatorChange;
+                        OperatorChangedRadioSetting += NoteVoxPauseOperatorChange;
+                    }
+                    return _voxPauses;
+                }
+            }
+        }
+
+        private void NoteVoxPauseOperatorChange(string what)
+        {
+            if (what != "Vox") return;
+            _voxPauses?.OperatorChanged(TXModeAsReported == "CW" ? VoxSetting.CwBreakIn : VoxSetting.SimpleVox);
+        }
+
+        private void DisconnectVoxPauses()
+        {
+            lock (_voxPauseGate) _voxPauses?.Disconnect();
+        }
+
         /// <summary>
         /// The setting the TX slice's mode keys on, if it is ON right now;
         /// <see cref="VoxSetting.None"/> when it is off or unreadable. Read
@@ -99,8 +151,8 @@ namespace Radios
             using (AppInitiatedSettingChanges())
             {
                 FunctionDel write = which == VoxSetting.CwBreakIn
-                    ? (FunctionDel)(() => { theRadio.CWBreakIn = on; })
-                    : (FunctionDel)(() => { theRadio.SimpleVOXEnable = on; });
+                    ? (FunctionDel)(() => { radio.CWBreakIn = on; })
+                    : (FunctionDel)(() => { radio.SimpleVOXEnable = on; });
                 if (immediate)
                 {
                     try { write(); }

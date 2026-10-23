@@ -4359,6 +4359,7 @@ namespace Radios
             // unrecoverable), but it narrows the window where a doomed rig is
             // still the intake from "until someone else engages" to "now".
             resignAsThePresenceIntake();
+            DisconnectVoxPauses();
 
             if (!disposed)
             {

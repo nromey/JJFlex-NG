@@ -145,8 +145,8 @@ namespace Radios.Tests
             // setupFromScratch already uses for these two properties.
             string vox = ReadSource("Radios/FlexBase.VoxHold.cs");
             Assert.Contains("if (immediate)", vox);
-            Assert.Contains("theRadio.SimpleVOXEnable = on;", vox);
-            Assert.Contains("theRadio.CWBreakIn = on;", vox);
+            Assert.Contains("radio.SimpleVOXEnable = on;", vox);
+            Assert.Contains("radio.CWBreakIn = on;", vox);
         }
 
         [Fact]
@@ -361,7 +361,7 @@ namespace Radios.Tests
             string voxHold = ReadSource("Radios/FlexBase.VoxHold.cs");
             Assert.Contains("using (AppInitiatedSettingChanges())", Body(voxHold, "public bool WriteVoxSetting(VoxSetting which, bool on, bool immediate)"));
             string ctl = ReadSource("JJFlexWpf/PttSafetyController.cs");
-            Assert.Contains("ReflectedCutHold.LeversFor(rig, () => EarconPlayer.ToggleTone(false))", Body(ctl, "internal void BeginCutHold(FlexBase rig, in ReflectedCutNotice notice, bool voxNoteNow = true)"));
+            Assert.Contains("ReflectedCutHold.LeversFor(rig, () => EarconPlayer.ToggleTone(false), EarconPlayer.CutHoldEndedTone)", Body(ctl, "internal void BeginCutHold(FlexBase rig, in ReflectedCutNotice notice, bool voxNoteNow = true)"));
 
             string multi = ReadSource("Radios/FlexBase.MultiUser.cs");
             string note = Body(multi, "internal void NoteOperatorChangedRadioSetting(string what)");
@@ -396,7 +396,7 @@ namespace Radios.Tests
             foreach (string key in new[]
             {
                 "audio.ptt.cut_hold_reason_share", "audio.ptt.cut_hold_reason_watts", "audio.ptt.cut_hold_reason_unknown", "audio.ptt.cut_hold_refused",
-                "audio.ptt.cut_hold_refused_last_second", "audio.ptt.cut_hold_the_antenna", "audio.ptt.cut_hold_vox_paused",
+                "audio.ptt.cut_hold_refused_last_second", "audio.ptt.cut_hold_the_antenna", "audio.ptt.cut_hold_vox_pause_notice",
             })
             {
                 Assert.Contains("\"" + key + "\"", audio);
