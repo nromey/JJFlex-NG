@@ -1,1 +1,1 @@
-If JJ Flexible cannot read a radio's saved settings, it now leaves that file intact instead of replacing it with defaults. Last-seen details are also saved when a connection succeeds, including connections made without a live radio-picker arrival.
+If JJ Flexible cannot read a radio's saved settings, it now leaves that file intact instead of replacing it with defaults.

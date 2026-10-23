@@ -4737,23 +4737,7 @@ namespace Radios
             }
             trace("Connected:" + nowConnected.ToString(), TraceLevel.Error);
 
-            bool wasConnected = _IsConnected;
             _IsConnected = nowConnected;
-            if (nowConnected && !wasConnected)
-            {
-                // Every successful connect, including an automatic connect or
-                // retry without a live selector row, passes this qualified
-                // transition. The callback can run on FlexLib's receive loop;
-                // keep config I/O off that loop. Capture the connected radio's
-                // identity before another connection can replace theRadio.
-                string serial = r.Serial;
-                string nickname = r.Nickname;
-                string model = r.Model;
-                bool remote = r.IsWan;
-                string account = remote ? WanAccountForSerial(serial) : "";
-                System.Threading.ThreadPool.QueueUserWorkItem(_ =>
-                    KnownRadioRoster.RecordSighting(serial, nickname, model, remote, account));
-            }
             // The archive is taken BEFORE ConnectionStateChanged, so a subscriber
             // that throws cannot cost the evidence.
             if (!nowConnected) archiveIfOurConnectionDropped(r, token, fall);
