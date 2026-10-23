@@ -9,6 +9,72 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-10-22 — LOCK SAFETY BENCHED, THE RECORDER BUILT BY CODEX, AND VOX FOUND KEYING THE PLAYBACK
+
+**Main did not move today (839ac1a2).** All work is on four unmerged branches; nothing was merged, nothing promoted to
+the Dropbox top level (no new main build; the branch builds are mid-bench), and no tester publish.
+
+**Usage regime, ruled by Noel this morning, in force until Sunday 2026-10-25 04:00:** Fable spent (96% at 10:54), total
+Claude 79% at 20:41 with a 92% floor; Codex does the coding and first checks, Claude checks on Opus or Sonnet only. Codex's
+weekly window reset at about 20:22 (47% before). Detail: memory `project_fable_rationed_until_2026_10_25.md`.
+
+### Per branch
+- **`feature/456-iq-listenback`** (`C:\dev\jjflex-456`), listen-back round 14, 5 commits today, benched by Noel and
+  **DONE**: tone controls hide when the tone is off (an untick bug found and fixed on the bench), the comparison box is
+  remembered per radio and now sits just before Listen method, takes of different kinds refuse in one sentence, setup
+  changes are named before the numbers, the automatic comparison stays inside this session (ruled 07:10), "1 watt".
+  #809 logged: the tone warning is replayed after a take ends.
+- **`junkbox/571-800-lock-safety`** at `66325a66` (`C:\dev\jjflex-jb571`, iterator lane, Fable then Opus), 20 commits:
+  the five-second hold after a reflected-power cut, held Shift+Space toggles once (#800). Codex first check (6 blockers),
+  two Opus re-checks, MERGE. **Benched 19:44-19:58: passes under NVDA and JAWS.** Noel's answers to all its questions
+  are in its report. **Not merged yet:** a small VOX round first (the VOX note is lost when the cut sentence is flushed;
+  the off tone is buried under the alarm; play the on tone when VOX returns; a quiet tone when the hold ends), and the
+  two approved one-line changelog bullets replace its long draft. #810 filed (critical alarms play with sounds off,
+  own checkbox, default on), for after the merge.
+- **`tape-deck/t2-recorder-controls`** (`C:\dev\jjflex-tdr2`), the slice recorder controls: built by Opus; Codex
+  Astra first check found a re-key-after-Stop race (B1) and 8 follow-ups; Codex repaired twice (`3ae8b4f3`,
+  `5ba2e9d8`); a narrow Opus re-check confirmed B1 fixed and found the disconnect deadlock that round 2 fixed.
+  **Do not push this branch as is:** its first four commits carry tester provenance in comments (removed from the
+  tree, not from history). Squash or rewrite before any push.
+- **`tape-deck/t3-computer-capture`** (`C:\dev\jjflex-tdr3`), the computer recorder engine, built by Codex Sol
+  (`14c0cd2f`): FLAC capture (radio audio 24 kHz default, what-you-heard 48 kHz), in-app FLAC playback, Save As to
+  FLAC/WAV/MP3/Ogg Opus/HE-AAC M4A, libFLAC 1.5.0 packaged. Track 2 merged in (`60f25b4d`) for one bench build. Only 3
+  new tests; the capture queue and gap silence are untested. Not pushed, same reason.
+
+### The evening bench's findings (`JJFlex-private/planning/for-noel/2026-10-22-bench-lock-safety-and-recorder.md`)
+- **Slice Play keyed the 8600.** Codex research, then Noel's controlled check at 20:36: **VOX was on**, and the radio
+  plays to air when keyed, so the playback tripped VOX. With VOX off, play is clean. Ruled: play to air is wanted now;
+  local play suspends VOX through one per-radio VOX owner shared with the lock-safety hold. Memory
+  `project_flex_slice_recorder_facts.md`.
+- The Audio Check's Record and play back (Don's mic check) works with VOX off, but records the ACTIVE slice, not the TX slice.
+- Home: a record field on each slice line with its length ("Play slice recording, 12 seconds"); #811, Ctrl+Tab never
+  stops on Home's slice strip.
+- Build A stopped taking keys after the bench; a heap dump is in the session scratchpad, not analysed.
+
+### Track 3's six recording decisions, all ruled (end of `for-claude/2026-10-22-tape-deck-t3-research-report.md`)
+- The radio's own audio by default.
+- FLAC.
+- Mono or stereo, selectable.
+- Gaps kept as silence.
+- Save As converts.
+- The folder is "Recorded QSOs".
+
+### Next (Friday)
+1. Codex: the lock-safety VOX round, then Noel's merge.
+2. Codex: recorder round 3:
+   - the VOX owner and play to air;
+   - record the TX slice;
+   - the Home strip field and lengths;
+   - #811;
+   - the refusal sentence.
+3. If stuck: functional fixes or the small safety items.
+
+### Cross-surface
+- The iterator (separate window) ran the lock-safety lane.
+- Codex ran seven jobs, logged in `codex-evaluation.md`.
+- Freight Fate: 16 unpushed. rigmeter: 13 unpushed. Both are Noel's call.
+- Rigmeter on main shows nothing today. The branches above total about 13,800 insertions across 49 commits.
+
 ## END-OF-DAY SEAL — 2026-10-21 — THE JUNKBOX LANDS ON MAIN, LISTEN-BACK TO ROUND 13, AND A BENCH THAT FOUND TWO TRANSMIT-SAFETY DEFECTS
 
 **Written 2026-10-21 at about 21:20.** Covers midnight 2026-10-21 to now; the previous seal was `d9a079cf` (2026-10-20
