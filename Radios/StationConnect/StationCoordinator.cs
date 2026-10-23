@@ -245,6 +245,7 @@ namespace Radios.StationConnect
             if (f.Intent == ProfileGuestIntent.NotAnswered) return "the profile question for this radio is not answered";
             if (f.Intent == ProfileGuestIntent.LeaveAlone) return "the operator said to leave this radio's profiles alone";
             if (f.Intent == ProfileGuestIntent.UseMyTransmitAudio) return "the intent is transmit audio only; no global stewardship";
+            if (f.Intent != ProfileGuestIntent.LoadMineAndPutBack) return "the profile intent could not be read";
             if (f.Ownership != RadioOwnership.Mine)
                 return "this connection is not the declared owner's; only the owner's connection restores a station (ruled 2026-09-21, #590)";
             if (string.IsNullOrWhiteSpace(f.WantedGlobal)) return "no global profile is wanted for this radio";
@@ -757,7 +758,7 @@ namespace Radios.StationConnect
                     if (factsNow.HoldArmed) { refusal = "the hold was armed"; return; }
                     if (!factsNow.Connected) { refusal = "not connected"; return; }
                     if (factsNow.Ownership != RadioOwnership.Mine) { refusal = "the radio is no longer declared ours (" + factsNow.Ownership + ")"; return; }
-                    if (factsNow.Intent == ProfileGuestIntent.LeaveAlone || factsNow.Intent == ProfileGuestIntent.NotAnswered)
+                    if (factsNow.Intent != ProfileGuestIntent.LoadMineAndPutBack)
                     { refusal = "the intent for this radio is now " + factsNow.Intent; return; }
                     if (!_station.Snapshot().HasSlice(slice.Index)) { refusal = "slice " + slice.Index + " is no longer ours"; return; }
                     armedSeq = _station.Sequence;

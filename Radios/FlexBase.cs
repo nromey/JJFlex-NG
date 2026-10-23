@@ -2011,13 +2011,14 @@ namespace Radios
             Tracing.TraceLine($"RenameRadio: '{radio.Nickname}' -> '{newName}'", TraceLevel.Info);
             radio.Nickname = newName.Trim();
 
-            var profile = RadioConfig.LoadForRadio(radio.Serial);
             // A rename through JJ Flex is a deliberate choice: record it in
             // both the observation mirror AND the choice field, so it keeps
             // winning if the hardware name later diverges.
-            profile.Nickname = newName.Trim();
-            profile.UserNickname = newName.Trim();
-            profile.SaveForRadio(radio.Serial);
+            string chosenName = newName.Trim();
+            RadioConfig.Update(radio.Serial, profile => {
+                profile.Nickname = chosenName;
+                profile.UserNickname = chosenName;
+            });
 
             RefreshAutoConnectDisplayName(radio.Serial, newName.Trim());
             return true;
@@ -2705,12 +2706,12 @@ namespace Radios
             // at wan_connect_ready, but a LAN connect used to write nothing —
             // so a radio only ever used locally never appeared in the Settings
             // per-radio picker. Load/Save never throw.
+            string observedNickname = theRadio.Nickname;
+            RadioConfig.Update(theRadio.Serial, profile => {
+                if (!string.IsNullOrEmpty(observedNickname))
+                    profile.Nickname = observedNickname;
+            });
             var knownRadioProfile = RadioConfig.LoadForRadio(theRadio.Serial);
-            if (!string.IsNullOrEmpty(theRadio.Nickname))
-            {
-                knownRadioProfile.Nickname = theRadio.Nickname;
-            }
-            knownRadioProfile.SaveForRadio(theRadio.Serial);
 
             // Arm the change-nothing hold BEFORE the handler wiring below —
             // the first connect-path write (TNFEnabled) is twenty lines down,
@@ -4737,7 +4738,20 @@ namespace Radios
             }
             trace("Connected:" + nowConnected.ToString(), TraceLevel.Error);
 
+            bool wasConnected = _IsConnected;
             _IsConnected = nowConnected;
+            if (nowConnected && !wasConnected)
+            {
+                // Capture on the qualified transition. Disk I/O belongs on
+                // the worker, away from FlexLib's sequential receive loop.
+                string serial = r.Serial;
+                string nickname = r.Nickname;
+                string model = r.Model;
+                bool remote = r.IsWan;
+                string account = remote ? WanAccountForSerial(serial) : "";
+                System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+                    KnownRadioRoster.RecordSighting(serial, nickname, model, remote, account));
+            }
             // The archive is taken BEFORE ConnectionStateChanged, so a subscriber
             // that throws cannot cost the evidence.
             if (!nowConnected) archiveIfOurConnectionDropped(r, token, fall);

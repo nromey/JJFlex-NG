@@ -3736,9 +3736,7 @@ public partial class MainWindow : UserControl
         bool saved = false;
         try
         {
-            var cfg = Radios.RadioConfig.LoadForRadio(serial);
-            cfg.SmartLinkIntent = intent;
-            saved = cfg.SaveForRadio(serial);
+            saved = Radios.RadioConfig.Update(serial, cfg => { cfg.SmartLinkIntent = intent; });
         }
         catch (Exception ex)
         {

@@ -365,7 +365,7 @@ namespace Radios.Tests
             Assert.True(decl >= 0,
                 "RecordSmartLinkIntent is not where this test looks for it, so nothing below would be checking it.");
 
-            int write = src.IndexOf(".SaveForRadio(serial)", decl, StringComparison.Ordinal);
+            int write = src.IndexOf("RadioConfig.Update(serial", decl, StringComparison.Ordinal);
             Assert.True(write > decl,
                 "RecordSmartLinkIntent no longer saves where this test expects, so the ordering check below would be vacuous.");
 
