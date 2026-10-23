@@ -1271,10 +1271,23 @@ delegate when we need fable."* Conversation, planning and orchestration
 happen here; heavy lifting goes out to spawned agents, and that is where
 Fable belongs.
 
-Never under-provision to save cost — see
-`memory/user_usage_headroom_is_not_the_constraint.md`. The constraints
-are the operator's attention, the single desktop, and build collisions.
-Detail: `memory/project_model_tiers_and_delegation.md`.
+**NO MODEL IS CHOSEN BY CATEGORY. Ruled by Noel 2026-10-23.** *"I
+wouldn't use fable just because it's safety etc. Use opus to determine and
+check with me, we can figure out which model goes for what tracks."* The
+list above says what each tier is good for; it is not a sorting rule.
+**The orchestrator proposes a model per track, with a one-line reason, and
+Noel decides.** Safety work and the transmit path do not by themselves
+mean Fable (or Astra).
+
+**Fable has its own meter, capped at HALF the weekly allowance.** Hitting
+it locks Fable until the reset while Opus and Sonnet still run: Fable was
+used up by Wednesday in the week of 2026-10-19, with the total at 76%.
+Weigh the Fable reading, not just the total, when proposing.
+
+The total allowance is generous, so do not under-scope WORK to save cost —
+see `memory/user_usage_headroom_is_not_the_constraint.md`. The constraints
+are the operator's attention, the single desktop, build collisions, and
+now the Fable meter. Detail: `memory/project_model_tiers_and_delegation.md`.
 
 **Model A — user-spawned CLI sessions (the original).** Use when tracks
 need live user interaction mid-flight (radio-seat work, testing
@@ -1617,9 +1630,9 @@ clean `git merge` is not evidence that the result compiles.
 - **Brief Codex the way this file says to brief any agent: write the prohibitions, not just the goal** — plus the model, the worktree, the register entry, and how to survive being cut off. **Then run `& "C:\dev\JJFlex-NG\check-brief-citations.ps1"` before launching it.** Two seconds, and it prints every `#NNN` the brief cites beside that task's real heading and marks the closed ones. It caught both errors in the 2026-09-20 key-ownership brief — a prohibition citing #345, which is about a different key entirely, and #19 named as a live symptom five weeks after it closed. **It cannot catch a citation you failed to make**, which is the worse error: that same brief contradicted #514, a standing ruling nobody looked for. Grep the register for the SUBJECT, not just the numbers you already have.
 - **Model tiers, ruled by Noel 2026-09-16:** `gpt-6-sol` is the default, the Opus of the pair.
   (This said `gpt-5.6-sol` until 2026-10-18; `config.toml:19` reads `model = "gpt-6-sol"`,
-  and the config is the thing Codex actually loads.) `gpt-6-astra` is named explicitly for hard implementation, or for verifying something troubled or stuck. No other model without a ruling.
+  and the config is the thing Codex actually loads.) `gpt-6-astra` is named explicitly, and only for a job that got stuck on Sol (see dial one below). No other model without a ruling.
 - **Two dials, not one, and they move independently. Ruled by Noel 2026-09-20.** *Which model* and *how hard it reasons* are separate decisions, and conflating them produces both wasted runs and under-powered ones.
-  - **Dial one, the model: use the SAME decision tree as Opus versus Fable.** Whatever makes a job Fable-worthy on the Claude side makes it Astra-worthy here — design, architecture, safety-critical work, anything shipping to a real user, anything troubled or stuck. Everything else is Sol, and **Sol is the right tool for it, not a compromise.**
+  - **Dial one, the model: Sol for nearly everything, Astra only when a job gets stuck.** Ruled by Noel 2026-10-23, replacing "the same decision tree as Opus versus Fable": *"just cause we touch the transmit path doesn't mean we have to run on frontier. Really, we might want to run most things on sol, and if we get stuck ... then we can call in frontier."* **The transmit path, safety work and design do not by themselves mean Astra.** The reason is the budget: Codex is ChatGPT Pro 5x, a quarter of Claude's 20x, and Noel will not move to the $200 tier. On 2026-10-23 two Astra rounds took Codex's WEEKLY meter from 3% to 24% in one morning. **Sol is the right tool, not a compromise.** Run Codex one job at a time unless Noel says otherwise (2026-10-23: *"I don't want to run 7 codex tracks for awhile"*).
   - **Dial two, the reasoning level:** `low`, `medium`, `high`, `xhigh`, `max`, `ultra`. **Never rely on the model's own default — pin the level.** The vendor default has already
     moved under us once: this line read "BOTH Sol and Astra default to `low`" until 2026-10-18,
     while `config.toml`'s own comment records that the GPT-6 models all default to `medium`,
