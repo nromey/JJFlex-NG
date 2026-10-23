@@ -5,6 +5,7 @@ using System.IO;
 using System.IO.Ports;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using JJTrace;
 
 namespace JJFlexControl
@@ -36,6 +37,8 @@ namespace JJFlexControl
         {
             Tracing.TraceLine("Serial.Open:" + port, TraceLevel.Info);
             bool rv = true;
+            KnobInputPump openPump = null;
+            System.Threading.Timer openCheck = null;
             knobPort = new SerialPort();
             try
             {
@@ -46,7 +49,39 @@ namespace JJFlexControl
                 knobPort.DataBits = 8;
                 knobPort.StopBits = StopBits.One;
                 knobPort.Encoding = System.Text.Encoding.UTF8;
+
+                // A fresh pump, so a fresh #520 wait for quiet, at EVERY open: the device replays
+                // whatever was done to it while the port was closed, and Noel's ruling throws that
+                // away at each open. Made, and its handler attached, BEFORE Open: the wait counts
+                // from the open call, so nothing can arrive before its clock starts, and a handler
+                // attached after Open could miss the first callback, leaving the start of the
+                // replay unread in the buffer until the knob's next byte, after the wait. The
+                // handler is bound to THIS open's pump and port.
+                Stopwatch openClock = Stopwatch.StartNew();
+                openPump = new KnobInputPump(
+                    token => parent.OnKnobOutput(token),
+                    () => openClock.Elapsed.TotalMilliseconds,
+                    note => Tracing.TraceLine("Serial.filter:" + note, TraceLevel.Info));
+                SerialPort openPort = knobPort;
+                KnobInputPump boundPump = openPump;
+                knobPort.DataReceived += (sender, e) => dataReceived(openPort, boundPump);
                 knobPort.Open();
+                Tracing.TraceLine("Serial.Open: the port opened " + openClock.Elapsed.TotalMilliseconds.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)
+                    + " ms after the open call; the knob's read times count from the open call", TraceLevel.Info);
+
+                // Round five: only a check of the port's own buffer, made between reads, can find
+                // the knob quiet. A read's time is when Windows delivered the text, so a late
+                // callback would otherwise pass saved turns off as fresh ones. The check runs every
+                // KnobInputFilter.QuietCheckMs and stops itself once the knob is found quiet.
+                System.Threading.Timer check = null;
+                check = new System.Threading.Timer(_ =>
+                {
+                    if (checkQuiet(openPort, boundPump)) return;
+                    try { check?.Change(Timeout.Infinite, Timeout.Infinite); }
+                    catch (ObjectDisposedException) { } // Close got there first
+                }, null, Timeout.Infinite, Timeout.Infinite);
+                openCheck = check;
+                check.Change(KnobInputFilter.QuietCheckMs, KnobInputFilter.QuietCheckMs);
             }
             catch(Exception ex)
             {
@@ -55,11 +90,10 @@ namespace JJFlexControl
                 rv = false;
             }
 
-            // Create area to hold characters.
             if (rv)
             {
-                buf = new bufType(knobPort);
-                knobPort.DataReceived += dataReceived;
+                pump = openPump;
+                quietCheck = openCheck;
             }
 
             return rv;
@@ -71,66 +105,48 @@ namespace JJFlexControl
         internal void Close()
         {
             Tracing.TraceLine("Serial.close",TraceLevel.Info);
+            // Stop first: it waits for any dispatch already in progress, and nothing from this open
+            // is dispatched after it returns (#520). Nothing is held, so nothing is lost.
+            if (quietCheck != null) quietCheck.Dispose();
+            quietCheck = null;
+            KnobInputPump closing = pump;
+            pump = null;
+            if (closing != null) closing.Stop();
             if (knobPort != null) knobPort.Dispose();
         }
 
-        private class bufType
+        private KnobInputPump pump;
+        private System.Threading.Timer quietCheck;
+
+        /// <summary>
+        /// One buffer check while waiting for the knob to go quiet. True while still waiting. A port
+        /// that cannot say how much it holds counts as holding something: never quiet by default.
+        /// </summary>
+        private static bool checkQuiet(SerialPort port, KnobInputPump openPump)
         {
-            private StringBuilder buf;
-            private const char delim = ';';
-            private SerialPort dev;
-
-            public bufType(SerialPort port)
+            return openPump.CheckQuiet(() =>
             {
-                dev = port;
-                buf = new StringBuilder();
-            }
-
-            public void Add()
-            {
-                int len = dev.BytesToRead;
-                char[] cBuf = new char[len];
-                dev.Read(cBuf, 0, len);
-                // Remove 0x00
-                for(int i = 0; i < cBuf.Length; i++)
-                {
-                    if (cBuf[i] != 0x0) buf.Append(cBuf[i]);
-                }
-            }
-
-            /// <summary>
-            /// Read a command w/o the delimiter.
-            /// </summary>
-            /// <returns>a string containing the first command w/o delimiter, or the empty string.</returns>
-            public string Read()
-            {
-                StringBuilder rv = new StringBuilder();
-                for(int i = 0; i < buf.Length; i++)
-                {
-                    if (buf[i] == delim)
-                    {
-                        if (i == 0) buf.Remove(0, 1);
-                        else
-                        {
-                            rv.Append(buf.ToString(0, i));
-                            buf.Remove(0, i + 1);
-                            break;
-                        }
-                    }
-                }
-                return rv.ToString();
-            }
+                try { return port.BytesToRead; }
+                catch (Exception ex) when (ex is InvalidOperationException || ex is IOException) { return 1; }
+            });
         }
-        private bufType buf;
 
-        private void dataReceived(object sender, SerialDataReceivedEventArgs e)
+        private static void dataReceived(SerialPort port, KnobInputPump openPump)
         {
-            buf.Add();
-            string data;
-            while ((data = buf.Read()) != "")
+            // Every token goes through the #520 wait for quiet rather than straight to the
+            // handlers: what the knob replays when the port opens is ignored until the knob has
+            // gone quiet, every input code after that is acted on at once, and a device report
+            // such as F0304 is always passed on.
+            // Read INSIDE the pump's lock, so a buffer check can never fall between taking the
+            // text out of the port and handing it to the filter (round five).
+            openPump.ReadFrom(() =>
             {
-                parent.OnKnobOutput(data);                
-            }
+                try { return port.ReadExisting(); }
+                catch (Exception ex) when (ex is InvalidOperationException || ex is IOException)
+                {
+                    return null; // the port closed underneath this callback
+                }
+            });
         }
     }
 }

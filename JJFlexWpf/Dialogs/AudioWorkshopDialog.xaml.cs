@@ -37,6 +37,15 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     public static Func<PttSafetyController?>? PttControllerSource { get; set; }
 
     private AudioCheckSession? _session;
+
+    /// <summary>
+    /// Is an Audio Check session active right now, in ANY phase, including
+    /// the post-unkey wait for playback? While it is, the session owns the
+    /// transmitter: the dialog transmit door (#778c, <see cref="DialogTransmitKeys"/>)
+    /// refuses push to talk and the lock, and leaves Escape to this dialog's
+    /// own two-stage handler. Read-only; the session itself is untouched.
+    /// </summary>
+    internal static bool AnAudioCheckIsActive => _instance?._session?.Active == true;
     private TextBox? _micReadingBox;
     private Button? _startCheckButton;
     private CycleFieldControl? _listenMethodControl;
@@ -231,7 +240,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             // long as the rig, so a closed dialog left subscribed is a closed
             // dialog kept alive by the radio.
             BindMeterInventory(null);
-            _instance = null;
+            if (ReferenceEquals(_instance, this)) _instance = null;
         };
     }
 
@@ -813,15 +822,13 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     private void SavePerRadioPrefs()
     {
         if (_radioCfg == null || string.IsNullOrEmpty(_radioCfgSerial)) return;
-        if (_listenMethodControl != null)
-            _radioCfg.AudioCheckListenMethod = (AudioCheckListenMethods)_listenMethodControl.SelectedIndex;
-        if (_checkPowerControl != null)
-            _radioCfg.AudioCheckPowerMode = (AudioCheckPowerModes)_checkPowerControl.SelectedIndex;
-        if (_checkWattsControl != null)
-            _radioCfg.AudioCheckLowPowerWatts = _checkWattsControl.Value;
-        if (_iqAutoCompare != null)
-            _radioCfg.AudioCheckCompareWithLastTake = _iqAutoCompare.IsChecked == true;
-        _radioCfg.SaveForRadio(_radioCfgSerial);
+        var method = _listenMethodControl == null ? (AudioCheckListenMethods?)null
+            : (AudioCheckListenMethods)_listenMethodControl.SelectedIndex;
+        var power = _checkPowerControl == null ? (AudioCheckPowerModes?)null
+            : (AudioCheckPowerModes)_checkPowerControl.SelectedIndex;
+        var watts = _checkWattsControl?.Value;
+        bool? compare = _iqAutoCompare?.IsChecked == null ? null : _iqAutoCompare.IsChecked == true;
+        RadioConfig.RecordAudioCheckPrefs(_radioCfgSerial, method, power, watts, compare);
     }
 
     /// <summary>

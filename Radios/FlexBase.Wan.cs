@@ -2508,12 +2508,11 @@ namespace Radios
             // ever connected shows up in the Settings per-radio picker with
             // zero setup. Load/Save never throw; an unset BaseDirectory just
             // traces and declines.
-            var profileStub = RadioConfig.LoadForRadio(r.Serial);
-            if (!string.IsNullOrEmpty(r.Nickname))
-            {
-                profileStub.Nickname = r.Nickname;
-            }
-            profileStub.SaveForRadio(r.Serial);
+            string observedNickname = r.Nickname;
+            RadioConfig.Update(r.Serial, profileStub => {
+                if (!string.IsNullOrEmpty(observedNickname))
+                    profileStub.Nickname = observedNickname;
+            });
 
             ConnectionProfiler.Current?.RecordEvent("wan_connect_ready", new Dictionary<string, object>
             {

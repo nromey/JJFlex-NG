@@ -703,6 +703,113 @@ namespace Radios
         public IDisposable AppInitiatedSettingChanges() => new AppInitiatedSettingScope(this);
 
         /// <summary>
+        /// The operator changed a radio-persisted setting through one of this
+        /// class's operator-facing setters; the argument is the setter's own
+        /// name for it ("TXAntennaName", "XmitPower", "TunePower", "Vox", ...).
+        /// Never raised for a write made inside
+        /// <see cref="AppInitiatedSettingChanges"/>, nor while disconnected.
+        /// Raised on whatever thread ran the setter. Added for the hold after
+        /// a reflected-power cut (#571).
+        /// </summary>
+        public event Action<string> OperatorChangedRadioSetting;
+
+        /// <summary>
+        /// The APPLICATION wrote a radio-persisted setting on the operator's
+        /// behalf, inside <see cref="AppInitiatedSettingChanges"/>: the
+        /// setter's own name for it and the value written, as a string. Raised
+        /// for the setters the hold after a reflected-power cut snapshots
+        /// (TX antenna, RF power, tune power), so the radio's later ECHO of
+        /// that write is not read as the operator's repair (#571, Astra B2).
+        /// Raised whether or not the rig is connected — the write itself may
+        /// go nowhere, but a subscriber comparing baselines needs to know it
+        /// was made. Raised on whatever thread ran the setter.
+        /// </summary>
+        public event Action<string, string> AppInitiatedRadioSettingWritten;
+
+        /// <summary>
+        /// True while a write made inside <see cref="AppInitiatedSettingChanges"/>
+        /// is nonetheless THE OPERATOR'S OWN CHOICE, carried out by the app:
+        /// the Transmit menu's Dummy Load Mode item is the case (#571, Opus N1
+        /// and R1). The app scope keeps the receipt and the save offer quiet,
+        /// as it must; this inner scope says the change is still the
+        /// operator's, so the hold after a reflected-power cut lifts on it,
+        /// exactly as it lifts on the operator turning the power knob. The
+        /// COMMAND declares it, never the setter, so the Audio Check's own
+        /// dummy-load engage, which writes the same setter, is still the
+        /// app's. Depth-counted like its parent.
+        /// </summary>
+        private int _operatorChoseSettingDepth;
+
+        private sealed class OperatorChoseSettingScope : IDisposable
+        {
+            private FlexBase _owner;
+            public OperatorChoseSettingScope(FlexBase owner)
+            {
+                _owner = owner;
+                System.Threading.Interlocked.Increment(ref owner._operatorChoseSettingDepth);
+            }
+            public void Dispose()
+            {
+                var o = System.Threading.Interlocked.Exchange(ref _owner, null);
+                if (o != null)
+                    System.Threading.Interlocked.Decrement(ref o._operatorChoseSettingDepth);
+            }
+        }
+
+        /// <summary>
+        /// Declare that the setting changes made until the returned scope is
+        /// disposed are the OPERATOR's choice, carried out by the application,
+        /// even where they sit inside <see cref="AppInitiatedSettingChanges"/>.
+        /// A refused press after a reflected-power cut tells the operator to
+        /// change the power; Dummy Load Mode is one of the ways they do that,
+        /// and it must count (Noel, 2026-10-21 20:47). Open it at the
+        /// operator's COMMAND (the menu item), never inside a setter: the Audio
+        /// Check writes the same <see cref="DummyLoadMode"/> setter for its
+        /// own reasons, and that engage, like its power restores, must NOT be
+        /// inside this scope.
+        /// </summary>
+        public IDisposable OperatorChoseThisChange() => new OperatorChoseSettingScope(this);
+
+        /// <summary>
+        /// One of this class's operator-facing setters wrote a radio-persisted
+        /// setting: tell whoever is listening WHO wrote it. A write the
+        /// operator commanded and the app carried out
+        /// (<see cref="OperatorChoseThisChange"/> in force) raises
+        /// <see cref="OperatorChangedRadioSetting"/> and nothing else; the
+        /// application's own writes (<see cref="AppInitiatedSettingChanges"/>
+        /// in force) go to <see cref="AppInitiatedRadioSettingWritten"/>; the
+        /// operator's direct writes go through
+        /// <see cref="NoteOperatorChangedRadioSetting"/> exactly as before.
+        /// The three snapshot setters call this; every other setter still
+        /// calls the operator hook directly and is unchanged.
+        /// </summary>
+        internal void NoteRadioSettingWritten(string what, string value)
+        {
+            if (_operatorChoseSettingDepth > 0)
+            {
+                // The operator's own command, carried out by the app: the hold
+                // lifts on it (the lift signal), and the receipt and save offer
+                // stay quiet (the app scope's job, unchanged).
+                try { OperatorChangedRadioSetting?.Invoke(what); }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("OperatorChangedRadioSetting subscriber threw: " + ex.Message, TraceLevel.Warning);
+                }
+                return;
+            }
+            if (_appInitiatedSettingDepth > 0)
+            {
+                try { AppInitiatedRadioSettingWritten?.Invoke(what, value ?? ""); }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("AppInitiatedRadioSettingWritten subscriber threw: " + ex.Message, TraceLevel.Warning);
+                }
+                return;
+            }
+            NoteOperatorChangedRadioSetting(what);
+        }
+
+        /// <summary>
         /// How long the settings surface must be quiet before a batch counts
         /// as settled. A Settings-dialog Apply or a preset application lands
         /// several values in quick succession; the timer restarts on each, so
@@ -732,6 +839,19 @@ namespace Radios
             if (!IsConnected || Disconnecting || theRadio == null) return;
 
             Tracing.TraceLine("NoteOperatorChangedRadioSetting:" + what, TraceLevel.Verbose);
+
+            // The same fact, offered to anyone who needs it at the moment it
+            // happens rather than at disconnect (#571): the hold after a
+            // reflected-power cut lifts on the OPERATOR's change to the
+            // antenna or the power, and this is the one place that already
+            // knows the operator's writes from the app's own. Raised after the
+            // guards above on purpose, so an app-initiated write — the hold's
+            // own VOX switch among them — never reaches a subscriber.
+            try { OperatorChangedRadioSetting?.Invoke(what); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("OperatorChangedRadioSetting subscriber threw: " + ex.Message, TraceLevel.Warning);
+            }
 
             // Same widened meaning as the doc on the property: any
             // radio-persisted change this operator made, not just slices.

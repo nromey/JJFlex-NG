@@ -247,9 +247,7 @@ internal static class Program
         string? holdProblem = null;
         try
         {
-            var profile = RadioConfig.LoadForRadio(serial);
-            profile.ChangeNothingOnThisRadio = true;
-            if (!profile.SaveForRadio(serial)) holdProblem = "SaveForRadio returned false.";
+            if (!RadioConfig.Update(serial, c => { c.ChangeNothingOnThisRadio = true; })) holdProblem = "RadioConfig.Update returned false.";
             else if (!RadioConfig.LoadForRadio(serial).ChangeNothingOnThisRadio)
                 holdProblem = "The setting did not read back as armed.";
         }

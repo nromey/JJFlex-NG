@@ -387,6 +387,26 @@ namespace Radios
         }
 
         /// <summary>
+        /// A safety consequence that waits behind the cut, retaining the same
+        /// recovery guarantees without interrupting its explanation. The caller
+        /// still chooses the verbosity and the condition for replay.
+        /// </summary>
+        public static void SpeakSafetyFollowup(string message, VerbosityLevel level, string subject,
+            Func<bool>? stillValid = null,
+            [CallerFilePath] string callerFile = "",
+            [CallerLineNumber] int callerLine = 0,
+            [CallerMemberName] string callerMember = "")
+        {
+            string origin = FormatOrigin(callerFile, callerLine, callerMember);
+            if ((int)level > (int)CurrentVerbosity)
+            {
+                RecordGated(message, level, Speech.SpeechIntent.Queue, origin);
+                return;
+            }
+            _arbiter.SafetyFollowup(message, level, origin, subject, stillValid);
+        }
+
+        /// <summary>
         /// Speak with an explicit intent. This is the form new code should use.
         /// </summary>
         /// <param name="message">What to say.</param>
@@ -510,6 +530,39 @@ namespace Radios
                     _arbiter.Emit(message, interrupt: true, intent, level, origin, subject, additive);
                     return;
             }
+        }
+
+        /// <summary>
+        /// An interrupting one-shot that WAITS for the safety speaking turn
+        /// instead of cutting it (#778b round five). With no transmit-safety
+        /// sentence or alarm holding the turn, and none waiting for it, this
+        /// is <see cref="Speak(string, Speech.SpeechIntent, VerbosityLevel, string?, Speech.SpeechCoalesceKind, string?, bool, Func{bool}?, string, int, string)"/>
+        /// with <see cref="Speech.SpeechIntent.Interrupt"/>, spoken at once.
+        /// Otherwise it is said after the last of them; see
+        /// <see cref="Speech.SpeechArbiter.EmitYieldingToSafety"/>. The
+        /// verbosity gate is the same one, applied now.
+        /// </summary>
+        /// <remarks>
+        /// For speech that must be heard at Off and must never take the reader
+        /// from a safety announcement: today, a value layer's refusal when its
+        /// tone cannot sound. Opt-in; no other speech changes.
+        /// </remarks>
+        public static void SpeakYieldingToSafety(
+            string message,
+            VerbosityLevel level,
+            string? subject = null,
+            [CallerFilePath] string callerFile = "",
+            [CallerLineNumber] int callerLine = 0,
+            [CallerMemberName] string callerMember = "")
+        {
+            if (string.IsNullOrEmpty(message)) return;
+            string origin = FormatOrigin(callerFile, callerLine, callerMember);
+            if ((int)level > (int)CurrentVerbosity)
+            {
+                RecordGated(message, level, Speech.SpeechIntent.Interrupt, origin);
+                return;
+            }
+            _arbiter.EmitYieldingToSafety(message, level, origin, subject);
         }
 
         /// <summary>

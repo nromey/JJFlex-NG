@@ -131,6 +131,16 @@ namespace Radios.Speech
         public const string NoTransmitAudio = "no-transmit-audio";
 
         /// <summary>
+        /// A transmit key pressed in a dialog while something else owns the
+        /// transmitter (#778c): an Audio Check session is running, so the
+        /// dialog door refuses push to talk and the lock with the layer's own
+        /// very short sentences. One of these is true at a time, and the next
+        /// refused press retires an unheard earlier one; it says nothing a
+        /// value layer's status says, so it does not share that subject.
+        /// </summary>
+        public const string TransmitKeyRefused = "transmit-key-refused";
+
+        /// <summary>
         /// Reflected power is high enough to warn about, whether or not a cut
         /// follows (#224, #571).
         ///
@@ -144,6 +154,19 @@ namespace Radios.Speech
         /// trouble.</para>
         /// </summary>
         public const string ReflectedPowerWarning = "reflected-power-warning";
+
+        /// <summary>
+        /// The one note that VOX has been switched off for the hold after a
+        /// reflected-power cut (#571; Noel, 2026-10-22 05:38: "tell them/tone
+        /// based on settings"). Said once, only when VOX was on, at the
+        /// operator's verbosity; nothing is said when VOX comes back. Its own
+        /// subject, and deliberately NOT <see cref="ReflectedPowerCut"/>: it
+        /// is a statement about a setting the app changed on the operator's
+        /// behalf, not about the transmission that ended, and a later cut
+        /// sentence must not be able to retire it or be retired by it. Covered
+        /// only by the next such note.
+        /// </summary>
+        public const string VoxPausedAfterCut = "vox-paused-after-cut";
 
         /// <summary>
         /// The receipt that a change will not survive disconnect unless the
@@ -523,5 +546,38 @@ namespace Radios.Speech
         /// covers them.
         /// </summary>
         public const string ComputerRecorder = "computer-recorder";
+        /// A global-profile write refused because the radio is not declared
+        /// the operator's, or its ownership is not yet answered (junkbox
+        /// #777). Spoken from the funnel every global save passes through,
+        /// in answer to the operator's own press on the Profiles dialog's
+        /// Save, so the next such press covers it. Its own subject because it
+        /// is a statement about WHOSE radio this is, not about the hold or the
+        /// roster, and the operator's remedy — Settings, under Radios — is
+        /// different from either. The menu route speaks the same sentence
+        /// through the menu-close path, which carries no subject today.
+        /// </summary>
+        public const string GlobalProfileWriteRefusal = "global-profile-write-refusal";
+
+        /// <summary>
+        /// The radio's microphone input left PC while computer transmit audio
+        /// was running, on a radio NOT declared the operator's, so JJ Flex left
+        /// the owner's choice alone and said so instead of putting it back
+        /// (junkbox #686). Spoken once per divergence episode by
+        /// <c>checkPcMicSelection</c>; the next episode's report covers it.
+        /// Its own subject because it is a statement about where the transmit
+        /// audio is going on somebody else's radio, not a refusal of anything
+        /// the operator pressed, so <see cref="GlobalProfileWriteRefusal"/>
+        /// says nothing about it and must not retire it.
+        /// </summary>
+        public const string PcMicLeftForOwner = "pc-mic-left-for-owner";
+
+        /// <summary>
+        /// Where the 60m channel rotation (Alt+Shift+Up / Alt+Shift+Down) just
+        /// landed — a channel, or the digital segment with any mode it set
+        /// (junkbox #312). True until the next press of the rotation moves the
+        /// radio again, which says the same kind of thing about the new stop, so
+        /// the newer stop covers an unheard older one.
+        /// </summary>
+        public const string SixtyMeterStop = "sixty-meter-stop";
     }
 }

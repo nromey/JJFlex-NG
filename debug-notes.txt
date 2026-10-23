@@ -1,71 +1,27 @@
-WHAT IS NEW AND WHERE TO FIND IT
+WHAT IS NEW SINCE THE LAST BUILD
 
-Two things you reported are fixed in this build. Both were real, both were
-ours, and neither was anything you did wrong.
+This is the first build since 3 October, so there is a lot in it. The
+changelog has the full list, under Unreleased. The ones you will notice:
 
-VOX NOW WORKS
+- Push to talk works from inside the app's own windows now. Ctrl+Space
+  keys the radio from Settings and other dialogs instead of pressing a
+  button.
+- In a dialog, Escape unkeys first. Press it again to close the dialog.
+- Inside the audio, filter and noise layers, a key the layer doesn't use
+  is refused and the layer stays open. Typing a number there no longer
+  retunes the radio.
+- Saving or deleting a profile on a radio that isn't yours is refused.
+  Tell the app whose radio it is in Settings, Per-radio settings.
+- Switch Mic Input Back to PC is new on the Radio menu.
+- The Memories dialog can change a memory now, not just read one.
 
-You were right and I was wrong about where to look. The radio's VOX detector
-needs to hear audio BEFORE it can decide to key, and we were only sending
-audio once transmit had already started. So while you were receiving, the
-radio heard digital silence and nothing to trigger on. Turning the gain up
-does not help, because no amount of gain turns silence into speech. That is
-why your gain sweeps did nothing.
+KNOWN ISSUES
 
-The microphone now streams the whole time PC audio is on, so the radio has
-something to listen to. I tested five ways on my 8600 into a dummy load:
-VOX off and idle stays unkeyed, VOX on with the mic live and nobody talking
-stays unkeyed, VOX on and talking keys it, the test tone still stops dead
-the instant you unkey, and with PC audio off nothing opens the microphone
-at all.
-
-One thing worth knowing about how we do it, since it is our choice and not
-the radio's: we start the microphone stream whenever PC audio is on, rather
-than only while you are transmitting. That is what gives VOX something to
-hear. It costs about 9 KB a second and it means the stream is already there
-when we add recording and playback later.
-
-YOU SHOULD GET SLICES ON CONNECT AGAIN
-
-This one is my regression and I am sorry about it. On 21 September I replaced
-the code that sets up your station on connect, and the new version had a
-safety gate in it waiting on a measurement nobody had taken. Until that
-measurement existed the gate refused to create any slices, which is exactly
-what you hit on 29 September. It had nothing to do with your ownership
-setting or your profiles. The measurement is done and the gate is open.
-
-ONE STEP YOU HAVE TO DO BY HAND. This bit matters, because it is what
-unblocked me this morning and you will almost certainly need it too.
-
-Connect, then open the Radio menu, then Profiles on This Radio. There are
-three choices and only one of them loads your profiles:
-
-  Use My Transmit Audio Here
-  Load All My Profiles Here      <-- pick this one on your own radio
-  Leave This Radio's Profiles Alone
-
-If you are on Use My Transmit Audio Here, the app deliberately will not
-touch your profiles, so you get slices at whatever frequency the radio
-feels like, which is usually 14.100. Pick Load All My Profiles Here,
-disconnect, reconnect, and your own frequencies should come back.
-
-That menu is confusing and it is going away. It asks a standing question in
-a place meant for actions, and it hides under a name that does not tell you
-it controls what happens on connect. That is being redesigned, so do not
-spend effort learning it.
-
-ONE ODD MESSAGE YOU CAN IGNORE
-
-When the profile load works, the diagnostic log still records the station as
-not established. That is a third safety gate, waiting on its own measurement,
-and all it means is that we cannot PROVE the radio finished loading, not that
-anything failed. If your frequencies are right, it worked. You will not see
-this unless you go looking in the log.
-
-WHAT I WOULD MOST LIKE TO KNOW
-
-  1. Does VOX key for you now, on the 6300, over SmartLink.
-  2. Do you get your own slices and frequencies after setting
-     Load All My Profiles Here.
-  3. Does it ever key with VOX switched OFF. It should not, ever, and that
-     would be ours rather than a gain setting.
+- Shift+Space just after the high reflected power alarm cuts your
+  transmit can lock you straight back on. Press it again to unlock.
+- Holding Shift+Space too long can switch the lock on and off several
+  times. Tap it.
+- In Logging mode, Ctrl+Shift+L doesn't take you back out. Use the Mode
+  menu instead.
+- Under NVDA, words like "can't" are spoken as "can t".
+- These keys have only been checked under NVDA so far. JAWS is next.

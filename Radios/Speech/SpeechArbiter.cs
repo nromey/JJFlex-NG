@@ -681,6 +681,11 @@ namespace Radios.Speech
             /// </summary>
             public int AutomaticAttempts;
 
+            // A consequence queued behind a cut must not interrupt that cut
+            // if its reader reports completion/cancellation before audio ends.
+            // Later recovery attempts retain the existing urgent policy.
+            public bool NonInterruptingFirstHandoff;
+
             /// <summary>
             /// Extra attempts granted by a backend-recovery edge, one per
             /// edge. Added to <see cref="ProtectedAutomaticAttempts"/> rather
@@ -1031,6 +1036,128 @@ namespace Radios.Speech
         }
 
         /// <summary>
+        /// An ordinary interrupt that WAITS for the safety speaking turn
+        /// instead of cutting it (#778b round five). With no safety attempt
+        /// holding the turn and nothing waiting for it, this is exactly
+        /// <see cref="Emit"/> with <see cref="SpeechIntent.Interrupt"/>,
+        /// spoken at once. Otherwise it waits in the arbiter, not in the
+        /// reader's queue, and the turn waiter (<see cref="ReleaseAlarms"/>)
+        /// hands it over, queued, once every protected retry and every alarm
+        /// waiting for the turn has had it and the turn is free.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Why it exists.</b> A value layer's refusal, when its tone
+        /// cannot sound, is spoken at every verbosity, Off included, so it is
+        /// tagged Critical. Critical is a verbosity level, not a priority: an
+        /// ordinary interrupt is handed to the reader immediately and cuts
+        /// whatever is speaking, a transmit-safety sentence or an alarm
+        /// included (Codex, #778b round-four re-verify). Noel's ruling: the
+        /// refusal waits behind safety speech.</para>
+        /// <para><b>Why it waits HERE rather than queueing in the reader.</b>
+        /// Queued text in the reader is discarded by the next safety sentence
+        /// (Urgent and an alarm's hand-over both discard ordinary speech), so
+        /// with two alarms back to back a refusal queued behind the first
+        /// would be lost to the second. Waiting in the arbiter it is late, not
+        /// lost: it follows the last of them. Only the operator's own silence
+        /// lets it go, as it lets go of waiting alarms. Once handed over it is
+        /// ordinary speech again, and a LATER safety sentence takes the reader
+        /// from it as from any other; that is the safety contract,
+        /// unchanged.</para>
+        /// <para><b>Nothing else changes.</b> This is opt-in per call. Every
+        /// other ordinary interrupt keeps its current behaviour, and no
+        /// priority class is added: the turn, its waiter and its order are the
+        /// ones alarms and protected retries already use, and this waits
+        /// behind both of them.</para>
+        /// <para>One waiting utterance per subject: a newer one on the same
+        /// subject replaces the older and keeps its place, so several refused
+        /// keys during one alarm are answered once, with the newest
+        /// sentence.</para>
+        /// </remarks>
+        public void EmitYieldingToSafety(string message, VerbosityLevel? level, string? origin, string? subject)
+        {
+            if (string.IsNullOrEmpty(message)) return;
+            lock (_lock)
+            {
+                var now = _clock.UtcNow;
+                if (_yieldingToSafety.Count == 0 && _alarmPending.Count == 0
+                    && !AnyProtectedAwaitingTurnLocked() && !_safety.IsBusy(now))
+                {
+                    EmitLocked(message, interrupt: true, SpeechIntent.Interrupt, level, origin, subject);
+                    return;
+                }
+
+                YieldingUtterance? existing = subject == null ? null
+                    : _yieldingToSafety.Find(y => string.Equals(y.Subject, subject, StringComparison.Ordinal));
+                if (existing != null)
+                {
+                    existing.Message = message;
+                    existing.Level = level;
+                    existing.Origin = origin;
+                }
+                else if (_yieldingToSafety.Count >= YieldingToSafetyCap)
+                {
+                    Tracing.TraceLine(
+                        $"SpeechArbiter: {YieldingToSafetyCap} utterances already wait behind the safety turn; "
+                        + $"'{Clip(message)}' is not added", TraceLevel.Warning);
+                    return;
+                }
+                else
+                {
+                    _yieldingToSafety.Add(new YieldingUtterance
+                    {
+                        Message = message, Level = level, Origin = origin, Subject = subject, QueuedUtc = now,
+                    });
+                }
+
+                Tracing.TraceLine(
+                    $"SpeechArbiter: '{Clip(message)}' waits behind the safety turn rather than cutting it"
+                    + (_safety.Current != null ? $" ({_safety.Current})" : " (an alarm or a safety retry is waiting for it)")
+                    + (subject != null ? $" [subject '{subject}']" : string.Empty), TraceLevel.Info);
+                ArmAlarmTimerLocked(now);
+            }
+        }
+
+        private sealed class YieldingUtterance
+        {
+            public string Message = string.Empty;
+            public VerbosityLevel? Level;
+            public string? Origin;
+            public string? Subject;
+            public DateTime QueuedUtc;
+        }
+
+        /// <summary>Ordinary utterances waiting behind the safety turn, oldest first (<see cref="EmitYieldingToSafety"/>).</summary>
+        private readonly List<YieldingUtterance> _yieldingToSafety = new List<YieldingUtterance>();
+
+        /// <summary>Defensive: one per subject is the real bound, and a live value layer has one.</summary>
+        internal const int YieldingToSafetyCap = 8;
+
+        /// <summary>Utterances waiting behind the safety turn. Tests.</summary>
+        internal int YieldingToSafetyCount { get { lock (_lock) return _yieldingToSafety.Count; } }
+
+        /// <summary>
+        /// The turn is free and nothing safety-shaped waits for it: say what
+        /// yielded, QUEUED, in order. Not as an interrupt: an interrupt here
+        /// is the arbiter's recovery opportunity for whatever it believes
+        /// unheard, and an untracked safety sentence whose estimate just ran
+        /// out is exactly that, so it would be said a second time straight
+        /// after the refusal. Queued, the refusal takes nothing from anyone;
+        /// it is already late, and it cuts no waiter ahead of it.
+        /// </summary>
+        private void ReleaseYieldingLocked(DateTime now)
+        {
+            var due = new List<YieldingUtterance>(_yieldingToSafety);
+            _yieldingToSafety.Clear();
+            foreach (var y in due)
+            {
+                Tracing.TraceLine(
+                    $"SpeechArbiter: '{Clip(y.Message)}' spoken after waiting {(int)(now - y.QueuedUtc).TotalMilliseconds} ms behind the safety turn",
+                    TraceLevel.Info);
+                EmitLocked(y.Message, interrupt: false, SpeechIntent.Queue, y.Level, y.Origin, y.Subject);
+            }
+        }
+
+        /// <summary>
         /// The emitter declares that <paramref name="subject"/> is covered:
         /// the operation it narrated has ended, the state it described has
         /// been replaced by something spoken elsewhere. Anything still
@@ -1178,6 +1305,34 @@ namespace Radios.Speech
         }
 
         /// <summary>
+        /// Retain a safety consequence without taking the turn from its cut.
+        /// Once handed over it follows the existing protected recovery rules.
+        /// </summary>
+        public void SafetyFollowup(string message, VerbosityLevel level, string? origin, string subject,
+            Func<bool>? stillValid = null)
+        {
+            lock (_lock)
+            {
+                var now = _clock.UtcNow;
+                MarkSupersededLocked(subject, $"'{message}'", origin, now);
+                var owed = AdmitProtectedLocked(message, level, origin, subject, now, stillValid);
+                if (owed == null) return;
+                owed.State = Owed.NeverStarted;
+                owed.NonInterruptingFirstHandoff = true;
+                if (_safety.IsBusy(now) || AnyProtectedAwaitingTurnLocked())
+                {
+                    owed.AwaitingTurn = true;
+                    ArmAlarmTimerLocked(now);
+                }
+                else
+                {
+                    _believedQueued.Remove(owed);
+                    HandOverProtectedLocked(owed, now);
+                }
+            }
+        }
+
+        /// <summary>
         /// Transmit safety: cut what is speaking AND drop what is queued —
         /// ours and the reader's — so nothing stale can play on top of the
         /// warning. The one intent for which discard is the point.
@@ -1233,7 +1388,7 @@ namespace Radios.Speech
                 // wait behind this one, and so does a protected retry waiting
                 // its turn. Re-armed rather than left pointing at a deadline
                 // that no longer exists.
-                if (_alarmPending.Count > 0 || AnyProtectedAwaitingTurnLocked()) ArmAlarmTimerLocked(now);
+                if (AnyTurnWaiterLocked()) ArmAlarmTimerLocked(now);
             }
         }
 
@@ -1628,7 +1783,7 @@ namespace Radios.Speech
                     }
                     _believedQueued.Remove(next);   // the hand-over re-inserts it
                     HandOverProtectedLocked(next, now);
-                    if (AnyProtectedAwaitingTurnLocked() || _alarmPending.Count > 0) ArmAlarmTimerLocked(now);
+                    if (AnyTurnWaiterLocked()) ArmAlarmTimerLocked(now);
                     return;
                 }
 
@@ -1709,7 +1864,18 @@ namespace Radios.Speech
                     break;
                 }
 
-                if (_alarmPending.Count > 0) ArmAlarmTimerLocked(now);
+                // **Ordinary speech that yields to the safety turn goes LAST
+                // (#778b round five).** Only once no protected retry and no
+                // alarm is waiting, and the turn is free, so a refusal said
+                // with sounds off at Off follows every safety sentence rather
+                // than sitting in the reader's queue where the next one would
+                // discard it.
+                if (_alarmPending.Count == 0 && !AnyProtectedAwaitingTurnLocked() && _yieldingToSafety.Count > 0)
+                {
+                    if (_safety.IsBusy(now)) ArmAlarmTimerLocked(now);
+                    else ReleaseYieldingLocked(now);
+                }
+                else if (AnyTurnWaiterLocked()) ArmAlarmTimerLocked(now);
             }
         }
 
@@ -1730,7 +1896,7 @@ namespace Radios.Speech
             SafetyTurn? ended = _safety.TakeOutcome(ticket, completed, now);
             if (ended == null) return;
 
-            if (_alarmPending.Count > 0 || AnyProtectedAwaitingTurnLocked()) ArmAlarmTimerLocked(now);
+            if (AnyTurnWaiterLocked()) ArmAlarmTimerLocked(now);
         }
 
         /// <summary>
@@ -2008,6 +2174,14 @@ namespace Radios.Speech
                 _untrackedAlarmWasSoundingAtSilence = false;
 
                 _alarmPending.Clear();
+                // What waited behind the safety turn goes too, for the same
+                // reason: the operator asked for quiet (#778b round five).
+                if (_yieldingToSafety.Count > 0)
+                    Tracing.TraceLine($"SpeechArbiter: {_yieldingToSafety.Count} utterance(s) waiting behind the safety turn let go, "
+                        + "the operator silenced speech: "
+                        + string.Join(", ", _yieldingToSafety.ConvertAll(y => "'" + Clip(y.Message) + "'")),
+                        TraceLevel.Info);
+                _yieldingToSafety.Clear();
                 _alarmTimer?.Dispose(); _alarmTimer = null; _alarmGeneration++;
                 // Attempts still awaiting an answer, and retries settling, are
                 // forgotten WITHOUT telling their alarms "not delivered": a
@@ -2053,6 +2227,7 @@ namespace Radios.Speech
                 DiscardAllLocked("all speech state discarded");
                 _safety.Reset();
                 _alarmPending.Clear();
+                _yieldingToSafety.Clear();
                 _alarmTimer?.Dispose(); _alarmTimer = null; _alarmGeneration++;
                 RetireAlarmAttemptsLocked(null, "all speech state discarded");
                 _lastUntrackedAlarmSubject = null;
@@ -2702,7 +2877,7 @@ namespace Radios.Speech
 
                 // Anything left waiting for the turn is served by the turn
                 // waiter when the attempt holding it answers.
-                if (AnyProtectedAwaitingTurnLocked()) ArmAlarmTimerLocked(now);
+                if (AnyTurnWaiterLocked()) ArmAlarmTimerLocked(now);
 
                 Tracing.TraceLine(
                     $"SpeechArbiter: released {handed} of {train.Count} held salvage(s) {heldMs} ms after "
@@ -2733,7 +2908,9 @@ namespace Radios.Speech
         private bool HandOverProtectedLocked(BelievedQueued s, DateTime now)
         {
             SafetyTurn turn = _safety.ReserveForSafety(s.Subject, now);
-            var requeued = _sink(s.Message, true, SpeechIntent.Urgent, s.Level, s.Origin, salvaged: true);
+            bool interrupt = !s.NonInterruptingFirstHandoff || s.AutomaticAttempts > 0;
+            var requeued = _sink(s.Message, interrupt,
+                interrupt ? SpeechIntent.Urgent : SpeechIntent.Queue, s.Level, s.Origin, salvaged: true);
             if (!requeued.Reached)
             {
                 _safety.NoteBackendFailed();
@@ -2785,6 +2962,10 @@ namespace Radios.Speech
         }
 
         private bool AnyProtectedAwaitingTurnLocked() => _believedQueued.Exists(e => e.Protected && e.AwaitingTurn);
+
+        /// <summary>Anything the turn waiter (<see cref="ReleaseAlarms"/>) must come back for.</summary>
+        private bool AnyTurnWaiterLocked()
+            => _alarmPending.Count > 0 || AnyProtectedAwaitingTurnLocked() || _yieldingToSafety.Count > 0;
 
         /// <summary>
         /// Close the hold without handing anything over. With a reason, the

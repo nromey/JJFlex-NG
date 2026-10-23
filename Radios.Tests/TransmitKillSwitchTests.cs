@@ -60,6 +60,171 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void TheHoldAfterACutRefusesTheCarrierAndLeavesItsSentenceForTheCheck()
+        {
+            // #571: a transmit check's carrier into the same fault is RF like
+            // any other. The hook speaks for itself (it is the controller's
+            // RefuseIfHeldAfterCut) and hands back the sentence; the gate
+            // refuses before the carrier is recorded as raised, and the
+            // check's detail line gets the same words the operator heard.
+            var rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+            try
+            {
+                string asked = null;
+                TransmitKillSwitch.TransmitHeld = door => { asked = door; return "Not keyed. Marker sentence."; };
+                using (TransmitKillSwitch.Arm(rig, "the transmitter check"))
+                {
+                    Assert.False(TransmitKillSwitch.RaiseCarrier(rig, TransmitKillSwitch.Carrier.Mox));
+                    Assert.Equal("a transmit check", asked);
+                    Assert.Equal("Not keyed. Marker sentence.", TransmitKillSwitch.LastRaiseRefusal);
+
+                    // Positive control, same arm: with the hold answering "not
+                    // held" the same raise goes through, and the stale sentence
+                    // is cleared so the check cannot report a refusal that did
+                    // not happen.
+                    TransmitKillSwitch.TransmitHeld = door => null;
+                    Assert.True(TransmitKillSwitch.RaiseCarrier(rig, TransmitKillSwitch.Carrier.Mox));
+                    Assert.Null(TransmitKillSwitch.LastRaiseRefusal);
+                }
+            }
+            finally { try { rig.Dispose(); } catch { } }
+        }
+
+        [Fact]
+        public void AReflectedPowerCutTellsTheHoldSubscriberBeforeAnythingWaits()
+        {
+            // #571, Astra B1: a cut from a transmit check must start the same
+            // hold the controller's own cut does. Request for the reflected
+            // source raises the notice; without the watcher's reading it says
+            // so. The hook fires on the requesting thread before ConfirmDown's
+            // wait, so the next press finds keying held.
+            var rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+            try
+            {
+                ReflectedCutNotice? seen = null;
+                TransmitKillSwitch.ReflectedCutHappened = n => seen = n;
+                using (TransmitKillSwitch.Arm(rig, "the transmitter check"))
+                {
+                    Assert.True(TransmitKillSwitch.RaiseCarrier(rig, TransmitKillSwitch.Carrier.Mox));
+                    TransmitKillSwitch.Request(TransmitKillSwitch.Source.ReflectedPower, "cut sentence");
+                }
+                Assert.NotNull(seen);
+                Assert.False(seen!.Value.HasReading);
+                Assert.Equal("ANT1", seen.Value.Antenna);   // the bare rig's TX antenna reads ANT1
+                Assert.Equal(TransmitSafety.ReflectedCut.None, seen.Value.Rung);
+            }
+            finally { try { rig.Dispose(); } catch { } }
+        }
+
+        [Fact]
+        public void TheHoldIsToldTheCutSentenceIsOut_AfterItIsToldTheCutHappened()
+        {
+            // Opus N4: the hold begins before the kill switch speaks, and the
+            // kill switch's sentence is Urgent, which flushes the queue. So the
+            // hold holds its VOX note back until this second hook, raised after
+            // whichever of the three sentences Request spoke.
+            var rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+            try
+            {
+                var order = new List<string>();
+                TransmitKillSwitch.ReflectedCutHappened = n => order.Add("happened");
+                TransmitKillSwitch.ReflectedCutSpoken = () => order.Add("spoken");
+                using (TransmitKillSwitch.Arm(rig, "the transmitter check"))
+                {
+                    TransmitKillSwitch.RaiseCarrier(rig, TransmitKillSwitch.Carrier.Mox);
+                    TransmitKillSwitch.Request(TransmitKillSwitch.Source.ReflectedPower, "cut sentence");
+                }
+                Assert.Equal(new[] { "happened", "spoken" }, order);
+
+                // Not for the other sources.
+                order.Clear();
+                using (TransmitKillSwitch.Arm(rig, "the transmitter check"))
+                {
+                    TransmitKillSwitch.RaiseCarrier(rig, TransmitKillSwitch.Carrier.Mox);
+                    TransmitKillSwitch.Request(TransmitKillSwitch.Source.EscapeKey);
+                }
+                Assert.Empty(order);
+            }
+            finally { try { rig.Dispose(); } catch { } }
+        }
+
+        [Fact]
+        public void OtherKillSourcesDoNotStartAHold()
+        {
+            // Only the reflected-power cut (Noel, 2026-10-22 05:14): Escape and
+            // a host request end a check without holding anything.
+            var rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+            try
+            {
+                int notices = 0;
+                TransmitKillSwitch.ReflectedCutHappened = n => notices++;
+                using (TransmitKillSwitch.Arm(rig, "the transmitter check"))
+                {
+                    TransmitKillSwitch.RaiseCarrier(rig, TransmitKillSwitch.Carrier.Mox);
+                    TransmitKillSwitch.Request(TransmitKillSwitch.Source.EscapeKey);
+                }
+                using (TransmitKillSwitch.Arm(rig, "the transmitter check"))
+                {
+                    TransmitKillSwitch.RaiseCarrier(rig, TransmitKillSwitch.Carrier.Mox);
+                    TransmitKillSwitch.Request(TransmitKillSwitch.Source.HostRequest);
+                }
+                Assert.Equal(0, notices);
+            }
+            finally { try { rig.Dispose(); } catch { } }
+        }
+
+        [Fact]
+        public void TheRaiseRefusalIsPerThread()
+        {
+            // Two checks raising at once must not read each other's sentence.
+            var rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+            try
+            {
+                TransmitKillSwitch.TransmitHeld = door => "Held on " + System.Threading.Thread.CurrentThread.ManagedThreadId;
+                string onOther = null;
+                using (TransmitKillSwitch.Arm(rig, "the transmitter check"))
+                {
+                    var t = new System.Threading.Thread(() =>
+                    {
+                        TransmitKillSwitch.RaiseCarrier(rig, TransmitKillSwitch.Carrier.Mox);
+                        onOther = TransmitKillSwitch.LastRaiseRefusal;
+                    });
+                    t.Start(); t.Join();
+                    Assert.Null(TransmitKillSwitch.LastRaiseRefusal);   // this thread raised nothing
+                    TransmitKillSwitch.RaiseCarrier(rig, TransmitKillSwitch.Carrier.Mox);
+                    Assert.NotNull(onOther);
+                    Assert.NotEqual(onOther, TransmitKillSwitch.LastRaiseRefusal);
+                    Assert.EndsWith(System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), TransmitKillSwitch.LastRaiseRefusal);
+                }
+            }
+            finally { try { rig.Dispose(); } catch { } }
+        }
+
+        [Fact]
+        public void AHoldHookThatThrowsOrIsAbsentNeverHoldsACheck()
+        {
+            // Noel's worry runs this way: a check refused because a hook broke
+            // is "I can't transmit because an alarm hasn't cleared". Absent and
+            // throwing both read as not held.
+            var rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+            try
+            {
+                using (TransmitKillSwitch.Arm(rig, "the transmitter check"))
+                {
+                    Assert.Null(TransmitKillSwitch.TransmitHeld);
+                    Assert.True(TransmitKillSwitch.RaiseCarrier(rig, TransmitKillSwitch.Carrier.Tune));
+                }
+                using (TransmitKillSwitch.Arm(rig, "the transmitter check"))
+                {
+                    TransmitKillSwitch.TransmitHeld = door => throw new InvalidOperationException("gone");
+                    Assert.True(TransmitKillSwitch.RaiseCarrier(rig, TransmitKillSwitch.Carrier.Tune));
+                    Assert.Null(TransmitKillSwitch.LastRaiseRefusal);
+                }
+            }
+            finally { try { rig.Dispose(); } catch { } }
+        }
+
+        [Fact]
         public void ArmingWithNoRadioArmsNothing()
         {
             using (TransmitKillSwitch.Arm(null, "a check with no radio"))

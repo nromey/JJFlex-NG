@@ -252,9 +252,12 @@ namespace JJFlexWpf.Tests
         [Fact]
         public void A_letter_the_layer_carries_at_no_tier_is_a_plain_unknown()
         {
-            // Z is nothing in the audio layer at any tier, so the old answer
-            // stands: keep the value, say the layer closed, and let the key
-            // travel. Inventing an alternative would be worse than leaving.
+            // Z is nothing in the audio layer at any tier, so there is no
+            // neighbour to name. Inventing one would be worse than silence.
+            // (What the ENGINE then does with Z changed under #778: it stays
+            // in the layer with the layer's own line, rather than closing and
+            // letting Z travel. That is pinned in Radios.Tests; this test only
+            // says the inventory offers no alternative.)
             Assert.False(KeyInventory.TryFindLayerNearMiss(
                 KeyInventory.AudioLayerContext, Keys.Z, out _, out _));
         }

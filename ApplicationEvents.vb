@@ -279,9 +279,12 @@ Namespace My
                     CWText.Manage()
                 End Sub
 
-            ' Wire UI mode persistence — saves to operator profile when user switches modes.
+            ' Persist Classic/Modern preference only. The window owns the live
+            ' session mode, including its Logging overlay.
             WpfMainWindow.SaveUIModeCallback = Sub(mode)
-                ActiveUIMode = CType(mode, UIMode)
+                If mode = JJFlexWpf.MainWindow.UIMode.Logging OrElse CurrentOp Is Nothing Then Return
+                CurrentOp.UIModeSetting = CInt(mode)
+                Operators.UpdateCurrentOp()
             End Sub
 
             ' Run VB-side initialization (moved from Form1_Load).

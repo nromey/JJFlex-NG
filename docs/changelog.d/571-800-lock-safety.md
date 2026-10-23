@@ -1,0 +1,2 @@
+- After the reflected-power cutoff ends a transmission, the radio won't key again for five seconds, unless you change your antenna, power, frequency or tuner.
+- Holding Shift+Space now locks or unlocks once, instead of keying the radio on and off.

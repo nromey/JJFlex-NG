@@ -53,7 +53,7 @@ public partial class MainWindow : UserControl
 
     /// <summary>
     /// Callback to persist UI mode changes to the operator profile.
-    /// Set by ApplicationEvents.vb — routes to globals.ActiveUIMode setter.
+    /// Set by ApplicationEvents.vb — saves only Classic or Modern to the operator profile.
     /// </summary>
     public Action<UIMode>? SaveUIModeCallback { get; set; }
 
@@ -302,6 +302,19 @@ public partial class MainWindow : UserControl
         // leader's second key goes through KeyCommands' own switch. The
         // chords are app-level configuration, loaded here because the hook
         // exists before any operator or radio does.
+        // #778c: the THIRD door, Ctrl+Space pressed in any WPF dialog
+        // (Shift+Space there is consumed and refused inside the door until
+        // the dialog lock has been measured at the bench; round three, Noel
+        // 10:55). Same shape as the system-wide wiring below: the door
+        // decides, these callers gate on a powered radio, and the edges are
+        // shared. Wired outside the try because it needs no hook and must
+        // not fall with one.
+        DialogTransmitKeys.PttEdge = HandleDialogPttEdge;
+        DialogTransmitKeys.HoldInFlight =
+            () => _pttController != null && _pttController.State == PttSafetyController.PttState.PttHold;
+        DialogTransmitKeys.EscapeUnkey = HandleDialogEscapeUnkey;
+        DialogTransmitKeys.ReleaseNow = HandleDialogHoldLost;
+        DialogTransmitKeys.SessionOwnsTransmitter = () => Dialogs.AudioWorkshopDialog.AnAudioCheckIsActive;
         try
         {
             var systemWide = Radios.SystemWideKeysConfig.Load(Radios.RadioConfig.AppDataRoot);
@@ -1396,7 +1409,7 @@ public partial class MainWindow : UserControl
     /// announcement that is wrong by the time it is heard is worse than
     /// silence.</para>
     /// </remarks>
-    private void ReportHomePanelsMissing()
+    private void ReportHomePanelsMissing(HomeLayoutRestore.Route route)
     {
         // Wrapped because this sits on the connect path. An instrument that can
         // take down the thing it is watching is worse than no instrument, and
@@ -1404,7 +1417,7 @@ public partial class MainWindow : UserControl
         // the rest of the radio is wired up.
         try
         {
-            ReportHomePanelsMissingCore();
+            ReportHomePanelsMissingCore(route);
         }
         catch (Exception ex)
         {
@@ -1412,13 +1425,18 @@ public partial class MainWindow : UserControl
         }
     }
 
-    private void ReportHomePanelsMissingCore()
+    private void ReportHomePanelsMissingCore(HomeLayoutRestore.Route route)
     {
         if (!HomePanelsCollapsedWithRadio) return;
 
+        // Until #410 this line named its own cause — "ExitRescueMode returned
+        // early ... so ApplyUIMode never ran" — which was true then and would
+        // be false now, because that early return restores. So it states the
+        // state and the route taken, and leaves the cause to the trace lines
+        // around it rather than asserting one it can no longer know.
         Tracing.TraceLine(
-            "Home panels missing with a radio present (#500/#410): ExitRescueMode returned early"
-            + " because rescue mode was never entered, so ApplyUIMode never ran to restore them."
+            "Home panels missing with a radio present (#500/#410), after the arrival's restore decision"
+            + " (route: " + route + "). Something collapsed the fields panel that no restore on this arrival covered."
             + " | state: " + DescribeHomePanelVisibility()
             + " | FieldsPanelUserVisible=" + FieldsPanelUserVisible,
             TraceLevel.Error);
@@ -1492,36 +1510,53 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
-    /// A radio arrived: retire the rescue page and hand Home back to the UI
-    /// mode. Restoring through <see cref="ApplyUIMode"/> rather than by
-    /// un-collapsing each panel means the connected layout is never rebuilt
-    /// from this method's memory of what it used to look like — the mode
-    /// builders stay the single source of truth for that.
+    /// A radio arrived: retire the rescue page if it is up, and hand Home back
+    /// to the UI mode whenever anything collapsed it — the rescue page, or the
+    /// disconnect shell a reconnect inside the grace period finds still in
+    /// place (#410). Both routes restore through
+    /// <see cref="RestoreConnectedHomeLayout"/>, so <see cref="ApplyUIMode"/>
+    /// stays the single source of truth for the connected layout.
     /// </summary>
     public void ExitRescueMode()
     {
         CancelRescueCountdown();
-        if (!_rescueMode)
+        var route = HomeLayoutRestore.Decide(_rescueMode, _disconnectShellUp);
+        if (route != HomeLayoutRestore.Route.FromRescuePage)
         {
-            // #500 — THIS EARLY RETURN IS THE SILENT MOMENT, and it is the one
-            // the evening of 2026-09-01 actually landed in.
+            // #410 — A RECONNECT INSIDE THE GRACE PERIOD OWES THE SAME RESTORE.
             //
             // A disconnect runs RestoreNoRadioShell, which collapses Fields,
-            // Meters and Panadapter WITHOUT entering rescue mode, and starts a
-            // three-minute countdown. A radio arriving before that countdown
-            // fires reaches here with _rescueMode still false, returns on this
-            // line, and NEVER RUNS ApplyUIMode — which is the only thing that
-            // un-collapses those three panels. ApplyUIMode is called on startup
-            // and on an operator change; nothing on a reconnect calls it.
+            // Meters and Panadapter WITHOUT entering rescue mode, and starts
+            // the three-minute countdown. A radio arriving before it fires
+            // reaches here with _rescueMode still false. Until #410 this branch
+            // only reported and returned, and ApplyUIMode — the only thing that
+            // un-collapses those panels — never ran, so the operator got a
+            // working radio with a third of the interface out of the tab order,
+            // and reconnecting, the obvious remedy, was the path that left it
+            // that way (#500 caught it on 2026-09-01 and made it visible).
             //
-            // So the operator gets a working radio with a third of the
-            // interface gone, it survives further reconnects because
-            // reconnecting is not what restores it, and a restart appears to
-            // fix it. That is #410's mechanism seen from this side, and
-            // repairing it is #410's job, not this track's.
+            // Now it restores exactly as the rescue exit does, through the one
+            // shared method, so ApplyUIMode stays the single source of the
+            // layout. Nothing is spoken and focus is not moved: the disconnect
+            // put focus on the frequency display, which never collapsed, and
+            // the connect flow's own narration is what the operator hears.
             //
-            // What this track owes it is that it stop being invisible.
-            ReportHomePanelsMissing();
+            // Route.None is the first connect of a session, before any
+            // disconnect: startup already applied the layout, so nothing runs.
+            if (route == HomeLayoutRestore.Route.FromDisconnectShell)
+            {
+                Tracing.TraceLine(
+                    "Home: radio arrived inside the rescue grace period — restoring the panels the disconnect collapsed"
+                    + " | before: " + DescribeHomePanelVisibility(),
+                    TraceLevel.Info);
+                RestoreConnectedHomeLayout();
+            }
+
+            // #500's instrument stays on this path and still reports the state
+            // it was built to see — a radio present and the fields panel gone —
+            // now as a defect in whatever collapsed it after this restore, or
+            // in a route nobody has found yet, rather than as this early return.
+            ReportHomePanelsMissing(route);
             return;
         }
         _rescueMode = false;
@@ -1536,10 +1571,7 @@ public partial class MainWindow : UserControl
         bool pageHadFocus = RescuePanel.IsKeyboardFocusWithin;
 
         RescuePanel.Visibility = Visibility.Collapsed;
-        // ContentArea is the one panel the mode builders never touch; its
-        // children carry their own CW-mode visibility rules from there.
-        ContentArea.Visibility = Visibility.Visible;
-        ApplyUIMode(ActiveUIMode);
+        RestoreConnectedHomeLayout();
 
         // Reset the page's name so a lead that was never heard cannot outlive
         // the situation that produced it and greet the operator next time.
@@ -1565,6 +1597,46 @@ public partial class MainWindow : UserControl
         Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
             Radios.ScreenReaderOutput.Speak(
                 Radios.Lexicon.Get("connect.home.radio_back"), VerbosityLevel.Critical, interrupt: false));
+    }
+
+    /// <summary>
+    /// True from the moment <see cref="RestoreNoRadioShell"/> collapses Home's
+    /// operating surface until <see cref="RestoreConnectedHomeLayout"/> puts it
+    /// back. What tells <see cref="ExitRescueMode"/> that a reconnect inside
+    /// the grace period owes a restore (#410).
+    /// </summary>
+    private bool _disconnectShellUp;
+
+    // #788: a disconnect hides the panel; it is not an operator choice.
+    // Null means no restore is pending. Keep Visibility separate from the
+    // expander, whose state the shell never changes (a folded header stays folded).
+    private Visibility? _metersVisibilityBeforeDisconnect;
+
+    /// <summary>
+    /// Hand Home back to the UI mode after either collapse — the rescue page
+    /// or the disconnect shell. One method for both routes so the two can
+    /// never restore differently (#410).
+    /// </summary>
+    /// <remarks>
+    /// <para>Restoring through <see cref="ApplyUIMode"/> rather than by
+    /// un-collapsing each panel means the connected layout is never rebuilt
+    /// from a memory of what it used to look like; the mode builders stay the
+    /// single source of truth.</para>
+    /// <para><c>ApplyUIMode</c> also restores the meters visibility captured
+    /// at disconnect, or the newer choice made through Ctrl+M while offline.
+    /// It does not toggle the panel, speak, or move focus. The panadapter
+    /// still comes back on the first pan line through <c>PanDisplayCallback</c>
+    /// if the operator's Show-panadapter setting is on.</para>
+    /// </remarks>
+    private void RestoreConnectedHomeLayout()
+    {
+        // ContentArea is the one panel the mode builders never touch; its
+        // children carry their own CW-mode visibility rules from there. The
+        // disconnect shell never collapses it, so on that route this is a
+        // no-op kept for symmetry rather than a repair.
+        ContentArea.Visibility = Visibility.Visible;
+        _disconnectShellUp = false;
+        ApplyUIMode(ActiveUIMode);
     }
 
     #region Mid-session rescue — Sprint 31 Track R
@@ -2320,7 +2392,7 @@ public partial class MainWindow : UserControl
 
     /// <summary>
     /// Last non-logging mode (Classic or Modern). Restored when exiting Logging Mode.
-    /// Matches globals.vb LastNonLogMode.
+    /// This window owns the session-only Logging overlay and its return mode.
     /// </summary>
     public UIMode LastNonLogMode { get; set; } = UIMode.Modern;
 
@@ -2347,6 +2419,16 @@ public partial class MainWindow : UserControl
             case UIMode.Logging:
                 ShowLoggingUI();
                 break;
+        }
+
+        // #788: only a connected layout consumes the saved meters choice.
+        // A tuning-mode change during the grace period or rescue must not
+        // reopen what the no-radio shell hid. Set Visibility directly: ShowPanel
+        // would announce "opened" and queue a focus move without an operator action.
+        if (!_disconnectShellUp && !_rescueMode && _metersVisibilityBeforeDisconnect.HasValue)
+        {
+            MetersPanel.Visibility = _metersVisibilityBeforeDisconnect.Value;
+            _metersVisibilityBeforeDisconnect = null;
         }
 
         // Rescue Home outranks the mode builders while it is up: every builder
@@ -2599,9 +2681,21 @@ public partial class MainWindow : UserControl
         // Key.System is reported separately because it is how WPF marks a key
         // pressed while Alt owns the keyboard.
         Tracing.TraceLine($"KEYROUTE wpf.MainWindow_PreviewKeyDown key={rawKey} viaSystem={e.Key == Key.System} mods={Keyboard.Modifiers} handled={e.Handled} focus={Keyboard.FocusedElement?.GetType().Name}", TraceLevel.Info);
+        // #778c round three: the measurement the dialog lock waits on. One
+        // line per Space key event under a detailed capture, ahead of every
+        // branch that can return; it changes nothing about what the key does.
+        if (rawKey == Key.Space)
+            SpaceKeyTimingTrace.Note(down: true, WpfKeyConverter.ToWinFormsKeys(e), e.IsRepeat, SpaceKeyTimingTrace.HomeDoor);
         // Let regular Tab (and Ctrl+Tab / Ctrl+Shift+Tab) pass through to
-        // WPF default handling / child-panel PreviewKeyDown handlers.
-        if (rawKey == Key.Tab)
+        // WPF default handling / child-panel PreviewKeyDown handlers —
+        // UNLESS a value layer is live (#778c; Noel, 2026-10-21 06:32: "Once
+        // in a layer, tab gets refused"). Then Tab falls on to step 4 like
+        // any other key and the layer refuses it with its ordinary answer,
+        // as a layer in a dialog already did; Home's focus does not move
+        // behind an open layer. Ctrl+Tab and Ctrl+Shift+Tab (pane
+        // navigation) take the same route (ruled by Noel 2026-10-21 07:41:
+        // "yep that's right"). With no layer live nothing here changed.
+        if (rawKey == Key.Tab && !KeyCommands.AValueLayerIsLive)
             return;
 
         // 1. Former hard-wired meta-commands (Ctrl+Shift+M tuning mode,
@@ -2706,21 +2800,27 @@ public partial class MainWindow : UserControl
         {
             if (rawKey == Key.Space && Keyboard.Modifiers == ModifierKeys.Shift)
             {
-                _pttController.ToggleLock();
+                LockKeyDown(e.IsRepeat);
                 e.Handled = true;
                 return;
             }
 
             if (rawKey == Key.Space && Keyboard.Modifiers == ModifierKeys.Control)
             {
-                if (!e.IsRepeat) PttKeyDownEdge();
+                if (!e.IsRepeat) PttKeyDownEdge(PttDoor.Home);
                 e.Handled = true;
                 return;
             }
 
             if (rawKey == Key.Escape && _pttController.IsTransmitting)
             {
+                // #778c repair round two, Codex B1 (PRE-EXISTING here): the
+                // controller's transition is not the whole of it. The input
+                // state the edges keep (a deferred release, the repeat
+                // guard) must go too, or the next Ctrl+Space is read as
+                // continuing a hold that Escape ended.
                 _pttController.EscapeUnlock();
+                ResetPttInput();
                 e.Handled = true;
                 return;
             }
@@ -2754,6 +2854,11 @@ public partial class MainWindow : UserControl
 
         if (rawKey == Key.Space)
         {
+            // #778c round three: the measurement trace, see the key-down.
+            SpaceKeyTimingTrace.Note(down: false, WpfKeyConverter.ToWinFormsKeys(e), e.IsRepeat, SpaceKeyTimingTrace.HomeDoor);
+            // Detection only (#800): a lock release too fast to be human is
+            // counted and traced, and changes nothing.
+            _lockPairDetector.NoteUp(Environment.TickCount64);
             // Read the state BEFORE the edge runs: a consumed release takes the
             // controller out of PttHold, and asking afterwards would let the
             // very key-up that unkeyed fall through to the focused control.
@@ -2772,11 +2877,32 @@ public partial class MainWindow : UserControl
     // two paths that drift. SystemWideKeys posts its edges to this dispatcher
     // and never touches the controller itself.
 
+    /// <summary>Which door keyed the hold in flight (#778c repair round two, Codex F2).</summary>
+    internal enum PttDoor
+    {
+        /// <summary>No hold keyed through the edges since the last reset.</summary>
+        None,
+        /// <summary>Home's step 3: Ctrl+Space with focus in the Home fields.</summary>
+        Home,
+        /// <summary>The dialog door, <see cref="DialogTransmitKeys"/>.</summary>
+        Dialog,
+        /// <summary>The system-wide chord, <see cref="SystemWideKeys"/>.</summary>
+        SystemWide,
+    }
+
+    /// <summary>
+    /// The door that keyed the hold the controller is in. Read with the
+    /// controller's state, never alone: a stale value with the controller
+    /// Idle means nothing. The dialog door's window-loss release asks this
+    /// before unkeying, so a hold another door keyed later is not its to end.
+    /// </summary>
+    private PttDoor _pttHoldDoor;
+
     /// <summary>
     /// A push-to-talk DOWN edge, repeats already removed by the caller:
     /// key the transmitter unless a hold is already in flight.
     /// </summary>
-    private void PttKeyDownEdge()
+    private void PttKeyDownEdge(PttDoor door)
     {
         if (_pttController == null || _pttKeyDown) return; // redundant down events
         _pttKeyDown = true;
@@ -2791,8 +2917,28 @@ public partial class MainWindow : UserControl
         }
         else
         {
+            _pttHoldDoor = door;
             _pttController.PttDown();
         }
+    }
+
+    /// <summary>
+    /// Forget everything the edges know about a hold, without touching the
+    /// controller: the deferred release, the repeat guard, the hold filter's
+    /// press in flight (what it has learned about the reader stays), and the
+    /// door. Called by every path that ends a transmission OUTSIDE the key
+    /// edges (#778c repair round two, Codex B1):
+    /// Escape on Home and in a dialog, a dialog losing its hold to window
+    /// loss, the radio turning transmit off on its own, and the radio
+    /// closing. Without it a deferred release left pending swallows the next
+    /// Ctrl+Space as a continuation of a hold Escape already ended.
+    /// </summary>
+    private void ResetPttInput()
+    {
+        _pttDeferTimer?.Stop();
+        _pttHoldFilter.Reset();
+        _pttKeyDown = false;
+        _pttHoldDoor = PttDoor.None;
     }
 
     /// <summary>
@@ -2849,14 +2995,36 @@ public partial class MainWindow : UserControl
     /// from another program into a radio that is not there must not fail
     /// silently (#307) — and the UP is simply nothing to release.
     /// </summary>
-    internal void HandleSystemWidePttEdge(bool down)
+    internal void HandleSystemWidePttEdge(bool down) => PttEdgeFromOutsideHome(down, PttDoor.SystemWide);
+
+    /// <summary>
+    /// Detection only (#800): counts a lock-key release that arrives too soon
+    /// after its press to be human, the pattern the controller uses for push
+    /// to talk. No measurement has shown such a pair on Shift+Space under
+    /// either reader, so nothing is built on it; the trace would say so.
+    /// </summary>
+    private readonly Radios.LockKeyPairDetector _lockPairDetector = new Radios.LockKeyPairDetector();
+
+    /// <summary>
+    /// Home's transmit lock key, Shift+Space, decided at key-DOWN with no
+    /// pending state (#800). A held key is ONE press: it toggles the lock
+    /// once, however long it is held and whatever repeats the screen reader
+    /// sends (Noel, 2026-10-21 20:46: "holding it should just lock and unlock
+    /// it for sure"). Until this, every auto-repeat toggled it — on 2026-10-21
+    /// a Shift+Space held about 0.8 s keyed and unkeyed the radio sixteen
+    /// times in under a second into a high-reflection load, and on 2026-10-22
+    /// JAWS was measured delivering a hold the same way: repeat key-downs
+    /// every ~31 ms from 500 ms in. Same rule as the Ctrl+Space branch beside
+    /// it and as the system-wide chord, which latches on its first down.
+    /// Nothing is decided at key-up (#778c, Codex B5): a press decided there
+    /// survived Escape and a window change and keyed on a later unrelated
+    /// Space release.
+    /// </summary>
+    internal void LockKeyDown(bool isRepeat)
     {
-        if (_pttController == null || !_radioPowerOn)
-        {
-            if (down) Radios.ScreenReaderOutput.SpeakNoRadioConnected();
-            return;
-        }
-        if (down) PttKeyDownEdge(); else PttKeyUpEdge();
+        if (isRepeat) return;   // a held key is one press
+        _lockPairDetector.NoteDown(Environment.TickCount64);
+        _pttController?.ToggleLock();
     }
 
     /// <summary>The system-wide transmit lock: what Shift+Space does inside the window.</summary>
@@ -2868,6 +3036,70 @@ public partial class MainWindow : UserControl
             return;
         }
         _pttController.ToggleLock();
+    }
+
+    /// <summary>
+    /// The dialog door (#778c): Ctrl+Space pressed in any WPF window that is
+    /// not Home, from <see cref="DialogTransmitKeys"/>. Same gate and same
+    /// edges as the system-wide door; Home's own step 3 gate (focus in the
+    /// Home fields) does not apply, because the dialog IS the focus.
+    /// </summary>
+    internal void HandleDialogPttEdge(bool down) => PttEdgeFromOutsideHome(down, PttDoor.Dialog);
+
+    /// <summary>
+    /// The dialog door's Escape (#778c repair round one, B1): while the
+    /// controller is transmitting, locked or held, unkey as Home's step 3
+    /// does and report true so the door consumes the key and the dialog stays
+    /// open. False when nothing was transmitting, so Escape closes the dialog
+    /// as usual. The edges' input state goes with the transmission (round
+    /// two, Codex B1), exactly as on Home.
+    /// </summary>
+    internal bool HandleDialogEscapeUnkey()
+    {
+        if (_pttController == null || !_pttController.IsTransmitting) return false;
+        _pttController.EscapeUnlock();
+        ResetPttInput();
+        return true;
+    }
+
+    /// <summary>
+    /// The dialog that keyed a hold lost focus or closed (#778c repair round
+    /// one, F2). Window loss is not a key-up: the operator cannot release a
+    /// key into a window that is gone, and a screen reader's synthetic pair
+    /// is not what happened, so the absorber's deferral does not apply. Acts
+    /// only when the hold in flight is the dialog door's (round two, Codex
+    /// F2): a hold Home or the system-wide chord keyed after the dialog's
+    /// ended is not the dialog's to release, however late its window event
+    /// arrives. Then drops the edges' input state and unkeys at once.
+    /// </summary>
+    internal void HandleDialogHoldLost()
+    {
+        if (_pttController == null) { ResetPttInput(); return; }
+        bool holding = _pttController.State == PttSafetyController.PttState.PttHold;
+        if (holding && _pttHoldDoor != PttDoor.Dialog)
+        {
+            Tracing.TraceLine("PTT: a dialog's window-loss release was declined; the hold in flight was keyed by "
+                + _pttHoldDoor + ", not the dialog (#778c F2)", TraceLevel.Info);
+            return;
+        }
+        ResetPttInput();
+        if (holding) _pttController.PttUp();
+    }
+
+    /// <summary>
+    /// The gate the two doors outside Home share. Home's step 3 is silent
+    /// with the radio off because the key falls through to the focused Home
+    /// field; a door that CONSUMES the key instead (so no button is pressed)
+    /// owes the operator a word, and this is the #307 word.
+    /// </summary>
+    private void PttEdgeFromOutsideHome(bool down, PttDoor door)
+    {
+        if (_pttController == null || !_radioPowerOn)
+        {
+            if (down) Radios.ScreenReaderOutput.SpeakNoRadioConnected();
+            return;
+        }
+        if (down) PttKeyDownEdge(door); else PttKeyUpEdge();
     }
 
     /// <summary>
@@ -2886,6 +3118,12 @@ public partial class MainWindow : UserControl
                 if (_pttHoldFilter.DeferralElapsed(Environment.TickCount64))
                 {
                     _pttController?.PttUp();
+                    // The hold is over, so the dialog that keyed it (if one
+                    // did) has nothing left to release: drop its
+                    // subscriptions now, or its next window event would
+                    // release whatever hold came after (#778c round two,
+                    // Codex F2). Nothing to do when no dialog holds.
+                    DialogTransmitKeys.HoldReleased();
                     return;
                 }
 
@@ -3543,9 +3781,7 @@ public partial class MainWindow : UserControl
         bool saved = false;
         try
         {
-            var cfg = Radios.RadioConfig.LoadForRadio(serial);
-            cfg.SmartLinkIntent = intent;
-            saved = cfg.SaveForRadio(serial);
+            saved = Radios.RadioConfig.Update(serial, cfg => { cfg.SmartLinkIntent = intent; });
         }
         catch (Exception ex)
         {
@@ -3574,6 +3810,13 @@ public partial class MainWindow : UserControl
     /// </summary>
     public void UnwireRadioEvents()
     {
+        // FIRST, while the rig and its transport are still up (#571, Astra B3):
+        // CloseTheRadio calls this and THEN disposes the rig, and nothing on
+        // that path disposed the PTT controller, so a hold after a cut could
+        // outlive the radio with VOX still off. The hold ends here and the VOX
+        // restore is written immediately, not queued.
+        _pttController?.ReleaseRigForTeardown("radio events unwired");
+
         PollTimerEnabled = false;
         _radioPowerOn = false;
 
@@ -3644,8 +3887,15 @@ public partial class MainWindow : UserControl
 
             RadioControlsPanel.Visibility = Visibility.Visible;
             FieldsPanel.Visibility = Visibility.Collapsed;
+            // Capture once, before the shell hides it. A failed reconnect or
+            // repeated disconnect must not overwrite this with the shell's collapse.
+            if (!_disconnectShellUp)
+                _metersVisibilityBeforeDisconnect = MetersPanel.Visibility;
             MetersPanel.Visibility = Visibility.Collapsed;
             PanadapterPanel.Visibility = Visibility.Collapsed;
+            // #410: the next radio to arrive owes a restore, whether the
+            // rescue page has engaged by then or not.
+            _disconnectShellUp = true;
             // FreqOut is the cold-start focus anchor (SpeakWelcome focuses it
             // after MainWindow loads). Returning focus here means the user
             // doesn't lose a meaningful focus location during the visibility
@@ -4579,6 +4829,11 @@ public partial class MainWindow : UserControl
 
         Tracing.TraceLine($"TransmitChange: {transmit}", TraceLevel.Info);
 
+        // The radio's own word on RF, to the transmit episode (#571, Astra
+        // B6): a transmission VOX or a hand mic keyed is a transmission, and an
+        // unheard "you are no longer on the air" must not be replayed into it.
+        _pttController?.NoteRadioTransmit(transmit);
+
         // Update Transmit button visual
         TransmitButton.Content = transmit ? "TX On" : "Transmit";
 
@@ -4586,6 +4841,9 @@ public partial class MainWindow : UserControl
         if (!transmit && _pttController != null && _pttController.IsTransmitting)
         {
             _pttController.EscapeUnlock();
+            // The transmission ended outside the key edges, so what they
+            // remember of it goes too (#778c round two, Codex B1 by class).
+            ResetPttInput();
         }
     }
 
@@ -4623,6 +4881,10 @@ public partial class MainWindow : UserControl
         // Manual tune (Ctrl+Shift+T) never gets progress beeps — the operator controls
         // the carrier and uses meter tones/speech to monitor SWR, power, etc.
         bool isAutoATU = e.Type == "auto" && RigControl.HasATU;
+
+        // The ATU's own status, to the transmit episode (#571, Astra B6):
+        // in progress is RF on, every other status is its end.
+        _pttController?.NoteAtuTuning(e.Status == "InProgress");
 
         switch (e.Status)
         {
@@ -5348,9 +5610,9 @@ public partial class MainWindow : UserControl
 
         // A deferred PTT release (#216) has nothing left to release; the hold
         // filter keeps its learned state — that describes the screen reader,
-        // which survives the radio.
-        _pttDeferTimer?.Stop();
-        _pttHoldFilter.Reset();
+        // which survives the radio. Same helper as Escape (#778c round two),
+        // so the repeat guard and the door go with it.
+        ResetPttInput();
 
         // Stop the Audio Workshop's poll timer (and any Audio Check session) —
         // the workshop singleton outlives the radio, and its 2 Hz tick raced
@@ -6038,6 +6300,11 @@ public partial class MainWindow : UserControl
         // have measured lying (1.008 off an open port, 2026-08-22).
         float capturedSwr = newState ? float.NaN : RigControl.TuneCycleSettledComputedSwr;
         RigControl.TxTune = newState;
+        // Plumbing only (#571, Astra B6): the carrier is RF, so the transmit
+        // episode hears about it and an unheard off-air sentence is withdrawn
+        // rather than replayed under it. The carrier is NOT held and keys
+        // exactly as before (Noel, 2026-10-22 05:42).
+        _pttController?.NoteTuneCarrier(newState);
         TuneToggleButton.IsChecked = newState;
         if (newState)
         {
@@ -6074,6 +6341,11 @@ public partial class MainWindow : UserControl
     public void ToggleMetersPanel()
     {
         MetersPanel.TogglePanelVisibility();
+        // Record what the REAL toggle just did, not the inverse of a saved
+        // choice: the first press while hidden opens the panel, as it always did.
+        // Rescue may hide it again; reconnect must still honour this newer word.
+        if (_disconnectShellUp || _rescueMode)
+            _metersVisibilityBeforeDisconnect = MetersPanel.Visibility;
     }
 
     /// <summary>
@@ -6102,6 +6374,7 @@ public partial class MainWindow : UserControl
         // ATU tune uses FlexTunerOn which handles auto/manual tuner logic
         _oldSwr = "";
         RigControl.FlexTunerOn = true;
+        _pttController?.NoteAtuTuning(true);   // #571, Astra B6: an ATU cycle is RF; see ToggleTuneCarrier
         Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.atu_tuning"), VerbosityLevel.Terse, true);
     }
 
@@ -6521,30 +6794,39 @@ public partial class MainWindow : UserControl
             return;
         }
 
-        int stopCount = alloc.Value.Channels.Length + (alloc.Value.Digi != null ? 1 : 0);
-        if (stopCount == 0) return;
+        // #312: the stop, the mode and the sentence are decided in one pure
+        // place. A channel sets its own mode, as it always has; the digital
+        // segment now asks for CW when the current mode is not permitted there
+        // — before #312 it tuned and spoke and left the operator on USB inside
+        // a digital-only segment, with transmit plausibly the next thing they
+        // did.
+        var stop = SixtyMeterChannels.Rotate(country, _sixtyMeterChannelIndex, direction, RigControl.Mode);
+        if (stop == null) return;
+        _sixtyMeterChannelIndex = stop.Index;
 
-        _sixtyMeterChannelIndex = (_sixtyMeterChannelIndex + direction + stopCount) % stopCount;
+        // Frequency first, then mode, the order this method and the band jump
+        // have always used.
+        RigControl.Frequency = stop.FrequencyHz;
 
-        if (_sixtyMeterChannelIndex < alloc.Value.Channels.Length)
+        if (stop.Correction == null)
         {
-            // Channelized frequency
-            var ch = alloc.Value.Channels[_sixtyMeterChannelIndex];
-            ulong freqHz = (ulong)(ch.FrequencyMHz * 1_000_000.0 + 0.5);
-            RigControl.Frequency = freqHz;
-            RigControl.Mode = ch.Mode;
-            ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.home.sixty_meter_channel",
-                ("label", ch.Label), ("freq", $"{ch.FrequencyMHz:F4}"), ("mode", ch.Mode)),
-                VerbosityLevel.Terse);
+            // A channel stop, or the segment on a mode already permitted
+            // there. Unchanged from before #312.
+            if (stop.ChannelMode != null) RigControl.Mode = stop.ChannelMode;
+            // Queue, not interrupt, exactly as before; keyed so a newer stop
+            // retires an unheard older one rather than both being rescued
+            // after an interrupt.
+            ScreenReaderOutput.Speak(stop.Arrival, Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
+                subject: Radios.Speech.SpeechSubject.SixtyMeterStop);
+            return;
         }
-        else if (alloc.Value.Digi is { } digi)
-        {
-            // Digital segment — tune to start
-            ulong freqHz = (ulong)(digi.StartMHz * 1_000_000.0 + 0.5);
-            RigControl.Frequency = freqHz;
-            ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.home.sixty_meter_digital",
-                ("freq", $"{digi.StartMHz:F4}")), VerbosityLevel.Terse);
-        }
+
+        // Repair round two: says only what is known. A request that went out
+        // is "switching"; a refusal (transmitting, no slice of ours) says the
+        // mode was not changed. "Mode set" is never claimed, because nothing
+        // here hears the radio agree.
+        Radios.SixtyMeterModeDelivery.Deliver(RigControl, stop.Arrival, stop.Correction,
+            Radios.Speech.SpeechIntent.Queue);
     }
 
     #endregion

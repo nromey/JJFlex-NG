@@ -38,4 +38,10 @@
     <ProjectReference Include="..\Radios\Radios.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The measured JAWS Shift+Space streams (#800), one source file compiled
+         into both test projects so the two replays cannot drift apart. -->
+    <Compile Include="..\Radios.Tests\Fixtures\JawsShiftSpaceCapture20261022.cs" Link="Fixtures\JawsShiftSpaceCapture20261022.cs" />
+  </ItemGroup>
+
 </Project>

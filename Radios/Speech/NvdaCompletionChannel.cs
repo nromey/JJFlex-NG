@@ -241,8 +241,8 @@ namespace Radios.Speech
         }
 
         /// <summary>
-        /// The five XML predefined entities. Nothing cleverer: NVDA parses
-        /// SSML as XML, and these are the only characters that break it.
+        /// Escape XML text, not attribute values. Quotes stay literal so NVDA's
+        /// Expat parser keeps contractions and quoted words in one speech run.
         /// </summary>
         internal static string Escape(string s)
         {
@@ -255,15 +255,13 @@ namespace Radios.Speech
                     case '&': sb.Append("&amp;"); break;
                     case '<': sb.Append("&lt;"); break;
                     case '>': sb.Append("&gt;"); break;
-                    case '"': sb.Append("&quot;"); break;
-                    case '\'': sb.Append("&apos;"); break;
                     default: sb.Append(c); break;
                 }
             }
             return sb.ToString();
         }
 
-        private static readonly char[] _xmlSpecials = { '&', '<', '>', '"', '\'' };
+        private static readonly char[] _xmlSpecials = { '&', '<', '>' };
 
         /// <summary>
         /// Native entry point for marks. Runs on whichever thread the RPC

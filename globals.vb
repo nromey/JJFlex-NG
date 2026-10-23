@@ -28,52 +28,15 @@ Module globals
     Public Const CopyRight As String = "Copyright 2013 by J.J. Shaffer"
 
     ''' <summary>
-    ''' UI mode: Classic preserves legacy menus, Modern provides reorganized slice-centric menus.
-    ''' Logging mode is reserved for a future sprint.
+    ''' UI mode: Classic and Modern are operator preferences; Logging is a
+    ''' session-only overlay owned by MainWindow.
     ''' Persisted as an integer in operator XML so adding values never breaks existing files.
     ''' </summary>
     Public Enum UIMode
         Classic = 0
         Modern = 1
-        Logging = 2   ' Reserved — falls back to Classic until the Logging sprint ships.
+        Logging = 2
     End Enum
-
-    ''' <summary>
-    ''' Session-only flag — True while in Logging Mode overlay.
-    ''' Never touches UIModeSetting so the persisted Classic/Modern choice is preserved.
-    ''' </summary>
-    Private _isInLoggingMode As Boolean = False
-
-    ''' <summary>
-    ''' The active UI mode for the current operator.
-    ''' Logging is a session-only overlay that never writes to the operator config.
-    ''' Classic/Modern persist normally.
-    ''' </summary>
-    Friend Property ActiveUIMode As UIMode
-        Get
-            If _isInLoggingMode Then Return UIMode.Logging
-            If CurrentOp Is Nothing Then Return UIMode.Classic
-            Return CurrentOp.CurrentUIMode
-        End Get
-        Set(value As UIMode)
-            If value = UIMode.Logging Then
-                ' Logging is session-only — just set the flag, don't touch persisted settings.
-                _isInLoggingMode = True
-                Return
-            End If
-            ' Leaving Logging (or switching Classic/Modern) — clear the flag and persist.
-            _isInLoggingMode = False
-            If CurrentOp Is Nothing Then Return
-            CurrentOp.UIModeSetting = CInt(value)
-            Operators.UpdateCurrentOp()
-        End Set
-    End Property
-
-    ''' <summary>
-    ''' Remembers Classic or Modern so toggling out of Logging returns to the right mode.
-    ''' Not persisted — resets to the operator's saved mode on startup.
-    ''' </summary>
-    Friend LastNonLogMode As UIMode = UIMode.Classic
     ' Lexicon-backed, so these are properties rather than Const — a Const must
     ' be a compile-time literal. Every consumer reads them by name and is
     ' unaffected.
@@ -2507,7 +2470,7 @@ Module globals
         Dim keyContext = New JJFlexWpf.KeyCommandContext With {
             .GetRigControl = Function() RigControl,
             .GetPower = Function() Power,
-            .GetActiveUIMode = Function() CInt(ActiveUIMode),
+            .GetActiveUIMode = Function() CInt(WpfMainWindow.ActiveUIMode),
             .GetMainWindow = Function() WpfMainWindow,
             .Trace = Sub(msg) Tracing.TraceLine(msg, TraceLevel.Info),
             .GetScanRunning = Function() ScanInProcess,
@@ -2554,7 +2517,7 @@ Module globals
                 End Try
             End Sub,
             .BringUpLogForm = Sub(adifTag)
-                If ActiveUIMode = UIMode.Logging AndAlso WpfMainWindow.LoggingLogPanel IsNot Nothing Then
+                If WpfMainWindow.ActiveUIMode = JJFlexWpf.MainWindow.UIMode.Logging AndAlso WpfMainWindow.LoggingLogPanel IsNot Nothing Then
                     Dim fieldName As String = Nothing
                     Select Case adifTag
                         Case "CALL" : fieldName = "CALL"
@@ -2584,7 +2547,7 @@ Module globals
                 WpfMainWindow.Visible = saveVisible
             End Sub,
             .FinalizeLog = Sub()
-                If ActiveUIMode = UIMode.Logging AndAlso WpfMainWindow.LoggingLogPanel IsNot Nothing Then
+                If WpfMainWindow.ActiveUIMode = JJFlexWpf.MainWindow.UIMode.Logging AndAlso WpfMainWindow.LoggingLogPanel IsNot Nothing Then
                     WpfMainWindow.LoggingLogPanel.WriteEntry()
                     Return
                 End If
@@ -3986,7 +3949,8 @@ Module globals
 
         ' Apply the new operator's UI mode preference via WPF.
         If WpfMainWindow IsNot Nothing Then
-            WpfMainWindow.ApplyUIMode(CType(ActiveUIMode, JJFlexWpf.MainWindow.UIMode))
+            Dim preferredMode = If(CurrentOp Is Nothing, UIMode.Classic, CurrentOp.CurrentUIMode)
+            WpfMainWindow.ApplyUIMode(CType(preferredMode, JJFlexWpf.MainWindow.UIMode))
         End If
     End Sub
 
@@ -6043,7 +6007,7 @@ RadioConnected:
 
         ' Apply the correct UI mode now that operators are loaded
         If WpfMainWindow IsNot Nothing AndAlso CurrentOp IsNot Nothing Then
-            WpfMainWindow.ApplyUIMode(CType(ActiveUIMode, JJFlexWpf.MainWindow.UIMode))
+            WpfMainWindow.ApplyUIMode(CType(CurrentOp.CurrentUIMode, JJFlexWpf.MainWindow.UIMode))
         End If
 
         ' Migrate config files from legacy naming to callsign-based naming.

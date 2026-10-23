@@ -2011,13 +2011,14 @@ namespace Radios
             Tracing.TraceLine($"RenameRadio: '{radio.Nickname}' -> '{newName}'", TraceLevel.Info);
             radio.Nickname = newName.Trim();
 
-            var profile = RadioConfig.LoadForRadio(radio.Serial);
             // A rename through JJ Flex is a deliberate choice: record it in
             // both the observation mirror AND the choice field, so it keeps
             // winning if the hardware name later diverges.
-            profile.Nickname = newName.Trim();
-            profile.UserNickname = newName.Trim();
-            profile.SaveForRadio(radio.Serial);
+            string chosenName = newName.Trim();
+            RadioConfig.Update(radio.Serial, profile => {
+                profile.Nickname = chosenName;
+                profile.UserNickname = chosenName;
+            });
 
             RefreshAutoConnectDisplayName(radio.Serial, newName.Trim());
             return true;
@@ -2657,6 +2658,11 @@ namespace Radios
             // this connection falling is a drop again.
             _firmwareUpdateSent = false;
 
+            // Fresh connection: no mic input saved from an earlier session is
+            // ever put back on this one, and the healer starts a new episode
+            // (#686, repair round two; see FlexBase.RemoteAudio.cs).
+            ResetPcMicSession("connect to " + serial);
+
             ConnectionProfiler.Current?.RecordEvent("connect_begin", new Dictionary<string, object>
             {
                 { "serial", serial },
@@ -2700,12 +2706,12 @@ namespace Radios
             // at wan_connect_ready, but a LAN connect used to write nothing —
             // so a radio only ever used locally never appeared in the Settings
             // per-radio picker. Load/Save never throw.
+            string observedNickname = theRadio.Nickname;
+            RadioConfig.Update(theRadio.Serial, profile => {
+                if (!string.IsNullOrEmpty(observedNickname))
+                    profile.Nickname = observedNickname;
+            });
             var knownRadioProfile = RadioConfig.LoadForRadio(theRadio.Serial);
-            if (!string.IsNullOrEmpty(theRadio.Nickname))
-            {
-                knownRadioProfile.Nickname = theRadio.Nickname;
-            }
-            knownRadioProfile.SaveForRadio(theRadio.Serial);
 
             // Arm the change-nothing hold BEFORE the handler wiring below —
             // the first connect-path write (TNFEnabled) is twenty lines down,
@@ -2863,6 +2869,9 @@ namespace Radios
             {
                 Tracing.TraceLine($"Connect: IsWan={theRadio.IsWan} RequiresHolePunch={theRadio.RequiresHolePunch} PublicTlsPort={theRadio.PublicTlsPort} NegotiatedHolePunchPort={theRadio.NegotiatedHolePunchPort} IP={theRadio.IP}", TraceLevel.Info);
                 ConnectionProfiler.Current?.RecordEvent("flexlib_connect_begin");
+                // FlexLib's Connect sends its own `profile global info`; record
+                // it first, so its answer is never taken as the radio's own (#639).
+                NoteFlexLibConnectTimeProfileAsk("Connect");
                 // The stored GUI client id for this radio and instance, or null
                 // for "radio, mint one" (#782). FlexLib sends `client gui <id>`
                 // or a bare `client gui` accordingly.
@@ -3397,6 +3406,8 @@ namespace Radios
 
                 if (rv)
                 {
+                    // FlexLib's Connect sends its own `profile global info` (#639).
+                    NoteFlexLibConnectTimeProfileAsk("RetryConnect");
                     // The same stored id as the first attempt presented, unless
                     // the radio refused it as a duplicate in between (#782).
                     rv = theRadio.Connect(prepareClientIdentityForConnect("RetryConnect"));
@@ -4349,6 +4360,7 @@ namespace Radios
             // unrecoverable), but it narrows the window where a doomed rig is
             // still the intake from "until someone else engages" to "now".
             resignAsThePresenceIntake();
+            DisconnectVoxPauses();
 
             if (!disposed)
             {
@@ -4727,7 +4739,20 @@ namespace Radios
             }
             trace("Connected:" + nowConnected.ToString(), TraceLevel.Error);
 
+            bool wasConnected = _IsConnected;
             _IsConnected = nowConnected;
+            if (nowConnected && !wasConnected)
+            {
+                // Capture on the qualified transition. Disk I/O belongs on
+                // the worker, away from FlexLib's sequential receive loop.
+                string serial = r.Serial;
+                string nickname = r.Nickname;
+                string model = r.Model;
+                bool remote = r.IsWan;
+                string account = remote ? WanAccountForSerial(serial) : "";
+                System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+                    KnownRadioRoster.RecordSighting(serial, nickname, model, remote, account));
+            }
             // The archive is taken BEFORE ConnectionStateChanged, so a subscriber
             // that throws cannot cost the evidence.
             if (!nowConnected) archiveIfOurConnectionDropped(r, token, fall);
@@ -8986,14 +9011,64 @@ namespace Radios
                 // change landed on the wrong slice in Noel's 2026-08-07
                 // session. Capture the slice at set time so the queued command
                 // can't retarget either.
-                Slice s = VFOToSlice(RXVFO);
-                if (s == null)
-                {
-                    Slice act = theRadio?.ActiveSlice;
-                    if ((act != null) && myClient(act.ClientHandle)) s = act;
-                }
+                Slice s = RXModeTarget();
                 if (s != null) q.Enqueue((FunctionDel)(() => { s.DemodMode = value; }), "RXDemodMode");
             }
+        }
+
+        /// <summary>
+        /// The slice an RX mode write lands on: our RX VFO's slice, else the
+        /// active slice if it is ours, else none. Shared by <see cref="RXMode"/>
+        /// and <see cref="RequestMode"/> so the two can never disagree about
+        /// which slice they mean (#312).
+        /// </summary>
+        private Slice RXModeTarget()
+        {
+            Slice s = VFOToSlice(RXVFO);
+            if (s == null)
+            {
+                Slice act = theRadio?.ActiveSlice;
+                if ((act != null) && myClient(act.ClientHandle)) s = act;
+            }
+            return s;
+        }
+
+        /// <summary>
+        /// Ask for an RX mode change and be told whether the request went out
+        /// (#312, repair round one). <see cref="Mode"/>'s setter returns
+        /// silently while transmitting and <see cref="RXMode"/>'s silently when
+        /// there is no slice to write — correct for their callers, and
+        /// unchanged, but a caller that has to SAY the mode changed cannot tell
+        /// from them whether anything happened.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Sent is not applied.</b> It means the write was queued to
+        /// the slice, and nothing more. Reading the slice's DemodMode back does
+        /// not prove more: FlexLib's setter writes that field before the
+        /// command goes out, so a read-back is our own echo (Codex, #312 repair
+        /// round one). Say "switching", never "set" (#164).</para>
+        /// </remarks>
+        public ModeRequestOutcome RequestMode(string value)
+        {
+            if (Transmit)
+            {
+                Tracing.TraceLine("RequestMode: transmitting, so \"" + value + "\" was NOT requested", TraceLevel.Warning);
+                return ModeRequestOutcome.RefusedTransmitting;
+            }
+            Slice s = RXModeTarget();
+            if (s == null)
+            {
+                Tracing.TraceLine("RequestMode: no slice of ours to write, so \"" + value + "\" was NOT requested", TraceLevel.Warning);
+                return ModeRequestOutcome.RefusedNoSlice;
+            }
+            if (q == null || !q.MainLoop)
+            {
+                // q.Enqueue would only trace "outside main loop" and drop it.
+                Tracing.TraceLine("RequestMode: the radio's command loop is not running, so \"" + value + "\" was NOT requested", TraceLevel.Warning);
+                return ModeRequestOutcome.RefusedNotRunning;
+            }
+            q.Enqueue((FunctionDel)(() => { s.DemodMode = value; }), "RXDemodMode");
+            return ModeRequestOutcome.Sent;
         }
 
         /// <summary>
@@ -11465,7 +11540,13 @@ namespace Radios
 
                 // The zero-and-restore pair is mechanical, not an operator
                 // settings change — it must not arm the provisional-change
-                // receipt or the disconnect save offer (#225).
+                // receipt or the disconnect save offer (#225). Whether it is
+                // the OPERATOR'S command is not this setter's to say: the
+                // Transmit menu's item is, and the Audio Check's own engage is
+                // not (#571, Opus N1 and R1). The caller that is the operator's
+                // command wraps this in OperatorChoseThisChange; the setter
+                // itself declares nothing, so the Audio Check's writes stay
+                // app-originated and cannot lift the hold after a cut.
                 using (AppInitiatedSettingChanges())
                 {
                     if (value)
@@ -11499,7 +11580,7 @@ namespace Radios
             }
             set
             {
-                NoteOperatorChangedRadioSetting("XmitPower");
+                NoteRadioSettingWritten("XmitPower", value.ToString());   // the hold after a cut needs to know whose write this is (#571)
                 q.Enqueue((FunctionDel)(() => { theRadio.RFPower = value; }));
             }
         }
@@ -11563,7 +11644,7 @@ namespace Radios
             }
             set
             {
-                NoteOperatorChangedRadioSetting("TunePower");
+                NoteRadioSettingWritten("TunePower", value.ToString());   // the hold after a cut needs to know whose write this is (#571)
                 q.Enqueue((FunctionDel)(() => { theRadio.TunePower = value; }));
             }
         }
@@ -12131,6 +12212,11 @@ namespace Radios
         /// <param name="str">the text string</param>
         public bool SendCW(string str)
         {
+            // The hold after a reflected-power cut (#571; Noel 21:16, "nothing
+            // re-keys"): a CW message keys the radio through break-in, and
+            // break-in may still be on in a mode the cut did not pause. The
+            // hook speaks the refusal; nothing is buffered or queued.
+            if (CwKeyingRefused("a CW message")) return false;
             lock (cwBuffer)
             {
                 if (CWBuffering)
@@ -12147,6 +12233,7 @@ namespace Radios
 
         public bool SendCW(char c)
         {
+            if (CwKeyingRefused("CW typing")) return false;   // #571, as the string form above
             if (CWBuffering)
             {
                 cwBuffer.Text += c;

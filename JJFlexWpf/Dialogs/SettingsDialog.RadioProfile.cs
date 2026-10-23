@@ -833,6 +833,12 @@ namespace JJFlexWpf.Dialogs
             foreach (var (radioId, edit) in _pendingProfileEdits.ToList())
             {
                 var cfg = RadioConfig.LoadForRadio(radioId);
+                var before = (
+                    cfg.ConnectionPreference, cfg.FixedHolePunchPort,
+                    cfg.AllowRemotePortChanges, cfg.AllowRemoteFirmwareUpdates,
+                    cfg.NoPhysicalAccess, cfg.NoPhysicalAccessDecided,
+                    cfg.SmartLinkIntent, cfg.Ownership, cfg.ChangeNothingOnThisRadio,
+                    cfg.SmeterInDbm, cfg.RemOnOnConnect, cfg.UserNickname, cfg.Nickname);
                 bool connected = IsConnectedTo(radioId);
                 string disp = RadioProfilePickerModel.LabelFor(cfg);
                 var notesQueued = new List<string>();
@@ -1071,7 +1077,23 @@ namespace JJFlexWpf.Dialogs
 
                 if (!changed) continue;
 
-                if (cfg.SaveForRadio(radioId))
+                // All radio/UI actions above have completed. The locked
+                // callback below only copies fields this commit changed.
+                if (RadioConfig.Update(radioId, fresh => {
+                    if (before.ConnectionPreference != cfg.ConnectionPreference) fresh.ConnectionPreference = cfg.ConnectionPreference;
+                    if (before.FixedHolePunchPort != cfg.FixedHolePunchPort) fresh.FixedHolePunchPort = cfg.FixedHolePunchPort;
+                    if (before.AllowRemotePortChanges != cfg.AllowRemotePortChanges) fresh.AllowRemotePortChanges = cfg.AllowRemotePortChanges;
+                    if (before.AllowRemoteFirmwareUpdates != cfg.AllowRemoteFirmwareUpdates) fresh.AllowRemoteFirmwareUpdates = cfg.AllowRemoteFirmwareUpdates;
+                    if (before.NoPhysicalAccess != cfg.NoPhysicalAccess) fresh.NoPhysicalAccess = cfg.NoPhysicalAccess;
+                    if (before.NoPhysicalAccessDecided != cfg.NoPhysicalAccessDecided) fresh.NoPhysicalAccessDecided = cfg.NoPhysicalAccessDecided;
+                    if (before.SmartLinkIntent != cfg.SmartLinkIntent) fresh.SmartLinkIntent = cfg.SmartLinkIntent;
+                    if (before.Ownership != cfg.Ownership) fresh.Ownership = cfg.Ownership;
+                    if (before.ChangeNothingOnThisRadio != cfg.ChangeNothingOnThisRadio) fresh.ChangeNothingOnThisRadio = cfg.ChangeNothingOnThisRadio;
+                    if (before.SmeterInDbm != cfg.SmeterInDbm) fresh.SmeterInDbm = cfg.SmeterInDbm;
+                    if (before.RemOnOnConnect != cfg.RemOnOnConnect) fresh.RemOnOnConnect = cfg.RemOnOnConnect;
+                    if (before.UserNickname != cfg.UserNickname) fresh.UserNickname = cfg.UserNickname;
+                    if (before.Nickname != cfg.Nickname) fresh.Nickname = cfg.Nickname;
+                }))
                 {
                     anySaved = true;
                     queued.AddRange(notesQueued);

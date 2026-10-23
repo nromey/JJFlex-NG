@@ -20,6 +20,8 @@ public partial class MainWindow
 
     private void RefreshDisconnectedRecorderStop()
     {
+        // Layout-only tests construct MainWindow without InitializeComponent.
+        if (DisconnectedRecorderStop == null) return;
         if (!ComputerRecorder.Current.IsRecording) { HideDisconnectedRecorderStop(); return; }
         string label = Lexicon.Get("audio.recorder.stop_record_to_file_button");
         DisconnectedRecorderStop.Content = label;
@@ -30,6 +32,7 @@ public partial class MainWindow
     private void HideDisconnectedRecorderStop()
     {
         _disconnectedRecorderPoll?.Stop();
+        if (DisconnectedRecorderStop == null) return;
         bool hadFocus = DisconnectedRecorderStop.IsKeyboardFocusWithin;
         DisconnectedRecorderStop.Visibility = Visibility.Collapsed;
         if (hadFocus) FocusHome();

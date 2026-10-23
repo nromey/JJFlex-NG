@@ -332,7 +332,7 @@ public sealed class ConnectOwnershipTests : IDisposable
     }
 
     [Fact]
-    public void AnUnreadableFileAfterTheQuestionOpensDoesNotLoseTheLoadedSettings()
+    public void AnUnreadableFileAfterTheQuestionOpensIsNotOverwrittenByTheHeldCopy()
     {
         var config = RadioConfig.LoadForRadio(_serial);
         config.FixedHolePunchPort = 5638;
@@ -340,8 +340,8 @@ public sealed class ConnectOwnershipTests : IDisposable
         dynamic s = Selector(RadioOwnership.Mine);
         s.DuringQuestion = (Action)(() => File.WriteAllText(ConfigFile(), "incomplete XML"));
         s.Connect();
-        AssertPersisted(RadioOwnership.Mine, ProfileGuestIntent.LoadMineAndPutBack);
-        Assert.Equal(5638, RadioConfig.LoadForRadio(_serial).FixedHolePunchPort);
+        Assert.Equal(0, (int)s.Completions);
+        Assert.Equal("incomplete XML", File.ReadAllText(ConfigFile()));
     }
 
     [Fact]

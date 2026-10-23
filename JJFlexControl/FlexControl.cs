@@ -393,8 +393,17 @@ namespace JJFlexControl
         /// Output from the knob.
         /// </summary>
         public event KnobOutputDel KnobOutput;
+        /// <summary>
+        /// The last token the knob sent that is not one of the fourteen input codes, such as the
+        /// <c>F0304</c> it sends at every connect, or null if none has arrived. Kept rather than
+        /// thrown away because it is probably the device saying what it is (#520); what it means
+        /// is #523's question, not this property's.
+        /// </summary>
+        public string LastDeviceReport { get; private set; }
+
         internal void OnKnobOutput(string data)
         {
+            if (KnobInputFilter.IsDeviceReport(data)) LastDeviceReport = data;
             if (KnobOutput != null)
             {
                 Tracing.TraceLine("OnKnobOutput:" + data, TraceLevel.Info);

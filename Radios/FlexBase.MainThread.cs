@@ -855,6 +855,7 @@ namespace Radios
         private void sendCWChar(char c)
         {
             if (theRadio == null) return;
+            if (CwKeyingHeldSilently()) return;   // #571: a character already queued when the cut landed goes nowhere
             // send only if in transmit mode or VOX is on
             if (!Transmit & (Vox == OffOnValues.off)) return;
 
@@ -869,6 +870,7 @@ namespace Radios
         private void sendCWString(string str)
         {
             if ((theRadio == null) | string.IsNullOrEmpty(str)) return;
+            if (CwKeyingHeldSilently()) return;   // #571: a message already queued when the cut landed goes nowhere
             // send only if in transmit mode or VOX is on
             if (!Transmit & (Vox == OffOnValues.off)) return;
 

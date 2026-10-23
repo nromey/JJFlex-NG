@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Xml.Serialization;
 using JJTrace;
 
@@ -234,6 +236,11 @@ namespace Radios
     /// </summary>
     public class RadioConfig
     {
+        /// <summary>The read error that produced these in-memory defaults, if any.
+        /// A missing file is a normal first-use case and leaves this null.</summary>
+        [XmlIgnore]
+        public string? ReadFailure { get; private set; }
+
         /// <summary>Schema version for forward-compatible migrations.</summary>
         public int Version { get; set; } = 1;
 
@@ -545,12 +552,29 @@ namespace Radios
         public static void RecordPcAudioUserChoice(string radioId, bool on)
         {
             if (string.IsNullOrEmpty(radioId)) return;
-            var cfg = LoadForRadio(radioId);
-            if (cfg.PcAudioLastStateKnown && cfg.PcAudioLastOn == on) return;
-            cfg.PcAudioLastStateKnown = true;
-            cfg.PcAudioLastOn = on;
-            cfg.SaveForRadio(radioId);
+            Update(radioId, cfg => {
+                if (cfg.PcAudioLastStateKnown && cfg.PcAudioLastOn == on) return false;
+                cfg.PcAudioLastStateKnown = true;
+                cfg.PcAudioLastOn = on;
+                return true;
+            });
         }
+
+        public static bool RecordAudioCheckPrefs(string radioId,
+            AudioCheckListenMethods? method, AudioCheckPowerModes? power, int? watts,
+            bool? compareWithLastTake = null)
+        {
+            return Update(radioId, cfg => {
+                if (method.HasValue) cfg.AudioCheckListenMethod = method.Value;
+                if (power.HasValue) cfg.AudioCheckPowerMode = power.Value;
+                if (watts.HasValue) cfg.AudioCheckLowPowerWatts = watts.Value;
+                if (compareWithLastTake.HasValue)
+                    cfg.AudioCheckCompareWithLastTake = compareWithLastTake.Value;
+            });
+        }
+
+        public static bool RecordPcAudioOnConnect(string radioId, PcAudioOnConnectModes mode) =>
+            Update(radioId, cfg => { cfg.PcAudioOnConnect = mode; });
 
         // ---------------------------------------------------------------
         // Where the operator left this radio (Sprint 35 Track I, #226).
@@ -654,7 +678,7 @@ namespace Radios
             if (string.IsNullOrEmpty(radioId) || layout == null || layout.IsEmpty) return;
             try
             {
-                var cfg = LoadForRadio(radioId);
+                Update(radioId, cfg => {
 
                 // THE COMPARISON AND THE COPY BOTH NAME EVERY FIELD, and both
                 // were a field short until 2026-10-18 (#762). The copy rebuilt
@@ -674,12 +698,13 @@ namespace Radios
                            && (a.Letter ?? "") == (b.Letter ?? "")
                            && a.Mute == b.Mute).All(x => x)
                     && (cfg.LastStationLayoutProfile ?? "") == (layout.ProfileName ?? "");
-                if (same) return;
+                if (same) return false;
                 cfg.LastStationLayoutSlices = layout.Slices
                     .Select(s => new Radios.StationConnect.SliceLayoutEntry(s)).ToList();
                 cfg.LastStationLayoutProfile = layout.ProfileName ?? "";
                 cfg.LastStationLayoutRecordedUtc = DateTime.UtcNow;
-                cfg.SaveForRadio(radioId);
+                return true;
+                });
             }
             catch (Exception ex)
             {
@@ -701,20 +726,21 @@ namespace Radios
             if (frequencyHz == 0 || string.IsNullOrEmpty(mode)) return;
             try
             {
-                var cfg = LoadForRadio(radioId);
+                Update(radioId, cfg => {
                 if (cfg.LastPlaceKnown
                     && cfg.LastPlaceFrequencyHz == frequencyHz
                     && cfg.LastPlaceMode == mode
                     && cfg.LastPlaceSliceLetter == (sliceLetter ?? ""))
                 {
-                    return;
+                    return false;
                 }
                 cfg.LastPlaceKnown = true;
                 cfg.LastPlaceFrequencyHz = frequencyHz;
                 cfg.LastPlaceMode = mode;
                 cfg.LastPlaceSliceLetter = sliceLetter ?? "";
                 cfg.LastPlaceRecordedUtc = DateTime.UtcNow;
-                cfg.SaveForRadio(radioId);
+                return true;
+                });
             }
             catch (Exception ex)
             {
@@ -957,19 +983,19 @@ namespace Radios
         public static bool RecordLocalTransmitAudioChoice(string radioId, string presetName)
         {
             if (string.IsNullOrEmpty(radioId)) return false;
-            var cfg = LoadForRadio(radioId);
             string value = presetName ?? "";
-            var intent = string.IsNullOrWhiteSpace(value)
-                ? cfg.ProfileIntent
-                : ProfileGuestIntent.UseMyTransmitAudio;
-            if (cfg.LocalTransmitAudioProfile == value && cfg.ProfileIntent == intent) return true;
-            cfg.LocalTransmitAudioProfile = value;
-            cfg.ProfileIntent = intent;
-            Tracing.TraceLine(
-                $"RadioConfig: local transmit-audio profile for {radioId} set to '{value}' "
-                + $"by the operator (intent {intent}).",
-                System.Diagnostics.TraceLevel.Info);
-            return cfg.SaveForRadio(radioId);
+            return Update(radioId, cfg => {
+                var intent = string.IsNullOrWhiteSpace(value)
+                    ? cfg.ProfileIntent : ProfileGuestIntent.UseMyTransmitAudio;
+                if (cfg.LocalTransmitAudioProfile == value && cfg.ProfileIntent == intent) return false;
+                cfg.LocalTransmitAudioProfile = value;
+                cfg.ProfileIntent = intent;
+                Tracing.TraceLine(
+                    $"RadioConfig: local transmit-audio profile for {radioId} set to '{value}' "
+                    + $"by the operator (intent {intent}).",
+                    System.Diagnostics.TraceLevel.Info);
+                return true;
+            });
         }
 
         /// <summary>The local transmit-audio profile chosen for a radio id, or
@@ -998,16 +1024,17 @@ namespace Radios
             if (string.IsNullOrEmpty(radioId)) return false;
             try
             {
-                var cfg = LoadForRadio(radioId);
-                if (cfg.AutosaveTurnedOffByUs == off) return true;
-                cfg.AutosaveTurnedOffByUs = off;
-                cfg.AutosaveTurnedOffUtc = off ? DateTime.UtcNow : DateTime.MinValue;
-                Tracing.TraceLine(
-                    off
-                        ? $"RadioConfig: JJ Flexible turned profile autosave OFF on {radioId}; recorded so it can be owed back."
-                        : $"RadioConfig: profile autosave on {radioId} is the owner's again; the record is cleared.",
-                    System.Diagnostics.TraceLevel.Info);
-                return cfg.SaveForRadio(radioId);
+                return Update(radioId, cfg => {
+                    if (cfg.AutosaveTurnedOffByUs == off) return false;
+                    cfg.AutosaveTurnedOffByUs = off;
+                    cfg.AutosaveTurnedOffUtc = off ? DateTime.UtcNow : DateTime.MinValue;
+                    Tracing.TraceLine(
+                        off
+                            ? $"RadioConfig: JJ Flexible turned profile autosave OFF on {radioId}; recorded so it can be owed back."
+                            : $"RadioConfig: profile autosave on {radioId} is the owner's again; the record is cleared.",
+                        System.Diagnostics.TraceLevel.Info);
+                    return true;
+                });
             }
             catch (Exception ex)
             {
@@ -1049,20 +1076,23 @@ namespace Radios
 
         /// <summary>
         /// The profile intent for a radio id, without the caller loading a
-        /// whole config. Unknown ids read as NotAnswered, which is the safe
-        /// answer. Never throws: a failed read must not be able to turn into a
-        /// write to somebody's radio.
+        /// whole config. Unknown ids read as NotAnswered. An unreadable file
+        /// is separate, so it cannot raise an answered question again.
         /// </summary>
         public static ProfileGuestIntent ProfileIntentOf(string radioId)
         {
             if (string.IsNullOrEmpty(radioId)) return ProfileGuestIntent.NotAnswered;
-            try { return LoadForRadio(radioId).ProfileIntent; }
+            try
+            {
+                var cfg = LoadForRadio(radioId);
+                return cfg.ReadFailure == null ? cfg.ProfileIntent : ProfileGuestIntent.ReadFailed;
+            }
             catch (Exception ex)
             {
                 Tracing.TraceLine(
                     "RadioConfig.ProfileIntentOf: " + ex.Message,
                     System.Diagnostics.TraceLevel.Warning);
-                return ProfileGuestIntent.NotAnswered;
+                return ProfileGuestIntent.ReadFailed;
             }
         }
 
@@ -1075,13 +1105,14 @@ namespace Radios
         public static bool RecordProfileIntent(string radioId, ProfileGuestIntent value)
         {
             if (string.IsNullOrEmpty(radioId)) return false;
-            var cfg = LoadForRadio(radioId);
-            if (cfg.ProfileIntent == value) return true;
-            cfg.ProfileIntent = value;
-            Tracing.TraceLine(
-                $"RadioConfig: profile intent for {radioId} declared {value} by the operator.",
-                System.Diagnostics.TraceLevel.Info);
-            return cfg.SaveForRadio(radioId);
+            return Update(radioId, cfg => {
+                if (cfg.ProfileIntent == value) return false;
+                cfg.ProfileIntent = value;
+                Tracing.TraceLine(
+                    $"RadioConfig: profile intent for {radioId} declared {value} by the operator.",
+                    System.Diagnostics.TraceLevel.Info);
+                return true;
+            });
         }
 
         // ---------------------------------------------------------------
@@ -1124,10 +1155,11 @@ namespace Radios
             if (string.IsNullOrEmpty(radioId)) return;
             try
             {
-                var cfg = LoadForRadio(radioId);
-                if (cfg.SmeterInDbm == inDbm) return;
-                cfg.SmeterInDbm = inDbm;
-                cfg.SaveForRadio(radioId);
+                Update(radioId, cfg => {
+                    if (cfg.SmeterInDbm == inDbm) return false;
+                    cfg.SmeterInDbm = inDbm;
+                    return true;
+                });
             }
             catch (Exception ex)
             {
@@ -1172,13 +1204,14 @@ namespace Radios
         public static bool RecordOwnership(string radioId, RadioOwnership value)
         {
             if (string.IsNullOrEmpty(radioId)) return false;
-            var cfg = LoadForRadio(radioId);
-            if (cfg.Ownership == value) return true;
-            cfg.Ownership = value;
-            Tracing.TraceLine(
-                $"RadioConfig: ownership of {radioId} declared {value} by the operator.",
-                System.Diagnostics.TraceLevel.Info);
-            return cfg.SaveForRadio(radioId);
+            return Update(radioId, cfg => {
+                if (cfg.Ownership == value) return false;
+                cfg.Ownership = value;
+                Tracing.TraceLine(
+                    $"RadioConfig: ownership of {radioId} declared {value} by the operator.",
+                    System.Diagnostics.TraceLevel.Info);
+                return true;
+            });
         }
 
         /// <summary>
@@ -1483,6 +1516,137 @@ namespace Radios
             return full;
         }
 
+        private static readonly ConcurrentDictionary<string, object> UpdateLocks =
+            new ConcurrentDictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+
+        [ThreadStatic] private static HashSet<string>? _updatesOnThisThread;
+        private sealed class RecursiveUpdateException : InvalidOperationException
+        {
+            public RecursiveUpdateException(string radioId) : base("Recursive radio config update: " + radioId) { }
+        }
+
+        public static bool Update(string radioId, Action<RadioConfig> change) =>
+            Update(radioId, cfg => { change(cfg); return true; });
+
+        public static bool Update(string configDirectory, string radioId, Action<RadioConfig> change) =>
+            Update(configDirectory, radioId, cfg => { change(cfg); return true; });
+
+        /// <summary>
+        /// Read, change, and write one radio's config under one lock and one
+        /// exclusive file handle. The callback must only change fields: no UI,
+        /// radio calls, dispatch, waits, or another config update. A recursive
+        /// update of the same radio throws rather than silently deadlocking.
+        /// False means nothing was saved. A callback returning false means no
+        /// field changed, and is a successful no-op.
+        /// </summary>
+        public static bool Update(string radioId, Func<RadioConfig, bool> change)
+        {
+            var dir = ResolveBaseDirectory();
+            if (string.IsNullOrEmpty(dir))
+            {
+                Tracing.TraceLine($"RadioConfig.Update: no config directory for {radioId}",
+                    System.Diagnostics.TraceLevel.Error);
+                return false;
+            }
+            return Update(dir, radioId, change);
+        }
+
+        /// <summary>Directory-explicit form for isolated settings and tests.</summary>
+        public static bool Update(string configDirectory, string radioId, Func<RadioConfig, bool> change)
+        {
+            if (change == null) throw new ArgumentNullException(nameof(change));
+            if (!IsWellFormedRadioId(radioId))
+            {
+                Tracing.TraceLine($"RadioConfig.Update: refusing malformed radio id '{radioId}'",
+                    System.Diagnostics.TraceLevel.Error);
+                return false;
+            }
+            string path = GetFilePath(configDirectory, radioId);
+            string key = Path.GetFullPath(path);
+            var active = _updatesOnThisThread ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (active.Contains(key)) throw new RecursiveUpdateException(radioId);
+            object gate = UpdateLocks.GetOrAdd(key, _ => new object());
+            if (!Monitor.TryEnter(gate, 400))
+            {
+                Tracing.TraceLine($"RadioConfig.Update: timed out waiting for {radioId}",
+                    System.Diagnostics.TraceLevel.Warning);
+                return false;
+            }
+            active.Add(key);
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                bool existed = File.Exists(path);
+                FileStream? stream = null;
+                var deadline = System.Diagnostics.Stopwatch.StartNew();
+                while (stream == null && deadline.ElapsedMilliseconds < 120)
+                {
+                    try
+                    {
+                        // FileShare.None holds the cross-process gate from read
+                        // through write. A missing file is ordinary first use.
+                        stream = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                    }
+                    catch (IOException) { Thread.Sleep(25); }
+                }
+                if (stream == null)
+                {
+                    Tracing.TraceLine($"RadioConfig.Update: timed out opening {radioId}",
+                        System.Diagnostics.TraceLevel.Warning);
+                    return false;
+                }
+                using (stream)
+                {
+                    // A second process can create the file while we retry
+                    // its exclusive handle. Recheck after acquiring it.
+                    existed = existed || stream.Length > 0;
+                    RadioConfig cfg;
+                    if (stream.Length == 0 && !existed)
+                    {
+                        cfg = new RadioConfig { RadioId = radioId };
+                    }
+                    else
+                    {
+                        if (stream.Length == 0) throw new InvalidDataException("Existing config is empty");
+                        cfg = (RadioConfig)new XmlSerializer(typeof(RadioConfig)).Deserialize(stream)!;
+                        cfg.RadioId = radioId;
+                    }
+                    if (!change(cfg) && existed) return true;
+                    if (!RejectImplausibleRadioId(radioId, cfg.Model, existed, "RadioConfig.Update"))
+                    {
+                        if (!existed)
+                        {
+                            // The gate rejected creation. Do not leave an
+                            // empty config that becomes a phantom roster row.
+                            stream.Dispose();
+                            File.Delete(path);
+                        }
+                        return false;
+                    }
+                    using var bytes = new MemoryStream();
+                    new XmlSerializer(typeof(RadioConfig)).Serialize(bytes, cfg);
+                    stream.Position = 0;
+                    stream.SetLength(0);
+                    bytes.Position = 0;
+                    bytes.CopyTo(stream);
+                    stream.Flush(true);
+                    return true;
+                }
+            }
+            catch (RecursiveUpdateException) { throw; }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"RadioConfig.Update: {radioId} was not saved: {ex}",
+                    System.Diagnostics.TraceLevel.Warning);
+                return false;
+            }
+            finally
+            {
+                active.Remove(key);
+                Monitor.Exit(gate);
+            }
+        }
+
         /// <summary>Load via the app-wide <see cref="BaseDirectory"/>.</summary>
         public static RadioConfig LoadForRadio(string radioId)
         {
@@ -1508,7 +1672,9 @@ namespace Radios
         /// refusing an intent because the disk was busy is the disk's problem
         /// being handed to the operator.
         /// </summary>
-        public bool SaveForRadio(string radioId)
+        // Kept for existing test fixtures. Production updates must use Update;
+        // the source guard in RadioConfigUpdateTests enforces that boundary.
+        internal bool SaveForRadio(string radioId)
         {
             // Answer a malformed id here, BEFORE the retry. Save would refuse it
             // twice, sleep 50ms in between, and then report "the change is in
@@ -1522,6 +1688,15 @@ namespace Radios
                     + "serial is four groups of four digits (task #245). Nothing was "
                     + "written.",
                     System.Diagnostics.TraceLevel.Error);
+                return false;
+            }
+
+            if (ReadFailure != null)
+            {
+                Tracing.TraceLine(
+                    $"RadioConfig.SaveForRadio: refusing {radioId} because its config read failed: "
+                    + ReadFailure + ". Nothing was written.",
+                    System.Diagnostics.TraceLevel.Warning);
                 return false;
             }
 
@@ -1581,33 +1756,61 @@ namespace Radios
 
         /// <summary>
         /// Loads the config for a radio, returning defaults when no file exists
-        /// or the file is unreadable. Never throws.
+        /// or the file is unreadable. An unreadable result carries ReadFailure
+        /// so it cannot overwrite the original file. Never throws.
         /// </summary>
         /// <param name="configDirectory">Base config directory (BaseConfigDir).</param>
         /// <param name="radioId">Radio serial or stable identifier.</param>
         public static RadioConfig Load(string configDirectory, string radioId)
         {
             var filePath = GetFilePath(configDirectory, radioId);
-            if (!File.Exists(filePath))
+            string key = Path.GetFullPath(filePath);
+            object gate = UpdateLocks.GetOrAdd(key, _ => new object());
+            if (!Monitor.TryEnter(gate, 400))
+            {
+                string failure = "timed out waiting for an in-process config update";
+                Tracing.TraceLine($"RadioConfig.Load: {radioId}: {failure}",
+                    System.Diagnostics.TraceLevel.Warning);
+                return new RadioConfig { RadioId = radioId, ReadFailure = failure };
+            }
+            try
+            {
+                var deadline = System.Diagnostics.Stopwatch.StartNew();
+                while (true)
+                {
+                    try
+                    {
+                        using var stream = File.OpenRead(filePath);
+                        var config = (RadioConfig)new XmlSerializer(typeof(RadioConfig)).Deserialize(stream)!;
+                        config.RadioId = radioId; // directory name is authoritative
+                        return config;
+                    }
+                    catch (FileNotFoundException) { return new RadioConfig { RadioId = radioId }; }
+                    catch (DirectoryNotFoundException) { return new RadioConfig { RadioId = radioId }; }
+                    catch (IOException) when (deadline.ElapsedMilliseconds < 120)
+                    {
+                        // Another instance may hold Update's exclusive file
+                        // handle. Do not mistake that brief hold for damage.
+                        Thread.Sleep(20);
+                    }
+                }
+            }
+            catch (FileNotFoundException)
             {
                 return new RadioConfig { RadioId = radioId };
             }
-
-            try
+            catch (DirectoryNotFoundException)
             {
-                var serializer = new XmlSerializer(typeof(RadioConfig));
-                using var stream = File.OpenRead(filePath);
-                var config = (RadioConfig)serializer.Deserialize(stream);
-                config.RadioId = radioId; // directory name is authoritative
-                return config;
+                return new RadioConfig { RadioId = radioId };
             }
             catch (Exception ex)
             {
                 Tracing.TraceLine(
                     $"RadioConfig.Load: unreadable {filePath}: {ex.Message} — using defaults",
                     System.Diagnostics.TraceLevel.Warning);
-                return new RadioConfig { RadioId = radioId };
+                return new RadioConfig { RadioId = radioId, ReadFailure = ex.ToString() };
             }
+            finally { Monitor.Exit(gate); }
         }
 
         /// <summary>

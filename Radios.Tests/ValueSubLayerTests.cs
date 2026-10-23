@@ -249,17 +249,50 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Single_a_modified_jump_key_is_an_unknown_key_and_travels_on()
+        public void Single_a_modified_jump_key_is_refused_and_the_layer_stays()
         {
             // Ctrl+Home means "top of the document" everywhere else; inside a
-            // layer that selects by letter it is simply not ours, so it keeps
-            // the value, says the layer closed, and goes on to mean what it
-            // always means.
+            // layer that does not bind it, it is simply not ours. Since #778b
+            // (Noel, 2026-10-19 14:35) the only ways out are Enter, Escape and
+            // the JJ key, so it is refused and the layer is exactly as it was.
+            // Until then it confirmed, said the layer closed and travelled on,
+            // and the "closed" was cut off by whatever the key said next.
             var (h, rig) = OpenSingle(40, VerbosityLevel.Terse);
-            Assert.Equal(ValueLayerKeyResult.ClosedPassThrough,
+            Assert.Equal(ValueLayerKeyResult.Handled,
                 h.Layer.HandleKey(Keys.Home | Keys.Control));
             Assert.Equal(40, rig.Value);
-            Assert.False(h.Layer.IsLive);
+            Assert.True(h.Layer.IsLive);
+            Assert.DoesNotContain("Power layer closed", h.Said);
+        }
+
+        [Fact]
+        public void Single_a_key_the_host_says_is_a_command_outside_is_refused_too()
+        {
+            // The other half of the ruling: the SAME chord, with a host that
+            // answers "yes, that is a command out here", is refused just the
+            // same. Whether a key means something outside no longer decides
+            // whether it leaves; it decides only whether a near miss may be
+            // offered for it. Real hotkeys such as Ctrl+F stay inside.
+            var h = new Harness { Verbosity = VerbosityLevel.Terse };
+            var rig = new SingleRig { Value = 40 };
+            h.Open(new ValueSubLayerDefinition
+            {
+                Id = "power",
+                Read = () => rig.Value,
+                Apply = v => { rig.Value = v; rig.Writes.Add(v); },
+                Min = 0, Max = 100, Step = 5, FineStep = 1,
+                Number = v => "Power " + v,
+                DescribeEntry = (cur, entry) => "Power layer.",
+                DescribeClosed = () => "Power layer closed",
+                MeansSomethingOutside = k => k == (Keys.Home | Keys.Control),
+            });
+            h.Layer.HandleKey(Keys.Up);
+
+            Assert.Equal(ValueLayerKeyResult.Handled,
+                h.Layer.HandleKey(Keys.Home | Keys.Control));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal(45, rig.Value);
+            Assert.DoesNotContain("Power layer closed", h.Said);
         }
 
         [Fact]
@@ -298,16 +331,23 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Single_an_unknown_key_confirms_announces_and_travels_on()
+        public void Single_an_unknown_letter_stays_and_the_arrows_still_work()
         {
+            // #778. X is nothing in this layer and nothing outside it. It used
+            // to confirm, announce the close and travel; now it is refused and
+            // the layer is exactly as it was — the next arrow moves the same
+            // value, and nothing was written on the way.
             var (h, rig) = OpenSingle(40, VerbosityLevel.Terse);
             h.Layer.HandleKey(Keys.Up);
             var r = h.Layer.HandleKey(Keys.X);
 
-            Assert.Equal(ValueLayerKeyResult.ClosedPassThrough, r);
-            Assert.False(h.Layer.IsLive);
+            Assert.Equal(ValueLayerKeyResult.Handled, r);
+            Assert.True(h.Layer.IsLive);
             Assert.Equal(new[] { 45 }, rig.Writes);
-            Assert.Equal("Power layer closed", h.LastSaid);
+            Assert.DoesNotContain("Power layer closed", h.Said);
+
+            h.Layer.HandleKey(Keys.Up);
+            Assert.Equal(50, rig.Value);
         }
 
         [Fact]
@@ -442,6 +482,29 @@ namespace Radios.Tests
 
         private static string? FilterLayerNearMiss(Keys pressed, VerbosityLevel verbosity)
             => LayerNearMiss(FilterLetterChords, "audio.filter_layer.name", pressed, verbosity);
+
+        // ── The #778 unknown-key hook, as the shipped hosts wire it ──────
+        //
+        // KeyCommands.LayerUnknownKey names the layer through
+        // KeyLayerHelp.LayerName and picks the lexicon line from the engine's
+        // reason. The same two lexicon keys, the same layer-name argument.
+
+        private static bool InPlaceChord(Keys k)
+        {
+            Keys code = k & Keys.KeyCode, mods = k & Keys.Modifiers;
+            if (code == Keys.Space) return mods == Keys.Control || mods == Keys.Shift;
+            return code == Keys.OemOpenBrackets || code == Keys.OemCloseBrackets;
+        }
+
+        private const string NotAKeyInAudio = "Not a key in the Audio layer. Press H to list available keys for this layer.";
+        private const string TypedNumberInAudio = "A typed number does nothing in the Audio layer. Use arrow keys to change the selected number.";
+        private const string FineStep = "Shift with the arrows moves it in fine steps.";
+
+        private static string LayerUnknownKey(string layerNameKey, Keys pressed, ValueLayerRefusal why)
+            => Lexicon.Get(why == ValueLayerRefusal.TypedEntry
+                    ? "audio.value_layer.typed_number"
+                    : "audio.value_layer.unknown_key",
+                ("layer", Lexicon.Get(layerNameKey)));
 
         private static string? LayerNearMiss(Dictionary<Keys, (string Key, string What)> chords,
             string layerNameKey, Keys pressed, VerbosityLevel verbosity)
@@ -598,9 +661,19 @@ namespace Radios.Tests
                 // answers for the chords the tests press. Ctrl+F is the
                 // registry chord that proves a key WITH somewhere to go still
                 // leaves.
-                MeansSomethingOutside = k => k == (Keys.F | Keys.Control),
+                // Shift+M stands in for MuteAllSlices (Radio scope): the one
+                // Shift-only LETTER the default table binds, so the letter
+                // rule's registry check has something to find (#778).
+                MeansSomethingOutside = k => k == (Keys.F | Keys.Control) || k == (Keys.M | Keys.Shift),
                 DescribeNearMiss = k => AudioLayerNearMiss(k, h.Verbosity),
-                PassThroughKeys = k => k == (Keys.V | Keys.Control | Keys.Shift),
+                DescribeUnknownKey = (k, why) => LayerUnknownKey("audio.audio_layer.name", k, why),
+                DescribeFineStep = () => Lexicon.Get("audio.value_layer.fine_step"),
+                // #778b: the shipped hosts' ActsInPlaceInsideALayer — the
+                // verbosity cycle from the registry (Ctrl+Shift+V by default)
+                // and KeyCommands.IsInPlaceChord: Ctrl+Space, Shift+Space and
+                // the brackets in every form. JJFlexWpf.Tests'
+                // ValueLayerRoutingTests drive the real one.
+                PassThroughKeys = k => k == (Keys.V | Keys.Control | Keys.Shift) || InPlaceChord(k),
                 HostKeys = k =>
                 {
                     if ((k & Keys.Modifiers) != Keys.Shift) return false;
@@ -1226,13 +1299,42 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Audio_an_unknown_key_confirms_and_travels_on()
+        public void Audio_an_unknown_key_with_a_target_picked_stays_with_the_layers_own_line()
         {
-            var (h, rig) = OpenAudio(VerbosityLevel.Terse);
+            // #778. X is nothing in this mirror (the shipped layer has it as
+            // VOX gain; the mirror predates that) and nothing outside. With
+            // mic picked, the pick-a-target list would be the wrong sentence,
+            // so the layer answers in its own voice and stays. Read as NVDA
+            // speaks it: a sentence that names the layer, so an operator can
+            // tell it from Home's "X does nothing on the Frequency field".
+            var (h, rig) = OpenAudio(VerbosityLevel.Chatty);
             h.Layer.HandleKey(Keys.M); h.Layer.HandleKey(Keys.Up);
-            Assert.Equal(ValueLayerKeyResult.ClosedPassThrough, h.Layer.HandleKey(Keys.X));
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.X));
+            Assert.True(h.Layer.IsLive);
             Assert.Equal(35, rig.Mic);
-            Assert.Equal("Audio layer closed", h.LastSaid);
+            Assert.Equal(NotAKeyInAudio, h.LastSaid);
+            Assert.DoesNotContain("Audio layer closed", h.Said);
+
+            // Still the layer it was: the arrows still move what was picked.
+            h.Layer.HandleKey(Keys.Up);
+            Assert.Equal(40, rig.Mic);
+        }
+
+        [Fact]
+        public void Audio_an_unknown_key_below_chatty_is_the_tone_alone_and_stays()
+        {
+            // #528 governs this refusal like every other: below Chatty the
+            // thunk is the whole answer — and the layer still stays, because
+            // verbosity changes what is said, never what happens.
+            var tones = new ToneCounter();
+            var (h, _) = OpenAudio(VerbosityLevel.Terse, cues: tones.Cues);
+            h.Layer.HandleKey(Keys.M);
+            int saidBefore = h.Said.Count;
+
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.X));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal(1, tones.Invalid);
+            Assert.Equal(saidBefore, h.Said.Count);
         }
 
         // ── A slipped modifier is not an exit (#547) ────────────────────
@@ -1296,32 +1398,480 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Audio_a_key_that_means_something_outside_still_leaves()
+        public void Audio_a_real_hotkey_is_refused_and_the_layer_stays()
         {
-            // The distinction the whole change turns on. Ctrl+F is a registry
-            // chord — enter a frequency — so the operator who pressed it meant
-            // to go there, and Shift+F being a slice jump does not make it a
-            // slip. It keeps the value, says the layer closed, and travels.
+            // #778b, Noel 2026-10-19 14:35: "keep it so that only [the way out]
+            // is enter, esc, and the jj key". Ctrl+F is a registry chord —
+            // enter a frequency — and until this it confirmed, said the layer
+            // closed (cut off by the frequency prompt sixteen milliseconds
+            // later, so the operator could not know) and travelled. Now it is
+            // refused like any key the layer does not take, with the layer's
+            // plain line: it is a command out there, so no near miss is
+            // guessed for it even though Shift+F is a slice jump in here.
             var (h, rig) = OpenAudio(VerbosityLevel.Chatty);
             h.Layer.HandleKey(Keys.M);
             h.Layer.HandleKey(Keys.Up);
 
-            Assert.Equal(ValueLayerKeyResult.ClosedPassThrough,
+            Assert.Equal(ValueLayerKeyResult.Handled,
                 h.Layer.HandleKey(Keys.F | Keys.Control));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal(35, rig.Mic);
+            Assert.Equal(NotAKeyInAudio, h.LastSaid);
+            Assert.DoesNotContain("Audio layer closed", h.Said);
+
+            // And the layer is the one it was.
+            h.Layer.HandleKey(Keys.Up);
+            Assert.Equal(40, rig.Mic);
+        }
+
+        [Fact]
+        public void Audio_z_with_nothing_picked_stays_and_lists_the_letters()
+        {
+            // #778, Noel's capture of 2026-10-19 07:46:03 — JJ key, A, Z. The
+            // layer closed, Z was forwarded, and the frequency field said "Z
+            // does nothing on the Frequency field" sixteen milliseconds after
+            // "Audio layer closed", cutting it off; from the chair the layer
+            // sounded open while the app had closed it. Z is nothing here at
+            // any tier and nothing outside, so there was never anywhere for
+            // it to go. Now it stays, and with nothing picked the recovery is
+            // the list of letters — the sentence Sprint 47's matrix expected
+            // and the one this press should always have heard.
+            var (h, _) = OpenAudio(VerbosityLevel.Chatty);
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.Z));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal("Pick a target first: V, Ctrl+H, O, M, L, C, S, X, D, or P.", h.LastSaid);
+            Assert.DoesNotContain("Audio layer closed", h.Said);
+
+            // His next key, A, got Home's "A does nothing" reply. In the layer
+            // it is another unknown letter and gets the same list again.
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.A));
+            Assert.True(h.Layer.IsLive);
+
+            // Escape is the exit, and it still is.
+            Assert.Equal(ValueLayerKeyResult.Closed, h.Layer.HandleKey(Keys.Escape));
             Assert.False(h.Layer.IsLive);
+        }
+
+        // ── A digit never leaves a value layer (#778, half one B) ───────
+
+        [Fact]
+        public void Audio_typing_a_value_and_enter_never_reaches_the_radio_as_a_frequency()
+        {
+            // The capture, 2026-10-19 07:41:58: VOX gain picked, then 4, 0.
+            // The layer closed on the 4, both digits went to the frequency
+            // field, and quick-type said "Invalid frequency" — only because a
+            // no-decimal entry is kilohertz and 40 kHz is under the parser's
+            // floor of 100. "4, 0, 0, Enter" meant as a 400 ms VOX delay is
+            // 400 kHz, accepted, and a retune. Mic stands in for VOX gain here
+            // (the mirror predates that target); the engine does not care
+            // which level is picked.
+            var (h, rig) = OpenAudio(VerbosityLevel.Chatty);
+            h.Layer.HandleKey(Keys.M);
+            h.Layer.HandleKey(Keys.Up);                               // 35
+
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.D1));
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.D4));
+            Assert.True(h.Layer.IsLive);
+            // Noel's sentence, ruled 14:33-14:34, then the fine step: mic moves
+            // by 5 and Shift moves it by 1, so the second sentence is true.
+            Assert.Equal(TypedNumberInAudio + " " + FineStep, h.LastSaid);
+            Assert.DoesNotContain("Audio layer closed", h.Said);
+
+            // Enter now means what it always means in here: keep and leave.
+            // Nothing about a frequency was ever in play.
+            Assert.Equal(ValueLayerKeyResult.Closed, h.Layer.HandleKey(Keys.Return));
             Assert.Equal(35, rig.Mic);
             Assert.Equal("Audio layer closed", h.LastSaid);
         }
 
-        [Fact]
-        public void Audio_a_letter_bound_at_no_tier_is_still_a_plain_unknown_key()
+        [Theory]
+        [InlineData(Keys.Control | Keys.Space)]                  // hold to talk
+        [InlineData(Keys.Shift | Keys.Space)]                    // transmit lock, which also unlocks
+        [InlineData(Keys.OemOpenBrackets)]                       // the bracket filter keys,
+        [InlineData(Keys.OemCloseBrackets)]                      // every form the app binds
+        [InlineData(Keys.OemOpenBrackets | Keys.Shift)]
+        [InlineData(Keys.OemCloseBrackets | Keys.Shift)]
+        [InlineData(Keys.OemOpenBrackets | Keys.Control)]
+        [InlineData(Keys.OemCloseBrackets | Keys.Control)]
+        [InlineData(Keys.OemOpenBrackets | Keys.Control | Keys.Shift)]   // TX filter low edge, a registry row
+        [InlineData(Keys.V | Keys.Control | Keys.Shift)]         // the verbosity cycle
+        public void Audio_a_key_that_acts_in_place_travels_on_and_the_layer_stays(Keys chord)
         {
-            // Z is nothing here at any tier. Inventing an alternative would be
-            // worse than the exit, so the unhandled-key rule stands untouched.
+            // #778 ruling 2, as filed (to confirm at the radio): push to talk,
+            // the transmit lock and the bracket filter keys keep working inside
+            // a layer because they do not leave it. The main window handles
+            // them in branches the registry never lists, which is how #778's
+            // first round came to swallow push to talk (Codex, B1). The host
+            // names them; the engine lets them go UNCONSUMED with the layer
+            // still live, so the main window's handler (or the dialog) gets the
+            // key and the operator is still where they were.
+            var (h, rig) = OpenAudio(VerbosityLevel.Chatty);
+            h.Layer.HandleKey(Keys.M);
+            h.Layer.HandleKey(Keys.Up);                               // 35
+
+            Assert.Equal(ValueLayerKeyResult.PassThrough, h.Layer.HandleKey(chord));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal("mic", h.Layer.CurrentTarget?.Id);
+            Assert.DoesNotContain("Audio layer closed", h.Said);
+
+            // Still the layer it was.
+            h.Layer.HandleKey(Keys.Up);
+            Assert.Equal(40, rig.Mic);
+        }
+
+        [Theory]
+        [InlineData(VerbosityLevel.Chatty)]
+        [InlineData(VerbosityLevel.Terse)]
+        [InlineData(VerbosityLevel.Critical)]   // Off
+        public void A_key_nothing_here_would_act_on_is_the_low_tone_at_every_level_and_words_only_at_chatty(VerbosityLevel level)
+        {
+            // #778b, ruled by Noel 2026-10-19 20:55: "I would speak it if on
+            // chatty, play a low tone otherwise. If we speak it, make it a very
+            // short message, the tone really should be enough, similar to the
+            // DMR radios that beep when they can't transmit." The host says a
+            // key would act in place elsewhere but nothing here would act on it
+            // (push to talk pressed in a dialog). The engine refuses it, keeps
+            // the layer, plays the refusal tone at EVERY level, Off included,
+            // and says the host's sentence at Chatty only.
+            var tones = new ToneCounter();
+            var h = new Harness { Verbosity = level };
+            int value = 40;
+            h.Open(new ValueSubLayerDefinition
+            {
+                Id = "power",
+                Read = () => value, Apply = v => value = v,
+                Min = 0, Max = 100, Step = 5, FineStep = 1,
+                Number = v => "Power " + v,
+                DescribeEntry = (cur, entry) => "Power layer.",
+                DescribeClosed = () => "Power layer closed",
+                DescribeUnavailableHere = k => k == (Keys.Space | Keys.Control) ? "You can't use push to talk here." : null,
+                Cues = tones.Cues,
+            });
+            int saidBefore = h.Said.Count;
+
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.Space | Keys.Control));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal(1, tones.Invalid);
+            if (level == VerbosityLevel.Chatty)
+                Assert.Equal("You can't use push to talk here.", h.LastSaid);
+            else
+                Assert.Equal(saidBefore, h.Said.Count);
+        }
+
+        [Fact]
+        public void The_earcon_gate_is_the_sound_switches_and_not_the_speech_verbosity()
+        {
+            // Why the low tone above sounds at Off in the real app: every gated
+            // earcon, the refusal tone (LeaderInvalidTone) among them, passes
+            // only EarconPlayer.On, which is the master switch and the category
+            // switch. Nothing in EarconPlayer consults the speech verbosity.
+            string source = ReadSource("JJFlexWpf/EarconPlayer.cs");
+            Assert.Contains("EarconsEnabled && _categoryEnabled[(int)category];", source);
+            Assert.DoesNotContain("CurrentVerbosity", source);
+            Assert.DoesNotContain("VerbosityLevel", source);
+            Assert.Contains("public static void LeaderInvalidTone()", source);
+            string commands = ReadSource("JJFlexWpf/KeyCommands.cs");
+            Assert.Equal(3, Regex.Matches(commands, @"Invalid = EarconPlayer\.LeaderInvalidTone,").Count);
+        }
+
+        [Fact]
+        public void A_layer_that_binds_a_bracket_itself_takes_it_ahead_of_the_in_place_list()
+        {
+            // Noel, 14:36: brackets move the filter inside a layer unless the
+            // layer claims them itself; the planned mode layer uses them for
+            // next and previous mode. "A layer's own key always wins." So the
+            // host's in-place list is asked only after every key the layer
+            // binds. A two-target layer selecting by [ and ] stands in for the
+            // mode layer; the host names the brackets as in place, exactly as
+            // the shipped hosts do.
+            var h = new Harness { Verbosity = VerbosityLevel.Chatty };
+            int a = 1, b = 2;
+            h.Open(new ValueSubLayerDefinition
+            {
+                Id = "mode",
+                Selection = ValueLayerSelection.ByLetter,
+                Targets = new List<ValueTarget>
+                {
+                    new() { Id = "previous", Name = "Previous", SelectKey = Keys.OemOpenBrackets,
+                            Read = () => a, Apply = v => a = v, Min = 0, Max = 9, Step = 1, FineStep = 1,
+                            Axes = ValueLayerAxes.UpDown, Number = v => "previous " + v },
+                    new() { Id = "next", Name = "Next", SelectKey = Keys.OemCloseBrackets,
+                            Read = () => b, Apply = v => b = v, Min = 0, Max = 9, Step = 1, FineStep = 1,
+                            Axes = ValueLayerAxes.UpDown, Number = v => "next " + v },
+                },
+                DescribeClosed = () => "Mode layer closed",
+                PassThroughKeys = InPlaceChord,
+            });
+
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.OemCloseBrackets));
+            Assert.Equal("next", h.Layer.CurrentTarget?.Id);
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.OemOpenBrackets));
+            Assert.Equal("previous", h.Layer.CurrentTarget?.Id);
+
+            // The control: a bracket form this layer does NOT bind is still the
+            // host's, and travels on with the layer live.
+            Assert.Equal(ValueLayerKeyResult.PassThrough, h.Layer.HandleKey(Keys.OemOpenBrackets | Keys.Shift));
+            Assert.True(h.Layer.IsLive);
+        }
+
+        [Fact]
+        public void Audio_a_digit_with_nothing_picked_gets_the_letter_list()
+        {
+            // No target yet, so "use the arrows" would point at nothing; the
+            // list of letters is the recovery, as it is for any other key.
             var (h, _) = OpenAudio(VerbosityLevel.Chatty);
-            Assert.Equal(ValueLayerKeyResult.ClosedPassThrough, h.Layer.HandleKey(Keys.Z));
-            Assert.False(h.Layer.IsLive);
-            Assert.Equal("Audio layer closed", h.LastSaid);
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.D1));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal("Pick a target first: V, Ctrl+H, O, M, L, C, S, X, D, or P.", h.LastSaid);
+        }
+
+        [Fact]
+        public void Audio_the_keypad_digits_are_refused_like_the_top_row()
+        {
+            // CharFor in FreqOutHandlers turns NumPad0-9 into the same digit
+            // characters, so the keypad starts frequency entry exactly as the
+            // top row does. NumPad0 is here too — 0 on the top row is the
+            // centre jump, but there is deliberately no numpad binding.
+            var (h, rig) = OpenAudio(VerbosityLevel.Chatty);
+            h.Layer.HandleKey(Keys.M);
+            foreach (var k in new[] { Keys.NumPad5, Keys.NumPad0, Keys.NumPad9 })
+            {
+                Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(k));
+                Assert.True(h.Layer.IsLive);
+                Assert.Equal(TypedNumberInAudio + " " + FineStep, h.LastSaid);
+            }
+            Assert.Equal(30, rig.Mic);
+        }
+
+        [Fact]
+        public void Audio_a_shifted_digit_is_not_typed_entry_and_gets_the_plain_line()
+        {
+            // The typed-entry set is the main window's own: Shift+digit
+            // produces no character there, so it starts nothing and is not a
+            // "typed number". Since #778b it is refused like any other key the
+            // layer does not take, with the layer's plain line.
+            var (h, _) = OpenAudio(VerbosityLevel.Chatty);
+            h.Layer.HandleKey(Keys.M);
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.D1 | Keys.Shift));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal(NotAKeyInAudio, h.LastSaid);
+        }
+
+        [Fact]
+        public void Audio_a_digit_on_a_target_with_no_finer_step_does_not_promise_one()
+        {
+            // The speech processor's three modes move by one and so does Shift:
+            // there is no finer step, so "Shift with the arrows moves it in fine
+            // steps" would be a sentence the next press contradicts. The ruled
+            // sentence alone.
+            var (h, _) = OpenAudio(VerbosityLevel.Chatty);
+            h.Layer.HandleKey(Keys.S);
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.D2));
+            Assert.Equal(TypedNumberInAudio, h.LastSaid);
+        }
+
+        // ── Everything else is refused (#778b) ──────────────────────────
+
+        [Theory]
+        [InlineData(Keys.Tab)]
+        [InlineData(Keys.Tab | Keys.Shift)]
+        [InlineData(Keys.Space)]
+        [InlineData(Keys.PageUp)]
+        [InlineData(Keys.PageDown)]
+        [InlineData(Keys.Delete)]
+        [InlineData(Keys.Insert)]
+        [InlineData(Keys.F5)]                                    // a band jump, a registry row
+        [InlineData(Keys.F | Keys.Control)]                      // type a frequency, a registry row
+        [InlineData(Keys.D1 | Keys.Control)]                     // a message slot, configured or not
+        [InlineData(Keys.Home | Keys.Control)]
+        [InlineData(Keys.Z | Keys.Control)]
+        [InlineData(Keys.Space | Keys.Control | Keys.Shift)]     // not a transmit chord
+        [InlineData(Keys.OemPeriod)]
+        [InlineData(Keys.OemMinus)]
+        public void Audio_every_other_key_is_refused_and_the_layer_stays(Keys k)
+        {
+            // #778b. Round two of #778 let every key here travel, because the
+            // registry is not the whole key map and the layer could not tell a
+            // dead key from one the main window handles itself (Codex, B1).
+            // That reasoning still holds, and is now answered differently: the
+            // keys the main window handles in place are NAMED by the host (the
+            // theory above), and everything else is refused, because Noel ruled
+            // the only ways out are Enter, Escape and the JJ key. The
+            // non-registry branches in MainWindow_PreviewKeyDown, as read for
+            // this change, so the next reader knows they exist:
+            //
+            //   - Tab returns early so WPF and the child panels get it. ON THE
+            //     MAIN WINDOW TAB THEREFORE NEVER REACHES A LAYER, refused or
+            //     not; this refusal holds in a dialog, where the Window class
+            //     handler routes the layer first. Reported, not changed here.
+            //   - The universal Home-key no-radio guard (M, V, R, X, Q, =),
+            //     only when RigControl is null; a layer is dropped then.
+            //   - Escape stops an in-flight voice message, and cancels
+            //     filter-edge mode and RIT/XIT scale-adjust.
+            //   - The bracket filter keys, bare, Shift and Ctrl, go to
+            //     FreqOutHandlers.HandleFilterHotkey.
+            //   - Shift+Space toggles the transmit lock (and UNLOCKS it).
+            //   - Ctrl+Space is hold-to-talk; Escape while transmitting unkeys.
+            //   - Then step 4, the registry dispatch, which is where the main
+            //     window first asks a layer anything, and step 5, the focused
+            //     control.
+            //
+            // MainWindow_PreviewKeyUp takes the Space release for PTT; a key-up
+            // never reaches a layer.
+            var (h, rig) = OpenAudio(VerbosityLevel.Chatty);
+            h.Layer.HandleKey(Keys.M);
+            h.Layer.HandleKey(Keys.Up);                               // 35
+
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(k));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal(35, rig.Mic);
+            Assert.Equal(NotAKeyInAudio, h.LastSaid);
+            Assert.DoesNotContain("Audio layer closed", h.Said);
+        }
+
+        [Fact]
+        public void Audio_shift_m_is_refused_with_the_plain_line_and_no_near_miss()
+        {
+            // Shift+M IS a registry chord (MuteAllSlices, Radio scope) and one
+            // modifier from M, which picks mic here. Since #778b it no longer
+            // leaves; and because it is a command out there it was pressed on
+            // purpose, so the layer does not guess "M: Mic level" for it (#547
+            // offers a near miss only for a key with no meaning outside). The
+            // mirror's stub registry knows Shift+M for exactly this test.
+            var (h, _) = OpenAudio(VerbosityLevel.Chatty);
+            h.Layer.HandleKey(Keys.P);
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.M | Keys.Shift));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal(NotAKeyInAudio, h.LastSaid);
+        }
+
+        [Fact]
+        public void Audio_an_unbound_letter_stays_bare_shifted_or_with_ctrl()
+        {
+            var (h, _) = OpenAudio(VerbosityLevel.Chatty);
+            h.Layer.HandleKey(Keys.M);
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.Z));
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.Z | Keys.Shift));
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.Z | Keys.Control));
+            Assert.True(h.Layer.IsLive);
+        }
+
+        [Fact]
+        public void Enter_escape_and_the_jj_key_are_still_the_exits()
+        {
+            var (enter, _) = OpenAudio(VerbosityLevel.Chatty);
+            enter.Layer.HandleKey(Keys.M);
+            Assert.Equal(ValueLayerKeyResult.Closed, enter.Layer.HandleKey(Keys.Return));
+            Assert.False(enter.Layer.IsLive);
+
+            var (escape, _) = OpenAudio(VerbosityLevel.Chatty);
+            escape.Layer.HandleKey(Keys.M);
+            Assert.Equal(ValueLayerKeyResult.Closed, escape.Layer.HandleKey(Keys.Escape));
+            Assert.False(escape.Layer.IsLive);
+
+            var (jj, _) = OpenAudio(VerbosityLevel.Chatty);
+            jj.Layer.HandleKey(Keys.M);
+            Assert.Equal(ValueLayerKeyResult.ClosedHandOff, jj.Layer.HandleKey(Keys.J | Keys.Control));
+            Assert.False(jj.Layer.IsLive);
+        }
+
+        [Fact]
+        public void Single_the_host_whitelist_runs_before_the_digit_refusal()
+        {
+            // Codex F1: PassThroughKeys is consulted before IsTypedEntryKey, so
+            // a digit the operator has remapped onto the verbosity cycle
+            // cycles verbosity with the layer live rather than being refused.
+            // That command consumes the key, so it cannot start an entry; the
+            // guarantee is "a digit never leaves to start typed entry", not
+            // "a digit is always refused". Pinned so the precedence is stated
+            // rather than discovered.
+            var h = new Harness { Verbosity = VerbosityLevel.Terse };
+            var rig = new SingleRig { Value = 40 };
+            h.Open(new ValueSubLayerDefinition
+            {
+                Id = "power",
+                Read = () => rig.Value,
+                Apply = v => { rig.Value = v; rig.Writes.Add(v); },
+                Min = 0, Max = 100, Step = 5, FineStep = 1,
+                Number = v => "Power " + v,
+                DescribeEntry = (cur, entry) => "Power layer.",
+                DescribeClosed = () => "Power layer closed",
+                PassThroughKeys = k => k == Keys.D5,
+            });
+
+            Assert.Equal(ValueLayerKeyResult.PassThrough, h.Layer.HandleKey(Keys.D5));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.D6));
+            Assert.True(h.Layer.IsLive);
+        }
+
+        [Fact]
+        public void Audio_zero_on_the_top_row_is_still_the_centre_jump()
+        {
+            // The one digit the layer already spends (#522) keeps its meaning;
+            // the typed-entry rule starts at 1.
+            var (h, rig) = OpenAudio(VerbosityLevel.Chatty);
+            h.Layer.HandleKey(Keys.P);
+            h.Layer.HandleKey(Keys.Right);                            // 45
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.D0));
+            Assert.Equal(50, rig.Pan["A"]);
+        }
+
+        [Fact]
+        public void Single_a_digit_is_consumed_even_when_the_host_says_it_means_something_outside()
+        {
+            // A bare-digit chord added to the key table one day must not reopen
+            // the fall-through. Since #778b a letter the host vouches for is
+            // refused too, so the two are the same answer; the digit keeps its
+            // own sentence, which the audio tests read.
+            var h = new Harness { Verbosity = VerbosityLevel.Terse };
+            var rig = new SingleRig { Value = 40 };
+            h.Open(new ValueSubLayerDefinition
+            {
+                Id = "power",
+                Read = () => rig.Value,
+                Apply = v => { rig.Value = v; rig.Writes.Add(v); },
+                Min = 0, Max = 100, Step = 5, FineStep = 1,
+                Number = v => "Power " + v,
+                DescribeEntry = (cur, entry) => "Power layer.",
+                DescribeClosed = () => "Power layer closed",
+                MeansSomethingOutside = k => true,
+            });
+
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.D7));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.X));
+            Assert.True(h.Layer.IsLive);
+            Assert.Empty(rig.Writes);
+        }
+
+        [Fact]
+        public void The_typed_entry_set_is_the_bare_digits_and_nothing_else()
+        {
+            foreach (Keys k in new[] { Keys.D1, Keys.D5, Keys.D9, Keys.NumPad0, Keys.NumPad9 })
+                Assert.True(ValueSubLayer.IsTypedEntryKey(k), k.ToString());
+            foreach (Keys k in new[]
+            {
+                Keys.D0,                       // the centre jump
+                Keys.D1 | Keys.Shift,          // no character on the main window
+                Keys.D1 | Keys.Control,        // a message slot chord
+                Keys.NumPad5 | Keys.Alt,
+                Keys.OemPeriod, Keys.Decimal,  // continue an entry, never start one
+                Keys.OemMinus, Keys.Subtract,
+                Keys.Z, Keys.Tab, Keys.Space,
+            })
+                Assert.False(ValueSubLayer.IsTypedEntryKey(k), k.ToString());
+        }
+
+        [Fact]
+        public void Audio_the_near_miss_line_still_wins_over_the_letter_list()
+        {
+            // Both are recoveries for a key with nowhere to go; the near miss
+            // is the more specific one and keeps first claim (#547). B with
+            // nothing picked names Ctrl+B, not the ten letters.
+            var (h, _) = OpenAudio(VerbosityLevel.Chatty);
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.B));
+            Assert.Equal("Ctrl+B: Binaural receive on or off", h.LastSaid);
         }
 
         [Fact]
@@ -1559,6 +2109,8 @@ namespace Radios.Tests
                 // than ending the mode without a word.
                 MeansSomethingOutside = k => false,
                 DescribeNearMiss = k => FilterLayerNearMiss(k, h.Verbosity),
+                DescribeUnknownKey = (k, why) => LayerUnknownKey("audio.filter_layer.name", k, why),
+                DescribeFineStep = () => Lexicon.Get("audio.value_layer.fine_step"),
             };
             h.Open(def);
             return (h, rig);
@@ -1586,6 +2138,34 @@ namespace Radios.Tests
                 Assert.Single(h.Said));
             Assert.Equal("receive", h.Layer.CurrentGroup);
             Assert.Null(h.Layer.CurrentTarget);
+        }
+
+        [Fact]
+        public void Filter_an_unknown_key_stays_in_the_filter_layers_own_voice()
+        {
+            // #778 in a ByModifier layer: nothing is ever picked, there is no
+            // pick-a-target list, and Z is no near miss for S, T or R — so the
+            // layer's own line is the recovery, and the layer stays.
+            var (h, rig) = OpenFilter(VerbosityLevel.Chatty);
+            Assert.Equal(ValueLayerKeyResult.Handled, Press(h, rig, Keys.Z, ShiftSide.None));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal("Not a key in the Filter layer. Press H to list available keys for this layer.", h.LastSaid);
+            Assert.DoesNotContain(Lexicon.Get("audio.filter_layer.closed"), h.Said);
+        }
+
+        [Fact]
+        public void Filter_a_digit_never_promises_a_fine_step()
+        {
+            // In the filter layer Shift chooses an edge (Left Shift the low,
+            // Right Shift the high), so "Shift with the arrows moves it in fine
+            // steps" would be false here. The engine says the ruled digit
+            // sentence alone, however the host wires the fine step.
+            var (h, rig) = OpenFilter(VerbosityLevel.Chatty);
+            Assert.Equal(ValueLayerKeyResult.Handled, Press(h, rig, Keys.D4, ShiftSide.None));
+            Assert.True(h.Layer.IsLive);
+            Assert.Equal("A typed number does nothing in the Filter layer. Use arrow keys to change the selected number.",
+                h.LastSaid);
+            Assert.DoesNotContain(Lexicon.Get("audio.filter_layer.closed"), h.Said);
         }
 
         [Fact]
@@ -2216,9 +2796,44 @@ namespace Radios.Tests
             Assert.Contains("KeyInventory.TryFindLayerNearMiss(context, pressed", source);
             Assert.Contains("private bool MeansSomethingOutsideTheLayer(Keys k) => Lookup(k) != null;", source);
 
+            // #778: every shipped layer also supplies the line for a key that
+            // was refused and kept inside and is no near miss. A layer that
+            // forgot would answer those keys with the tone alone, which is
+            // safe and wrong in the same way as above, so the count is pinned.
+            Assert.Equal(3, Regex.Matches(
+                source, @"DescribeUnknownKey = \(key, why\) => LayerUnknownKey\(").Count);
+            Assert.Contains("private static string LayerUnknownKey(string context, Keys pressed, Radios.ValueLayerRefusal why)", source);
+            Assert.Contains("KeyLayerHelp.LayerName(context)", source);
+
+            // #778b: every shipped layer names the keys that act in place
+            // through the ONE host helper, and wires the fine-step sentence
+            // (the engine decides where it is true). A layer that kept the old
+            // verbosity-only lambda would refuse push to talk inside it, out
+            // loud; the count is pinned for the same reason as above, and the
+            // mirror's InPlaceChord is held to the shipped body here.
+            Assert.Equal(3, Regex.Matches(source, @"PassThroughKeys = ActsInPlaceInsideALayer,").Count);
+            Assert.DoesNotContain("PassThroughKeys = key => Lookup(key)?.KeyDef.Id == CommandValues.CycleVerbosity", source);
+            Assert.Contains("=> InPlaceVerdictFor(k) == InPlaceVerdict.ActsHere;", source);
+            // #778b: ONE verdict per key decides both the pass-through and the
+            // refusal, so they cannot drift apart; since round three it asks
+            // only THIS instance's own table (Codex B2: the log form's reduced
+            // table), never the route.
+            Assert.Contains("return row != null ? InPlaceVerdict.ActsHere : InPlaceVerdict.NotFromHere;", source);
+            Assert.DoesNotContain("_layerKeyFromDialog", source);
+            Assert.Equal(3, Regex.Matches(source, @"DescribeUnavailableHere = LayerKeyUnavailableHere,").Count);
+            Assert.Contains("return mods == Keys.Control || mods == Keys.Shift;", source);
+            Assert.Contains("return code == Keys.OemOpenBrackets || code == Keys.OemCloseBrackets;", source);
+            Assert.Equal(3, Regex.Matches(source, @"DescribeFineStep = LayerFineStep,").Count);
+
             foreach (string key in new[]
             {
                 "audio.value_layer.near_miss",
+                "audio.value_layer.unknown_key",
+                "audio.value_layer.typed_number",
+                "audio.value_layer.fine_step",
+                "audio.value_layer.ptt_not_here",
+                "audio.value_layer.lock_not_here",
+                "audio.value_layer.bracket_not_here",
                 "audio.audio_layer.entered",
                 "audio.audio_layer.entered_on_pan",
                 "audio.audio_layer.closed",
@@ -2403,6 +3018,335 @@ namespace Radios.Tests
             // worse one. One idea, one implementation.
             Assert.DoesNotContain("LayerHelpSpeech(", ReadSource("JJFlexWpf/KeyInventory.cs"));
             Assert.DoesNotContain("leader.layer_help", ReadSource("Radios/Lexicon/leader.json"));
+        }
+
+        [Fact]
+        public void On_the_main_window_push_to_talk_and_the_brackets_are_handled_before_any_layer_is_asked()
+        {
+            // #778b, the routing fact under ruling 2. The main window is a
+            // UserControl hosted in the shell's ElementHost, NOT a Window, so
+            // the Window class handler that routes a live layer first in a
+            // dialog (KeyCommands.AnyWindowPreviewKeyDown) is never on its
+            // route. There the layer is first asked at step 4 of
+            // MainWindow_PreviewKeyDown, the registry dispatch, and push to
+            // talk, the transmit lock, Escape while transmitting and the
+            // bracket filter keys are all handled at steps 2 and 3, before it.
+            // So on Home those keys reach MainWindow's handlers with the layer
+            // untouched. The engine's PassThrough for them (the theory above)
+            // is what keeps them working everywhere else: a dialog, Logging
+            // mode, or focus outside the Home fields, where steps 2 and 3 do
+            // not fire. This pin fails if someone moves the registry dispatch
+            // above them; that would not break the keys (the layer lets them
+            // go), but it would change what this comment, and the report, say.
+            string xaml = ReadSource("JJFlexWpf/MainWindow.xaml");
+            Assert.StartsWith("<UserControl x:Class=\"JJFlexWpf.MainWindow\"", xaml.TrimStart());
+
+            string source = ReadSource("JJFlexWpf/MainWindow.xaml.cs");
+            int start = source.IndexOf("private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)", StringComparison.Ordinal);
+            Assert.True(start >= 0);
+            int step4 = source.IndexOf("DoCommandHandler(winFormsKey)", start, StringComparison.Ordinal);
+            Assert.True(step4 > start);
+            foreach (string branch in new[]
+            {
+                "_freqOutHandlers.HandleFilterHotkey(e);",
+                "LockKeyDown(e.IsRepeat);",              // #800: Home's lock, one toggle per press, decided at key-down
+                "PttKeyDownEdge(PttDoor.Home);",         // round two: the edge records which door keyed the hold
+                "_pttController.EscapeUnlock();",
+            })
+            {
+                int at = source.IndexOf(branch, start, StringComparison.Ordinal);
+                Assert.True(at > start && at < step4, branch + " must come before the registry dispatch");
+            }
+
+            // Tab returns before ANY of it UNLESS a value layer is live (#778c;
+            // Noel, 2026-10-21 06:32: "Once in a layer, tab gets refused").
+            // Until this round the return was unconditional, so a layer on the
+            // main window never saw Tab at all and Home's focus moved behind
+            // an open layer. The gate is the owning instance's static, because
+            // the main window has no KeyCommands of its own to ask. Ctrl+Tab
+            // and Ctrl+Shift+Tab take the same route (Noel 07:41).
+            int tab = source.IndexOf("if (rawKey == Key.Tab && !KeyCommands.AValueLayerIsLive)", start, StringComparison.Ordinal);
+            Assert.True(tab > start && tab < step4, "the Tab return must be gated on a live layer and sit before the registry dispatch");
+            Assert.DoesNotContain("if (rawKey == Key.Tab)\n", source.Substring(start, step4 - start).Replace("\r\n", "\n"));
+
+            string commands = ReadSource("JJFlexWpf/KeyCommands.cs");
+            Assert.Contains("internal static bool AValueLayerIsLive => _globalRoutingOwner?._valueLayer != null;", commands);
+        }
+
+        [Fact]
+        public void In_a_dialog_the_transmit_keys_are_taken_ahead_of_the_layer_and_share_the_edges_with_home()
+        {
+            // #778c (Noel, 2026-10-21 06:30: Ctrl+Space and Shift+Space
+            // "should never be used to activate a button in a dialog"). The
+            // door is DialogTransmitKeys; this pins the three things its own
+            // tests cannot see because they need a window.
+            string commands = ReadSource("JJFlexWpf/KeyCommands.cs");
+
+            // 1. The door runs in the Window class handler BEFORE the mode
+            //    check, so a live layer no longer refuses push to talk from a
+            //    dialog and no focused control sees the chord.
+            int handler = commands.IndexOf("private static void AnyWindowPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)", StringComparison.Ordinal);
+            Assert.True(handler >= 0);
+            int door = commands.IndexOf("if (DialogTransmitKeys.OnPreviewKeyDown(sender, e))", handler, StringComparison.Ordinal);
+            int modeCheck = commands.IndexOf("if (!kc._leaderKeyActive && kc._valueLayer == null)", handler, StringComparison.Ordinal);
+            Assert.True(door > handler && modeCheck > door, "the transmit door must run before the leader/layer check");
+
+            // 2. The release has its own class handler: a key-up is never a
+            //    command and the preview key-down route never sees one.
+            Assert.Contains("System.Windows.Input.Keyboard.PreviewKeyUpEvent,", commands);
+            Assert.Contains("new System.Windows.Input.KeyEventHandler(AnyWindowPreviewKeyUp));", commands);
+            Assert.Contains("if (DialogTransmitKeys.OnPreviewKeyUp(e)) e.Handled = true;", commands);
+
+            // 3. One pipeline, three doors: the dialog door's delegates point
+            //    at MainWindow callers that share one gate with the
+            //    system-wide door, and that gate ends in the same two edges
+            //    Home's step 3 and PreviewKeyUp call. No second keying path.
+            string main = ReadSource("JJFlexWpf/MainWindow.xaml.cs");
+            Assert.Contains("DialogTransmitKeys.PttEdge = HandleDialogPttEdge;", main);
+            Assert.Contains("DialogTransmitKeys.HoldInFlight =", main);
+            Assert.Contains("internal void HandleDialogPttEdge(bool down) => PttEdgeFromOutsideHome(down, PttDoor.Dialog);", main);
+            Assert.Contains("internal void HandleSystemWidePttEdge(bool down) => PttEdgeFromOutsideHome(down, PttDoor.SystemWide);", main);
+            int gate = main.IndexOf("private void PttEdgeFromOutsideHome(bool down, PttDoor door)", StringComparison.Ordinal);
+            Assert.True(gate >= 0);
+            string gateBody = main.Substring(gate, main.IndexOf("private void StartPttDeferTimer(int ms)", gate, StringComparison.Ordinal) - gate);
+            Assert.Contains("if (down) PttKeyDownEdge(door); else PttKeyUpEdge();", gateBody);
+            Assert.Contains("if (down) Radios.ScreenReaderOutput.SpeakNoRadioConnected();", gateBody);
+            // Round three (Noel 10:55): the dialog door has no lock delegate
+            // any more. Shift+Space in a dialog is consumed and refused inside
+            // the door, through the same path as the Audio Check refusal.
+            Assert.DoesNotContain("DialogTransmitKeys.ToggleLock", main);
+            Assert.DoesNotContain("HandleDialogLockToggle", main);
+
+            // Repair round one. B1: Escape from a dialog unkeys through the
+            // controller, as Home's step 3 does (Noel 07:37). F2: window loss
+            // releases NOW, dropping any deferred release, never through the
+            // deferring key-up edge. B3: the door asks the Audio Workshop
+            // whether a session is active, read-only, from outside the
+            // AudioCheck partial (Noel 07:38).
+            Assert.Contains("DialogTransmitKeys.EscapeUnkey = HandleDialogEscapeUnkey;", main);
+            Assert.Contains("DialogTransmitKeys.ReleaseNow = HandleDialogHoldLost;", main);
+            Assert.Contains("DialogTransmitKeys.SessionOwnsTransmitter = () => Dialogs.AudioWorkshopDialog.AnAudioCheckIsActive;", main);
+            int escape = main.IndexOf("internal bool HandleDialogEscapeUnkey()", StringComparison.Ordinal);
+            Assert.True(escape >= 0);
+            string escapeBody = main.Substring(escape, 400);
+            Assert.Contains("_pttController.EscapeUnlock();", escapeBody);
+            string workshop = ReadSource("JJFlexWpf/Dialogs/AudioWorkshopDialog.xaml.cs");
+            Assert.Contains("internal static bool AnAudioCheckIsActive => _instance?._session?.Active == true;", workshop);
+
+            // Repair round two (Noel 09:51, "simplify yes").
+            // Codex B1 by class: every path that ends a transmission OUTSIDE
+            // the key edges drops the edges' input state through one helper,
+            // or a deferred release left pending swallows the next
+            // Ctrl+Space. The dialog's Escape, Home's step-3 Escape
+            // (PRE-EXISTING), window loss, the radio turning transmit off on
+            // its own, and the radio closing. The helper stops the timer,
+            // resets both press trackers and clears the guard and the door.
+            static string After(string text, string marker)
+            {
+                int at = text.IndexOf(marker, StringComparison.Ordinal);
+                Assert.True(at >= 0, "expected to find: " + marker);
+                return text.Substring(at);
+            }
+            Assert.Contains("ResetPttInput();", After(escapeBody, "_pttController.EscapeUnlock();"));
+            int helper = main.IndexOf("private void ResetPttInput()", StringComparison.Ordinal);
+            Assert.True(helper >= 0);
+            string helperBody = main.Substring(helper, 400);
+            foreach (string line in new[] { "_pttDeferTimer?.Stop();", "_pttHoldFilter.Reset();", "_pttKeyDown = false;", "_pttHoldDoor = PttDoor.None;" })
+                Assert.Contains(line, helperBody);
+            int home = main.IndexOf("private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)", StringComparison.Ordinal);
+            int homeStep4 = main.IndexOf("DoCommandHandler(winFormsKey)", home, StringComparison.Ordinal);
+            Assert.True(home >= 0 && homeStep4 > home);
+            int step3Escape = main.IndexOf("if (rawKey == Key.Escape && _pttController.IsTransmitting)", home, StringComparison.Ordinal);
+            Assert.True(step3Escape > home && step3Escape < homeStep4);
+            Assert.Contains("ResetPttInput();", After(main.Substring(step3Escape, 1200), "_pttController.EscapeUnlock();").Substring(0, 120));
+            int txChange = main.IndexOf("private void TransmitChangeHandler(object sender, bool transmit)", StringComparison.Ordinal);
+            Assert.True(txChange >= 0);
+            int txChangeEnd = main.IndexOf("private void FlexAntTuneStartStopHandler(", txChange, StringComparison.Ordinal);
+            Assert.True(txChangeEnd > txChange);
+            Assert.Contains("ResetPttInput();", After(main.Substring(txChange, txChangeEnd - txChange), "_pttController.EscapeUnlock();"));
+            int lost = main.IndexOf("internal void HandleDialogHoldLost()", StringComparison.Ordinal);
+            Assert.True(lost >= 0);
+            string lostBody = main.Substring(lost, 800);
+            Assert.Contains("ResetPttInput();", lostBody);
+            Assert.Contains("_pttController.PttUp();", lostBody);
+            // Codex F2 by class: a dialog releases only a hold its own door
+            // keyed, and a deferred release that runs to ground in the timer
+            // tells the door the hold is over.
+            Assert.Contains("_pttHoldDoor != PttDoor.Dialog", lostBody);
+            int tick = main.IndexOf("if (_pttHoldFilter.DeferralElapsed(Environment.TickCount64))", StringComparison.Ordinal);
+            Assert.True(tick >= 0);
+            string tickBody = main.Substring(tick, 600);
+            Assert.True(tickBody.IndexOf("DialogTransmitKeys.HoldReleased();", StringComparison.Ordinal)
+                        > tickBody.IndexOf("_pttController?.PttUp();", StringComparison.Ordinal),
+                "the timer must tell the dialog door the hold ended, after unkeying");
+            // Codex B3 by class: a second workshop's close clears the tracked
+            // pointer only when it is the tracked workshop.
+            Assert.Contains("if (ReferenceEquals(_instance, this)) _instance = null;", workshop);
+            Assert.DoesNotContain("            _instance = null;\n", workshop.Replace("\r\n", "\n"));
+
+            // The door itself never touches the controller or the rig: it only
+            // calls its three delegates. Nothing in it names PttSafetyController
+            // as a call, FlexBase, or Transmit.
+            string doorSource = ReadSource("JJFlexWpf/DialogTransmitKeys.cs");
+            Assert.DoesNotContain("_pttController", doorSource);
+            Assert.DoesNotContain(".PttDown()", doorSource);
+            Assert.DoesNotContain(".PttUp()", doorSource);
+            Assert.DoesNotContain(".Transmit =", doorSource);      // never rig.Transmit = ...
+            Assert.DoesNotContain("rig.Transmit", doorSource);
+            Assert.DoesNotContain("PttSafetyController.", doorSource.Replace("<see cref=\"PttSafetyController", ""));
+            Assert.Equal(2, Regex.Matches(doorSource, @"PttEdge\?\.Invoke\(false\)").Count);   // key-up, and the window lost
+            Assert.Equal(1, Regex.Matches(doorSource, @"PttEdge\?\.Invoke\(true\)").Count);
+        }
+
+        [Fact]
+        public void Homes_lock_and_the_system_wide_lock_read_exactly_as_main_and_the_dialog_lock_is_refused_for_now()
+        {
+            // #778c repair round three. Noel, 2026-10-21 10:55: "wait for the
+            // bench". Codex found (B5) that a lock press decided at its key-up
+            // stayed pending through Escape at Idle, a close or a window
+            // switch, and a later unrelated Space release locked the
+            // transmitter. So the lock classifier is gone entirely, Home's
+            // Shift+Space and the system-wide lock go back to what main does,
+            // and Shift+Space in a dialog is consumed and refused until a
+            // quick JAWS tap has been measured. This is a SOURCE PIN, stated
+            // as one: Home's handlers cannot be driven without a window, so
+            // the three snippets below are main's text (d9a079cf) verbatim,
+            // and the pin fails if any of them drifts from it.
+            string main = ReadSource("JJFlexWpf/MainWindow.xaml.cs").Replace("\r\n", "\n");
+            int home = main.IndexOf("private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)", StringComparison.Ordinal);
+            int homeStep4 = main.IndexOf("DoCommandHandler(winFormsKey)", home, StringComparison.Ordinal);
+            Assert.True(home >= 0 && homeStep4 > home);
+
+            // 1. Home's step 3. UNTIL #800 (2026-10-22) this pinned main's
+            //    text, which called ToggleLock on EVERY key-down, repeats
+            //    included — and so pinned #800's bug as the desired behaviour:
+            //    on 2026-10-21 a Shift+Space held 0.8 s keyed and unkeyed the
+            //    radio sixteen times in under a second. Noel, 20:46: "holding
+            //    it should just lock and unlock it for sure." The pin now says
+            //    the opposite: one toggle per PRESS, decided at key-down from
+            //    the event's own repeat flag, with no state and nothing at
+            //    key-up (Codex B5). The branch hands the flag to LockKeyDown,
+            //    whose body is pinned beside it.
+            const string step3LockOneTogglePerPress =
+                "            if (rawKey == Key.Space && Keyboard.Modifiers == ModifierKeys.Shift)\n" +
+                "            {\n" +
+                "                LockKeyDown(e.IsRepeat);\n" +
+                "                e.Handled = true;\n" +
+                "                return;\n" +
+                "            }\n";
+            int step3Lock = main.IndexOf(step3LockOneTogglePerPress, home, StringComparison.Ordinal);
+            Assert.True(step3Lock > home && step3Lock < homeStep4, "Home's Shift+Space branch must hand the repeat flag to LockKeyDown");
+            const string lockKeyDownEdge =
+                "    internal void LockKeyDown(bool isRepeat)\n" +
+                "    {\n" +
+                "        if (isRepeat) return;   // a held key is one press\n" +
+                "        _lockPairDetector.NoteDown(Environment.TickCount64);\n" +
+                "        _pttController?.ToggleLock();\n" +
+                "    }\n";
+            Assert.Contains(lockKeyDownEdge, main);
+            Assert.Equal(1, Regex.Matches(main, @"\bLockKeyDown\(e\.IsRepeat\);").Count);
+
+            // 2. The system-wide lock: main's handler, body and all.
+            const string systemWideLockAsOnMain =
+                "    /// <summary>The system-wide transmit lock: what Shift+Space does inside the window.</summary>\n" +
+                "    internal void HandleSystemWideLockToggle()\n" +
+                "    {\n" +
+                "        if (_pttController == null || !_radioPowerOn)\n" +
+                "        {\n" +
+                "            Radios.ScreenReaderOutput.SpeakNoRadioConnected();\n" +
+                "            return;\n" +
+                "        }\n" +
+                "        _pttController.ToggleLock();\n" +
+                "    }\n";
+            Assert.Contains(systemWideLockAsOnMain, main);
+
+            // 3. The Space key-up on Home: main's body. Ahead of it, the
+            //    round-three measurement trace (pinned below) and, since #800,
+            //    the lock-key pair DETECTOR — a counter and a trace line, which
+            //    decides nothing and acts on nothing (Phase 2 as settled
+            //    2026-10-22: count and trace, build no guard). Those two lines
+            //    are the only difference from main.
+            const string keyUpAsOnMain =
+                "            // Detection only (#800): a lock release too fast to be human is\n" +
+                "            // counted and traced, and changes nothing.\n" +
+                "            _lockPairDetector.NoteUp(Environment.TickCount64);\n" +
+                "            // Read the state BEFORE the edge runs: a consumed release takes the\n" +
+                "            // controller out of PttHold, and asking afterwards would let the\n" +
+                "            // very key-up that unkeyed fall through to the focused control.\n" +
+                "            bool wasHold = _pttController != null\n" +
+                "                           && _pttController.State == PttSafetyController.PttState.PttHold;\n" +
+                "            PttKeyUpEdge();\n" +
+                "            if (wasHold) e.Handled = true;\n" +
+                "        }\n";
+            int keyUp = main.IndexOf("private void MainWindow_PreviewKeyUp(object sender, KeyEventArgs e)", StringComparison.Ordinal);
+            Assert.True(keyUp >= 0);
+            Assert.Contains(keyUpAsOnMain, main.Substring(keyUp, 1400));
+
+            // Nothing of the lock classifier, round two's edges, or round one's
+            // hold filter survives, in MainWindow or in Radios.
+            foreach (string gone in new[]
+            {
+                "LockPressClassifier", "_lockPresses", "BuildLockPressClassifier", "LockKeyDownEdge", "LockKeyUpEdge",
+                "LockToggleFromOutsideHome", "HandleDialogLockToggle", "PttClock", "_lockHoldFilter", "_lockLastUpMs",
+            })
+                Assert.DoesNotContain(gone, main);
+            Assert.False(File.Exists(Path.Combine(RepoRoot(), "Radios", "LockPressClassifier.cs")), "Radios/LockPressClassifier.cs must be gone");
+            Assert.False(File.Exists(Path.Combine(RepoRoot(), "Radios.Tests", "LockPressClassifierTests.cs")), "its tests must be gone with it");
+
+            // The dialog door: no lock delegate; Shift+Space on a non-text
+            // control is refused through RefuseTransmitKey, the same path the
+            // Audio Check refusal takes, and nothing else in the door speaks.
+            string door = ReadSource("JJFlexWpf/DialogTransmitKeys.cs");
+            Assert.DoesNotContain("ToggleLock", door);
+            Assert.Contains("case Verdict.LockRefused:", door);
+            Assert.Contains("RefuseTransmitKey(\"audio.value_layer.lock_not_here\");", door);
+            Assert.Equal(1, Regex.Matches(door, @"private static void RefuseTransmitKey\(").Count);
+            Assert.Equal(2, Regex.Matches(door, @"RefuseTransmitKey\(").Count - 1);   // the lock, and the push-to-talk refusal under an Audio Check
+
+            // Item 5: the measurement trace. One line per Space key event, on
+            // Home's two preview handlers and on the dialog door's two entries,
+            // gated at TraceLevel.Verbose (the level StartDetailedCapture
+            // raises the switch to), and nowhere else: no other key is traced.
+            string trace = ReadSource("JJFlexWpf/SpaceKeyTimingTrace.cs");
+            Assert.Contains("TraceLevel.Verbose", trace);
+            Assert.Equal(1, Regex.Matches(trace, @"Tracing\.TraceLine\(").Count);
+            string homeDown = main.Substring(home, homeStep4 - home);
+            Assert.Contains("if (rawKey == Key.Space)\n            SpaceKeyTimingTrace.Note(down: true,", homeDown);
+            Assert.True(homeDown.IndexOf("SpaceKeyTimingTrace.Note(down: true,", StringComparison.Ordinal)
+                        < homeDown.IndexOf("if (rawKey == Key.Tab && !KeyCommands.AValueLayerIsLive)", StringComparison.Ordinal),
+                "the Home key-down trace must run before any branch can return");
+            Assert.Contains("SpaceKeyTimingTrace.Note(down: false,", main.Substring(keyUp, 1200));
+            Assert.Equal(2, Regex.Matches(main, @"SpaceKeyTimingTrace\.Note\(").Count);
+            Assert.Equal(2, Regex.Matches(main, @"SpaceKeyTimingTrace\.HomeDoor").Count);
+            Assert.Equal(2, Regex.Matches(door, @"SpaceKeyTimingTrace\.Note\(").Count);
+            Assert.Equal(2, Regex.Matches(door, @"SpaceKeyTimingTrace\.DialogDoor").Count);
+            Assert.DoesNotContain("SpaceKeyTimingTrace", ReadSource("JJFlexWpf/KeyCommands.cs"));
+        }
+
+        [Fact]
+        public void Only_the_dialog_window_handlers_pass_the_dialog_route_and_the_verdict_does_not_ask_it()
+        {
+            // #778b, Codex F1 (round two) and B2 (round three). Which route a
+            // press comes by is the fromDialog argument: exactly two call sites
+            // pass true, both reached only from the Window class handlers
+            // (AnyWindowPreviewKeyDown and DispatchFromDialogWindow), which never
+            // run for the main window, a UserControl in the shell's ElementHost.
+            // The shell, the main window and the WinForms log form all call the
+            // public one-argument DoCommand, which is fromDialog: false. Round
+            // two decided "acts in place" from that flag, and the log form made
+            // it false (B2): main route, no main-window handler. So since round
+            // three the verdict does not ask the route at all; this pin records
+            // who is on which route so nobody is tempted to bring it back.
+            string commands = ReadSource("JJFlexWpf/KeyCommands.cs");
+            Assert.Equal(2, Regex.Matches(commands, @"fromDialog: true\)").Count);
+            Assert.Contains("public bool DoCommand(Keys k) => DoCommand(k, fromDialog: false);", commands);
+            Assert.Contains("if (kc.DoCommand(WpfKeyConverter.ToWinFormsKeys(e), fromDialog: true))", commands);
+            Assert.Contains("return DoCommand(k, fromDialog: true);", commands);
+
+            foreach (string file in new[] { "BridgeForm.vb", "ApplicationEvents.vb", "LogEntry.vb", "JJFlexWpf/MainWindow.xaml.cs" })
+                Assert.DoesNotContain("fromDialog", ReadSource(file));
+            Assert.Contains("WpfContent.DoCommandHandler(keyData)", ReadSource("BridgeForm.vb"));
+            Assert.Contains("WpfMainWindow.DoCommandHandler = AddressOf Commands.DoCommand", ReadSource("ApplicationEvents.vb"));
         }
 
         // ────────────────────────────────────────────────────────────────

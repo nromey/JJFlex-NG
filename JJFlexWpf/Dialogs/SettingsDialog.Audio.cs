@@ -276,7 +276,7 @@ namespace JJFlexWpf.Dialogs
             var mode = (PcAudioOnConnectModes)idx;
             if (cfg.PcAudioOnConnect == mode) return;
             cfg.PcAudioOnConnect = mode;
-            cfg.SaveForRadio(_pcAudioRadioSerial);
+            RadioConfig.RecordPcAudioOnConnect(_pcAudioRadioSerial, mode);
             Tracing.TraceLine(
                 $"Settings: PcAudioOnConnect for {_pcAudioRadioSerial} set to {mode}",
                 TraceLevel.Info);

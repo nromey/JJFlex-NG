@@ -1,6 +1,9 @@
 #nullable enable
 using System;
 using System.IO;
+using System.Linq;
+using System.Text.RegularExpressions;
+using System.Xml;
 using Radios.Speech;
 using Xunit;
 
@@ -95,24 +98,48 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void BuildSsml_EscapesEveryXmlSpecial()
+        public void Escape_TextQuotesStayLiteral_AndMarkupStaysEscaped()
         {
-            string ssml = NvdaCompletionChannel.BuildSsml("S 3 < 5 & Tom's \"radio\" > mine", 1, out _);
+            Assert.Equal("can't", NvdaCompletionChannel.Escape("can't"));
+            Assert.Equal("say \"go\"", NvdaCompletionChannel.Escape("say \"go\""));
+            Assert.Equal("&amp;&lt;&gt;", NvdaCompletionChannel.Escape("&<>"));
+        }
+
+        [Fact]
+        public void BuildSsml_ContractionIsOneNvdaCharacterDataRun()
+        {
+            string ssml = NvdaCompletionChannel.BuildSsml("You can't say S 3 < 5 & Tom's \"radio\" > mine", 1, out _);
             Assert.Contains("&lt;", ssml);
             Assert.Contains("&amp;", ssml);
-            Assert.Contains("&apos;", ssml);
-            Assert.Contains("&quot;", ssml);
             Assert.Contains("&gt;", ssml);
-            // Nothing raw survives between the tags.
-            string body = ssml.Replace("<speak>", "").Replace("</speak>", "");
-            foreach (var piece in body.Split(new[] { "<mark name=\"" }, StringSplitOptions.RemoveEmptyEntries))
+            Assert.DoesNotContain("&apos;", ssml);
+            Assert.DoesNotContain("&quot;", ssml);
+
+            // XmlReader validates the assembled document and the generated
+            // mark attributes. It coalesces predefined entities into text,
+            // unlike Expat's CharacterDataHandler in NVDA. The raw-token pass
+            // below reports each entity as a separate character-data run,
+            // matching the callbacks NVDA receives from Expat.
+            using (var reader = XmlReader.Create(new StringReader(ssml)))
             {
-                string afterTag = piece.Substring(piece.IndexOf("\"/>", StringComparison.Ordinal) + 3);
-                Assert.DoesNotContain("<", afterTag);
-                Assert.DoesNotContain(">", afterTag);
-                Assert.DoesNotContain("\"", afterTag);
-                Assert.DoesNotContain("'", afterTag);
+                while (reader.Read()) { }
             }
+            var runs = Regex.Matches(ssml, @"<[^>]*>|&(?:amp|lt|gt|apos|quot);|[^<&]+")
+                .Select(m => m.Value)
+                .Where(value => !value.StartsWith("<", StringComparison.Ordinal))
+                .Select(value => value switch
+                {
+                    "&amp;" => "&",
+                    "&lt;" => "<",
+                    "&gt;" => ">",
+                    "&apos;" => "'",
+                    "&quot;" => "\"",
+                    _ => value
+                })
+                .ToArray();
+            Assert.Contains(runs, value => value.Contains("can't", StringComparison.Ordinal));
+            Assert.Contains(runs, value => value.Contains("Tom's", StringComparison.Ordinal));
+            Assert.Contains(runs, value => value.Contains("\"radio\"", StringComparison.Ordinal));
         }
 
         [Fact]
