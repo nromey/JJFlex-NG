@@ -114,6 +114,20 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void UnreadableIntentChangesNothingAndDoesNotRaiseTheQuestion()
+        {
+            var plan = ProfileStewardship.PlanConnect(
+                Situation(intent: ProfileGuestIntent.ReadFailed,
+                          ownership: RadioOwnership.Mine));
+
+            Assert.True(plan.ChangesNothing);
+            Assert.Empty(plan.Actions);
+            Assert.False(plan.AskWhoseRadioThisIs);
+            Assert.False(Radios.StationConnect.StationCoordinator.OwnershipQuestionWouldHelp(
+                RadioOwnership.Unset, ProfileGuestIntent.ReadFailed, holdArmed: false));
+        }
+
+        [Fact]
         public void OwnershipAloneDoesNotOptARadioIn()
         {
             // The inference this whole area exists to refuse. "This radio is

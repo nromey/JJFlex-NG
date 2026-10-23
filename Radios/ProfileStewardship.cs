@@ -61,6 +61,10 @@ namespace Radios
         /// the radio is created, selected, saved or deleted. This is the middle
         /// #501 asked for, and #499's ruled design.</summary>
         UseMyTransmitAudio = 3,
+
+        /// <summary>The saved answer could not be read. This is returned by
+        /// ProfileIntentOf only, never persisted as an operator choice.</summary>
+        ReadFailed = 4,
     }
 
     /// <summary>
@@ -635,6 +639,12 @@ namespace Radios
             if (s.Intent == ProfileGuestIntent.LeaveAlone)
             {
                 AddSkipForAll(plan, s, ProfileSkipReason.OperatorSaidLeaveAlone);
+                return plan;
+            }
+
+            if (s.Intent == ProfileGuestIntent.ReadFailed)
+            {
+                AddSkipForAll(plan, s, ProfileSkipReason.NotOptedIn);
                 return plan;
             }
 

@@ -395,10 +395,10 @@ namespace Radios
         /// writing config.xml at that rate would be filesystem abuse for a
         /// timestamp nobody reads until the next launch.
         /// </summary>
-        public static void RecordSighting(string serial, string nickname, string model,
+        public static bool RecordSighting(string serial, string nickname, string model,
             bool isRemote, string accountEmail)
         {
-            if (string.IsNullOrWhiteSpace(serial)) return;
+            if (string.IsNullOrWhiteSpace(serial)) return false;
             try
             {
                 var cfg = RadioConfig.LoadForRadio(serial);
@@ -416,12 +416,16 @@ namespace Radios
                 // radio remotely, so it must not erase an answer we already have.
                 if (isRemote && !string.IsNullOrWhiteSpace(accountEmail))
                     cfg.LastSeenViaAccount = accountEmail;
-                cfg.SaveForRadio(serial);
+                if (cfg.SaveForRadio(serial)) return true;
+                Tracing.TraceLine($"KnownRadioRoster.RecordSighting({serial}): config save declined",
+                    System.Diagnostics.TraceLevel.Warning);
+                return false;
             }
             catch (Exception ex)
             {
                 Tracing.TraceLine($"KnownRadioRoster.RecordSighting({serial}): {ex.Message}",
                     System.Diagnostics.TraceLevel.Warning);
+                return false;
             }
         }
 

@@ -234,6 +234,11 @@ namespace Radios
     /// </summary>
     public class RadioConfig
     {
+        /// <summary>The read error that produced these in-memory defaults, if any.
+        /// A missing file is a normal first-use case and leaves this null.</summary>
+        [XmlIgnore]
+        public string? ReadFailure { get; private set; }
+
         /// <summary>Schema version for forward-compatible migrations.</summary>
         public int Version { get; set; } = 1;
 
@@ -1034,20 +1039,23 @@ namespace Radios
 
         /// <summary>
         /// The profile intent for a radio id, without the caller loading a
-        /// whole config. Unknown ids read as NotAnswered, which is the safe
-        /// answer. Never throws: a failed read must not be able to turn into a
-        /// write to somebody's radio.
+        /// whole config. Unknown ids read as NotAnswered. An unreadable file
+        /// is separate, so it cannot raise an answered question again.
         /// </summary>
         public static ProfileGuestIntent ProfileIntentOf(string radioId)
         {
             if (string.IsNullOrEmpty(radioId)) return ProfileGuestIntent.NotAnswered;
-            try { return LoadForRadio(radioId).ProfileIntent; }
+            try
+            {
+                var cfg = LoadForRadio(radioId);
+                return cfg.ReadFailure == null ? cfg.ProfileIntent : ProfileGuestIntent.ReadFailed;
+            }
             catch (Exception ex)
             {
                 Tracing.TraceLine(
                     "RadioConfig.ProfileIntentOf: " + ex.Message,
                     System.Diagnostics.TraceLevel.Warning);
-                return ProfileGuestIntent.NotAnswered;
+                return ProfileGuestIntent.ReadFailed;
             }
         }
 
@@ -1510,6 +1518,15 @@ namespace Radios
                 return false;
             }
 
+            if (ReadFailure != null)
+            {
+                Tracing.TraceLine(
+                    $"RadioConfig.SaveForRadio: refusing {radioId} because its config read failed: "
+                    + ReadFailure + ". Nothing was written.",
+                    System.Diagnostics.TraceLevel.Warning);
+                return false;
+            }
+
             var dir = ResolveBaseDirectory();
             if (string.IsNullOrEmpty(dir))
             {
@@ -1566,32 +1583,36 @@ namespace Radios
 
         /// <summary>
         /// Loads the config for a radio, returning defaults when no file exists
-        /// or the file is unreadable. Never throws.
+        /// or the file is unreadable. An unreadable result carries ReadFailure
+        /// so it cannot overwrite the original file. Never throws.
         /// </summary>
         /// <param name="configDirectory">Base config directory (BaseConfigDir).</param>
         /// <param name="radioId">Radio serial or stable identifier.</param>
         public static RadioConfig Load(string configDirectory, string radioId)
         {
             var filePath = GetFilePath(configDirectory, radioId);
-            if (!File.Exists(filePath))
-            {
-                return new RadioConfig { RadioId = radioId };
-            }
-
             try
             {
-                var serializer = new XmlSerializer(typeof(RadioConfig));
                 using var stream = File.OpenRead(filePath);
+                var serializer = new XmlSerializer(typeof(RadioConfig));
                 var config = (RadioConfig)serializer.Deserialize(stream);
                 config.RadioId = radioId; // directory name is authoritative
                 return config;
+            }
+            catch (FileNotFoundException)
+            {
+                return new RadioConfig { RadioId = radioId };
+            }
+            catch (DirectoryNotFoundException)
+            {
+                return new RadioConfig { RadioId = radioId };
             }
             catch (Exception ex)
             {
                 Tracing.TraceLine(
                     $"RadioConfig.Load: unreadable {filePath}: {ex.Message} — using defaults",
                     System.Diagnostics.TraceLevel.Warning);
-                return new RadioConfig { RadioId = radioId };
+                return new RadioConfig { RadioId = radioId, ReadFailure = ex.ToString() };
             }
         }
 
