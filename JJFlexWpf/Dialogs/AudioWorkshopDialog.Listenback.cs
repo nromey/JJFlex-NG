@@ -186,8 +186,7 @@ public partial class AudioWorkshopDialog
             // the target slice's radio-reported PlayEnabled flag.
             bool playing = _rig?.IsSlicePlaying(target) == true;
             _slicePlayButton.IsEnabled = playing || _rig?.SliceHasRecording(target) == true;
-            string label = playing
-                ? Lexicon.Get("audio.iq.stop_slice_play") : Lexicon.Get("audio.iq.play_recording");
+            string label = RecorderControls.SlicePlayLabel(_rig, target);
             _slicePlayButton.Content = label;
             AutomationProperties.SetName(_slicePlayButton, label);
         }

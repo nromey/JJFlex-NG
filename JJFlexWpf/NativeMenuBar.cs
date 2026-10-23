@@ -94,6 +94,7 @@ public class NativeMenuBar : IDisposable
     private readonly Dictionary<int, string> _itemNames = new();
     // Items with dynamic checkmarks: menu item ID → (parent HMENU, state getter)
     private readonly List<(IntPtr popup, int id, Func<bool> stateGetter, string baseText, bool enabled)> _checkItems = new();
+    private readonly Dictionary<int, Func<string>> _recorderMenuLabels = new();
     /// <summary>
     /// Ids of check items that belong to a MUTUALLY EXCLUSIVE group — one of
     /// N is on, the rest are off — rather than being independent toggles.
@@ -204,6 +205,7 @@ public class NativeMenuBar : IDisposable
         _handlers.Clear();
         _itemNames.Clear();
         _checkItems.Clear();
+        _recorderMenuLabels.Clear();
         _radioGroupItems.Clear();
         _popupNames.Clear();
 
@@ -424,7 +426,9 @@ public class NativeMenuBar : IDisposable
 
                 // Update text with state suffix so screen readers always announce on/off
                 string stateText = isOn ? "On" : "Off";
-                ModifyMenuW(itemPopup, (uint)id, MF_BYCOMMAND | MF_STRING, (UIntPtr)id, $"{baseText}: {stateText}");
+                string label = _recorderMenuLabels.TryGetValue(id, out var getLabel) ? getLabel() : baseText;
+                _itemNames[id] = label;
+                ModifyMenuW(itemPopup, (uint)id, MF_BYCOMMAND | MF_STRING, (UIntPtr)id, $"{label}: {stateText}");
             }
             catch { /* don't let state read errors block menu display */ }
         }
@@ -1309,9 +1313,11 @@ public class NativeMenuBar : IDisposable
             AddChecked(parent, $"Record Slice {letter}",
                 () => _ = RecorderControls.ToggleSliceRecordAsync(Rig, target, SpeakRecorderAfterMenuClose),
                 () => Rig?.IsSliceRecording(target) == true);
+            _recorderMenuLabels[_nextId - 1] = () => $"Record Slice {letter}, {RecorderControls.RecordingSummary(Rig, target)}";
             AddChecked(parent, $"Play Slice {letter} Recording",
                 () => _ = RecorderControls.ToggleSlicePlayAsync(Rig, target, SpeakRecorderAfterMenuClose),
                 () => Rig?.IsSlicePlaying(target) == true);
+            _recorderMenuLabels[_nextId - 1] = () => $"Play Slice {letter}, {RecorderControls.RecordingSummary(Rig, target)}";
         }
     }
 

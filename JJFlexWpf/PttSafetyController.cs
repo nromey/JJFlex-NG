@@ -484,6 +484,10 @@ namespace JJFlexWpf
             return _getRadioPowerOn() && _getRigControl() != null;
         }
 
+        /// <summary>Admission for a recording joining an existing transmission; never requests keying.</summary>
+        public bool AllowsRecorderPlayback(FlexBase rig) => ReferenceEquals(_getRigControl(), rig) &&
+            CanTransmit() && (CanTransmitHereCheck?.Invoke() ?? true);
+
         // ── Detecting a screen reader that does not deliver held keys (#216) ──
         //
         // JAWS synthesises key-down/key-UP pairs rather than passing a held key

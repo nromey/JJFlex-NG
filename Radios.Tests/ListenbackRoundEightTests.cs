@@ -24,7 +24,7 @@ public sealed class ListenbackRoundEightTests : IDisposable
     public void Dispose() => _scope.Dispose();
 
     [Fact]
-    public async System.Threading.Tasks.Task Active_slice_record_and_play_use_reply_tracked_commands_and_refuse_transmit()
+    public async System.Threading.Tasks.Task Active_slice_record_and_play_use_reply_tracked_commands_and_refuse_unowned_transmit()
     {
         using var c = new RadioCase();
         var recording = await c.Pump(c.F.Rig.ToggleSliceRecordAsync(SliceRecorderTarget.ActiveSlice));
@@ -40,7 +40,7 @@ public sealed class ListenbackRoundEightTests : IDisposable
         c.F.Vendor.Status("slice 1 play=0");
         var refused = await c.Pump(c.F.Rig.ToggleSlicePlayAsync(SliceRecorderTarget.ActiveSlice));
         Assert.False(refused.Success);
-        Assert.Equal(Lexicon.Get("audio.recorder.play_refused_transmitting", ("letter", "B")), refused.Message);
+        Assert.Equal(Lexicon.Get("audio.recorder.play_intent_changed"), refused.Message);
         Assert.DoesNotContain("slice set 1 play=1", c.F.Vendor.Transport.Commands);
         Field(c.F.Rig, "_Transmit", false);
         Assert.True(c.F.Rig.SliceHasRecording(SliceRecorderTarget.ActiveSlice));

@@ -2584,6 +2584,16 @@ public partial class MainWindow : UserControl
         // ExecuteActionToolbarItem code retained in this file for the future
         // redesign to build on.
         var rawKey = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (rawKey == Key.Tab && (Keyboard.Modifiers == ModifierKeys.Control ||
+            Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift)) &&
+            (FreqOut.IsKeyboardFocusWithin || FieldsPanel.IsKeyboardFocusWithin))
+        {
+            if (FieldsPanel.Visibility == Visibility.Visible)
+                FieldsPanel.FocusNextHomePane((Keyboard.Modifiers & ModifierKeys.Shift) == 0);
+            else FocusHome();
+            e.Handled = true;
+            return;
+        }
         // #583 evidence, diagnostic only. Same KEYROUTE tag as the shell's
         // ProcessCmdKey, so a capture shows which of the two saw the key first.
         // Key.System is reported separately because it is how WPF marks a key
@@ -3865,6 +3875,9 @@ public partial class MainWindow : UserControl
         // the KeyInventory table like every other field (QB Track L).
         fields.Add(new FrequencyDisplay.DisplayField("TXSlice", 1, "", "") { Label = "Transmit slice",
             HelpItems = KeyInventory.HelpItemsFor("TXSlice", modern: false) });
+        fields.Add(new FrequencyDisplay.DisplayField("Record", 1, "", "") { Label = "Record",
+            HelpItems = KeyInventory.HelpItemsFor("Record", modern: false) });
+        fields.Add(new FrequencyDisplay.DisplayField("Recorded", 20, "", "") { Label = "Recording length" });
         fields.Add(new FrequencyDisplay.DisplayField("Offset", 1, "", "") { Label = "Offset",
             HelpItems = KeyInventory.HelpItemsFor("Offset", modern: false) });
         fields.Add(new FrequencyDisplay.DisplayField("RIT", 5, "", "") { Label = "RIT", DefaultCursorOffset = 2,
@@ -3941,6 +3954,9 @@ public partial class MainWindow : UserControl
         // HelpItems from the KeyInventory table (QB Track L).
         fields.Add(new FrequencyDisplay.DisplayField("TXSlice", 1, "", "") { Label = "Transmit slice",
             HelpItems = KeyInventory.HelpItemsFor("TXSlice", modern: true) });
+        fields.Add(new FrequencyDisplay.DisplayField("Record", 1, "", "") { Label = "Record",
+            HelpItems = KeyInventory.HelpItemsFor("Record", modern: true) });
+        fields.Add(new FrequencyDisplay.DisplayField("Recorded", 20, "", "") { Label = "Recording length" });
         fields.Add(new FrequencyDisplay.DisplayField("Offset", 1, "", "") { Label = "Offset",
             HelpItems = KeyInventory.HelpItemsFor("Offset", modern: true) });
         fields.Add(new FrequencyDisplay.DisplayField("RIT", 5, "", "") { Label = "RIT", DefaultCursorOffset = 2,
@@ -4051,6 +4067,9 @@ public partial class MainWindow : UserControl
                 case "TXSlice":
                     _freqOutHandlers.AdjustTxSlice(field, e);
                     break;
+                case "Record":
+                    _freqOutHandlers.AdjustRecord(field, e);
+                    break;
                 case "Offset":
                     _freqOutHandlers.AdjustOffset(field, e);
                     break;
@@ -4090,6 +4109,9 @@ public partial class MainWindow : UserControl
                 break;
             case "TXSlice":
                 _freqOutHandlers.AdjustTxSlice(field, e);
+                break;
+            case "Record":
+                _freqOutHandlers.AdjustRecord(field, e);
                 break;
             case "SMeter":
                 _freqOutHandlers.AdjustSMeter(field, e);
@@ -4197,6 +4219,9 @@ public partial class MainWindow : UserControl
 
             // VOX
             FreqOut.Write("VOX", RigControl.Vox == FlexBase.OffOnValues.on ? "V" : " ");
+            FreqOut.Write("Record", RigControl.IsSliceRecording(SliceRecorderTarget.ActiveSlice) ? "R" : " ");
+            FreqOut.Write("Recorded", RecorderControls.RecordingLength(RigControl, SliceRecorderTarget.ActiveSlice)
+                ?? RecorderControls.RecordingSummary(RigControl, SliceRecorderTarget.ActiveSlice));
 
             // QB Track I — Transmit slice letter; "-" when no slice keys the
             // radio (speech maps it to "none" in FrequencyDisplay).
@@ -4873,6 +4898,9 @@ public partial class MainWindow : UserControl
             // Wire license-aware TX lockout (Sprint 17 Track C)
             _pttController.CanTransmitHereCheck = () =>
                 _freqOutHandlers?.CanTransmitHere() ?? true;
+            FlexBase recorderRig = RigControl;
+            recorderRig.SlicePlaybackTransmitAllowed = () =>
+                _pttController?.AllowsRecorderPlayback(recorderRig) == true;
 
             // Give the Audio Workshop's Audio Check session a live path to
             // the controller (QB Track G). Resolved per call — the controller

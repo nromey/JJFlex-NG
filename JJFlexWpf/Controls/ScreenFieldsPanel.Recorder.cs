@@ -126,6 +126,9 @@ public partial class ScreenFieldsPanel
 
     private Button _recordToFileButton = null!;
     private Button _playFromComputerButton = null!;
+    private CheckBox _recordHeardCheck = null!;
+    private CheckBox _recordStereoCheck = null!;
+    private bool _updatingRecorderOptions;
 
     /// <summary>
     /// Record to file and play from computer, at the end of the PC audio
@@ -135,6 +138,16 @@ public partial class ScreenFieldsPanel
     /// </summary>
     private void BuildComputerRecorderControls()
     {
+        // DRAFT PROSE (#787): awaiting Noel
+        _recordHeardCheck = MakeToggle(Lexicon.Get("audio.recorder.record_heard"));
+        _recordStereoCheck = MakeToggle(Lexicon.Get("audio.recorder.stereo"));
+        foreach (var check in new[] { _recordHeardCheck, _recordStereoCheck })
+        {
+            JJFlexHelp.SetText(check, Lexicon.Get("audio.recorder.options_help"));
+            check.Checked += (_, _) => ApplyComputerRecordingOptions();
+            check.Unchecked += (_, _) => ApplyComputerRecordingOptions();
+            AudioContent.Children.Add(check);
+        }
         // DRAFT PROSE (#787): awaiting Noel
         _recordToFileButton = MakeRecorderButton(Lexicon.Get("audio.recorder.record_to_file_button"));
         JJFlexHelp.SetText(_recordToFileButton, Lexicon.Get("audio.fields.computer_recorder_help"));
@@ -155,10 +168,29 @@ public partial class ScreenFieldsPanel
         AudioContent.Children.Add(_playFromComputerButton);
     }
 
+    private void ApplyComputerRecordingOptions()
+    {
+        if (_polling || _updatingRecorderOptions || ComputerRecorder.Current is not ComputerFlacRecorder engine || engine.IsRecording) return;
+        engine.RecordWhatYouHeard = _recordHeardCheck.IsChecked == true;
+        engine.Stereo = _recordStereoCheck.IsChecked == true;
+    }
+
     private void UpdateComputerRecorderButtons()
     {
         if (_recordToFileButton == null || _playFromComputerButton == null) return;
         var recorder = ComputerRecorder.Current;
+        if (_recordHeardCheck != null && recorder is ComputerFlacRecorder engine)
+        {
+            _updatingRecorderOptions = true;
+            try
+            {
+                _recordHeardCheck.IsChecked = engine.RecordWhatYouHeard;
+                _recordStereoCheck.IsChecked = engine.Stereo;
+            }
+            finally { _updatingRecorderOptions = false; }
+            _recordHeardCheck.IsEnabled = _recordStereoCheck.IsEnabled = !recorder.IsRecording;
+            _recordHeardCheck.IsTabStop = _recordStereoCheck.IsTabStop = !recorder.IsRecording;
+        }
         Relabel(_recordToFileButton, Lexicon.Get(recorder.IsRecording
             ? "audio.recorder.stop_record_to_file_button" : "audio.recorder.record_to_file_button"));
         Relabel(_playFromComputerButton, Lexicon.Get(recorder.IsPlaying
@@ -171,10 +203,8 @@ public partial class ScreenFieldsPanel
         string letter = _recorderLetter.Length > 0 ? _recorderLetter : (_rig?.ActiveSliceLetter ?? "");
         var target = HomeRecorderTarget;
         bool recording = _rig?.IsSliceRecording(target) == true;
-        bool playing = _rig?.IsSlicePlaying(target) == true;
         Relabel(_homeSliceRecordButton, Lexicon.Get(recording ? "audio.recorder.stop_record_button"
             : "audio.recorder.record_button", ("letter", letter)));
-        Relabel(_homeSlicePlayButton, Lexicon.Get(playing ? "audio.recorder.stop_play_button"
-            : "audio.recorder.play_button", ("letter", letter)));
+        Relabel(_homeSlicePlayButton, RecorderControls.SlicePlayLabel(_rig, target));
     }
 }

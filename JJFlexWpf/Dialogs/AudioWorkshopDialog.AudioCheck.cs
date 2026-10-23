@@ -554,7 +554,7 @@ public partial class AudioWorkshopDialog
     /// Null until a check has recorded; the active slice is used then.
     /// </summary>
     private SliceRecorderTarget? _radioTakeTarget;
-    private SliceRecorderTarget RadioTakeTarget => _radioTakeTarget ?? SliceRecorderTarget.ActiveSlice;
+    private SliceRecorderTarget RadioTakeTarget => _radioTakeTarget ?? SliceRecorderTarget.TransmitSlice;
 
     /// <summary>
     /// Play the operator's most recent take, or stop the one playing.
@@ -737,7 +737,7 @@ public partial class AudioWorkshopDialog
         // Record and play back rides the one recorder surface (#787). The
         // slice is fixed at the start by its LETTER, so a slice change during
         // the check still stops and plays the slice that recorded.
-        private SliceRecorderTarget _recorderTarget = SliceRecorderTarget.ActiveSlice;
+        private SliceRecorderTarget _recorderTarget = SliceRecorderTarget.TransmitSlice;
         private Task<RecorderOutcome>? _recordStop;
         private Task<RecorderOutcome>? _playStart;
 
@@ -818,7 +818,7 @@ public partial class AudioWorkshopDialog
             // was a setter whose reply nobody read.
             if (!_loopback && _method == AudioCheckListenMethods.RecordPlayback)
             {
-                string letter = rig.SliceRecorderLetter(SliceRecorderTarget.ActiveSlice);
+                string letter = rig.SliceRecorderLetter(SliceRecorderTarget.TransmitSlice);
                 if (letter.Length > 0) _recorderTarget = SliceRecorderTarget.Letter(letter[0]);
                 var armed = await rig.StartSliceRecordAsync(_recorderTarget);
                 if (!armed.Success)

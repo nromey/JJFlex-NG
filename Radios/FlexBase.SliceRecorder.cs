@@ -20,7 +20,7 @@ namespace Radios;
 /// </summary>
 public readonly struct SliceRecorderTarget : IEquatable<SliceRecorderTarget>
 {
-    private enum Kind { Active, LoopbackEars, Letter }
+    private enum Kind { Active, LoopbackEars, Letter, Transmit }
 
     private readonly Kind _kind;
     private readonly char _letter;
@@ -29,6 +29,8 @@ public readonly struct SliceRecorderTarget : IEquatable<SliceRecorderTarget>
 
     /// <summary>Whatever slice is active when the command runs.</summary>
     public static SliceRecorderTarget ActiveSlice => new(Kind.Active, '\0');
+    public static SliceRecorderTarget TransmitSlice => new(Kind.Transmit, '\0');
+    public bool IsTransmitSlice => _kind == Kind.Transmit;
 
     /// <summary>The Loopback Check's listening slice, while it is arranged; otherwise the active slice.</summary>
     public static SliceRecorderTarget LoopbackEars => new(Kind.LoopbackEars, '\0');
@@ -91,9 +93,9 @@ public sealed record RecorderOutcome(bool Success, string Message, string Subjec
 /// now play it back".
 /// </para>
 /// <para>
-/// <b>Play never keys the radio, and Play is refused while transmitting</b>
-/// (Noel, 2026-10-21 10:57: keyed, Play sending to air is phase 2). A
-/// playback that is running when a transmission starts is stopped.
+/// <b>Intent is fixed at the press.</b> A local listen requires VOX off and
+/// stops on a transmit edge. On-air playback joins only our existing
+/// transmission and ends when that transmission ends. Play never requests keying.
 /// </para>
 /// <para>
 /// <b>A running recording can always be stopped</b>, whoever started it — the
@@ -141,10 +143,85 @@ public partial class FlexBase
         internal object Owner;
         internal Timer CapWarning;
         internal PropertyChangedEventHandler Status;
+        internal PropertyChangedEventHandler RadioStatus;
+        internal PlaybackIntent Intent;
+        internal double? RecordStarted, RecordedSeconds;
     }
 
     private readonly Dictionary<Slice, SliceRecorderState> _sliceRecorders = new(ReferenceEqualityComparer.Instance);
     private TransmitChangeDel _sliceRecorderKeyed;
+    private long _slicePlaybackGeneration;
+    internal Func<double> SliceRecorderClock { get; set; } = () => Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
+
+    /// <summary>The host's common PTT admission check. Missing or throwing means no on-air playback.</summary>
+    public Func<bool> SlicePlaybackTransmitAllowed { get; set; }
+
+    private sealed record PlaybackIntent(bool OnAir, long Generation, Radio Radio, Slice Transmitter);
+
+    private PlaybackIntent CapturePlaybackIntent()
+    {
+        EnsureKeyedWatch();
+        // Sample the epoch first: an edge during the following state reads
+        // must invalidate this press, not lend it the next transmission's epoch.
+        long generation = Interlocked.Read(ref _slicePlaybackGeneration);
+        return new(Transmit || theRadio?.Mox == true, generation,
+            theRadio, theRadio?.TransmitSlice);
+    }
+
+    private bool LocalPlaybackVoxOff(Radio radio)
+    {
+        if (radio == null) return false;
+        return radio.TransmitSlice?.DemodMode == "CW" ? !radio.CWBreakIn : !radio.SimpleVOXEnable;
+    }
+
+    private bool PlaybackIntentIsCurrent(PlaybackIntent intent)
+    {
+        if (intent == null || intent.Generation != Interlocked.Read(ref _slicePlaybackGeneration) ||
+            !ReferenceEquals(intent.Radio, theRadio) || theRadio?.Connected != true) return false;
+        bool keyed = Transmit || theRadio.Mox;
+        if (!intent.OnAir) return !keyed && LocalPlaybackVoxOff(theRadio);
+        if (!keyed || !CanTransmit || intent.Transmitter == null ||
+            !ReferenceEquals(intent.Transmitter, theRadio.TransmitSlice) ||
+            theRadio.TXClientHandle != theRadio.ClientHandle || !SliceRecorderTargetIsOurs(intent.Transmitter)) return false;
+        try { return SlicePlaybackTransmitAllowed?.Invoke() == true; }
+        catch { return false; }
+    }
+
+    /// <summary>Invalidate pending plays immediately, then stop running sources through the recorder queue.</summary>
+    public void CancelSlicePlayback()
+    {
+        long generation = Interlocked.Increment(ref _slicePlaybackGeneration);
+        List<SliceRecorderState> playing;
+        lock (_sliceRecorders) playing = _sliceRecorders.Values.Where(s => s.Playing || s.Intent != null).ToList();
+        foreach (var state in playing) _ = StopPlayingForTransmitAsync(state, generation);
+    }
+
+    /// <summary>Measured duration in this connection; null for a pre-existing take of unknown length.</summary>
+    /// <remarks>FlexLib ignores record_time, whose units and meaning are undocumented here. Do not guess from it.</remarks>
+    public double? SliceRecordingSeconds(SliceRecorderTarget target)
+    {
+        var slice = ResolveSliceRecorderTarget(target);
+        if (!SliceRecorderTargetIsOurs(slice)) return null;
+        var observed = StateFor(slice);
+        lock (_sliceRecorders)
+        {
+            var state = observed;
+            if (!StateIsLive(state)) return null;
+            if (state.RecordStarted is double start)
+                return Math.Clamp(SliceRecorderClock() - start, 0, SliceRecordBufferSeconds);
+            return slice.PlayEnabled ? state.RecordedSeconds : null;
+        }
+    }
+
+    private void NoteRecording(SliceRecorderState state, bool recording)
+    {
+        state.Recording = recording;
+        if (!recording && state.RecordStarted is double start)
+        {
+            state.RecordedSeconds = Math.Clamp(SliceRecorderClock() - start, 0, SliceRecordBufferSeconds);
+            state.RecordStarted = null;
+        }
+    }
 
     /// <summary>Raised with the slice letter when a recording is ten seconds from the buffer's cap.</summary>
     public event Action<string> SliceRecordingNearlyFull;
@@ -155,6 +232,7 @@ public partial class FlexBase
     {
         var radio = theRadio;
         if (radio == null) return null;
+        if (target.IsTransmitSlice) return radio.TransmitSlice;
         if (target.IsLoopbackEars && _loopbackArranged && _lbResources?.Slice != null) return _lbResources.Slice;
         if (target.IsActiveSlice || target.IsLoopbackEars) return radio.ActiveSlice;
         return SliceByLetter(target.NamedLetter);
@@ -245,6 +323,15 @@ public partial class FlexBase
                 };
                 state.Status = (_, args) => OnRecorderSliceStatus(state, args.PropertyName);
                 slice.PropertyChanged += state.Status;
+                state.RadioStatus = (_, args) =>
+                {
+                    if (args.PropertyName is nameof(Radio.TXClientHandle) or nameof(Radio.TransmitSlice) or
+                        nameof(Radio.SimpleVOXEnable) or nameof(Radio.CWBreakIn) or nameof(Radio.Connected) or nameof(Radio.SliceList))
+                    {
+                        if (state.Intent != null && !PlaybackIntentIsCurrent(state.Intent)) CancelSlicePlayback();
+                    }
+                };
+                state.Radio.PropertyChanged += state.RadioStatus;
                 state.Removed = removed =>
                 {
                     if (!ReferenceEquals(removed, slice)) return;
@@ -277,6 +364,9 @@ public partial class FlexBase
         if (state.Status != null) slice.PropertyChanged -= state.Status;
         state.Status = null;
         if (state.Removed != null) state.Radio.SliceRemoved -= state.Removed;
+        if (state.RadioStatus != null) state.Radio.PropertyChanged -= state.RadioStatus;
+        state.RadioStatus = null;
+        state.Intent = null;
         state.Removed = null;
         state.Owner = null;
         _sliceRecorders.Remove(slice);
@@ -292,10 +382,20 @@ public partial class FlexBase
             // The radio finished the buffer on its own, or something else
             // stopped it: our state follows the radio's.
             if (state.Retired) return;
-            if (property == nameof(Slice.PlayOn)) state.Playing = state.Slice.PlayOn;
+            if (property == nameof(Slice.RecordOn) && state.Slice.RecordOn && !state.Recording)
+            {
+                state.RecordedSeconds = null;
+                state.RecordStarted = null;
+                state.Recording = true;
+            }
+            if (property == nameof(Slice.PlayOn))
+            {
+                state.Playing = state.Slice.PlayOn;
+                if (!state.Playing) state.Intent = null;
+            }
             if (property == nameof(Slice.RecordOn) && !state.Slice.RecordOn && state.Recording)
             {
-                state.Recording = false;
+                NoteRecording(state, false);
                 state.CapWarning?.Dispose();
                 state.CapWarning = null;
             }
@@ -324,7 +424,7 @@ public partial class FlexBase
             {
                 if (!sentCommand || !StateIsLive(state)) return;
                 reported = value == "1";
-                if (property == "record") state.Recording = reported.Value;
+                if (property == "record") NoteRecording(state, reported.Value);
                 else state.Playing = reported.Value;
                 statusSeen.TrySetResult(true);
             }
@@ -332,9 +432,17 @@ public partial class FlexBase
         await IqQueue(() =>
         {
             if (!StateIsLive(state) || !ReferenceEquals(radio, theRadio) || !ReferenceEquals(connection, radio.CurrentCommandConnection) ||
-                (property == "play" && enabled && (Transmit || radio.Mox || !slice.PlayEnabled)))
+                (property == "play" && enabled && (!PlaybackIntentIsCurrent(state.Intent) || !slice.PlayEnabled)))
                 throw new InvalidOperationException("slice-recorder-connection-or-state-changed");
-            lock (_sliceRecorders) sentCommand = true;
+            lock (_sliceRecorders)
+            {
+                sentCommand = true;
+                if (property == "record" && enabled)
+                {
+                    state.RecordedSeconds = null;
+                    state.RecordStarted = SliceRecorderClock();
+                }
+            }
             int sent = radio.SendReplyCommand((sequence, code, text) =>
             {
                 Tracing.TraceLine($"Slice recorder reply: sequence={sequence} code={code:X8} text={text} command={command}", TraceLevel.Info);
@@ -424,22 +532,23 @@ public partial class FlexBase
         if (_sliceRecorderKeyed != null) return;
         _sliceRecorderKeyed = (_, keyed) =>
         {
-            if (!keyed) return;
-            List<SliceRecorderState> playing;
-            lock (_sliceRecorders) playing = _sliceRecorders.Values.Where(v => v.Playing).ToList();
-            foreach (var state in playing) _ = StopPlayingForTransmitAsync(state);
+            CancelSlicePlayback();
         };
         TransmitChange += _sliceRecorderKeyed;
     }
 
-    private async Task StopPlayingForTransmitAsync(SliceRecorderState state)
+    private async Task StopPlayingForTransmitAsync(SliceRecorderState state, long generation)
     {
         await state.Gate.WaitAsync().ConfigureAwait(false);
         try
         {
-            if (!state.Playing) return;
-            Tracing.TraceLine($"Slice recorder: transmit began, stopping playback on slice {LetterOf(state.Slice)}", TraceLevel.Info);
+            // A delayed stop belongs to the invalidated press, not to a new
+            // press admitted after that edge or safety cut.
+            if (state.Intent?.Generation >= generation) return;
+            if (!state.Playing && !state.Slice.PlayOn) { state.Intent = null; return; }
+            Tracing.TraceLine($"Slice recorder: playback intent ended, stopping slice {LetterOf(state.Slice)}", TraceLevel.Info);
             if (await StopAndReportAsync(state, "play").ConfigureAwait(false)) state.Playing = false;
+            state.Intent = null;
         }
         finally { state.Gate.Release(); }
     }
@@ -522,26 +631,32 @@ public partial class FlexBase
 
     // ── Play ────────────────────────────────────────────────────────────
 
-    /// <summary>Play the target slice's recording to the speakers, or say why not. Never keys the radio.</summary>
-    public Task<RecorderOutcome> StartSlicePlayAsync(SliceRecorderTarget target, object owner = null) =>
-        WithRecorderAsync(target, state => StartPlayLockedAsync(state, target, owner));
+    /// <summary>Play locally or into the existing transmission, as chosen at the press. Never requests keying.</summary>
+    public Task<RecorderOutcome> StartSlicePlayAsync(SliceRecorderTarget target, object owner = null)
+    {
+        var intent = CapturePlaybackIntent();
+        return WithRecorderAsync(target, state => StartPlayLockedAsync(state, target, intent, owner));
+    }
 
     /// <summary>Stop the target slice's playback.</summary>
     public Task<RecorderOutcome> StopSlicePlayAsync(SliceRecorderTarget target, object owner = null) =>
         WithRecorderAsync(target, state => StopPlayLockedAsync(state, target, owner));
 
     /// <summary>Play the target slice's recording, or stop the playback running on it.</summary>
-    public Task<RecorderOutcome> ToggleSlicePlayAsync(SliceRecorderTarget target, object owner = null) =>
-        WithRecorderAsync(target, state => (state.Playing || state.Slice.PlayOn) ? StopPlayLockedAsync(state, target, owner) : StartPlayLockedAsync(state, target, owner));
+    public Task<RecorderOutcome> ToggleSlicePlayAsync(SliceRecorderTarget target, object owner = null)
+    {
+        var intent = CapturePlaybackIntent();
+        return WithRecorderAsync(target, state => (state.Playing || state.Slice.PlayOn) ? StopPlayLockedAsync(state, target, owner) : StartPlayLockedAsync(state, target, intent, owner));
+    }
 
-    private async Task<RecorderOutcome> StartPlayLockedAsync(SliceRecorderState state, SliceRecorderTarget target, object owner = null)
+    private async Task<RecorderOutcome> StartPlayLockedAsync(SliceRecorderState state, SliceRecorderTarget target, PlaybackIntent intent, object owner = null)
     {
         var slice = state.Slice;
         if (!SliceRecorderTargetIsOurs(slice)) return Unreachable(target, slice);
         string letter = LetterOf(slice);
-        // DRAFT PROSE (#787): awaiting Noel. Phase 2 sends a recording to air
-        // while keyed; until it is built, Play is refused while transmitting.
-        if (Transmit || theRadio.Mox) return Outcome(false, "audio.recorder.play_refused_transmitting", letter);
+        // DRAFT PROSE (#787): awaiting Noel
+        if (!intent.OnAir && !LocalPlaybackVoxOff(theRadio)) return Outcome(false, "audio.recorder.play_refused_vox", letter);
+        if (!PlaybackIntentIsCurrent(intent)) return Outcome(false, "audio.recorder.play_intent_changed", letter);
         if (state.Playing && slice.PlayOn) return Outcome(true, "audio.recorder.playing", letter, already: true);
         if (state.Recording || slice.RecordOn)
         {
@@ -555,9 +670,10 @@ public partial class FlexBase
             while (!slice.PlayEnabled && DateTime.UtcNow < until) await Task.Delay(50).ConfigureAwait(false);
         }
         if (!slice.PlayEnabled) return Outcome(false, "audio.recorder.nothing_to_play", letter);
-        if (Transmit || theRadio.Mox) return Outcome(false, "audio.recorder.play_refused_transmitting", letter);
+        if (!PlaybackIntentIsCurrent(intent)) return Outcome(false, "audio.recorder.play_intent_changed", letter);
         EnsureKeyedWatch();
         state.Owner = owner;
+        state.Intent = intent;
         state.Playing = true;
         bool started = await SendSafelyAsync(state, "play", true).ConfigureAwait(false);
         if (!started)
@@ -567,13 +683,13 @@ public partial class FlexBase
             state.Playing = false;
             return Outcome(false, "audio.recorder.play_unconfirmed", letter);
         }
-        if (Transmit || theRadio?.Mox == true)
+        if (!PlaybackIntentIsCurrent(intent))
         {
-            // Keyed while the play command was in flight.
+            // The transmission or permission changed while the command was in flight.
             if (!await SendSafelyAsync(state, "play", false).ConfigureAwait(false))
                 return Outcome(false, "audio.recorder.play_stop_unconfirmed", letter);
             state.Playing = false;
-            return Outcome(false, "audio.recorder.play_stopped_by_transmit", letter);
+            return Outcome(false, "audio.recorder.play_intent_changed", letter);
         }
         return Outcome(true, "audio.recorder.playing", letter);
     }

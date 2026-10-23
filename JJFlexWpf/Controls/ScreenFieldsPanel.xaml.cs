@@ -1994,7 +1994,7 @@ public partial class ScreenFieldsPanel : UserControl
         // Ctrl+Tab → jump to next Expander header
         if (e.Key == Key.Tab && Keyboard.Modifiers == ModifierKeys.Control)
         {
-            FocusNextExpander(forward: true);
+            FocusNextHomePane(forward: true);
             e.Handled = true;
             return;
         }
@@ -2002,7 +2002,7 @@ public partial class ScreenFieldsPanel : UserControl
         // Ctrl+Shift+Tab → jump to previous Expander header
         if (e.Key == Key.Tab && Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift))
         {
-            FocusNextExpander(forward: false);
+            FocusNextHomePane(forward: false);
             e.Handled = true;
             return;
         }
@@ -2059,7 +2059,7 @@ public partial class ScreenFieldsPanel : UserControl
         EscapePressed?.Invoke(this, EventArgs.Empty);
     }
 
-    private void FocusNextExpander(bool forward)
+    public void FocusNextHomePane(bool forward)
     {
         // Get visible expanders only
         var visible = new List<Expander>();
@@ -2069,7 +2069,7 @@ public partial class ScreenFieldsPanel : UserControl
                 visible.Add(exp);
         }
 
-        if (visible.Count == 0) return;
+        if (visible.Count == 0) { ReturnFocusToFreqOut?.Invoke(); return; }
 
         // Find which expander the focused element is inside
         var focused = Keyboard.FocusedElement as DependencyObject;
@@ -2088,17 +2088,8 @@ public partial class ScreenFieldsPanel : UserControl
         }
 
         // Calculate next index
-        int nextIndex;
-        if (currentIndex < 0)
-        {
-            nextIndex = forward ? 0 : visible.Count - 1;
-        }
-        else
-        {
-            nextIndex = forward
-                ? (currentIndex + 1) % visible.Count
-                : (currentIndex - 1 + visible.Count) % visible.Count;
-        }
+        int nextIndex = HomePaneNavigation.Next(currentIndex, visible.Count, forward);
+        if (nextIndex < 0) { ReturnFocusToFreqOut?.Invoke(); return; }
 
         // Focus the expander's toggle button (header). Using the shared
         // ExpanderFocus helper so the toggle receives keyboard focus

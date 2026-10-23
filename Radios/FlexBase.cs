@@ -7944,6 +7944,7 @@ namespace Radios
             }
             set
             {
+                if (!value) CancelSlicePlayback();
                 q.Enqueue((FunctionDel)(() => { theRadio.Mox = value; }), "Mox");
             }
         }

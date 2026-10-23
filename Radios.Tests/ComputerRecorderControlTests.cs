@@ -44,6 +44,14 @@ public sealed class ComputerRecorderControlTests : IDisposable
     }
 
     [Fact]
+    public void The_real_engine_defaults_to_radio_audio_in_mono()
+    {
+        var engine = new ComputerFlacRecorder(_ => true, () => { }, () => false);
+        Assert.False(engine.RecordWhatYouHeard);
+        Assert.False(engine.Stereo);
+    }
+
+    [Fact]
     public async Task Until_an_engine_is_installed_both_controls_refuse_in_a_sentence()
     {
         ComputerRecorder.Install(null);
@@ -102,8 +110,21 @@ public sealed class ComputerRecorderControlTests : IDisposable
     {
         string help = System.IO.File.ReadAllText(System.IO.Path.Combine(IntegrationPassTree.Root, "docs", "help", "md", "leader-key.md"));
         var line = System.Linq.Enumerable.Single(help.Split('\n'), l => l.StartsWith("- **Ctrl+P**"));
-        Assert.Contains("refuses to start while you are transmitting", line);
+        Assert.Contains("already transmitting", line);
+        Assert.Contains("VOX", line);
         Assert.DoesNotContain("waits until", line);
+    }
+
+    [Fact]
+    public async Task Local_computer_play_is_refused_with_VOX_on_but_stop_is_available()
+    {
+        var engine = new FakeEngine { LastRecordingPath = "last.flac" };
+        ComputerRecorder.Install(engine);
+        Assert.False((await ComputerRecorder.TogglePlaybackAsync(false, voxEnabled: true)).Success);
+        Assert.Empty(engine.Calls);
+        engine.IsPlaying = true;
+        Assert.True((await ComputerRecorder.TogglePlaybackAsync(false, voxEnabled: true)).Success);
+        Assert.Equal(new[] { "stop playback" }, engine.Calls);
     }
 
     [Fact]

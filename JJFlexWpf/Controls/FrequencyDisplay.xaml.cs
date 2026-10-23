@@ -832,6 +832,8 @@ public partial class FrequencyDisplay : UserControl
         if (key == "Split")
             return raw == "S" ? on : off;
 
+        if (key == "Record") return raw == "R" ? on : off;
+
         if (key == "VOX")
             return raw == "V" ? on : off;
 

@@ -52,7 +52,7 @@ public sealed class ComputerFlacRecorder : IComputerRecorder
     /// <summary>True records post-gain, post-noise-reduction receive audio at the output rate.</summary>
     public bool RecordWhatYouHeard { get; set; }
     /// <summary>Mono averages both slice channels; stereo preserves pan. Chosen before Start.</summary>
-    public bool Stereo { get; set; } = true;
+    public bool Stereo { get; set; }
 
     public ComputerFlacRecorder(Func<string, bool> play, Action stopPlay, Func<bool> isPlaying)
     {

@@ -686,7 +686,7 @@ The ScreenFields panel has five expandable categories you can toggle open and cl
 - **Ctrl+Shift+X** — Transmission
 - **Ctrl+Shift+A** — Antenna
 
-**Tip:** Each category expands to show its controls. Press the hotkey again to collapse it. Remember that you can also collapse any field group by pressing Escape. Press Escape twice quickly to close all field categories. `Ctrl+Tab` and `Ctrl+Shift+Tab` move between categories.
+**Tip:** Each category expands to show its controls. Press the hotkey again to collapse it. Remember that you can also collapse any field group by pressing Escape. Press Escape twice quickly to close all field categories. `Ctrl+Tab` and `Ctrl+Shift+Tab` move between categories and the Home slice strip, whether the categories are open or closed.
 
 ## View Controls
 
@@ -824,3 +824,11 @@ These keys are active when focus is on the row list inside the Archive Browser t
 - **Ctrl+C** — Copy the selected trace's full file path to the clipboard
 - **Delete** — Delete the selected trace(s), with a confirmation prompt
 - **Ctrl+A** — Select every row in the current filter
+
+
+## Home recorder
+
+- On each slice's **Record** field, **Space** or **Enter** starts or stops recording that slice. The next field shows its recording length when known.
+- **Ctrl+Tab / Ctrl+Shift+Tab** includes the Home slice strip as well as the field-group headers.
+- **Ctrl+J, Ctrl+R** records the active slice; **Ctrl+J, Ctrl+P** plays it. Play pressed during your transmission sends the recording over the air until you unkey; otherwise it plays locally. Turn off VOX or CW break-in for a local listen. Play never keys or selects a transmit slice.
+- **Ctrl+J, Ctrl+Shift+R** records to a computer file; **Ctrl+J, Ctrl+Shift+P** plays the selected or last computer recording locally. Computer playback to air is not available yet.

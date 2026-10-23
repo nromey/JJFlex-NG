@@ -123,7 +123,7 @@ public sealed class SliceRecorderSurfaceTests : IDisposable
     }
 
     [Fact]
-    public async Task Keying_stops_a_playback_and_play_never_keys()
+    public async Task Local_play_stops_on_a_transmit_edge()
     {
         using var c = new RadioCase();
         c.F.Vendor.Status("slice 1 play=0");
@@ -135,6 +135,199 @@ public sealed class SliceRecorderSurfaceTests : IDisposable
         await c.Pump(WaitUntil(() => c.F.Vendor.Transport.Commands.Contains("slice set 1 play=0")));
         Assert.Contains("slice set 1 play=0", c.F.Vendor.Transport.Commands);
         Assert.False(c.F.Rig.IsSlicePlaying(SliceRecorderTarget.ActiveSlice));
+    }
+
+    private static void Key(RadioCase c, bool keyed)
+    {
+        Field(c.F.Vendor.Radio, "_mox", keyed);
+        typeof(FlexBase).GetMethod("noteRadioMox", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(c.F.Rig, new object[] { keyed });
+    }
+
+    private static void VoxRadio(RadioCase c)
+    {
+        c.F.Vendor.Transport.CommandWritten = command =>
+        {
+            c.Respond(command);
+            if (command.EndsWith(" play=1") && c.F.Vendor.Radio.SimpleVOXEnable) Key(c, true);
+        };
+    }
+
+    private static void OwnTransmission(RadioCase c)
+    {
+        c.F.Rig.CanTransmit = true;
+        c.F.Rig.SlicePlaybackTransmitAllowed = () => true;
+        Property(c.F.Vendor.Radio, "TXClientHandle", c.F.Vendor.Radio.ClientHandle);
+        c.F.Vendor.Status("slice 1 play=0");
+        Key(c, true);
+    }
+
+    [Fact]
+    public async Task Cw_break_in_blocks_local_play_even_when_voice_VOX_is_off()
+    {
+        using var c = new RadioCase();
+        c.F.Vendor.Status("slice 1 mode=CW play=0");
+        Field(c.F.Vendor.Radio, "_cwBreakIn", true);
+        Assert.False((await c.Pump(c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        Assert.DoesNotContain("slice set 1 play=1", c.F.Vendor.Transport.Commands);
+    }
+
+    [Theory]
+    [InlineData("safety")]
+    [InlineData("owner")]
+    [InlineData("unkey")]
+    public async Task An_on_air_play_cannot_survive_a_stop_or_resume_in_the_next_transmission(string reason)
+    {
+        using var c = new RadioCase();
+        OwnTransmission(c);
+        Assert.True((await c.Pump(c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        if (reason == "safety") TransmitKillSwitch.DisarmSources(c.F.Rig);
+        else if (reason == "owner") Property(c.F.Vendor.Radio, "TXClientHandle", (uint)123);
+        else Key(c, false);
+        Assert.True(await c.Pump(WaitUntil(() => c.F.Vendor.Transport.Commands.Contains("slice set 1 play=0"))));
+        Key(c, false);
+        Key(c, true);
+        Assert.False(c.F.Rig.IsSlicePlaying(SliceRecorderTarget.ActiveSlice));
+        Assert.Single(c.F.Vendor.Transport.Commands.Where(x => x == "slice set 1 play=1"));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_queued_play_keeps_its_press_intent_across_unkey_and_rekey(bool initiallyKeyed)
+    {
+        using var c = new RadioCase();
+        if (initiallyKeyed) OwnTransmission(c);
+        else c.F.Vendor.Status("slice 1 play=0");
+        var request = c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.ActiveSlice);
+        Key(c, !initiallyKeyed);
+        Key(c, initiallyKeyed);
+        Assert.False((await c.Pump(request)).Success);
+        Assert.DoesNotContain("slice set 1 play=1", c.F.Vendor.Transport.Commands);
+    }
+
+    [Fact]
+    public async Task Losing_the_transmit_slice_stops_playback_on_a_different_slice()
+    {
+        using var c = new RadioCase();
+        c.Add(0, 7.1);
+        c.F.Vendor.Status("slice 0 play=0");
+        OwnTransmission(c); // B transmits; A holds the recording.
+        Assert.True((await c.Pump(c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.Letter('A')))).Success);
+        c.F.Vendor.Status("slice 1 in_use=0");
+        Assert.True(await c.Pump(WaitUntil(() => c.F.Vendor.Transport.Commands.Contains("slice set 0 play=0"))));
+        Assert.False(c.F.Rig.IsSlicePlaying(SliceRecorderTarget.Letter('A')));
+    }
+
+    [Theory]
+    [InlineData("owner")]
+    [InlineData("gate")]
+    [InlineData("vox")]
+    public async Task Dispatch_rechecks_admission_after_the_press(string changed)
+    {
+        using var c = new RadioCase();
+        if (changed != "vox") OwnTransmission(c);
+        else c.F.Vendor.Status("slice 1 play=0");
+        var request = c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.ActiveSlice);
+        if (changed == "owner") Property(c.F.Vendor.Radio, "TXClientHandle", (uint)123);
+        else if (changed == "gate") c.F.Rig.SlicePlaybackTransmitAllowed = () => false;
+        else Field(c.F.Vendor.Radio, "_simpleVOXEnable", true);
+        Assert.False((await c.Pump(request)).Success);
+        Assert.DoesNotContain("slice set 1 play=1", c.F.Vendor.Transport.Commands);
+    }
+
+    [Fact]
+    public async Task Lengths_are_per_slice_replace_the_previous_take_and_leave_old_takes_unknown()
+    {
+        using var c = new RadioCase();
+        var a = c.Add(0, 7.1);
+        c.F.Vendor.Status("slice 0 play=0 audio_mute=1");
+        c.F.Vendor.Status("slice 1 play=0");
+        double now = 100;
+        c.F.Rig.SliceRecorderClock = () => now;
+        Assert.Null(c.F.Rig.SliceRecordingSeconds(SliceRecorderTarget.ActiveSlice));
+        Assert.True((await c.Pump(c.F.Rig.StartSliceRecordAsync(SliceRecorderTarget.Letter('A')))).Success);
+        now += 12;
+        Assert.True((await c.Pump(c.F.Rig.StopSliceRecordAsync(SliceRecorderTarget.Letter('A')))).Success);
+        Assert.Equal(12, c.F.Rig.SliceRecordingSeconds(SliceRecorderTarget.Letter('A')));
+        Assert.Null(c.F.Rig.SliceRecordingSeconds(SliceRecorderTarget.ActiveSlice));
+        Assert.True((await c.Pump(c.F.Rig.StartSliceRecordAsync(SliceRecorderTarget.Letter('A')))).Success);
+        now += 3;
+        Assert.True((await c.Pump(c.F.Rig.StopSliceRecordAsync(SliceRecorderTarget.Letter('A')))).Success);
+        Assert.Equal(3, c.F.Rig.SliceRecordingSeconds(SliceRecorderTarget.Letter('A')));
+    }
+
+    [Theory]
+    [InlineData("12.5")]
+    [InlineData("NaN")]
+    [InlineData("Infinity")]
+    [InlineData("-1")]
+    [InlineData("121")]
+    [InlineData("garbled")]
+    public void The_undocumented_record_time_field_does_not_invent_an_old_takes_length(string value)
+    {
+        using var c = new RadioCase();
+        c.F.Vendor.Status("slice 1 play=0");
+        Assert.Null(c.F.Rig.SliceRecordingSeconds(SliceRecorderTarget.ActiveSlice));
+        c.F.Vendor.Status("slice 1 record_time=" + value);
+        Assert.Null(c.F.Rig.SliceRecordingSeconds(SliceRecorderTarget.ActiveSlice));
+    }
+
+    [Fact]
+    public async Task Transmit_target_records_A_even_while_B_is_active()
+    {
+        using var c = new RadioCase();
+        c.Add(0, 7.1);
+        c.F.Vendor.Status("slice 1 tx=0");
+        c.F.Vendor.Status("slice 0 tx=1");
+        Assert.Equal("B", c.F.Rig.SliceRecorderLetter(SliceRecorderTarget.ActiveSlice));
+        Assert.True((await c.Pump(c.F.Rig.StartSliceRecordAsync(SliceRecorderTarget.TransmitSlice))).Success);
+        Assert.Contains("slice set 0 record=1", c.F.Vendor.Transport.Commands);
+        Assert.DoesNotContain("slice set 1 record=1", c.F.Vendor.Transport.Commands);
+    }
+
+    [Fact]
+    public void The_fake_radio_keys_on_play_with_VOX_enabled_positive_control()
+    {
+        using var c = new RadioCase();
+        Field(c.F.Vendor.Radio, "_simpleVOXEnable", true);
+        VoxRadio(c);
+        c.F.Vendor.Radio.SendReplyCommand((_, _, _) => { }, "slice set 1 play=1");
+        Assert.True(c.F.Rig.Transmit);
+    }
+
+    [Fact]
+    public async Task Local_play_with_VOX_on_is_refused_before_the_fake_radio_can_key()
+    {
+        using var c = new RadioCase();
+        Field(c.F.Vendor.Radio, "_simpleVOXEnable", true);
+        c.F.Vendor.Status("slice 1 play=0");
+        VoxRadio(c);
+        var result = await c.Pump(c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.ActiveSlice));
+        Assert.False(result.Success);
+        Assert.False(c.F.Rig.Transmit);
+        Assert.DoesNotContain("slice set 1 play=1", c.F.Vendor.Transport.Commands);
+    }
+
+    [Fact]
+    public async Task A_play_pressed_during_our_transmission_continues_until_unkey()
+    {
+        using var c = new RadioCase();
+        Field(c.F.Vendor.Radio, "_simpleVOXEnable", true);
+        VoxRadio(c);
+        c.F.Rig.CanTransmit = true;
+        c.F.Rig.SlicePlaybackTransmitAllowed = () => true;
+        Property(c.F.Vendor.Radio, "TXClientHandle", c.F.Vendor.Radio.ClientHandle);
+        c.F.Vendor.Status("slice 1 play=0");
+        Key(c, true);
+        var result = await c.Pump(c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.ActiveSlice));
+        Assert.True(result.Success, result.Message);
+        Assert.DoesNotContain("slice set 1 play=0", c.F.Vendor.Transport.Commands);
+        Assert.DoesNotContain(c.F.Vendor.Transport.Commands, x => x.StartsWith("xmit") || x.Contains("tx=1"));
+        Key(c, false);
+        Assert.True(await c.Pump(WaitUntil(() => c.F.Vendor.Transport.Commands.Contains("slice set 1 play=0"))));
+        Key(c, true);
+        Assert.Single(c.F.Vendor.Transport.Commands.Where(x => x == "slice set 1 play=1"));
     }
 
     [Fact]

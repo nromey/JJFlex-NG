@@ -1,0 +1,1 @@
+The Home slice strip now has recording controls and lengths, and Ctrl+Tab always returns to it. Slice playback can join your transmission; local listening requires VOX off, and computer recording now offers mono or stereo and a choice to include computer noise reduction.

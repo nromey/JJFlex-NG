@@ -35,6 +35,25 @@ namespace JJFlexWpf.Tests;
 /// </remarks>
 public sealed class HomeFieldChordTests
 {
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(7)]
+    public void Home_is_a_stop_in_both_directions_regardless_of_expansion(int groups)
+    {
+        foreach (bool forward in new[] { true, false })
+        {
+            int position = -1;
+            var visited = new HashSet<int>();
+            for (int i = 0; i <= groups; i++)
+            {
+                Assert.True(visited.Add(position));
+                position = HomePaneNavigation.Next(position, groups, forward);
+            }
+            Assert.Equal(-1, position);
+            Assert.Equal(groups + 1, visited.Count);
+        }
+    }
     private static readonly Key[] EveryKey = Enum.GetValues<Key>().Distinct().ToArray();
 
     // All sixteen combinations of Alt, Control, Shift and Windows.

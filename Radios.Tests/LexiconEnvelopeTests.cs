@@ -1192,7 +1192,6 @@ namespace Radios.Tests
                 "audio.recorder.already_recording",
                 "audio.recorder.playing",
                 "audio.recorder.playing_stopped",
-                "audio.recorder.play_refused_transmitting",
                 "audio.recorder.play_stopped_by_transmit",
                 "audio.recorder.nothing_to_play",
                 "audio.recorder.no_slice",
@@ -1226,6 +1225,20 @@ namespace Radios.Tests
                 // DRAFT PROSE (#787): pending-start cancellation confirmation.
                 "audio.check.start_cancelled",
                 "audio.check.start_cancelled_escape",
+
+                // DRAFT PROSE (#787): recorder intent, lengths, and capture options.
+                "audio.recorder.play_refused_vox",
+                "audio.recorder.play_intent_changed",
+                "audio.recorder.seconds",
+                "audio.recorder.length_recorded",
+                "audio.recorder.no_recording",
+                "audio.recorder.has_recording",
+                "audio.recorder.recording_length",
+                "audio.recorder.play_length",
+                "audio.recorder.record_heard",
+                "audio.recorder.stereo",
+                "audio.recorder.options_help",
+
 
             };
 

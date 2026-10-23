@@ -354,6 +354,10 @@ public static class KeyInventory
         new("XIT", "XIT field", "Plus / Minus", "Make the offset positive or negative",
             new[] { "xit", "positive", "negative", "sign" }),
 
+        // DRAFT PROSE (#787): awaiting Noel
+        new("Record", "Record field", "Space / Enter", "Start or stop recording this slice",
+            new[] { "record", "recorder", "slice" }),
+
         // ── Mute field (Classic only) ──
         new("Mute", "Mute field", "Space or M", "Toggle mute",
             new[] { "mute", "toggle" }),
@@ -400,7 +404,7 @@ public static class KeyInventory
             new[] { "value", "enter", "type", "exact", "number" }, "Radio", "ValueField"),
         new("ValueField", "Value fields", "Escape", "Collapse the group; press Escape twice quickly to collapse all groups",
             new[] { "escape", "collapse", "group" }, "Radio", "ValueField"),
-        new("ValueField", "Value fields", "Ctrl+Tab / Ctrl+Shift+Tab", "Next or previous category",
+        new("ValueField", "Value fields", "Ctrl+Tab / Ctrl+Shift+Tab", "Next or previous Home group or slice strip",
             new[] { "category", "next", "previous", "tab" }, "Radio", "ValueField"),
     };
 

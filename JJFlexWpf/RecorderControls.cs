@@ -23,15 +23,34 @@ namespace JJFlexWpf;
 /// sentence.
 /// </para>
 /// <para>
-/// <b>Play never keys the radio, and both Plays are refused while
-/// transmitting</b> (Noel, 2026-10-21 10:57: keyed, Play sending to air is
-/// phase 2). The slice recorder enforces its own refusal; the computer
-/// refusal is enforced in ComputerRecorder.TogglePlaybackAsync, before the engine is asked, so no engine can
-/// forget it.
+/// <b>Play never requests keying.</b> Slice playback joins an existing owned
+/// transmission or listens locally with VOX off, using intent fixed at the press.
+/// Computer playback still refuses while transmitting; its FLAC engine has
+/// no direct route into the voice-message transmit stream.
 /// </para>
 /// </remarks>
 public static class RecorderControls
 {
+    // DRAFT PROSE (#787): awaiting Noel. Shared by the strip, menu and buttons.
+    public static string? RecordingLength(FlexBase? rig, SliceRecorderTarget target) =>
+        rig?.SliceRecordingSeconds(target) is double seconds
+            ? Lexicon.Get("audio.recorder.seconds", ("seconds", (int)Math.Floor(seconds))) : null;
+
+    public static string RecordingSummary(FlexBase? rig, SliceRecorderTarget target)
+    {
+        string? length = RecordingLength(rig, target);
+        if (rig?.IsSliceRecording(target) == true)
+            return length == null ? Lexicon.Get("audio.recorder.has_recording")
+                : Lexicon.Get("audio.recorder.recording_length", ("length", length));
+        return length != null ? Lexicon.Get("audio.recorder.length_recorded", ("length", length))
+            : Lexicon.Get(rig?.SliceHasRecording(target) == true ? "audio.recorder.has_recording" : "audio.recorder.no_recording");
+    }
+
+    public static string SlicePlayLabel(FlexBase? rig, SliceRecorderTarget target) =>
+        rig?.IsSlicePlaying(target) == true
+            ? Lexicon.Get("audio.recorder.stop_play_button", ("letter", rig.SliceRecorderLetter(target)))
+            : RecordingLength(rig, target) is string length
+                ? Lexicon.Get("audio.recorder.play_length", ("length", length)) : Lexicon.Get("audio.recorder.play_button");
     /// <summary>
     /// Speak a recorder outcome under its subject. A refusal thunks first and
     /// speaks at Critical, so it is heard at every verbosity; a success is
@@ -117,7 +136,8 @@ public static class RecorderControls
     public static async Task<RecorderOutcome> ToggleComputerPlayAsync(FlexBase? rig,
         Action<RecorderOutcome>? speak = null)
     {
-        var outcome = await Guarded(() => ComputerRecorder.TogglePlaybackAsync(rig?.Transmit == true), SpeechSubject.ComputerRecorder);
+        var outcome = await Guarded(() => ComputerRecorder.TogglePlaybackAsync(rig?.Transmit == true,
+            rig?.Vox == FlexBase.OffOnValues.on), SpeechSubject.ComputerRecorder);
         (speak ?? Speak)(outcome);
         return outcome;
     }

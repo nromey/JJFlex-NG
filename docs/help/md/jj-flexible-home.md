@@ -20,6 +20,9 @@ The JJ Flexible Home presents a sequence of fields that you move between by pres
 - **Squelch Level** — the squelch threshold value. The number stays visible whether squelch is on or off; when squelch is off, it is the level that will take effect as soon as you turn squelch back on.
 - **Split** — whether split operation is currently engaged
 - **VOX** — whether VOX is currently on or off
+- **Transmit slice** — the slice selected for transmission
+- **Record** — press Space or Enter to start or stop recording this slice
+- **Recording length** — the recorded duration, when known; an older recording with no reported length has no duration shown
 - **Offset** — the repeater offset direction
 - **RIT** — Receiver Incremental Tuning
 - **XIT** — Transmitter Incremental Tuning
@@ -72,3 +75,12 @@ If you find yourself wanting the universal behaviour on one of these fields, jus
 - Slice Management
 - Escape and Collapse
 - Keyboard Reference
+
+
+## Recording
+
+The Record field follows the slice you select, including a muted slice. A new recording replaces that slice's previous one. The Slice menu's Recorder rows show each slice's recording length. Play uses the transmit slice when you press it during your transmission, and stops when you unkey; a local listen stops if transmission begins. Turn off VOX or CW break-in before listening locally.
+
+The Audio and Slice group also has Record to file, with **Record what you heard** and **Record in stereo** checkboxes. Both start off: the default is the radio's audio in mono. Choose before recording; the choices cannot change during a take. What-you-heard includes computer volume and noise reduction at 48 kHz; the default uses 24 kHz. Stereo preserves panned slices.
+
+Ctrl+Tab and Ctrl+Shift+Tab move through the Home slice strip and the visible group headers, whether their controls are expanded or collapsed.
