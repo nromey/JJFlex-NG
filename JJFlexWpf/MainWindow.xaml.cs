@@ -1622,8 +1622,8 @@ public partial class MainWindow : UserControl
     /// un-collapsing each panel means the connected layout is never rebuilt
     /// from a memory of what it used to look like; the mode builders stay the
     /// single source of truth.</para>
-    /// <para><c>ApplyUIMode</c> also restores the meters visibility captured
-    /// at disconnect, or the newer choice made through Ctrl+M while offline.
+        /// <para><c>ApplyUIMode</c> also restores the meters visibility captured
+        /// at disconnect. Ctrl+M cannot change that choice while offline.
     /// It does not toggle the panel, speak, or move focus. The panadapter
     /// still comes back on the first pan line through <c>PanDisplayCallback</c>
     /// if the operator's Show-panadapter setting is on.</para>
@@ -2567,6 +2567,7 @@ public partial class MainWindow : UserControl
         if (ActiveUIMode == UIMode.Logging)
             return;
 
+        _focusBeforeLogging = Keyboard.FocusedElement;
         LastNonLogMode = ActiveUIMode;
         ApplyUIMode(UIMode.Logging);
 
@@ -2577,8 +2578,13 @@ public partial class MainWindow : UserControl
         // In pure WPF, this just works — no BeginInvoke, no ElementHost dance.
         LoggingLogEntry.FocusCallSign();
 
-        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.home.entering_logging"), VerbosityLevel.Terse);
+        Radios.ScreenReaderOutput.Speak(
+            Radios.ScreenReaderOutput.CurrentVerbosity == VerbosityLevel.Chatty
+                ? Radios.Lexicon.Get("connect.home.entering_logging") : "Logging mode",
+            VerbosityLevel.Terse);
     }
+
+    private IInputElement? _focusBeforeLogging;
 
     /// <summary>
     /// Exit Logging Mode, returning to last non-logging mode.
@@ -2598,12 +2604,19 @@ public partial class MainWindow : UserControl
 
         ApplyUIMode(LastNonLogMode);
 
-        // Focus FreqOut display (the primary control in Classic/Modern modes),
-        // or the rescue page when that is what Home currently is.
-        FocusHome();
+        // The mode switch hides Home temporarily. Restore the actual field or
+        // expander control the operator was using when it becomes visible again.
+        var priorFocus = _focusBeforeLogging;
+        _focusBeforeLogging = null;
+        if (priorFocus is UIElement element && element.IsVisible && element.IsEnabled)
+            Keyboard.Focus(priorFocus);
+        else
+            FocusHome();
 
         Radios.ScreenReaderOutput.Speak(
-            Radios.Lexicon.Get("connect.home.returning_to_mode", ("mode", LastNonLogMode)),
+            Radios.ScreenReaderOutput.CurrentVerbosity == VerbosityLevel.Chatty
+                ? $"Leaving logging mode, {LastNonLogMode} tuning."
+                : $"{LastNonLogMode} tuning",
             VerbosityLevel.Terse);
     }
 
@@ -2835,6 +2848,14 @@ public partial class MainWindow : UserControl
                 e.Handled = true;
                 return;
             }
+        }
+
+        if (rawKey == Key.Escape && Keyboard.Modifiers == ModifierKeys.None &&
+            (FreqOut.IsKeyboardFocusWithin || FieldsPanel.IsKeyboardFocusWithin) &&
+            FieldsPanel.TryCloseExpandedGroups())
+        {
+            e.Handled = true;
+            return;
         }
 
         // 5. Fall through to focused control (default WPF behavior)
@@ -4127,7 +4148,8 @@ public partial class MainWindow : UserControl
             HelpItems = KeyInventory.HelpItemsFor("TXSlice", modern: false) });
         fields.Add(new FrequencyDisplay.DisplayField("Record", 1, "", "") { Label = "Record",
             HelpItems = KeyInventory.HelpItemsFor("Record", modern: false) });
-        fields.Add(new FrequencyDisplay.DisplayField("Recorded", 20, "", "") { Label = "Recording length" });
+        fields.Add(new FrequencyDisplay.DisplayField("Recorded", 28, "", "") { Label = "Play recording",
+            HelpItems = KeyInventory.HelpItemsFor("Recorded", modern: false) });
         fields.Add(new FrequencyDisplay.DisplayField("Offset", 1, "", "") { Label = "Offset",
             HelpItems = KeyInventory.HelpItemsFor("Offset", modern: false) });
         fields.Add(new FrequencyDisplay.DisplayField("RIT", 5, "", "") { Label = "RIT", DefaultCursorOffset = 2,
@@ -4206,7 +4228,8 @@ public partial class MainWindow : UserControl
             HelpItems = KeyInventory.HelpItemsFor("TXSlice", modern: true) });
         fields.Add(new FrequencyDisplay.DisplayField("Record", 1, "", "") { Label = "Record",
             HelpItems = KeyInventory.HelpItemsFor("Record", modern: true) });
-        fields.Add(new FrequencyDisplay.DisplayField("Recorded", 20, "", "") { Label = "Recording length" });
+        fields.Add(new FrequencyDisplay.DisplayField("Recorded", 28, "", "") { Label = "Play recording",
+            HelpItems = KeyInventory.HelpItemsFor("Recorded", modern: true) });
         fields.Add(new FrequencyDisplay.DisplayField("Offset", 1, "", "") { Label = "Offset",
             HelpItems = KeyInventory.HelpItemsFor("Offset", modern: true) });
         fields.Add(new FrequencyDisplay.DisplayField("RIT", 5, "", "") { Label = "RIT", DefaultCursorOffset = 2,
@@ -4320,6 +4343,9 @@ public partial class MainWindow : UserControl
                 case "Record":
                     _freqOutHandlers.AdjustRecord(field, e);
                     break;
+                case "Recorded":
+                    _freqOutHandlers.AdjustRecorded(field, e);
+                    break;
                 case "Offset":
                     _freqOutHandlers.AdjustOffset(field, e);
                     break;
@@ -4362,6 +4388,9 @@ public partial class MainWindow : UserControl
                 break;
             case "Record":
                 _freqOutHandlers.AdjustRecord(field, e);
+                break;
+            case "Recorded":
+                _freqOutHandlers.AdjustRecorded(field, e);
                 break;
             case "SMeter":
                 _freqOutHandlers.AdjustSMeter(field, e);
@@ -4470,8 +4499,7 @@ public partial class MainWindow : UserControl
             // VOX
             FreqOut.Write("VOX", RigControl.Vox == FlexBase.OffOnValues.on ? "V" : " ");
             FreqOut.Write("Record", RigControl.IsSliceRecording(SliceRecorderTarget.ActiveSlice) ? "R" : " ");
-            FreqOut.Write("Recorded", RecorderControls.RecordingLength(RigControl, SliceRecorderTarget.ActiveSlice)
-                ?? RecorderControls.RecordingSummary(RigControl, SliceRecorderTarget.ActiveSlice));
+            FreqOut.Write("Recorded", RecorderControls.SliceStripPlayLabel(RigControl, SliceRecorderTarget.ActiveSlice));
 
             // QB Track I — Transmit slice letter; "-" when no slice keys the
             // radio (speech maps it to "none" in FrequencyDisplay).
@@ -6340,12 +6368,13 @@ public partial class MainWindow : UserControl
     /// </remarks>
     public void ToggleMetersPanel()
     {
+        if (_disconnectShellUp || _rescueMode || RigControl == null)
+        {
+            Radios.ScreenReaderOutput.Speak("Meters aren't available when you aren't connected to a radio.",
+                VerbosityLevel.Terse, true);
+            return;
+        }
         MetersPanel.TogglePanelVisibility();
-        // Record what the REAL toggle just did, not the inverse of a saved
-        // choice: the first press while hidden opens the panel, as it always did.
-        // Rescue may hide it again; reconnect must still honour this newer word.
-        if (_disconnectShellUp || _rescueMode)
-            _metersVisibilityBeforeDisconnect = MetersPanel.Visibility;
     }
 
     /// <summary>

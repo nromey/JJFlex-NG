@@ -31,6 +31,7 @@ namespace JJFlexWpf;
 /// </remarks>
 public static class RecorderControls
 {
+    public static bool StatusSpeechEnabled { get; set; } = true;
     // DRAFT PROSE (#787): awaiting Noel. Shared by the strip, menu and buttons.
     public static string? RecordingLength(FlexBase? rig, SliceRecorderTarget target) =>
         rig?.SliceRecordingSeconds(target) is double seconds
@@ -51,6 +52,14 @@ public static class RecorderControls
             ? Lexicon.Get("audio.recorder.stop_play_button", ("letter", rig.SliceRecorderLetter(target)))
             : RecordingLength(rig, target) is string length
                 ? Lexicon.Get("audio.recorder.play_length", ("length", length)) : Lexicon.Get("audio.recorder.play_button");
+
+    public static string SliceStripPlayLabel(FlexBase? rig, SliceRecorderTarget target)
+    {
+        if (rig?.IsSlicePlaying(target) == true) return Lexicon.Get("audio.recorder.stop_strip");
+        if (rig?.SliceRecordingSeconds(target) is double seconds)
+            return Lexicon.Get("audio.recorder.play_strip", ("seconds", (int)Math.Floor(seconds)));
+        return Lexicon.Get("audio.recorder.play_button");
+    }
     /// <summary>
     /// Speak a recorder outcome under its subject. A refusal thunks first and
     /// speaks at Critical, so it is heard at every verbosity; a success is
@@ -59,7 +68,13 @@ public static class RecorderControls
     /// </summary>
     public static void Speak(RecorderOutcome outcome)
     {
-        if (outcome == null || string.IsNullOrEmpty(outcome.Message)) return;
+        if (outcome == null) return;
+        if (outcome.Success && !outcome.AlreadyInState)
+        {
+            if (outcome.Cue == RecorderCue.Start) EarconPlayer.RecorderStartBeep();
+            else if (outcome.Cue == RecorderCue.Stop) EarconPlayer.RecorderStopBeep();
+        }
+        if (string.IsNullOrEmpty(outcome.Message) || (outcome.Success && !StatusSpeechEnabled)) return;
         if (!outcome.Success) EarconPlayer.LeaderInvalidTone();
         ScreenReaderOutput.Speak(outcome.Message, SpeechIntent.Interrupt,
             outcome.Success ? VerbosityLevel.Terse : VerbosityLevel.Critical,

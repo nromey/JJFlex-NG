@@ -350,7 +350,7 @@ public sealed class SliceRecorderSurfaceTests : IDisposable
     }
 
     [Fact]
-    public async Task Local_play_waits_for_a_radio_vox_off_report_not_the_setters_local_cache()
+    public async Task Local_play_waits_for_a_radio_vox_off_reply_not_the_setters_local_cache()
     {
         using var c = new RadioCase();
         c.F.Vendor.Status("transmit vox_enable=1");
@@ -364,6 +364,25 @@ public sealed class SliceRecorderSurfaceTests : IDisposable
         Assert.False(result.Success);
         Assert.Equal(Text("audio.recorder.play_vox_unconfirmed", "B"), result.Message);
         Assert.DoesNotContain("slice set 1 play=1", c.F.Vendor.Transport.Commands);
+    }
+
+    [Fact]
+    public async Task Local_play_accepts_a_vox_off_reply_without_a_status_echo()
+    {
+        using var c = new RadioCase();
+        c.F.Vendor.Status("transmit vox_enable=1");
+        c.F.Vendor.Status("slice 1 play=0");
+        c.F.Vendor.Transport.CommandWritten = command =>
+        {
+            if (command.StartsWith("transmit set vox_enable="))
+                c.F.Vendor.ReplyOk(c.F.Vendor.LastSequence);
+            else c.Respond(command);
+        };
+
+        var result = await c.Pump(c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.ActiveSlice));
+        Assert.True(result.Success, result.Message);
+        Assert.False(c.F.Vendor.Radio.SimpleVOXEnable);
+        Assert.Contains("slice set 1 play=1", c.F.Vendor.Transport.Commands);
     }
 
     [Theory]

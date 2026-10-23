@@ -62,20 +62,16 @@ public sealed class MetersReconnectTests
     [InlineData(true, true, 1)]
     [InlineData(false, true, 2)]
     [InlineData(true, true, 2)]
-    public void Ctrl_M_while_gone_wins_over_the_pre_disconnect_choice(bool rescue, bool initiallyOpen, int presses)
+    public void Ctrl_M_while_gone_preserves_the_pre_disconnect_choice(bool rescue, bool initiallyOpen, int presses)
         => Run(h =>
         {
             if (initiallyOpen) h.Toggle(open: true);
             h.Drop();
             if (rescue) h.Rescue();
-            // The real toggle sees a collapsed panel and OPENS it on the first
-            // press. The old failed fix called this a cancellation. Two presses
-            // close it; closed/drop/one press and open/drop/two discriminate the
-            // newer choice from the pre-drop snapshot in the mutation control.
-            for (int i = 0; i < presses; i++) h.Toggle(open: i % 2 == 0);
+            for (int i = 0; i < presses; i++) h.ToggleDisconnected();
             if (rescue) h.Main.ApplyUIMode(h.Main.ActiveUIMode); // rescue hides it again
             h.Reconnect();
-            h.AssertMeters(open: presses % 2 == 1);
+            h.AssertMeters(open: initiallyOpen);
         });
 
     [Theory]
@@ -187,6 +183,7 @@ public sealed class MetersReconnectTests
         public readonly ScreenFieldsPanel Fields = new();
         public readonly Grid Panadapter = new() { Visibility = Visibility.Visible };
         private readonly StackPanel _rescue = new() { Visibility = Visibility.Collapsed };
+        private readonly FlexBase _fakeRig = (FlexBase)RuntimeHelpers.GetUninitializedObject(typeof(FlexBase));
         private readonly VerbosityLevel _oldVerbosity;
         private int _inputPosts, _focusReturns;
         public Expander Expander => (Expander)Meters.FindName("MetersExpander");
@@ -210,6 +207,7 @@ public sealed class MetersReconnectTests
             Put("SendLabel", new TextBlock());
             Put("ReceivedTextBox", new TextBox());
             Put("SentTextBox", new TextBox());
+            Main.RigControl = _fakeRig;
             Main.FieldsPanelUserVisible = true;
             Main.ApplyUIMode(UIMode.Modern);
             Meters.ReturnFocusToFreqOut = () => _focusReturns++;
@@ -236,9 +234,21 @@ public sealed class MetersReconnectTests
             Drain(); // finish the operator's queued focus request before testing automatic restore
         }
 
+        public void ToggleDisconnected()
+        {
+            int inputBefore = _inputPosts, returnBefore = _focusReturns;
+            Main.ToggleMetersPanel();
+            Assert.Equal(Visibility.Collapsed, Meters.Visibility);
+            Assert.Equal("Meters aren't available when you aren't connected to a radio.",
+                ScreenReaderOutput.RecentMessages.First());
+            Assert.Equal(inputBefore, _inputPosts);
+            Assert.Equal(returnBefore, _focusReturns);
+        }
+
         public void Drop()
         {
             Call("RestoreNoRadioShell");
+            Main.RigControl = null;
             Assert.Equal(Visibility.Collapsed, Meters.Visibility);
             Assert.Equal(Visibility.Collapsed, Fields.Visibility);
             Assert.Equal(Visibility.Collapsed, Panadapter.Visibility);
@@ -252,6 +262,7 @@ public sealed class MetersReconnectTests
         {
             // Existing production entry sets rescue state and calls the same visibility
             // method as expiry. No manual _rescueMode or meters-memory assignment.
+            Main.RigControl = null;
             Main.EnterRescueModeIfNoRadio();
             Assert.True(Main.InRescueMode);
             Assert.Equal(Visibility.Visible, _rescue.Visibility);
@@ -262,6 +273,7 @@ public sealed class MetersReconnectTests
 
         public void Reconnect()
         {
+            Main.RigControl = _fakeRig;
             string marker = "meters reconnect marker " + Guid.NewGuid().ToString("N");
             ScreenReaderOutput.Speak(marker, VerbosityLevel.Critical, true);
             Assert.Equal(marker, ScreenReaderOutput.RecentMessages.First());

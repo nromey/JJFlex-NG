@@ -1313,7 +1313,7 @@ public class NativeMenuBar : IDisposable
             AddChecked(parent, $"Record Slice {letter}",
                 () => _ = RecorderControls.ToggleSliceRecordAsync(Rig, target, SpeakRecorderAfterMenuClose),
                 () => Rig?.IsSliceRecording(target) == true);
-            _recorderMenuLabels[_nextId - 1] = () => $"Record Slice {letter}, {RecorderControls.RecordingSummary(Rig, target)}";
+            _recorderMenuLabels[_nextId - 1] = () => $"Record Slice {letter}";
             AddChecked(parent, $"Play Slice {letter} Recording",
                 () => _ = RecorderControls.ToggleSlicePlayAsync(Rig, target, SpeakRecorderAfterMenuClose),
                 () => Rig?.IsSlicePlaying(target) == true);

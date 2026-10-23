@@ -504,6 +504,8 @@ public partial class AudioWorkshopDialog
     private async void OnSessionEnded()
     {
         CancelCheckStart();
+        UpdateMicReading();
+        if (_micReadingBox?.IsVisible == true) _micReadingBox.Focus();
         SetStartButtonLabel("Start Audio Check");
         SetLoopbackButtonLabel(stopping: false);
         // This stopped every recording the Workshop's buttons had started
@@ -910,6 +912,7 @@ public partial class AudioWorkshopDialog
             if (_method == AudioCheckListenMethods.OffAir) _owner._iqRun?.OwnKeying(true);
             if (_method == AudioCheckListenMethods.OffAir)
                 ScreenReaderOutput.Supersede("audio.iq.preparing", "off-air take ready to start");
+            _ptt.AudioCheckNarration = true;
             bool admitted = start.TryRun(() =>
             {
                 if (_owner._iqClosing || !ReferenceEquals(rig, Rig) || _ptt.IsTransmitting || rig.Transmit)
@@ -919,6 +922,7 @@ public partial class AudioWorkshopDialog
             });
             if (!admitted)
             {
+                _ptt.AudioCheckNarration = false;
                 if (_method == AudioCheckListenMethods.OffAir) _owner._iqRun?.OwnKeying(false);
                 RestoreChangedState(rig, speak: false);
                 if (!_loopback && _method == AudioCheckListenMethods.RecordPlayback && !recorderAlreadyRunning)
@@ -927,6 +931,7 @@ public partial class AudioWorkshopDialog
             }
             if (!_ptt.IsTransmitting)
             {
+                _ptt.AudioCheckNarration = false;
                 // Refused (license lockout spoke its own warning, or no
                 // power). Roll back everything we touched.
                 _ptt.SessionTimeoutOverrideSeconds = null;
@@ -1004,7 +1009,8 @@ public partial class AudioWorkshopDialog
             if (!string.IsNullOrEmpty(toneLine))
                 line.Append(' ').Append(toneLine);
             line.Append(' ').Append(Lexicon.Get("audio.check.escape_stops"));
-            ScreenReaderOutput.Speak(line.ToString(), VerbosityLevel.Critical, interrupt: true);
+            ScreenReaderOutput.Speak("Transmitting", Radios.Speech.SpeechIntent.Queue,
+                VerbosityLevel.Critical);
 
             _keyedAt = DateTime.UtcNow;
             _phase = Phase.Keyed;
@@ -1076,6 +1082,7 @@ public partial class AudioWorkshopDialog
             Active = false;
             _watcher.Stop();
             _ptt.SessionTimeoutOverrideSeconds = null;
+            _ptt.AudioCheckNarration = false;
             if (!string.IsNullOrEmpty(reason))
                 ScreenReaderOutput.Speak(reason, VerbosityLevel.Terse);
             _owner.OnSessionEnded();
@@ -1152,7 +1159,7 @@ public partial class AudioWorkshopDialog
 
             // Unconditional key-up announcement (interrupt false so the
             // controller's own "Receiving" isn't stomped when enabled).
-            ScreenReaderOutput.Speak(msg.ToString(), VerbosityLevel.Critical);
+            // The results remain in the read-only box; ordinary key-up is quiet.
 
             _postUnkeyTicks = 0;
             if (_method == AudioCheckListenMethods.RecordPlayback && rig != null)
@@ -1267,7 +1274,7 @@ public partial class AudioWorkshopDialog
                 }
                 // Other no-playback methods retain their post-unkey grace.
                 if (_postUnkeyTicks >= 3)
-                    End(Lexicon.Get("audio.check.ended"));
+                    End(null);
                 return;
             }
 
@@ -1286,7 +1293,7 @@ public partial class AudioWorkshopDialog
                 if (played?.Success == true)
                 {
                     ScreenReaderOutput.Speak(
-                        Lexicon.Get("audio.check.playing_take_full_chain"),
+                        "Playing your take.",
                         Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse, subject: played.Subject);
                     End(null);
                 }

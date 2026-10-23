@@ -59,7 +59,9 @@ public readonly struct SliceRecorderTarget : IEquatable<SliceRecorderTarget>
 /// <param name="Message">A complete sentence, already worded from the lexicon.</param>
 /// <param name="Subject">The <see cref="Speech.SpeechSubject"/> it belongs to.</param>
 /// <param name="AlreadyInState">True when nothing needed changing: the recorder was already doing what was asked.</param>
-public sealed record RecorderOutcome(bool Success, string Message, string Subject, bool AlreadyInState = false);
+public enum RecorderCue { None, Start, Stop }
+public sealed record RecorderOutcome(bool Success, string Message, string Subject,
+    bool AlreadyInState = false, RecorderCue Cue = RecorderCue.None);
 
 /// <summary>
 /// The radio's own per-slice recorder (#787): one reply-and-status-checked surface that
@@ -265,8 +267,25 @@ public partial class FlexBase
 
     private static string Say(string key, string letter) => Lexicon.Get(key, ("letter", letter));
 
-    private static RecorderOutcome Outcome(bool success, string key, string letter, bool already = false) =>
-        new(success, Say(key, letter), Speech.SpeechSubject.SliceRecorder(letter), already);
+    private static RecorderOutcome Outcome(bool success, string key, string letter, bool already = false)
+    {
+        string message = Say(key, letter);
+        if (success && ScreenReaderOutput.CurrentVerbosity != VerbosityLevel.Chatty)
+            message = key switch
+            {
+                "audio.recorder.recording" => $"{letter} recording",
+                "audio.recorder.playing" => $"{letter} playing",
+                "audio.recorder.recording_stopped" or "audio.recorder.playing_stopped" => $"{letter} stopped",
+                _ => message
+            };
+        var cue = key switch
+        {
+            "audio.recorder.recording" or "audio.recorder.playing" => RecorderCue.Start,
+            "audio.recorder.recording_stopped" or "audio.recorder.playing_stopped" => RecorderCue.Stop,
+            _ => RecorderCue.None
+        };
+        return new(success, message, Speech.SpeechSubject.SliceRecorder(letter), already, cue);
+    }
 
     /// <summary>The letter of the slice this target resolves to now, or empty when none does.</summary>
     public string SliceRecorderLetter(SliceRecorderTarget target)
@@ -679,23 +698,27 @@ public partial class FlexBase
                 var setting = intent.Radio.TransmitSlice?.DemodMode == "CW"
                     ? VoxSetting.CwBreakIn : VoxSetting.SimpleVox;
                 bool needsOffReport = !LocalPlaybackVoxOff(intent.Radio);
-                using var voxStatus = new RadioStatusTap(intent.Radio);
-                var offReported = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                string field = setting == VoxSetting.CwBreakIn ? "break_in" : "vox_enable";
-                voxStatus.Status += raw =>
-                {
-                    if (!raw.Contains("|transmit ", StringComparison.Ordinal)) return;
-                    if (RadioStatusTap.Values(raw).TryGetValue(field, out string value) && value == "0")
-                        offReported.TrySetResult(true);
-                };
                 lease = VoxPauses.Acquire(setting);
                 if (lease == null) return Outcome(false, "audio.recorder.play_vox_unconfirmed", letter);
                 if (needsOffReport)
-                    await Task.WhenAny(offReported.Task, Task.Delay(SliceVoxOffWait)).ConfigureAwait(false);
+                {
+                    // The owner queues its write. A barrier on the same queue
+                    // makes its reply task visible before this waiter reads it.
+                    await IqQueue(() => { }).ConfigureAwait(false);
+                    var offReply = LastVoxWriteReply(setting, intent.Radio, on: false);
+                    try
+                    {
+                        if (!await offReply.WaitAsync(SliceVoxOffWait).ConfigureAwait(false))
+                            return Outcome(false, "audio.recorder.play_vox_unconfirmed", letter);
+                    }
+                    catch (TimeoutException)
+                    {
+                        return Outcome(false, "audio.recorder.play_vox_unconfirmed", letter);
+                    }
+                }
                 if (!PlaybackIntentIsCurrent(intent, requireLocalVoxOff: false))
                     return Outcome(false, "audio.recorder.play_intent_changed", letter);
-                if ((needsOffReport && !offReported.Task.IsCompletedSuccessfully) ||
-                    !LocalPlaybackVoxOff(intent.Radio))
+                if (!LocalPlaybackVoxOff(intent.Radio))
                     return Outcome(false, "audio.recorder.play_vox_unconfirmed", letter);
             }
             if (state.Recording || slice.RecordOn)

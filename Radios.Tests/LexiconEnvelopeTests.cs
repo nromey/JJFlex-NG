@@ -994,12 +994,11 @@ namespace Radios.Tests
                 // classification as its two siblings.
                 "audio.ptt.cut_hold_reason_unknown",
                 "audio.ptt.cut_hold_the_antenna",
-                // DRAFT PROSE (#571): the historical VOX consequence waits
-                // behind the cut and uses protected recovery. It follows the
-                // Terse gate; tone-only at Off. Persistent historical wording
-                // remains true after expiry; the occurrence owns its validity.
+                // DRAFT PROSE (#571): the present-tense VOX consequence queues
+                // behind the cut and expires with the hold. It follows the
+                // Terse gate; tone-only at Off.
                 "audio.ptt.cut_hold_vox_pause_notice",
-                "audio.ptt.cut_hold_vox_pause_history",
+                "audio.ptt.cut_hold_vox_pause_notice_one",
 
                 // Junkbox #777, 2026-10-19: a global-profile write (Save, or
                 // Delete since round two) refused because the radio is
@@ -1361,6 +1360,8 @@ namespace Radios.Tests
                 "audio.recorder.has_recording",
                 "audio.recorder.recording_length",
                 "audio.recorder.play_length",
+                "audio.recorder.play_strip",
+                "audio.recorder.stop_strip",
                 "audio.recorder.record_heard",
                 "audio.recorder.stereo",
                 "audio.recorder.options_help",

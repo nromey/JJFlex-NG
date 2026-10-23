@@ -1451,7 +1451,10 @@ namespace Radios
         // reference the two fields it needs.
         private JJPortaudio.TxInputSourceMux _txInputSources;
         private JJPortaudio.TxInputSourceMux TxInputSources =>
-            _txInputSources ??= new JJPortaudio.TxInputSourceMux(txToneGen, txFilePlayer);
+            _txInputSources ??= new JJPortaudio.TxInputSourceMux(txToneGen, txFilePlayer)
+            {
+                MuteOutput = () => theRadio?.TXTune == true
+            };
 
         // Track I: the TX conditioning chain (noise reduction + gate +
         // residual monitor tap), owned here like the tone generator and the

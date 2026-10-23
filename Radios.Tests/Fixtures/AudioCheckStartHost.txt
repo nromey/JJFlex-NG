@@ -124,12 +124,12 @@ public class FakeRun { public bool Stopped; public void OwnKeying(bool b) { }
     public Task StopAsync(string reason) { Stopped=true; return Task.CompletedTask; } }
 public record ListenbackOptions(int Rate, bool OffAir, bool HearSelfDuringOffAir);
 public static class EarconPlayer { public static void FeatureOnTone() { } }
-public class PttSafetyController { public bool IsTransmitting; public int Keys; public int? SessionTimeoutOverrideSeconds;
+public class PttSafetyController { public bool IsTransmitting; public int Keys; public int? SessionTimeoutOverrideSeconds; public bool AudioCheckNarration;
     public void ToggleLock() { Keys++; IsTransmitting=true; } public void EscapeUnlock() { IsTransmitting=false; } }
 public enum AudioCheckListenMethods { Monitor, RecordPlayback, OffAir }
 public enum AudioCheckPowerModes { DummyLoad, LowPower }
 public enum VerbosityLevel { Terse, Critical }
 public static class Lexicon { public static string Get(string s, params (string, object)[] args) => s; }
-public static class ScreenReaderOutput { public static void Speak(string s, VerbosityLevel v, bool interrupt=false) { } public static void Supersede(string a, string b) { } }
+public static class ScreenReaderOutput { public static void Speak(string s, VerbosityLevel v, bool interrupt=false) { } public static void Speak(string s, Radios.Speech.SpeechIntent intent, VerbosityLevel v) { } public static void Supersede(string a, string b) { } }
 public static class RecorderControls { public static int Spoken; public static void Speak(RecorderOutcome r) { Spoken++; } public static async Task ReportStopFailureAsync(Task<RecorderOutcome> t) { await t; } }
 namespace JJTrace { public static class Tracing { public static void TraceLine(string s, System.Diagnostics.TraceLevel l) { } } }

@@ -230,6 +230,24 @@ public class TxInjectionTests
     }
 
     [Fact]
+    public void TuneCarrierMutesAnArmedToneButOrdinaryTransmissionStillGetsIt()
+    {
+        bool tuneCarrier = true;
+        var tone = new TxToneGenerator { LevelDb = -6 };
+        var mux = new TxInputSourceMux(tone) { MuteOutput = () => tuneCarrier };
+        tone.Start();
+
+        var duringTune = MicBuffer(0.3f);
+        mux.Process(duringTune, Floats, Rate);
+        Assert.All(duringTune, sample => Assert.Equal(0f, sample));
+
+        tuneCarrier = false;
+        var ordinaryTransmit = MicBuffer(0.3f);
+        mux.Process(ordinaryTransmit, Floats, Rate);
+        Assert.Contains(ordinaryTransmit, sample => Math.Abs(sample) > 0.001f);
+    }
+
+    [Fact]
     public void TheMuxKeepsCallingIdleSourcesSoTheirReleaseRampsFinish()
     {
         // An idle source still has to see the buffer: it stamps its stream-gap

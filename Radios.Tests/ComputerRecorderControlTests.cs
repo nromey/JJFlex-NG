@@ -100,7 +100,7 @@ public sealed class ComputerRecorderControlTests : IDisposable
         Assert.False(System.Linq.Enumerable.Single(AudioMenuLayout.Entries, e => e.Id == "record-to-file").NeedsRadio);
         string keys = System.IO.File.ReadAllText(System.IO.Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "KeyCommands.cs"));
         Assert.Contains("\"Record to File\", false, FunctionGroups.Audio, KeyScope.Global)", keys);
-        Assert.Contains("new(Keys.None, CommandValues.RecordToFile, KeyScope.Global)", keys);
+        Assert.Contains("new(Keys.F11 | Keys.Shift, CommandValues.RecordToFile, KeyScope.Global)", keys);
         string home = System.IO.File.ReadAllText(System.IO.Path.Combine(IntegrationPassTree.Root, "JJFlexWpf", "MainWindow.xaml"));
         Assert.Contains("DisconnectedRecorderStop", home);
     }

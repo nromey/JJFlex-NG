@@ -357,6 +357,8 @@ public static class KeyInventory
         // DRAFT PROSE (#787): awaiting Noel
         new("Record", "Record field", "Space / Enter", "Start or stop recording this slice",
             new[] { "record", "recorder", "slice" }),
+        new("Recorded", "Play recording field", "Space / Enter", "Play or stop this slice's recording.",
+            new[] { "play", "recording", "recorder", "slice" }),
 
         // ── Mute field (Classic only) ──
         new("Mute", "Mute field", "Space or M", "Toggle mute",
@@ -545,7 +547,7 @@ public static class KeyInventory
         new("Leader", "JJ key", "Ctrl+J, Ctrl+R", "Record the active slice, or stop recording it — the radio's own recorder keeps one recording per slice, up to the last two minutes",
             new[] { "record", "recording", "recorder", "slice", "active", "capture", "tape", "save",
                     "buddy", "listen", "back", "radio", "leader", "toggle" }, "Radio", "Slice"),
-        new("Leader", "JJ key", "Ctrl+J, Ctrl+P", "Play the active slice's recording, or stop it — to your speakers, never on the air",
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+P", "Play the active slice's recording, or stop it — locally while receiving, or on the air when already keyed",
             new[] { "play", "playback", "replay", "recording", "recorder", "slice", "active", "hear",
                     "listen", "back", "radio", "leader", "toggle" }, "Radio", "Slice"),
         new("Leader", "JJ key", "Ctrl+J, Ctrl+T", "Toggle meter tones",

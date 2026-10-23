@@ -73,6 +73,9 @@ namespace JJFlexWpf
         /// Returns null/empty when there is nothing to say.
         /// </summary>
         public static Func<string?>? KeyDownAnnouncementExtra { get; set; }
+        private const string KeyDownExtraSubject = "ptt-key-down-extra";
+        /// <summary>The Audio Check supplies its own short keying narration.</summary>
+        public bool AudioCheckNarration { get; set; }
 
         private static void SpeakKeyDownExtra()
         {
@@ -80,7 +83,8 @@ namespace JJFlexWpf
             try { extra = KeyDownAnnouncementExtra?.Invoke(); }
             catch { /* never let an announcement hook break keying */ }
             if (!string.IsNullOrEmpty(extra))
-                ScreenReaderOutput.Speak(extra, VerbosityLevel.Critical);
+                ScreenReaderOutput.Speak(extra, Radios.Speech.SpeechIntent.Queue,
+                    VerbosityLevel.Critical, subject: KeyDownExtraSubject);
         }
 
         /// <summary>
@@ -874,7 +878,7 @@ namespace JJFlexWpf
                 StartFreshAudioSample();
                 if (_config.ChirpEnabled) EarconPlayer.TxStartTone();
                 _updateStatusDisplay?.Invoke(Lexicon.Get("audio.ptt.display_transmitting"));
-                if (_config.SpeechEnabled)
+                if (_config.SpeechEnabled && !AudioCheckNarration)
                     ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.announce_transmitting"), VerbosityLevel.Critical, interrupt: true);
                 SpeakKeyDownExtra(); // armed test tone, etc. — always speaks
                 _healthReflectedWarned = false;
@@ -999,7 +1003,7 @@ namespace JJFlexWpf
             StartFreshAudioSample(); // SC_MIC peak-hold and LUFS sample both start here
 
             _updateStatusDisplay?.Invoke(Lexicon.Get("audio.ptt.display_locked"));
-            if (_config.SpeechEnabled)
+            if (_config.SpeechEnabled && !AudioCheckNarration)
                 ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.announce_locked"), VerbosityLevel.Critical, interrupt: true);
             SpeakKeyDownExtra(); // armed test tone, etc. — always speaks
             Tracing.TraceLine("PTT: Locked", TraceLevel.Info);
@@ -1022,6 +1026,7 @@ namespace JJFlexWpf
             var wasState = State;
             State = PttState.Idle;
             SetTx(false);
+            ScreenReaderOutput.Supersede(KeyDownExtraSubject, "transmission ended");
             if (_config.ChirpEnabled) EarconPlayer.TxStopTone();
 
             // Read the transmission's audio verdict BEFORE the counters below
@@ -1029,7 +1034,7 @@ namespace JJFlexWpf
             // three paths that are a safety outcome — timeout, hard kill, ALC
             // release — and an operator who has just been unkeyed by the
             // software does not also need to hear about their microphone gain.
-            string levelAdvice = forceSpeech ? "" : MicLevelAdviceOrEmpty(_getRigControl(), wasState);
+            string levelAdvice = forceSpeech || AudioCheckNarration ? "" : MicLevelAdviceOrEmpty(_getRigControl(), wasState);
 
             StopAllTimers();
             _alcZeroConsecutiveSeconds = 0;
@@ -1065,7 +1070,7 @@ namespace JJFlexWpf
             // answer. Captured AFTER SetTx(false) above, which is the ended
             // transmission's episode: the answer stays yes until RF next goes
             // on.
-            if ((forceSpeech || _config.SpeechEnabled) && !string.IsNullOrEmpty(unkeyMessage))
+            if ((forceSpeech || (_config.SpeechEnabled && !AudioCheckNarration)) && !string.IsNullOrEmpty(unkeyMessage))
                 ScreenReaderOutput.Speak(
                     unkeyMessage,
                     forceSpeech

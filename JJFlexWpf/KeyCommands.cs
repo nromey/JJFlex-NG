@@ -608,16 +608,16 @@ public class KeyCommands
             // Noel picks flat keys from the track's proposal.
             new(CommandValues.RecordActiveSlice, KeyTypes.Command, RecordActiveSliceHandler,
                 "Start or stop the radio's recorder on the active slice", "Record Active Slice", false, FunctionGroups.Audio, KeyScope.Radio)
-                { Keywords = new[] { "record", "recording", "recorder", "slice", "active", "capture", "tape", "save", "listen", "back", "buddy", "radio" }, ShortActionLabel = "record active slice" },
+                { Keywords = new[] { "record", "recording", "recorder", "slice", "active", "capture", "tape", "save", "listen", "back", "buddy", "radio", "f11" }, ShortActionLabel = "record active slice" },
             new(CommandValues.PlayActiveSlice, KeyTypes.Command, PlayActiveSliceHandler,
                 "Start or stop playing the active slice's recording through your speakers", "Play Active Slice", false, FunctionGroups.Audio, KeyScope.Radio)
-                { Keywords = new[] { "play", "playback", "replay", "recording", "recorder", "slice", "active", "listen", "back", "hear", "radio" }, ShortActionLabel = "play active slice" },
+                { Keywords = new[] { "play", "playback", "replay", "recording", "recorder", "slice", "active", "listen", "back", "hear", "radio", "f11" }, ShortActionLabel = "play active slice" },
             new(CommandValues.RecordToFile, KeyTypes.Command, RecordToFileHandler,
                 "Start or stop recording the radio's audio to a file on this computer", "Record to File", false, FunctionGroups.Audio, KeyScope.Global)
-                { Keywords = new[] { "record", "recording", "file", "computer", "save", "conversation", "qso", "capture", "tape", "audio" }, ShortActionLabel = "record to file" },
+                { Keywords = new[] { "record", "recording", "file", "computer", "save", "conversation", "qso", "capture", "tape", "audio", "f11" }, ShortActionLabel = "record to file" },
             new(CommandValues.PlayFromComputer, KeyTypes.Command, PlayFromComputerHandler,
                 "Start or stop playing your last computer recording through your speakers", "Play from Computer", false, FunctionGroups.Audio, KeyScope.Global)
-                { Keywords = new[] { "play", "playback", "replay", "recording", "file", "computer", "last", "listen", "back", "audio" }, ShortActionLabel = "play from computer" },
+                { Keywords = new[] { "play", "playback", "replay", "recording", "file", "computer", "last", "listen", "back", "audio", "f11" }, ShortActionLabel = "play from computer" },
 
             // ── Former hard-wired meta-commands (QB Track H, 2026-08-07) ──
             // These lived as hard-wired chords in MainWindow_PreviewKeyDown,
@@ -1852,26 +1852,6 @@ public class KeyCommands
         // into the key list the operator exports from the Hotkey Editor, so a
         // task number in it lands in a file the operator reads and may share,
         // pointing into a register no reader can open. See task #389.
-        // The recorder. Leader-layer for now and on purpose: the flat keys
-        // are Noel's to choose, from the list Tape Deck track 2 proposed, and
-        // until he does the JJ key reaches all four and the Hotkey Editor can
-        // bind any of them. Delete these four lines the day they are bound.
-        [CommandValues.RecordActiveSlice] = new(UnboundReason.LeaderLayer,
-            "Ctrl+J, Ctrl+R records the active slice, or stops it — the radio's own recorder, "
-            + "which keeps one recording per slice, up to the last two minutes. A flat key is "
-            + "still to be chosen; the Hotkey Editor can give it one now."),
-        [CommandValues.PlayActiveSlice] = new(UnboundReason.LeaderLayer,
-            "Ctrl+J, Ctrl+P plays the active slice's recording to your speakers, or stops it. "
-            + "It never transmits, and it is refused while you are transmitting. A flat key is "
-            + "still to be chosen."),
-        [CommandValues.RecordToFile] = new(UnboundReason.LeaderLayer,
-            "Ctrl+J, Ctrl+Shift+R records what the radio plays through this computer to a "
-            + "file, or stops — the Shift form of Ctrl+R, because it is the other recorder. A "
-            + "flat key is still to be chosen."),
-        [CommandValues.PlayFromComputer] = new(UnboundReason.LeaderLayer,
-            "Ctrl+J, Ctrl+Shift+P plays your last recording on this computer, or the one you "
-            + "chose in your recordings, to your speakers; it never transmits. A flat key is "
-            + "still to be chosen."),
         [CommandValues.SmeterDBM] = new(UnboundReason.LeaderLayer,
             "Ctrl+J, Ctrl+S switches the S-meter between S-units and dBm, and the choice is "
             + "remembered for that radio. The chord echoes the key it changes: Ctrl+S "
@@ -2173,11 +2153,11 @@ public class KeyCommands
         new(Keys.M | Keys.Shift, CommandValues.MuteAllSlices, KeyScope.Radio),
         new(Keys.Oemcomma | Keys.Shift, CommandValues.ReleaseAllExtraSlices, KeyScope.Radio),
 
-        // The recorder (#787). Flat keys await Noel's choice.
-        new(Keys.None, CommandValues.RecordActiveSlice, KeyScope.Radio), // unbound: LeaderLayer — Ctrl+J, Ctrl+R
-        new(Keys.None, CommandValues.PlayActiveSlice, KeyScope.Radio), // unbound: LeaderLayer — Ctrl+J, Ctrl+P
-        new(Keys.None, CommandValues.RecordToFile, KeyScope.Global), // unbound: LeaderLayer — Ctrl+J, Ctrl+Shift+R
-        new(Keys.None, CommandValues.PlayFromComputer, KeyScope.Global), // unbound: LeaderLayer — Ctrl+J, Ctrl+Shift+P
+        // The JJ key chords remain alongside the recorder's flat F11 family.
+        new(Keys.F11, CommandValues.RecordActiveSlice, KeyScope.Radio),
+        new(Keys.F11 | Keys.Control, CommandValues.PlayActiveSlice, KeyScope.Radio),
+        new(Keys.F11 | Keys.Shift, CommandValues.RecordToFile, KeyScope.Global),
+        new(Keys.F11 | Keys.Control | Keys.Shift, CommandValues.PlayFromComputer, KeyScope.Global),
     };
 
     // ────────────────────────────────────────────────────────────────

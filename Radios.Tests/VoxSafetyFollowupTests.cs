@@ -10,7 +10,7 @@ namespace Radios.Tests;
 public sealed class VoxSafetyFollowupTests
 {
     private const string Cut = "Transmit stopped. Check the antenna before keying again.";
-    private const string Note = "VOX was paused for the hold on keying.";
+    private const string Note = "A safety consequence is pending.";
     private readonly FakeSpeechClock _clock = new();
     private readonly List<(long Ticket, string Text)> _delivered = new();
     private readonly SpeechArbiter _arbiter;

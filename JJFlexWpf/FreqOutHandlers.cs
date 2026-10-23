@@ -34,6 +34,16 @@ public class FreqOutHandlers
         if (!e.Handled) TryHandleUniversalHomeKey(e);
     }
 
+    public void AdjustRecorded(FrequencyDisplay.DisplayField field, KeyEventArgs e)
+    {
+        if (Keyboard.Modifiers == ModifierKeys.None && (e.Key == Key.Space || e.Key == Key.Enter))
+        {
+            if (!e.IsRepeat) _ = RecorderControls.ToggleSlicePlayAsync(_window.RigControl, SliceRecorderTarget.ActiveSlice);
+            e.Handled = true;
+        }
+        if (!e.Handled) TryHandleUniversalHomeKey(e);
+    }
+
     // Delegate properties for VB.NET globals access
     public Func<bool>? GetSplitVFOs { get; set; }
     public Action<bool>? SetSplitVFOs { get; set; }

@@ -77,8 +77,8 @@ public sealed class ComputerFlacRecorder : IComputerRecorder
     public string LastRecordingPath { get { lock (_gate) return _lastPath; } }
 
     // DRAFT PROSE (#787): awaiting Noel. These are assembled sentences spoken by RecorderControls.
-    private static RecorderOutcome Result(bool ok, string message) =>
-        new(ok, message, SpeechSubject.ComputerRecorder);
+    private static RecorderOutcome Result(bool ok, string message, RecorderCue cue = RecorderCue.None) =>
+        new(ok, message, SpeechSubject.ComputerRecorder, Cue: cue);
 
     public async Task<RecorderOutcome> StartRecordingAsync(FlexBase rig)
     {
@@ -121,7 +121,7 @@ public sealed class ComputerFlacRecorder : IComputerRecorder
             return Result(false, "Computer recording could not start. Check the recordings folder and FLAC library.");
         return Result(true, heard
             ? "Recording what you hear to a file."
-            : "Recording the radio's receive audio to a file.");
+            : "Recording the radio's receive audio to a file.", RecorderCue.Start);
     }
 
     public async Task<RecorderOutcome> StopRecordingAsync()
@@ -140,7 +140,7 @@ public sealed class ComputerFlacRecorder : IComputerRecorder
         if (session.Fault != null)
             return Result(false, "Computer recording stopped because the file could not be completed. Check disk space.");
         lock (_gate) _lastPath = session.Path;
-        return Result(true, "Computer recording saved as " + System.IO.Path.GetFileName(session.Path) + ".");
+        return Result(true, "Computer recording saved as " + System.IO.Path.GetFileName(session.Path) + ".", RecorderCue.Stop);
     }
 
     public Task<RecorderOutcome> PlayAsync(string path)
@@ -148,12 +148,12 @@ public sealed class ComputerFlacRecorder : IComputerRecorder
         if (string.IsNullOrEmpty(path) || !File.Exists(path))
             return Task.FromResult(Result(false, "There is no computer recording to play."));
         return Task.FromResult(_play(path)
-            ? Result(true, "") // RecordingPlayer owns the audible start and finish.
+            ? Result(true, "", RecorderCue.Start) // RecordingPlayer owns the audible start and finish.
             : Result(false, "")); // RecordingPlayer already spoke the refusal.
     }
 
     public Task<RecorderOutcome> StopPlaybackAsync()
-    { _stopPlay(); return Task.FromResult(Result(true, "")); }
+    { _stopPlay(); return Task.FromResult(Result(true, "", RecorderCue.Stop)); }
 
     /// <summary>Called on the receive thread before output decoding. Never touches disk.</summary>
     internal void Receive(FlexBase rig, byte[] packet, int sequence, double timestamp, bool muted)

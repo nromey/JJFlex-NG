@@ -33,6 +33,10 @@ namespace JJPortaudio
     {
         private readonly ITxInputSource[] _sources;
 
+        /// <summary>When true, the transmitter gets carrier only. The sources still
+        /// process their buffers so their fades and stream clocks remain current.</summary>
+        public Func<bool> MuteOutput { get; set; } = () => false;
+
         /// <summary>
         /// Wire the sources, highest priority first.
         /// </summary>
@@ -121,6 +125,7 @@ namespace JJPortaudio
             {
                 sources[i]?.Process(buffer, count, sampleRate);
             }
+            if (MuteOutput()) Array.Clear(buffer, 0, count);
         }
     }
 }

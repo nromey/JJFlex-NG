@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -2006,6 +2007,31 @@ public partial class ScreenFieldsPanel : UserControl
             e.Handled = true;
             return;
         }
+    }
+
+    /// <summary>Close Home expanders without moving focus away from Home (#812).
+    /// The window calls this only after its safety and key-layer Escape handlers.</summary>
+    public bool TryCloseExpandedGroups()
+    {
+        if (!_expanders.Any(exp => exp.IsExpanded)) return false;
+
+        var focused = FindFocusedExpandedGroup();
+        if (focused != null)
+        {
+            ExpanderFocus.FocusHeader(focused);
+            focused.IsExpanded = false;
+        }
+        else
+        {
+            _suppressCollapseEarcons = true;
+            try
+            {
+                foreach (var exp in _expanders) exp.IsExpanded = false;
+            }
+            finally { _suppressCollapseEarcons = false; }
+            EarconPlayer.PlayCollapseAll();
+        }
+        return true;
     }
 
     /// <summary>
