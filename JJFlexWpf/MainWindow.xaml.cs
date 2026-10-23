@@ -1607,6 +1607,11 @@ public partial class MainWindow : UserControl
     /// </summary>
     private bool _disconnectShellUp;
 
+    // #788: a disconnect hides the panel; it is not an operator choice.
+    // Null means no restore is pending. Keep Visibility separate from the
+    // expander, whose state the shell never changes (a folded header stays folded).
+    private Visibility? _metersVisibilityBeforeDisconnect;
+
     /// <summary>
     /// Hand Home back to the UI mode after either collapse — the rescue page
     /// or the disconnect shell. One method for both routes so the two can
@@ -1617,15 +1622,11 @@ public partial class MainWindow : UserControl
     /// un-collapsing each panel means the connected layout is never rebuilt
     /// from a memory of what it used to look like; the mode builders stay the
     /// single source of truth.</para>
-    /// <para><b>What this does NOT restore, on either route.</b>
-    /// <c>ApplyUIMode</c> never touches <c>MetersPanel</c> or
-    /// <c>PanadapterPanel</c>. The panadapter comes back on its own when the
-    /// first pan line arrives (the <c>PanDisplayCallback</c> re-shows it if the
-    /// operator's Show-panadapter setting is on). The meters panel is the
-    /// operator's own Ctrl+M choice and starts collapsed on a cold connect, so
-    /// a meters panel they had opened before the drop stays closed after it —
-    /// true before #410 on the rescue route too, and reported rather than
-    /// changed here.</para>
+    /// <para><c>ApplyUIMode</c> also restores the meters visibility captured
+    /// at disconnect, or the newer choice made through Ctrl+M while offline.
+    /// It does not toggle the panel, speak, or move focus. The panadapter
+    /// still comes back on the first pan line through <c>PanDisplayCallback</c>
+    /// if the operator's Show-panadapter setting is on.</para>
     /// </remarks>
     private void RestoreConnectedHomeLayout()
     {
@@ -1634,8 +1635,8 @@ public partial class MainWindow : UserControl
         // disconnect shell never collapses it, so on that route this is a
         // no-op kept for symmetry rather than a repair.
         ContentArea.Visibility = Visibility.Visible;
-        ApplyUIMode(ActiveUIMode);
         _disconnectShellUp = false;
+        ApplyUIMode(ActiveUIMode);
     }
 
     #region Mid-session rescue — Sprint 31 Track R
@@ -2418,6 +2419,16 @@ public partial class MainWindow : UserControl
             case UIMode.Logging:
                 ShowLoggingUI();
                 break;
+        }
+
+        // #788: only a connected layout consumes the saved meters choice.
+        // A tuning-mode change during the grace period or rescue must not
+        // reopen what the no-radio shell hid. Set Visibility directly: ShowPanel
+        // would announce "opened" and queue a focus move without an operator action.
+        if (!_disconnectShellUp && !_rescueMode && _metersVisibilityBeforeDisconnect.HasValue)
+        {
+            MetersPanel.Visibility = _metersVisibilityBeforeDisconnect.Value;
+            _metersVisibilityBeforeDisconnect = null;
         }
 
         // Rescue Home outranks the mode builders while it is up: every builder
@@ -3825,6 +3836,10 @@ public partial class MainWindow : UserControl
 
             RadioControlsPanel.Visibility = Visibility.Visible;
             FieldsPanel.Visibility = Visibility.Collapsed;
+            // Capture once, before the shell hides it. A failed reconnect or
+            // repeated disconnect must not overwrite this with the shell's collapse.
+            if (!_disconnectShellUp)
+                _metersVisibilityBeforeDisconnect = MetersPanel.Visibility;
             MetersPanel.Visibility = Visibility.Collapsed;
             PanadapterPanel.Visibility = Visibility.Collapsed;
             // #410: the next radio to arrive owes a restore, whether the
@@ -6243,6 +6258,11 @@ public partial class MainWindow : UserControl
     public void ToggleMetersPanel()
     {
         MetersPanel.TogglePanelVisibility();
+        // Record what the REAL toggle just did, not the inverse of a saved
+        // choice: the first press while hidden opens the panel, as it always did.
+        // Rescue may hide it again; reconnect must still honour this newer word.
+        if (_disconnectShellUp || _rescueMode)
+            _metersVisibilityBeforeDisconnect = MetersPanel.Visibility;
     }
 
     /// <summary>
