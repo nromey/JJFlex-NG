@@ -768,13 +768,12 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     private void SavePerRadioPrefs()
     {
         if (_radioCfg == null || string.IsNullOrEmpty(_radioCfgSerial)) return;
-        if (_listenMethodControl != null)
-            _radioCfg.AudioCheckListenMethod = (AudioCheckListenMethods)_listenMethodControl.SelectedIndex;
-        if (_checkPowerControl != null)
-            _radioCfg.AudioCheckPowerMode = (AudioCheckPowerModes)_checkPowerControl.SelectedIndex;
-        if (_checkWattsControl != null)
-            _radioCfg.AudioCheckLowPowerWatts = _checkWattsControl.Value;
-        _radioCfg.SaveForRadio(_radioCfgSerial);
+        var method = _listenMethodControl == null ? (AudioCheckListenMethods?)null
+            : (AudioCheckListenMethods)_listenMethodControl.SelectedIndex;
+        var power = _checkPowerControl == null ? (AudioCheckPowerModes?)null
+            : (AudioCheckPowerModes)_checkPowerControl.SelectedIndex;
+        var watts = _checkWattsControl?.Value;
+        RadioConfig.RecordAudioCheckPrefs(_radioCfgSerial, method, power, watts);
     }
 
     /// <summary>

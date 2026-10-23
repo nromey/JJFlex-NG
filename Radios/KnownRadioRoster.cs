@@ -372,9 +372,7 @@ namespace Radios
                 }
                 else if (dir != null && Directory.Exists(dir))
                 {
-                    var cfg = RadioConfig.LoadForRadio(serial);
-                    cfg.HiddenFromList = true;
-                    if (!cfg.SaveForRadio(serial)) ok = false;
+                    if (!RadioConfig.Update(serial, cfg => { cfg.HiddenFromList = true; })) ok = false;
                 }
                 // No directory and not deleting: there were no settings to
                 // keep, so clearing the cache above was the entire removal.
@@ -401,7 +399,7 @@ namespace Radios
             if (string.IsNullOrWhiteSpace(serial)) return false;
             try
             {
-                var cfg = RadioConfig.LoadForRadio(serial);
+                bool saved = RadioConfig.Update(serial, cfg => {
                 if (!string.IsNullOrWhiteSpace(nickname)) cfg.Nickname = nickname;
                 if (!string.IsNullOrWhiteSpace(model)) cfg.Model = model;
                 // A radio that answers is real, so a sighting outranks a hide
@@ -416,7 +414,8 @@ namespace Radios
                 // radio remotely, so it must not erase an answer we already have.
                 if (isRemote && !string.IsNullOrWhiteSpace(accountEmail))
                     cfg.LastSeenViaAccount = accountEmail;
-                if (cfg.SaveForRadio(serial)) return true;
+                });
+                if (saved) return true;
                 Tracing.TraceLine($"KnownRadioRoster.RecordSighting({serial}): config save declined",
                     System.Diagnostics.TraceLevel.Warning);
                 return false;
@@ -448,9 +447,7 @@ namespace Radios
             if (string.IsNullOrWhiteSpace(serial)) return false;
             try
             {
-                var cfg = RadioConfig.LoadForRadio(serial);
-                cfg.IsFavorite = favorite;
-                return cfg.SaveForRadio(serial);
+                return RadioConfig.Update(serial, cfg => { cfg.IsFavorite = favorite; });
             }
             catch (Exception ex)
             {
@@ -474,9 +471,7 @@ namespace Radios
             if (string.IsNullOrWhiteSpace(serial)) return false;
             try
             {
-                var cfg = RadioConfig.LoadForRadio(serial);
-                cfg.PreferredAccount = accountEmail ?? "";
-                return cfg.SaveForRadio(serial);
+                return RadioConfig.Update(serial, cfg => { cfg.PreferredAccount = accountEmail ?? ""; });
             }
             catch (Exception ex)
             {
@@ -500,9 +495,7 @@ namespace Radios
             if (string.IsNullOrWhiteSpace(serial)) return false;
             try
             {
-                var cfg = RadioConfig.LoadForRadio(serial);
-                cfg.PathChain = chain ?? new List<ConnectPathKind>();
-                return cfg.SaveForRadio(serial);
+                return RadioConfig.Update(serial, cfg => { cfg.PathChain = chain ?? new List<ConnectPathKind>(); });
             }
             catch (Exception ex)
             {

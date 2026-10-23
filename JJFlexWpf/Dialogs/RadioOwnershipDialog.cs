@@ -207,17 +207,15 @@ public sealed class RadioOwnershipDialog : JJFlexDialog
         var answer = ShowQuestion(radioId, radioLabel, reason, RadioOwnership.Unset);
         if (answer == null) return true;
 
-        config.Ownership = answer.Value;
-        if (answer == RadioOwnership.Mine)
-        {
-            // hasConnectedBefore restrains an inference, not an explicit
-            // declaration. Requiring prior connections after this answer
-            // protects nothing and would leave the first connect dead.
-            config.ProfileIntent = ProfileGuestIntent.LoadMineAndPutBack;
-        }
-        // SomeoneElses preserves the exact existing intent. One loaded object,
-        // one save: a second load could lose ownership or unrelated settings.
-        return config.SaveForRadio(radioId);
+        return RadioConfig.Update(radioId, fresh => {
+            fresh.Ownership = answer.Value;
+            if (answer == RadioOwnership.Mine)
+            {
+                // An explicit answer enables the first connect. A guest
+                // answer preserves the intent in the fresh config.
+                fresh.ProfileIntent = ProfileGuestIntent.LoadMineAndPutBack;
+            }
+        });
     }
 
     private static RadioOwnership? ShowQuestion(string radioId, string radioLabel,
