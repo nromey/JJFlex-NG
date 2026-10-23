@@ -1929,6 +1929,47 @@ namespace JJFlexWpf
                 new[] { (500, 60), (0, 40), (750, 60) }, VolumeNormal);
         }
 
+        // DRAFT TONES (#571): awaiting operator review. One quiet 90 ms
+        // note marks permission to key; 250 ms of silence separates it from
+        // the existing 160 ms VOX-on pair. One buffer owns all the timing.
+        internal const int CutHoldReleaseMs = 90;
+        internal const int CutHoldCueGapMs = 250;
+        internal const float CutHoldReleaseVolume = 0.25f;
+
+        public static IDisposable CutHoldEndedTone(bool voxRestored, int delayMs)
+        {
+            if (!GateDetailed(EarconCategory.CommandsAndConfirmations,
+                "voxRestored=" + voxRestored + " delayMs=" + delayMs) || AlertMixer == null)
+                return NullCancellable.Instance;
+            var buffer = RenderCutHoldEnded(voxRestored, delayMs);
+            var cancellable = new CancellableCwProvider(new RenderedSampleProvider(buffer));
+            AddToMixer(cancellable);
+            return cancellable;
+        }
+
+        internal static float[] RenderCutHoldEnded(bool voxRestored, int delayMs)
+        {
+            delayMs = Math.Max(0, delayMs);
+            int onAt = delayMs + CutHoldReleaseMs + VoicedTailMs + CutHoldCueGapMs;
+            int lengthMs = voxRestored ? onAt + 160 : delayMs + CutHoldReleaseMs;
+            var buffer = new float[SampleRate * (lengthMs + VoicedTailMs) / 1000 + 1];
+            AddNote(660, CutHoldReleaseMs, delayMs, CutHoldReleaseVolume);
+            if (voxRestored)
+            {
+                AddNote(500, 60, onAt, VolumeNormal);
+                AddNote(750, 60, onAt + 100, VolumeNormal);
+            }
+            return buffer;
+
+            void AddNote(int hz, int ms, int atMs, float volume)
+            {
+                var samples = RenderStep(EarconVoices.DecayingOver(EarconVoices.Press, ms), hz, ms, volume);
+                int offset = SampleRate * atMs / 1000;
+                for (int i = 0; i < samples.Length && offset + i < buffer.Length; i++)
+                    buffer[offset + i] += samples[i];
+            }
+        }
+
         /// <summary>Falling pair, the mirror — feature toggled OFF.</summary>
         [Earcon("Feature off", EarconCategory.CommandsAndConfirmations, Order = 12,
             Description = "Falling pair. A toggle just turned off.")]

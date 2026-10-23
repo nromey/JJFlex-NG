@@ -360,21 +360,33 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void TheEpisodeIsToldByTheRfCommandAndTheExternalWatch_AndAdvancedByNothingElse()
+        public void TheEpisodeIsToldByEveryAllowedRfSource_ThroughNoteRf_AndAdvancedByNothingElse()
         {
+            // Until #571's repair round (2026-10-22, Astra B6) this pinned
+            // "the RF command and the external watch and nothing else". That
+            // left the tune carrier, the ATU cycle and a transmission the radio
+            // keyed on its own (VOX, a hand mic) outside the episode, so an
+            // unheard "you are no longer on the air" stayed replayable through
+            // a legitimate tune. Every allowed RF source now feeds NoteRf, and
+            // NoteRf is still the ONE place that tells the episode.
             string src = Ptt();
             // The integer counter and its hand-advances are gone.
             Assert.DoesNotContain("_transmitEpisode++", src);
             Assert.Contains("private readonly Radios.Speech.TransmitEpisode _transmitEpisode", src);
             // ONE place tells the episode about RF.
             Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(src, @"\.RfIs\(").Count);
-            Assert.Contains("_transmitEpisode.RfIs(_rfCommandedOn || _externalWatchers > 0)", Body(src, "private void NoteRf()"));
-            // Fed from the one RF command site and from both ends of the external watch.
+            Assert.Contains("_transmitEpisode.RfIs(_rfCommandedOn || _externalWatchers > 0 || _radioReportsTransmit || _tuneCarrierOn || _atuTuning)",
+                Body(src, "private void NoteRf()"));
+            // Fed from the one RF command site, both ends of the external
+            // watch, and the three notes the main window gives it.
             string setTx = Body(src, "private void SetTx(bool on)");
             Assert.Contains("_rfCommandedOn = on;", setTx);
             Assert.Contains("NoteRf();", setTx);
             Assert.Contains("NoteRf();", Body(src, "public void BeginExternalTransmitWatch()"));
             Assert.Contains("NoteRf();", Body(src, "public void EndExternalTransmitWatch()"));
+            Assert.Contains("NoteRf();", Body(src, "public void NoteRadioTransmit(bool on)"));
+            Assert.Contains("NoteRf();", Body(src, "public void NoteTuneCarrier(bool on)"));
+            Assert.Contains("NoteRf();", Body(src, "public void NoteAtuTuning(bool on)"));
             // Positive control: both transmit starts still command RF through SetTx.
             Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(src, @"SetTx\(true\);").Count);
         }

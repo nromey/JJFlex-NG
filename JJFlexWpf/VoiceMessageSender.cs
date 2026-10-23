@@ -79,6 +79,17 @@ internal static class VoiceMessageSender
             return;
         }
 
+        // The hold after a reflected-power cut (#571): a voice message keys the
+        // radio itself, or hands the recording to VOX, and either way it is RF
+        // into the same fault. The controller speaks the refusal — the same
+        // sentence a refused lock key gets — so nothing is said here.
+        if (ptt != null && ptt.RefuseIfHeldAfterCut("a message key"))
+        {
+            Tracing.TraceLine("VoiceMessageSender: \"" + label + "\" not sent: keying is held after a reflected-power cut",
+                TraceLevel.Info);
+            return;
+        }
+
         if (rig.TxToneEngaged)
         {
             Refuse(label, Lexicon.Get("audio.reference.tone_already_armed"));

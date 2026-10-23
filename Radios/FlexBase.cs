@@ -4360,6 +4360,7 @@ namespace Radios
             // unrecoverable), but it narrows the window where a doomed rig is
             // still the intake from "until someone else engages" to "now".
             resignAsThePresenceIntake();
+            DisconnectVoxPauses();
 
             if (!disposed)
             {
@@ -11298,7 +11299,13 @@ namespace Radios
 
                 // The zero-and-restore pair is mechanical, not an operator
                 // settings change — it must not arm the provisional-change
-                // receipt or the disconnect save offer (#225).
+                // receipt or the disconnect save offer (#225). Whether it is
+                // the OPERATOR'S command is not this setter's to say: the
+                // Transmit menu's item is, and the Audio Check's own engage is
+                // not (#571, Opus N1 and R1). The caller that is the operator's
+                // command wraps this in OperatorChoseThisChange; the setter
+                // itself declares nothing, so the Audio Check's writes stay
+                // app-originated and cannot lift the hold after a cut.
                 using (AppInitiatedSettingChanges())
                 {
                     if (value)
@@ -11332,7 +11339,7 @@ namespace Radios
             }
             set
             {
-                NoteOperatorChangedRadioSetting("XmitPower");
+                NoteRadioSettingWritten("XmitPower", value.ToString());   // the hold after a cut needs to know whose write this is (#571)
                 q.Enqueue((FunctionDel)(() => { theRadio.RFPower = value; }));
             }
         }
@@ -11396,7 +11403,7 @@ namespace Radios
             }
             set
             {
-                NoteOperatorChangedRadioSetting("TunePower");
+                NoteRadioSettingWritten("TunePower", value.ToString());   // the hold after a cut needs to know whose write this is (#571)
                 q.Enqueue((FunctionDel)(() => { theRadio.TunePower = value; }));
             }
         }
@@ -11979,6 +11986,11 @@ namespace Radios
         /// <param name="str">the text string</param>
         public bool SendCW(string str)
         {
+            // The hold after a reflected-power cut (#571; Noel 21:16, "nothing
+            // re-keys"): a CW message keys the radio through break-in, and
+            // break-in may still be on in a mode the cut did not pause. The
+            // hook speaks the refusal; nothing is buffered or queued.
+            if (CwKeyingRefused("a CW message")) return false;
             lock (cwBuffer)
             {
                 if (CWBuffering)
@@ -11995,6 +12007,7 @@ namespace Radios
 
         public bool SendCW(char c)
         {
+            if (CwKeyingRefused("CW typing")) return false;   // #571, as the string form above
             if (CWBuffering)
             {
                 cwBuffer.Text += c;

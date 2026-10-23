@@ -681,6 +681,11 @@ namespace Radios.Speech
             /// </summary>
             public int AutomaticAttempts;
 
+            // A consequence queued behind a cut must not interrupt that cut
+            // if its reader reports completion/cancellation before audio ends.
+            // Later recovery attempts retain the existing urgent policy.
+            public bool NonInterruptingFirstHandoff;
+
             /// <summary>
             /// Extra attempts granted by a backend-recovery edge, one per
             /// edge. Added to <see cref="ProtectedAutomaticAttempts"/> rather
@@ -1296,6 +1301,34 @@ namespace Radios.Speech
                 };
                 _pending[key] = entry;
                 entry.Timer = _clock.StartTimer(dueMs, () => FlushCoalesced(key));
+            }
+        }
+
+        /// <summary>
+        /// Retain a safety consequence without taking the turn from its cut.
+        /// Once handed over it follows the existing protected recovery rules.
+        /// </summary>
+        public void SafetyFollowup(string message, VerbosityLevel level, string? origin, string subject,
+            Func<bool>? stillValid = null)
+        {
+            lock (_lock)
+            {
+                var now = _clock.UtcNow;
+                MarkSupersededLocked(subject, $"'{message}'", origin, now);
+                var owed = AdmitProtectedLocked(message, level, origin, subject, now, stillValid);
+                if (owed == null) return;
+                owed.State = Owed.NeverStarted;
+                owed.NonInterruptingFirstHandoff = true;
+                if (_safety.IsBusy(now) || AnyProtectedAwaitingTurnLocked())
+                {
+                    owed.AwaitingTurn = true;
+                    ArmAlarmTimerLocked(now);
+                }
+                else
+                {
+                    _believedQueued.Remove(owed);
+                    HandOverProtectedLocked(owed, now);
+                }
             }
         }
 
@@ -2875,7 +2908,9 @@ namespace Radios.Speech
         private bool HandOverProtectedLocked(BelievedQueued s, DateTime now)
         {
             SafetyTurn turn = _safety.ReserveForSafety(s.Subject, now);
-            var requeued = _sink(s.Message, true, SpeechIntent.Urgent, s.Level, s.Origin, salvaged: true);
+            bool interrupt = !s.NonInterruptingFirstHandoff || s.AutomaticAttempts > 0;
+            var requeued = _sink(s.Message, interrupt,
+                interrupt ? SpeechIntent.Urgent : SpeechIntent.Queue, s.Level, s.Origin, salvaged: true);
             if (!requeued.Reached)
             {
                 _safety.NoteBackendFailed();

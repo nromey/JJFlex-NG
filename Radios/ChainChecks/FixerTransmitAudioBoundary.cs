@@ -487,8 +487,9 @@ namespace Radios.ChainChecks
                                       + "probes", TraceLevel.Info);
                     if (!TransmitKillSwitch.RaiseCarrier(rig, TransmitKillSwitch.Carrier.Mox))
                     {
-                        facts.Detail = "Nothing was transmitted, because no way to stop the "
-                                     + "transmission was in place.";
+                        facts.Detail = TransmitKillSwitch.LastRaiseRefusal   // held after a reflected-power cut (#571)
+                                     ?? "Nothing was transmitted, because no way to stop the "
+                                      + "transmission was in place.";
                         return facts;
                     }
                     everKeyed = WaitForMox(rig, wantKeyed: true);
@@ -754,8 +755,9 @@ namespace Radios.ChainChecks
                                   TraceLevel.Info);
                 if (!TransmitKillSwitch.RaiseCarrier(rig, TransmitKillSwitch.Carrier.Mox))
                 {
-                    facts.Detail = "Nothing was transmitted, because no way to stop the "
-                                 + "transmission was in place.";
+                    facts.Detail = TransmitKillSwitch.LastRaiseRefusal   // held after a reflected-power cut (#571)
+                                 ?? "Nothing was transmitted, because no way to stop the "
+                                  + "transmission was in place.";
                     return facts;
                 }
                 everKeyed = WaitForMox(rig, wantKeyed: true);

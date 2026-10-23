@@ -818,6 +818,24 @@ public sealed class DialogTransmitKeysTests : IDisposable
         Assert.False(DialogTransmitKeys.KeyUp(Keys.Space));
     }
 
+    [Fact]
+    public void Cut_hold_release_audio_is_quiet_and_separated_from_the_optional_vox_on_pair()
+    {
+        AssertTheDeskIsSafe();
+        // Offline sample rendering only: no mixer, device, window or radio.
+        var releaseOnly = EarconPlayer.RenderCutHoldEnded(false, 200);
+        var withVox = EarconPlayer.RenderCutHoldEnded(true, 200);
+        int At(int ms) => EarconPlayer.MixerSampleRate * ms / 1000;
+        Assert.All(withVox.Take(At(200)), sample => Assert.Equal(0f, sample));
+        float releasePeak = withVox.Skip(At(200)).Take(At(105)).Max(Math.Abs);
+        Assert.InRange(releasePeak, 0.20f, 0.30f); // well below the 0.65 alarm
+        Assert.All(withVox.Skip(At(305)).Take(At(555) - At(305)),
+            sample => Assert.Equal(0f, sample)); // 250 ms silence AFTER the fade tail
+        Assert.InRange(withVox.Skip(At(555)).Max(Math.Abs), 0.45f, 0.55f);
+        Assert.Equal(At(305) + 1, releaseOnly.Length);
+        Assert.Equal(releaseOnly, withVox.Take(releaseOnly.Length));
+    }
+
     private static T OnSta<T>(Func<T> body)
     {
         T result = default!;

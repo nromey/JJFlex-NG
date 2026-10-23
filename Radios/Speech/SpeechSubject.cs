@@ -156,6 +156,19 @@ namespace Radios.Speech
         public const string ReflectedPowerWarning = "reflected-power-warning";
 
         /// <summary>
+        /// The one note that VOX has been switched off for the hold after a
+        /// reflected-power cut (#571; Noel, 2026-10-22 05:38: "tell them/tone
+        /// based on settings"). Said once, only when VOX was on, at the
+        /// operator's verbosity; nothing is said when VOX comes back. Its own
+        /// subject, and deliberately NOT <see cref="ReflectedPowerCut"/>: it
+        /// is a statement about a setting the app changed on the operator's
+        /// behalf, not about the transmission that ended, and a later cut
+        /// sentence must not be able to retire it or be retired by it. Covered
+        /// only by the next such note.
+        /// </summary>
+        public const string VoxPausedAfterCut = "vox-paused-after-cut";
+
+        /// <summary>
         /// The receipt that a change will not survive disconnect unless the
         /// profile is saved (#442). One reminder outstanding at a time: the
         /// newest change's receipt covers every earlier one.
