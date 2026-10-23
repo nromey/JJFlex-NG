@@ -11,7 +11,8 @@
 #   3. If found, copy it to Dropbox top level as the nightly.
 #      If not found and the tree is clean, invoke build-debug.bat, then copy.
 #      If not found and the tree is dirty, refuse (Y won't reproduce from any commit).
-#   4. Copy and verify the new zip + NOTES, then purge older nightly artifacts
+#   4. Stage and verify the zip + NOTES locally, copy and verify them at their
+#      final Dropbox names, then purge older nightly artifacts
 #      so exactly one nightly zip + NOTES lives there. Also sweeps stray
 #      "Setup JJFlex_*-nightly.exe" files left behind by the old release-oriented
 #      version of this script.
@@ -56,12 +57,13 @@ function Invoke-NightlyPromotion {
         [string] $Version
     )
 
+    $stageDir = $null
     $stageZip = $null
     $stageNotes = $null
     $backupZip = $null
     $backupNotes = $null
-    $zipCommitted = $false
-    $notesCommitted = $false
+    $zipAttempted = $false
+    $notesAttempted = $false
     $restorationFailed = $false
     try {
         $zip = Get-Item -LiteralPath $ZipPath -ErrorAction Stop
@@ -75,58 +77,63 @@ function Invoke-NightlyPromotion {
 
         $destZip = Join-Path $Destination "JJFlex_${Version}_x64_nightly.zip"
         $destNotes = Join-Path $Destination 'NOTES-nightly.txt'
-        $stageId = [guid]::NewGuid().ToString('N')
-        $stageZip = Join-Path $Destination ".nightly-stage-$stageId.zip"
-        $stageNotes = Join-Path $Destination ".nightly-stage-$stageId.txt"
-        $backupZip = Join-Path $Destination ".nightly-backup-$stageId.zip"
-        $backupNotes = Join-Path $Destination ".nightly-backup-$stageId.txt"
+        $stageDir = (New-Item -ItemType Directory -Path (Join-Path $env:TEMP ("jjflex-nightly-" + [guid]::NewGuid().ToString('N'))) -ErrorAction Stop).FullName
+        $stageZip = Join-Path $stageDir "JJFlex_${Version}_x64_nightly.zip"
+        $stageNotes = Join-Path $stageDir 'NOTES-nightly.txt'
+        $backupZip = Join-Path $stageDir 'prior-nightly.zip'
+        $backupNotes = Join-Path $stageDir 'prior-notes.txt'
         $zipExisted = Test-Path -LiteralPath $destZip
         $notesExisted = Test-Path -LiteralPath $destNotes
 
         Copy-Item -LiteralPath $zip.FullName -Destination $stageZip -ErrorAction Stop
-        if ((Get-Item -LiteralPath $stageZip).Length -ne $zip.Length) {
-            throw "Zip copy failed verification: $($zip.FullName)"
-        }
+        Assert-MatchingFile $zip.FullName $stageZip 'Local zip stage'
         Copy-Item -LiteralPath $notes.FullName -Destination $stageNotes -ErrorAction Stop
-        if ((Get-Item -LiteralPath $stageNotes).Length -ne $notes.Length) {
-            throw "NOTES copy failed verification: $($notes.FullName)"
-        }
+        Assert-MatchingFile $notes.FullName $stageNotes 'Local NOTES stage'
 
         if ($zipExisted) {
-            [System.IO.File]::Replace($stageZip, $destZip, $backupZip)
-        } else {
-            [System.IO.File]::Move($stageZip, $destZip)
+            Copy-Item -LiteralPath $destZip -Destination $backupZip -ErrorAction Stop
+            Assert-MatchingFile $destZip $backupZip 'Prior zip backup'
         }
-        $zipCommitted = $true
         if ($notesExisted) {
-            [System.IO.File]::Replace($stageNotes, $destNotes, $backupNotes)
-        } else {
-            [System.IO.File]::Move($stageNotes, $destNotes)
+            Copy-Item -LiteralPath $destNotes -Destination $backupNotes -ErrorAction Stop
+            Assert-MatchingFile $destNotes $backupNotes 'Prior NOTES backup'
         }
-        $notesCommitted = $true
-        if ((Get-Item -LiteralPath $destZip).Length -ne $zip.Length) {
-            throw "Zip destination failed verification: $destZip"
-        }
-        if ((Get-Item -LiteralPath $destNotes).Length -ne $notes.Length) {
-            throw "NOTES destination failed verification: $destNotes"
-        }
+
+        $zipAttempted = $true
+        Copy-Item -LiteralPath $stageZip -Destination $destZip -Force -ErrorAction Stop
+        Assert-MatchingFile $stageZip $destZip 'Dropbox zip'
+        $notesAttempted = $true
+        Copy-Item -LiteralPath $stageNotes -Destination $destNotes -Force -ErrorAction Stop
+        Assert-MatchingFile $stageNotes $destNotes 'Dropbox NOTES'
         Write-Host "Copied and verified zip: $destZip"
         Write-Host "Copied and verified NOTES: $destNotes"
     } catch {
         Write-Host "ERROR: Nightly copy or verification failed: $_"
-        if ($notesCommitted) {
+        if ($notesAttempted) {
             try {
-                if ($notesExisted) { Copy-Item -LiteralPath $backupNotes -Destination $destNotes -Force }
-                else { Remove-Item -LiteralPath $destNotes -Force }
+                if ($notesExisted) {
+                    if (-not (Test-MatchingFile $backupNotes $destNotes)) {
+                        Copy-Item -LiteralPath $backupNotes -Destination $destNotes -Force -ErrorAction Stop
+                    }
+                    Assert-MatchingFile $backupNotes $destNotes 'Restored NOTES'
+                } elseif (Test-Path -LiteralPath $destNotes) {
+                    Remove-Item -LiteralPath $destNotes -Force -ErrorAction Stop
+                }
             } catch {
                 $restorationFailed = $true
                 Write-Host "WARNING: Could not restore prior NOTES; backup remains at ${backupNotes}: $_"
             }
         }
-        if ($zipCommitted) {
+        if ($zipAttempted) {
             try {
-                if ($zipExisted) { Copy-Item -LiteralPath $backupZip -Destination $destZip -Force }
-                else { Remove-Item -LiteralPath $destZip -Force }
+                if ($zipExisted) {
+                    if (-not (Test-MatchingFile $backupZip $destZip)) {
+                        Copy-Item -LiteralPath $backupZip -Destination $destZip -Force -ErrorAction Stop
+                    }
+                    Assert-MatchingFile $backupZip $destZip 'Restored zip'
+                } elseif (Test-Path -LiteralPath $destZip) {
+                    Remove-Item -LiteralPath $destZip -Force -ErrorAction Stop
+                }
             } catch {
                 $restorationFailed = $true
                 Write-Host "WARNING: Could not restore prior zip; backup remains at ${backupZip}: $_"
@@ -135,11 +142,16 @@ function Invoke-NightlyPromotion {
         Write-Host 'Prior nightly artifacts were not purged.'
         return 10
     } finally {
-        $cleanupPaths = @($stageZip, $stageNotes)
-        if (-not $restorationFailed) { $cleanupPaths += @($backupZip, $backupNotes) }
-        foreach ($path in $cleanupPaths) {
-            if ($path -and (Test-Path -LiteralPath $path)) {
-                Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+        if ($stageDir -and -not $restorationFailed) {
+            try {
+                foreach ($path in @($stageZip, $stageNotes, $backupZip, $backupNotes)) {
+                    if (Test-Path -LiteralPath $path) {
+                        Remove-Item -LiteralPath $path -Force -ErrorAction Stop
+                    }
+                }
+                Remove-Item -LiteralPath $stageDir -ErrorAction Stop
+            } catch {
+                Write-Host "WARNING: Could not clean local nightly staging folder ${stageDir}: $_"
             }
         }
     }
@@ -166,6 +178,28 @@ function Invoke-NightlyPromotion {
         return 11
     }
     return 0
+}
+
+function Test-MatchingFile {
+    param([string] $Source, [string] $Copy)
+    try {
+        $sourceFile = Get-Item -LiteralPath $Source -ErrorAction Stop
+        $copyFile = Get-Item -LiteralPath $Copy -ErrorAction Stop
+        if ($sourceFile.PSIsContainer -or $copyFile.PSIsContainer -or $sourceFile.Length -ne $copyFile.Length) {
+            return $false
+        }
+        return ((Get-FileHash -LiteralPath $Source -Algorithm SHA256 -ErrorAction Stop).Hash -eq
+                (Get-FileHash -LiteralPath $Copy -Algorithm SHA256 -ErrorAction Stop).Hash)
+    } catch {
+        return $false
+    }
+}
+
+function Assert-MatchingFile {
+    param([string] $Source, [string] $Copy, [string] $Label)
+    if (-not (Test-MatchingFile $Source $Copy)) {
+        throw "${Label} failed size or SHA-256 verification: $Copy"
+    }
 }
 
 if ($PromoteOnly) {
