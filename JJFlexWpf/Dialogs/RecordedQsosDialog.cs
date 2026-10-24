@@ -810,6 +810,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
 
     // ── speech ──────────────────────────────────────────────────────────
 
+    // DRAFT PROSE (#787): awaiting Noel. Every sentence this window speaks is an audio.qsos.* lexicon key.
     private void Say(string text, bool refresh = false, bool queue = false)
     {
         if (refresh) RefreshControls();

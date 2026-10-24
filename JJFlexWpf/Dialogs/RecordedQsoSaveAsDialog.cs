@@ -315,6 +315,7 @@ internal sealed class RecordedQsoSaveAsDialog : JJFlexDialog
         CloseWithResult(true);
     }
 
+    // DRAFT PROSE (#787): awaiting Noel.
     private static void Speak(string text, bool refusal = false)
     {
         if (refusal) EarconPlayer.LeaderInvalidTone();

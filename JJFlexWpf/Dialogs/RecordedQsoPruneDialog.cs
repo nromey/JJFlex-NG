@@ -158,6 +158,7 @@ internal sealed class RecordedQsoPruneDialog : JJFlexDialog
     }
 
     /// <summary>The preview, as one block of sentences. Internal so a test can read it assembled.</summary>
+    // DRAFT PROSE (#787): awaiting Noel.
     internal static string Describe(RecordedQsoPrunePlan plan, DateTime now)
     {
         var parts = new List<string>();

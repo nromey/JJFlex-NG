@@ -12,6 +12,7 @@ namespace JJFlexWpf;
 /// appear. Every sentence here is DRAFT PROSE (#787): awaiting Noel; the text
 /// lives in the lexicon under <c>audio.qsos.*</c>.
 /// </summary>
+// DRAFT PROSE (#787): awaiting Noel.
 internal static class RecordedQsoWords
 {
     /// <summary>
@@ -106,6 +107,7 @@ internal static class RecordedQsoWords
 /// seconds.
 /// </para>
 /// </remarks>
+// DRAFT PROSE (#787): awaiting Noel.
 internal sealed class RecordedQsoBrowser
 {
     /// <summary>The step sizes the combo offers, in seconds: 1 second up to a minute (Noel, 2026-10-21 09:25).</summary>
