@@ -9,6 +9,30 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-10-23 — CODEX BUILDS THE RECORDER TO ROUND 6, LOCK SAFETY AND FOUR JUNKBOX FIXES LAND ON MAIN, AND THE MODEL RULES CHANGE
+
+**Usage regime (Fable spent until Sunday 04:00):** Codex built and first-checked; Claude briefed, committed, merged and relayed. Claude total went 77% to 82% across the day. Codex's weekly window restarted twice on its own (OpenAI global resets, 22:20 Wed and 13:42 today); Noel's 05:04 Tuesday reset was his banked one.
+
+**Main (`f89b33a5`, unpushed before this seal):**
+- Merged after Noel's bench or his word: #802 (NVDA contractions), #788 (meters after reconnect), #801 (Logging mode from the keyboard), #656/#658 (one owner and a lock per radio's settings file; RadioInTheLoop fix), and the lock-safety branch (#571/#800) with its VOX round (bb47127d: `VoxPauseOwner`, the VOX note, spaced tones). Each Opus-checked: KEEP/MERGE.
+- CLAUDE.md: models are proposed per track and Noel decides (no model by category); Codex runs Sol, Astra only when stuck; Fable has its own half-week cap; the merge-time WPF filter gains MetersReconnectTests, LoggingModeKeyboardTests and LockSafetyHoldTests (17 classes).
+- `backup-claude-state-to-nas.ps1`: a machine other than the desktop gets its own NAS subfolder (for the laptop backup, owed).
+
+**Recorder branch `tape-deck/t3-computer-capture` (`4dcd2e40`, NOT merged, NOT pushed):** Codex Sol rounds 3 to 6 plus main and the last two listen-back commits merged in. Play to air with intent, VOX paused through the shared owner with the radio's real reply (FlexLib's VOX setter has no reply handler), Audio Check records the transmit slice, Home record/play fields and lengths (now from the radio's `record_time`), F11 family, recorder beeps and speech settings, tape-deck clicks, short cut sentence, test tone disables VOX. Full Opus check: MERGE AFTER BENCH, 0 blockers, 11 follow-ups. Noel's evening bench passed 9 of 10, but found a SAFETY defect: **with VOX on and "Send the reference" ticked, the radio re-keyed itself through VOX 40 ms after unlock, into the empty port.** Merge held until round 7 fixes it. Also tonight: Claude hot-fixed a connect failure from round 6 (the record_time tap enabled FlexLib telnet tracing, which throws on the space-less `info`).
+
+**Filed:** #812 Escape closes expanders (built), #813 Tune carrier only (built), #814 no-log-file dialogs, #815 F12 as emergency stop for every transmission, #816 key-conflict checker, #817 V toggles VOX and a JJ key slice layer, #818 key explorer by function.
+
+**Research done:** logger modernization (Codex: the Logging-mode quick-entry pane is wired to no log session, so typed QSOs are likely never saved; a four-round sprint), JJ key layers (report ready for Noel).
+
+**Not done tonight:** the nightly promote (paused by Noel until Don's complete audio build); the laptop Claude-state backup (Noel, tomorrow); the logger planning sweep; MEMORY.md is 15.7 KB, over the 12 KB seal threshold (archive sweep carried); `jjflex-456` has one uncommitted change in `Radios/Listenback/IqRadioCapture.cs`, origin unknown, left alone.
+
+**Tomorrow:** launch round 7 (brief ready: for-codex/2026-10-24-recorder-round7.md; the reference/VOX safety fix first), bench, merge the recorder to main, publish Don's build for his Sunday microphone test.
+
+**Cross-surface:** Freight Fate 16 unpushed (Noel stepping back from it), rigmeter 13 unpushed, Civ VI dirty 2. Codex runs today: lock VOX round (Astra), recorder rounds 3 (Astra), 4, 5, 6 (Sol), logger and JJ key research (Sol), plus the iterator lane's #802, #801, #788, #656/#658 (and round 2/3), #803 (unmerged, exit-code renumber owed).
+
+### Rigmeter snapshot — end of 2026-10-23
+Main only, since midnight: 15 commits, 47 files; work done +7,198 / -826 (net +6,372); C# +7,121 / -760. The recorder branch's 21 commits today are not on main and not counted. Snapshot `historical\stats6-10-23-f89b33a5.json`.
+
 ## END-OF-DAY SEAL — 2026-10-22 — LOCK SAFETY BENCHED, THE RECORDER BUILT BY CODEX, AND VOX FOUND KEYING THE PLAYBACK
 
 **Main did not move today (839ac1a2).** All work is on four unmerged branches; nothing was merged, nothing promoted to
