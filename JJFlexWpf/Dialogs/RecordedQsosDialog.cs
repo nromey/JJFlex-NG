@@ -81,12 +81,26 @@ public sealed class RecordedQsosDialog : JJFlexDialog
     private bool _quietCheck;
     private bool _choiceAnnounced;
     private int _unreadable;
+    private bool _starting;
 
-    /// <summary>Open the window, modally. Works with no radio.</summary>
+    private static RecordedQsosDialog? _open;
+
+    /// <summary>
+    /// Open the window, modally. Works with no radio. Pressed again while it
+    /// is open (its keys are global, so they work inside it), it brings the
+    /// open one forward rather than stacking a second copy on top.
+    /// </summary>
     public static void Show(FlexBase? rig)
     {
+        if (_open != null)
+        {
+            try { _open.Activate(); } catch (InvalidOperationException) { }
+            return;
+        }
         var dialog = new RecordedQsosDialog(rig);
-        dialog.ShowModalDialog();
+        _open = dialog;
+        try { dialog.ShowModalDialog(); }
+        finally { if (ReferenceEquals(_open, dialog)) _open = null; }
     }
 
     public RecordedQsosDialog(FlexBase? rig)
@@ -232,6 +246,10 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         _rows = scan.Recordings;
         DateTime now = DateTime.Now;
         string? recordingNow = CurrentRecordingPath();
+        // Rebuilding the rows removes the one that has the keyboard; put it
+        // back on the selected row afterwards, or the operator is left on
+        // nothing after a delete, a prune or a Save As into this folder.
+        bool listHadFocus = !opening && (_list.IsKeyboardFocusWithin || _empty.IsKeyboardFocusWithin);
         _quietSelection = true;
         try
         {
@@ -265,6 +283,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         _list.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;
         _empty.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
         RefreshControls();
+        if (listHadFocus) FocusFirstControl();
 
         _unreadable = scan.Unreadable;
     }
@@ -476,6 +495,16 @@ public sealed class RecordedQsosDialog : JJFlexDialog
 
     private async Task StartPreviewAsync()
     {
+        // A second press while the first is still waiting for the radio to
+        // confirm VOX off would start a second preview over the first.
+        if (_starting) return;
+        _starting = true;
+        try { await StartPreviewCoreAsync(); }
+        finally { _starting = false; }
+    }
+
+    private async Task StartPreviewCoreAsync()
+    {
         var q = _browser.Current;
         if (q == null) { Refuse(Lexicon.Get("audio.qsos.nothing_selected")); return; }
         if (CurrentIsStillRecording) { Refuse(Lexicon.Get("audio.qsos.still_recording")); return; }
@@ -589,6 +618,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         var q = _browser.Current;
         if (q == null) { Refuse(Lexicon.Get("audio.qsos.nothing_selected")); return; }
         if (CurrentIsStillRecording || _exporting.Contains(q.Path)) { Refuse(Lexicon.Get("audio.qsos.still_recording")); return; }
+        bool fromList = _list.IsKeyboardFocusWithin;
         DateTime now = DateTime.Now;
         var confirm = new ConfirmActionDialog(
             Lexicon.Get("audio.qsos.delete_title"),
@@ -598,11 +628,9 @@ public sealed class RecordedQsosDialog : JJFlexDialog
             yesLabel: Lexicon.Get("audio.qsos.delete_yes"),
             noLabel: Lexicon.Get("audio.qsos.delete_no"))
         { Owner = this };
-        if (confirm.ShowModalDialog() != true)
-        {
-            FocusRow();
-            return;
-        }
+        bool confirmed = confirm.ShowModalDialog() == true;
+        SettleFocus(fromList);
+        if (!confirmed) return;
 
         // Deleting stops that recording's playback first, whoever started it.
         if (RecordingPlayer.IsPlaying && SamePath(RecordingPlayer.CurrentPath, q.Path))
@@ -645,12 +673,11 @@ public sealed class RecordedQsosDialog : JJFlexDialog
     private void Prune()
     {
         if (_rows.Count == 0) return;
+        bool fromList = _list.IsKeyboardFocusWithin;
         var dialog = new RecordedQsoPruneDialog(_rows, InUse) { Owner = this };
-        if (dialog.ShowModalDialog() != true || dialog.Chosen.Count == 0)
-        {
-            FocusRow();
-            return;
-        }
+        bool confirmed = dialog.ShowModalDialog() == true && dialog.Chosen.Count > 0;
+        SettleFocus(fromList);
+        if (!confirmed) return;
         if (PreviewActive) RecordingPlayer.StopWithoutSpeaking();
         string? keep = _browser.Current?.Path;
         int moved = 0;
@@ -680,15 +707,14 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         var q = _browser.Current;
         if (q == null) { Refuse(Lexicon.Get("audio.qsos.nothing_selected")); return; }
         if (CurrentIsStillRecording) { Refuse(Lexicon.Get("audio.qsos.still_recording")); return; }
+        bool fromList = _list.IsKeyboardFocusWithin;
         var (startFrame, endFrame) = _browser.Frames();
         var dialog = new RecordedQsoSaveAsDialog(q, _browser.IsWhole || !_browser.CanMove, startFrame, endFrame,
             _browser.Selection(), _browser.CanMove ? _browser.SelectionSeconds : q.Seconds) { Owner = this };
-        if (dialog.ShowModalDialog() != true || dialog.Request == null)
-        {
-            FocusRow();
-            return;
-        }
-        var request = dialog.Request;
+        bool saved = dialog.ShowModalDialog() == true && dialog.Request != null;
+        SettleFocus(fromList);
+        if (!saved) return;
+        var request = dialog.Request!;
         SayAfterFocusSettles(Lexicon.Get("audio.qsos.saveas_saving"));
         _exporting.Add(q.Path);
         RefreshControls();
@@ -723,6 +749,23 @@ public sealed class RecordedQsosDialog : JJFlexDialog
     {
         text = text.Trim();
         return text.Length == 0 || ".!?".Contains(text[^1]) ? text : text + ".";
+    }
+
+    /// <summary>
+    /// After a confirmation or a Save As window closes, put the keyboard back
+    /// where the operator was: on the chosen row when they came from the
+    /// list (its row may have been rebuilt), otherwise wherever WPF restored
+    /// it, unless that control has just been disabled. Deferred, because WPF
+    /// restores focus when this window is activated again, after the child's
+    /// ShowDialog has already returned.
+    /// </summary>
+    private void SettleFocus(bool fromList)
+    {
+        Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
+        {
+            var focused = Keyboard.FocusedElement as UIElement;
+            if (fromList || focused == null || !focused.IsEnabled || !IsKeyboardFocusWithin) FocusFirstControl();
+        }));
     }
 
     // ── the controls' state ─────────────────────────────────────────────

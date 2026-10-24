@@ -41,8 +41,16 @@ internal sealed class RecordedQsoPruneDialog : JJFlexDialog
     /// <summary>The recordings to move, set only when the operator confirmed.</summary>
     internal IReadOnlyList<RecordedQso> Chosen { get; private set; } = Array.Empty<RecordedQso>();
 
-    /// <summary>The count the dialog opens with, from Noel's own example.</summary>
+    /// <summary>The count the dialog opens with, from Noel's own example ("the oldest 20").</summary>
     internal const int DefaultCount = 20;
+
+    /// <summary>
+    /// The count to open with: 20, but never more than half of what there
+    /// is, so a short list does not open already set to move every recording.
+    /// Claude's choice, not ruled; the preview and the confirmation stand
+    /// between it and anything moving either way.
+    /// </summary>
+    internal static int OpeningCount(int total) => Math.Max(1, Math.Min(DefaultCount, total / 2));
 
     /// <summary>The age the dialog opens with. Claude's choice, not ruled.</summary>
     internal const int DefaultDays = 30;
@@ -72,7 +80,7 @@ internal sealed class RecordedQsoPruneDialog : JJFlexDialog
         _byAge.Checked += (_, _) => Update();
 
         top.Children.Add(_byCount);
-        top.Children.Add(Number(_count, "audio.qsos.prune_count", Math.Min(DefaultCount, Math.Max(1, all.Count))));
+        top.Children.Add(Number(_count, "audio.qsos.prune_count", OpeningCount(all.Count)));
         top.Children.Add(_byAge);
         top.Children.Add(Number(_days, "audio.qsos.prune_days", DefaultDays));
 

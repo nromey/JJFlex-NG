@@ -210,6 +210,16 @@ public sealed class RecordedQsoBrowserTests
             RecordedQsoPruneDialog.Describe(new RecordedQsoPrunePlan(Array.Empty<RecordedQso>(), Array.Empty<RecordedQso>(), 0), Now));
     }
 
+    [Theory]
+    [InlineData(100, 20)]
+    [InlineData(30, 15)]
+    [InlineData(5, 2)]
+    [InlineData(1, 1)]
+    public void Prune_never_opens_set_to_move_every_recording_on_a_short_list(int total, int expected)
+    {
+        Assert.Equal(expected, RecordedQsoPruneDialog.OpeningCount(total));
+    }
+
     [Fact]
     public void Save_As_keeps_the_name_and_the_type_in_step_both_ways()
     {
