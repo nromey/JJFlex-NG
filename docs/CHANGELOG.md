@@ -31,7 +31,7 @@ Jim Shaffer's changelog for the 1.x, 2.x, and 3.x versions lives in a separate a
 
 ## Unreleased / Foundation Phase — staging for 4.2.0 {#unreleased}
 
-- **DRAFT for review:** The recorder has four quick keys: F11 records the active slice, Ctrl+F11 plays it, Shift+F11 records to a file, and Ctrl+Shift+F11 plays from your computer. The JJ key choices still work. Home's slice line also lets you play or stop a recording with Space.
+- **DRAFT for review:** The recorder has four quick keys: F11 records the active slice, Ctrl+F11 plays it, Alt+F11 records to a file, and Ctrl+Alt+F11 plays from your computer. The JJ key choices still work. Home's slice line also lets you play or stop a recording with Space.
 
 - **The check you start is the check you can stop.** In Audio Workshop, the Audio Check and Loopback Check buttons each turn into their own Stop button while running. Escape stops a running check and leaves the workshop open, so the way to unkey is always at hand.
 

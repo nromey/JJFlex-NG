@@ -377,7 +377,7 @@ public partial class AudioWorkshopDialog
     /// What was changed to clear the path, or empty. It rides the arm
     /// announcement rather than being spoken separately — one arm, one sentence.
     /// </param>
-    private void ArmToneNow(FlexBase rig, string pathNote)
+    private async void ArmToneNow(FlexBase rig, string pathNote)
     {
         // Clearing the path can take up to a second, which is long enough for
         // the operator to untick the box or for the radio to go away. Arming
@@ -391,9 +391,27 @@ public partial class AudioWorkshopDialog
 
         int freq = CurrentToneFrequencyHz();
         int level = _toneLevelControl?.Value ?? -10;
+        bool voxWasOn = rig.CurrentVoxSettingIfOn() == FlexBase.VoxSetting.SimpleVox;
         rig.TxToneFrequency = freq;
         rig.TxToneLevelDb = level;
-        rig.TxToneStart();
+        if (!await rig.TxToneStartAsync())
+        {
+            if (!StillWantsToArm(rig, _toneCheck))
+            {
+                RestoreInjectionPath(rig, out _);
+                return;
+            }
+            SetToneCheckSilently(false);
+            RestoreInjectionPath(rig, out _);
+            ScreenReaderOutput.Speak(RecorderControls.ToneVoxPauseRefusal, VerbosityLevel.Critical, interrupt: true);
+            return;
+        }
+        if (!StillWantsToArm(rig, _toneCheck))
+        {
+            rig.TxToneStop();
+            RestoreInjectionPath(rig, out _);
+            return;
+        }
 
         // Every key-down anywhere in the app now says the tone is riding it.
         PttSafetyController.KeyDownAnnouncementExtra = () => _instance?.BuildToneAnnouncement();
@@ -414,6 +432,9 @@ public partial class AudioWorkshopDialog
         if (outside) EarconPlayer.Warning2Beep();
         else EarconPlayer.FeatureOnTone();
         ScreenReaderOutput.Speak(line.ToString(), VerbosityLevel.Critical, interrupt: true);
+        if (voxWasOn)
+            ScreenReaderOutput.Speak("VOX disabled when tone is enabled.", Radios.Speech.SpeechIntent.Queue,
+                VerbosityLevel.Critical);
         UpdateToneStatus(speakIfNewlyOutside: false);
     }
 

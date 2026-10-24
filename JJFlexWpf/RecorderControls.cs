@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Radios;
 using Radios.Speech;
@@ -31,7 +32,25 @@ namespace JJFlexWpf;
 /// </remarks>
 public static class RecorderControls
 {
+    // DRAFT PROSE: a tone arm must fail closed if its VOX lease is unavailable.
+    public const string ToneVoxPauseRefusal = "Test tone could not be armed while VOX is active.";
     public static bool StatusSpeechEnabled { get; set; } = true;
+    private static readonly ConditionalWeakTable<FlexBase, object> ObservedRigs = new();
+
+    public static void Observe(FlexBase? rig)
+    {
+        if (rig == null) return;
+        ObservedRigs.GetValue(rig, r =>
+        {
+            r.SlicePlaybackFinished += outcome =>
+            {
+                var dispatcher = System.Windows.Application.Current?.Dispatcher;
+                if (dispatcher == null || dispatcher.CheckAccess()) Speak(outcome);
+                else dispatcher.BeginInvoke(new Action(() => Speak(outcome)));
+            };
+            return new object();
+        });
+    }
     // DRAFT PROSE (#787): awaiting Noel. Shared by the strip, menu and buttons.
     public static string? RecordingLength(FlexBase? rig, SliceRecorderTarget target) =>
         rig?.SliceRecordingSeconds(target) is double seconds
@@ -73,6 +92,10 @@ public static class RecorderControls
         {
             if (outcome.Cue == RecorderCue.Start) EarconPlayer.RecorderStartBeep();
             else if (outcome.Cue == RecorderCue.Stop) EarconPlayer.RecorderStopBeep();
+            else if (outcome.Cue is RecorderCue.PlayStart or RecorderCue.PlayStop)
+            {
+                if (EarconPlayer.RecorderBeepsEnabled) EarconPlayer.ConfirmTone();
+            }
         }
         if (string.IsNullOrEmpty(outcome.Message) || (outcome.Success && !StatusSpeechEnabled)) return;
         if (!outcome.Success) EarconPlayer.LeaderInvalidTone();
@@ -124,6 +147,7 @@ public static class RecorderControls
     public static async Task<RecorderOutcome> ToggleSlicePlayAsync(FlexBase? rig, SliceRecorderTarget target,
         Action<RecorderOutcome>? speak = null, object? owner = null)
     {
+        Observe(rig);
         var outcome = rig == null
             ? NoRadio(SpeechSubject.SliceRecorder(""))
             : await Guarded(() => rig.ToggleSlicePlayAsync(target, owner), SpeechSubject.SliceRecorder(""));

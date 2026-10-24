@@ -525,6 +525,11 @@ public class NativeMenuBar : IDisposable
 
         var current = getter();
         var newVal = Rig.ToggleOffOn(current);
+        if (label == "VOX" && newVal == FlexBase.OffOnValues.on && Rig.TxToneEngaged)
+        {
+            SpeakAfterMenuClose("VOX disabled when tone is enabled.");
+            return;
+        }
         setter(newVal);
         EarconPlayer.ToggleTone(newVal == FlexBase.OffOnValues.on);
         SpeakAfterMenuClose(newVal == FlexBase.OffOnValues.on

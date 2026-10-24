@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using Radios.Tests.StationConnect;
 using Xunit;
 
 namespace Radios.Tests
@@ -50,18 +51,15 @@ namespace Radios.Tests
         [Fact]
         public void The_disarm_releases_an_engaged_test_tone()
         {
-            FlexBase rig = null;
-            try
-            {
-                rig = Rig();
-                rig.TxToneStart();
-                Assert.True(rig.TxToneEngaged, "positive control: the tone engaged");
+            using var fixture = new RigOnVendorRadio("tone-disarm-test");
+            fixture.AddOwnSlice(0, 14.25, "USB");
+            fixture.Rig.q.MainLoop = true;
+            Assert.True(fixture.Rig.TxToneStart(), "positive control: the tone engaged");
+            Assert.True(fixture.Rig.TxToneEngaged);
 
-                TransmitKillSwitch.DisarmSources(rig);
+            TransmitKillSwitch.DisarmSources(fixture.Rig);
 
-                Assert.False(rig.TxToneEngaged, "the kill left the test tone engaged");
-            }
-            finally { try { rig?.Dispose(); } catch { } }
+            Assert.False(fixture.Rig.TxToneEngaged, "the kill left the test tone engaged");
         }
 
         [Fact]

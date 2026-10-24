@@ -998,7 +998,19 @@ public partial class ScreenFieldsPanel : UserControl
         TxContent.Children.Add(_fullDuplexButton);
 
         _voxCheck = MakeToggle(Lexicon.Get("audio.fields.vox"));
-        _voxCheck.Checked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.vox"), v => { if (_rig != null) _rig.Vox = v; }, true);
+        _voxCheck.Checked += (s, e) =>
+        {
+            if (_polling) return;
+            if (_rig?.TxToneEngaged == true)
+            {
+                _polling = true;
+                try { _voxCheck.IsChecked = false; }
+                finally { _polling = false; }
+                ScreenReaderOutput.Speak("VOX disabled when tone is enabled.", VerbosityLevel.Critical, interrupt: true);
+                return;
+            }
+            ToggleRig(Lexicon.Get("audio.fields.vox"), v => { if (_rig != null) _rig.Vox = v; }, true);
+        };
         _voxCheck.Unchecked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.vox"), v => { if (_rig != null) _rig.Vox = v; }, false);
         TxContent.Children.Add(_voxCheck);
 
@@ -2023,13 +2035,7 @@ public partial class ScreenFieldsPanel : UserControl
         }
         else
         {
-            _suppressCollapseEarcons = true;
-            try
-            {
-                foreach (var exp in _expanders) exp.IsExpanded = false;
-            }
-            finally { _suppressCollapseEarcons = false; }
-            EarconPlayer.PlayCollapseAll();
+            CloseAllGroups(goHome: false);
         }
         return true;
     }
@@ -2052,11 +2058,15 @@ public partial class ScreenFieldsPanel : UserControl
     }
 
     /// <summary>
-    /// Sprint 28 Phase 3 — collapse every expanded group without individual
-    /// earcons or announcements, then play the gavel earcon, announce once
-    /// (&quot;All panels collapsed, home&quot;), and return focus to FreqOut.
+    /// Collapse every expanded group with one cue and Chatty announcement,
+    /// then return focus to FreqOut.
     /// </summary>
     private void CollapseAllGroupsAndGoHome()
+    {
+        CloseAllGroups(goHome: true);
+    }
+
+    private void CloseAllGroups(bool goHome)
     {
         // Play the gavel first so it leads audibly — bulk collapse is essentially
         // instantaneous; playing the gavel afterward would desync audio from the
@@ -2077,12 +2087,12 @@ public partial class ScreenFieldsPanel : UserControl
             _suppressCollapseEarcons = false;
         }
 
-        ScreenReaderOutput.Speak(
-            Lexicon.Get("audio.fields.all_collapsed"), VerbosityLevel.Terse, interrupt: true);
+        if (ScreenReaderOutput.CurrentVerbosity == VerbosityLevel.Chatty)
+            ScreenReaderOutput.Speak("All expanders closed.", VerbosityLevel.Chatty, interrupt: true);
 
         // Return focus to Home (FreqOut) — MainWindow wires this event to
         // FreqOut.FocusDisplay() per the pattern established pre-Sprint-28.
-        EscapePressed?.Invoke(this, EventArgs.Empty);
+        if (goHome) EscapePressed?.Invoke(this, EventArgs.Empty);
     }
 
     public void FocusNextHomePane(bool forward)

@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Threading.Tasks;
 using Radios.Tests.StationConnect;
 using Xunit;
 
@@ -90,8 +91,114 @@ public sealed class VoxPauseRigTests : IDisposable
         Assert.Equal(new[] { "transmit set vox_enable=1" }, f.Vendor.Transport.Commands);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Tone_and_cut_hold_share_the_one_vox_pause_in_either_release_order(bool toneReleasesFirst)
+    {
+        using var f = new RigOnVendorRadio("tone-vox-overlap");
+        f.AddOwnSlice(0, 14.25, "USB");
+        Set(f.Rig, "_TXVFO", 0);
+        Set(f.Rig, "_IsConnected", true);
+        f.Rig.q.MainLoop = true;
+        f.Vendor.Status("transmit vox_enable=1");
+        Assert.True(await StartTone(f));
+        Drain(f.Rig);
+        Assert.False(f.Vendor.Radio.SimpleVOXEnable);
+        var hold = f.Rig.VoxPauses.Acquire(FlexBase.VoxSetting.SimpleVox)!;
+        f.Rig.Vox = FlexBase.OffOnValues.on;
+        Drain(f.Rig);
+        Assert.False(f.Vendor.Radio.SimpleVOXEnable);
+        if (toneReleasesFirst) f.Rig.TxToneStop();
+        else hold.Dispose();
+        Drain(f.Rig);
+        Assert.False(f.Vendor.Radio.SimpleVOXEnable);
+        if (toneReleasesFirst) hold.Dispose();
+        else f.Rig.TxToneStop();
+        Drain(f.Rig);
+        Assert.True(f.Vendor.Radio.SimpleVOXEnable);
+        Assert.Equal(new[] { "transmit set vox_enable=0", "transmit set vox_enable=1" }, f.Vendor.Transport.Commands);
+    }
+
+    [Fact]
+    public async Task Disconnect_releases_the_tone_lease_and_restores_before_transport_teardown()
+    {
+        using var f = new RigOnVendorRadio("tone-disconnect");
+        f.AddOwnSlice(0, 14.25, "USB");
+        Set(f.Rig, "_TXVFO", 0);
+        Set(f.Rig, "_IsConnected", true);
+        f.Rig.q.MainLoop = true;
+        f.Vendor.Status("transmit vox_enable=1");
+        Assert.True(await StartTone(f));
+        Drain(f.Rig);
+        var departingOwner = f.Rig.VoxPauses;
+        typeof(FlexBase).GetMethod("DisconnectVoxPauses", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(f.Rig, null);
+        Assert.False(f.Rig.TxToneEngaged);
+        f.Rig.TxToneStop();
+        Drain(f.Rig);
+        Assert.True(f.Vendor.Radio.SimpleVOXEnable);
+        Assert.Contains("transmit set vox_enable=1", f.Vendor.Transport.Commands);
+        Assert.NotSame(departingOwner, f.Rig.VoxPauses);
+    }
+
+    [Fact]
+    public async Task Tone_does_not_engage_before_the_radio_confirms_VOX_off()
+    {
+        using var f = new RigOnVendorRadio("tone-vox-reply");
+        f.AddOwnSlice(0, 14.25, "USB");
+        Set(f.Rig, "_TXVFO", 0);
+        Set(f.Rig, "_IsConnected", true);
+        f.Rig.q.MainLoop = true;
+        f.Vendor.Status("transmit vox_enable=1");
+        var arm = f.Rig.TxToneStartAsync();
+        Drain(f.Rig);
+        Assert.Contains("transmit set vox_enable=0", f.Vendor.Transport.Commands);
+        Assert.False(f.Rig.TxToneEngaged);
+        f.Vendor.ReplyOk(f.Vendor.LastSequence);
+        Assert.True(await arm);
+        Assert.True(f.Rig.TxToneEngaged);
+        f.Rig.TxToneStop();
+        Drain(f.Rig);
+    }
+
+    [Fact]
+    public async Task Tone_refuses_if_the_radio_never_confirms_VOX_off()
+    {
+        using var f = new RigOnVendorRadio("tone-vox-no-reply");
+        f.AddOwnSlice(0, 14.25, "USB");
+        Set(f.Rig, "_TXVFO", 0);
+        Set(f.Rig, "_IsConnected", true);
+        f.Rig.q.MainLoop = true;
+        f.Rig.SliceVoxOffWait = TimeSpan.FromMilliseconds(30);
+        f.Vendor.Status("transmit vox_enable=1");
+        var arm = f.Rig.TxToneStartAsync();
+        Drain(f.Rig);
+        Assert.False(await arm);
+        Assert.False(f.Rig.TxToneEngaged);
+        Drain(f.Rig);
+        Assert.True(f.Vendor.Radio.SimpleVOXEnable);
+    }
+
     private static void Set(FlexBase rig, string name, object value)
         => typeof(FlexBase).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(rig, value);
+
+    private static async Task<bool> StartTone(RigOnVendorRadio fixture)
+    {
+        fixture.Vendor.Transport.CommandWritten = command =>
+        {
+            if (command == "transmit set vox_enable=0")
+                fixture.Vendor.ReplyOk(fixture.Vendor.LastSequence);
+        };
+        var start = fixture.Rig.TxToneStartAsync();
+        var deadline = DateTime.UtcNow.AddSeconds(3);
+        while (!start.IsCompleted && DateTime.UtcNow < deadline)
+        {
+            Drain(fixture.Rig);
+            await Task.Delay(1);
+        }
+        return await start;
+    }
 
     private static void Drain(FlexBase rig)
     {

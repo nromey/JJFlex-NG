@@ -23,6 +23,7 @@ public partial class AudioWorkshopDialog
 {
     #region Audio Check Section
     private bool _loopbackStarting;
+    private string? _lastAudioCheckSource;
     private readonly AudioCheckStartGate _checkStarts = new();
 
     private void CancelCheckStart()
@@ -439,6 +440,7 @@ public partial class AudioWorkshopDialog
         }
 
         if (_iqRun != null) { IqStatus(Lexicon.Get("audio.iq.stop_other"), true); return; }
+        _lastAudioCheckSource = null;
         var method = (AudioCheckListenMethods)(_listenMethodControl?.SelectedIndex ?? 0);
         if (method == AudioCheckListenMethods.OffAir) { _ = StartOffAirAsync(ptt); return; }
         var powerMode = (AudioCheckPowerModes)(_checkPowerControl?.SelectedIndex
@@ -643,10 +645,14 @@ public partial class AudioWorkshopDialog
     private async Task PlayRadioTakeAsync()
     {
         if (_rig == null) return;
+        RecorderControls.Observe(_rig);
         var outcome = await _rig.StartSlicePlayAsync(RadioTakeTarget);
         if (outcome.Success)
+        {
+            if (EarconPlayer.RecorderBeepsEnabled && !outcome.AlreadyInState) EarconPlayer.ConfirmTone();
             ScreenReaderOutput.Speak(Lexicon.Get("audio.check.playing_take"), Radios.Speech.SpeechIntent.Interrupt,
                 VerbosityLevel.Terse, subject: outcome.Subject);
+        }
         else RecorderControls.Speak(outcome);
         SyncPlayTakeLabel();
     }
@@ -943,6 +949,10 @@ public partial class AudioWorkshopDialog
                 return false;
             }
 
+            _owner._lastAudioCheckSource = rig.TxToneEngaged
+                ? $"{(int)rig.TxToneFrequency} hertz test tone"
+                : rig.TxFilePlaying ? "reference recording" : "microphone";
+
             var line = new StringBuilder();
             if (_method == AudioCheckListenMethods.OffAir)
             {
@@ -1005,9 +1015,6 @@ public partial class AudioWorkshopDialog
             // the safety line says so — including the passband warning if the
             // tone sits outside the TX filter (a check that transmits nothing
             // must never sound like a check).
-            string? toneLine = _owner.BuildToneAnnouncement();
-            if (!string.IsNullOrEmpty(toneLine))
-                line.Append(' ').Append(toneLine);
             line.Append(' ').Append(Lexicon.Get("audio.check.escape_stops"));
             ScreenReaderOutput.Speak("Transmitting", Radios.Speech.SpeechIntent.Queue,
                 VerbosityLevel.Critical);
@@ -1292,6 +1299,7 @@ public partial class AudioWorkshopDialog
                 var played = _playStart.IsCompletedSuccessfully ? _playStart.Result : null;
                 if (played?.Success == true)
                 {
+                    if (EarconPlayer.RecorderBeepsEnabled && !played.AlreadyInState) EarconPlayer.ConfirmTone();
                     ScreenReaderOutput.Speak(
                         "Playing your take.",
                         Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse, subject: played.Subject);
@@ -1312,6 +1320,7 @@ public partial class AudioWorkshopDialog
             }
             if (rig.SliceHasRecording(_recorderTarget))
             {
+                RecorderControls.Observe(rig);
                 _playStart = rig.StartSlicePlayAsync(_recorderTarget);
             }
             else if (_awaitPlaybackTicks >= 6)

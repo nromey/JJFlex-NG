@@ -2044,6 +2044,12 @@ public class FreqOutHandlers
             || (ch == 'V' && Keyboard.Modifiers == ModifierKeys.None))
         {
             var newState = Rig.ToggleOffOn(Rig.Vox);
+            if (newState == FlexBase.OffOnValues.on && Rig.TxToneEngaged)
+            {
+                Radios.ScreenReaderOutput.Speak("VOX disabled when tone is enabled.", VerbosityLevel.Critical, interrupt: true);
+                e.Handled = true;
+                return;
+            }
             Rig.Vox = newState;
             Radios.ScreenReaderOutput.Speak(
                 newState == FlexBase.OffOnValues.on

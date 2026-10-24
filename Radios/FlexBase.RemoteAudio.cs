@@ -2,6 +2,7 @@
 using System;
 using System.Diagnostics;
 using System.Threading;
+using System.Threading.Tasks;
 using Flex.Smoothlake.FlexLib;
 using JJPortaudio;
 using JJTrace;
@@ -1500,17 +1501,93 @@ namespace Radios
         /// its place in the TX stream. Takes effect immediately if
         /// transmitting, otherwise at the next key-down.
         /// </summary>
-        public void TxToneStart()
+        public bool TxToneStart()
         {
-            Tracing.TraceLine("TxToneStart: " + txToneGen.Frequency + " Hz at " + txToneGen.LevelDb + " dBFS", TraceLevel.Info);
-            txToneGen.Start();
+            lock (_voxPauseGate)
+            {
+                if (txToneGen.Engaged) return true;
+                if (_toneVoxLease != null || theRadio?.Connected != true || theRadio.SimpleVOXEnable)
+                    return false;
+                var lease = VoxPauses.Acquire(VoxSetting.SimpleVox);
+                if (lease == null) return false;
+                _toneVoxLease = lease;
+                return StartToneWithLease(lease);
+            }
+        }
+
+        /// <summary>Wait for the radio to confirm VOX off before a tone can reach its transmit input.</summary>
+        public async Task<bool> TxToneStartAsync()
+        {
+            Flex.Smoothlake.FlexLib.Radio radio;
+            VoxPauseOwner.Lease lease;
+            lock (_voxPauseGate)
+            {
+                if (txToneGen.Engaged) return true;
+                if (_toneVoxLease != null) return false;
+                radio = theRadio;
+                if (radio?.Connected != true) return false;
+                if (!radio.SimpleVOXEnable) return TxToneStart();
+                lease = VoxPauses.Acquire(VoxSetting.SimpleVox);
+                if (lease == null) return false;
+                _toneVoxLease = lease;
+            }
+            try
+            {
+                // The owner writes on the rig queue. The barrier ensures its
+                // reply task exists before we inspect it.
+                await IqQueue(() => { }).ConfigureAwait(false);
+                if (!await LastVoxWriteReply(VoxSetting.SimpleVox, radio, on: false)
+                    .WaitAsync(SliceVoxOffWait).ConfigureAwait(false)) return FailToneArm(lease);
+                lock (_voxPauseGate)
+                {
+                    if (!ReferenceEquals(radio, theRadio) || radio.SimpleVOXEnable ||
+                        !ReferenceEquals(_toneVoxLease, lease)) return FailToneArm(lease);
+                    return StartToneWithLease(lease);
+                }
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("TxToneStartAsync: " + ex.Message, TraceLevel.Warning);
+                return FailToneArm(lease);
+            }
+        }
+
+        private bool FailToneArm(VoxPauseOwner.Lease lease)
+        {
+            lock (_voxPauseGate)
+            {
+                if (ReferenceEquals(_toneVoxLease, lease)) _toneVoxLease = null;
+                lease.Dispose();
+                return false;
+            }
+        }
+
+        private bool StartToneWithLease(VoxPauseOwner.Lease lease)
+        {
+            try
+            {
+                Tracing.TraceLine("TxToneStart: " + txToneGen.Frequency + " Hz at " + txToneGen.LevelDb + " dBFS", TraceLevel.Info);
+                txToneGen.Start();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("TxToneStart: " + ex.Message, TraceLevel.Warning);
+                return FailToneArm(lease);
+            }
         }
 
         /// <summary>Release the test tone and restore the microphone.</summary>
         public void TxToneStop()
         {
-            Tracing.TraceLine("TxToneStop", TraceLevel.Info);
-            txToneGen.Stop();
+            lock (_voxPauseGate)
+            {
+                Tracing.TraceLine("TxToneStop", TraceLevel.Info);
+                txToneGen.Stop();
+                var lease = _toneVoxLease;
+                _toneVoxLease = null;
+                lease?.Dispose();
+            }
         }
 
         /// <summary>

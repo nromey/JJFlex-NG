@@ -880,7 +880,7 @@ namespace JJFlexWpf
                 _updateStatusDisplay?.Invoke(Lexicon.Get("audio.ptt.display_transmitting"));
                 if (_config.SpeechEnabled && !AudioCheckNarration)
                     ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.announce_transmitting"), VerbosityLevel.Critical, interrupt: true);
-                SpeakKeyDownExtra(); // armed test tone, etc. — always speaks
+                if (!AudioCheckNarration) SpeakKeyDownExtra();
                 _healthReflectedWarned = false;
                 _reflectedRun.Reset();
                 _healthTxSeconds = 0;
@@ -1005,7 +1005,7 @@ namespace JJFlexWpf
             _updateStatusDisplay?.Invoke(Lexicon.Get("audio.ptt.display_locked"));
             if (_config.SpeechEnabled && !AudioCheckNarration)
                 ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.announce_locked"), VerbosityLevel.Critical, interrupt: true);
-            SpeakKeyDownExtra(); // armed test tone, etc. — always speaks
+            if (!AudioCheckNarration) SpeakKeyDownExtra();
             Tracing.TraceLine("PTT: Locked", TraceLevel.Info);
 
             StartWarningTimer();
@@ -1611,7 +1611,8 @@ namespace JJFlexWpf
                 // other's (#237).
                 EarconPlayer.WarningAlarmTone();
                 string cutAntenna = rig.TXAntennaName ?? "";
-                GoIdle(TransmitSafety.ReflectedCutTextFor(cut, reading, cutAntenna),
+                GoIdle(TransmitSafety.ReflectedCutTextFor(cut, reading, cutAntenna,
+                           rig.CurrentVoxSettingIfOn() == FlexBase.VoxSetting.SimpleVox),
                        forceSpeech: true,
                        subject: Radios.Speech.SpeechSubject.ReflectedPowerCut);
                 // And nothing re-keys into the same fault for the next few

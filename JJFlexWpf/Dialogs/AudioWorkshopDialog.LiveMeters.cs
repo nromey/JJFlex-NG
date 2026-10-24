@@ -239,6 +239,8 @@ public partial class AudioWorkshopDialog
                 text = MicAudioReport.Compose(rig, "Mic audio last transmit:", max, live: false);
             else
                 text = "Mic audio: transmit to measure";
+            if (!rig.Transmit && _lastAudioCheckSource != null)
+                text += Environment.NewLine + "Source: " + _lastAudioCheckSource;
         }
         // Assign only on change so an unchanged reading doesn't reset the
         // review cursor twice a second.

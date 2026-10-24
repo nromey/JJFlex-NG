@@ -17,6 +17,7 @@ public class Host
     private void IqFailure(Exception ex) { }
     /*StartOffAirAsync*/
     private FlexBase _rig = new();
+    private string _lastAudioCheckSource;
     private AudioCheckSession _session;
     private Control _micGainControl;
     private PttSafetyController ptt = new();
@@ -108,6 +109,8 @@ public class FlexBase
     public int XmitPower { get => _power; set { _power=value; PowerChanged?.Invoke(); } }
     public double TXFrequency;
     public string MicSource;
+    public bool TxToneEngaged, TxFilePlaying;
+    public int TxToneFrequency = 440;
     public OffOnValues Monitor;
     public string LoopbackUnavailableReason => "";
     public string SliceRecorderLetter(SliceRecorderTarget t) => "A";

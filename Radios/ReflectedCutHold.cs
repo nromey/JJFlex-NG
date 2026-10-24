@@ -414,20 +414,12 @@ namespace Radios
         /// A current account of the pause. It queues behind the cut and is
         /// withdrawn if the hold ends before the reader reaches it.
         /// </summary>
-        // DRAFT PROSE (#571): awaiting Noel
         private void SpeakVoxNoteLocked(long nowMs)
         {
             _voxNoteGiven = true;
             _voxNotePending = false;
             _voxTonePending = true;
             _voxToneDueMs = Math.Max(_lastAlarmMs + VoxOffCueDelayMs, nowMs);
-            int remaining = Math.Max(1, (int)Math.Ceiling((HoldMs - (nowMs - _beganMs)) / 1000.0));
-            string key = remaining == 1
-                ? "audio.ptt.cut_hold_vox_pause_notice_one"
-                : "audio.ptt.cut_hold_vox_pause_notice";
-            ScreenReaderOutput.Speak(
-                Lexicon.Get(key, ("seconds", remaining)), SpeechIntent.Queue, VerbosityLevel.Terse,
-                subject: SpeechSubject.VoxPausedAfterCut);
         }
 
         /// <summary>

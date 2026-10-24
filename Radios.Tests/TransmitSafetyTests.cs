@@ -771,12 +771,23 @@ namespace Radios.Tests
         public void The_cut_sentence_for_a_rung_is_that_rungs_sentence()
         {
             var open = Pair(OpenForward, OpenReflected);
-            Assert.Equal(TransmitSafety.ReflectedCutText(open.ReflectedShare, "ANT1"),
-                TransmitSafety.ReflectedCutTextFor(TransmitSafety.ReflectedCut.Share, open, "ANT1"));
-            Assert.Equal(TransmitSafety.ReflectedCutWattsText(open.ReflectedWatts, "ANT1"),
-                TransmitSafety.ReflectedCutTextFor(TransmitSafety.ReflectedCut.Watts, open, "ANT1"));
+            var prior = ScreenReaderOutput.CurrentVerbosity;
+            ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Chatty;
+            try
+            {
+            Assert.Contains("percent reflected on ANT1", TransmitSafety.ReflectedCutTextFor(
+                TransmitSafety.ReflectedCut.Share, open, "ANT1"));
+            Assert.Contains("watts reflected on ANT1", TransmitSafety.ReflectedCutTextFor(
+                TransmitSafety.ReflectedCut.Watts, open, "ANT1"));
+            Assert.Equal("Transmit stopped. 77 percent reflected on ANT1. VOX paused for 5 seconds.",
+                TransmitSafety.ReflectedCutTextFor(TransmitSafety.ReflectedCut.Share, open, "ANT1", voxPaused: true));
+            ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Terse;
+            Assert.Equal("Transmit stopped, 77 percent reflected.",
+                TransmitSafety.ReflectedCutTextFor(TransmitSafety.ReflectedCut.Share, open, "ANT1", voxPaused: true));
             Assert.Equal("",
                 TransmitSafety.ReflectedCutTextFor(TransmitSafety.ReflectedCut.None, open, "ANT1"));
+            }
+            finally { ScreenReaderOutput.CurrentVerbosity = prior; }
         }
 
         [Fact]

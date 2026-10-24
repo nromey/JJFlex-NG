@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -59,7 +60,7 @@ public readonly struct SliceRecorderTarget : IEquatable<SliceRecorderTarget>
 /// <param name="Message">A complete sentence, already worded from the lexicon.</param>
 /// <param name="Subject">The <see cref="Speech.SpeechSubject"/> it belongs to.</param>
 /// <param name="AlreadyInState">True when nothing needed changing: the recorder was already doing what was asked.</param>
-public enum RecorderCue { None, Start, Stop }
+public enum RecorderCue { None, Start, Stop, PlayStart, PlayStop }
 public sealed record RecorderOutcome(bool Success, string Message, string Subject,
     bool AlreadyInState = false, RecorderCue Cue = RecorderCue.None);
 
@@ -150,9 +151,15 @@ public partial class FlexBase
         internal PlaybackIntent Intent;
         internal VoxPauseOwner.Lease PlaybackVoxLease;
         internal double? RecordStarted, RecordedSeconds;
+        internal double? RadioRecordedSeconds;
+        internal bool PlayStopRequested;
     }
 
     private readonly Dictionary<Slice, SliceRecorderState> _sliceRecorders = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<int, double> _sliceRadioSeconds = new();
+    private RadioStatusTap _sliceRecorderStatusTap;
+    private Radio _sliceRecorderTapRadio;
+    public event Action<RecorderOutcome> SlicePlaybackFinished;
     private TransmitChangeDel _sliceRecorderKeyed;
     private long _slicePlaybackGeneration;
     internal Func<double> SliceRecorderClock { get; set; } = () => Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
@@ -200,8 +207,7 @@ public partial class FlexBase
         foreach (var state in playing) _ = StopPlayingForTransmitAsync(state, generation);
     }
 
-    /// <summary>Measured duration in this connection; null for a pre-existing take of unknown length.</summary>
-    /// <remarks>FlexLib ignores record_time, whose units and meaning are undocumented here. Do not guess from it.</remarks>
+    /// <summary>The radio's recorded duration, with local timing as fallback.</summary>
     public double? SliceRecordingSeconds(SliceRecorderTarget target)
     {
         var slice = ResolveSliceRecorderTarget(target);
@@ -211,6 +217,8 @@ public partial class FlexBase
         {
             var state = observed;
             if (!StateIsLive(state)) return null;
+            if (state.RadioRecordedSeconds is double radioSeconds)
+                return slice.PlayEnabled || state.Recording ? radioSeconds : null;
             if (state.RecordStarted is double start)
                 return Math.Clamp(SliceRecorderClock() - start, 0, SliceRecordBufferSeconds);
             return slice.PlayEnabled ? state.RecordedSeconds : null;
@@ -224,6 +232,41 @@ public partial class FlexBase
         {
             state.RecordedSeconds = Math.Clamp(SliceRecorderClock() - start, 0, SliceRecordBufferSeconds);
             state.RecordStarted = null;
+        }
+    }
+
+    internal void AttachSliceRecorderStatus(Radio radio)
+    {
+        if (ReferenceEquals(_sliceRecorderTapRadio, radio)) return;
+        _sliceRecorderStatusTap?.Dispose();
+        _sliceRecorderStatusTap = null;
+        _sliceRecorderTapRadio = radio;
+        lock (_sliceRecorders) _sliceRadioSeconds.Clear();
+        if (radio == null) return;
+        _sliceRecorderStatusTap = new RadioStatusTap(radio);
+        _sliceRecorderStatusTap.Status += raw => ObserveSliceRecorderStatus(radio, raw);
+    }
+
+    internal void ObserveSliceRecorderStatus(Radio radio, string raw)
+    {
+        int at = raw.IndexOf("|slice ", StringComparison.Ordinal);
+        if (at < 0) return;
+        int first = at + "|slice ".Length;
+        int last = raw.IndexOf(' ', first);
+        if (last < 0 || !int.TryParse(raw[first..last], NumberStyles.None,
+                CultureInfo.InvariantCulture, out int index)) return;
+        var values = RadioStatusTap.Values(raw);
+        if (!values.TryGetValue("record_time", out string value) ||
+            !double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double seconds) ||
+            !double.IsFinite(seconds) || seconds < 0) return;
+        seconds = Math.Min(seconds, SliceRecordBufferSeconds);
+        lock (_sliceRecorders)
+        {
+            if (!ReferenceEquals(_sliceRecorderTapRadio, radio)) return;
+            _sliceRadioSeconds[index] = seconds;
+            foreach (var state in _sliceRecorders.Values)
+                if (ReferenceEquals(state.Radio, radio) && state.Slice.Index == index)
+                    state.RadioRecordedSeconds = seconds;
         }
     }
 
@@ -280,8 +323,10 @@ public partial class FlexBase
             };
         var cue = key switch
         {
-            "audio.recorder.recording" or "audio.recorder.playing" => RecorderCue.Start,
-            "audio.recorder.recording_stopped" or "audio.recorder.playing_stopped" => RecorderCue.Stop,
+            "audio.recorder.recording" => RecorderCue.Start,
+            "audio.recorder.recording_stopped" => RecorderCue.Stop,
+            "audio.recorder.playing" => RecorderCue.PlayStart,
+            "audio.recorder.playing_stopped" => RecorderCue.PlayStop,
             _ => RecorderCue.None
         };
         return new(success, message, Speech.SpeechSubject.SliceRecorder(letter), already, cue);
@@ -341,6 +386,7 @@ public partial class FlexBase
                 state = new SliceRecorderState
                 {
                     Slice = slice, Radio = theRadio, Connection = theRadio?.CurrentCommandConnection,
+                    RadioRecordedSeconds = _sliceRadioSeconds.TryGetValue(slice.Index, out double seconds) ? seconds : null,
                 };
                 state.Status = (_, args) => OnRecorderSliceStatus(state, args.PropertyName);
                 slice.PropertyChanged += state.Status;
@@ -399,6 +445,7 @@ public partial class FlexBase
         // The doors poll the queries above (Home at its 100 ms poll, the
         // Workshop on its meter tick, the menu when it opens), so there is no
         // change event to raise; a hook nobody wires is a defect class here.
+        RecorderOutcome finished = null;
         lock (_sliceRecorders)
         {
             // The radio finished the buffer on its own, or something else
@@ -412,11 +459,14 @@ public partial class FlexBase
             }
             if (property == nameof(Slice.PlayOn))
             {
+                bool wasPlaying = state.Playing;
                 state.Playing = state.Slice.PlayOn;
                 if (!state.Playing)
                 {
                     state.Intent = null;
                     ReleasePlaybackVox(state);
+                    if (wasPlaying && !state.PlayStopRequested && StateIsLive(state))
+                        finished = Outcome(true, "audio.recorder.playing_stopped", LetterOf(state.Slice));
                 }
             }
             if (property == nameof(Slice.RecordOn) && !state.Slice.RecordOn && state.Recording)
@@ -426,6 +476,9 @@ public partial class FlexBase
                 state.CapWarning = null;
             }
         }
+        if (finished != null)
+            try { SlicePlaybackFinished?.Invoke(finished); }
+            catch (Exception ex) { Tracing.TraceLine("Slice playback finished output: " + ex.Message, TraceLevel.Warning); }
     }
 
     private async Task<bool> SliceRecorderCommandAsync(SliceRecorderState state, string property, bool enabled)
@@ -466,6 +519,7 @@ public partial class FlexBase
                 if (property == "record" && enabled)
                 {
                     state.RecordedSeconds = null;
+                    state.RadioRecordedSeconds = null;
                     state.RecordStarted = SliceRecorderClock();
                 }
             }
@@ -492,12 +546,14 @@ public partial class FlexBase
 
     private async Task<bool> SendSafelyAsync(SliceRecorderState state, string property, bool enabled)
     {
+        if (property == "play" && !enabled) state.PlayStopRequested = true;
         try { return await SliceRecorderCommandAsync(state, property, enabled).ConfigureAwait(false); }
         catch (Exception ex)
         {
             Tracing.TraceLine($"Slice recorder {property}={(enabled ? 1 : 0)}: {ex.Message}", TraceLevel.Warning);
             return false;
         }
+        finally { if (property == "play" && !enabled) state.PlayStopRequested = false; }
     }
 
     // ── The two-minute warning ──────────────────────────────────────────

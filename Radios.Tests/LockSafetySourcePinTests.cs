@@ -344,7 +344,7 @@ namespace Radios.Tests
         {
             string ctl = ReadSource("JJFlexWpf/PttSafetyController.cs");
             string reflected = Body(ctl, "private void CheckReflectedPower(FlexBase rig)");
-            int goIdle = reflected.IndexOf("GoIdle(TransmitSafety.ReflectedCutTextFor(cut, reading, cutAntenna)", StringComparison.Ordinal);
+            int goIdle = reflected.IndexOf("GoIdle(TransmitSafety.ReflectedCutTextFor(cut, reading, cutAntenna,", StringComparison.Ordinal);
             int begin = reflected.IndexOf("BeginCutHold(rig, cut, reading, cutAntenna);", StringComparison.Ordinal);
             Assert.True(goIdle >= 0 && begin > goIdle);
         }
@@ -381,28 +381,27 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void The_refusal_is_Noels_wording_and_the_VOX_note_is_keyed_in_the_lexicon_and_still_a_draft()
+        public void The_refusal_is_Noels_wording_and_the_separate_VOX_note_is_gone()
         {
             string hold = ReadSource("Radios/ReflectedCutHold.cs");
             Assert.Contains("subject: SpeechSubject.ReflectedPowerCut", hold);
-            Assert.Contains("subject: SpeechSubject.VoxPausedAfterCut", hold);
+            Assert.DoesNotContain("subject: SpeechSubject.VoxPausedAfterCut", hold);
             // Noel answered question 2 on 2026-10-22 at 09:05: the reason clause and the refusal are his
             // wording now ("Unable to key the transmitter." opens it, no "a moment ago"). Only the VOX
             // note (round 2, N5) is still a draft.
-            Assert.Equal(1, Regex.Matches(hold, @"// DRAFT PROSE \(#571\): awaiting Noel").Count);
+            Assert.Equal(0, Regex.Matches(hold, @"// DRAFT PROSE \(#571\): awaiting Noel").Count);
             Assert.Equal(2, Regex.Matches(hold, @"// Noel's wording \(#571, 2026-10-22 09:05").Count);
 
             string audio = ReadSource("Radios/Lexicon/audio.json");
             foreach (string key in new[]
             {
                 "audio.ptt.cut_hold_reason_share", "audio.ptt.cut_hold_reason_watts", "audio.ptt.cut_hold_reason_unknown", "audio.ptt.cut_hold_refused",
-                "audio.ptt.cut_hold_refused_last_second", "audio.ptt.cut_hold_the_antenna", "audio.ptt.cut_hold_vox_pause_notice",
+                "audio.ptt.cut_hold_refused_last_second", "audio.ptt.cut_hold_the_antenna",
             })
             {
                 Assert.Contains("\"" + key + "\"", audio);
                 Assert.Contains("\"" + key + "\"", hold);
             }
-            Assert.Contains("// DRAFT PROSE (#571): awaiting Noel", ReadSource("Radios.Tests/LexiconEnvelopeTests.cs"));
             Assert.Equal(2, Regex.Matches(audio, @"""Unable to key the transmitter\. \{reason\}, so keying is held for ").Count);
             Assert.DoesNotContain("a moment ago", audio);
         }

@@ -868,7 +868,8 @@ namespace Radios
                     + " W forward", TraceLevel.Warning);
                 // In the rung's own unit, never the other's (#237).
                 Request(Source.ReflectedPower,
-                        TransmitSafety.ReflectedCutTextFor(cut, reading, antenna));
+                        TransmitSafety.ReflectedCutTextFor(cut, reading, antenna,
+                            rig.CurrentVoxSettingIfOn() == FlexBase.VoxSetting.SimpleVox));
                 return;
             }
 

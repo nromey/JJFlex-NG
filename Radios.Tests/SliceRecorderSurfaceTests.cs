@@ -265,19 +265,32 @@ public sealed class SliceRecorderSurfaceTests : IDisposable
         Assert.Equal(3, c.F.Rig.SliceRecordingSeconds(SliceRecorderTarget.Letter('A')));
     }
 
+    [Fact]
+    public void Raw_radio_record_time_survives_a_late_slice_state_creation_and_updates()
+    {
+        using var c = new RadioCase();
+        c.F.Rig.AttachSliceRecorderStatus(c.F.Vendor.Radio);
+        c.F.Vendor.Status("slice 1 play=0");
+        c.F.Rig.ObserveSliceRecorderStatus(c.F.Vendor.Radio, "S1|slice 1 record_time=12.5 play=0");
+        Assert.Equal(12.5, c.F.Rig.SliceRecordingSeconds(SliceRecorderTarget.ActiveSlice));
+        c.F.Rig.ObserveSliceRecorderStatus(c.F.Vendor.Radio, "S2|slice 1 record_time=120.0 play=0");
+        Assert.Equal(120, c.F.Rig.SliceRecordingSeconds(SliceRecorderTarget.ActiveSlice));
+        c.F.Rig.ObserveSliceRecorderStatus(c.F.Vendor.Radio, "S3|slice 10 record_time=3.0 play=0");
+        Assert.Equal(120, c.F.Rig.SliceRecordingSeconds(SliceRecorderTarget.ActiveSlice));
+    }
+
     [Theory]
-    [InlineData("12.5")]
     [InlineData("NaN")]
     [InlineData("Infinity")]
     [InlineData("-1")]
-    [InlineData("121")]
     [InlineData("garbled")]
-    public void The_undocumented_record_time_field_does_not_invent_an_old_takes_length(string value)
+    public void Invalid_radio_record_time_does_not_invent_an_old_takes_length(string value)
     {
         using var c = new RadioCase();
+        c.F.Rig.AttachSliceRecorderStatus(c.F.Vendor.Radio);
         c.F.Vendor.Status("slice 1 play=0");
         Assert.Null(c.F.Rig.SliceRecordingSeconds(SliceRecorderTarget.ActiveSlice));
-        c.F.Vendor.Status("slice 1 record_time=" + value);
+        c.F.Rig.ObserveSliceRecorderStatus(c.F.Vendor.Radio, "S1|slice 1 record_time=" + value);
         Assert.Null(c.F.Rig.SliceRecordingSeconds(SliceRecorderTarget.ActiveSlice));
     }
 
@@ -406,6 +419,23 @@ public sealed class SliceRecorderSurfaceTests : IDisposable
         else c.F.Vendor.Status("slice 1 in_use=0");
         Assert.True(await c.Pump(WaitUntil(() => c.F.Vendor.Radio.SimpleVOXEnable)));
         Assert.False(c.F.Rig.Transmit);
+    }
+
+    [Fact]
+    public async Task Natural_play_end_reports_one_stop_and_manual_stop_does_not_duplicate_it()
+    {
+        using var c = new RadioCase();
+        c.F.Vendor.Status("slice 1 play=0");
+        var finished = new List<RecorderOutcome>();
+        c.F.Rig.SlicePlaybackFinished += finished.Add;
+        Assert.True((await c.Pump(c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        c.F.Vendor.Status("slice 1 play=0");
+        Assert.Single(finished);
+        Assert.Equal(RecorderCue.PlayStop, finished[0].Cue);
+        Assert.Equal(Text("audio.recorder.playing_stopped", "B"), finished[0].Message);
+        Assert.True((await c.Pump(c.F.Rig.StartSlicePlayAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        Assert.True((await c.Pump(c.F.Rig.StopSlicePlayAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        Assert.Single(finished);
     }
 
     [Fact]

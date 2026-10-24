@@ -55,6 +55,7 @@ namespace Radios
 
         private readonly object _voxPauseGate = new object();
         private VoxPauseOwner? _voxPauses;
+        private VoxPauseOwner.Lease? _toneVoxLease;
         private object? _voxPauseRadio;
         private readonly object _voxReplyGate = new object();
         private readonly System.Collections.Generic.Dictionary<VoxSetting, (Radio Radio, bool On, Task<bool> Reply)> _voxReplies = new();
@@ -112,7 +113,15 @@ namespace Radios
 
         private void DisconnectVoxPauses()
         {
-            lock (_voxPauseGate) _voxPauses?.Disconnect();
+            lock (_voxPauseGate)
+            {
+                txToneGen.Stop();
+                _voxPauses?.Disconnect();
+                _toneVoxLease?.Dispose();
+                _toneVoxLease = null;
+                _voxPauses = null;
+                _voxPauseRadio = null;
+            }
         }
 
         /// <summary>
@@ -167,6 +176,7 @@ namespace Radios
             {
                 FunctionDel write = () =>
                 {
+                    using var appWrite = AppInitiatedSettingChanges();
                     string command = which == VoxSetting.CwBreakIn
                         ? $"cw break_in {(on ? 1 : 0)}"
                         : $"transmit set vox_enable={(on ? 1 : 0)}";

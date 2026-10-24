@@ -2691,6 +2691,7 @@ namespace Radios
                 });
                 return false;
             }
+            AttachSliceRecorderStatus(theRadio);
 
             // Each transport attempt will bind its own producer identity when it starts.
             rememberCommandRoute(null, null, null);
@@ -3909,6 +3910,7 @@ namespace Radios
         {
             Tracing.TraceLine("Disconnect:" + (string)((theRadio == null) ? "null" : theRadio.Serial), TraceLevel.Info);
             if (theRadio == null) return;
+            AttachSliceRecorderStatus(null);
 
             // Held for the end of this method, which lets go of this rig's
             // handlers on the object once its fall has been seen. theRadio
@@ -3925,6 +3927,7 @@ namespace Radios
             // teardown because cancellation came only after it (review
             // section 8).
             BeginTeardownOperation("Disconnect");
+            DisconnectVoxPauses();
 
             // The deferred create of a global that was definitely missing at
             // connect (#578, design step 11), on the CLEAN disconnect and
@@ -10096,6 +10099,11 @@ namespace Radios
             {
                 Slice s = VFOToSlice(TXVFO); // also tests the VFO
                 bool val = (value == OffOnValues.on) ? true : false;
+                if (val && TxToneEngaged)
+                {
+                    ScreenReaderOutput.Speak("VOX disabled when tone is enabled.", VerbosityLevel.Critical, interrupt: true);
+                    return;
+                }
                 if (s != null)
                 {
                     NoteOperatorChangedRadioSetting("Vox");

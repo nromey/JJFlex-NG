@@ -994,11 +994,6 @@ namespace Radios.Tests
                 // classification as its two siblings.
                 "audio.ptt.cut_hold_reason_unknown",
                 "audio.ptt.cut_hold_the_antenna",
-                // DRAFT PROSE (#571): the present-tense VOX consequence queues
-                // behind the cut and expires with the hold. It follows the
-                // Terse gate; tone-only at Off.
-                "audio.ptt.cut_hold_vox_pause_notice",
-                "audio.ptt.cut_hold_vox_pause_notice_one",
 
                 // Junkbox #777, 2026-10-19: a global-profile write (Save, or
                 // Delete since round two) refused because the radio is

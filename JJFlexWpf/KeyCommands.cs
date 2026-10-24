@@ -614,10 +614,10 @@ public class KeyCommands
                 { Keywords = new[] { "play", "playback", "replay", "recording", "recorder", "slice", "active", "listen", "back", "hear", "radio", "f11" }, ShortActionLabel = "play active slice" },
             new(CommandValues.RecordToFile, KeyTypes.Command, RecordToFileHandler,
                 "Start or stop recording the radio's audio to a file on this computer", "Record to File", false, FunctionGroups.Audio, KeyScope.Global)
-                { Keywords = new[] { "record", "recording", "file", "computer", "save", "conversation", "qso", "capture", "tape", "audio", "f11" }, ShortActionLabel = "record to file" },
+                { Keywords = new[] { "record", "recording", "file", "computer", "save", "conversation", "qso", "capture", "tape", "audio", "f11", "alt" }, ShortActionLabel = "record to file" },
             new(CommandValues.PlayFromComputer, KeyTypes.Command, PlayFromComputerHandler,
                 "Start or stop playing your last computer recording through your speakers", "Play from Computer", false, FunctionGroups.Audio, KeyScope.Global)
-                { Keywords = new[] { "play", "playback", "replay", "recording", "file", "computer", "last", "listen", "back", "audio", "f11" }, ShortActionLabel = "play from computer" },
+                { Keywords = new[] { "play", "playback", "replay", "recording", "file", "computer", "last", "listen", "back", "audio", "f11", "ctrl", "alt" }, ShortActionLabel = "play from computer" },
 
             // ── Former hard-wired meta-commands (QB Track H, 2026-08-07) ──
             // These lived as hard-wired chords in MainWindow_PreviewKeyDown,
@@ -2156,8 +2156,8 @@ public class KeyCommands
         // The JJ key chords remain alongside the recorder's flat F11 family.
         new(Keys.F11, CommandValues.RecordActiveSlice, KeyScope.Radio),
         new(Keys.F11 | Keys.Control, CommandValues.PlayActiveSlice, KeyScope.Radio),
-        new(Keys.F11 | Keys.Shift, CommandValues.RecordToFile, KeyScope.Global),
-        new(Keys.F11 | Keys.Control | Keys.Shift, CommandValues.PlayFromComputer, KeyScope.Global),
+        new(Keys.F11 | Keys.Alt, CommandValues.RecordToFile, KeyScope.Global),
+        new(Keys.F11 | Keys.Control | Keys.Alt, CommandValues.PlayFromComputer, KeyScope.Global),
     };
 
     // ────────────────────────────────────────────────────────────────
@@ -4166,7 +4166,7 @@ public class KeyCommands
             // actions and #515 rules that frequency is what earns a place here
             // ("Mute is a top-level kind of thing").
             //
-            // The computer's recorder is the Ctrl+Shift form of each: #515's
+            // The computer's JJ-key recorder is the Ctrl+Shift form of each: #515's
             // 2026-10-05 ruling admits Ctrl+Shift as the VARIANT of the Ctrl
             // feature, for true siblings that share an initial — and record
             // to file IS record, from the other recorder (two controls, Noel
@@ -6045,7 +6045,7 @@ public class KeyCommands
     /// the TX filter passband arms-and-warns loudly, and every key-down
     /// while armed announces that the tone is riding it.
     /// </summary>
-    private void ToggleTxTone()
+    private async void ToggleTxTone()
     {
         var rig = _context.GetRigControl();
         if (rig == null) { LeaderNoRadio(); return; }
@@ -6081,7 +6081,18 @@ public class KeyCommands
         int level = cfg?.TxToneLevelDb ?? -10;
         rig.TxToneFrequency = freq;
         rig.TxToneLevelDb = level;
-        rig.TxToneStart();
+        bool voxWasOn = rig.CurrentVoxSettingIfOn() == Radios.FlexBase.VoxSetting.SimpleVox;
+        if (!await rig.TxToneStartAsync())
+        {
+            Radios.ScreenReaderOutput.Speak(RecorderControls.ToneVoxPauseRefusal,
+                Radios.VerbosityLevel.Critical, true);
+            return;
+        }
+        if (!ReferenceEquals(rig, _context.GetRigControl()))
+        {
+            rig.TxToneStop();
+            return;
+        }
 
         // Same key-down honesty the Workshop provides: every transmit path
         // announces the tone is riding it. The closure reads the rig live
@@ -6101,6 +6112,9 @@ public class KeyCommands
             EarconPlayer.FeatureOnTone();
         }
         Radios.ScreenReaderOutput.Speak(line, Radios.VerbosityLevel.Critical, true);
+        if (voxWasOn)
+            Radios.ScreenReaderOutput.Speak("VOX disabled when tone is enabled.",
+                Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Critical);
     }
 
     /// <summary>

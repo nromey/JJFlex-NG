@@ -2613,11 +2613,12 @@ public partial class MainWindow : UserControl
         else
             FocusHome();
 
-        Radios.ScreenReaderOutput.Speak(
-            Radios.ScreenReaderOutput.CurrentVerbosity == VerbosityLevel.Chatty
-                ? $"Leaving logging mode, {LastNonLogMode} tuning."
-                : $"{LastNonLogMode} tuning",
-            VerbosityLevel.Terse);
+        string leaving = Radios.ScreenReaderOutput.CurrentVerbosity == VerbosityLevel.Chatty
+            ? $"Leaving logging mode, {LastNonLogMode} tuning."
+            : $"{LastNonLogMode} tuning";
+        Dispatcher.BeginInvoke(new Action(() =>
+            Radios.ScreenReaderOutput.Speak(leaving, Radios.Speech.SpeechIntent.Queue,
+                VerbosityLevel.Terse)), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
     }
 
     #endregion
@@ -4148,7 +4149,7 @@ public partial class MainWindow : UserControl
             HelpItems = KeyInventory.HelpItemsFor("TXSlice", modern: false) });
         fields.Add(new FrequencyDisplay.DisplayField("Record", 1, "", "") { Label = "Record",
             HelpItems = KeyInventory.HelpItemsFor("Record", modern: false) });
-        fields.Add(new FrequencyDisplay.DisplayField("Recorded", 28, "", "") { Label = "Play recording",
+        fields.Add(new FrequencyDisplay.DisplayField("Recorded", 52, "", "") { Label = "Play recording",
             HelpItems = KeyInventory.HelpItemsFor("Recorded", modern: false) });
         fields.Add(new FrequencyDisplay.DisplayField("Offset", 1, "", "") { Label = "Offset",
             HelpItems = KeyInventory.HelpItemsFor("Offset", modern: false) });
@@ -4228,7 +4229,7 @@ public partial class MainWindow : UserControl
             HelpItems = KeyInventory.HelpItemsFor("TXSlice", modern: true) });
         fields.Add(new FrequencyDisplay.DisplayField("Record", 1, "", "") { Label = "Record",
             HelpItems = KeyInventory.HelpItemsFor("Record", modern: true) });
-        fields.Add(new FrequencyDisplay.DisplayField("Recorded", 28, "", "") { Label = "Play recording",
+        fields.Add(new FrequencyDisplay.DisplayField("Recorded", 52, "", "") { Label = "Play recording",
             HelpItems = KeyInventory.HelpItemsFor("Recorded", modern: true) });
         fields.Add(new FrequencyDisplay.DisplayField("Offset", 1, "", "") { Label = "Offset",
             HelpItems = KeyInventory.HelpItemsFor("Offset", modern: true) });
