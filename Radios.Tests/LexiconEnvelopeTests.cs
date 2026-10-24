@@ -1266,9 +1266,7 @@ namespace Radios.Tests
                 // reply failure, purpose wording, and #787 slice control labels.
                 "audio.take.fixed_gain",
                 "audio.take.limiter_engaged",
-                "audio.iq.record_slice",
                 "audio.iq.stop_slice_record",
-                "audio.iq.play_recording",
                 "audio.iq.stop_slice_play",
                 "audio.iq.capacity_optional",
                 "audio.iq.reason.no-stream-create-reply",
@@ -1584,6 +1582,16 @@ namespace Radios.Tests
                 // radio did what was asked. APPROVED as written by Noel at
                 // the 2026-10-21 fold (Fold 4).
                 "audio.mic.switch_back_refused",
+
+                // #787 recorder round 12: Audio Workshop button labels name
+                // the active or Loopback Check listening slice. TextOnly because
+                // the button's visible text and accessible name carry the words.
+                "audio.iq.record_active_slice",
+                "audio.iq.record_listening_slice",
+                "audio.iq.play_active_slice",
+                "audio.iq.play_active_slice_length",
+                "audio.iq.play_listening_slice",
+                "audio.iq.play_listening_slice_length",
             };
 
             Assert.Equal(3141, unclassified);

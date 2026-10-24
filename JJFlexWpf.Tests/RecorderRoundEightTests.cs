@@ -111,6 +111,21 @@ public sealed class RecorderRoundEightTests
         Assert.Equal(20, new FrequencyDisplay.DisplayField("Other", 52, "", "").Length);
     }
 
+    [Theory]
+    [InlineData(false, "Record from active slice",
+        "Play active slice recording", "Play active slice recording, 12 seconds")]
+    [InlineData(true, "Record from listening slice",
+        "Play listening slice recording", "Play listening slice recording, 12 seconds")]
+    public void WorkshopRecorderLabelsNameTheSliceTheyActOn(bool listeningSlice,
+        string record, string play, string playWithLength)
+    {
+        var target = listeningSlice ? SliceRecorderTarget.LoopbackEars : SliceRecorderTarget.ActiveSlice;
+        Assert.Equal(record, AudioWorkshopDialog.WorkshopSliceRecordLabel(target));
+        Assert.Equal(play, AudioWorkshopDialog.WorkshopSlicePlayLabel(target, null));
+        Assert.Equal(playWithLength, AudioWorkshopDialog.WorkshopSlicePlayLabel(target, "12 seconds"));
+        Assert.Equal("Play slice recording", Lexicon.Get("audio.recorder.play_button"));
+    }
+
     private static void Put(object target, string name, object? value) =>
         typeof(AudioWorkshopDialog).GetField(name, Private)!.SetValue(target, value);
 

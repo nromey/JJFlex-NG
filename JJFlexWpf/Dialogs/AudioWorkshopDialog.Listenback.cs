@@ -83,8 +83,8 @@ public partial class AudioWorkshopDialog
         _iqDiagnostic = IqButton("diagnostic_start", () => _ = ToggleDiagnosticAsync());
         _iqPreflight = IqButton("preflight_button", () => _ = PreflightAsync());
         _iqPreflight.Visibility = Visibility.Collapsed; // SetRig reveals it for local and VPN connections.
-        _sliceRecordButton = IqButton("record_slice", () => _ = ToggleSliceRecordAsync());
-        _slicePlayButton = IqButton("play_recording", () => _ = ToggleSlicePlayAsync());
+        _sliceRecordButton = IqButton("record_active_slice", () => _ = ToggleSliceRecordAsync());
+        _slicePlayButton = IqButton("play_active_slice", () => _ = ToggleSlicePlayAsync());
         IqButton("recovery_button", () => _ = RestoreIqAsync());
         IqButton("detune_plus", () => _ = PlayIqAsync(NewestIqDirectory(), 1000));
         IqButton("detune_minus", () => _ = PlayIqAsync(NewestIqDirectory(), -1000));
@@ -165,7 +165,7 @@ public partial class AudioWorkshopDialog
     private bool SliceRecorderTargetsLoopback => !_iqWasOffAir && _session?.Active == true &&
         _session.IsLoopback && _rig?.LoopbackArranged == true;
     /// <summary>
-    /// Which slice the Workshop's Record slice and Play recording buttons act
+    /// Which slice the Workshop's Record and Play buttons act
     /// on: the Loopback Check's listening slice while one runs, otherwise the
     /// active slice. These two buttons are doors to the one recorder (#787,
     /// <see cref="FlexBase.ToggleSliceRecordAsync"/>), the same one Home, the
@@ -173,6 +173,14 @@ public partial class AudioWorkshopDialog
     /// </summary>
     private SliceRecorderTarget WorkshopRecorderTarget => SliceRecorderTargetsLoopback
         ? SliceRecorderTarget.LoopbackEars : SliceRecorderTarget.ActiveSlice;
+    internal static string WorkshopSliceRecordLabel(SliceRecorderTarget target) =>
+        Lexicon.Get(target == SliceRecorderTarget.LoopbackEars
+            ? "audio.iq.record_listening_slice" : "audio.iq.record_active_slice");
+    internal static string WorkshopSlicePlayLabel(SliceRecorderTarget target, string? length) =>
+        Lexicon.Get(target == SliceRecorderTarget.LoopbackEars
+                ? length == null ? "audio.iq.play_listening_slice" : "audio.iq.play_listening_slice_length"
+                : length == null ? "audio.iq.play_active_slice" : "audio.iq.play_active_slice_length",
+            ("length", length));
     private void SyncSliceRecorderUi()
     {
         var target = WorkshopRecorderTarget;
@@ -180,7 +188,7 @@ public partial class AudioWorkshopDialog
         {
             _sliceRecordButton.IsEnabled = _rig != null;
             string label = _rig?.IsSliceRecording(target) == true
-                ? Lexicon.Get("audio.iq.stop_slice_record") : Lexicon.Get("audio.iq.record_slice");
+                ? Lexicon.Get("audio.iq.stop_slice_record") : WorkshopSliceRecordLabel(target);
             _sliceRecordButton.Content = label;
             AutomationProperties.SetName(_sliceRecordButton, label);
         }
@@ -190,7 +198,8 @@ public partial class AudioWorkshopDialog
             // the target slice's radio-reported PlayEnabled flag.
             bool playing = _rig?.IsSlicePlaying(target) == true;
             _slicePlayButton.IsEnabled = playing || _rig?.SliceHasRecording(target) == true;
-            string label = RecorderControls.SlicePlayLabel(_rig, target);
+            string label = playing ? RecorderControls.SlicePlayLabel(_rig, target)
+                : WorkshopSlicePlayLabel(target, RecorderControls.RecordingLength(_rig, target));
             _slicePlayButton.Content = label;
             AutomationProperties.SetName(_slicePlayButton, label);
         }
