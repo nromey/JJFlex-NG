@@ -61,24 +61,38 @@ public sealed class RecordedQsoFlacDecoder : IDisposable
         }
     }
 
+    /// <summary>
+    /// A recording's rate, channel count and length, read from its FLAC header
+    /// alone, without loading the native decoder (#787, the recordings dialog
+    /// lists every file this way). <see cref="TotalFrames"/> is zero for a file
+    /// whose recording has not finished, or never finished: the writer fills
+    /// the count in only when it closes the file. Throws
+    /// <see cref="InvalidDataException"/> for anything this decoder would
+    /// refuse, and the file system's own exceptions for a file it cannot read.
+    /// </summary>
+    public static (int SampleRate, int Channels, long TotalFrames) ReadStreamInfo(string path)
+    {
+        using var input = new BinaryReader(new FileStream(path, FileMode.Open, FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete));
+        if (new string(input.ReadChars(4)) != "fLaC") throw new InvalidDataException("Not a FLAC file.");
+        byte blockType = input.ReadByte();
+        int length = (input.ReadByte() << 16) | (input.ReadByte() << 8) | input.ReadByte();
+        if ((blockType & 0x7f) != 0 || length != 34) throw new InvalidDataException("FLAC stream information is missing.");
+        input.ReadBytes(10);
+        ulong packed = 0;
+        for (int i = 0; i < 8; ++i) packed = (packed << 8) | input.ReadByte();
+        int rate = (int)((packed >> 44) & 0xfffff);
+        int channels = (int)((packed >> 41) & 7) + 1;
+        int bits = (int)((packed >> 36) & 31) + 1;
+        long frames = (long)(packed & 0xfffffffffUL);
+        if (rate <= 0 || channels is < 1 or > 2 || bits != 16)
+            throw new InvalidDataException("This recording needs 16-bit mono or stereo FLAC.");
+        return (rate, channels, frames);
+    }
+
     public RecordedQsoFlacDecoder(string path)
     {
-        using (var input = new BinaryReader(File.OpenRead(path)))
-        {
-            if (new string(input.ReadChars(4)) != "fLaC") throw new InvalidDataException("Not a FLAC file.");
-            byte blockType = input.ReadByte();
-            int length = (input.ReadByte() << 16) | (input.ReadByte() << 8) | input.ReadByte();
-            if ((blockType & 0x7f) != 0 || length != 34) throw new InvalidDataException("FLAC stream information is missing.");
-            input.ReadBytes(10);
-            ulong packed = 0;
-            for (int i = 0; i < 8; ++i) packed = (packed << 8) | input.ReadByte();
-            SampleRate = (int)((packed >> 44) & 0xfffff);
-            Channels = (int)((packed >> 41) & 7) + 1;
-            int bits = (int)((packed >> 36) & 31) + 1;
-            TotalFrames = (long)(packed & 0xfffffffffUL);
-            if (SampleRate <= 0 || Channels is < 1 or > 2 || bits != 16)
-                throw new InvalidDataException("This recording needs 16-bit mono or stereo FLAC.");
-        }
+        (SampleRate, Channels, TotalFrames) = ReadStreamInfo(path);
         _write = Write;
         _metadata = (_, _, _) => { };
         _error = (_, status, _) => _fault = new InvalidDataException("FLAC decode error " + status + ".");

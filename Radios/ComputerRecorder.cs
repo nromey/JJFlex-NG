@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading.Tasks;
 
 namespace Radios;
@@ -105,9 +106,27 @@ public static class ComputerRecorder
     /// </summary>
     public static string ChosenRecording { get; set; }
 
-    /// <summary>What play from computer plays now: the chosen recording, else the last one, else null.</summary>
-    public static string ChosenForPlayback() =>
-        string.IsNullOrEmpty(ChosenRecording) ? _current.LastRecordingPath : ChosenRecording;
+    /// <summary>
+    /// What play from computer plays now: the chosen recording, else the last
+    /// one, else the newest recording on disk, else null.
+    /// </summary>
+    /// <remarks>
+    /// Each candidate must still EXIST (#787, Tape Deck track 4). The recordings
+    /// dialog can delete a file, and so can anyone with a file manager; the
+    /// engine's last path is cached from startup or the last stop and does not
+    /// know. Before this, deleting the newest recording made play from computer
+    /// say there was no recording while older ones sat in the folder. A chosen
+    /// file that has gone falls back the same way, and the choice itself is
+    /// left alone: the dialog owns it and says so when it changes it.
+    /// </remarks>
+    public static string ChosenForPlayback()
+    {
+        string chosen = ChosenRecording;
+        if (!string.IsNullOrEmpty(chosen) && File.Exists(chosen)) return chosen;
+        string last = _current.LastRecordingPath;
+        if (!string.IsNullOrEmpty(last) && File.Exists(last)) return last;
+        return RecordedQsoCatalog.Newest()?.Path;
+    }
 
     private static RecorderOutcome Refusal(string key) =>
         new(false, Lexicon.Get(key), Speech.SpeechSubject.ComputerRecorder);

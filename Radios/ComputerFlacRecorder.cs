@@ -76,6 +76,14 @@ public sealed class ComputerFlacRecorder : IComputerRecorder
     public bool IsPlaying => _isPlaying();
     public string LastRecordingPath { get { lock (_gate) return _lastPath; } }
 
+    /// <summary>
+    /// The file being written now, or null. The recordings dialog (#787, Tape
+    /// Deck track 4) asks so it never offers to delete, prune or trim a
+    /// recording that is still being made. Deliberately not on
+    /// <see cref="IComputerRecorder"/>: no control needs it.
+    /// </summary>
+    public string CurrentRecordingPath { get { lock (_gate) return _session?.Path; } }
+
     // DRAFT PROSE (#787): awaiting Noel. These are assembled sentences spoken by RecorderControls.
     private static RecorderOutcome Result(bool ok, string message, RecorderCue cue = RecorderCue.None) =>
         new(ok, message, SpeechSubject.ComputerRecorder, Cue: cue);

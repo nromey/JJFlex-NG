@@ -86,12 +86,18 @@ public sealed class ComputerRecorderControlTests : IDisposable
     [Fact]
     public async Task Play_from_computer_plays_the_chosen_recording_else_the_last_one()
     {
-        var engine = new FakeEngine { LastRecordingPath = "last.flac" };
+        // Real files since Tape Deck track 4: a choice or a last recording
+        // that no longer exists is skipped (see RecordedQsoCatalogTests).
+        string last = System.IO.Path.Combine(_scope.Directory, "last.flac");
+        string chosen = System.IO.Path.Combine(_scope.Directory, "chosen.flac");
+        System.IO.File.WriteAllText(last, "");
+        System.IO.File.WriteAllText(chosen, "");
+        var engine = new FakeEngine { LastRecordingPath = last };
         ComputerRecorder.Install(engine);
         Assert.True((await ComputerRecorder.TogglePlaybackAsync(false)).Success);
-        ComputerRecorder.ChosenRecording = "chosen.flac";
+        ComputerRecorder.ChosenRecording = chosen;
         Assert.True((await ComputerRecorder.TogglePlaybackAsync(false)).Success);
-        Assert.Equal(new[] { "play last.flac", "play chosen.flac" }, engine.Calls);
+        Assert.Equal(new[] { "play " + last, "play " + chosen }, engine.Calls);
     }
 
     [Fact]
@@ -119,13 +125,15 @@ public sealed class ComputerRecorderControlTests : IDisposable
     [Fact]
     public async Task Local_computer_play_uses_only_the_speaker_path_even_with_VOX_on()
     {
-        var engine = new FakeEngine { LastRecordingPath = "last.flac" };
+        string last = System.IO.Path.Combine(_scope.Directory, "last.flac");
+        System.IO.File.WriteAllText(last, "");
+        var engine = new FakeEngine { LastRecordingPath = last };
         ComputerRecorder.Install(engine);
         Assert.True((await ComputerRecorder.TogglePlaybackAsync(false)).Success);
-        Assert.Equal(new[] { "play last.flac" }, engine.Calls);
+        Assert.Equal(new[] { "play " + last }, engine.Calls);
         engine.IsPlaying = true;
         Assert.True((await ComputerRecorder.TogglePlaybackAsync(false)).Success);
-        Assert.Equal(new[] { "play last.flac", "stop playback" }, engine.Calls);
+        Assert.Equal(new[] { "play " + last, "stop playback" }, engine.Calls);
         string controls = System.IO.File.ReadAllText(System.IO.Path.Combine(IntegrationPassTree.Root,
             "JJFlexWpf", "RecorderControls.cs"));
         Assert.DoesNotContain("rig?.Vox", controls);
