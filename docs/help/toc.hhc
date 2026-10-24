@@ -154,6 +154,10 @@
       <param name="Local" value="pages\audio-workshop.htm">
     </OBJECT>
     <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="Recorded QSOs">
+      <param name="Local" value="pages\recorded-qsos.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
       <param name="Name" value="Audio Levels (PC &amp; On-Radio)">
       <param name="Local" value="pages\audio-levels.htm">
     </OBJECT>

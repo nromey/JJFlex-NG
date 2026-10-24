@@ -106,6 +106,7 @@ Plain `M` is spoken for: it is the mode layer, ruled and not yet built. Until it
 - **Alt+V** — Speak the version, the build type and the date this copy was built (see "Which build am I on" below)
 - **Alt+W** — Open a list of every window on your screen — the one with the keyboard first, then this program's own windows, then the rest — with the program that owns each and whether it is still running (see "What is on my screen" below)
 - **Alt+N** — Open the tracking notch filters, where you place a notch yourself instead of letting Auto Notch hunt for one (see "Tracking notch filters" below)
+- **Alt+F** — Open Recorded QSOs, your computer recordings — F for files. Play one, trim it, save it as another format, delete it or prune old ones (see "Recorded QSOs" below)
 
 ### Still finding their layer
 
@@ -840,3 +841,19 @@ These keys are active when focus is on the row list inside the Archive Browser t
 - **Ctrl+J, Ctrl+R** records the active slice; **Ctrl+J, Ctrl+P** plays it. Play pressed during your transmission sends the recording over the air until you unkey; otherwise it plays locally. JJ Flexible pauses VOX or CW break-in for local playback and restores it when playback stops. Play never keys or selects a transmit slice.
 - **Ctrl+J, Ctrl+Shift+R** records to a computer file; **Ctrl+J, Ctrl+Shift+P** plays the selected or last computer recording locally. Computer playback to air is not available yet.
 - **F11** records the active slice; **Ctrl+F11** plays it. **Alt+F11** records to a file; **Ctrl+Alt+F11** plays from the computer. These are flat keys for the same four JJ key commands above.
+- **Ctrl+Alt+Shift+F11** opens Recorded QSOs, the list of your computer recordings. **Ctrl+J, Alt+F** opens it too. Computer playback pauses VOX or CW break-in while it plays, the same as slice playback.
+
+## Recorded QSOs
+
+These keys work inside the Recorded QSOs window (**Ctrl+Alt+Shift+F11**, or **Ctrl+J, Alt+F**).
+
+- **Up Arrow / Down Arrow** — Choose a recording. Play from computer then plays the one you chose, and the "Play from computer uses the newest recording" checkbox unticks
+- **Home / End** — The newest or the oldest recording
+- **Enter** — Play the chosen recording here, from where you are in it, or stop it
+- **Left Arrow / Right Arrow** — Step back or forward through the recording by the step size, the next stop after the list. Pause first if it is playing
+- **[** (left bracket) — Mark the trim start where you are, even while it plays
+- **]** (right bracket) — Mark the trim end where you are, even while it plays
+- **P** — Pause or resume the preview, from anywhere in the window
+- **Delete** — Move the chosen recording to the Recycle Bin, after asking. It is never deleted outright
+- **Escape** — Stop the preview if one is playing; press again to close. If you are transmitting, Escape unkeys first
+- **Space** only selects in the list and never plays, and **Ctrl+Space** is still push to talk

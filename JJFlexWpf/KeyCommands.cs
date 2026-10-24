@@ -618,6 +618,17 @@ public class KeyCommands
             new(CommandValues.PlayFromComputer, KeyTypes.Command, PlayFromComputerHandler,
                 "Start or stop playing your last computer recording through your speakers", "Play from Computer", false, FunctionGroups.Audio, KeyScope.Global)
                 { Keywords = new[] { "play", "playback", "replay", "recording", "file", "computer", "last", "listen", "back", "audio", "f11", "ctrl", "alt" }, ShortActionLabel = "play from computer" },
+            // Tape Deck track 4: the recordings dialog, where those recordings
+            // are listed, previewed, trimmed, saved as other formats, deleted
+            // and pruned. A dialog, so the Dialog group; Global, because the
+            // files are on this computer and need no radio.
+            new(CommandValues.OpenRecordedQsos, KeyTypes.Command, OpenRecordedQsosHandler,
+                "Open Recorded QSOs - your computer recordings, to play, trim, save as MP3 or another format, delete or prune",
+                "Recorded QSOs", false, FunctionGroups.Dialog, KeyScope.Global)
+                { Keywords = new[] { "recorded", "recordings", "recording", "qso", "qsos", "files", "file", "list", "browse",
+                                     "manage", "play", "preview", "trim", "cut", "edit", "save", "as", "export", "convert",
+                                     "mp3", "flac", "wav", "opus", "m4a", "delete", "prune", "clean", "recycle", "tape", "f11" },
+                  ShortActionLabel = "open recorded QSOs" },
 
             // ── Former hard-wired meta-commands (QB Track H, 2026-08-07) ──
             // These lived as hard-wired chords in MainWindow_PreviewKeyDown,
@@ -1353,6 +1364,17 @@ public class KeyCommands
         _ = RecorderControls.ToggleComputerRecordAsync(_context.GetRigControl());
     private void PlayFromComputerHandler() =>
         _ = RecorderControls.ToggleComputerPlayAsync(_context.GetRigControl());
+
+    /// <summary>
+    /// The recordings dialog (#787, Tape Deck track 4). Opens with no radio:
+    /// the recordings are on this computer.
+    /// </summary>
+    private void OpenRecordedQsosHandler()
+    {
+        var rig = _context.GetRigControl();
+        var mw = _context.GetMainWindow();
+        mw?.Dispatcher.Invoke(() => Dialogs.RecordedQsosDialog.Show(rig));
+    }
 
     private void MuteSliceHandler()
     {
@@ -2156,6 +2178,10 @@ public class KeyCommands
         new(Keys.F11 | Keys.Control, CommandValues.PlayActiveSlice, KeyScope.Radio),
         new(Keys.F11 | Keys.Alt, CommandValues.RecordToFile, KeyScope.Global),
         new(Keys.F11 | Keys.Control | Keys.Alt, CommandValues.PlayFromComputer, KeyScope.Global),
+        // Tape Deck track 4: the recordings dialog joins the F11 family, on the
+        // one F11 form still free (Noel, 2026-10-24 15:49: "I'd make the hotkey
+        // for the dialog ctrl+alt+shift+f11"). Shift+F11 alone stays NVDA's.
+        new(Keys.F11 | Keys.Control | Keys.Alt | Keys.Shift, CommandValues.OpenRecordedQsos, KeyScope.Global),
     };
 
     // ────────────────────────────────────────────────────────────────
@@ -4051,13 +4077,15 @@ public class KeyCommands
             // was simply the right one, and it was half empty.
 
             // Ctrl+F = enter a frequency. OUTSIDE THE GRAMMAR, deliberately
-            // left: it is an action, so the Alt tier's — and Alt+F is the
-            // example chord of the UNRULED proposal recorded in #515 that
-            // the Alt tier could mean "speak it" (Alt+F speaks the filter).
-            // Moving frequency entry onto Alt+F would spend that chord
-            // before Noel has ruled either way, so this one waits on him.
-            // It blocks no toggle: nothing toggleable has the initial F.
-            // Recorded in JjKeyGrammarTests.CtrlTierActionDebt.
+            // left: it is an action, so the Alt tier's. Alt+F was held free
+            // for #515's UNRULED proposal that the Alt tier could mean "speak
+            // it" (Alt+F speaks the filter), and on 2026-10-24 Noel spent it
+            // on the recordings dialog instead (15:50, "yeah that's fine",
+            // with that background put to him at 15:52). So frequency entry
+            // has no Alt+F to move to, and the "speak it" idea, if ruled,
+            // needs another chord for the filter. It blocks no toggle:
+            // nothing toggleable has the initial F. Recorded in
+            // JjKeyGrammarTests.CtrlTierActionDebt.
             case Keys.F | Keys.Control:
                 if (rig == null) LeaderNoRadio();
                 else _context.WriteFreq();
@@ -4275,6 +4303,17 @@ public class KeyCommands
             // the rule of threes the grammar is built on.
             case Keys.N | Keys.Alt:
                 OpenTrackingNotchesHandler();
+                break;
+
+            // Tape Deck track 4 (#787): F for Files — Recorded QSOs, the
+            // computer recordings. Ruled by Noel 2026-10-24 15:50 ("yeah
+            // that's fine"). Opening a dialog is an action, so the Alt tier,
+            // the same tier as Alt+N's notch manager and Alt+M's memories.
+            // Plain F stays the filter layer. This spends the Alt+F that
+            // #515's unruled "Alt means speak it" proposal used as its
+            // example; see the Ctrl+F arm above. Works with no radio.
+            case Keys.F | Keys.Alt:
+                OpenRecordedQsosHandler();
                 break;
 
             // The two help doors every layer has (#514, #519): H lists this

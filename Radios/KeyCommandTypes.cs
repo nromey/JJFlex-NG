@@ -201,6 +201,10 @@ public enum CommandValues
     PlayActiveSlice = 127,
     RecordToFile = 128,
     PlayFromComputer = 129,
+    // #787, Tape Deck track 4: the recordings dialog. Ctrl+Alt+Shift+F11 flat,
+    // beside the computer recorder's Alt+F11 and Ctrl+Alt+F11 (Noel,
+    // 2026-10-24 15:49), and Ctrl+J, Alt+F on the JJ key (15:50).
+    OpenRecordedQsos = 130,
 }
 
 /// <summary>

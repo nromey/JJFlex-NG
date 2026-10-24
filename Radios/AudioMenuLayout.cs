@@ -150,6 +150,11 @@ namespace Radios
             new("sep-recorder", "", AudioMenuEntryKind.Separator, false),
             new("record-to-file", "Record to File", AudioMenuEntryKind.Toggle, false),
             new("play-from-computer", "Play from Computer", AudioMenuEntryKind.Toggle, false),
+            // #787, Tape Deck track 4: the recordings dialog, beside the two
+            // controls whose recordings it lists. A command, so it carries its
+            // flat key in the accelerator column (Noel, 2026-10-24 15:49). It
+            // works with no radio: the files are on this computer.
+            new("recorded-qsos", "Recorded QSOs", AudioMenuEntryKind.Command, false, "Ctrl+Alt+Shift+F11"),
 
             new("sep-levels", "", AudioMenuEntryKind.Separator, false),
 
