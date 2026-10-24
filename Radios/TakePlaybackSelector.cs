@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 
 namespace Radios;
 
@@ -8,6 +9,18 @@ public enum TakePlaybackChoice { None, Slice, OffAir, Computer, UnknownTime }
 /// <summary>Pure playback choice; a missing timestamp cannot win a comparison.</summary>
 public static class TakePlaybackSelector
 {
+    public static string PlayLabel(DateTime? madeUtc, DateTime nowLocal)
+    {
+        if (madeUtc == null || madeUtc == default ||
+            nowLocal - madeUtc.Value.ToLocalTime() <= TimeSpan.FromHours(1))
+            return "Play last take";
+
+        DateTime madeLocal = madeUtc.Value.ToLocalTime();
+        return madeLocal.Date == nowLocal.Date
+            ? "Play " + madeLocal.ToString("h:mm tt", CultureInfo.InvariantCulture) + " take"
+            : "Play " + madeLocal.ToString("MMMM d", CultureInfo.InvariantCulture) + " take";
+    }
+
     public static TakePlaybackChoice Choose(AudioCheckListenMethods method,
         bool hasSlice, DateTime? sliceAt, bool hasIq, DateTime? iqAt,
         bool hasComputer, DateTime? computerAt)

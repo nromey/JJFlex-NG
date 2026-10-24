@@ -512,7 +512,6 @@ public partial class AudioWorkshopDialog
     }
     private async Task PlayIqAsync(string? directory, int detune, string kind = "")
     {
-        if (_pendingOldTakeCancellation != null) { CancelPendingOldTake(); return; }
         if (RecordingPlayer.IsPlaying) { RecordingPlayer.Stop(); return; }
         if (_iqBusy || _iqRun != null || _session?.EscapeStopsTransmit == true || _rig?.Transmit == true) return;
         if (directory == null) { IqStatus(Lexicon.Get("audio.iq.no_take")); return; }
@@ -524,8 +523,6 @@ public partial class AudioWorkshopDialog
             var rendered = await Task.Run(() => SsbTakeRenderer.Render(directory, detune));
             if (_iqClosing) return;
             string playbackKey = take.State == "incomplete" ? "audio.iq.playing_incomplete" : detune == 0 ? "audio.iq.playing" : "audio.iq.playing_detuned";
-            DateTime madeUtc = File.GetLastWriteTimeUtc(Path.Combine(directory, "take.txt"));
-            if (!await WaitForOldTakeDateAsync(directory, madeUtc)) return;
             await PlayTakeAfterClickAsync(rendered.Path, kind + Lexicon.Get(playbackKey), _rig,
                 offAirListeningGain: true);
         }

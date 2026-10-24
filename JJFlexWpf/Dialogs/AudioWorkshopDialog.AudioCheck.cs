@@ -160,9 +160,8 @@ public partial class AudioWorkshopDialog
         _listenMethodControl.SelectionChanged += (s, idx) =>
         {
             if (_polling) return;
-            if (_pendingOldTakeCancellation != null) CancelPendingOldTake();
-            _oldTakeReadyForSecondPress = null;
             SavePerRadioPrefs();
+            SyncPlayTakeLabel();
             // The control announces its own value through the accessibility
                 // tree; this adds only what the tree cannot carry.; add the remote
             // advisory only where it matters.
@@ -218,6 +217,7 @@ public partial class AudioWorkshopDialog
             + "with Off the air. With Monitor, compares the slice, off-air and "
             + "computer takes by time. Press again to stop.");
         _playTakeButton.Click += (s, e) => PlayLastTake();
+        _playTakeButton.GotFocus += (s, e) => SyncPlayTakeLabel();
         AddToSection(HearYourselfContent, _playTakeButton);
 
         // Follow local playback so the button says what pressing it will do.
@@ -558,7 +558,6 @@ public partial class AudioWorkshopDialog
     /// </remarks>
     private void PlayLastTake()
     {
-        if (_pendingOldTakeCancellation != null) { CancelPendingOldTake(); return; }
         // Press again to stop, whichever thing is playing.
         if (RecordingPlayer.IsPlaying)
         {
@@ -578,30 +577,20 @@ public partial class AudioWorkshopDialog
             return;
         }
 
-        var (radioTarget, radioTime) = NewestRadioTake();
-        bool radioHasTake = radioTarget != null;
-        RecordingStore.RecordingFile? file = RecordingStore.Newest();
-        string? iqDirectory = NewestIqDirectory();
-        var method = (AudioCheckListenMethods)(_listenMethodControl?.SelectedIndex
-            ?? (int)(_radioCfg?.AudioCheckListenMethod ?? AudioCheckListenMethods.Monitor));
-
-        DateTime? iqAt = iqDirectory != null && File.Exists(Path.Combine(iqDirectory, "take.txt"))
-            ? File.GetLastWriteTimeUtc(Path.Combine(iqDirectory, "take.txt")) : null;
-        var choice = TakePlaybackSelector.Choose(method, radioHasTake, radioTime,
-            iqDirectory != null, iqAt, file != null, file?.RecordedLocal.ToUniversalTime());
-        switch (choice)
+        var selected = SelectTakeForPlayback();
+        switch (selected.Choice)
         {
             case TakePlaybackChoice.Slice:
-                _radioTakeTarget = radioTarget;
-                _ = PlayRadioTakeAsync(method == AudioCheckListenMethods.Monitor
+                _radioTakeTarget = selected.RadioTarget;
+                _ = PlayRadioTakeAsync(selected.Method == AudioCheckListenMethods.Monitor
                     ? "This is a slice recording. " : "");
                 return;
             case TakePlaybackChoice.OffAir:
-                _ = PlayIqAsync(iqDirectory, 0, method == AudioCheckListenMethods.Monitor
+                _ = PlayIqAsync(selected.IqDirectory, 0, selected.Method == AudioCheckListenMethods.Monitor
                     ? "This is an off-air take. " : "");
                 return;
             case TakePlaybackChoice.Computer:
-                _ = PlayComputerTakeAsync(file!, "This is a computer recording. ");
+                _ = PlayComputerTakeAsync(selected.File!, "This is a computer recording. ");
                 return;
             case TakePlaybackChoice.UnknownTime:
                 ScreenReaderOutput.Speak(
@@ -609,12 +598,35 @@ public partial class AudioWorkshopDialog
                     Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Terse);
                 return;
             default:
-                if (method == AudioCheckListenMethods.RecordPlayback) SayNoTake("slice");
-                else if (method == AudioCheckListenMethods.OffAir) SayNoTake("off-air");
+                if (selected.Method == AudioCheckListenMethods.RecordPlayback) SayNoTake("slice");
+                else if (selected.Method == AudioCheckListenMethods.OffAir) SayNoTake("off-air");
                 else ScreenReaderOutput.Speak(Lexicon.Get("audio.check.no_recording_yet"),
                     VerbosityLevel.Terse, interrupt: true);
                 return;
         }
+    }
+
+    private (AudioCheckListenMethods Method, TakePlaybackChoice Choice,
+        SliceRecorderTarget? RadioTarget, RecordingStore.RecordingFile? File,
+        string? IqDirectory, DateTime? MadeUtc) SelectTakeForPlayback()
+    {
+        var (radioTarget, radioTime) = NewestRadioTake();
+        RecordingStore.RecordingFile? file = RecordingStore.Newest();
+        string? iqDirectory = NewestIqDirectory();
+        var method = (AudioCheckListenMethods)(_listenMethodControl?.SelectedIndex
+            ?? (int)(_radioCfg?.AudioCheckListenMethod ?? AudioCheckListenMethods.Monitor));
+        DateTime? iqAt = iqDirectory != null && File.Exists(Path.Combine(iqDirectory, "take.txt"))
+            ? File.GetLastWriteTimeUtc(Path.Combine(iqDirectory, "take.txt")) : null;
+        var choice = TakePlaybackSelector.Choose(method, radioTarget != null, radioTime,
+            iqDirectory != null, iqAt, file != null, file?.RecordedLocal.ToUniversalTime());
+        DateTime? madeUtc = choice switch
+        {
+            TakePlaybackChoice.Slice => radioTime,
+            TakePlaybackChoice.OffAir => iqAt,
+            TakePlaybackChoice.Computer => file?.RecordedLocal.ToUniversalTime(),
+            _ => null
+        };
+        return (method, choice, radioTarget, file, iqDirectory, madeUtc);
     }
 
     private (SliceRecorderTarget? Target, DateTime? MadeUtc) NewestRadioTake()
@@ -640,63 +652,12 @@ public partial class AudioWorkshopDialog
         "There is no " + kind + " take to play.", Radios.Speech.SpeechIntent.Interrupt,
         VerbosityLevel.Terse);
 
-    private async Task PlayComputerTakeAsync(RecordingStore.RecordingFile file, string kind = "")
+    private Task PlayComputerTakeAsync(RecordingStore.RecordingFile file, string kind = "")
     {
-        if (!await WaitForOldTakeDateAsync(file.Path, file.RecordedLocal.ToUniversalTime())) return;
-        if (_workshopClosing) return;
+        if (_workshopClosing) return Task.CompletedTask;
         RecordingPlayer.Play(file.Path, announcement: kind + Lexicon.Get("audio.take.playing",
             ("name", file.Name), ("length", RecordingStore.DescribeLength(file.Seconds))), liveRig: _rig);
-    }
-
-    private static string OldTakePrefix(DateTime madeUtc)
-    {
-        if (madeUtc == default || DateTime.UtcNow - madeUtc <= TimeSpan.FromHours(1)) return "";
-        string when = madeUtc.ToLocalTime().ToString("MMMM d, yyyy 'at' h:mm tt",
-            System.Globalization.CultureInfo.CurrentCulture);
-        return "This take was made on " + when + ". ";
-    }
-
-    private CancellationTokenSource? _pendingOldTakeCancellation;
-    private string? _oldTakeReadyForSecondPress;
-
-    private void CancelPendingOldTake()
-    {
-        _pendingOldTakeCancellation?.Cancel();
-        _oldTakeReadyForSecondPress = null;
-        ScreenReaderOutput.Silence();
-        SyncPlayTakeLabel();
-    }
-
-    private async Task<bool> WaitForOldTakeDateAsync(string takeKey, DateTime madeUtc)
-    {
-        string sentence = OldTakePrefix(madeUtc);
-        if (sentence.Length == 0) return true;
-        takeKey += ":" + madeUtc.Ticks;
-        if (_oldTakeReadyForSecondPress == takeKey)
-        {
-            _oldTakeReadyForSecondPress = null;
-            return true;
-        }
-        using var cancellation = new CancellationTokenSource();
-        _pendingOldTakeCancellation = cancellation;
-        SyncPlayTakeLabel();
-        try
-        {
-            if (await ScreenReaderOutput.SpeakUntilCompletedAsync(sentence, cancellation.Token)) return true;
-            // DRAFT: JAWS and SAPI have no speech-completion signal. A second
-            // press is an explicit start, rather than a guessed speech delay.
-            _oldTakeReadyForSecondPress = takeKey;
-            ScreenReaderOutput.Speak("Press Play again when you are ready to hear this take.",
-                Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse);
-            return false;
-        }
-        catch (OperationCanceledException) { return false; }
-        finally
-        {
-            if (ReferenceEquals(_pendingOldTakeCancellation, cancellation))
-                _pendingOldTakeCancellation = null;
-            SyncPlayTakeLabel();
-        }
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -710,8 +671,6 @@ public partial class AudioWorkshopDialog
         if (_rig == null) return;
         var rig = _rig;
         var target = FixedRecorderTarget(rig, RadioTakeTarget);
-        DateTime madeUtc = rig.SliceTakeTime(target) ?? default;
-        if (!await WaitForOldTakeDateAsync("slice:" + rig.SelectedRadioSerial + ":" + rig.SliceRecorderLetter(target), madeUtc)) return;
         if (_workshopClosing || !ReferenceEquals(rig, _rig)) return;
         RecorderControls.Observe(rig);
         var outcome = await rig.StartSlicePlayAsync(target);
@@ -753,11 +712,6 @@ public partial class AudioWorkshopDialog
     private bool StopWorkshopPlayback()
     {
         bool stopped = false;
-        if (_pendingOldTakeCancellation != null)
-        {
-            CancelPendingOldTake();
-            stopped = true;
-        }
         if (RecordingPlayer.IsPlaying)
         {
             RecordingPlayer.Stop();
@@ -799,10 +753,12 @@ public partial class AudioWorkshopDialog
     private void SyncPlayTakeLabel()
     {
         if (_playTakeButton == null) return;
-        bool playing = _pendingOldTakeCancellation != null || RecordingPlayer.IsPlaying ||
+        bool playing = RecordingPlayer.IsPlaying ||
             _rig?.IsSlicePlaying(RadioTakeTarget) == true;
-        string label = playing ? "Stop playing" : "Play last take";
-        if ((_playTakeButton.Content as string) == label) return;
+        string label = playing ? "Stop playing" : TakePlaybackSelector.PlayLabel(
+            SelectTakeForPlayback().MadeUtc, DateTime.Now);
+        if ((_playTakeButton.Content as string) == label &&
+            AutomationProperties.GetName(_playTakeButton) == label) return;
         _playTakeButton.Content = label;
         AutomationProperties.SetName(_playTakeButton, label);
     }
@@ -818,7 +774,6 @@ public partial class AudioWorkshopDialog
         CloseListenback();
         RecordingPlayer.StateChanged -= OnTakePlaybackStateChanged;
         StopWorkshopPlayback();
-        _oldTakeReadyForSecondPress = null;
     }
 
     #endregion
