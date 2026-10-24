@@ -88,17 +88,21 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// Session-scoped soft-timeout override in seconds (QB Track G,
-        /// 2026-08-07). When non-null, the effective lock timeout is the
-        /// SMALLER of the operator's configured timeout and this value; the
-        /// existing warning ladder scales off the effective value unchanged
-        /// and the 15-minute hard kill is untouched. Set by the Audio Check
-        /// session on start (a check wants a short leash regardless of the
-        /// operator's ragchew timeout) and cleared on session end. This is
-        /// deliberately the minimal hook — the session must NOT grow its own
-        /// safety timer stack.
+        /// Legacy session-scoped soft-timeout override. Audio Check now owns
+        /// its recorder limit and suppresses this warning ladder during checks.
+        /// Ordinary transmissions retain the configured warning and hard kill.
         /// </summary>
         public int? SessionTimeoutOverrideSeconds { get; set; }
+
+        /// <summary>
+        /// A planned stop that owns this transmission's cut (the Record and
+        /// play back check's recorder limit). The warning ladder stands down
+        /// ONLY while the planned stop comes before the operator's own
+        /// timeout; when the operator's timeout is the shorter leash, it runs
+        /// exactly as for any other transmission. Null for every other
+        /// transmission, Monitor and off-air checks included.
+        /// </summary>
+        public int? PlannedStopSeconds { get; set; }
 
         private double EffectiveTimeoutSeconds =>
             SessionTimeoutOverrideSeconds is int o
@@ -948,6 +952,14 @@ namespace JJFlexWpf
             }
         }
 
+        /// <summary>The planned recorder stop: one cue and one outcome, without the timeout ladder.</summary>
+        public void RecorderLimitUnlock()
+        {
+            if (State == PttState.Idle) return;
+            if (!_config.ChirpEnabled) EarconPlayer.ConfirmTone();
+            GoIdle("Check stopped at the recorder's two-minute limit.", forceSpeech: true);
+        }
+
         // -------------------------------------------------------------------
         // State transitions
         // -------------------------------------------------------------------
@@ -1103,6 +1115,10 @@ namespace JJFlexWpf
         private void WarningTimerTick(object? sender, EventArgs e)
         {
             if (State == PttState.Idle) { StopAllTimers(); return; }
+            // A planned stop that comes first owns the cut, so the ladder for
+            // a later timeout would only be noise. A shorter operator timeout
+            // still wins, and the 15-minute hard kill runs regardless.
+            if (PlannedStopSeconds is int planned && EffectiveTimeoutSeconds > planned) return;
 
             var elapsed = (DateTime.UtcNow - _lockStartTime).TotalSeconds;
             var timeout = EffectiveTimeoutSeconds;

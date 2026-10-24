@@ -751,8 +751,9 @@ public partial class FlexBase
         // FlexLib status and slice retirement hold _sliceRecorders. A release
         // takes the VOX owner's gate, whose queued write can synchronously
         // re-enter slice status. Dispose after the dictionary lock is gone.
-        if (System.Threading.Monitor.IsEntered(_sliceRecorders)) _ = Task.Run(lease.Dispose);
-        else lease.Dispose();
+        if (System.Threading.Monitor.IsEntered(_sliceRecorders))
+            _ = Task.Run(() => ReleaseVoxWhenReceive(lease, playbackTail: true));
+        else ReleaseVoxWhenReceive(lease, playbackTail: true);
     }
 
     private async Task<RecorderOutcome> StartPlayLockedAsync(SliceRecorderState state, SliceRecorderTarget target, PlaybackIntent intent, object owner = null)

@@ -836,6 +836,19 @@ namespace JJPortaudio
         /// never the requested rate, when reporting to an operator.
         /// </summary>
         public uint SampleRate { get { return CBData?.SampleRate ?? 0; } }
+        /// <summary>Measured input device delay plus this stream's callback buffer, in milliseconds.</summary>
+        public double InputDrainMilliseconds
+        {
+            get
+            {
+                var cb = CBData;
+                if (cb == null || cb.SampleRate == 0) return 0;
+                double device = System.Threading.Volatile.Read(ref cb.DeviceLatencySamples) > 0
+                    ? System.Threading.Volatile.Read(ref cb.DeviceLatencyMax)
+                    : cb.ReportedDeviceLatency;
+                return device * 1000 + AudioBuffering.BufferMilliseconds(cb.BufferSize, cb.SampleRate);
+            }
+        }
         /// <summary>
         /// Channels the stream actually opened with — 1 on a mono device, 2
         /// otherwise. Everything downstream is stereo either way; this is the

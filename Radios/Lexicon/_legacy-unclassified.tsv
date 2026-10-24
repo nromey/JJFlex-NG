@@ -313,7 +313,6 @@ audio.check.elapsed_minutes	985e020816ab4ea4
 audio.check.elapsed_one_minute	420a257bcefae4e7
 audio.check.ended	e965ca133d42f4cd
 audio.check.escape_stops	012612b1aa3ee5ce
-audio.check.hardware_keying_active	c3d856dd96c13763
 audio.check.line_dummy_load	8706447807ddb4b2
 audio.check.line_transmitting	b0d345fe5203cdd3
 audio.check.loopback_drive_reduced	2098d48f2d00981d
@@ -941,7 +940,6 @@ audio.recording.stopped	5fa6b8625445ff54
 audio.recording.stopped_faulted	12428550446fc6a5
 audio.recording.stopped_nothing_captured	c7ed0b965b5da95d
 audio.recording.the_saved_microphone	0642097aa4db3a32
-audio.reference.armed	a32aa48acaf5a68b
 audio.reference.disarmed	7ef15b2b0a614e20
 audio.reference.finished	7378ef16786e7bc1
 audio.reference.folder_open_failed	0fc6c12051eda2d3

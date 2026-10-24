@@ -88,6 +88,7 @@ namespace JJPortaudio
         private volatile bool _loop;
         private volatile float _gain = 1f;
         private volatile bool _reachedEnd;
+        private volatile bool _restartOnNextBuffer;
         private volatile int _playedFrames;
 
         /// <summary>
@@ -239,6 +240,12 @@ namespace JJPortaudio
             _state = StMicFadeOut;
         }
 
+        /// <summary>Keep an armed source engaged but begin its next keyed pass at the start.</summary>
+        public void RestartOnNextBuffer()
+        {
+            if (Engaged && !_reachedEnd) _restartOnNextBuffer = true;
+        }
+
         /// <summary>
         /// Release playback: the file ramps out, then the mic ramps back in.
         /// If transmit audio is not flowing, the release resolves instantly at
@@ -246,6 +253,7 @@ namespace JJPortaudio
         /// </summary>
         public void Stop()
         {
+            _restartOnNextBuffer = false;
             int s = _state;
             if (s == StIdle || s == StFileFadeOut || s == StMicFadeIn) return;
             _state = StFileFadeOut;
@@ -269,6 +277,17 @@ namespace JJPortaudio
 
             int state = _state;
             if (state == StIdle) return;
+
+            if (_restartOnNextBuffer)
+            {
+                _restartOnNextBuffer = false;
+                _pos = 0.0;
+                _playedFrames = 0;
+                _reachedEnd = false;
+                _fade = 0f;
+                state = StFileFadeIn;
+                _state = state;
+            }
 
             float[] samples = _samples;
             if (samples.Length == 0)

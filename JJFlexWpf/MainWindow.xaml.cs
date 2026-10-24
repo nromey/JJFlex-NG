@@ -128,7 +128,15 @@ public partial class MainWindow : UserControl
         // the scope's door on the menu route (the door closes with the
         // Connecting window; power-on and the settle come seconds later) and
         // covers the discovery a menu command starts.
-        FreqOut.SuppressFocusPrefix = () => _connectQuiet.IsQuiet || Radios.ConnectBriefing.Current.InFlight;
+        FreqOut.SuppressFocusPrefix = () =>
+        {
+            if (_suppressLoggingHomePrefix)
+            {
+                _suppressLoggingHomePrefix = false;
+                return true;
+            }
+            return _connectQuiet.IsQuiet || Radios.ConnectBriefing.Current.InFlight;
+        };
 
         // Audio Workshop hooks that must NOT wait for a radio (2026-08-12).
         // The workshop's "This Computer" section and its preset toolbar both
@@ -2585,6 +2593,7 @@ public partial class MainWindow : UserControl
     }
 
     private IInputElement? _focusBeforeLogging;
+    private bool _suppressLoggingHomePrefix;
 
     /// <summary>
     /// Exit Logging Mode, returning to last non-logging mode.
@@ -2604,7 +2613,8 @@ public partial class MainWindow : UserControl
 
         // Speak before Home becomes visible and focus moves: NVDA then reads
         // its own Home/field announcement after our mode transition sentence.
-        Radios.ScreenReaderOutput.Speak($"Leaving logging mode, {LastNonLogMode} tuning.",
+        _suppressLoggingHomePrefix = true;
+        Radios.ScreenReaderOutput.Speak($"Leaving logging mode, {LastNonLogMode} tuning mode.",
             Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Terse);
         ApplyUIMode(LastNonLogMode);
 
@@ -2616,6 +2626,11 @@ public partial class MainWindow : UserControl
             Keyboard.Focus(priorFocus);
         else
             FocusHome();
+
+        // The focus prefix is posted at Normal priority. Clear the one-shot
+        // after that post, including when focus landed on an expander instead.
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background,
+            new Action(() => _suppressLoggingHomePrefix = false));
 
     }
 

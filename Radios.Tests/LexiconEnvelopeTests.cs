@@ -869,6 +869,7 @@ namespace Radios.Tests
 
             var classifiedOutsideFacts = new[]
             {
+                "audio.reference.armed", // Round 8: direct answer to the operator's arm request.
                 "settings.cw.vox_did_not_key",                        // Sprint 48 Track E, #151
                 "settings.systemwide_keys.leader_enabled",            // Sprint 48 Track E, #307 Item 4
                 "settings.systemwide_keys.leader_enabled_help",
@@ -1585,7 +1586,7 @@ namespace Radios.Tests
                 "audio.mic.switch_back_refused",
             };
 
-            Assert.Equal(3143, unclassified);
+            Assert.Equal(3141, unclassified);
             Assert.All(classified, key =>
                 Assert.True(key.StartsWith("facts.", StringComparison.Ordinal)
                             || Array.IndexOf(classifiedOutsideFacts, key) >= 0,

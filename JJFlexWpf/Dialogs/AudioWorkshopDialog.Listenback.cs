@@ -534,7 +534,8 @@ public partial class AudioWorkshopDialog
             var rendered = await Task.Run(() => SsbTakeRenderer.Render(directory, detune));
             if (_iqClosing) return;
             string playbackKey = take.State == "incomplete" ? "audio.iq.playing_incomplete" : detune == 0 ? "audio.iq.playing" : "audio.iq.playing_detuned";
-            await PlayTakeAfterClickAsync(rendered.Path, Lexicon.Get(playbackKey), _rig,
+            string age = OldTakePrefix(File.GetLastWriteTimeUtc(Path.Combine(directory, "take.txt")));
+            await PlayTakeAfterClickAsync(rendered.Path, age + Lexicon.Get(playbackKey), _rig,
                 offAirListeningGain: true);
         }
         catch (Exception ex) { IqFailure(ex); }

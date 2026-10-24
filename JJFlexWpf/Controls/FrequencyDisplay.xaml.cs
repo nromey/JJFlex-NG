@@ -112,7 +112,7 @@ public partial class FrequencyDisplay : UserControl
                            FieldHandlerDelegate? handler = null)
         {
             Key = key;
-            Length = System.Math.Min(length, 20); // Match WinForms cap
+            Length = key == "Recorded" ? length : System.Math.Min(length, 20);
             LeftDelim = leftDelim;
             RightDelim = rightDelim;
             Handler = handler;

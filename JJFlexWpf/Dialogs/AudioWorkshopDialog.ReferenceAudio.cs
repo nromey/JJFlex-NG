@@ -51,6 +51,7 @@ public partial class AudioWorkshopDialog
 
     /// <summary>The choices behind <see cref="_refPickControl"/>, in order.</summary>
     private readonly List<string> _refPaths = new();
+    private readonly Dictionary<string, (DateTime Stamp, int Rate, TxAudioFile.Loaded File)> _refPrepared = new();
 
     /// <summary>The file currently handed to the rig's player, or empty.</summary>
     private string _refLoadedPath = "";
@@ -166,13 +167,13 @@ public partial class AudioWorkshopDialog
         if (ReferenceVoice.IsInstalled)
         {
             _refPaths.Add(ReferenceVoice.FilePath);
-            labels.Add("JJ Flexible reference voice (shipped)");
+            labels.Add("JJ Flexible reference voice (shipped)" + ReferenceListDetails(ReferenceVoice.FilePath));
         }
 
         foreach (var rec in RecordingStore.Enumerate())
         {
             _refPaths.Add(rec.Path);
-            labels.Add(rec.Describe());
+            labels.Add(rec.Describe() + ReferenceListDetails(rec.Path, includeLength: false));
         }
 
         if (labels.Count == 0)
@@ -202,6 +203,34 @@ public partial class AudioWorkshopDialog
         finally { _polling = false; }
 
         UpdateReferenceStatus();
+    }
+
+    private string ReferenceListDetails(string path, bool includeLength = true)
+    {
+        if (!TryPrepareReference(path, out var loaded, out _)) return ", unavailable";
+        string details = includeLength ? ", " + RecordingStore.DescribeLength(loaded!.Seconds) : "";
+        if (loaded!.PeakDb > JJPortaudio.MicProbe.SilenceDb)
+            details += ", peak " + loaded.PeakDb.ToString("F1") + " dBFS";
+        if (loaded.IntegratedLufs > JJPortaudio.LufsMeter.Floor)
+            details += ", loudness " + loaded.IntegratedLufs.ToString("F1") + " LUFS";
+        return details;
+    }
+
+    private bool TryPrepareReference(string path, out TxAudioFile.Loaded? loaded, out string trouble)
+    {
+        loaded = null;
+        trouble = "";
+        DateTime stamp = File.Exists(path) ? File.GetLastWriteTimeUtc(path) : default;
+        int rate = (int)FlexBase.OpusTxSampleRateSetting;
+        if (_refPrepared.TryGetValue(path, out var cached) && cached.Stamp == stamp && cached.Rate == rate)
+        {
+            loaded = cached.File;
+            return true;
+        }
+        _refPrepared.Remove(path);
+        if (!TxAudioFile.TryLoad(path, rate, out loaded, out trouble)) return false;
+        _refPrepared[path] = (stamp, rate, loaded!);
+        return true;
     }
 
     /// <summary>The file the picker currently names, or empty.</summary>
@@ -249,7 +278,7 @@ public partial class AudioWorkshopDialog
             && rig.TxFilePlayer.HasContent)
             return true;
 
-        if (!TxAudioFile.TryLoadInto(rig, path, out TxAudioFile.Loaded? loaded, out string trouble))
+        if (!TryPrepareReference(path, out TxAudioFile.Loaded? loaded, out string trouble))
         {
             EarconPlayer.Warning2Beep();
             ScreenReaderOutput.Speak(
@@ -258,6 +287,7 @@ public partial class AudioWorkshopDialog
             return false;
         }
 
+        rig.TxFilePlayer.Load(loaded!.Mono, loaded.SampleRate, loaded.Name);
         _refLoadedPath = path;
         _refLastDescription = loaded!.Describe();
         return true;
@@ -362,9 +392,8 @@ public partial class AudioWorkshopDialog
         // transmit path and must sound alike. Only the success path tones;
         // every declined path above reverts the checkbox and warns instead.
         EarconPlayer.FeatureOnTone();
-        string line = Lexicon.Get("audio.reference.armed", ("recording", _refLastDescription));
+        string line = Lexicon.Get("audio.reference.armed");
         if (voxWasOn) line += " VOX disabled when reference is enabled.";
-        if (!string.IsNullOrEmpty(pathNote)) line += " " + pathNote;
         ScreenReaderOutput.Speak(line, VerbosityLevel.Critical, interrupt: true);
         UpdateReferenceStatus();
     }

@@ -128,7 +128,7 @@ public class FakeRun { public bool Stopped; public void OwnKeying(bool b) { }
     public Task StopAsync(string reason) { Stopped=true; return Task.CompletedTask; } }
 public record ListenbackOptions(int Rate, bool OffAir, bool HearSelfDuringOffAir);
 public static class EarconPlayer { public static void FeatureOnTone() { } }
-public class PttSafetyController { public bool IsTransmitting; public int Keys; public int? SessionTimeoutOverrideSeconds; public bool AudioCheckNarration;
+public class PttSafetyController { public bool IsTransmitting; public int Keys; public int? SessionTimeoutOverrideSeconds; public bool AudioCheckNarration; public int? PlannedStopSeconds;
     public void ToggleLock() { Keys++; IsTransmitting=true; } public void EscapeUnlock() { IsTransmitting=false; } }
 public enum AudioCheckListenMethods { Monitor, RecordPlayback, OffAir }
 public enum AudioCheckPowerModes { DummyLoad, LowPower }

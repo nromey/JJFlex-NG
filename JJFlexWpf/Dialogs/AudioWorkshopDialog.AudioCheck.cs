@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Windows;
@@ -633,11 +633,22 @@ public partial class AudioWorkshopDialog
         bool preferFile = file != null && (!radioHasTake || _newestTakeIsAFile);
         if (preferFile)
         {
-            RecordingPlayer.Play(file!.Path, liveRig: _rig);   // speaks for itself, success or not
+            string announcement = OldTakePrefix(file!.RecordedLocal.ToUniversalTime())
+                + Lexicon.Get("audio.take.playing", ("name", file.Name),
+                    ("length", RecordingStore.DescribeLength(file.Seconds)));
+            RecordingPlayer.Play(file.Path, announcement: announcement, liveRig: _rig);
             return;
         }
 
         _ = PlayRadioTakeAsync();
+    }
+
+    private static string OldTakePrefix(DateTime madeUtc)
+    {
+        if (madeUtc == default || DateTime.UtcNow - madeUtc <= TimeSpan.FromHours(1)) return "";
+        string when = madeUtc.ToLocalTime().ToString("MMMM d, yyyy 'at' h:mm tt",
+            System.Globalization.CultureInfo.CurrentCulture);
+        return "This take was made on " + when + ". ";
     }
 
     /// <summary>
@@ -662,7 +673,7 @@ public partial class AudioWorkshopDialog
             }
             _workshopPlayTargets.Add(target);
             if (EarconPlayer.RecorderBeepsEnabled && !outcome.AlreadyInState) EarconPlayer.ConfirmTone();
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.playing_take"), Radios.Speech.SpeechIntent.Interrupt,
+            ScreenReaderOutput.Speak(OldTakePrefix(_radioTakeAt) + Lexicon.Get("audio.check.playing_take"), Radios.Speech.SpeechIntent.Interrupt,
                 VerbosityLevel.Terse, subject: outcome.Subject);
         }
         else RecorderControls.Speak(outcome);
@@ -767,9 +778,9 @@ public partial class AudioWorkshopDialog
     /// (warning ladder, license lockout, 15-minute hard kill). This class
     /// adds only session bookkeeping on a 1-second watcher: spoken elapsed
     /// reminders, the record/auto-play flow, state restoration, and the
-    /// hardware-keying honesty check. It never keys the radio itself and
-    /// never builds a second safety timer stack — the 3-minute check timeout
-    /// rides the controller's SessionTimeoutOverrideSeconds hook.
+    /// still-transmitting honesty check. The controller owns all keying and
+    /// the independent 15-minute hard kill. This session alone stops a
+    /// Record and play back check at the radio's two-minute buffer limit.
     /// </summary>
     private sealed class AudioCheckSession
     {
@@ -805,23 +816,10 @@ public partial class AudioWorkshopDialog
         private bool _dummyEngaged;   // WE turned dummy load on; disable restores power
         private int _dummySavedPower; // pre-engage watts, for the spoken restore line
 
-        // The recorder surface gives the ten-second warning for every
-        // recording. This check also caps its own keyed run at the radio's
-        // 120-second buffer, so all of its transmitted audio can play back.
-        //
-        // Retired 2026-09-07. This was 180, imposed as a session override on
-        // top of the operator's own PTT timeout, and EffectiveTimeoutSeconds
-        // takes the MINIMUM of the two — so a check could never run longer than
-        // three minutes however the operator had set their timeout.
-        //
-        // That blocked work the bench needs: a fifteen-minute reference-audio
-        // run for a PA temperature curve, and the mic-profile comparison in
-        // #572, which needs enough material to hear a difference.
-        //
-        // PttConfig.TimeoutSeconds ALSO defaults to 180 and is clamped to
-        // [10, HardKillSeconds=900], so deferring to it changes nothing for
-        // anyone who has not moved it, and lets an operator who wants a long
-        // deliberate run have one. That clamp is what the 900 was written for.
+        // The recorder surface warns at ten seconds remaining. The check's
+        // own watcher stops at 120 seconds; ordinary transmit timeout warnings
+        // are suppressed during a check, while the independent hard kill and
+        // live safety monitoring remain active.
 
         public bool Active { get; private set; }
         public bool IsLoopback => _loopback;
@@ -946,12 +944,10 @@ public partial class AudioWorkshopDialog
 
             }
 
-            // Only Record and play back has a shorter limit: the radio's
-            // buffer holds 120 seconds. The controller applies the lesser of
-            // this cap and the operator's own PTT timeout, with its normal
-            // warning ladder and hard kill. Other methods have no override.
-            _ptt.SessionTimeoutOverrideSeconds = _method == AudioCheckListenMethods.RecordPlayback
-                ? FlexBase.SliceRecordBufferSeconds : null;
+            // Record and play back stops itself at the recorder's 120-second
+            // limit (TickKeyed below); while that comes first, the operator's
+            // timeout ladder stands down. Monitor and off-air checks keep the
+            // operator's timeout exactly as any other transmission does.
 
             // Key through the controller. Its own key-down announcement fires
             // first; the full safety line follows with interrupt so the
@@ -962,6 +958,8 @@ public partial class AudioWorkshopDialog
             if (_method == AudioCheckListenMethods.OffAir)
                 ScreenReaderOutput.Supersede("audio.iq.preparing", "off-air take ready to start");
             _ptt.AudioCheckNarration = true;
+            _ptt.PlannedStopSeconds = _method == AudioCheckListenMethods.RecordPlayback
+                ? FlexBase.SliceRecordBufferSeconds : null;
             bool admitted = start.TryRun(() =>
             {
                 if (_owner._iqClosing || !ReferenceEquals(rig, Rig) || _ptt.IsTransmitting || rig.Transmit)
@@ -972,6 +970,7 @@ public partial class AudioWorkshopDialog
             if (!admitted)
             {
                 _ptt.AudioCheckNarration = false;
+                _ptt.PlannedStopSeconds = null;
                 if (_method == AudioCheckListenMethods.OffAir) _owner._iqRun?.OwnKeying(false);
                 RestoreChangedState(rig, speak: false);
                 if (!_loopback && _method == AudioCheckListenMethods.RecordPlayback && !recorderAlreadyRunning)
@@ -981,6 +980,7 @@ public partial class AudioWorkshopDialog
             if (!_ptt.IsTransmitting)
             {
                 _ptt.AudioCheckNarration = false;
+                _ptt.PlannedStopSeconds = null;
                 // Refused (license lockout spoke its own warning, or no
                 // power). Roll back everything we touched.
                 _ptt.SessionTimeoutOverrideSeconds = null;
@@ -1133,6 +1133,7 @@ public partial class AudioWorkshopDialog
             _watcher.Stop();
             _ptt.SessionTimeoutOverrideSeconds = null;
             _ptt.AudioCheckNarration = false;
+            _ptt.PlannedStopSeconds = null;
             if (!string.IsNullOrEmpty(reason))
                 ScreenReaderOutput.Speak(reason, VerbosityLevel.Terse);
             _owner.OnSessionEnded();
@@ -1261,6 +1262,14 @@ public partial class AudioWorkshopDialog
 
             var elapsed = (DateTime.UtcNow - _keyedAt).TotalSeconds;
 
+            if (_method == AudioCheckListenMethods.RecordPlayback &&
+                elapsed >= FlexBase.SliceRecordBufferSeconds)
+            {
+                _ptt.RecorderLimitUnlock();
+                HandleUnkey(external: true);
+                return;
+            }
+
             // Radio never actually keyed (interlock, wiring): say so once.
             if (!_noKeyWarned && elapsed >= 3 && !rig.Transmit)
             {
@@ -1292,19 +1301,20 @@ public partial class AudioWorkshopDialog
         {
             _postUnkeyTicks++;
 
-            // Hardware-keying honesty: software unkey cannot override a
-            // hardware PTT line (front-panel mic, ACC, rear RCA). If the rig
-            // is still transmitting after our unkey, say exactly that.
+            // The radio may still be keyed after our unkey. PTTSource SW also
+            // names VOX, so it cannot establish a hardware line by itself.
             if (!_hardwareWarned && _postUnkeyTicks >= 2 && rig.Transmit && !_ptt.IsTransmitting)
             {
                 _hardwareWarned = true;
                 ScreenReaderOutput.Speak(
-                    Lexicon.Get("audio.check.hardware_keying_active", ("source", rig.PttSourceName)),
+                    rig.CurrentVoxSettingIfOn() == FlexBase.VoxSetting.SimpleVox
+                        ? "Warning: the radio is still transmitting. VOX is on and may be keying it. Check the radio before continuing."
+                        : "Warning: the radio is still transmitting after the app unkeyed. Check P T T and the radio before continuing.",
                     VerbosityLevel.Critical, interrupt: true);
-                return; // keep watching until the hardware line releases
+                return; // keep watching until the radio releases
             }
             if (_hardwareWarned && rig.Transmit)
-                return; // still keyed by hardware — stay alive, Escape keeps warning
+                return; // still keyed — stay alive, Escape keeps warning
             if (_hardwareWarned && !rig.Transmit)
             {
                 ScreenReaderOutput.Speak(Lexicon.Get("audio.check.transmitter_released"), VerbosityLevel.Critical);

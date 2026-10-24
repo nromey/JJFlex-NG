@@ -7527,8 +7527,18 @@ namespace Radios
         {
             bool oldTransmit = _Transmit;
             if (mox && !oldTransmit && !_tuneCycleActive) beginTxLineWindow();
+            if (mox && !oldTransmit && TxReferenceArmed)
+                txFilePlayer.RestartOnNextBuffer();
             _Transmit = mox;
-            if (oldTransmit && !mox && TxReferenceArmed) TxFileStop();
+            if (oldTransmit && !mox)
+            {
+                _lastTransmitEndMs = Environment.TickCount64;
+                if (TxReferenceArmed)
+                {
+                    if (txFilePlayer.Engaged) txFilePlayer.RestartOnNextBuffer();
+                    else TxFileStop();
+                }
+            }
             if (_Transmit != oldTransmit)
             {
                 raiseTransmitChange(_Transmit);
@@ -7980,7 +7990,7 @@ namespace Radios
             set
             {
                 if (!value) CancelSlicePlayback();
-                if (!value && TxReferenceArmed) TxFileStop();
+                if (value && TxReferenceArmed) txFilePlayer.RestartOnNextBuffer();
                 q.Enqueue((FunctionDel)(() => { theRadio.Mox = value; }), "Mox");
             }
         }

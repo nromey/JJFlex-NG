@@ -1586,7 +1586,10 @@ namespace Radios
                 txToneGen.Stop();
                 var lease = _toneVoxLease;
                 _toneVoxLease = null;
-                return lease?.Release() == true;
+                if (lease == null) return false;
+                bool paused = lease.Paused;
+                ReleaseVoxWhenReceive(lease);
+                return paused;
             }
         }
 
@@ -1638,6 +1641,41 @@ namespace Radios
         /// microphone.
         /// </summary>
         public bool TxFilePlaying => txFilePlayer.Engaged;
+
+        private long _lastTransmitEndMs = long.MinValue;
+
+        /// <summary>Release a VOX pause after the live transmit capture path has drained.</summary>
+        private void ReleaseVoxAfterTransmitDrain(VoxPauseOwner.Lease lease, bool fromNow = false)
+        {
+            double measuredMs = opusInputChannel?.PortAudioStream?.InputDrainMilliseconds ?? 0;
+            // Slice playback can run without a PC transmit input stream. In
+            // that case reserve two configured callback buffers for its tail.
+            if (fromNow && measuredMs <= 0)
+                measuredMs = 2 * (1000.0 / TxAudioCallbacksPerSecond);
+            // The measurement includes the device path and callback buffer. A
+            // 50 ms margin covers scheduling and the final encoded frames.
+            int drainMs = (int)Math.Ceiling(measuredMs + 50);
+            long elapsed = fromNow ? 0 : _lastTransmitEndMs == long.MinValue
+                ? drainMs : Math.Max(0, Environment.TickCount64 - _lastTransmitEndMs);
+            int remaining = (int)Math.Max(0, drainMs - elapsed);
+            if (remaining == 0) { lease.Dispose(); return; }
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(remaining).ConfigureAwait(false);
+                lease.Dispose();
+            });
+        }
+
+        private void ReleaseVoxWhenReceive(VoxPauseOwner.Lease lease, bool playbackTail = false)
+        {
+            if (!_Transmit) { ReleaseVoxAfterTransmitDrain(lease, playbackTail); return; }
+            _ = Task.Run(async () =>
+            {
+                while (_Transmit && theRadio?.Connected == true)
+                    await Task.Delay(20).ConfigureAwait(false);
+                ReleaseVoxAfterTransmitDrain(lease, playbackTail);
+            });
+        }
 
         /// <summary>The Workshop reference has an active VOX lease.</summary>
         public bool TxReferenceArmed
@@ -1781,7 +1819,7 @@ namespace Radios
                 {
                     var lease = _referenceVoxLease;
                     _referenceVoxLease = null;
-                    lease?.Dispose();
+                    if (lease != null) ReleaseVoxAfterTransmitDrain(lease);
                 }
             }
         }

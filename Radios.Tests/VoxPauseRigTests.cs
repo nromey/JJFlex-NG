@@ -181,7 +181,7 @@ public sealed class VoxPauseRigTests : IDisposable
     }
 
     [Fact]
-    public async Task Reference_cannot_rekey_a_vox_radio_after_the_transmission_ends()
+    public async Task Reference_stays_armed_across_transmissions_without_rekeying_on_vox()
     {
         using var f = new RigOnVendorRadio("reference-vox-rekey");
         f.AddOwnSlice(0, 14.25, "USB");
@@ -215,14 +215,18 @@ public sealed class VoxPauseRigTests : IDisposable
         typeof(FlexBase).GetMethod("noteRadioMox", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(f.Rig, new object[] { true });
         f.Rig.Transmit = false;
-        Assert.False(f.Rig.TxFilePlaying);
+        Assert.True(f.Rig.TxFilePlaying);
         Assert.False(f.Vendor.Radio.SimpleVOXEnable);
         typeof(FlexBase).GetMethod("noteRadioMox", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(f.Rig, new object[] { false });
-        Assert.False(f.Rig.TxFilePlaying);
+        Assert.True(f.Rig.TxFilePlaying);
+        Drain(f.Rig);
+        Assert.False(f.Vendor.Radio.SimpleVOXEnable);
+        Assert.False(f.Rig.TxFilePlaying && f.Vendor.Radio.SimpleVOXEnable);
+        f.Rig.TxFileStop();
+        await Task.Delay(250);
         Drain(f.Rig);
         Assert.True(f.Vendor.Radio.SimpleVOXEnable);
-        Assert.False(f.Rig.TxFilePlaying && f.Vendor.Radio.SimpleVOXEnable);
     }
 
     [Fact]

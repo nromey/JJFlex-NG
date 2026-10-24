@@ -102,6 +102,24 @@ public class TxInjectionTests
     }
 
     [Fact]
+    public void ArmedReferenceRewindsForTheNextKeyedPassWithoutDisarming()
+    {
+        var player = new TxFilePlayer();
+        player.Load(Content(0.4f, Rate * 3), Rate, "reference");
+        player.Start();
+        for (int i = 0; i < 4; i++) player.Process(MicBuffer(0f), Floats, Rate);
+        int firstPassFrames = player.PlayedFrames;
+        Assert.True(firstPassFrames > Floats / 2);
+
+        player.RestartOnNextBuffer();
+        Assert.True(player.Engaged);
+        player.Process(MicBuffer(0f), Floats, Rate);
+        Assert.True(player.Engaged);
+        Assert.InRange(player.PlayedFrames, 1, Floats / 2);
+        Assert.False(player.ReachedEnd);
+    }
+
+    [Fact]
     public void PlaybackEndsAndHandsTheMicrophoneBack()
     {
         var player = new TxFilePlayer();
