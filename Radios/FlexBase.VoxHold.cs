@@ -3,6 +3,7 @@ using System;
 using System.Diagnostics;
 using System.ComponentModel;
 using System.Globalization;
+using System.Linq;
 using System.Threading.Tasks;
 using Flex.Smoothlake.FlexLib;
 using JJTrace;
@@ -56,6 +57,8 @@ namespace Radios
         private readonly object _voxPauseGate = new object();
         private VoxPauseOwner? _voxPauses;
         private VoxPauseOwner.Lease? _toneVoxLease;
+        private VoxPauseOwner.Lease? _referenceVoxLease;
+        private string? _voxPausedAtDisconnectSerial;
         private object? _voxPauseRadio;
         private readonly object _voxReplyGate = new object();
         private readonly System.Collections.Generic.Dictionary<VoxSetting, (Radio Radio, bool On, Task<bool> Reply)> _voxReplies = new();
@@ -113,15 +116,41 @@ namespace Radios
 
         private void DisconnectVoxPauses()
         {
+            // Read slice leases before the VOX gate. Slice status can dispose
+            // a lease while holding its own gate; reversing that order here
+            // would put disconnect into the same inversion as that status path.
+            VoxPauseOwner.Lease?[] sliceLeases;
+            lock (_sliceRecorders)
+                sliceLeases = _sliceRecorders.Values.Select(s => s.PlaybackVoxLease).ToArray();
+            bool slicePaused = sliceLeases.Any(lease => lease?.Paused == true);
             lock (_voxPauseGate)
             {
+                if ((_toneVoxLease?.Paused == true || _referenceVoxLease?.Paused == true || slicePaused)
+                    && theRadio?.Serial is string serial)
+                    _voxPausedAtDisconnectSerial = serial;
                 txToneGen.Stop();
+                TxFileStop();
                 _voxPauses?.Disconnect();
+                _referenceVoxLease?.Dispose();
+                _referenceVoxLease = null;
                 _toneVoxLease?.Dispose();
                 _toneVoxLease = null;
                 _voxPauses = null;
                 _voxPauseRadio = null;
             }
+        }
+
+        private void AnnounceVoxPauseAfterReconnect(Radio radio)
+        {
+            lock (_voxPauseGate)
+            {
+                if (radio?.Serial == null || !string.Equals(radio.Serial, _voxPausedAtDisconnectSerial,
+                    StringComparison.OrdinalIgnoreCase)) return;
+                _voxPausedAtDisconnectSerial = null;
+            }
+            ScreenReaderOutput.Speak(
+                "VOX was paused when this radio disconnected. Check whether VOX is on before transmitting.",
+                VerbosityLevel.Critical, interrupt: true);
         }
 
         /// <summary>

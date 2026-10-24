@@ -63,10 +63,16 @@ public partial class AudioWorkshopDialog
         AddToSection(HearYourselfContent, _iqRate);
         _iqSeparate = new CheckBox { Content = Lexicon.Get("audio.iq.separate_pan"), Margin = new Thickness(2) };
         _iqFdx = new CheckBox { Content = Lexicon.Get("audio.iq.full_duplex"), Margin = new Thickness(2) };
+        _iqSeparate.Checked += (_, _) => { if (!_polling) ToggleFeedback.Announce("Separate pan", true); };
+        _iqSeparate.Unchecked += (_, _) => { if (!_polling) ToggleFeedback.Announce("Separate pan", false); };
+        _iqFdx.Checked += (_, _) => { if (!_polling) ToggleFeedback.Announce("Full duplex", true); };
+        _iqFdx.Unchecked += (_, _) => { if (!_polling) ToggleFeedback.Announce("Full duplex", false); };
         AddToSection(HearYourselfContent, _iqSeparate);
         AddToSection(HearYourselfContent, _iqFdx);
         _iqHearSelfDuringTake = new CheckBox { Content = Lexicon.Get("audio.iq.hear_during_take"),
             IsChecked = false, Margin = new Thickness(2) };
+        _iqHearSelfDuringTake.Checked += (_, _) => { if (!_polling) ToggleFeedback.Announce("Hear yourself during the take", true); };
+        _iqHearSelfDuringTake.Unchecked += (_, _) => { if (!_polling) ToggleFeedback.Announce("Hear yourself during the take", false); };
         AddToSection(HearYourselfContent, _iqHearSelfDuringTake);
         // The comparison box used to be built here, between "Hear yourself
         // during the take" and the antenna. It now sits in the Audio Check
@@ -129,8 +135,8 @@ public partial class AudioWorkshopDialog
         _iqAutoCompare = new CheckBox { Content = Lexicon.Get("audio.iq.auto_compare"),
             IsChecked = false, Margin = new Thickness(2) };
         AutomationProperties.SetName(_iqAutoCompare, Lexicon.Get("audio.iq.auto_compare"));
-        _iqAutoCompare.Checked += (_, _) => { if (!_polling) SavePerRadioPrefs(); };
-        _iqAutoCompare.Unchecked += (_, _) => { if (!_polling) SavePerRadioPrefs(); };
+        _iqAutoCompare.Checked += (_, _) => { if (!_polling) { SavePerRadioPrefs(); ToggleFeedback.Announce("Compare with previous take", true); } };
+        _iqAutoCompare.Unchecked += (_, _) => { if (!_polling) { SavePerRadioPrefs(); ToggleFeedback.Announce("Compare with previous take", false); } };
         AddToSection(HearYourselfContent, _iqAutoCompare);
     }
     private void UpdateIqAvailability()
@@ -199,7 +205,16 @@ public partial class AudioWorkshopDialog
     private async Task ToggleSlicePlayAsync()
     {
         if (_rig == null) return;
-        await RecorderControls.ToggleSlicePlayAsync(_rig, WorkshopRecorderTarget, owner: this);
+        var rig = _rig;
+        var target = FixedRecorderTarget(rig, WorkshopRecorderTarget);
+        var outcome = await RecorderControls.ToggleSlicePlayAsync(rig, target, owner: this);
+        if (outcome.Success && rig.IsSlicePlaying(target))
+        {
+            if (_workshopClosing)
+                await RecorderControls.ReportStopFailureAsync(rig.StopSlicePlayAsync(target));
+            else _workshopPlayTargets.Add(target);
+        }
+        else _workshopPlayTargets.Remove(target);
         SyncSliceRecorderUi();
     }
     private void IqStatus(string text, bool failure = false, string? subject = null,

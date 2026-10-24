@@ -1578,7 +1578,7 @@ namespace Radios
         }
 
         /// <summary>Release the test tone and restore the microphone.</summary>
-        public void TxToneStop()
+        public bool TxToneStop()
         {
             lock (_voxPauseGate)
             {
@@ -1586,7 +1586,7 @@ namespace Radios
                 txToneGen.Stop();
                 var lease = _toneVoxLease;
                 _toneVoxLease = null;
-                lease?.Dispose();
+                return lease?.Release() == true;
             }
         }
 
@@ -1638,6 +1638,61 @@ namespace Radios
         /// microphone.
         /// </summary>
         public bool TxFilePlaying => txFilePlayer.Engaged;
+
+        /// <summary>The Workshop reference has an active VOX lease.</summary>
+        public bool TxReferenceArmed
+        {
+            get { lock (_voxPauseGate) return _referenceVoxLease != null; }
+        }
+
+        /// <summary>Arm a reference only after the radio confirms VOX is off.</summary>
+        public async Task<bool> TxReferenceStartAsync()
+        {
+            Flex.Smoothlake.FlexLib.Radio radio;
+            VoxPauseOwner.Lease lease;
+            bool waitForOff;
+            lock (_voxPauseGate)
+            {
+                if (_referenceVoxLease != null || theRadio?.Connected != true || !txFilePlayer.HasContent)
+                    return false;
+                radio = theRadio;
+                waitForOff = radio.SimpleVOXEnable;
+                lease = VoxPauses.Acquire(VoxSetting.SimpleVox);
+                if (lease == null) return false;
+                _referenceVoxLease = lease;
+            }
+            try
+            {
+                if (waitForOff)
+                {
+                    await IqQueue(() => { }).ConfigureAwait(false);
+                    if (!await LastVoxWriteReply(VoxSetting.SimpleVox, radio, on: false)
+                        .WaitAsync(SliceVoxOffWait).ConfigureAwait(false)) return FailReferenceArm(lease);
+                }
+                lock (_voxPauseGate)
+                {
+                    if (!ReferenceEquals(radio, theRadio) || radio.SimpleVOXEnable ||
+                        !ReferenceEquals(_referenceVoxLease, lease)) return FailReferenceArm(lease);
+                    TxFileStart();
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("TxReferenceStartAsync: " + ex.Message, TraceLevel.Warning);
+                return FailReferenceArm(lease);
+            }
+        }
+
+        private bool FailReferenceArm(VoxPauseOwner.Lease lease)
+        {
+            lock (_voxPauseGate)
+            {
+                if (ReferenceEquals(_referenceVoxLease, lease)) _referenceVoxLease = null;
+                lease.Dispose();
+                return false;
+            }
+        }
 
         /// <summary>
         /// Start transmitting the loaded recording in place of the
@@ -1713,9 +1768,22 @@ namespace Radios
         /// </remarks>
         public void TxFileStop()
         {
-            Tracing.TraceLine("TxFileStop", TraceLevel.Info);
-            _txFileFlowsWhileReceiving = false;
-            txFilePlayer.Stop();
+            lock (_voxPauseGate)
+            {
+                Tracing.TraceLine("TxFileStop", TraceLevel.Info);
+                _txFileFlowsWhileReceiving = false;
+                txFilePlayer.Stop();
+                // A disarm during an owned transmission stops the samples
+                // immediately, but VOX remains paused until the radio reports
+                // receive. Restoring it on the unkey REQUEST could rekey from
+                // the tail of the source before Mox actually falls.
+                if (!_Transmit)
+                {
+                    var lease = _referenceVoxLease;
+                    _referenceVoxLease = null;
+                    lease?.Dispose();
+                }
+            }
         }
 
         /// <summary>

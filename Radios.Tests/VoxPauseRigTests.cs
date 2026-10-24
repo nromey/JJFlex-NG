@@ -180,6 +180,68 @@ public sealed class VoxPauseRigTests : IDisposable
         Assert.True(f.Vendor.Radio.SimpleVOXEnable);
     }
 
+    [Fact]
+    public async Task Reference_cannot_rekey_a_vox_radio_after_the_transmission_ends()
+    {
+        using var f = new RigOnVendorRadio("reference-vox-rekey");
+        f.AddOwnSlice(0, 14.25, "USB");
+        Set(f.Rig, "_TXVFO", 0);
+        Set(f.Rig, "_IsConnected", true);
+        f.Rig.q.MainLoop = true;
+        f.Vendor.Status("transmit vox_enable=1");
+        f.Rig.TxFilePlayer.Load(new float[48000 * 4], 48000, "reference");
+        f.Vendor.Transport.CommandWritten = command =>
+        {
+            if (command == "transmit set vox_enable=0")
+                f.Vendor.ReplyOk(f.Vendor.LastSequence);
+        };
+
+        var arm = f.Rig.TxReferenceStartAsync();
+        var deadline = DateTime.UtcNow.AddSeconds(3);
+        while (!arm.IsCompleted && DateTime.UtcNow < deadline)
+        {
+            Drain(f.Rig);
+            await Task.Delay(1);
+        }
+        Assert.True(await arm);
+        Assert.True(f.Rig.TxFilePlaying);
+        Assert.False(f.Vendor.Radio.SimpleVOXEnable);
+        f.Rig.Vox = FlexBase.OffOnValues.on;
+        Drain(f.Rig);
+        Assert.False(f.Vendor.Radio.SimpleVOXEnable);
+        Assert.DoesNotContain("transmit set vox_enable=1", f.Vendor.Transport.Commands);
+        // The fake radio would key if an engaged source met enabled VOX.
+        Assert.False(f.Rig.TxFilePlaying && f.Vendor.Radio.SimpleVOXEnable);
+        typeof(FlexBase).GetMethod("noteRadioMox", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(f.Rig, new object[] { true });
+        f.Rig.Transmit = false;
+        Assert.False(f.Rig.TxFilePlaying);
+        Assert.False(f.Vendor.Radio.SimpleVOXEnable);
+        typeof(FlexBase).GetMethod("noteRadioMox", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(f.Rig, new object[] { false });
+        Assert.False(f.Rig.TxFilePlaying);
+        Drain(f.Rig);
+        Assert.True(f.Vendor.Radio.SimpleVOXEnable);
+        Assert.False(f.Rig.TxFilePlaying && f.Vendor.Radio.SimpleVOXEnable);
+    }
+
+    [Fact]
+    public async Task Reference_refuses_to_arm_if_vox_off_is_not_confirmed()
+    {
+        using var f = new RigOnVendorRadio("reference-vox-no-reply");
+        f.AddOwnSlice(0, 14.25, "USB");
+        Set(f.Rig, "_TXVFO", 0);
+        Set(f.Rig, "_IsConnected", true);
+        f.Rig.q.MainLoop = true;
+        f.Rig.SliceVoxOffWait = TimeSpan.FromMilliseconds(30);
+        f.Vendor.Status("transmit vox_enable=1");
+        f.Rig.TxFilePlayer.Load(new float[48000], 48000, "reference");
+        var arm = f.Rig.TxReferenceStartAsync();
+        Drain(f.Rig);
+        Assert.False(await arm);
+        Assert.False(f.Rig.TxFilePlaying);
+    }
+
     private static void Set(FlexBase rig, string name, object value)
         => typeof(FlexBase).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(rig, value);
 

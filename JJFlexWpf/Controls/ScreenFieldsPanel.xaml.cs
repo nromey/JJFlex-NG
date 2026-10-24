@@ -450,8 +450,8 @@ public partial class ScreenFieldsPanel : UserControl
             _audioPipeline.RnnEnabled = true;
             _pcRnnStrengthControl.Visibility = Visibility.Visible;
             _pcRnnVoiceOnlyCheck.Visibility = Visibility.Visible;
-            EarconPlayer.FeatureOnTone();
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.fields.pc_neural_nr_on"), VerbosityLevel.Terse, interrupt: true);
+            ToggleFeedback.Announce("PC Neural NR", true,
+                sentence: Lexicon.Get("audio.fields.pc_neural_nr_on"));
             FindMainWindow()?.PersistDspSettings();
         };
         _pcRnnCheck.Unchecked += (s, e) =>
@@ -460,8 +460,8 @@ public partial class ScreenFieldsPanel : UserControl
             _audioPipeline.RnnEnabled = false;
             _pcRnnStrengthControl.Visibility = Visibility.Collapsed;
             _pcRnnVoiceOnlyCheck.Visibility = Visibility.Collapsed;
-            EarconPlayer.FeatureOffTone();
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.fields.pc_neural_nr_off"), VerbosityLevel.Terse, interrupt: true);
+            ToggleFeedback.Announce("PC Neural NR", false,
+                sentence: Lexicon.Get("audio.fields.pc_neural_nr_off"));
             FindMainWindow()?.PersistDspSettings();
         };
         DspContent.Children.Add(_pcRnnCheck);
@@ -487,16 +487,16 @@ public partial class ScreenFieldsPanel : UserControl
         {
             if (_polling || _audioPipeline == null) return;
             _audioPipeline.RnnAutoDisableNonVoice = true;
-            EarconPlayer.FeatureOnTone();
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.fields.pc_neural_nr_voice_only_on"), VerbosityLevel.Terse, interrupt: true);
+            ToggleFeedback.Announce("Voice only", true,
+                sentence: Lexicon.Get("audio.fields.pc_neural_nr_voice_only_on"));
             FindMainWindow()?.PersistDspSettings();
         };
         _pcRnnVoiceOnlyCheck.Unchecked += (s, e) =>
         {
             if (_polling || _audioPipeline == null) return;
             _audioPipeline.RnnAutoDisableNonVoice = false;
-            EarconPlayer.FeatureOffTone();
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.fields.pc_neural_nr_voice_only_off"), VerbosityLevel.Terse, interrupt: true);
+            ToggleFeedback.Announce("Voice only", false,
+                sentence: Lexicon.Get("audio.fields.pc_neural_nr_voice_only_off"));
             FindMainWindow()?.PersistDspSettings();
         };
         DspContent.Children.Add(_pcRnnVoiceOnlyCheck);
@@ -508,13 +508,11 @@ public partial class ScreenFieldsPanel : UserControl
             _audioPipeline.SpectralEnabled = true;
             _pcSpectralStrengthControl.Visibility = Visibility.Visible;
             _pcSpectralFloorControl.Visibility = Visibility.Visible;
-            EarconPlayer.FeatureOnTone();
             // The no-profile message now names the exit — before this track
             // it announced a dead end no surface in the app could resolve.
-            ScreenReaderOutput.Speak(_audioPipeline.HasNoiseProfile
+            ToggleFeedback.Announce("PC Spectral NR", true, sentence: _audioPipeline.HasNoiseProfile
                 ? Lexicon.Get("audio.fields.pc_spectral_nr_on")
-                : Lexicon.Get("audio.fields.pc_spectral_nr_on_no_profile"),
-                VerbosityLevel.Terse, interrupt: true);
+                : Lexicon.Get("audio.fields.pc_spectral_nr_on_no_profile"));
             FindMainWindow()?.PersistDspSettings();
         };
         _pcSpectralCheck.Unchecked += (s, e) =>
@@ -523,8 +521,8 @@ public partial class ScreenFieldsPanel : UserControl
             _audioPipeline.SpectralEnabled = false;
             _pcSpectralStrengthControl.Visibility = Visibility.Collapsed;
             _pcSpectralFloorControl.Visibility = Visibility.Collapsed;
-            EarconPlayer.FeatureOffTone();
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.fields.pc_spectral_nr_off"), VerbosityLevel.Terse, interrupt: true);
+            ToggleFeedback.Announce("PC Spectral NR", false,
+                sentence: Lexicon.Get("audio.fields.pc_spectral_nr_off"));
             FindMainWindow()?.PersistDspSettings();
         };
         DspContent.Children.Add(_pcSpectralCheck);
@@ -654,8 +652,8 @@ public partial class ScreenFieldsPanel : UserControl
 
         // Meter Tones
         _meterToneCheck = MakeToggle(Lexicon.Get("audio.fields.meter_tones"));
-        _meterToneCheck.Checked += (s, e) => { if (!_polling) { MeterToneEngine.Enabled = true; EarconPlayer.FeatureOnTone(); ScreenReaderOutput.Speak(Lexicon.Get("audio.meters.tones_on"), VerbosityLevel.Terse); } };
-        _meterToneCheck.Unchecked += (s, e) => { if (!_polling) { MeterToneEngine.Enabled = false; EarconPlayer.FeatureOffTone(); ScreenReaderOutput.Speak(Lexicon.Get("audio.meters.tones_off"), VerbosityLevel.Terse); } };
+        _meterToneCheck.Checked += (s, e) => { if (!_polling) { MeterToneEngine.Enabled = true; ToggleFeedback.Announce("Meter tones", true); } };
+        _meterToneCheck.Unchecked += (s, e) => { if (!_polling) { MeterToneEngine.Enabled = false; ToggleFeedback.Announce("Meter tones", false); } };
         DspContent.Children.Add(_meterToneCheck);
 
         _peakWatcherCheck = MakeToggle(Lexicon.Get("audio.fields.peak_watcher"));
@@ -1331,11 +1329,8 @@ public partial class ScreenFieldsPanel : UserControl
     {
         if (_polling || _rig == null) return;
         setter(isOn ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off);
-        if (isOn) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
         // interrupt: true cuts off NVDA's native "checked"/"not checked" announcement
-        ScreenReaderOutput.Speak(
-            sentence ?? Lexicon.Get(isOn ? "audio.fields.toggle_on" : "audio.fields.toggle_off", ("label", label)),
-            VerbosityLevel.Terse, interrupt: true);
+        ToggleFeedback.Announce(label, isOn, sentence: sentence);
     }
 
     /// <summary>
@@ -1392,10 +1387,7 @@ public partial class ScreenFieldsPanel : UserControl
     {
         if (_polling || _rig == null) return;
         setter(isOn);
-        if (isOn) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-        ScreenReaderOutput.Speak(
-            Lexicon.Get(isOn ? "audio.fields.toggle_on" : "audio.fields.toggle_off", ("label", label)),
-            VerbosityLevel.Terse, interrupt: true);
+        ToggleFeedback.Announce(label, isOn);
     }
 
     #endregion

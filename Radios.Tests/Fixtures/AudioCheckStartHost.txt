@@ -96,6 +96,7 @@ public class Host
 }
 public class FlexBase
 {
+    public const int SliceRecordBufferSeconds = 120;
     public enum OffOnValues { off, on }
     public TaskCompletionSource<RecorderOutcome> Record = new();
     public TaskCompletionSource<bool> Arrange = new();

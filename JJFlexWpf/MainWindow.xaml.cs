@@ -2602,6 +2602,10 @@ public partial class MainWindow : UserControl
 
         // Phase 8.8+: Check for unsaved QSO, save LogPanel state
 
+        // Speak before Home becomes visible and focus moves: NVDA then reads
+        // its own Home/field announcement after our mode transition sentence.
+        Radios.ScreenReaderOutput.Speak($"Leaving logging mode, {LastNonLogMode} tuning.",
+            Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Terse);
         ApplyUIMode(LastNonLogMode);
 
         // The mode switch hides Home temporarily. Restore the actual field or
@@ -2613,12 +2617,6 @@ public partial class MainWindow : UserControl
         else
             FocusHome();
 
-        string leaving = Radios.ScreenReaderOutput.CurrentVerbosity == VerbosityLevel.Chatty
-            ? $"Leaving logging mode, {LastNonLogMode} tuning."
-            : $"{LastNonLogMode} tuning";
-        Dispatcher.BeginInvoke(new Action(() =>
-            Radios.ScreenReaderOutput.Speak(leaving, Radios.Speech.SpeechIntent.Queue,
-                VerbosityLevel.Terse)), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
     }
 
     #endregion

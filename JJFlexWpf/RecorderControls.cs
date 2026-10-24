@@ -34,6 +34,14 @@ public static class RecorderControls
 {
     // DRAFT PROSE: a tone arm must fail closed if its VOX lease is unavailable.
     public const string ToneVoxPauseRefusal = "Test tone could not be armed while VOX is active.";
+
+    public static string ToneArmed(int frequency, bool voxWasOn) =>
+        Radios.ScreenReaderOutput.CurrentVerbosity == Radios.VerbosityLevel.Chatty
+            ? $"Test tone armed, {frequency} hertz." + (voxWasOn ? " VOX off." : "")
+            : "Tone armed.";
+
+    public static string ToneDisarmed(bool voxRestored) =>
+        "Test tone disarmed" + (voxRestored ? ", VOX on." : ".");
     public static bool StatusSpeechEnabled { get; set; } = true;
     private static readonly ConditionalWeakTable<FlexBase, object> ObservedRigs = new();
 

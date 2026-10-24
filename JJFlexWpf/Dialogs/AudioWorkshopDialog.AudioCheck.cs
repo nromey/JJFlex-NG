@@ -649,10 +649,18 @@ public partial class AudioWorkshopDialog
     private async Task PlayRadioTakeAsync()
     {
         if (_rig == null) return;
-        RecorderControls.Observe(_rig);
-        var outcome = await _rig.StartSlicePlayAsync(RadioTakeTarget);
+        var rig = _rig;
+        var target = FixedRecorderTarget(rig, RadioTakeTarget);
+        RecorderControls.Observe(rig);
+        var outcome = await rig.StartSlicePlayAsync(target);
         if (outcome.Success)
         {
+            if (_workshopClosing || !ReferenceEquals(rig, _rig))
+            {
+                await RecorderControls.ReportStopFailureAsync(rig.StopSlicePlayAsync(target));
+                return;
+            }
+            _workshopPlayTargets.Add(target);
             if (EarconPlayer.RecorderBeepsEnabled && !outcome.AlreadyInState) EarconPlayer.ConfirmTone();
             ScreenReaderOutput.Speak(Lexicon.Get("audio.check.playing_take"), Radios.Speech.SpeechIntent.Interrupt,
                 VerbosityLevel.Terse, subject: outcome.Subject);
@@ -664,8 +672,45 @@ public partial class AudioWorkshopDialog
     private async Task StopRadioTakeAsync()
     {
         if (_rig == null) return;
-        RecorderControls.Speak(await _rig.StopSlicePlayAsync(RadioTakeTarget));
+        var target = FixedRecorderTarget(_rig, RadioTakeTarget);
+        RecorderControls.Speak(await _rig.StopSlicePlayAsync(target));
+        _workshopPlayTargets.Remove(target);
         SyncPlayTakeLabel();
+    }
+
+    private readonly HashSet<SliceRecorderTarget> _workshopPlayTargets = new();
+    private bool _workshopClosing;
+
+    private static SliceRecorderTarget FixedRecorderTarget(FlexBase rig, SliceRecorderTarget target)
+    {
+        string letter = rig.SliceRecorderLetter(target);
+        return letter.Length > 0 ? SliceRecorderTarget.Letter(letter[0]) : target;
+    }
+
+    /// <summary>Stop the audio this Workshop started before another Ctrl+Enter can start a check.</summary>
+    private bool StopWorkshopPlayback()
+    {
+        bool stopped = false;
+        if (RecordingPlayer.IsPlaying)
+        {
+            RecordingPlayer.Stop();
+            stopped = true;
+        }
+        if (_workshopPlayTargets.Count > 0 && _rig != null)
+        {
+            var targets = new List<SliceRecorderTarget>(_workshopPlayTargets);
+            _workshopPlayTargets.Clear();
+            foreach (var target in targets)
+                _ = RecorderControls.ReportStopFailureAsync(_rig.StopSlicePlayAsync(target));
+            stopped = true;
+        }
+        if (_toneMonitorSounding)
+        {
+            EarconPlayer.StopTxToneMonitor();
+            _toneMonitorSounding = false;
+            stopped = true;
+        }
+        return stopped;
     }
 
     /// <summary>
@@ -704,7 +749,7 @@ public partial class AudioWorkshopDialog
     {
         CloseListenback();
         RecordingPlayer.StateChanged -= OnTakePlaybackStateChanged;
-        if (RecordingPlayer.IsPlaying) RecordingPlayer.Stop();
+        StopWorkshopPlayback();
     }
 
     #endregion
@@ -760,10 +805,9 @@ public partial class AudioWorkshopDialog
         private bool _dummyEngaged;   // WE turned dummy load on; disable restores power
         private int _dummySavedPower; // pre-engage watts, for the spoken restore line
 
-        // The record buffer's 120-second cap, and the warning ten seconds
-        // before it, belong to the recorder surface now
-        // (FlexBase.SliceRecordBufferSeconds): it warns for every recording,
-        // whichever door started it, so this session no longer counts.
+        // The recorder surface gives the ten-second warning for every
+        // recording. This check also caps its own keyed run at the radio's
+        // 120-second buffer, so all of its transmitted audio can play back.
         //
         // Retired 2026-09-07. This was 180, imposed as a session override on
         // top of the operator's own PTT timeout, and EffectiveTimeoutSeconds
@@ -902,17 +946,12 @@ public partial class AudioWorkshopDialog
 
             }
 
-            // No override: the operator's own PTT timeout governs, and the
-            // controller's ladder and hard kill apply unchanged. The controller
-            // documents SessionTimeoutOverrideSeconds as "deliberately the
-            // minimal hook — the session must NOT grow its own safety timer
-            // stack", and a second, stricter number that the operator cannot
-            // reach was exactly that stack in miniature.
-            //
-            // Explicitly null rather than left alone: the controller outlives a
-            // session, so a stale override from a previous one would silently
-            // cap this run.
-            _ptt.SessionTimeoutOverrideSeconds = null;
+            // Only Record and play back has a shorter limit: the radio's
+            // buffer holds 120 seconds. The controller applies the lesser of
+            // this cap and the operator's own PTT timeout, with its normal
+            // warning ladder and hard kill. Other methods have no override.
+            _ptt.SessionTimeoutOverrideSeconds = _method == AudioCheckListenMethods.RecordPlayback
+                ? FlexBase.SliceRecordBufferSeconds : null;
 
             // Key through the controller. Its own key-down announcement fires
             // first; the full safety line follows with interrupt so the
@@ -1303,6 +1342,7 @@ public partial class AudioWorkshopDialog
                 var played = _playStart.IsCompletedSuccessfully ? _playStart.Result : null;
                 if (played?.Success == true)
                 {
+                    _owner._workshopPlayTargets.Add(_recorderTarget);
                     if (EarconPlayer.RecorderBeepsEnabled && !played.AlreadyInState) EarconPlayer.ConfirmTone();
                     ScreenReaderOutput.Speak(
                         "Playing your take.",
@@ -1326,10 +1366,26 @@ public partial class AudioWorkshopDialog
             {
                 RecorderControls.Observe(rig);
                 _playStart = rig.StartSlicePlayAsync(_recorderTarget);
+                _ = StopLatePlaybackAfterCloseAsync(_playStart, rig);
             }
             else if (_awaitPlaybackTicks >= 6)
             {
                 End(Lexicon.Get("audio.check.no_recording_available"));
+            }
+        }
+
+        private async Task StopLatePlaybackAfterCloseAsync(Task<RecorderOutcome> start, FlexBase rig)
+        {
+            try
+            {
+                var outcome = await start;
+                if (outcome.Success && _owner._workshopClosing)
+                    await RecorderControls.ReportStopFailureAsync(rig.StopSlicePlayAsync(_recorderTarget));
+            }
+            catch (Exception ex)
+            {
+                JJTrace.Tracing.TraceLine("Workshop late playback stop: " + ex.Message,
+                    System.Diagnostics.TraceLevel.Warning);
             }
         }
 

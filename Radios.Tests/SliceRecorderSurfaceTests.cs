@@ -279,6 +279,27 @@ public sealed class SliceRecorderSurfaceTests : IDisposable
         Assert.Equal(120, c.F.Rig.SliceRecordingSeconds(SliceRecorderTarget.ActiveSlice));
     }
 
+    [Fact]
+    public void Recorder_attach_does_not_enable_the_telnet_trace_that_breaks_space_less_commands()
+    {
+        using var c = new RadioCase();
+        int before = c.F.Vendor.Radio.SelectedTelnetTraceTopics.Count;
+        c.F.Rig.AttachSliceRecorderStatus(c.F.Vendor.Radio);
+        Assert.Equal(before, c.F.Vendor.Radio.SelectedTelnetTraceTopics.Count);
+        Assert.Empty(c.F.Vendor.Radio.TelnetTraceOutput);
+    }
+
+    [Fact]
+    public async Task Recorder_commands_confirm_without_enabling_telnet_tracing()
+    {
+        using var c = new RadioCase();
+        int before = c.F.Vendor.Radio.SelectedTelnetTraceTopics.Count;
+        Assert.True((await c.Pump(c.F.Rig.StartSliceRecordAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        Assert.Equal(before, c.F.Vendor.Radio.SelectedTelnetTraceTopics.Count);
+        Assert.True((await c.Pump(c.F.Rig.StopSliceRecordAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        Assert.Equal(before, c.F.Vendor.Radio.SelectedTelnetTraceTopics.Count);
+    }
+
     [Theory]
     [InlineData("NaN")]
     [InlineData("Infinity")]
@@ -710,7 +731,8 @@ public sealed class SliceRecorderSurfaceTests : IDisposable
             Assert.False(outcome.Success);
             // This path has a caller awaiting its outcome: return the failed
             // STOP, so a generic start refusal cannot supersede that warning.
-            Assert.Equal(Text(property == "record" ? "audio.recorder.record_stop_unconfirmed" : "audio.recorder.play_stop_unconfirmed", "B"), outcome.Message);
+            Assert.Equal(Text(property == "record" ? "audio.recorder.record_stop_unconfirmed" : "audio.recorder.play_stop_unconfirmed", "B")
+                + (property == "play" ? " VOX remains off until playback stops." : ""), outcome.Message);
             Assert.Empty(heard);
             return;
         }

@@ -525,16 +525,16 @@ public class NativeMenuBar : IDisposable
 
         var current = getter();
         var newVal = Rig.ToggleOffOn(current);
-        if (label == "VOX" && newVal == FlexBase.OffOnValues.on && Rig.TxToneEngaged)
+        if (label == "VOX" && newVal == FlexBase.OffOnValues.on && (Rig.TxToneEngaged || Rig.TxReferenceArmed))
         {
-            SpeakAfterMenuClose("VOX disabled when tone is enabled.");
+            SpeakAfterMenuClose(Rig.TxReferenceArmed
+                ? "VOX disabled when reference is enabled."
+                : "VOX disabled when tone is enabled.");
             return;
         }
         setter(newVal);
-        EarconPlayer.ToggleTone(newVal == FlexBase.OffOnValues.on);
-        SpeakAfterMenuClose(newVal == FlexBase.OffOnValues.on
-            ? Radios.Lexicon.Get("audio.dsp.toggled_on", ("label", label))
-            : Radios.Lexicon.Get("audio.dsp.toggled_off", ("label", label)));
+        ToggleFeedback.Announce(label, newVal == FlexBase.OffOnValues.on,
+            message => SpeakAfterMenuClose(message));
     }
 
     /// <summary>

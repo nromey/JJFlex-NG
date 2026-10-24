@@ -43,7 +43,7 @@ public partial class AudioWorkshopDialog
 {
     #region Reference Audio Section (Sprint 33 Track I)
 
-    private CycleFieldControl? _refPickControl;
+    private ComboBox? _refPickControl;
     private CheckBox? _refArmCheck;
     private Button? _refRecordButton;
     private Button? _refFolderButton;
@@ -62,8 +62,13 @@ public partial class AudioWorkshopDialog
     {
         AddRadioSection(HearYourselfContent, "Reference Audio");
 
-        _refPickControl = MakeCycle("Reference recording", new[] { "(none available)" });
-        _refPickControl.SelectionChanged += (s, idx) =>
+        _refPickControl = new ComboBox
+        {
+            ItemsSource = new[] { "(none available)" }, SelectedIndex = 0,
+            Margin = new Thickness(2), MinWidth = 280
+        };
+        AutomationProperties.SetName(_refPickControl, "Reference recording");
+        _refPickControl.SelectionChanged += (s, e) =>
         {
             if (_polling) return;
             ReferenceSelectionChanged();
@@ -188,11 +193,12 @@ public partial class AudioWorkshopDialog
             if (found >= 0) want = found;
         }
 
-        // One Setup call rather than Setup-then-select: the control raises a
-        // UIA value-change event per call, and a picker that announces itself
-        // twice every time the list is rebuilt is noise, not information.
         _polling = true;
-        try { _refPickControl.Setup("Reference recording", labels.ToArray(), want); }
+        try
+        {
+            _refPickControl.ItemsSource = labels;
+            _refPickControl.SelectedIndex = want;
+        }
         finally { _polling = false; }
 
         UpdateReferenceStatus();
@@ -307,7 +313,7 @@ public partial class AudioWorkshopDialog
     /// <summary>
     /// Arm the reference for real: the path is clear and the radio has said so.
     /// </summary>
-    private void ArmReferenceNow(FlexBase rig, string pathNote)
+    private async void ArmReferenceNow(FlexBase rig, string pathNote)
     {
         // Same guard as the tone's: clearing the path can take up to a second,
         // and an arm nobody still wants must not go through.
@@ -326,7 +332,21 @@ public partial class AudioWorkshopDialog
             return;
         }
 
-        rig.TxFileStart();
+        bool voxWasOn = rig.CurrentVoxSettingIfOn() == FlexBase.VoxSetting.SimpleVox;
+        if (!await rig.TxReferenceStartAsync())
+        {
+            SetReferenceArmSilently(false);
+            RestoreInjectionPath(rig, out _);
+            ScreenReaderOutput.Speak("VOX disabled when reference is enabled.",
+                VerbosityLevel.Critical, interrupt: true);
+            return;
+        }
+        if (!StillWantsToArm(rig, _refArmCheck))
+        {
+            rig.TxFileStop();
+            RestoreInjectionPath(rig, out _);
+            return;
+        }
         _refPassRunning = true;
 
         // #128 sweep audit (2026-08-21): arm answers back, mirroring the test
@@ -335,6 +355,7 @@ public partial class AudioWorkshopDialog
         // every declined path above reverts the checkbox and warns instead.
         EarconPlayer.FeatureOnTone();
         string line = Lexicon.Get("audio.reference.armed", ("recording", _refLastDescription));
+        if (voxWasOn) line += " VOX disabled when reference is enabled.";
         if (!string.IsNullOrEmpty(pathNote)) line += " " + pathNote;
         ScreenReaderOutput.Speak(line, VerbosityLevel.Critical, interrupt: true);
         UpdateReferenceStatus();
@@ -451,12 +472,19 @@ public partial class AudioWorkshopDialog
             // restores it too, exactly as the operator-initiated disarm does.
             // Without this the sentence would have been the lie the whole
             // finding is about.
+            rig.TxFileStop();
             RestoreInjectionPath(rig, out string pathNote);
             string finished = Lexicon.Get("audio.reference.finished");
             if (!string.IsNullOrEmpty(pathNote)) finished += " " + pathNote;
             ScreenReaderOutput.Speak(finished, VerbosityLevel.Terse, interrupt: false);
             SetReferenceArmSilently(false);
             UpdateReferenceStatus();
+            return;
+        }
+
+        if (_refPassRunning && !engaged)
+        {
+            DisarmReference(speak: false);
             return;
         }
 

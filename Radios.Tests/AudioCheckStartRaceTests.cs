@@ -61,7 +61,7 @@ public sealed class AudioCheckStartRaceTests
         var dialog = CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(root, "JJFlexWpf", "Dialogs", "AudioWorkshopDialog.xaml.cs"))).GetRoot();
         var escape = dialog.DescendantNodes().OfType<MethodDeclarationSyntax>().Single(m => m.Identifier.Text == "OnPreviewKeyDown");
         var pendingEscape = escape.DescendantNodes().OfType<IfStatementSyntax>()
-            .Single(x => x.Condition.ToString().Contains("Key.Escape") && x.Condition.ToString().Contains("_checkStarts.IsBusy"));
+            .Single(x => x.Condition.ToString().Contains("Key.Escape") && x.Condition.ToString().Contains("&& _checkStarts.IsBusy"));
         Assert.Contains("CancelCheckStart()", pendingEscape.Statement.ToString());
 
         var setRig = dialog.DescendantNodes().OfType<MethodDeclarationSyntax>().Single(m => m.Identifier.Text == "SetRig");

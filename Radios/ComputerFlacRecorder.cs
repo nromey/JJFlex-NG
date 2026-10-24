@@ -148,7 +148,7 @@ public sealed class ComputerFlacRecorder : IComputerRecorder
         if (string.IsNullOrEmpty(path) || !File.Exists(path))
             return Task.FromResult(Result(false, "There is no computer recording to play."));
         return Task.FromResult(_play(path)
-            ? Result(true, "", RecorderCue.Start) // RecordingPlayer owns the audible start and finish.
+            ? Result(true, "", RecorderCue.PlayStart) // Playback uses the tape-deck click, not record beeps.
             : Result(false, "")); // RecordingPlayer already spoke the refusal.
     }
 

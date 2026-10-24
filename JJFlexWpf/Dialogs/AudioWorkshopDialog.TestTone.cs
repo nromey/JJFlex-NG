@@ -41,6 +41,9 @@ public partial class AudioWorkshopDialog
         _toneCheck = MakeToggle("Test tone instead of microphone");
         _toneCheck.Checked += (s, e) => ToneArmChanged(true);
         _toneCheck.Unchecked += (s, e) => ToneArmChanged(false);
+        JJFlexHelp.SetText(_toneCheck,
+            "The tone replaces your microphone while you transmit. Its level is set in Tone level. "
+            + "Clear this box or press Ctrl+J, Ctrl+G to disarm it. VOX is turned off while the tone is armed.");
         AddToSection(HearYourselfContent, _toneCheck);
 
         _tonePresetControl = MakeCycle("Tone frequency", new[]
@@ -421,11 +424,7 @@ public partial class AudioWorkshopDialog
         // Every key-down anywhere in the app now says the tone is riding it.
         PttSafetyController.KeyDownAnnouncementExtra = () => _instance?.BuildToneAnnouncement();
 
-        var line = new StringBuilder();
-        line.Append(Lexicon.Get("audio.tone.armed", ("freq", freq), ("level", level)));
-        line.Append(' ');
-        line.Append(Lexicon.Get("audio.tone.armed_replaces_mic"));
-        if (!string.IsNullOrEmpty(pathNote)) line.Append(' ').Append(pathNote);
+        var line = new StringBuilder(RecorderControls.ToneArmed(freq, voxWasOn));
         string pb = PassbandCheck(freq, out bool outside);
         if (!string.IsNullOrEmpty(pb)) line.Append(' ').Append(pb);
         _toneOutsideWarned = outside;
@@ -437,9 +436,6 @@ public partial class AudioWorkshopDialog
         if (outside) EarconPlayer.Warning2Beep();
         else EarconPlayer.FeatureOnTone();
         ScreenReaderOutput.Speak(line.ToString(), VerbosityLevel.Critical, interrupt: true);
-        if (voxWasOn)
-            ScreenReaderOutput.Speak("VOX disabled when tone is enabled.", Radios.Speech.SpeechIntent.Queue,
-                VerbosityLevel.Critical);
         UpdateToneStatus(speakIfNewlyOutside: false);
     }
 
@@ -452,7 +448,7 @@ public partial class AudioWorkshopDialog
     private void DisarmTone(bool speak, FlexBase? rig = null)
     {
         FlexBase? live = rig ?? _rig;
-        live?.TxToneStop();
+        bool voxRestored = live?.TxToneStop() == true;
         PttSafetyController.KeyDownAnnouncementExtra = null;
         EarconPlayer.StopTxToneMonitor();
         _toneMonitorSounding = false;
@@ -468,8 +464,7 @@ public partial class AudioWorkshopDialog
         if (speak)
         {
             EarconPlayer.FeatureOffTone();
-            string line = Lexicon.Get("audio.tone.disarmed");
-            if (!string.IsNullOrEmpty(pathNote)) line += " " + pathNote;
+            string line = RecorderControls.ToneDisarmed(voxRestored);
             ScreenReaderOutput.Speak(line, VerbosityLevel.Critical, interrupt: true);
         }
     }
@@ -536,10 +531,7 @@ public partial class AudioWorkshopDialog
         // being enabled — the local monitor — only sounds while armed AND
         // transmitting, so flipping it while unkeyed produces no other
         // audible change at all.
-        EarconPlayer.ToggleTone(on);
-
-        // DELETED: pure state echo of a CheckBox the screen reader already
-        // announces.
+        ToggleFeedback.Announce("Hear the tone while it transmits", on);
         SyncToneMonitor(); // apply immediately, not at the next timer tick
     }
 

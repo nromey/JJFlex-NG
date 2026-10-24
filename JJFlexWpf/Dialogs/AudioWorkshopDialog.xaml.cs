@@ -211,6 +211,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
 
         Closed += (s, e) =>
         {
+            _workshopClosing = true;
             // A session must never outlive its dialog: unkey (through the
             // controller), restore every changed state, stop playback.
             CancelCheckStart();
@@ -265,6 +266,8 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     /// </summary>
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
+        if (e.Key == Key.Escape && !_checkStarts.IsBusy && _session?.Active != true)
+            StopWorkshopPlayback();
         if (e.Key == Key.Escape && _checkStarts.IsBusy)
         {
             if (_checkStarts.IsCancelled)
@@ -285,6 +288,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         if (e.Key == Key.Escape && _session?.Active == true)
         {
             _session.StopCheck();
+            StopWorkshopPlayback();
             e.Handled = true;
             return;
         }
@@ -324,7 +328,12 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                     e.Handled = true;
                     return;
                 case Key.Enter:
-                    ToggleAudioCheck();
+                    if (_session?.Active == true)
+                    {
+                        ToggleAudioCheck();
+                        StopWorkshopPlayback();
+                    }
+                    else if (!StopWorkshopPlayback()) ToggleAudioCheck();
                     e.Handled = true;
                     return;
             }

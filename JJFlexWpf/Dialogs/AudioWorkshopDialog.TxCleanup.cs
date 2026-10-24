@@ -215,11 +215,7 @@ public partial class AudioWorkshopDialog
             TxAudioConditioning.NrEnabled = isOn;
         else
             TxAudioConditioning.GateEnabled = isOn;
-        if (isOn) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-
-        // DELETED: CheckBox ToggleState is announced by the screen reader on
-        // the focused control. The earcon above already marks the change for
-        // anyone not listening to speech.
+        ToggleFeedback.Announce(label, isOn);
         PollTxCleanup();
     }
 

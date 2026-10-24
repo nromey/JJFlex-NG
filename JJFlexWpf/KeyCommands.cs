@@ -6052,14 +6052,14 @@ public class KeyCommands
 
         if (rig.TxToneEngaged)
         {
-            rig.TxToneStop();
+            bool voxRestored = rig.TxToneStop();
             // Clear the key-down rider. If the Workshop installed its own
             // hook it is self-guarded (returns null once disengaged), so a
             // plain clear is safe either way; the Workshop re-installs on
             // its next arm.
             PttSafetyController.KeyDownAnnouncementExtra = null;
             EarconPlayer.FeatureOffTone();
-            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tx_tone.disarmed"),
+            Radios.ScreenReaderOutput.Speak(RecorderControls.ToneDisarmed(voxRestored),
                 Radios.VerbosityLevel.Critical, true);
             return;
         }
@@ -6100,7 +6100,7 @@ public class KeyCommands
         PttSafetyController.KeyDownAnnouncementExtra =
             () => BuildLeaderToneAnnouncement(_context.GetRigControl());
 
-        string line = Radios.Lexicon.Get("audio.tx_tone.armed", ("freq", freq), ("level", level));
+        string line = RecorderControls.ToneArmed(freq, voxWasOn);
         if (freq < rig.TXFilterLow || freq > rig.TXFilterHigh)
         {
             line += Radios.Lexicon.Get("audio.tx_tone.outside_filter_warning",
@@ -6112,9 +6112,6 @@ public class KeyCommands
             EarconPlayer.FeatureOnTone();
         }
         Radios.ScreenReaderOutput.Speak(line, Radios.VerbosityLevel.Critical, true);
-        if (voxWasOn)
-            Radios.ScreenReaderOutput.Speak("VOX disabled when tone is enabled.",
-                Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Critical);
     }
 
     /// <summary>
@@ -6143,18 +6140,7 @@ public class KeyCommands
         var current = getter();
         var newVal = rig.ToggleOffOn(current);
         setter(newVal);
-        if (newVal == FlexBase.OffOnValues.on)
-        {
-            EarconPlayer.FeatureOnTone();
-            Radios.ScreenReaderOutput.Speak(
-                Radios.Lexicon.Get("audio.dsp.toggled_on", ("label", label)), Radios.VerbosityLevel.Terse);
-        }
-        else
-        {
-            EarconPlayer.FeatureOffTone();
-            Radios.ScreenReaderOutput.Speak(
-                Radios.Lexicon.Get("audio.dsp.toggled_off", ("label", label)), Radios.VerbosityLevel.Terse);
-        }
+        ToggleFeedback.Announce(label, newVal == FlexBase.OffOnValues.on);
     }
 
     private void ToggleTuneDebounce()
@@ -6169,16 +6155,7 @@ public class KeyCommands
         }
 
         config.TuneDebounceEnabled = !config.TuneDebounceEnabled;
-        if (config.TuneDebounceEnabled)
-        {
-            EarconPlayer.FeatureOnTone();
-            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.tune_debounce.on"), Radios.VerbosityLevel.Terse);
-        }
-        else
-        {
-            EarconPlayer.FeatureOffTone();
-            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.tune_debounce.off"), Radios.VerbosityLevel.Terse);
-        }
+        ToggleFeedback.Announce("Tune debounce", config.TuneDebounceEnabled);
 
         // Persist immediately.
         var configDir = _context.GetConfigDirectory();

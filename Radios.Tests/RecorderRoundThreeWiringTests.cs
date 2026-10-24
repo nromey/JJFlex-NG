@@ -43,7 +43,7 @@ public sealed class RecorderRoundThreeWiringTests
     public void Both_Audio_Check_replay_doors_use_the_shared_slice_play_gate()
     {
         string check = Source("JJFlexWpf/Dialogs/AudioWorkshopDialog.AudioCheck.cs");
-        Assert.Contains("_rig.StartSlicePlayAsync(RadioTakeTarget)", check);
+        Assert.Contains("rig.StartSlicePlayAsync(RadioTakeTarget)", check);
         Assert.Contains("rig.StartSlicePlayAsync(_recorderTarget)", check);
         Assert.DoesNotContain("SlicePlayOn = true", check);
     }

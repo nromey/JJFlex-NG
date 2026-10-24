@@ -157,7 +157,6 @@ public partial class FlexBase
 
     private readonly Dictionary<Slice, SliceRecorderState> _sliceRecorders = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<int, double> _sliceRadioSeconds = new();
-    private RadioStatusTap _sliceRecorderStatusTap;
     private Radio _sliceRecorderTapRadio;
     public event Action<RecorderOutcome> SlicePlaybackFinished;
     private TransmitChangeDel _sliceRecorderKeyed;
@@ -238,13 +237,13 @@ public partial class FlexBase
     internal void AttachSliceRecorderStatus(Radio radio)
     {
         if (ReferenceEquals(_sliceRecorderTapRadio, radio)) return;
-        _sliceRecorderStatusTap?.Dispose();
-        _sliceRecorderStatusTap = null;
         _sliceRecorderTapRadio = radio;
         lock (_sliceRecorders) _sliceRadioSeconds.Clear();
-        if (radio == null) return;
-        _sliceRecorderStatusTap = new RadioStatusTap(radio);
-        _sliceRecorderStatusTap.Status += raw => ObserveSliceRecorderStatus(radio, raw);
+        AnnounceVoxPauseAfterReconnect(radio);
+        // FlexLib currently discards record_time. Its raw-status trace also
+        // makes space-less commands throw and accumulates every status for
+        // the whole connection. Keep the parser for a future safe source,
+        // but never enable tracing just to read this field.
     }
 
     internal void ObserveSliceRecorderStatus(Radio radio, string raw)
@@ -263,7 +262,9 @@ public partial class FlexBase
         lock (_sliceRecorders)
         {
             if (!ReferenceEquals(_sliceRecorderTapRadio, radio)) return;
+            if (_sliceRadioSeconds.TryGetValue(index, out double previous) && previous == seconds) return;
             _sliceRadioSeconds[index] = seconds;
+            Tracing.TraceLine($"Slice {index} record_time={seconds.ToString(CultureInfo.InvariantCulture)}", TraceLevel.Info);
             foreach (var state in _sliceRecorders.Values)
                 if (ReferenceEquals(state.Radio, radio) && state.Slice.Index == index)
                     state.RadioRecordedSeconds = seconds;
@@ -330,6 +331,15 @@ public partial class FlexBase
             _ => RecorderCue.None
         };
         return new(success, message, Speech.SpeechSubject.SliceRecorder(letter), already, cue);
+    }
+
+    private static RecorderOutcome UnconfirmedPlayStop(string letter, bool onAir)
+    {
+        var outcome = Outcome(false, "audio.recorder.play_stop_unconfirmed", letter);
+        return onAir ? outcome : outcome with
+        {
+            Message = outcome.Message + " VOX remains off until playback stops."
+        };
     }
 
     /// <summary>The letter of the slice this target resolves to now, or empty when none does.</summary>
@@ -489,49 +499,52 @@ public partial class FlexBase
         var connection = state.Connection;
         var reply = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var statusSeen = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var status = new RadioStatusTap(radio);
+        // Slice raises these properties from its normal status parser. Using
+        // them avoids FlexLib's telnet trace, which can throw on a concurrent
+        // space-less command and retains every traced line indefinitely.
         bool sentCommand = false;
         bool? reported = null;
-        status.Status += raw =>
+        PropertyChangedEventHandler onStatus = (_, args) =>
         {
-            // The trailing space prevents slice 10 from confirming slice 1.
-            if (!raw.Contains($"|slice {slice.Index} ", StringComparison.Ordinal)) return;
-            var values = RadioStatusTap.Values(raw);
-            if (!values.TryGetValue(property, out string value)) return;
-            if (value != "0" && value != "1" && !(property == "play" && value == "disabled")) return;
+            if (property == "record" && args.PropertyName != nameof(Slice.RecordOn)) return;
+            if (property == "play" && args.PropertyName is not (nameof(Slice.PlayOn) or nameof(Slice.PlayEnabled))) return;
+            bool value = property == "record" ? slice.RecordOn : slice.PlayOn;
+            if (property == "play" && !slice.PlayEnabled) value = false;
+            if (args.PropertyName == nameof(Slice.PlayEnabled) && value != enabled) return;
             lock (_sliceRecorders)
             {
                 if (!sentCommand || !StateIsLive(state)) return;
-                reported = value == "1";
+                reported = value;
                 if (property == "record") NoteRecording(state, reported.Value);
                 else state.Playing = reported.Value;
                 statusSeen.TrySetResult(true);
             }
         };
-        await IqQueue(() =>
-        {
-            if (!StateIsLive(state) || !ReferenceEquals(radio, theRadio) || !ReferenceEquals(connection, radio.CurrentCommandConnection) ||
-                (property == "play" && enabled && (!PlaybackIntentIsCurrent(state.Intent) || !slice.PlayEnabled)))
-                throw new InvalidOperationException("slice-recorder-connection-or-state-changed");
-            lock (_sliceRecorders)
-            {
-                sentCommand = true;
-                if (property == "record" && enabled)
-                {
-                    state.RecordedSeconds = null;
-                    state.RadioRecordedSeconds = null;
-                    state.RecordStarted = SliceRecorderClock();
-                }
-            }
-            int sent = radio.SendReplyCommand((sequence, code, text) =>
-            {
-                Tracing.TraceLine($"Slice recorder reply: sequence={sequence} code={code:X8} text={text} command={command}", TraceLevel.Info);
-                reply.TrySetResult(code == 0);
-            }, command);
-            Tracing.TraceLine($"Slice recorder sent: sequence={sent} command={command}", TraceLevel.Info);
-        }).ConfigureAwait(false);
+        slice.PropertyChanged += onStatus;
         try
         {
+            await IqQueue(() =>
+            {
+                if (!StateIsLive(state) || !ReferenceEquals(radio, theRadio) || !ReferenceEquals(connection, radio.CurrentCommandConnection) ||
+                    (property == "play" && enabled && (!PlaybackIntentIsCurrent(state.Intent) || !slice.PlayEnabled)))
+                    throw new InvalidOperationException("slice-recorder-connection-or-state-changed");
+                lock (_sliceRecorders)
+                {
+                    sentCommand = true;
+                    if (property == "record" && enabled)
+                    {
+                        state.RecordedSeconds = null;
+                        state.RadioRecordedSeconds = null;
+                        state.RecordStarted = SliceRecorderClock();
+                    }
+                }
+                int sent = radio.SendReplyCommand((sequence, code, text) =>
+                {
+                    Tracing.TraceLine($"Slice recorder reply: sequence={sequence} code={code:X8} text={text} command={command}", TraceLevel.Info);
+                    reply.TrySetResult(code == 0);
+                }, command);
+                Tracing.TraceLine($"Slice recorder sent: sequence={sent} command={command}", TraceLevel.Info);
+            }).ConfigureAwait(false);
             using var timeout = new CancellationTokenSource(SliceRecorderConfirmationWait);
             if (!await reply.Task.WaitAsync(timeout.Token).ConfigureAwait(false)) return false;
             await statusSeen.Task.WaitAsync(timeout.Token).ConfigureAwait(false);
@@ -542,6 +555,7 @@ public partial class FlexBase
             Tracing.TraceLine($"Slice recorder reply/status timeout: {command}", TraceLevel.Warning);
             return false;
         }
+        finally { slice.PropertyChanged -= onStatus; }
     }
 
     private async Task<bool> SendSafelyAsync(SliceRecorderState state, string property, bool enabled)
@@ -735,8 +749,16 @@ public partial class FlexBase
         return WithRecorderAsync(target, state => (state.Playing || state.Slice.PlayOn) ? StopPlayLockedAsync(state, target, owner) : StartPlayLockedAsync(state, target, intent, owner));
     }
 
-    private static void ReleasePlaybackVox(SliceRecorderState state) =>
-        Interlocked.Exchange(ref state.PlaybackVoxLease, null)?.Dispose();
+    private void ReleasePlaybackVox(SliceRecorderState state)
+    {
+        var lease = Interlocked.Exchange(ref state.PlaybackVoxLease, null);
+        if (lease == null) return;
+        // FlexLib status and slice retirement hold _sliceRecorders. A release
+        // takes the VOX owner's gate, whose queued write can synchronously
+        // re-enter slice status. Dispose after the dictionary lock is gone.
+        if (System.Threading.Monitor.IsEntered(_sliceRecorders)) _ = Task.Run(lease.Dispose);
+        else lease.Dispose();
+    }
 
     private async Task<RecorderOutcome> StartPlayLockedAsync(SliceRecorderState state, SliceRecorderTarget target, PlaybackIntent intent, object owner = null)
     {
@@ -799,7 +821,7 @@ public partial class FlexBase
             if (!started)
             {
                 if (!await SendSafelyAsync(state, "play", false).ConfigureAwait(false))
-                    return Outcome(false, "audio.recorder.play_stop_unconfirmed", letter);
+                    return UnconfirmedPlayStop(letter, intent.OnAir);
                 state.Playing = false;
                 ReleasePlaybackVox(state);
                 return Outcome(false, "audio.recorder.play_unconfirmed", letter);
@@ -808,7 +830,7 @@ public partial class FlexBase
             {
                 // The transmission or permission changed while the command was in flight.
                 if (!await SendSafelyAsync(state, "play", false).ConfigureAwait(false))
-                    return Outcome(false, "audio.recorder.play_stop_unconfirmed", letter);
+                    return UnconfirmedPlayStop(letter, intent.OnAir);
                 state.Playing = false;
                 ReleasePlaybackVox(state);
                 return Outcome(false, "audio.recorder.play_intent_changed", letter);

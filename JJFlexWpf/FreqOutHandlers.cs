@@ -160,12 +160,7 @@ public class FreqOutHandlers
     public void ToggleFreqReadout()
     {
         _freqReadout = !_freqReadout;
-        if (_freqReadout) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-        Radios.ScreenReaderOutput.Speak(
-            _freqReadout
-                ? Lexicon.Get("settings.tuning.freq_readout_on")
-                : Lexicon.Get("settings.tuning.freq_readout_off"),
-            VerbosityLevel.Terse, true);
+        ToggleFeedback.Announce("Frequency readout", _freqReadout);
     }
 
     // Tuning speech debounce — rate-limits frequency announcements during rapid tuning
@@ -1718,11 +1713,7 @@ public class FreqOutHandlers
     {
         if (GetSplitVFOs == null || SetSplitVFOs == null) return;
         SetSplitVFOs(!GetSplitVFOs());
-        Radios.ScreenReaderOutput.Speak(
-            GetSplitVFOs()
-                ? Lexicon.Get("settings.split.on")
-                : Lexicon.Get("settings.split.off"),
-            VerbosityLevel.Terse);
+        ToggleFeedback.Announce("Split", GetSplitVFOs());
     }
 
     /// <summary>
@@ -2044,18 +2035,16 @@ public class FreqOutHandlers
             || (ch == 'V' && Keyboard.Modifiers == ModifierKeys.None))
         {
             var newState = Rig.ToggleOffOn(Rig.Vox);
-            if (newState == FlexBase.OffOnValues.on && Rig.TxToneEngaged)
+            if (newState == FlexBase.OffOnValues.on && (Rig.TxToneEngaged || Rig.TxReferenceArmed))
             {
-                Radios.ScreenReaderOutput.Speak("VOX disabled when tone is enabled.", VerbosityLevel.Critical, interrupt: true);
+                Radios.ScreenReaderOutput.Speak(Rig.TxReferenceArmed
+                    ? "VOX disabled when reference is enabled."
+                    : "VOX disabled when tone is enabled.", VerbosityLevel.Critical, interrupt: true);
                 e.Handled = true;
                 return;
             }
             Rig.Vox = newState;
-            Radios.ScreenReaderOutput.Speak(
-                newState == FlexBase.OffOnValues.on
-                    ? Lexicon.Get("settings.vox.on")
-                    : Lexicon.Get("settings.vox.off"),
-                VerbosityLevel.Terse);
+            ToggleFeedback.Announce("VOX", newState == FlexBase.OffOnValues.on);
             e.Handled = true;
         }
 
@@ -2279,15 +2268,7 @@ public class FreqOutHandlers
         if (Rig == null) return;
         var newState = Rig.ToggleOffOn(Rig.Squelch);
         Rig.Squelch = newState;
-        if (newState == FlexBase.OffOnValues.on)
-            EarconPlayer.FeatureOnTone();
-        else
-            EarconPlayer.FeatureOffTone();
-        Radios.ScreenReaderOutput.Speak(
-            newState == FlexBase.OffOnValues.on
-                ? Lexicon.Get("settings.squelch.on")
-                : Lexicon.Get("settings.squelch.off"),
-            VerbosityLevel.Terse, interrupt: true);
+        ToggleFeedback.Announce("Squelch", newState == FlexBase.OffOnValues.on);
     }
 
     /// <summary>

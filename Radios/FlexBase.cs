@@ -7528,6 +7528,7 @@ namespace Radios
             bool oldTransmit = _Transmit;
             if (mox && !oldTransmit && !_tuneCycleActive) beginTxLineWindow();
             _Transmit = mox;
+            if (oldTransmit && !mox && TxReferenceArmed) TxFileStop();
             if (_Transmit != oldTransmit)
             {
                 raiseTransmitChange(_Transmit);
@@ -7979,6 +7980,7 @@ namespace Radios
             set
             {
                 if (!value) CancelSlicePlayback();
+                if (!value && TxReferenceArmed) TxFileStop();
                 q.Enqueue((FunctionDel)(() => { theRadio.Mox = value; }), "Mox");
             }
         }
@@ -10105,9 +10107,11 @@ namespace Radios
             {
                 Slice s = VFOToSlice(TXVFO); // also tests the VFO
                 bool val = (value == OffOnValues.on) ? true : false;
-                if (val && TxToneEngaged)
+                if (val && (TxToneEngaged || TxReferenceArmed))
                 {
-                    ScreenReaderOutput.Speak("VOX disabled when tone is enabled.", VerbosityLevel.Critical, interrupt: true);
+                    ScreenReaderOutput.Speak(TxReferenceArmed
+                        ? "VOX disabled when reference is enabled."
+                        : "VOX disabled when tone is enabled.", VerbosityLevel.Critical, interrupt: true);
                     return;
                 }
                 if (s != null)
