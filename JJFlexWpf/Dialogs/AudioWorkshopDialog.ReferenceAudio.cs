@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Windows;
@@ -333,7 +333,15 @@ public partial class AudioWorkshopDialog
         }
 
         bool voxWasOn = rig.CurrentVoxSettingIfOn() == FlexBase.VoxSetting.SimpleVox;
-        if (!await rig.TxReferenceStartAsync())
+        // The wait for the radio's VOX-off reply is an arm in flight: a ticked
+        // box with nothing engaged yet. Without the pending flag the status
+        // poll reads it as out of step, unticks it, and the arm then cancels
+        // itself silently (bench 2026-10-24).
+        bool started;
+        _injectionArmPending = true;
+        try { started = await rig.TxReferenceStartAsync(); }
+        finally { _injectionArmPending = false; }
+        if (!started)
         {
             SetReferenceArmSilently(false);
             RestoreInjectionPath(rig, out _);

@@ -402,7 +402,13 @@ public partial class AudioWorkshopDialog
         bool voxWasOn = rig.CurrentVoxSettingIfOn() == FlexBase.VoxSetting.SimpleVox;
         rig.TxToneFrequency = freq;
         rig.TxToneLevelDb = level;
-        if (!await rig.TxToneStartAsync())
+        // Same as the reference's arm: the VOX-off wait is an arm in flight,
+        // and the status poll must not untick it meanwhile.
+        bool started;
+        _injectionArmPending = true;
+        try { started = await rig.TxToneStartAsync(); }
+        finally { _injectionArmPending = false; }
+        if (!started)
         {
             if (!StillWantsToArm(rig, _toneCheck))
             {
