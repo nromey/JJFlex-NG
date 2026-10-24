@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 using System.Windows;
 using System.Windows.Automation;
@@ -159,6 +160,8 @@ public partial class AudioWorkshopDialog
         _listenMethodControl.SelectionChanged += (s, idx) =>
         {
             if (_polling) return;
+            if (_pendingOldTakeCancellation != null) CancelPendingOldTake();
+            _oldTakeReadyForSecondPress = null;
             SavePerRadioPrefs();
             // The control announces its own value through the accessibility
                 // tree; this adds only what the tree cannot carry.; add the remote
@@ -211,13 +214,9 @@ public partial class AudioWorkshopDialog
         };
         AutomationProperties.SetName(_playTakeButton, "Play last take");
         JJFlexHelp.SetText(_playTakeButton,
-            "Plays your most recent take back to you. That is whichever came "
-            + "last: the recording the radio made of your transmission during "
-            + "a Record and play back check, which carries your full "
-            + "processing chain, or a take you recorded yourself in Reference "
-            + "Audio above, which is your voice as this computer captured it. "
-            + "Press it again to stop. It says which of the two it is playing, "
-            + "and a take you recorded yourself plays with no radio connected.");
+            "Plays the slice recording with Record and play back, or the off-air take "
+            + "with Off the air. With Monitor, compares the slice, off-air and "
+            + "computer takes by time. Press again to stop.");
         _playTakeButton.Click += (s, e) => PlayLastTake();
         AddToSection(HearYourselfContent, _playTakeButton);
 
@@ -542,61 +541,24 @@ public partial class AudioWorkshopDialog
     }
 
     /// <summary>
-    /// True when the newest take is a FILE in the recordings folder rather than
-    /// the radio's own record buffer. Set when a recording is saved, cleared
-    /// when a Record and play back check fills the buffer.
-    /// </summary>
-    /// <remarks>
-    /// The radio's buffer carries no timestamp, so "which is newer" cannot be
-    /// asked of the two stores directly; this remembers which one last received
-    /// something. It starts false, which makes a freshly opened Workshop prefer
-    /// the radio buffer if it holds anything — the take that carries the
-    /// processing chain is the more valuable of the two, so it wins the tie.
-    /// </remarks>
-    private bool _newestTakeIsAFile;
-
-    /// <summary>
-    /// The slice the last Record and play back check recorded on, so Play last
-    /// take plays THAT slice's buffer even after the operator has moved to
-    /// another slice — recordings are kept per slice.
-    /// Null until a check has recorded; the active slice is used then.
+    /// The slice the last check recorded on. Also tracks the slice chosen for
+    /// playback so a second press stops the same buffer.
     /// </summary>
     private SliceRecorderTarget? _radioTakeTarget;
     private SliceRecorderTarget RadioTakeTarget => _radioTakeTarget ?? SliceRecorderTarget.TransmitSlice;
 
     /// <summary>
-    /// Play the operator's most recent take, or stop the one playing.
+    /// Play the take for the selected listen method, or stop the one playing.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// <b>Task #455, and the whole point of it is that this asks BOTH stores.</b>
-    /// Don, 2026-09-01: he recorded a take, pressed Stop recording, pressed this
-    /// button, and heard "no recordings yet" — while Open recordings folder, one
-    /// section up in this same dialog, showed the files and another program
-    /// played them. Nothing was broken. This method asked the RADIO's quick
-    /// record buffer, which only an audio check ever fills; the folder button
-    /// asked <see cref="RecordingStore"/>, which is where the recorder writes.
-    /// Two buttons, two stores, one word — "take" — and the operator had no way
-    /// to know the word meant different things a few tab stops apart.
-    /// </para>
-    /// <para>
-    /// So there is one question now: what is the last take, wherever it is. The
-    /// radio's buffer is preferred when it is the newer of the two, because it
-    /// carries the full processing chain and that is the more useful answer;
-    /// otherwise the newest file plays here on this computer through
-    /// <see cref="RecordingPlayer"/>. The spoken line always says WHICH, because
-    /// they are recordings of genuinely different things and an operator
-    /// comparing them must never be left guessing which one they just heard.
-    /// </para>
-    /// <para>
-    /// <b>No radio is required.</b> It used to refuse outright without one,
-    /// which was another version of the same disagreement: the recordings folder
-    /// opens with no radio, the files play in other programs with no radio, and
-    /// this is the same folder.
-    /// </para>
+    /// The selected method owns the answer: Record and play back chooses a
+    /// slice buffer; Off the air chooses an IQ take. Monitor makes no take,
+    /// so it compares timestamps across all three stores. A computer file
+    /// remains playable without a connected radio.
     /// </remarks>
     private void PlayLastTake()
     {
+        if (_pendingOldTakeCancellation != null) { CancelPendingOldTake(); return; }
         // Press again to stop, whichever thing is playing.
         if (RecordingPlayer.IsPlaying)
         {
@@ -616,31 +578,74 @@ public partial class AudioWorkshopDialog
             return;
         }
 
-        bool radioHasTake = _rig?.SliceHasRecording(RadioTakeTarget) == true;
+        var (radioTarget, radioTime) = NewestRadioTake();
+        bool radioHasTake = radioTarget != null;
         RecordingStore.RecordingFile? file = RecordingStore.Newest();
-        if (TryPlayNewestIq(file, radioHasTake)) return;
+        string? iqDirectory = NewestIqDirectory();
+        var method = (AudioCheckListenMethods)(_listenMethodControl?.SelectedIndex
+            ?? (int)(_radioCfg?.AudioCheckListenMethod ?? AudioCheckListenMethods.Monitor));
 
-        if (!radioHasTake && file == null)
+        DateTime? iqAt = iqDirectory != null && File.Exists(Path.Combine(iqDirectory, "take.txt"))
+            ? File.GetLastWriteTimeUtc(Path.Combine(iqDirectory, "take.txt")) : null;
+        var choice = TakePlaybackSelector.Choose(method, radioHasTake, radioTime,
+            iqDirectory != null, iqAt, file != null, file?.RecordedLocal.ToUniversalTime());
+        switch (choice)
         {
-            // The one message that used to be a lie. It now names both places
-            // it looked, so an operator who can see files in the folder is
-            // never told they have none.
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.no_recording_yet"),
-                VerbosityLevel.Terse, interrupt: true);
-            return;
+            case TakePlaybackChoice.Slice:
+                _radioTakeTarget = radioTarget;
+                _ = PlayRadioTakeAsync(method == AudioCheckListenMethods.Monitor
+                    ? "This is a slice recording. " : "");
+                return;
+            case TakePlaybackChoice.OffAir:
+                _ = PlayIqAsync(iqDirectory, 0, method == AudioCheckListenMethods.Monitor
+                    ? "This is an off-air take. " : "");
+                return;
+            case TakePlaybackChoice.Computer:
+                _ = PlayComputerTakeAsync(file!, "This is a computer recording. ");
+                return;
+            case TakePlaybackChoice.UnknownTime:
+                ScreenReaderOutput.Speak(
+                    "A take's time is unknown, so I cannot tell which take is newest.",
+                    Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Terse);
+                return;
+            default:
+                if (method == AudioCheckListenMethods.RecordPlayback) SayNoTake("slice");
+                else if (method == AudioCheckListenMethods.OffAir) SayNoTake("off-air");
+                else ScreenReaderOutput.Speak(Lexicon.Get("audio.check.no_recording_yet"),
+                    VerbosityLevel.Terse, interrupt: true);
+                return;
         }
+    }
 
-        bool preferFile = file != null && (!radioHasTake || _newestTakeIsAFile);
-        if (preferFile)
+    private (SliceRecorderTarget? Target, DateTime? MadeUtc) NewestRadioTake()
+    {
+        if (_rig == null) return (null, null);
+        SliceRecorderTarget? fallback = null;
+        SliceRecorderTarget? newest = null;
+        DateTime? newestAt = null;
+        for (char letter = 'A'; letter <= 'Z'; letter++)
         {
-            string announcement = OldTakePrefix(file!.RecordedLocal.ToUniversalTime())
-                + Lexicon.Get("audio.take.playing", ("name", file.Name),
-                    ("length", RecordingStore.DescribeLength(file.Seconds)));
-            RecordingPlayer.Play(file.Path, announcement: announcement, liveRig: _rig);
-            return;
+            var target = SliceRecorderTarget.Letter(letter);
+            if (!_rig.SliceHasRecording(target)) continue;
+            fallback ??= target;
+            if (target == RadioTakeTarget) fallback = target;
+            DateTime? made = _rig.SliceTakeTime(target);
+            if (made != null && (newestAt == null || made > newestAt))
+            { newest = target; newestAt = made; }
         }
+        return (newest ?? fallback, newestAt);
+    }
 
-        _ = PlayRadioTakeAsync();
+    private static void SayNoTake(string kind) => ScreenReaderOutput.Speak(
+        "There is no " + kind + " take to play.", Radios.Speech.SpeechIntent.Interrupt,
+        VerbosityLevel.Terse);
+
+    private async Task PlayComputerTakeAsync(RecordingStore.RecordingFile file, string kind = "")
+    {
+        if (!await WaitForOldTakeDateAsync(file.Path, file.RecordedLocal.ToUniversalTime())) return;
+        if (_workshopClosing) return;
+        RecordingPlayer.Play(file.Path, announcement: kind + Lexicon.Get("audio.take.playing",
+            ("name", file.Name), ("length", RecordingStore.DescribeLength(file.Seconds))), liveRig: _rig);
     }
 
     private static string OldTakePrefix(DateTime madeUtc)
@@ -651,17 +656,63 @@ public partial class AudioWorkshopDialog
         return "This take was made on " + when + ". ";
     }
 
+    private CancellationTokenSource? _pendingOldTakeCancellation;
+    private string? _oldTakeReadyForSecondPress;
+
+    private void CancelPendingOldTake()
+    {
+        _pendingOldTakeCancellation?.Cancel();
+        _oldTakeReadyForSecondPress = null;
+        ScreenReaderOutput.Silence();
+        SyncPlayTakeLabel();
+    }
+
+    private async Task<bool> WaitForOldTakeDateAsync(string takeKey, DateTime madeUtc)
+    {
+        string sentence = OldTakePrefix(madeUtc);
+        if (sentence.Length == 0) return true;
+        takeKey += ":" + madeUtc.Ticks;
+        if (_oldTakeReadyForSecondPress == takeKey)
+        {
+            _oldTakeReadyForSecondPress = null;
+            return true;
+        }
+        using var cancellation = new CancellationTokenSource();
+        _pendingOldTakeCancellation = cancellation;
+        SyncPlayTakeLabel();
+        try
+        {
+            if (await ScreenReaderOutput.SpeakUntilCompletedAsync(sentence, cancellation.Token)) return true;
+            // DRAFT: JAWS and SAPI have no speech-completion signal. A second
+            // press is an explicit start, rather than a guessed speech delay.
+            _oldTakeReadyForSecondPress = takeKey;
+            ScreenReaderOutput.Speak("Press Play again when you are ready to hear this take.",
+                Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse);
+            return false;
+        }
+        catch (OperationCanceledException) { return false; }
+        finally
+        {
+            if (ReferenceEquals(_pendingOldTakeCancellation, cancellation))
+                _pendingOldTakeCancellation = null;
+            SyncPlayTakeLabel();
+        }
+    }
+
     /// <summary>
     /// Play the radio's take through the one recorder surface (#787), which
     /// checks the radio's reply and pauses VOX for local playback. Success keeps
     /// the take's own sentence, which says it is the radio's take and not a
     /// file (#455); a refusal speaks the recorder's sentence.
     /// </summary>
-    private async Task PlayRadioTakeAsync()
+    private async Task PlayRadioTakeAsync(string kind = "")
     {
         if (_rig == null) return;
         var rig = _rig;
         var target = FixedRecorderTarget(rig, RadioTakeTarget);
+        DateTime madeUtc = rig.SliceTakeTime(target) ?? default;
+        if (!await WaitForOldTakeDateAsync("slice:" + rig.SelectedRadioSerial + ":" + rig.SliceRecorderLetter(target), madeUtc)) return;
+        if (_workshopClosing || !ReferenceEquals(rig, _rig)) return;
         RecorderControls.Observe(rig);
         var outcome = await rig.StartSlicePlayAsync(target);
         if (outcome.Success)
@@ -673,7 +724,7 @@ public partial class AudioWorkshopDialog
             }
             _workshopPlayTargets.Add(target);
             if (EarconPlayer.RecorderBeepsEnabled && !outcome.AlreadyInState) EarconPlayer.ConfirmTone();
-            ScreenReaderOutput.Speak(OldTakePrefix(_radioTakeAt) + Lexicon.Get("audio.check.playing_take"), Radios.Speech.SpeechIntent.Interrupt,
+            ScreenReaderOutput.Speak(kind + Lexicon.Get("audio.check.playing_take"), Radios.Speech.SpeechIntent.Interrupt,
                 VerbosityLevel.Terse, subject: outcome.Subject);
         }
         else RecorderControls.Speak(outcome);
@@ -702,6 +753,11 @@ public partial class AudioWorkshopDialog
     private bool StopWorkshopPlayback()
     {
         bool stopped = false;
+        if (_pendingOldTakeCancellation != null)
+        {
+            CancelPendingOldTake();
+            stopped = true;
+        }
         if (RecordingPlayer.IsPlaying)
         {
             RecordingPlayer.Stop();
@@ -743,7 +799,8 @@ public partial class AudioWorkshopDialog
     private void SyncPlayTakeLabel()
     {
         if (_playTakeButton == null) return;
-        bool playing = RecordingPlayer.IsPlaying || _rig?.IsSlicePlaying(RadioTakeTarget) == true;
+        bool playing = _pendingOldTakeCancellation != null || RecordingPlayer.IsPlaying ||
+            _rig?.IsSlicePlaying(RadioTakeTarget) == true;
         string label = playing ? "Stop playing" : "Play last take";
         if ((_playTakeButton.Content as string) == label) return;
         _playTakeButton.Content = label;
@@ -761,6 +818,7 @@ public partial class AudioWorkshopDialog
         CloseListenback();
         RecordingPlayer.StateChanged -= OnTakePlaybackStateChanged;
         StopWorkshopPlayback();
+        _oldTakeReadyForSecondPress = null;
     }
 
     #endregion
@@ -1186,10 +1244,6 @@ public partial class AudioWorkshopDialog
                 {
                     _recordStop = rig.StopSliceRecordAsync(_recorderTarget);
                     msg.Append(' ').Append(Lexicon.Get("audio.check.playing_take_shortly"));
-                    // The radio just took a take, so it is now the newer of the
-                    // two stores Play last take chooses between (#455).
-                    _owner._newestTakeIsAFile = false;
-                    _owner._radioTakeAt = DateTime.UtcNow;
                     _owner._radioTakeTarget = _recorderTarget;
                 }
 

@@ -152,6 +152,10 @@ public partial class FlexBase
         internal VoxPauseOwner.Lease PlaybackVoxLease;
         internal double? RecordStarted, RecordedSeconds;
         internal double? RadioRecordedSeconds;
+        internal bool AppRecording;
+        internal int TakeGeneration;
+        internal DateTime? AppTakeAt;
+        internal double? AppTakeSeconds;
         internal bool PlayStopRequested;
     }
 
@@ -222,6 +226,55 @@ public partial class FlexBase
                 return Math.Clamp(SliceRecorderClock() - start, 0, SliceRecordBufferSeconds);
             return slice.PlayEnabled ? state.RecordedSeconds : null;
         }
+    }
+
+    /// <summary>Time of this app's take only if this radio still reports its duration.</summary>
+    public DateTime? SliceTakeTime(SliceRecorderTarget target)
+    {
+        var slice = ResolveSliceRecorderTarget(target);
+        if (!SliceRecorderTargetIsOurs(slice) || !slice.PlayEnabled) return null;
+        string serial = theRadio?.Serial;
+        if (string.IsNullOrEmpty(serial)) return null;
+        double? seconds = ReportedSliceRecordingSeconds(slice);
+        lock (_sliceRecorders)
+            if (_sliceRecorders.TryGetValue(slice, out var state) && state.AppTakeAt is DateTime made &&
+                seconds is double current && state.AppTakeSeconds is double recorded &&
+                Math.Abs(current - recorded) <= 0.1) return made;
+        return RadioConfig.LoadForRadio(serial).TrustedSliceTakeTime(LetterOf(slice), seconds);
+    }
+
+    private static double? ReportedSliceRecordingSeconds(Slice slice) =>
+        double.TryParse(slice.RecordTimeRaw, NumberStyles.Float, CultureInfo.InvariantCulture, out double seconds) &&
+        double.IsFinite(seconds) && seconds > 0 ? Math.Min(seconds, SliceRecordBufferSeconds) : null;
+
+    private void SaveSliceTakeStamp(SliceRecorderState state)
+    {
+        int generation = state.TakeGeneration;
+        string letter = LetterOf(state.Slice);
+        string serial = state.Radio.Serial;
+        DateTime madeUtc = DateTime.UtcNow;
+        _ = Task.Run(async () =>
+        {
+            // record_time and play-enabled can follow the record=0 status.
+            for (int attempt = 0; attempt < 20; attempt++)
+            {
+                if (state.Retired || state.TakeGeneration != generation || state.Slice.RecordOn) return;
+                if (state.Slice.PlayEnabled && ReportedSliceRecordingSeconds(state.Slice) is double seconds)
+                {
+                    lock (_sliceRecorders)
+                    {
+                        if (state.Retired || state.TakeGeneration != generation) return;
+                        state.AppTakeAt = madeUtc;
+                        state.AppTakeSeconds = seconds;
+                    }
+                    if (!RadioConfig.RecordSliceTake(serial, letter, seconds, madeUtc))
+                        Tracing.TraceLine($"Slice {letter} take time not saved for {serial}", TraceLevel.Warning);
+                    return;
+                }
+                await Task.Delay(50).ConfigureAwait(false);
+            }
+            Tracing.TraceLine($"Slice {letter} take time not saved: radio did not report record_time", TraceLevel.Warning);
+        });
     }
 
     private void NoteRecording(SliceRecorderState state, bool recording)
@@ -477,6 +530,7 @@ public partial class FlexBase
             if (property == nameof(Slice.RecordOn) && !state.Slice.RecordOn && state.Recording)
             {
                 NoteRecording(state, false);
+                if (state.AppRecording) { state.AppRecording = false; SaveSliceTakeStamp(state); }
                 state.CapWarning?.Dispose();
                 state.CapWarning = null;
             }
@@ -702,6 +756,10 @@ public partial class FlexBase
             state.Recording = false;
             return Outcome(false, "audio.recorder.record_unconfirmed", letter);
         }
+        state.TakeGeneration++;
+        state.AppRecording = true;
+        state.AppTakeAt = null;
+        state.AppTakeSeconds = null;
         lock (_sliceRecorders)
             if (StateIsLive(state)) ArmCapWarning(state);
         // DRAFT PROSE (#787): awaiting Noel
@@ -718,6 +776,7 @@ public partial class FlexBase
             return Outcome(true, "audio.recorder.recording_stopped", letter, already: true);
         if (!await SendSafelyAsync(state, "record", false).ConfigureAwait(false))
             return Outcome(false, "audio.recorder.record_stop_unconfirmed", letter);
+        if (state.AppRecording) { state.AppRecording = false; SaveSliceTakeStamp(state); }
         state.Recording = false;
         state.CapWarning?.Dispose();
         state.CapWarning = null;
@@ -800,6 +859,7 @@ public partial class FlexBase
                 // "Record that, now play it back": stop the recording first.
                 if (!await SendSafelyAsync(state, "record", false).ConfigureAwait(false))
                     return Outcome(false, "audio.recorder.record_stop_unconfirmed", letter);
+                if (state.AppRecording) { state.AppRecording = false; SaveSliceTakeStamp(state); }
                 state.Recording = false;
                 state.CapWarning?.Dispose();
                 state.CapWarning = null;

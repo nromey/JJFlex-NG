@@ -68,6 +68,14 @@ namespace Radios
         OffAir = 2,
     }
 
+    /// <summary>The last take this app made in one of the radio's slice buffers.</summary>
+    public sealed class SliceTakeStamp
+    {
+        public string Letter { get; set; } = "";
+        public DateTime MadeUtc { get; set; }
+        public double RecordedSeconds { get; set; }
+    }
+
     /// <summary>
     /// What PC audio (radio audio through this computer) should do when this
     /// radio connects (Threads Track, 2026-08-12). Numeric values are stable
@@ -448,6 +456,33 @@ namespace Radios
         /// </summary>
         public AudioCheckListenMethods AudioCheckListenMethod { get; set; }
             = AudioCheckListenMethods.Monitor;
+
+        /// <summary>App-made slice take times. A time is usable only while the radio
+        /// reports the same recorded duration; another client can replace a take.</summary>
+        public List<SliceTakeStamp> SliceTakeStamps { get; set; } = new();
+
+        public DateTime? TrustedSliceTakeTime(string letter, double? radioSeconds)
+        {
+            if (radioSeconds is not double seconds || !double.IsFinite(seconds) || seconds <= 0)
+                return null;
+            var stamp = SliceTakeStamps?.LastOrDefault(s =>
+                string.Equals(s.Letter, letter, StringComparison.OrdinalIgnoreCase));
+            return stamp != null && stamp.MadeUtc.Kind == DateTimeKind.Utc &&
+                Math.Abs(stamp.RecordedSeconds - seconds) <= 0.1 ? stamp.MadeUtc : null;
+        }
+
+        public static bool RecordSliceTake(string radioId, string letter, double seconds, DateTime madeUtc)
+        {
+            if (string.IsNullOrWhiteSpace(letter) || !double.IsFinite(seconds) || seconds <= 0 ||
+                madeUtc.Kind != DateTimeKind.Utc) return false;
+            return Update(radioId, cfg =>
+            {
+                cfg.SliceTakeStamps ??= new List<SliceTakeStamp>();
+                cfg.SliceTakeStamps.RemoveAll(s => string.Equals(s.Letter, letter, StringComparison.OrdinalIgnoreCase));
+                cfg.SliceTakeStamps.Add(new SliceTakeStamp
+                    { Letter = letter.ToUpperInvariant(), RecordedSeconds = seconds, MadeUtc = madeUtc });
+            });
+        }
 
         /// <summary>
         /// SUPERSEDED by <see cref="AudioCheckPowerMode"/> (Workshop Track,

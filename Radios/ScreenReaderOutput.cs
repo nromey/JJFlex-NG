@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 using JJTrace;
 
@@ -303,6 +304,28 @@ namespace Radios
 
         /// <summary>The delivery thread and its queue. Created on the first utterance a channel can carry; null until then.</summary>
         private static Speech.PacedSpeechDelivery? _pump;
+        private sealed class CompletionRequest
+        {
+            public readonly TaskCompletionSource<bool> Result =
+                new(TaskCreationOptions.RunContinuationsAsynchronously);
+            public bool Registered;
+        }
+        private static readonly AsyncLocal<CompletionRequest?> _completionRequest = new();
+        private static readonly object _completionGate = new();
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<long, TaskCompletionSource<bool>>
+            _completionWaiters = new();
+
+        /// <summary>True only when the reader reports that this exact sentence finished.
+        /// A missing channel or a cancelled utterance is never treated as completion.</summary>
+        public static async Task<bool> SpeakUntilCompletedAsync(string message, CancellationToken cancellationToken = default)
+        {
+            var request = new CompletionRequest();
+            _completionRequest.Value = request;
+            try { Speak(message, Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical); }
+            finally { _completionRequest.Value = null; }
+            if (!request.Registered) return false;
+            return await request.Result.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
 
         /// <summary>Caller holds <see cref="_backendLock"/>.</summary>
         private static Speech.PacedSpeechDelivery PumpLocked()
@@ -364,6 +387,9 @@ namespace Radios
         /// </summary>
         private static void OnPacedOutcome(long ticket, string message, Speech.SpeechOutcome outcome)
         {
+            lock (_completionGate)
+                if (_completionWaiters.TryRemove(ticket, out var waiter))
+                    waiter.TrySetResult(outcome.WasHeard);
             try { _arbiter.OnOutcome(ticket, message, outcome); }
             catch (Exception ex)
             {
@@ -676,9 +702,17 @@ namespace Radios
                             if (channel != null)
                             {
                                 var pump = PumpLocked();
-                                ticket = interrupt
-                                    ? pump.Interrupt(channel, message)
-                                    : pump.Enqueue(channel, message);
+                                lock (_completionGate)
+                                {
+                                    ticket = interrupt
+                                        ? pump.Interrupt(channel, message)
+                                        : pump.Enqueue(channel, message);
+                                    if (_completionRequest.Value is { } request)
+                                    {
+                                        _completionWaiters[ticket] = request.Result;
+                                        request.Registered = true;
+                                    }
+                                }
                                 delivery = Speech.SpeechDelivery.Accepted;
                             }
                             else

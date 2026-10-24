@@ -288,6 +288,23 @@ public sealed class SliceRecorderSurfaceTests : IDisposable
     }
 
     [Fact]
+    public async Task App_take_time_is_saved_and_rejected_when_radio_duration_changes()
+    {
+        const string serial = "1234-5678-6300-0001";
+        using var c = new RadioCase(serial);
+        c.F.Rig.AttachSliceRecorderStatus(c.F.Vendor.Radio);
+        c.F.Vendor.Status("slice 1 play=disabled");
+        Assert.True((await c.Pump(c.F.Rig.StartSliceRecordAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        Assert.True((await c.Pump(c.F.Rig.StopSliceRecordAsync(SliceRecorderTarget.ActiveSlice))).Success);
+        c.F.Vendor.Status("slice 1 record_time=12.5 play=0");
+        Assert.True(await c.Pump(WaitUntil(() =>
+            RadioConfig.LoadForRadio(serial).TrustedSliceTakeTime("B", 12.5) != null)));
+        Assert.NotNull(c.F.Rig.SliceTakeTime(SliceRecorderTarget.ActiveSlice));
+        c.F.Vendor.Status("slice 1 record_time=19.0 play=0");
+        Assert.Null(c.F.Rig.SliceTakeTime(SliceRecorderTarget.ActiveSlice));
+    }
+
+    [Fact]
     public void Recorder_attach_does_not_enable_the_telnet_trace_that_breaks_space_less_commands()
     {
         using var c = new RadioCase();

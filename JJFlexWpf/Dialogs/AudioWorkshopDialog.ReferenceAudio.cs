@@ -466,16 +466,10 @@ public partial class AudioWorkshopDialog
     /// A take just landed. Put it in the list and select it, so the obvious
     /// next thing — sending it — is one arm away.
     /// </summary>
-    /// <remarks>
-    /// It also becomes the newest take, which is what Play last take now plays
-    /// (#455). Before that, the take an operator had this second was invisible
-    /// to the only button in the dialog offering to play one.
-    /// </remarks>
     private void OnRecordingSaved(string path)
     {
         Dispatcher.BeginInvoke(new Action(() =>
         {
-            _newestTakeIsAFile = true;
             RefreshReferenceList(selectPath: path);
         }));
     }

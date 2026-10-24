@@ -80,30 +80,27 @@ namespace Radios.Tests
         // ── #455 ────────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Play last take must consult the recordings folder as well as the
-        /// radio, and must not say there is nothing until it has asked both.
+        /// Monitor considers all three stores; a chosen take-making method
+        /// answers only for its own kind and never silently substitutes one.
         /// </summary>
         [Fact]
-        public void PlayLastTakeAsksBothStoresBeforeSayingThereIsNoTake()
+        public void PlayLastTakeFollowsTheMethodAndMonitorConsidersAllStores()
         {
             string body = MethodBody(ReadWorkshop("AudioCheck"), "private void PlayLastTake()");
-
-            int radio = body.IndexOf("SliceHasRecording", StringComparison.Ordinal);
+            string radioChoice = MethodBody(ReadWorkshop("AudioCheck"),
+                "private (SliceRecorderTarget? Target, DateTime? MadeUtc) NewestRadioTake()");
+            Assert.Contains("SliceHasRecording", radioChoice, StringComparison.Ordinal);
+            int radio = body.IndexOf("NewestRadioTake()", StringComparison.Ordinal);
             int folder = body.IndexOf("RecordingStore.Newest", StringComparison.Ordinal);
+            int iq = body.IndexOf("NewestIqDirectory", StringComparison.Ordinal);
             int denial = body.IndexOf("audio.check.no_recording_yet", StringComparison.Ordinal);
-
-            Assert.True(radio >= 0,
-                "Play last take no longer asks the radio's record buffer, so a take made by a "
-                + "Record and play back check has become unreachable from the button that offers "
-                + "to play it. See task #455.");
-            Assert.True(folder >= 0,
-                "Play last take no longer asks RecordingStore, which is the store Open recordings "
-                + "folder opens and the store the recorder writes to. That is exactly the split "
-                + "that made this button tell Don he had no recordings while his files sat in the "
-                + "folder. See task #455.");
-            Assert.True(denial > radio && denial > folder,
-                "Play last take announces that there is no take before it has finished asking both "
-                + "stores. The message is only honest after both have said no. See task #455.");
+            Assert.True(radio >= 0 && folder >= 0 && iq >= 0 && denial > radio &&
+                denial > folder && denial > iq,
+                "Monitor must consult the slice, computer and IQ stores before saying none exists.");
+            Assert.Contains("method == AudioCheckListenMethods.OffAir", body, StringComparison.Ordinal);
+            Assert.Contains("method == AudioCheckListenMethods.RecordPlayback", body, StringComparison.Ordinal);
+            Assert.Contains("SayNoTake(\"off-air\")", body, StringComparison.Ordinal);
+            Assert.Contains("SayNoTake(\"slice\")", body, StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -132,6 +129,18 @@ namespace Radios.Tests
         {
             string body = MethodBody(ReadWorkshop("AudioCheck"), "private void PlayLastTake()");
             Assert.DoesNotContain("audio.no_radio_connected", body, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void OldTakeWaitsForReaderCompletionAndStopCancelsTheWait()
+        {
+            string source = ReadWorkshop("AudioCheck");
+            string wait = MethodBody(source,
+                "private async Task<bool> WaitForOldTakeDateAsync(string takeKey, DateTime madeUtc)");
+            string stop = MethodBody(source, "private bool StopWorkshopPlayback()");
+            Assert.Contains("SpeakUntilCompletedAsync", wait, StringComparison.Ordinal);
+            Assert.DoesNotContain("Task.Delay", wait, StringComparison.Ordinal);
+            Assert.Contains("CancelPendingOldTake()", stop, StringComparison.Ordinal);
         }
 
         // ── #458 ────────────────────────────────────────────────────────────
