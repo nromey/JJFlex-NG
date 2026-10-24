@@ -617,7 +617,8 @@ public sealed class RecordedQsosDialog : JJFlexDialog
     {
         var q = _browser.Current;
         if (q == null) { Refuse(Lexicon.Get("audio.qsos.nothing_selected")); return; }
-        if (CurrentIsStillRecording || _exporting.Contains(q.Path)) { Refuse(Lexicon.Get("audio.qsos.still_recording")); return; }
+        if (CurrentIsStillRecording) { Refuse(Lexicon.Get("audio.qsos.still_recording")); return; }
+        if (_exporting.Contains(q.Path)) { Refuse(Lexicon.Get("audio.qsos.being_saved")); return; }
         bool fromList = _list.IsKeyboardFocusWithin;
         DateTime now = DateTime.Now;
         var confirm = new ConfirmActionDialog(

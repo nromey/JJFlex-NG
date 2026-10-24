@@ -176,7 +176,7 @@ public sealed class RecordedQsoBrowserTests
             "audio.qsos.refused_failed", "audio.qsos.prune_preview_none", "audio.qsos.pruned_one",
             "audio.qsos.saveas_saving", "audio.qsos.saveas_no_name", "audio.qsos.saveas_bad_name",
             "audio.qsos.saveas_same_file", "audio.qsos.saveas_no_folder", "audio.qsos.saveas_mp3_unavailable",
-            "audio.qsos.saveas_m4a_unavailable",
+            "audio.qsos.saveas_m4a_unavailable", "audio.qsos.being_saved",
         };
         foreach (string key in spoken)
         {

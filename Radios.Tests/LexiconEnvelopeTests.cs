@@ -1726,6 +1726,7 @@ namespace Radios.Tests
                 "audio.qsos.size_kilobytes",
                 "audio.qsos.size_megabytes",
                 "audio.qsos.size_gigabytes",
+                "audio.qsos.being_saved",
             };
 
             Assert.Equal(3141, unclassified);

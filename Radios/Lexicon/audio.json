@@ -1238,5 +1238,6 @@
   "audio.qsos.saveas_type_help": {"text": "Choosing a type changes the end of the file name to match, and typing a name ending in .flac, .wav, .mp3, .opus or .m4a chooses that type.", "delivery": null},
   "audio.qsos.size_kilobytes": {"text": "{n} kilobytes", "delivery": null},
   "audio.qsos.size_megabytes": {"text": "{n} megabytes", "delivery": null},
-  "audio.qsos.size_gigabytes": {"text": "{n} gigabytes", "delivery": null}
+  "audio.qsos.size_gigabytes": {"text": "{n} gigabytes", "delivery": null},
+  "audio.qsos.being_saved": {"text": "That recording is being saved as another file. Try again when it has finished.", "delivery": null}
 }
