@@ -51,7 +51,7 @@ public sealed class ListenbackSetupSentenceTests
         });
         Assert.Equal(
             "Your transmit filter was 100 to 2900 hertz on your last take and is 200 to 2700 hertz on this one. " +
-            "Your RF power was 1 watts on your last take and is 5 watts on this one. " +
+            "Your RF power was 1 watt on your last take and is 5 watts on this one. " +
             "Your microphone profile was Default on your last take and is Heil PR 781 on this one.",
             ListenbackResultText.SetupChanges(compared));
     }

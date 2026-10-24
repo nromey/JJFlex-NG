@@ -150,6 +150,10 @@ public partial class AudioWorkshopDialog
         };
         AddToSection(HearYourselfContent, _pcLevelNote);
 
+        // "Tell me how my sound changed compared to my last take" comes just
+        // before the listen method (Noel, 2026-10-22 07:01).
+        BuildComparisonChoice();
+
         _listenMethodControl = MakeCycle("Listen method",
             new[] { "Monitor", "Record and play back", Lexicon.Get("audio.iq.listen_method") });
         _listenMethodControl.SelectionChanged += (s, idx) =>

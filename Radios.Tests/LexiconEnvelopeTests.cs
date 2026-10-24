@@ -1300,6 +1300,14 @@ namespace Radios.Tests
                 "audio.iq.setup_mic_input",
                 "audio.iq.setup_pc_microphone",
                 "audio.iq.no_mic_profile",
+                // Round 14 bench (Noel, 2026-10-22 07:10): the automatic comparison
+                // stays inside this session, and a manual one reaching an older take
+                // says which session it came from. DRAFT PROSE, TextOnly as above.
+                "audio.iq.first_of_session",
+                "audio.iq.earlier_session",
+                "audio.iq.when_today",
+                "audio.iq.when_yesterday",
+                "audio.iq.when_date",
 
                 // #787 Tape Deck track 2: the ONE slice recorder surface's
                 // sentences, spoken by every door (Home, the Slice menu, the

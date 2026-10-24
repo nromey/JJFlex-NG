@@ -96,12 +96,6 @@ public partial class AudioWorkshopDialog
 
         // The tone starts off, so its controls start hidden (round 14).
         UpdateToneControlsVisibility();
-
-        // "Tell me how my sound changed compared to my last take" closes this
-        // section: after the tone's controls and before Reference Audio and
-        // the Audio Check's listen method. See BuildComparisonChoice for why
-        // it lives here and not in Listen-back.
-        BuildComparisonChoice();
     }
 
     /// <summary>
@@ -140,6 +134,13 @@ public partial class AudioWorkshopDialog
     private void UpdateToneControlsVisibility()
     {
         bool on = _rig?.TxToneEngaged == true || _toneCheck?.IsChecked == true;
+        // A tone disarmed from outside (the chord) while focus sits on one of
+        // these controls would collapse the focused control under the reader;
+        // focus goes to the tone checkbox instead (Codex's round 14 check).
+        if (!on && _toneCheck != null && (_tonePresetControl?.IsKeyboardFocusWithin == true ||
+            _toneFreqControl?.IsKeyboardFocusWithin == true || _toneLevelControl?.IsKeyboardFocusWithin == true ||
+            _toneMonitorCheck?.IsKeyboardFocusWithin == true))
+            _toneCheck.Focus();
         var shown = on ? Visibility.Visible : Visibility.Collapsed;
         if (_tonePresetControl != null) _tonePresetControl.Visibility = shown;
         if (_toneLevelControl != null) _toneLevelControl.Visibility = shown;
@@ -346,6 +347,10 @@ public partial class AudioWorkshopDialog
         if (!armed)
         {
             DisarmTone(speak: true);
+            // The check above ran while the engine still had the tone on, so
+            // it left the controls showing; SyncToneArmUi will not correct
+            // them, because box and engine now agree (round 14 bench, 06:57).
+            UpdateToneControlsVisibility();
             return;
         }
 

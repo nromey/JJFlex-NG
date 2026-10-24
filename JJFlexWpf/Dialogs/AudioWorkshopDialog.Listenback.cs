@@ -69,8 +69,8 @@ public partial class AudioWorkshopDialog
             IsChecked = false, Margin = new Thickness(2) };
         AddToSection(HearYourselfContent, _iqHearSelfDuringTake);
         // The comparison box used to be built here, between "Hear yourself
-        // during the take" and the antenna. Round 14 moved it up into the Test
-        // Tone section (BuildComparisonChoice, called from BuildTestToneSection).
+        // during the take" and the antenna. It now sits in the Audio Check
+        // section just before the listen method (BuildComparisonChoice).
         _iqAntenna = new ComboBox { Margin = new Thickness(2) };
         AutomationProperties.SetName(_iqAntenna, Lexicon.Get("audio.iq.antenna_label"));
         JJFlexHelp.SetText(_iqAntenna, Lexicon.Get("audio.iq.antenna_help"));
@@ -106,13 +106,12 @@ public partial class AudioWorkshopDialog
     /// <summary>
     /// "Tell me how my sound changed compared to my last take": the choice
     /// that, after an off-air take has played back, compares it with the take
-    /// before and says what changed. Built INTO the Test Tone section, right
-    /// after the tone's own controls, rather than down in Listen-back where it
-    /// sat until round 14 (Noel, 2026-10-21 20:12: "move the checkbox closer to
-    /// the test tone so it's before the listen source"). It belongs beside the
-    /// tone because the two choices are made together at the start of a take:
-    /// tone or voice, and whether to compare. Round 14's gate makes the pairing
-    /// honest, since a tone take is never compared with a voice take.
+    /// before and says what changed. Built into the Audio Check section, just
+    /// before the listen method (Noel at the round 14 bench, 2026-10-22 07:01,
+    /// "yep"): it belongs to takes, not to the tone. Round 14 had first put it
+    /// at the end of the Test Tone section (Noel, 2026-10-21 20:12, "before the
+    /// listen source"), and at the bench it read as part of the tone. It still
+    /// comes before the listen source, which is what that ruling asked.
     ///
     /// <para>The tick is remembered per radio with the Audio Check's other
     /// choices (<see cref="SavePerRadioPrefs"/>, <see cref="LoadPerRadioPrefs"/>):
@@ -351,7 +350,10 @@ public partial class AudioWorkshopDialog
                     if (_iqAutoCompare?.IsChecked == true)
                     {
                         _pendingAutoPlayback = heardPath;
-                        _pendingAutoPrevious = previousDirectory;
+                        // Only a take from this session is compared automatically
+                        // (Noel, 2026-10-22 07:10); the first take of a session gets none.
+                        _pendingAutoPrevious = previousDirectory != null &&
+                            TakeSession.IsThisSession(previousDirectory, SessionStartUtc) ? previousDirectory : null;
                     }
                     string shortSummary = Lexicon.Get("audio.iq.take_summary_short",
                         ("state", IqStateText(take.State)), ("seconds", seconds));
@@ -417,6 +419,10 @@ public partial class AudioWorkshopDialog
             .Where(d => File.Exists(Path.Combine(d, "heard.wav")))
             .OrderByDescending(d => File.GetLastWriteTimeUtc(Path.Combine(d, "take.txt"))).FirstOrDefault();
     }
+    /// <summary>When this run of the app began: the start of the session the
+    /// automatic comparison is confined to (<see cref="TakeSession"/>).</summary>
+    private static readonly DateTime SessionStartUtc =
+        System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime();
     private static string? PreviousIqDirectory(string current)
     {
         string root = Path.Combine(RadioConfig.AppDataRoot, "Recordings", "takes");
@@ -621,8 +627,11 @@ public partial class AudioWorkshopDialog
             if (previous == null)
             {
                 await UpdateIqStatisticsAsync(current, null, "not comparable; no last take");
-                IqStatus(Lexicon.Get(auto ? "audio.iq.auto_unavailable" : "audio.iq.need_two"),
-                    subject: auto ? "audio.iq.auto_comparison" : null);
+                // The first take of a session is not compared and says nothing
+                // about it (Noel, 2026-10-22 07:10); the status line still tells
+                // a review cursor why there is no comparison.
+                if (auto) IqStatus(Lexicon.Get("audio.iq.first_of_session"), speak: false);
+                else IqStatus(Lexicon.Get("audio.iq.need_two"));
                 return;
             }
             var difference = await Task.Run(() => TakeAnalysis.CompareTakes(previous, current,
@@ -642,9 +651,13 @@ public partial class AudioWorkshopDialog
             // the reference) is refused in one full sentence that says which was
             // which and asks for another take, on both the automatic and the
             // manual road. Every other refusal keeps its older sentence.
+            // A manual comparison may reach a take from an earlier session, and
+            // then says so first (Noel, 2026-10-22 07:10).
+            string session = !auto && !TakeSession.IsThisSession(previous, SessionStartUtc)
+                ? TakeSession.EarlierSessionNote(TakeSession.MadeUtc(previous).ToLocalTime(), DateTime.Now) + " " : "";
             string refusal = difference.Reason == "unlike-takes:source" ? ListenbackResultText.UnlikeSource(difference)
                 : Lexicon.Get(auto ? "audio.iq.auto_unavailable" : "audio.iq.unlike_or_unaligned");
-            IqStatus(difference.Comparable ? Lexicon.Get("audio.iq.previous_comparison") + " " + method + " " + numbers : refusal,
+            IqStatus(session + (difference.Comparable ? Lexicon.Get("audio.iq.previous_comparison") + " " + method + " " + numbers : refusal),
                 !difference.Comparable && !auto,
                 subject: auto ? "audio.iq.auto_comparison" : null,
                 spokenText: auto && difference.Comparable ? AutoComparisonSentence(difference) : null);
