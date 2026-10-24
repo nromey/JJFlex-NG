@@ -633,9 +633,8 @@ public class FreqOutHandlers
                     var rit = new FlexBase.RITData(Rig.RIT);
                     rit.Active = !rit.Active;
                     Rig.RIT = rit;
-                    if (rit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-                    Radios.ScreenReaderOutput.Speak(
-                        rit.Active ? Lexicon.Get("settings.rit.on") : Lexicon.Get("settings.rit.off"), VerbosityLevel.Terse, true);
+                    ToggleFeedback.Announce("RIT", rit.Active, sentence: rit.Active
+                        ? Lexicon.Get("settings.rit.on") : Lexicon.Get("settings.rit.off"));
                     e.Handled = true;
                 }
                 else if (ch == 'X')
@@ -644,9 +643,8 @@ public class FreqOutHandlers
                     var xit = new FlexBase.RITData(Rig.XIT);
                     xit.Active = !xit.Active;
                     Rig.XIT = xit;
-                    if (xit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-                    Radios.ScreenReaderOutput.Speak(
-                        xit.Active ? Lexicon.Get("settings.xit.on") : Lexicon.Get("settings.xit.off"), VerbosityLevel.Terse, true);
+                    ToggleFeedback.Announce("XIT", xit.Active, sentence: xit.Active
+                        ? Lexicon.Get("settings.xit.on") : Lexicon.Get("settings.xit.off"));
                     e.Handled = true;
                 }
                 else if (ch == 'Q')
@@ -1333,9 +1331,8 @@ public class FreqOutHandlers
                     var xit = new FlexBase.RITData(Rig.XIT);
                     xit.Active = !xit.Active;
                     Rig.XIT = xit;
-                    if (xit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-                    Radios.ScreenReaderOutput.Speak(
-                        xit.Active ? Lexicon.Get("settings.xit.on") : Lexicon.Get("settings.xit.off"), VerbosityLevel.Terse, true);
+                    ToggleFeedback.Announce("XIT", xit.Active, sentence: xit.Active
+                        ? Lexicon.Get("settings.xit.on") : Lexicon.Get("settings.xit.off"));
                 }
                 e.Handled = true;
                 break;
@@ -1348,9 +1345,8 @@ public class FreqOutHandlers
                     var rit = new FlexBase.RITData(Rig.RIT);
                     rit.Active = !rit.Active;
                     Rig.RIT = rit;
-                    if (rit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-                    Radios.ScreenReaderOutput.Speak(
-                        rit.Active ? Lexicon.Get("settings.rit.on") : Lexicon.Get("settings.rit.off"), VerbosityLevel.Terse, true);
+                    ToggleFeedback.Announce("RIT", rit.Active, sentence: rit.Active
+                        ? Lexicon.Get("settings.rit.on") : Lexicon.Get("settings.rit.off"));
                 }
                 e.Handled = true;
                 break;
@@ -1665,9 +1661,8 @@ public class FreqOutHandlers
                     var xit = new FlexBase.RITData(Rig.XIT);
                     xit.Active = !xit.Active;
                     Rig.XIT = xit;
-                    if (xit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-                    Radios.ScreenReaderOutput.Speak(
-                        xit.Active ? Lexicon.Get("settings.xit.on") : Lexicon.Get("settings.xit.off"), VerbosityLevel.Terse, true);
+                    ToggleFeedback.Announce("XIT", xit.Active, sentence: xit.Active
+                        ? Lexicon.Get("settings.xit.on") : Lexicon.Get("settings.xit.off"));
                     e.Handled = true;
                 }
                 else if (ch == 'R')
@@ -1676,9 +1671,8 @@ public class FreqOutHandlers
                     var rit = new FlexBase.RITData(Rig.RIT);
                     rit.Active = !rit.Active;
                     Rig.RIT = rit;
-                    if (rit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-                    Radios.ScreenReaderOutput.Speak(
-                        rit.Active ? Lexicon.Get("settings.rit.on") : Lexicon.Get("settings.rit.off"), VerbosityLevel.Terse, true);
+                    ToggleFeedback.Announce("RIT", rit.Active, sentence: rit.Active
+                        ? Lexicon.Get("settings.rit.on") : Lexicon.Get("settings.rit.off"));
                     e.Handled = true;
                 }
                 else if (ch == 'Q')
@@ -1858,15 +1852,14 @@ public class FreqOutHandlers
                 toggled.Active = !toggled.Active;
                 if (isRIT) Rig.RIT = toggled;
                 else Rig.XIT = toggled;
-                if (toggled.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
                 // fieldKey is the FreqOut field name, not speech — it is also
                 // used for GetFieldPosition/GetFieldLength above, so it stays
                 // a plain literal and the announcement branches instead.
-                Radios.ScreenReaderOutput.Speak(
-                    isRIT
+                ToggleFeedback.Announce(isRIT ? "RIT" : "XIT", toggled.Active,
+                    sentence: isRIT
                         ? (toggled.Active ? Lexicon.Get("settings.rit.on") : Lexicon.Get("settings.rit.off"))
                         : (toggled.Active ? Lexicon.Get("settings.xit.on") : Lexicon.Get("settings.xit.off")),
-                    VerbosityLevel.Terse);
+                    speak: said => Radios.ScreenReaderOutput.Speak(said, VerbosityLevel.Terse));
                 if (!toggled.Active && inScaleAdjust) CancelRitXitScaleAdjust();
                 e.Handled = true;
                 break;
@@ -2330,9 +2323,8 @@ public class FreqOutHandlers
             var rit = new FlexBase.RITData(Rig.RIT);
             rit.Active = !rit.Active;
             Rig.RIT = rit;
-            if (rit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-            Radios.ScreenReaderOutput.Speak(
-                rit.Active ? Lexicon.Get("settings.rit.on") : Lexicon.Get("settings.rit.off"), VerbosityLevel.Terse, true);
+            ToggleFeedback.Announce("RIT", rit.Active, sentence: rit.Active
+                ? Lexicon.Get("settings.rit.on") : Lexicon.Get("settings.rit.off"));
             // Retoggling R while in RIT scale-adjust mode auto-exits the
             // mode regardless of which way the toggle went, so a user with
             // muscle memory can press R-R to bail.
@@ -2345,9 +2337,8 @@ public class FreqOutHandlers
             var xit = new FlexBase.RITData(Rig.XIT);
             xit.Active = !xit.Active;
             Rig.XIT = xit;
-            if (xit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-            Radios.ScreenReaderOutput.Speak(
-                xit.Active ? Lexicon.Get("settings.xit.on") : Lexicon.Get("settings.xit.off"), VerbosityLevel.Terse, true);
+            ToggleFeedback.Announce("XIT", xit.Active, sentence: xit.Active
+                ? Lexicon.Get("settings.xit.on") : Lexicon.Get("settings.xit.off"));
             if (_ritXitScaleField == RitXitScaleField.XIT) CancelRitXitScaleAdjust();
             e.Handled = true;
             return true;
@@ -2482,11 +2473,10 @@ public class FreqOutHandlers
         if (Rig == null) return;
         bool target = !Rig.AllMySlicesMuted;
         Rig.SetAllMySlicesMute(target);
-        if (target) EarconPlayer.MuteAllOnTone();
-        else EarconPlayer.MuteAllOffTone();
-        Radios.ScreenReaderOutput.Speak(
-            target ? Lexicon.Get("settings.slice.all_muted") : Lexicon.Get("settings.slice.all_unmuted"),
-            VerbosityLevel.Terse, interrupt: true);
+        ToggleFeedback.Announce("All slices mute", target,
+            sentence: target ? Lexicon.Get("settings.slice.all_muted") : Lexicon.Get("settings.slice.all_unmuted"),
+            speak: said => Radios.ScreenReaderOutput.Speak(said, VerbosityLevel.Terse, interrupt: true),
+            tone: EarconPlayer.ToggleAllTone);
     }
 
     /// <summary>
@@ -2621,12 +2611,11 @@ public class FreqOutHandlers
         bool newMute = !Rig.SliceMute;
         string letter = Rig.VFOToLetter(Rig.RXVFO);
         Rig.SliceMute = newMute;
-        if (newMute) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-        Radios.ScreenReaderOutput.Speak(
-            newMute
+        ToggleFeedback.Announce("Slice " + letter + " mute", newMute,
+            sentence: newMute
                 ? Lexicon.Get("settings.slice.muted_named", ("letter", letter))
                 : Lexicon.Get("settings.slice.unmuted_named", ("letter", letter)),
-            VerbosityLevel.Terse, interrupt);
+            speak: said => Radios.ScreenReaderOutput.Speak(said, VerbosityLevel.Terse, interrupt));
     }
 
     /// <summary>
@@ -2908,9 +2897,8 @@ public class FreqOutHandlers
                         var rit = new FlexBase.RITData(Rig.RIT);
                         rit.Active = !rit.Active;
                         Rig.RIT = rit;
-                        if (rit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-                        Radios.ScreenReaderOutput.Speak(
-                            rit.Active ? Lexicon.Get("settings.rit.on") : Lexicon.Get("settings.rit.off"), VerbosityLevel.Terse, true);
+                        ToggleFeedback.Announce("RIT", rit.Active, sentence: rit.Active
+                            ? Lexicon.Get("settings.rit.on") : Lexicon.Get("settings.rit.off"));
                     }
                     e.Handled = true;
                 }
@@ -2922,9 +2910,8 @@ public class FreqOutHandlers
                         var xit = new FlexBase.RITData(Rig.XIT);
                         xit.Active = !xit.Active;
                         Rig.XIT = xit;
-                        if (xit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-                        Radios.ScreenReaderOutput.Speak(
-                            xit.Active ? Lexicon.Get("settings.xit.on") : Lexicon.Get("settings.xit.off"), VerbosityLevel.Terse, true);
+                        ToggleFeedback.Announce("XIT", xit.Active, sentence: xit.Active
+                            ? Lexicon.Get("settings.xit.on") : Lexicon.Get("settings.xit.off"));
                     }
                     e.Handled = true;
                 }

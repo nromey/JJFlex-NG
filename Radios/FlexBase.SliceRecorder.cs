@@ -156,7 +156,7 @@ public partial class FlexBase
     }
 
     private readonly Dictionary<Slice, SliceRecorderState> _sliceRecorders = new(ReferenceEqualityComparer.Instance);
-    private readonly Dictionary<int, double> _sliceRadioSeconds = new();
+    private readonly Dictionary<int, string> _sliceRecordTimeLogged = new();
     private Radio _sliceRecorderTapRadio;
     public event Action<RecorderOutcome> SlicePlaybackFinished;
     private TransmitChangeDel _sliceRecorderKeyed;
@@ -238,35 +238,28 @@ public partial class FlexBase
     {
         if (ReferenceEquals(_sliceRecorderTapRadio, radio)) return;
         _sliceRecorderTapRadio = radio;
-        lock (_sliceRecorders) _sliceRadioSeconds.Clear();
+        lock (_sliceRecorders) _sliceRecordTimeLogged.Clear();
         AnnounceVoxPauseAfterReconnect(radio);
-        // FlexLib currently discards record_time. Its raw-status trace also
-        // makes space-less commands throw and accumulates every status for
-        // the whole connection. Keep the parser for a future safe source,
-        // but never enable tracing just to read this field.
+        // Slice.RecordTimeRaw is parsed from normal status by the JJFlex FlexLib
+        // patch. Recorder observation never enables telnet tracing.
     }
 
-    internal void ObserveSliceRecorderStatus(Radio radio, string raw)
+    private void ObserveSliceRecorderStatus(Radio radio, Slice slice)
     {
-        int at = raw.IndexOf("|slice ", StringComparison.Ordinal);
-        if (at < 0) return;
-        int first = at + "|slice ".Length;
-        int last = raw.IndexOf(' ', first);
-        if (last < 0 || !int.TryParse(raw[first..last], NumberStyles.None,
-                CultureInfo.InvariantCulture, out int index)) return;
-        var values = RadioStatusTap.Values(raw);
-        if (!values.TryGetValue("record_time", out string value) ||
-            !double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double seconds) ||
-            !double.IsFinite(seconds) || seconds < 0) return;
-        seconds = Math.Min(seconds, SliceRecordBufferSeconds);
+        string raw = slice.RecordTimeRaw;
+        if (raw == null) return;
         lock (_sliceRecorders)
         {
             if (!ReferenceEquals(_sliceRecorderTapRadio, radio)) return;
-            if (_sliceRadioSeconds.TryGetValue(index, out double previous) && previous == seconds) return;
-            _sliceRadioSeconds[index] = seconds;
-            Tracing.TraceLine($"Slice {index} record_time={seconds.ToString(CultureInfo.InvariantCulture)}", TraceLevel.Info);
+            if (!_sliceRecordTimeLogged.TryGetValue(slice.Index, out string previous) || previous != raw)
+            {
+                _sliceRecordTimeLogged[slice.Index] = raw;
+                Tracing.TraceLine($"Slice {slice.Index} record_time={raw}", TraceLevel.Info);
+            }
+            double? seconds = double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed) &&
+                double.IsFinite(parsed) && parsed >= 0 ? Math.Min(parsed, SliceRecordBufferSeconds) : null;
             foreach (var state in _sliceRecorders.Values)
-                if (ReferenceEquals(state.Radio, radio) && state.Slice.Index == index)
+                if (ReferenceEquals(state.Radio, radio) && ReferenceEquals(state.Slice, slice))
                     state.RadioRecordedSeconds = seconds;
         }
     }
@@ -396,7 +389,6 @@ public partial class FlexBase
                 state = new SliceRecorderState
                 {
                     Slice = slice, Radio = theRadio, Connection = theRadio?.CurrentCommandConnection,
-                    RadioRecordedSeconds = _sliceRadioSeconds.TryGetValue(slice.Index, out double seconds) ? seconds : null,
                 };
                 state.Status = (_, args) => OnRecorderSliceStatus(state, args.PropertyName);
                 slice.PropertyChanged += state.Status;
@@ -426,6 +418,7 @@ public partial class FlexBase
                 };
                 state.Radio.SliceRemoved += state.Removed;
                 _sliceRecorders[slice] = state;
+                ObserveSliceRecorderStatus(state.Radio, slice);
             }
             return state;
         }
@@ -452,6 +445,8 @@ public partial class FlexBase
 
     private void OnRecorderSliceStatus(SliceRecorderState state, string property)
     {
+        if (property == nameof(Slice.RecordTimeRaw))
+            ObserveSliceRecorderStatus(state.Radio, state.Slice);
         // The doors poll the queries above (Home at its 100 ms poll, the
         // Workshop on its meter tick, the menu when it opens), so there is no
         // change event to raise; a hook nobody wires is a defect class here.

@@ -266,17 +266,25 @@ public sealed class SliceRecorderSurfaceTests : IDisposable
     }
 
     [Fact]
-    public void Raw_radio_record_time_survives_a_late_slice_state_creation_and_updates()
+    public void Radio_record_time_survives_a_late_slice_state_creation_and_updates()
     {
         using var c = new RadioCase();
         c.F.Rig.AttachSliceRecorderStatus(c.F.Vendor.Radio);
         c.F.Vendor.Status("slice 1 play=0");
-        c.F.Rig.ObserveSliceRecorderStatus(c.F.Vendor.Radio, "S1|slice 1 record_time=12.5 play=0");
+        var slice = c.F.Vendor.Radio.ActiveSlice;
+        int rawChanges = 0;
+        slice.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(Slice.RecordTimeRaw)) rawChanges++;
+        };
+        c.F.Vendor.Status("slice 1 record_time=12.5 play=0");
+        Assert.Equal("12.5", slice.RecordTimeRaw);
         Assert.Equal(12.5, c.F.Rig.SliceRecordingSeconds(SliceRecorderTarget.ActiveSlice));
-        c.F.Rig.ObserveSliceRecorderStatus(c.F.Vendor.Radio, "S2|slice 1 record_time=120.0 play=0");
+        c.F.Vendor.Status("slice 1 record_time=12.5 play=0");
+        Assert.Equal(1, rawChanges);
+        c.F.Vendor.Status("slice 1 record_time=120.0 play=0");
         Assert.Equal(120, c.F.Rig.SliceRecordingSeconds(SliceRecorderTarget.ActiveSlice));
-        c.F.Rig.ObserveSliceRecorderStatus(c.F.Vendor.Radio, "S3|slice 10 record_time=3.0 play=0");
-        Assert.Equal(120, c.F.Rig.SliceRecordingSeconds(SliceRecorderTarget.ActiveSlice));
+        Assert.Equal(2, rawChanges);
     }
 
     [Fact]
@@ -311,7 +319,7 @@ public sealed class SliceRecorderSurfaceTests : IDisposable
         c.F.Rig.AttachSliceRecorderStatus(c.F.Vendor.Radio);
         c.F.Vendor.Status("slice 1 play=0");
         Assert.Null(c.F.Rig.SliceRecordingSeconds(SliceRecorderTarget.ActiveSlice));
-        c.F.Rig.ObserveSliceRecorderStatus(c.F.Vendor.Radio, "S1|slice 1 record_time=" + value);
+        c.F.Vendor.Status("slice 1 record_time=" + value);
         Assert.Null(c.F.Rig.SliceRecordingSeconds(SliceRecorderTarget.ActiveSlice));
     }
 

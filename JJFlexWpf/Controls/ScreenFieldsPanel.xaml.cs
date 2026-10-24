@@ -863,10 +863,10 @@ public partial class ScreenFieldsPanel : UserControl
             if (_rig == null) return;
             bool target = !_rig.AllMySlicesMuted;
             _rig.SetAllMySlicesMute(target);
-            if (target) EarconPlayer.MuteAllOnTone();
-            else EarconPlayer.MuteAllOffTone();
-            ScreenReaderOutput.Speak(
-                target ? Lexicon.Get("audio.fields.all_slices_muted") : Lexicon.Get("audio.fields.all_slices_unmuted"), VerbosityLevel.Terse);
+            ToggleFeedback.Announce("All slices mute", target,
+                sentence: target ? Lexicon.Get("audio.fields.all_slices_muted") : Lexicon.Get("audio.fields.all_slices_unmuted"),
+                speak: said => ScreenReaderOutput.Speak(said, VerbosityLevel.Terse),
+                tone: EarconPlayer.ToggleAllTone);
         };
         AudioContent.Children.Add(muteAllButton);
 

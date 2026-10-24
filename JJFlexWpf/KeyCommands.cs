@@ -1364,13 +1364,12 @@ public class KeyCommands
         }
         bool newMute = !rig.SliceMute;
         rig.SliceMute = newMute;
-        if (newMute) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
         string letter = rig.VFOToLetter(rig.RXVFO);
-        Radios.ScreenReaderOutput.Speak(
-            newMute
+        ToggleFeedback.Announce("Slice " + letter + " mute", newMute,
+            sentence: newMute
                 ? Radios.Lexicon.Get("audio.mute.slice_muted", ("letter", letter))
                 : Radios.Lexicon.Get("audio.mute.slice_unmuted", ("letter", letter)),
-            Radios.VerbosityLevel.Terse, true);
+            speak: said => Radios.ScreenReaderOutput.Speak(said, Radios.VerbosityLevel.Terse, true));
     }
 
     private void MuteAllSlicesHandler()
@@ -1383,13 +1382,12 @@ public class KeyCommands
         }
         bool target = !rig.AllMySlicesMuted;
         rig.SetAllMySlicesMute(target);
-        if (target) EarconPlayer.MuteAllOnTone();
-        else EarconPlayer.MuteAllOffTone();
-        Radios.ScreenReaderOutput.Speak(
-            target
+        ToggleFeedback.Announce("All slices mute", target,
+            sentence: target
                 ? Radios.Lexicon.Get("audio.mute.all_slices_muted")
                 : Radios.Lexicon.Get("audio.mute.all_slices_unmuted"),
-            Radios.VerbosityLevel.Terse, true);
+            speak: said => Radios.ScreenReaderOutput.Speak(said, Radios.VerbosityLevel.Terse, true),
+            tone: EarconPlayer.ToggleAllTone);
     }
 
     private void ReleaseAllExtraSlicesHandler()
@@ -1646,12 +1644,12 @@ public class KeyCommands
         // offer. Turning them off gets silence, because playing an alert sound
         // to confirm that alert sounds are off would be the joke it sounds
         // like. The speech below covers the off direction.
-        if (EarconPlayer.EarconsEnabled) EarconPlayer.ToggleTone(true);
-        Radios.ScreenReaderOutput.Speak(
-            EarconPlayer.EarconsEnabled
+        ToggleFeedback.Announce("Alert sounds", EarconPlayer.EarconsEnabled,
+            sentence: EarconPlayer.EarconsEnabled
                 ? Radios.Lexicon.Get("earcon.alerts_on")
                 : Radios.Lexicon.Get("earcon.alerts_off"),
-            Radios.VerbosityLevel.Terse, true);
+            speak: said => Radios.ScreenReaderOutput.Speak(said, Radios.VerbosityLevel.Terse, true),
+            tone: on => { if (on) EarconPlayer.ToggleTone(true); });
         // Save to config
         var configDir = _context.GetConfigDirectory?.Invoke();
         if (configDir != null)
@@ -4785,7 +4783,7 @@ public class KeyCommands
             on =>
             {
                 rig.SliceMute = on;
-                if (on) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                ToggleFeedback.LayerTone(on);
             },
             on => Radios.Lexicon.Get(on ? "audio.mute.slice_muted" : "audio.mute.slice_unmuted", ("letter", LetterNow())),
             perSlice: true);
@@ -4823,7 +4821,7 @@ public class KeyCommands
             on =>
             {
                 rig.Compander = on ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off;
-                if (on) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                ToggleFeedback.LayerTone(on);
             },
             on => Radios.Lexicon.Get(on ? "audio.dsp.toggled_on" : "audio.dsp.toggled_off",
                 ("label", Radios.Lexicon.Get("audio.audio_layer.name_compander"))));
@@ -4832,7 +4830,7 @@ public class KeyCommands
             on =>
             {
                 rig.ProcessorOn = on ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off;
-                if (on) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                ToggleFeedback.LayerTone(on);
             },
             on => Radios.Lexicon.Get(on ? "audio.dsp.toggled_on" : "audio.dsp.toggled_off",
                 ("label", Radios.Lexicon.Get("audio.audio_layer.name_processor"))));
@@ -4843,7 +4841,7 @@ public class KeyCommands
             on =>
             {
                 rig.Binaural = on ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off;
-                if (on) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                ToggleFeedback.LayerTone(on);
             },
             on => Radios.Lexicon.Get(on ? "audio.binaural.on" : "audio.binaural.off"));
 
@@ -5402,7 +5400,7 @@ public class KeyCommands
                 {
                     if (gate?.Invoke() != null) return;
                     write(on ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off);
-                    if (on) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                    ToggleFeedback.LayerTone(on);
                 },
                 Say,
                 perSlice: true,
@@ -5442,7 +5440,7 @@ public class KeyCommands
             {
                 if (pipeline == null) return;
                 pipeline.RnnEnabled = on;
-                if (on) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                ToggleFeedback.LayerTone(on);
                 win?.PersistDspSettings();
             },
             PcNeural,
@@ -5453,7 +5451,7 @@ public class KeyCommands
             {
                 if (pipeline == null) return;
                 pipeline.SpectralEnabled = on;
-                if (on) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                ToggleFeedback.LayerTone(on);
                 win?.PersistDspSettings();
             },
             PcSpectral,
