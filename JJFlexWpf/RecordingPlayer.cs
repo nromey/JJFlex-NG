@@ -62,6 +62,7 @@ public static class RecordingPlayer
     private static WaveStream? _reader;
     private static EndOfFileSampleProvider? _provider;
     private static FixedGainLimiterSampleProvider? _gain;
+    private static TransportSampleProvider? _transport;
     private static FlexBase? _liveRig;
     private static bool _priorLiveMute;
     private static string _path = "";
@@ -78,6 +79,83 @@ public static class RecordingPlayer
     {
         get { lock (Gate) return _provider != null ? _path : ""; }
     }
+
+    /// <summary>True while a recording is playing but paused (#787, the recordings dialog's preview).</summary>
+    public static bool IsPaused
+    {
+        get { lock (Gate) return _transport?.Paused == true; }
+    }
+
+    /// <summary>
+    /// Where the listener is in the file now, in seconds, or null when nothing
+    /// is playing. While playing this is what has reached the speakers, so it
+    /// trails what the mixer has read by the output's latency; once paused the
+    /// buffered audio has drained and the two agree. The recordings dialog
+    /// marks a trim point here when "[" or "]" is pressed mid-playback, and the
+    /// point should be what the operator HEARD at the press.
+    /// </summary>
+    public static double? PositionSeconds
+    {
+        get
+        {
+            TransportSampleProvider? transport;
+            lock (Gate) transport = _transport;
+            if (transport == null) return null;
+            double read = transport.PositionSeconds;
+            if (transport.Paused) return read;
+            double heard = read - EarconPlayer.AlertOutputLatencyMs / 1000.0;
+            return Math.Max(transport.StartSeconds, heard);
+        }
+    }
+
+    /// <summary>Pause the recording that is playing. False when nothing is playing.</summary>
+    public static bool Pause()
+    {
+        TransportSampleProvider? transport;
+        lock (Gate) transport = _transport;
+        if (transport == null) return false;
+        transport.Paused = true;
+        StateChanged?.Invoke();
+        return true;
+    }
+
+    /// <summary>Carry on from where <see cref="Pause"/> stopped. False when nothing is paused.</summary>
+    public static bool Resume()
+    {
+        TransportSampleProvider? transport;
+        lock (Gate) transport = _transport;
+        if (transport == null || !transport.Paused) return false;
+        transport.Paused = false;
+        StateChanged?.Invoke();
+        return true;
+    }
+
+    /// <summary>
+    /// Move a PAUSED recording to another point, so the next Resume carries on
+    /// from there. Refused (false) while it is sounding: moving through audio
+    /// that is playing waits for a later round (Noel, 2026-10-21 10:57).
+    /// </summary>
+    public static bool Seek(double seconds)
+    {
+        TransportSampleProvider? transport;
+        lock (Gate) transport = _transport;
+        if (transport == null || !transport.Paused) return false;
+        try { transport.Seek(seconds); }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("RecordingPlayer: seek failed — " + ex.Message, TraceLevel.Warning);
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Play a recording from a point inside it (#787, the recordings dialog).
+    /// Everything else is <see cref="Play"/>'s: the one player, the one output,
+    /// the one end-of-file notice.
+    /// </summary>
+    public static bool PlayFrom(string path, double startSeconds, string announcement) =>
+        PlayWithMixer(path, announcement, null, false, EarconPlayer.AddRecordingPlayback, null, startSeconds);
 
     /// <summary>
     /// Play the recording, or stop the one already running — so one button can
@@ -101,7 +179,8 @@ public static class RecordingPlayer
             priorLiveMute);
 
     internal static bool PlayWithMixer(string path, string? announcement, FlexBase? liveRig,
-        bool offAirListeningGain, Func<ISampleProvider, bool> addPlayback, bool? priorLiveMute = null)
+        bool offAirListeningGain, Func<ISampleProvider, bool> addPlayback, bool? priorLiveMute = null,
+        double startSeconds = 0)
     {
         if (string.IsNullOrEmpty(path))
         {
@@ -134,12 +213,15 @@ public static class RecordingPlayer
 
         EndOfFileSampleProvider provider;
         FixedGainLimiterSampleProvider gain;
+        TransportSampleProvider transport;
         try
         {
+            transport = new TransportSampleProvider(reader);
+            if (startSeconds > 0) transport.Seek(startSeconds);
             // The +30 dB listening gain is for the off-air IQ render only (Noel, 2026-10-20 09:01),
             // which is fixed-scale and quiet. A take this computer recorded is already at
             // microphone level; lifting it 30 dB would drive it into the limiter.
-            gain = new FixedGainLimiterSampleProvider(ToMixerFormat(reader), offAirListeningGain);
+            gain = new FixedGainLimiterSampleProvider(ToMixerFormat(transport), offAirListeningGain);
             provider = new EndOfFileSampleProvider(gain);
         }
         catch (Exception ex)
@@ -176,6 +258,7 @@ public static class RecordingPlayer
             _reader = reader;
             _provider = provider;
             _gain = gain;
+            _transport = transport;
             _path = path;
             _name = Path.GetFileNameWithoutExtension(path);
             _liveRig = liveRig;
@@ -193,6 +276,7 @@ public static class RecordingPlayer
                 _reader = null;
                 _provider = null;
                 _gain = null;
+                _transport = null;
                 _path = "";
                 RestoreLiveAudio();
             }
@@ -238,6 +322,13 @@ public static class RecordingPlayer
     /// </summary>
     public static void Stop() => End(spokenReason: Lexicon.Get("audio.check.playback_stopped"));
 
+    /// <summary>
+    /// Stop playback without the stop sentence, for a caller that says
+    /// something more exact itself (the recordings dialog says where it
+    /// stopped). One stop, one sentence.
+    /// </summary>
+    public static void StopWithoutSpeaking() => End(spokenReason: "");
+
     private static void End(string spokenReason, bool confirmTone = false, EndOfFileSampleProvider? expected = null)
     {
         WaveStream? reader;
@@ -254,6 +345,7 @@ public static class RecordingPlayer
             _reader = null;
             _provider = null;
             _gain = null;
+            _transport = null;
             _path = "";
             RestoreLiveAudio();
         }
@@ -294,10 +386,9 @@ public static class RecordingPlayer
     /// rate a microphone offered and is usually mono; the mixer is 44100 Hz
     /// stereo and will refuse anything else.
     /// </summary>
-    private static ISampleProvider ToMixerFormat(WaveStream reader)
+    private static ISampleProvider ToMixerFormat(ISampleProvider source)
     {
         WaveFormat want = EarconPlayer.RecordingPlaybackFormat;
-        ISampleProvider source = reader.ToSampleProvider();
         if (source.WaveFormat.SampleRate != want.SampleRate)
             source = new WdlResamplingSampleProvider(source, want.SampleRate);
         if (source.WaveFormat.Channels == 1 && want.Channels == 2)
@@ -338,6 +429,85 @@ public static class RecordingPlayer
                 buffer[i] = (float)scaled;
             }
             return count;
+        }
+    }
+
+    /// <summary>
+    /// The file's own samples with a pause and a seek (#787, the recordings
+    /// dialog's preview), placed FIRST in the chain, before the resampler, so a
+    /// position is a position in the file and not in the mixer's rate.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Paused, it fills every read with silence, the whole length asked for.
+    /// A short read would be taken as the end of the file twice over: by
+    /// <see cref="EndOfFileSampleProvider"/>, and by NAudio's mixer, which
+    /// drops an input the moment it returns less than it was asked for.
+    /// </para>
+    /// <para>
+    /// Read runs on the audio render thread and Seek on the UI thread; one lock
+    /// keeps a seek from moving the decoder halfway through a read.
+    /// </para>
+    /// </remarks>
+    internal sealed class TransportSampleProvider : ISampleProvider
+    {
+        private readonly WaveStream _reader;
+        private readonly ISampleProvider _source;
+        private readonly object _lock = new();
+        private readonly int _channels;
+        private readonly int _rate;
+        private long _frames;
+        private volatile bool _paused;
+
+        internal TransportSampleProvider(WaveStream reader)
+        {
+            _reader = reader;
+            _source = reader.ToSampleProvider();
+            _channels = Math.Max(1, _source.WaveFormat.Channels);
+            _rate = Math.Max(1, _source.WaveFormat.SampleRate);
+        }
+
+        public WaveFormat WaveFormat => _source.WaveFormat;
+
+        internal bool Paused { get => _paused; set => _paused = value; }
+
+        /// <summary>Where playback started, in seconds; the earliest a heard position can be.</summary>
+        internal double StartSeconds { get; private set; }
+
+        /// <summary>How far into the file the mixer has read, in seconds.</summary>
+        internal double PositionSeconds
+        {
+            get { lock (_lock) return _frames / (double)_rate; }
+        }
+
+        /// <summary>Move to a point in the file, in whole sample frames, clamped to the file.</summary>
+        internal void Seek(double seconds)
+        {
+            lock (_lock)
+            {
+                long frame = (long)Math.Floor(Math.Max(0, seconds) * _rate);
+                int block = _reader.WaveFormat.BlockAlign;
+                long bytes = frame * block;
+                if (_reader.Length > 0 && bytes > _reader.Length) bytes = _reader.Length - _reader.Length % block;
+                _reader.Position = bytes;
+                _frames = bytes / block;
+                StartSeconds = _frames / (double)_rate;
+            }
+        }
+
+        public int Read(Span<float> buffer)
+        {
+            if (_paused)
+            {
+                buffer.Clear();
+                return buffer.Length;
+            }
+            lock (_lock)
+            {
+                int read = _source.Read(buffer);
+                _frames += read / _channels;
+                return read;
+            }
         }
     }
 
