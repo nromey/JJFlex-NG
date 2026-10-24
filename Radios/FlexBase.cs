@@ -2691,7 +2691,11 @@ namespace Radios
                 });
                 return false;
             }
-            AttachSliceRecorderStatus(theRadio);
+            // The slice recorder's status tap is attached only after Connect
+            // returns (below): it turns on FlexLib's telnet tracing, whose
+            // SendCommand takes s.Substring(0, s.IndexOf(' ')) and throws on a
+            // command with no space, such as the "info" that Connect itself
+            // sends. Attached here, every connect failed (bench, 2026-10-23).
 
             // Each transport attempt will bind its own producer identity when it starts.
             rememberCommandRoute(null, null, null);
@@ -2886,6 +2890,7 @@ namespace Radios
             if (rv)
             {
                 Tracing.TraceLine("Connect worked:" + theRadio.Serial, TraceLevel.Info);
+                AttachSliceRecorderStatus(theRadio);
                 // The post-connect fence: its reply marks the end of whatever
                 // the radio restored for a returning client (#782).
                 sendConnectFence("Connect");
@@ -3419,6 +3424,7 @@ namespace Radios
                         // Seed the 4.2-line discovery-chain cache on retry success too.
                         RecordConnectedRadioForCache();
                         sendConnectFence("RetryConnect");
+                        AttachSliceRecorderStatus(theRadio);
                     }
                 }
 
