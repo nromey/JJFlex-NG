@@ -209,16 +209,18 @@ public partial class AudioWorkshopDialog
             Padding = new Thickness(8, 4, 8, 4),
             MinWidth = 200,
             HorizontalAlignment = HorizontalAlignment.Left,
-            Margin = new Thickness(2)
+            Margin = new Thickness(2),
+            Visibility = Visibility.Collapsed,
+            IsTabStop = false
         };
         AutomationProperties.SetName(_playTakeButton, "Play last take");
         JJFlexHelp.SetText(_playTakeButton,
             "Plays the slice recording with Record and play back, or the off-air take "
-            + "with Off the air. With Monitor, compares the slice, off-air and "
-            + "computer takes by time. Press again to stop.");
+            + "with Off the air. Press again to stop.");
         _playTakeButton.Click += (s, e) => PlayLastTake();
         _playTakeButton.GotFocus += (s, e) => SyncPlayTakeLabel();
         AddToSection(HearYourselfContent, _playTakeButton);
+        SyncPlayTakeLabel();
 
         // Follow local playback so the button says what pressing it will do.
         // The radio-buffer half is followed from the meter tick, which is where
@@ -552,12 +554,12 @@ public partial class AudioWorkshopDialog
     /// </summary>
     /// <remarks>
     /// The selected method owns the answer: Record and play back chooses a
-    /// slice buffer; Off the air chooses an IQ take. Monitor makes no take,
-    /// so it compares timestamps across all three stores. A computer file
-    /// remains playable without a connected radio.
+    /// slice buffer; Off the air chooses an IQ take. Monitor has no play button.
     /// </remarks>
     private void PlayLastTake()
     {
+        if ((AudioCheckListenMethods)(_listenMethodControl?.SelectedIndex ?? 0) ==
+            AudioCheckListenMethods.Monitor) return;
         // Press again to stop, whichever thing is playing.
         if (RecordingPlayer.IsPlaying)
         {
@@ -582,51 +584,38 @@ public partial class AudioWorkshopDialog
         {
             case TakePlaybackChoice.Slice:
                 _radioTakeTarget = selected.RadioTarget;
-                _ = PlayRadioTakeAsync(selected.Method == AudioCheckListenMethods.Monitor
-                    ? "This is a slice recording. " : "");
+                _ = PlayRadioTakeAsync();
                 return;
             case TakePlaybackChoice.OffAir:
-                _ = PlayIqAsync(selected.IqDirectory, 0, selected.Method == AudioCheckListenMethods.Monitor
-                    ? "This is an off-air take. " : "");
-                return;
-            case TakePlaybackChoice.Computer:
-                _ = PlayComputerTakeAsync(selected.File!, "This is a computer recording. ");
-                return;
-            case TakePlaybackChoice.UnknownTime:
-                ScreenReaderOutput.Speak(
-                    "A take's time is unknown, so I cannot tell which take is newest.",
-                    Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Terse);
+                _ = PlayIqAsync(selected.IqDirectory, 0);
                 return;
             default:
                 if (selected.Method == AudioCheckListenMethods.RecordPlayback) SayNoTake("slice");
                 else if (selected.Method == AudioCheckListenMethods.OffAir) SayNoTake("off-air");
-                else ScreenReaderOutput.Speak(Lexicon.Get("audio.check.no_recording_yet"),
-                    VerbosityLevel.Terse, interrupt: true);
                 return;
         }
     }
 
     private (AudioCheckListenMethods Method, TakePlaybackChoice Choice,
-        SliceRecorderTarget? RadioTarget, RecordingStore.RecordingFile? File,
-        string? IqDirectory, DateTime? MadeUtc) SelectTakeForPlayback()
+        SliceRecorderTarget? RadioTarget, string? IqDirectory, DateTime? MadeUtc) SelectTakeForPlayback()
     {
-        var (radioTarget, radioTime) = NewestRadioTake();
-        RecordingStore.RecordingFile? file = RecordingStore.Newest();
-        string? iqDirectory = NewestIqDirectory();
         var method = (AudioCheckListenMethods)(_listenMethodControl?.SelectedIndex
             ?? (int)(_radioCfg?.AudioCheckListenMethod ?? AudioCheckListenMethods.Monitor));
+        if (method == AudioCheckListenMethods.Monitor)
+            return (method, TakePlaybackChoice.None, null, null, null);
+        var (radioTarget, radioTime) = method == AudioCheckListenMethods.RecordPlayback
+            ? NewestRadioTake() : (null, null);
+        string? iqDirectory = method == AudioCheckListenMethods.OffAir ? NewestIqDirectory() : null;
         DateTime? iqAt = iqDirectory != null && File.Exists(Path.Combine(iqDirectory, "take.txt"))
             ? File.GetLastWriteTimeUtc(Path.Combine(iqDirectory, "take.txt")) : null;
-        var choice = TakePlaybackSelector.Choose(method, radioTarget != null, radioTime,
-            iqDirectory != null, iqAt, file != null, file?.RecordedLocal.ToUniversalTime());
+        var choice = TakePlaybackSelector.Choose(method, radioTarget != null, iqDirectory != null);
         DateTime? madeUtc = choice switch
         {
             TakePlaybackChoice.Slice => radioTime,
             TakePlaybackChoice.OffAir => iqAt,
-            TakePlaybackChoice.Computer => file?.RecordedLocal.ToUniversalTime(),
             _ => null
         };
-        return (method, choice, radioTarget, file, iqDirectory, madeUtc);
+        return (method, choice, radioTarget, iqDirectory, madeUtc);
     }
 
     private (SliceRecorderTarget? Target, DateTime? MadeUtc) NewestRadioTake()
@@ -652,27 +641,20 @@ public partial class AudioWorkshopDialog
         "There is no " + kind + " take to play.", Radios.Speech.SpeechIntent.Interrupt,
         VerbosityLevel.Terse);
 
-    private Task PlayComputerTakeAsync(RecordingStore.RecordingFile file, string kind = "")
-    {
-        if (_workshopClosing) return Task.CompletedTask;
-        RecordingPlayer.Play(file.Path, announcement: kind + Lexicon.Get("audio.take.playing",
-            ("name", file.Name), ("length", RecordingStore.DescribeLength(file.Seconds))), liveRig: _rig);
-        return Task.CompletedTask;
-    }
-
     /// <summary>
     /// Play the radio's take through the one recorder surface (#787), which
     /// checks the radio's reply and pauses VOX for local playback. Success keeps
     /// the take's own sentence, which says it is the radio's take and not a
     /// file (#455); a refusal speaks the recorder's sentence.
     /// </summary>
-    private async Task PlayRadioTakeAsync(string kind = "")
+    private async Task PlayRadioTakeAsync()
     {
         if (_rig == null) return;
         var rig = _rig;
         var target = FixedRecorderTarget(rig, RadioTakeTarget);
         if (_workshopClosing || !ReferenceEquals(rig, _rig)) return;
         RecorderControls.Observe(rig);
+        RecorderControls.PlayStartClick();
         var outcome = await rig.StartSlicePlayAsync(target);
         if (outcome.Success)
         {
@@ -682,8 +664,7 @@ public partial class AudioWorkshopDialog
                 return;
             }
             _workshopPlayTargets.Add(target);
-            if (EarconPlayer.RecorderBeepsEnabled && !outcome.AlreadyInState) EarconPlayer.ConfirmTone();
-            ScreenReaderOutput.Speak(kind + Lexicon.Get("audio.check.playing_take"), Radios.Speech.SpeechIntent.Interrupt,
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.playing_take"), Radios.Speech.SpeechIntent.Interrupt,
                 VerbosityLevel.Terse, subject: outcome.Subject);
         }
         else RecorderControls.Speak(outcome);
@@ -753,6 +734,11 @@ public partial class AudioWorkshopDialog
     private void SyncPlayTakeLabel()
     {
         if (_playTakeButton == null) return;
+        bool available = (AudioCheckListenMethods)(_listenMethodControl?.SelectedIndex ?? 0)
+            != AudioCheckListenMethods.Monitor;
+        _playTakeButton.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
+        _playTakeButton.IsTabStop = available;
+        if (!available) return;
         bool playing = RecordingPlayer.IsPlaying ||
             _rig?.IsSlicePlaying(RadioTakeTarget) == true;
         string label = playing ? "Stop playing" : TakePlaybackSelector.PlayLabel(
@@ -1362,7 +1348,6 @@ public partial class AudioWorkshopDialog
                 if (played?.Success == true)
                 {
                     _owner._workshopPlayTargets.Add(_recorderTarget);
-                    if (EarconPlayer.RecorderBeepsEnabled && !played.AlreadyInState) EarconPlayer.ConfirmTone();
                     ScreenReaderOutput.Speak(
                         "Playing your take.",
                         Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse, subject: played.Subject);
@@ -1384,6 +1369,7 @@ public partial class AudioWorkshopDialog
             if (rig.SliceHasRecording(_recorderTarget))
             {
                 RecorderControls.Observe(rig);
+                RecorderControls.PlayStartClick();
                 _playStart = rig.StartSlicePlayAsync(_recorderTarget);
                 _ = StopLatePlaybackAfterCloseAsync(_playStart, rig);
             }

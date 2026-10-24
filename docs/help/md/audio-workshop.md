@@ -50,7 +50,7 @@ At the top of the tab. Press **Start Audio Check** (or `Ctrl+Enter`) and the rad
   - **Dummy load, no RF** — the default. The check keys the radio with transmit and tune power at zero watts. Nothing goes on the air, and nothing needs to: every meter the check reads — mic audio, ALC, the verdict — measures your audio *before* the power amplifier, so the reading is identical at zero watts and at a hundred. The safety line says "Audio check, dummy load, no RF" so you always know this is that kind of check.
   - **Low power** — for the different question, "is RF actually leaving my radio?" Pick the wattage yourself, right down to 1 watt. It's a cap: if your power is already below the number, the check leaves it alone, and it never raises power. The safety line names the actual power, "Audio check, transmitting at 1 watt."
   - If you've engaged Dummy Load Mode yourself from the Transmit menu, the check respects it either way — it will never raise power behind a dummy load's back, and it leaves your dummy load exactly as you set it.
-- **Play last take** replays the recording buffer whenever you like, or stops a playback in progress.
+- **Play last take** appears with Record and play back or Off the air. It plays that method's take, or stops a playback in progress. The button is hidden with Monitor.
 - **Escape stops a running check** and leaves you in the workshop with your settings. Stopping unkeys the radio. After the check ends, another press closes the window.
 - The session ends itself — and puts back everything it changed — on every exit: the Stop button, Escape, the transmit timeout, closing the window, or the radio going away.
 

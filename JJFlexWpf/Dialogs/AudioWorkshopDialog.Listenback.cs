@@ -510,7 +510,7 @@ public partial class AudioWorkshopDialog
             _ = CompareIqPairAsync(previous, Path.GetDirectoryName(path)!, auto: true);
         }));
     }
-    private async Task PlayIqAsync(string? directory, int detune, string kind = "")
+    private async Task PlayIqAsync(string? directory, int detune)
     {
         if (RecordingPlayer.IsPlaying) { RecordingPlayer.Stop(); return; }
         if (_iqBusy || _iqRun != null || _session?.EscapeStopsTransmit == true || _rig?.Transmit == true) return;
@@ -523,7 +523,7 @@ public partial class AudioWorkshopDialog
             var rendered = await Task.Run(() => SsbTakeRenderer.Render(directory, detune));
             if (_iqClosing) return;
             string playbackKey = take.State == "incomplete" ? "audio.iq.playing_incomplete" : detune == 0 ? "audio.iq.playing" : "audio.iq.playing_detuned";
-            await PlayTakeAfterClickAsync(rendered.Path, kind + Lexicon.Get(playbackKey), _rig,
+            await PlayTakeAfterClickAsync(rendered.Path, Lexicon.Get(playbackKey), _rig,
                 offAirListeningGain: true);
         }
         catch (Exception ex) { IqFailure(ex); }

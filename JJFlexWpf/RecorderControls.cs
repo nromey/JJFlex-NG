@@ -100,7 +100,7 @@ public static class RecorderControls
         {
             if (outcome.Cue == RecorderCue.Start) EarconPlayer.RecorderStartBeep();
             else if (outcome.Cue == RecorderCue.Stop) EarconPlayer.RecorderStopBeep();
-            else if (outcome.Cue is RecorderCue.PlayStart or RecorderCue.PlayStop)
+            else if (outcome.Cue == RecorderCue.PlayStop)
             {
                 if (EarconPlayer.RecorderBeepsEnabled) EarconPlayer.ConfirmTone();
             }
@@ -121,6 +121,20 @@ public static class RecorderControls
 
     private static RecorderOutcome NoRadio(string subject) =>
         new(false, Lexicon.Get("audio.no_radio_connected"), subject);
+
+    /// <summary>The start click precedes a play request, including one the player later refuses.</summary>
+    public static void PlayStartClick()
+    {
+        if (EarconPlayer.RecorderBeepsEnabled) EarconPlayer.ConfirmTone();
+    }
+
+    /// <summary>Let the 200 ms click finish before local audio enters the mixer.</summary>
+    public static async Task PlayStartClickBeforeLocalAudioAsync()
+    {
+        if (!EarconPlayer.RecorderBeepsEnabled) return;
+        EarconPlayer.ConfirmTone();
+        await Task.Delay(240);
+    }
 
     /// <summary>
     /// Run one recorder request and turn anything it throws into a spoken
@@ -156,6 +170,7 @@ public static class RecorderControls
         Action<RecorderOutcome>? speak = null, object? owner = null)
     {
         Observe(rig);
+        if (rig != null && !rig.IsSlicePlaying(target)) PlayStartClick();
         var outcome = rig == null
             ? NoRadio(SpeechSubject.SliceRecorder(""))
             : await Guarded(() => rig.ToggleSlicePlayAsync(target, owner), SpeechSubject.SliceRecorder(""));
@@ -183,6 +198,8 @@ public static class RecorderControls
     public static async Task<RecorderOutcome> ToggleComputerPlayAsync(FlexBase? rig,
         Action<RecorderOutcome>? speak = null)
     {
+        if (!ComputerRecorder.Current.IsPlaying)
+            await PlayStartClickBeforeLocalAudioAsync();
         var outcome = await Guarded(() => ComputerRecorder.TogglePlaybackAsync(rig?.Transmit == true),
             SpeechSubject.ComputerRecorder);
         (speak ?? Speak)(outcome);

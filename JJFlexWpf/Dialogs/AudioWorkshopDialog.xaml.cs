@@ -803,6 +803,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             _listenMethodControl.SuppressEvents = true;
             _listenMethodControl.SelectedIndex = (int)_radioCfg.AudioCheckListenMethod;
             _listenMethodControl.SuppressEvents = false;
+            SyncPlayTakeLabel();
         }
         if (_checkPowerControl != null)
         {

@@ -80,11 +80,11 @@ namespace Radios.Tests
         // ── #455 ────────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Monitor considers all three stores; a chosen take-making method
-        /// answers only for its own kind and never silently substitutes one.
+        /// Monitor offers no play button; each take-making method answers
+        /// only for its own kind and never silently substitutes one.
         /// </summary>
         [Fact]
-        public void PlayLastTakeFollowsTheMethodAndMonitorConsidersAllStores()
+        public void PlayLastTakeFollowsTheMethodAndMonitorHidesTheButton()
         {
             string body = MethodBody(ReadWorkshop("AudioCheck"), "private void PlayLastTake()");
             string selection = MethodBody(ReadWorkshop("AudioCheck"),
@@ -93,17 +93,49 @@ namespace Radios.Tests
                 "private (SliceRecorderTarget? Target, DateTime? MadeUtc) NewestRadioTake()");
             Assert.Contains("SliceHasRecording", radioChoice, StringComparison.Ordinal);
             Assert.Contains("SelectTakeForPlayback()", body, StringComparison.Ordinal);
-            int radio = selection.IndexOf("NewestRadioTake()", StringComparison.Ordinal);
-            int folder = selection.IndexOf("RecordingStore.Newest", StringComparison.Ordinal);
-            int iq = selection.IndexOf("NewestIqDirectory", StringComparison.Ordinal);
-            int denial = body.IndexOf("audio.check.no_recording_yet", StringComparison.Ordinal);
-            Assert.True(radio >= 0 && folder >= 0 && iq >= 0 && denial >= 0,
-                "Monitor must consult the slice, computer and IQ stores before saying none exists.");
+            Assert.Contains("if (method == AudioCheckListenMethods.Monitor)", selection, StringComparison.Ordinal);
+            Assert.Contains("NewestRadioTake()", selection, StringComparison.Ordinal);
+            Assert.Contains("NewestIqDirectory()", selection, StringComparison.Ordinal);
+            Assert.DoesNotContain("RecordingStore.Newest", selection, StringComparison.Ordinal);
             Assert.Contains("TakePlaybackSelector.Choose(method", selection, StringComparison.Ordinal);
+            string label = MethodBody(ReadWorkshop("AudioCheck"), "private void SyncPlayTakeLabel()");
+            Assert.Contains("Visibility.Collapsed", label, StringComparison.Ordinal);
+            Assert.Contains("IsTabStop = available", label, StringComparison.Ordinal);
             Assert.Contains("selected.Method == AudioCheckListenMethods.OffAir", body, StringComparison.Ordinal);
             Assert.Contains("selected.Method == AudioCheckListenMethods.RecordPlayback", body, StringComparison.Ordinal);
             Assert.Contains("SayNoTake(\"off-air\")", body, StringComparison.Ordinal);
             Assert.Contains("SayNoTake(\"slice\")", body, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void PlaybackStartsOnlyAfterItsClickAndStopKeepsItsOwnCue()
+        {
+            string check = ReadWorkshop("AudioCheck");
+            string manual = MethodBody(check, "private async Task PlayRadioTakeAsync(");
+            string automatic = MethodBody(check, "private void TickPostUnkey(FlexBase rig)");
+            string iq = MethodBody(ReadWorkshop("Listenback"),
+                "private async Task<bool> PlayTakeAfterClickAsync(");
+            string controls = File.ReadAllText(Path.Combine(IntegrationPassTree.Root,
+                "JJFlexWpf", "RecorderControls.cs"));
+            string slice = MethodBody(controls, "public static async Task<RecorderOutcome> ToggleSlicePlayAsync(");
+            string computer = MethodBody(controls, "public static async Task<RecorderOutcome> ToggleComputerPlayAsync(");
+            string speak = MethodBody(controls, "public static void Speak(RecorderOutcome outcome)");
+
+            AssertClickBefore(manual, "rig.StartSlicePlayAsync(target)");
+            AssertClickBefore(automatic, "rig.StartSlicePlayAsync(_recorderTarget)");
+            AssertClickBefore(slice, "rig.ToggleSlicePlayAsync(target, owner)");
+            AssertClickBefore(computer, "ComputerRecorder.TogglePlaybackAsync");
+            Assert.True(iq.IndexOf("EarconPlayer.ConfirmTone()", StringComparison.Ordinal) <
+                iq.IndexOf("RecordingPlayer.Play(path", StringComparison.Ordinal));
+            Assert.DoesNotContain("outcome.Cue == RecorderCue.PlayStart", speak, StringComparison.Ordinal);
+            Assert.Contains("outcome.Cue == RecorderCue.PlayStop", speak, StringComparison.Ordinal);
+        }
+
+        private static void AssertClickBefore(string body, string start)
+        {
+            int click = body.IndexOf("PlayStartClick", StringComparison.Ordinal);
+            int play = body.IndexOf(start, StringComparison.Ordinal);
+            Assert.True(click >= 0 && play > click, "The start click must precede " + start + ".");
         }
 
         /// <summary>
