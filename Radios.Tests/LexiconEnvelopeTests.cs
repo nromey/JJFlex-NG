@@ -1643,6 +1643,7 @@ namespace Radios.Tests
                 "audio.qsos.paused",
                 "audio.qsos.resumed",
                 "audio.qsos.nothing_selected",
+                "audio.qsos.move_failed",
                 "audio.qsos.still_recording",
                 "audio.qsos.play_refused_transmitting",
                 "audio.qsos.vox_unconfirmed",

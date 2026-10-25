@@ -258,7 +258,11 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         // first control, so focus can land on the chosen row. The count of
         // unreadable files is said after the title, which Loaded queues first.
         Populate(opening: true);
-        _watch.Tick += (_, _) => FollowRecorder(force: false);
+        _watch.Tick += (_, _) =>
+        {
+            FollowRecorder(force: false);
+            if (!_closed && PreviewActive && !RecordingPlayer.IsPaused) ShowPlayHead();
+        };
         Activated += (_, _) => FollowRecorder(force: false);
         Loaded += (_, _) =>
         {
@@ -636,7 +640,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         // ahead and back"): the step starts from what is sounding now.
         if (PreviewActive) _browser.MoveTo(RecordingPlayer.PositionSeconds ?? _browser.Cursor);
         string sentence = _browser.Step(direction);
-        if (PreviewActive) RecordingPlayer.Seek(_browser.Cursor);
+        if (!SeekPreview()) return;
         if (_browser.CanMove) Say(sentence, refresh: true);
         else Refuse(sentence);
     }
@@ -645,8 +649,24 @@ public sealed class RecordedQsosDialog : JJFlexDialog
     {
         if (_browser.Current == null) return;
         string sentence = _browser.Edge(toEnd);
-        if (PreviewActive) RecordingPlayer.Seek(_browser.Cursor);
+        if (!SeekPreview()) return;
         Say(sentence, refresh: true);
+    }
+
+    /// <summary>
+    /// Take a playing or paused preview to the new play head. True when there
+    /// is no preview or the player moved; on a refusal the play head goes back
+    /// to what is sounding and the window says so, rather than announcing a
+    /// position the audio never reached. Until 2026-10-25 the result was
+    /// ignored, and that is how the refusal to seek while sounding went
+    /// unheard: the window spoke the new position either way.
+    /// </summary>
+    private bool SeekPreview()
+    {
+        if (!PreviewActive || RecordingPlayer.Seek(_browser.Cursor)) return true;
+        _browser.MoveTo(RecordingPlayer.PositionSeconds ?? _browser.Cursor);
+        Refuse(Lexicon.Get("audio.qsos.move_failed"));
+        return false;
     }
 
     /// <summary>Where a mark goes: what the operator heard at the press while playing, else the position.</summary>
@@ -887,6 +907,27 @@ public sealed class RecordedQsosDialog : JJFlexDialog
 
     // ── the controls' state ─────────────────────────────────────────────
 
+    /// <summary>
+    /// Put the position control where the play head is: what is sounding
+    /// while a preview plays, otherwise the browser's position. The window's
+    /// poll calls this too, so the slider follows playback.
+    /// </summary>
+    /// <remarks>
+    /// QUIETLY (Noel, bench 2026-10-25: "follows quietly"). The control's peer
+    /// is a plain element peer with a read-only Value pattern, not a range-value
+    /// peer, so moving Value and ValueText raises no automation event and NVDA
+    /// says nothing; the operator hears the exact position on asking (NVDA+Tab),
+    /// or when pausing or stepping. Never raise a value-changed event from here:
+    /// twice a second over the recording is the chatter that ruling refused.
+    /// </remarks>
+    private void ShowPlayHead()
+    {
+        if (_browser.Current == null) { _position.Value = 0; _position.ValueText = ""; return; }
+        double at = PreviewActive ? RecordingPlayer.PositionSeconds ?? _browser.Cursor : _browser.Cursor;
+        _position.Value = Math.Clamp(at, 0, _position.Maximum);
+        _position.ValueText = _browser.PositionValue(at);
+    }
+
     private void RefreshControls()
     {
         var focused = Keyboard.FocusedElement as UIElement;
@@ -902,8 +943,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         bool canMove = has && _browser.CanMove && !CurrentIsStillRecording;
         _position.IsEnabled = canMove;
         _position.Maximum = Math.Max(1, _browser.Duration ?? 1);
-        _position.Value = Math.Clamp(_browser.Cursor, 0, _position.Maximum);
-        _position.ValueText = has ? _browser.PositionValue() : "";
+        ShowPlayHead();
         bool flac = has && _browser.Current!.IsFlac;
         _setStart.IsEnabled = canMove && flac;
         _setEnd.IsEnabled = canMove && flac;

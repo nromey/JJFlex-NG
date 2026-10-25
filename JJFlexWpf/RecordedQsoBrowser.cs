@@ -245,8 +245,9 @@ internal sealed class RecordedQsoBrowser
         ("position", RecordedQsoWords.Position(Cursor, Duration)), ("length", RecordedQsoWords.Length(Duration)));
 
     /// <summary>The position control's value: "1 minute 5 seconds of 12 minutes 8 seconds".</summary>
-    internal string PositionValue() => Lexicon.Get("audio.qsos.position_value",
-        ("position", RecordedQsoWords.Position(Cursor, Duration)), ("length", RecordedQsoWords.Length(Duration)));
+    /// <param name="at">Where the play head is, when it is not the browser's position (a preview sounding).</param>
+    internal string PositionValue(double? at = null) => Lexicon.Get("audio.qsos.position_value",
+        ("position", RecordedQsoWords.Position(at ?? Cursor, Duration)), ("length", RecordedQsoWords.Length(Duration)));
 
     /// <summary>Mark the trim start at <paramref name="at"/> seconds. Returns the sentence to speak.</summary>
     internal (bool Changed, string Sentence) SetStart(double at)

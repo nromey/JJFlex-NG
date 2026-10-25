@@ -91,9 +91,19 @@ public sealed class RecordedQsoTransportTests : IDisposable
         Assert.Equal(2.5, RecordingPlayer.PositionSeconds!.Value, 3);
         Assert.True(RecordingPlayer.Resume());
         Assert.False(RecordingPlayer.IsPaused);
-        Assert.False(RecordingPlayer.Seek(0.5)); // moving through sounding audio waits for a later round
         Assert.Equal(buffer.Length, ReadOnce(input!, buffer));
         Assert.Contains(buffer, s => s != 0);
+
+        // Moving while it sounds (bench 2026-10-25). This line asserted the
+        // REFUSAL until then, which pinned the defect Noel heard: every
+        // Right Arrow announced a new position and the audio never jumped.
+        // Back from 2.6 to 0.5: three more reads put the mixer at 0.8 and the
+        // heard position, 200 ms behind it, at 0.6. Had the seek been refused
+        // it would read past 2.6.
+        Assert.True(RecordingPlayer.Seek(0.5));
+        Assert.Equal(0.5, RecordingPlayer.PositionSeconds!.Value, 3);
+        for (int i = 0; i < 3; i++) Assert.Equal(buffer.Length, ReadOnce(input!, buffer));
+        Assert.InRange(RecordingPlayer.PositionSeconds!.Value, 0.55, 0.65);
     }
 
     [Fact]

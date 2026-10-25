@@ -131,15 +131,23 @@ public static class RecordingPlayer
     }
 
     /// <summary>
-    /// Move a PAUSED recording to another point, so the next Resume carries on
-    /// from there. Refused (false) while it is sounding: moving through audio
-    /// that is playing waits for a later round (Noel, 2026-10-21 10:57).
+    /// Move the recording that is playing or paused to another point. Paused,
+    /// the next Resume carries on from there; sounding, playback jumps once
+    /// the audio already queued for the speakers has played out.
     /// </summary>
+    /// <remarks>
+    /// Until 2026-10-25 this refused while sounding, a ruling of 2026-10-21
+    /// ("waits for a later round"). Noel asked for that round at the bench on
+    /// 2026-10-25 ("I'd make it so it can jump ahead and back"), and the
+    /// dialog was changed to step while playing, but this refusal stayed: every
+    /// step announced a new position while the audio carried on where it was.
+    /// The transport's lock already keeps a seek from landing mid-read.
+    /// </remarks>
     public static bool Seek(double seconds)
     {
         TransportSampleProvider? transport;
         lock (Gate) transport = _transport;
-        if (transport == null || !transport.Paused) return false;
+        if (transport == null) return false;
         try { transport.Seek(seconds); }
         catch (Exception ex)
         {

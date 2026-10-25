@@ -1169,6 +1169,7 @@
   "audio.qsos.stopped_to_start": {"text": "Stopped. The play head is at the beginning of the file.", "delivery": null},
   "audio.qsos.play_head_start": {"text": "The play head is at the beginning of the file.", "delivery": null},
   "audio.qsos.nothing_selected": {"text": "Choose a recording in the list first.", "delivery": null},
+  "audio.qsos.move_failed": {"text": "The play head could not be moved.", "delivery": null},
   "audio.qsos.still_recording": {"text": "That recording is still being made. Stop recording to file first.", "delivery": null},
   "audio.qsos.play_refused_transmitting": {"text": "A recording cannot play here while you are transmitting.", "delivery": null},
   "audio.qsos.vox_unconfirmed": {"text": "I could not confirm that VOX or CW break-in is off, so the recording did not play.", "delivery": null},
