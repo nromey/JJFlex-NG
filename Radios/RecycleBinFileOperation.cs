@@ -62,7 +62,15 @@ public static class RecycleBinFileOperation
     private static extern int SHCreateItemFromParsingName([MarshalAs(UnmanagedType.LPWStr)] string path, IntPtr bindContext,
         ref Guid interfaceId, out IntPtr item);
 
-    [ComImport, Guid("947AAB5F-0A5C-4C13-B4D6-4EB2C7B65CAA"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    // The IIDs are copied from ShObjIdl_core.h (Windows SDK 10.0.26100.0), not
+    // from memory. This one was wrong until the 2026-10-25 bench: Windows
+    // answered E_NOINTERFACE and Delete refused every recording. A test now
+    // asks the real Windows object for each IID, so a wrong one cannot ship.
+    internal const string FileOperationIid = "947AAB5F-0A5C-4C13-B4D6-4BF7836FC9F8";
+    internal static readonly Guid ShellItemIid = ShellItemId;
+    internal static readonly Guid FileOperationClsid = FileOperationId;
+
+    [ComImport, Guid(FileOperationIid), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface IFileOperation
     {
         [PreserveSig] int Advise(IntPtr sink, out uint cookie);

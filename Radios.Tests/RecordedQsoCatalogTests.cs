@@ -206,6 +206,66 @@ public sealed class RecordedQsoCatalogTests : IDisposable
         Assert.True(sink.Recycled);
     }
 
+    [Fact]
+    public void Windows_itself_answers_to_every_shell_interface_the_recycle_door_asks_for()
+    {
+        // Noel's 2026-10-25 bench: the IFileOperation IID was wrong, Windows
+        // said E_NOINTERFACE, and Delete refused every recording. Every other
+        // test fakes the shell, so nothing had ever asked Windows. This asks
+        // the real FileOperation and a real shell item, and moves no file.
+        string file = Path.Combine(_root, "probe.flac");
+        File.WriteAllBytes(file, new byte[] { 1 });
+        int fileOperationHr = int.MinValue, shellItemHr = int.MinValue;
+        var sta = new System.Threading.Thread(() =>
+        {
+            object operation = Activator.CreateInstance(Type.GetTypeFromCLSID(RecycleBinFileOperation.FileOperationClsid)!)!;
+            IntPtr unknown = Marshal.GetIUnknownForObject(operation);
+            try
+            {
+                Guid iid = new(RecycleBinFileOperation.FileOperationIid);
+                fileOperationHr = Marshal.QueryInterface(unknown, ref iid, out IntPtr found);
+                if (found != IntPtr.Zero) Marshal.Release(found);
+            }
+            finally
+            {
+                Marshal.Release(unknown);
+                Marshal.ReleaseComObject(operation);
+            }
+            Guid shellItem = RecycleBinFileOperation.ShellItemIid;
+            shellItemHr = SHCreateItemFromParsingName(file, IntPtr.Zero, ref shellItem, out IntPtr item);
+            if (item != IntPtr.Zero) Marshal.Release(item);
+        });
+        sta.SetApartmentState(System.Threading.ApartmentState.STA);
+        sta.Start();
+        sta.Join();
+
+        Assert.Equal(0, fileOperationHr);
+        Assert.Equal(0, shellItemHr);
+        Assert.True(File.Exists(file)); // asked, not recycled
+
+        // Positive control: the IID that shipped on 2026-10-24 is refused, so
+        // this test can tell a wrong IID from a right one.
+        int oldHr = 0;
+        var control = new System.Threading.Thread(() =>
+        {
+            object operation = Activator.CreateInstance(Type.GetTypeFromCLSID(RecycleBinFileOperation.FileOperationClsid)!)!;
+            IntPtr unknown = Marshal.GetIUnknownForObject(operation);
+            Guid wrong = new("947AAB5F-0A5C-4C13-B4D6-4EB2C7B65CAA");
+            oldHr = Marshal.QueryInterface(unknown, ref wrong, out IntPtr found);
+            if (found != IntPtr.Zero) Marshal.Release(found);
+            Marshal.Release(unknown);
+            Marshal.ReleaseComObject(operation);
+        });
+        control.SetApartmentState(System.Threading.ApartmentState.STA);
+        control.Start();
+        control.Join();
+        Assert.Equal(unchecked((int)0x80004002), oldHr);
+    }
+
+    [DllImport("shell32.dll", ExactSpelling = true, CharSet = CharSet.Unicode, PreserveSig = true)]
+    private static extern int SHCreateItemFromParsingName([MarshalAs(UnmanagedType.LPWStr)] string path, IntPtr bindContext,
+        ref Guid interfaceId, out IntPtr item);
+
 
     private IReadOnlyList<RecordedQso> FiveDays()
     {
