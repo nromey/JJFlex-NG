@@ -849,9 +849,12 @@ public class NativeMenuBar : IDisposable
 
         // === Meter Tones ===
         // These two were ONE item until Sprint 32 Track B, and the one item was
-        // wrong twice over: it claimed Ctrl+Alt+M, which is not a binding this
-        // app has, and it showed a checkmark for the tone state while actually
-        // opening the panel. Two items now, each doing and naming one thing.
+        // wrong twice over: it claimed Ctrl+Alt+M, which is bound to meter
+        // tones on or off rather than to the panel it opened (this comment
+        // said Ctrl+Alt+M was no binding at all until #463 checked), and it
+        // showed a checkmark for the tone state while actually opening the
+        // panel. Two items now, each doing and naming one thing. MenuShortcutAgreementTests holds every shortcut here to
+        // the binding it names.
         var meterSub = AddSubmenu(parent, "Meter Tones");
         AddChecked(meterSub, "Meter Tones On/Off\tCtrl+J, Ctrl+T", () =>
         {
