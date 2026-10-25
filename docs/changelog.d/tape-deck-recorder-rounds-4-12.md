@@ -1,0 +1,11 @@
+- The recorder has flat keys now: F11 records the slice you're on and Ctrl+F11 plays it back, while Alt+F11 records to a file on this computer and Ctrl+Alt+F11 plays that file.
+- Playback starts and stops with a tape-deck click, and recording keeps its beeps, so you can tell the two apart by ear.
+- Your radio's recordings show their length on Home, and the length is still there after you reconnect.
+- Slice playback can go out on the air when you ask for it. VOX is kept out of the way while it plays and comes back afterwards.
+- Record and play back stops on its own at the recorder's two-minute limit, with one quiet sound and a sentence, instead of the transmit timeout alarm.
+- The reference recording stays armed from one transmission to the next, and VOX stays off until you untick it. Arming it now just says "Reference armed."
+- The reference list tells you each recording's length and loudness.
+- Escape and Ctrl+Enter stop anything the Audio Workshop is playing.
+- Play last take plays the take that goes with your listen method, and an older take's button tells you when it was made, like "Play October 23 take".
+- Leaving Logging mode tells you which tuning mode you're back in.
+- Toggles sound and speak the same way everywhere, with the on and off tones you know from XIT.
