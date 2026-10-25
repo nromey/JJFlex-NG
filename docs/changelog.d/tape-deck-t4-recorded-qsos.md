@@ -1,2 +1,3 @@
 - Recorded QSOs (Ctrl+Alt+Shift+F11, or the JJ key then Alt+F) lists your computer recordings, and the files you save from them, so you can pick the one Play from computer plays, listen to it, jump through it by as little as a tenth of a second, trim it, save it as MP3, Opus, WAV, FLAC or M4A, and send old ones to the Recycle Bin.
+- A recording playing back on your computer no longer sits right on top of the band. The radio's audio on your computer drops by 12 dB while it plays, and Settings has a choice called Radio audio during playback if you want it lower, unchanged, or muted.
 - Play from computer now pauses VOX while it plays, so your speakers can't key the radio.

@@ -430,6 +430,14 @@ namespace JJFlexWpf
         public string RxDuckTiming { get; set; } = RxDuck.TimingName(RxDuck.DefaultTiming);
 
         /// <summary>
+        /// What the radio's audio does on this computer while a recording plays
+        /// back (#787): the name of a <see cref="PlaybackRadioLevel"/>, lowered
+        /// 12 dB by default. A string for the reason given on
+        /// <see cref="RxDuckTiming"/>.
+        /// </summary>
+        public string RecordingPlaybackRadioLevel { get; set; } = RxPlaybackLevel.LevelName(RxPlaybackLevel.DefaultLevel);
+
+        /// <summary>
         /// The one meter list (Track D2): each entry is a source plus a range
         /// plus a voice, with audibility and readability as properties of the
         /// same meter. Empty = never configured; the engine seeds from the
@@ -738,6 +746,7 @@ namespace JJFlexWpf
             RxDuck.Enabled = RxDuckEnabled;
             RxDuck.DepthDb = RxDuckDepthDb;
             RxDuck.Timing = RxDuck.ParseTiming(RxDuckTiming);
+            RxPlaybackLevel.Level = RxPlaybackLevel.ParseLevel(RecordingPlaybackRadioLevel);
 
             EarconPlayer.MasterVolume = MasterVolume;
             EarconPlayer.AlertVolume = AlertVolume;
@@ -844,6 +853,7 @@ namespace JJFlexWpf
             RxDuckEnabled = RxDuck.Enabled;
             RxDuckDepthDb = RxDuck.DepthDb;
             RxDuckTiming = RxDuck.TimingName(RxDuck.Timing);
+            RecordingPlaybackRadioLevel = RxPlaybackLevel.LevelName(RxPlaybackLevel.Level);
 
             // What the engine hands back is always current-model, so say so.
             // The migration is a no-op on an already-current file even without

@@ -207,4 +207,69 @@ public sealed class RecordedQsoTransportTests : IDisposable
             RecordedQsoExport.Convert(source, out1, RecordedQsoExport.Format.Wav, 1, 0, 2000, 2000));
         Assert.False(File.Exists(out1));
     }
+
+    // Bench 2026-10-25: a recording played back over the band at full
+    // level ("Right now it plays on top"). The radio's audio on this
+    // computer now follows the operator's choice for exactly the life of
+    // a playback, and comes back on the one path every playback ends by.
+    [Fact]
+    public void The_radio_audio_is_lowered_for_the_life_of_a_playback_and_comes_back_when_it_ends()
+    {
+        var before = RxPlaybackLevel.Level;
+        try
+        {
+            RxPlaybackLevel.Level = PlaybackRadioLevel.Lowered12;
+            Assert.Equal(1f, RxPlaybackLevel.TargetGain);
+
+            Assert.True(RecordingPlayer.PlayWithMixer(Wav(1), "A test recording.", null, false, _ => true));
+            Assert.True(RxPlaybackLevel.Active);
+            Assert.Equal(0.251f, RxPlaybackLevel.TargetGain, 3);
+
+            RecordingPlayer.StopWithoutSpeaking();
+            Assert.False(RxPlaybackLevel.Active);
+            Assert.Equal(1f, RxPlaybackLevel.TargetGain);
+
+            // A playback that never reaches a mixer ends at once, and the
+            // radio is not left lowered behind it.
+            Assert.False(RecordingPlayer.PlayWithMixer(Wav(1), "A test recording.", null, false, _ => false));
+            Assert.False(RxPlaybackLevel.Active);
+        }
+        finally { RxPlaybackLevel.Level = before; }
+    }
+
+    [Fact]
+    public void Each_playback_level_is_its_drop_in_dB_muted_is_zero_and_an_unknown_name_is_the_default()
+    {
+        Assert.Equal(1f, RxPlaybackLevel.GainFor(PlaybackRadioLevel.Unchanged));
+        Assert.Equal(0.501f, RxPlaybackLevel.GainFor(PlaybackRadioLevel.Lowered6), 3);
+        Assert.Equal(0.251f, RxPlaybackLevel.GainFor(PlaybackRadioLevel.Lowered12), 3);
+        Assert.Equal(0.126f, RxPlaybackLevel.GainFor(PlaybackRadioLevel.Lowered18), 3);
+        Assert.Equal(0.063f, RxPlaybackLevel.GainFor(PlaybackRadioLevel.Lowered24), 3);
+        Assert.Equal(0f, RxPlaybackLevel.GainFor(PlaybackRadioLevel.Muted));
+        Assert.Equal(6, RxPlaybackLevel.Choices.Length);
+        Assert.Equal(PlaybackRadioLevel.Lowered12, RxPlaybackLevel.DefaultLevel);
+        Assert.Equal(PlaybackRadioLevel.Muted, RxPlaybackLevel.ParseLevel("Muted"));
+        Assert.Equal(PlaybackRadioLevel.Lowered12, RxPlaybackLevel.ParseLevel("Lowered99"));
+        Assert.Equal(PlaybackRadioLevel.Lowered12, RxPlaybackLevel.ParseLevel(null));
+        foreach (var level in RxPlaybackLevel.Choices)
+            Assert.False(string.IsNullOrEmpty(RxPlaybackLevel.Label(level)));
+    }
+
+    [Fact]
+    public void The_playback_level_glides_down_and_back_rather_than_stepping()
+    {
+        // 48 kHz mono: the 60 ms way down is 2,880 frames, so one
+        // 480-frame buffer gets a sixth of the way, and the last sample is
+        // lower than the first. Never a step.
+        var buffer = Enumerable.Repeat(1f, 480).ToArray();
+        float gain = RxAudioPipeline.GlideGain(buffer, buffer.Length, 1, 48000, 1f, 0f);
+        Assert.InRange(gain, 0.82f, 0.84f);
+        Assert.True(buffer[0] > buffer[^1]);
+        Assert.Equal(gain, buffer[^1], 4);
+
+        // At full gain with nothing asked, the audio passes untouched.
+        var untouched = Enumerable.Repeat(0.5f, 480).ToArray();
+        Assert.Equal(1f, RxAudioPipeline.GlideGain(untouched, untouched.Length, 1, 48000, 1f, 1f));
+        Assert.All(untouched, v => Assert.Equal(0.5f, v));
+    }
 }

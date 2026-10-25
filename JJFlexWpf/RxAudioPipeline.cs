@@ -160,6 +160,43 @@ namespace JJFlexWpf
             _spectralSub.ProcessInPlace(buffer, 0, count, _channels);
             _rnnoise.ProcessInPlace(buffer, 0, count, _channels);
             ApplyDuck(buffer, count);
+            ApplyPlaybackLevel(buffer, count);
+        }
+
+        // --- Recording playback level (#787, bench 2026-10-25) ---
+        //
+        // After the warning duck, and separate from it: the duck is
+        // warnings-only by ruling, and this one follows a recording playing on
+        // this computer. The two multiply, which is right — a warning during
+        // playback still dips the band further. See RxPlaybackLevel.
+
+        private float _playbackGain = 1f;
+
+        private void ApplyPlaybackLevel(float[] buffer, int count) =>
+            _playbackGain = GlideGain(buffer, count, Math.Max(_channels, 1), _sampleRate,
+                _playbackGain, RxPlaybackLevel.TargetGain);
+
+        /// <summary>
+        /// Ramp <paramref name="buffer"/> from <paramref name="gain"/> toward
+        /// <paramref name="target"/>, per frame, and return where it got to.
+        /// A full excursion takes <see cref="RxPlaybackLevel.AttackMs"/> going
+        /// down and <see cref="RxPlaybackLevel.ReleaseMs"/> coming back: ramped,
+        /// never stepped, for the reason on <see cref="ApplyDuck"/>.
+        /// </summary>
+        internal static float GlideGain(float[] buffer, int count, int channels, float sampleRate,
+            float gain, float target)
+        {
+            if (target >= 0.9999f && gain >= 0.9999f) return 1f;
+            float ms = target < gain ? RxPlaybackLevel.AttackMs : RxPlaybackLevel.ReleaseMs;
+            float step = 1f / Math.Max(1f, sampleRate * (ms / 1000f));
+            for (int i = 0; i < count; i += channels)
+            {
+                if (gain > target) gain = Math.Max(target, gain - step);
+                else if (gain < target) gain = Math.Min(target, gain + step);
+                for (int c = 0; c < channels && i + c < count; c++)
+                    buffer[i + c] *= gain;
+            }
+            return gain;
         }
 
         // --- Warning duck (#116) ---

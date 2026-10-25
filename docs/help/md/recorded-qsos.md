@@ -24,6 +24,8 @@ If any file in the folder couldn't be read, I tell you how many when the window 
 
 Play from computer (Ctrl+Alt+F11, or JJ key Ctrl+Shift+P) plays your newest recording, unless you select another one here: then it plays the selected recording. Making a new recording puts it back on the newest, and so does restarting JJ Flexible.
 
+While a recording plays back on your computer, the radio's audio on your computer drops by 12 dB, so you hear the recording over the band rather than mixed into it. To change that, go to Settings and use **Radio audio during playback**: Unchanged, Lowered 6, 12, 18 or 24 dB, or Muted. It works on the audio you hear through the computer only; the radio's own speaker is untouched.
+
 ## Listening and stepping
 
 The step size is the next stop after the list: 0.1 seconds, 0.5 seconds, 1 second, 5 seconds, 10 seconds, 30 seconds or a minute. It designates the size of the step used to jump forward and backward through a recorded file, and JJ Flexible remembers the one you chose, even after a restart. After it come the Play button (it becomes Pause, then Resume), the Stop button while something is playing, and the playback position, which says where the play head is in words, to the tenth of a second.

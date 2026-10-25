@@ -355,6 +355,13 @@ namespace JJFlexWpf.Dialogs
             // Typing sound mode
             PopulateTypingSoundCombo();
 
+            // Radio audio during playback (#787): one choice, muted included.
+            PlaybackRadioLevelCombo.Items.Clear();
+            foreach (var level in RxPlaybackLevel.Choices)
+                PlaybackRadioLevelCombo.Items.Add(RxPlaybackLevel.Label(level));
+            PlaybackRadioLevelCombo.SelectedIndex = Math.Max(0, Array.IndexOf(RxPlaybackLevel.Choices,
+                RxPlaybackLevel.ParseLevel(_audioConfig.RecordingPlaybackRadioLevel)));
+
             // Braille section
             BrailleEnabledCheck.IsChecked = _audioConfig.BrailleEnabled;
             int[] cellOptions = { 20, 32, 40, 80 };
@@ -1467,6 +1474,11 @@ namespace JJFlexWpf.Dialogs
             _audioConfig.EarconWarningsEnabled = EarconWarningsCheck.IsChecked == true;
             _audioConfig.RecorderBeepsEnabled = RecorderBeepsCheck.IsChecked == true;
             _audioConfig.RecorderSpeechEnabled = RecorderSpeechCheck.IsChecked == true;
+            if (PlaybackRadioLevelCombo.SelectedIndex >= 0 && PlaybackRadioLevelCombo.SelectedIndex < RxPlaybackLevel.Choices.Length)
+            {
+                RxPlaybackLevel.Level = RxPlaybackLevel.Choices[PlaybackRadioLevelCombo.SelectedIndex];
+                _audioConfig.RecordingPlaybackRadioLevel = RxPlaybackLevel.LevelName(RxPlaybackLevel.Level);
+            }
             _audioConfig.CwNotificationsEnabled = CwNotificationsCheck.IsChecked == true;
             // Sprint 33 Track F. Read back by index rather than by the label
             // text: the labels are user-facing prose and will be reworded, and

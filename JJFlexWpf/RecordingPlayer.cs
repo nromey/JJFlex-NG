@@ -274,6 +274,10 @@ public static class RecordingPlayer
             _liveRig = liveRig;
             _priorLiveMute = priorLiveMute ?? liveRig?.LocalReceiveMutedForTakePlayback ?? false;
             if (liveRig != null) liveRig.LocalReceiveMutedForTakePlayback = true;
+            // Lower or mute the radio on this computer for the playback, as
+            // the operator chose (RxPlaybackLevel). Every exit below goes
+            // through RestoreLiveAudio, which ends it.
+            RxPlaybackLevel.Begin();
         }
 
         if (!addPlayback(provider))
@@ -321,6 +325,9 @@ public static class RecordingPlayer
 
     private static void RestoreLiveAudio()
     {
+        // The radio's audio comes back up with the same restore that lifts the
+        // workshop's gate, so no playback can end without it (#787).
+        RxPlaybackLevel.End();
         if (_liveRig != null) _liveRig.LocalReceiveMutedForTakePlayback = _priorLiveMute;
         _liveRig = null;
         _priorLiveMute = false;

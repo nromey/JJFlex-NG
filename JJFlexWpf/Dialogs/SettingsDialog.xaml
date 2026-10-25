@@ -580,6 +580,16 @@
                     <CheckBox x:Name="RecorderSpeechCheck" Content="Recorder speech" Margin="0,0,0,8"
                               AutomationProperties.Name="Recorder speech"
                               local:JJFlexHelp.Text="Speak recorder start and stop status. Refusals and failures always speak."/>
+                    <!-- DRAFT PROSE (#787, bench 2026-10-25): the help awaits Noel. -->
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <controls:DecorativeText Text="Radio audio during playback:"
+                                   VerticalAlignment="Center"
+                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="PlaybackRadioLevelCombo" Width="180"
+                                  Style="{StaticResource DialogComboBox}"
+                                  AutomationProperties.Name="Radio audio during playback"
+                                  local:JJFlexHelp.Text="Sets how much the radio's audio on this computer is lowered while a recording plays back, or mutes it. Audio from the radio's own speaker is not affected."/>
+                    </StackPanel>
 
                     <Separator Margin="0,4,0,8"/>
 
