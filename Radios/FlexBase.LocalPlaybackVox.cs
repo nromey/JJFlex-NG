@@ -16,6 +16,10 @@ namespace Radios;
 /// </summary>
 public partial class FlexBase
 {
+    // Includes a released playback during its speaker-drain tail: its VOX
+    // lease remains paused until the owner has actually released it.
+    private readonly System.Collections.Generic.List<VoxPauseOwner.Lease> _localPlaybackVoxLeases = new();
+
     /// <summary>The answer to <see cref="PauseVoxForLocalPlaybackAsync"/>.</summary>
     public sealed class LocalPlaybackVoxPause : IDisposable
     {
@@ -91,6 +95,16 @@ public partial class FlexBase
             {
                 lease.Dispose();
                 return null;
+            }
+            lock (_voxPauseGate)
+            {
+                _localPlaybackVoxLeases.RemoveAll(p => !p.Paused);
+                if (!ReferenceEquals(radio, theRadio))
+                {
+                    lease.Dispose();
+                    return null;
+                }
+                _localPlaybackVoxLeases.Add(lease);
             }
             return new LocalPlaybackVoxPause(this, lease);
         }

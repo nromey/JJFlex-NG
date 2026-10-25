@@ -1668,6 +1668,7 @@ namespace Radios.Tests
                 "audio.qsos.refused_no_bin",
                 "audio.qsos.refused_bin_off",
                 "audio.qsos.refused_too_large",
+                "audio.qsos.refused_outside",
                 "audio.qsos.refused_failed",
                 "audio.qsos.prune_title",
                 "audio.qsos.prune_by_count",

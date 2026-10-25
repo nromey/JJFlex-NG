@@ -107,6 +107,26 @@ public sealed class LocalPlaybackVoxTests : IDisposable
         pause.Dispose();
     }
 
+    [Fact]
+    public async Task Disconnect_during_local_playback_arms_the_reconnect_VOX_warning()
+    {
+        using var f = Radio("local-play-disconnect", voxOn: true);
+        f.Vendor.Transport.CommandWritten = command =>
+        {
+            if (command == "transmit set vox_enable=0") f.Vendor.ReplyOk(f.Vendor.LastSequence);
+        };
+        var pause = await Pumped(f, f.Rig.PauseVoxForLocalPlaybackAsync());
+        Assert.NotNull(pause);
+        Assert.True(pause!.Holding);
+
+        typeof(FlexBase).GetMethod("DisconnectVoxPauses", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(f.Rig, null);
+        Assert.Equal(f.Vendor.Radio.Serial,
+            typeof(FlexBase).GetField("_voxPausedAtDisconnectSerial", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(f.Rig));
+        pause.Dispose();
+    }
+
     private static void Set(FlexBase rig, string name, object value)
         => typeof(FlexBase).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(rig, value);
 

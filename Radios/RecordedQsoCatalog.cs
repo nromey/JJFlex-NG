@@ -84,7 +84,12 @@ public static class RecordedQsoCatalog
         try
         {
             if (!Directory.Exists(root)) return new(found, 0);
-            files = Directory.EnumerateFiles(root, "*.flac", SearchOption.AllDirectories).ToList();
+            files = Directory.EnumerateFiles(root, "*.flac", new EnumerationOptions
+            {
+                RecurseSubdirectories = true,
+                AttributesToSkip = FileAttributes.ReparsePoint,
+                IgnoreInaccessible = false
+            }).ToList();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

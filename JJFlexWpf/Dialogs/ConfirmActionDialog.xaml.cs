@@ -70,6 +70,7 @@ namespace JJFlexWpf.Dialogs
             Title = title;
             AutomationProperties.SetName(this, title);
             YesButton.Content = yesLabel;
+            AutomationProperties.SetName(YesButton, yesLabel.Replace("_", ""));
             NoButton.Content = noLabel;
             _radioModel = radioModel;
             _suppressKey = suppressKey;

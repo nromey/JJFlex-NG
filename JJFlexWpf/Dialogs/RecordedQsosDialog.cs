@@ -82,6 +82,8 @@ public sealed class RecordedQsosDialog : JJFlexDialog
     private bool _choiceAnnounced;
     private int _unreadable;
     private bool _starting;
+    private bool _closed;
+    private int _selectionVersion;
 
     private static RecordedQsosDialog? _open;
 
@@ -220,6 +222,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         RecordingPlayer.PlaybackCompleted += OnPlaybackCompleted;
         Closed += (_, _) =>
         {
+            _closed = true;
             RecordingPlayer.StateChanged -= OnPlayerStateChanged;
             RecordingPlayer.PlaybackCompleted -= OnPlaybackCompleted;
             // Closing any way at all stops the preview (Noel 16:05). The
@@ -324,6 +327,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
     private void OnListSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_quietSelection) return;
+        _selectionVersion++;
         var q = (_list.SelectedItem as ListBoxItem)?.Tag as RecordedQso;
         if (PreviewActive && !SamePath(q?.Path, _previewPath))
             RecordingPlayer.StopWithoutSpeaking(); // a new row is a new recording; its own preview starts on Enter
@@ -506,33 +510,45 @@ public sealed class RecordedQsosDialog : JJFlexDialog
     private async Task StartPreviewCoreAsync()
     {
         var q = _browser.Current;
+        int selectionVersion = _selectionVersion;
         if (q == null) { Refuse(Lexicon.Get("audio.qsos.nothing_selected")); return; }
         if (CurrentIsStillRecording) { Refuse(Lexicon.Get("audio.qsos.still_recording")); return; }
         if (_rig?.Transmit == true) { Refuse(Lexicon.Get("audio.qsos.play_refused_transmitting")); return; }
 
         var pause = await LocalPlaybackVox.PauseAsync(_rig);
-        if (pause == null) { Refuse(Lexicon.Get("audio.qsos.vox_unconfirmed")); return; }
-        await RecorderControls.PlayStartClickBeforeLocalAudioAsync();
-
-        double from = _browser.Cursor;
-        if (_browser.CanMove && from >= _browser.Duration!.Value - 0.5) from = 0;
-        _browser.MoveTo(from);
-        string announcement = !_browser.CanMove
-            ? Lexicon.Get("audio.qsos.playing_unknown")
-            : from <= 0
-                ? Lexicon.Get("audio.qsos.playing_from_start", ("length", RecordedQsoWords.Length(_browser.Duration)))
-                : Lexicon.Get("audio.qsos.playing_from", ("position", RecordedQsoWords.Position(from, _browser.Duration)),
-                    ("length", RecordedQsoWords.Length(_browser.Duration)));
-
-        _previewPath = q.Path;
-        bool started = RecordingPlayer.PlayFrom(q.Path, from, announcement);
-        if (started) LocalPlaybackVox.HoldUntilPlaybackEnds(pause);
-        else
+        if (pause == null)
         {
-            pause.Dispose();
-            _previewPath = null;
+            if (!_closed && selectionVersion == _selectionVersion)
+                Refuse(Lexicon.Get("audio.qsos.vox_unconfirmed"));
+            return;
         }
-        RefreshControls();
+        try
+        {
+            if (_closed || selectionVersion != _selectionVersion || !SamePath(q.Path, _browser.Current?.Path)) return;
+            await RecorderControls.PlayStartClickBeforeLocalAudioAsync();
+            if (_closed || selectionVersion != _selectionVersion || !SamePath(q.Path, _browser.Current?.Path)) return;
+
+            double from = _browser.Cursor;
+            if (_browser.CanMove && from >= _browser.Duration!.Value - 0.5) from = 0;
+            _browser.MoveTo(from);
+            string announcement = !_browser.CanMove
+                ? Lexicon.Get("audio.qsos.playing_unknown")
+                : from <= 0
+                    ? Lexicon.Get("audio.qsos.playing_from_start", ("length", RecordedQsoWords.Length(_browser.Duration)))
+                    : Lexicon.Get("audio.qsos.playing_from", ("position", RecordedQsoWords.Position(from, _browser.Duration)),
+                        ("length", RecordedQsoWords.Length(_browser.Duration)));
+
+            _previewPath = q.Path;
+            bool started = RecordingPlayer.PlayFrom(q.Path, from, announcement);
+            if (started)
+            {
+                LocalPlaybackVox.HoldUntilPlaybackEnds(pause);
+                pause = null;
+            }
+            else _previewPath = null;
+            RefreshControls();
+        }
+        finally { pause?.Dispose(); }
     }
 
     private void StopPreview(bool speak)
@@ -668,6 +684,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         RecycleRefusal.NoRecycleBin => Lexicon.Get("audio.qsos.refused_no_bin"),
         RecycleRefusal.RecycleBinOff => Lexicon.Get("audio.qsos.refused_bin_off"),
         RecycleRefusal.TooLarge => Lexicon.Get("audio.qsos.refused_too_large"),
+        RecycleRefusal.OutsideArchive => Lexicon.Get("audio.qsos.refused_outside"),
         _ => Lexicon.Get("audio.qsos.refused_failed"),
     };
 

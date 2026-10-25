@@ -1,8 +1,10 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -126,6 +128,85 @@ public sealed class RecordedQsoCatalogTests : IDisposable
         Assert.Equal(0, scan.Unreadable);
     }
 
+    [Fact]
+    public void A_link_inside_the_archive_never_lists_an_outside_recording()
+    {
+        var (link, external) = OutsideRecordingThroughJunction();
+        try
+        {
+            Assert.Empty(RecordedQsoCatalog.Scan(RecordedQsoCatalog.FolderPath).Recordings);
+            Assert.True(File.Exists(external));
+        }
+        finally { Directory.Delete(link); }
+    }
+
+    [Fact]
+    public void A_direct_move_through_a_junction_refuses_before_the_shell_and_keeps_the_outside_file()
+    {
+        var (link, external) = OutsideRecordingThroughJunction();
+        try
+        {
+            string throughLink = Path.Combine(link, Path.GetFileName(external));
+            var calls = new List<string>();
+            RecycleBin.Implementation = (p, _) => { calls.Add(p); return new(true, RecycleRefusal.None); };
+            var result = RecycleBin.Move(throughLink);
+            Assert.False(result.Moved);
+            Assert.Empty(calls);
+            Assert.True(File.Exists(external));
+        }
+        finally { Directory.Delete(link); }
+    }
+
+    private (string Link, string External) OutsideRecordingThroughJunction()
+    {
+        string archive = RecordedQsoCatalog.FolderPath;
+        string outside = _scope.PathTo("outside");
+        string external = WriteHeader(outside, "QSO-2026-10-24-153012.flac");
+        Directory.CreateDirectory(archive);
+        string link = Path.Combine(archive, "linked-month");
+        // A junction needs no developer-mode symlink privilege on Windows.
+        using var mklink = Process.Start(new ProcessStartInfo("cmd.exe", $"/c mklink /J \"{link}\" \"{outside}\"")
+        {
+            CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true,
+            RedirectStandardError = true
+        })!;
+        mklink.WaitForExit();
+        Assert.Equal(0, mklink.ExitCode);
+        return (link, external);
+    }
+
+    [Fact]
+    public void A_move_cannot_report_success_without_evidence_of_a_recycled_item()
+    {
+        string file = WriteHeader(Path.Combine(RecordedQsoCatalog.FolderPath, "2026", "10"),
+            "QSO-2026-10-24-153012.flac");
+        // The old shell call reported success merely when the source vanished.
+        // This result represents that unsafe outcome: no item in the Bin.
+        RecycleBin.Implementation = (_, _) => new(true, RecycleRefusal.None);
+        var result = RecycleBin.Move(file);
+        Assert.False(result.Moved);
+        Assert.True(File.Exists(file));
+    }
+
+    [Fact]
+    public void The_native_delete_sink_aborts_a_nonrecycle_and_requires_the_bin_item_receipt()
+    {
+        var sink = new RecycleBinFileOperation.RecycleOnlySink();
+        IntPtr callback = Marshal.GetComInterfaceForObject(sink,
+            typeof(RecycleBinFileOperation.IFileOperationProgressSink));
+        Assert.NotEqual(IntPtr.Zero, callback);
+        Marshal.Release(callback);
+        Assert.True(sink.PreDeleteItem(0, IntPtr.Zero) < 0);
+        Assert.Equal(0, sink.PreDeleteItem(RecycleBinFileOperation.TsfDeleteRecycleIfPossible, IntPtr.Zero));
+        Assert.True(sink.PostDeleteItem(RecycleBinFileOperation.TsfDeleteRecycleIfPossible,
+            IntPtr.Zero, 0, IntPtr.Zero) < 0);
+        Assert.False(sink.Recycled);
+        Assert.Equal(0, sink.PostDeleteItem(RecycleBinFileOperation.TsfDeleteRecycleIfPossible,
+            IntPtr.Zero, 0, new IntPtr(1)));
+        Assert.True(sink.Recycled);
+    }
+
+
     private IReadOnlyList<RecordedQso> FiveDays()
     {
         for (int d = 1; d <= 5; d++)
@@ -180,7 +261,8 @@ public sealed class RecordedQsoCatalogTests : IDisposable
         RecycleBin.Implementation = (p, _) => { calls.Add(p); throw new IOException("shell said no"); };
         Assert.Equal(RecycleRefusal.Missing, RecycleBin.Move(Path.Combine(_root, "gone.flac")).Refusal);
         Assert.Empty(calls);
-        string real = WriteHeader(_root, "QSO-2026-10-24-153012.flac");
+        string real = WriteHeader(Path.Combine(RecordedQsoCatalog.FolderPath, "2026", "10"),
+            "QSO-2026-10-24-153012.flac");
         var result = RecycleBin.Move(real);
         Assert.False(result.Moved);
         Assert.Equal(RecycleRefusal.Failed, result.Refusal);
