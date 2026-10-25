@@ -247,6 +247,17 @@ public sealed class RecordedQsoCatalogTests : IDisposable
         File.SetCreationTime(copy, new DateTime(2026, 10, 25, 11, 2, 14));
         File.SetLastWriteTime(copy, new DateTime(2026, 10, 25, 11, 2, 14));
         Assert.EndsWith("QSO-2026-10-25-102646.flac", RecordedQsoCatalog.Newest()!.Path);
+
+        // Save As writes FLAC too (Codex review, 2026-10-25): a newer FLAC
+        // trim, and a newer FLAC the operator named, are still copies.
+        WriteHeader(month, "QSO-2026-10-25-102646-trim.flac");
+        WriteHeader(month, "Contest pileup.flac");
+        foreach (string name in new[] { "QSO-2026-10-25-102646-trim.flac", "Contest pileup.flac" })
+        {
+            File.SetCreationTime(Path.Combine(month, name), new DateTime(2026, 10, 25, 11, 30, 0));
+            File.SetLastWriteTime(Path.Combine(month, name), new DateTime(2026, 10, 25, 11, 30, 0));
+        }
+        Assert.EndsWith("QSO-2026-10-25-102646.flac", RecordedQsoCatalog.Newest()!.Path);
     }
 
     [Fact]
@@ -413,17 +424,4 @@ public sealed class RecordedQsoCatalogTests : IDisposable
         Assert.Null(ComputerRecorder.ChosenForPlayback());
     }
 
-    // Retest 2026-10-25: a delete froze the window for about four seconds.
-    // SHQueryRecycleBin counts the whole bin to answer "is there one", so the
-    // bin's own folder is asked first, and Windows only when it is missing.
-    [Fact]
-    public void The_bin_folder_answers_whether_a_drive_has_a_Recycle_Bin_before_Windows_is_asked()
-    {
-        int asked = 0;
-        Assert.True(RecycleBin.BinExists(@"C:\", p => p == @"C:\$Recycle.Bin", _ => { asked++; return false; }));
-        Assert.Equal(0, asked);
-        Assert.False(RecycleBin.BinExists(@"E:\", _ => false, _ => { asked++; return false; }));
-        Assert.True(RecycleBin.BinExists(@"E:\", _ => false, _ => { asked++; return true; }));
-        Assert.Equal(2, asked);
-    }
 }

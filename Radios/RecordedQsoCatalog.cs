@@ -190,7 +190,13 @@ public static class RecordedQsoCatalog
     }
 
     /// <summary>The newest recording the recorder made, or null when there is none. Save As files are not recordings.</summary>
-    public static RecordedQso? Newest() => Scan().Recordings.FirstOrDefault(r => r.IsFlac);
+    /// <remarks>
+    /// The recorder's own name AND FLAC, not FLAC alone: Save As writes FLAC
+    /// too, so "newest FLAC" let a trimmed or operator-named copy become Play
+    /// from computer's default after a restart (Codex review, 2026-10-25). A
+    /// recording the operator renamed can still be chosen in Recorded QSOs.
+    /// </remarks>
+    public static RecordedQso? Newest() => Scan().Recordings.FirstOrDefault(r => r.IsFlac && r.NamedByRecorder);
 
     /// <summary>
     /// The recorder's own name, <c>QSO-yyyy-MM-dd-HHmmss</c>, with the

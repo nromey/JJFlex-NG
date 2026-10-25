@@ -151,7 +151,7 @@ public static class RecycleBin
         string root = Path.GetPathRoot(full) ?? "";
         long bytes = new FileInfo(full).Length;
         var drive = new DriveInfo(root);
-        bool binExists = BinExists(root, Directory.Exists, QueryBin);
+        bool binExists = QueryBin(root);
         var (nuke, max) = VolumeSettings(root);
         var refusal = Check(drive.DriveType, binExists, nuke, max, PolicyForbids(), bytes);
         long checkedMs = clock.ElapsedMilliseconds;
@@ -167,18 +167,12 @@ public static class RecycleBin
         return result;
     }
 
-    /// <summary>
-    /// Whether the drive has a Recycle Bin. The bin's own folder answers at
-    /// once; only when it is absent is Windows asked, because
-    /// SHQueryRecycleBin works the answer out by counting everything already
-    /// in the bin, which takes seconds when the bin is full. That was the
-    /// leading suspect for the four-second delete on the 2026-10-25 retest.
-    /// </summary>
-    internal static bool BinExists(string root, Func<string, bool> directoryExists, Func<string, bool> askWindows)
-    {
-        if (directoryExists(Path.Combine(root, "$Recycle.Bin"))) return true;
-        return askWindows(root);
-    }
+    // A "$Recycle.Bin folder exists, so skip SHQueryRecycleBin" shortcut was
+    // tried on 2026-10-25 to explain a four-second delete, and withdrawn the
+    // same evening on Codex's review: the folder can outlive a working bin, so
+    // it weakened the check that stands between Delete and a permanent delete,
+    // for a speed-up nobody had measured. The timing lines in MoveWithShell
+    // measure it first.
 
     private static bool QueryBin(string root)
     {
