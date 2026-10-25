@@ -1144,7 +1144,7 @@
   "audio.qsos.when_today": {"text": "Today at {time}", "delivery": null},
   "audio.qsos.when_yesterday": {"text": "Yesterday at {time}", "delivery": null},
   "audio.qsos.when_date": {"text": "{date} at {time}", "delivery": null},
-  "audio.qsos.row": {"text": "{when}, {length}", "delivery": null},
+  "audio.qsos.row": {"text": "{when}, original QSO recording, {length}", "delivery": null},
   "audio.qsos.row_named": {"text": "{name}, recorded {when_lower}, {length}", "delivery": null},
   "audio.qsos.row_saved": {"text": "{when}, saved as {type}, {length}", "delivery": null},
   "audio.qsos.row_named_saved": {"text": "{name}, saved as {type} {when_lower}, {length}", "delivery": null},

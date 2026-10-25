@@ -6,7 +6,7 @@ Open it from the Audio menu, with **Ctrl+Alt+Shift+F11**, or with the JJ key and
 
 ## The list
 
-The list comes first, newest at the top. Each recording says when you made it and how long it is, for example "Today at 3:30 PM, 12 minutes 8 seconds". If you renamed a file, its new name comes first. A recording that is still being made says so, and you can't play, trim, save or delete it until you stop recording to file. The list keeps up while it is open: start or stop a recording and it appears, or gets its length, without closing the window.
+The list comes first, newest at the top. Each recording says when you made it and how long it is, for example "Today at 3:30 PM, original QSO recording, 12 minutes 8 seconds". If you renamed a file, its new name comes first. A recording that is still being made says so, and you can't play, trim, save or delete it until you stop recording to file. The list keeps up while it is open: start or stop a recording and it appears, or gets its length, without closing the window.
 
 Files you make with Save As are in the list too, so Delete and Prune can reach them. Those say when you saved them and as what, for example "Today at 11:02 AM, saved as Opus, under a second"; one you gave a name of your own leads with that name. You can play them here, Opus included; trimming and Save As work on the recorder's own FLAC files.
 

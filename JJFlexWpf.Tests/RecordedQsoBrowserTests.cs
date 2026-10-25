@@ -40,13 +40,13 @@ public sealed class RecordedQsoBrowserTests
     [Fact]
     public void A_row_says_the_date_once_and_the_time_as_a_time()
     {
-        Assert.Equal("Today at 3:30 PM, 12 minutes 8 seconds",
+        Assert.Equal("Today at 3:30 PM, original QSO recording, 12 minutes 8 seconds",
             RecordedQsoWords.Row(Qso(new DateTime(2026, 10, 24, 15, 30, 12)), Now));
-        Assert.Equal("Yesterday at 8:15 PM, 45 seconds",
+        Assert.Equal("Yesterday at 8:15 PM, original QSO recording, 45 seconds",
             RecordedQsoWords.Row(Qso(new DateTime(2026, 10, 23, 20, 15, 0), 45), Now));
-        Assert.Equal("Thursday, October 22 at 9:05 AM, 12 minutes 8 seconds",
+        Assert.Equal("Thursday, October 22 at 9:05 AM, original QSO recording, 12 minutes 8 seconds",
             RecordedQsoWords.Row(Qso(new DateTime(2026, 10, 22, 9, 5, 0)), Now));
-        Assert.Equal("Friday, December 26, 2025 at 9:05 AM, 12 minutes 8 seconds",
+        Assert.Equal("Friday, December 26, 2025 at 9:05 AM, original QSO recording, 12 minutes 8 seconds",
             RecordedQsoWords.Row(Qso(new DateTime(2025, 12, 26, 9, 5, 0)), Now));
         foreach (var row in new[] { RecordedQsoWords.Row(Qso(new DateTime(2026, 10, 24, 15, 30, 12)), Now) })
         {
@@ -61,9 +61,9 @@ public sealed class RecordedQsoBrowserTests
     {
         Assert.Equal("Contest pileup, recorded today at 3:30 PM, 12 minutes 8 seconds",
             RecordedQsoWords.Row(Qso(new DateTime(2026, 10, 24, 15, 30, 0), name: "Contest pileup"), Now));
-        Assert.Equal("Today at 3:30 PM, length unknown",
+        Assert.Equal("Today at 3:30 PM, original QSO recording, length unknown",
             RecordedQsoWords.Row(Qso(new DateTime(2026, 10, 24, 15, 30, 0), seconds: null), Now));
-        Assert.Equal("Today at 3:30 PM, still recording",
+        Assert.Equal("Today at 3:30 PM, original QSO recording, still recording",
             RecordedQsoWords.Row(Qso(new DateTime(2026, 10, 24, 15, 30, 0), seconds: null), Now, stillRecording: true));
     }
 
@@ -109,7 +109,7 @@ public sealed class RecordedQsoBrowserTests
         var end = b.SetEnd(2.3);
         Assert.Equal("Trim end set to 2.3 seconds. The selection runs from 1.4 seconds to 2.3 seconds, 0.9 seconds.", end.Sentence);
         // A row's own length stays in whole seconds.
-        Assert.Equal("Today at 5:00 PM, 5 seconds", RecordedQsoWords.Row(Qso(Now.AddHours(-1), 5.04), Now));
+        Assert.Equal("Today at 5:00 PM, original QSO recording, 5 seconds", RecordedQsoWords.Row(Qso(Now.AddHours(-1), 5.04), Now));
     }
 
     [Fact]
@@ -313,7 +313,7 @@ public sealed class RecordedQsoBrowserTests
         string text = RecordedQsoPruneDialog.Describe(new RecordedQsoPrunePlan(new[] { a, b }, new[] { held }, 2 * 1024 * 1024), Now);
         Assert.Equal("This moves 2 recordings, using 2 megabytes, to the Recycle Bin. The oldest is from Thursday, October 1 at 9:00 AM "
             + "and the newest from Saturday, October 3 at 9:00 AM. Nothing has been moved yet. "
-            + "Wednesday, September 30 at 9:00 AM, 12 minutes 8 seconds is in use, so it stays where it is.", text);
+            + "Wednesday, September 30 at 9:00 AM, original QSO recording, 12 minutes 8 seconds is in use, so it stays where it is.", text);
         Assert.Equal("No recordings match, so nothing will be moved.",
             RecordedQsoPruneDialog.Describe(new RecordedQsoPrunePlan(Array.Empty<RecordedQso>(), Array.Empty<RecordedQso>(), 0), Now));
     }
