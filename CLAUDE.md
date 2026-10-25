@@ -1385,7 +1385,7 @@ As tracks complete, Claude Desktop handles merges and keeps the user informed:
    Filtering to classes that construct no window is safe on a live desk:
 
    ```bash
-   dotnet test JJFlexWpf.Tests/JJFlexWpf.Tests.csproj -c Debug -p:Platform=x64      --filter "FullyQualifiedName~KeyTreeTests|FullyQualifiedName~LayerHelpRowsTests|FullyQualifiedName~KeyLayerHelpTests|FullyQualifiedName~LeaderNearMissTests|FullyQualifiedName~HomeFieldChordTests|FullyQualifiedName~DelegateSurfaceTests|FullyQualifiedName~NoiseReductionPerChannelTests|FullyQualifiedName~PerChannelDenoiserBankTests|FullyQualifiedName~DeepFilterNet3EngineTests|FullyQualifiedName~EngineLatencyTests|FullyQualifiedName~HomeLayoutRestoreTests|FullyQualifiedName~QuickTypeCommitTests|FullyQualifiedName~ValueLayerRoutingTests|FullyQualifiedName~DialogTransmitKeysTests|FullyQualifiedName~MetersReconnectTests|FullyQualifiedName~LoggingModeKeyboardTests|FullyQualifiedName~LockSafetyHoldTests"
+   dotnet test JJFlexWpf.Tests/JJFlexWpf.Tests.csproj -c Debug -p:Platform=x64      --filter "FullyQualifiedName~KeyTreeTests|FullyQualifiedName~LayerHelpRowsTests|FullyQualifiedName~KeyLayerHelpTests|FullyQualifiedName~LeaderNearMissTests|FullyQualifiedName~HomeFieldChordTests|FullyQualifiedName~DelegateSurfaceTests|FullyQualifiedName~NoiseReductionPerChannelTests|FullyQualifiedName~PerChannelDenoiserBankTests|FullyQualifiedName~DeepFilterNet3EngineTests|FullyQualifiedName~EngineLatencyTests|FullyQualifiedName~HomeLayoutRestoreTests|FullyQualifiedName~QuickTypeCommitTests|FullyQualifiedName~ValueLayerRoutingTests|FullyQualifiedName~DialogTransmitKeysTests|FullyQualifiedName~MetersReconnectTests|FullyQualifiedName~LoggingModeKeyboardTests|FullyQualifiedName~LockSafetyHoldTests|FullyQualifiedName~RecorderRoundEightTests"
    ```
 
    **Say which classes the run covered**, because the set grows and a class
@@ -1420,6 +1420,8 @@ As tracks complete, Claude Desktop handles merges and keeps the user informed:
    `AssertTheDeskIsSafe`). The filter now names fourteen classes, 208 tests on the merge.
 
    **`MetersReconnectTests`, `LoggingModeKeyboardTests` and `LockSafetyHoldTests` were added 2026-10-23** with the merges of #788, #801 and the lock-safety branch (#571/#800). All three ran on a live desk with no window; the filter now names seventeen classes, 250 tests on main at `8497aba7`.
+
+   **`RecorderRoundEightTests` was added 2026-10-24** with the recorder merge (#787). It reaches the Audio Workshop's poll on an uninitialized dialog object (`RuntimeHelpers.GetUninitializedObject`), so no window is built; the filter now names eighteen classes.
 
    **`HomeFieldChordTests` and `DelegateSurfaceTests` were added 2026-09-20**,
    both verified to construct zero windows. **Do not check that by grepping for
