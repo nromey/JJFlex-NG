@@ -55,6 +55,7 @@ public sealed class ListenbackRoundThreeTests : IDisposable
             if (restoringWithoutEcho && (command.StartsWith("transmit set ") ||
                 command == "slice set 1 txant=ANT1" || command == "slice set 1 audio_mute=0"))
             {
+                c.NoteHeldMute(command);
                 c.F.Vendor.ReplyOk(c.F.Vendor.LastSequence); // accepted by the radio, no FlexLib status echo
                 return;
             }

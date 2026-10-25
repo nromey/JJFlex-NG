@@ -554,9 +554,28 @@ namespace Radios
         /// a single slice the operator just arrived on or just re-moded.
         /// Silent during a bulk change, where the census speaks instead.
         /// </summary>
+        // A slice the application made active on its own, to undo a diagnostic
+        // arrangement, arrives without its CW identity: the operator did not
+        // move, and the letter would sound like they had. Expires so a missing
+        // echo cannot swallow a later real arrival on the same slice.
+        private Slice _silentActivation;
+        private long _silentActivationUntil;
+
+        private void SilenceNextActivation(Slice s)
+        {
+            System.Threading.Volatile.Write(ref _silentActivationUntil, Environment.TickCount64 + 3000);
+            System.Threading.Volatile.Write(ref _silentActivation, s);
+        }
+
         private void AnnounceSliceIdentity(Slice s)
         {
             if (s == null) return;
+            if (ReferenceEquals(System.Threading.Interlocked.CompareExchange(ref _silentActivation, null, s), s) &&
+                Environment.TickCount64 < System.Threading.Volatile.Read(ref _silentActivationUntil))
+            {
+                Tracing.TraceLine($"Slice {s.Index} identity not played: the application returned to it", TraceLevel.Info);
+                return;
+            }
             if (_sliceSetChurning) return;
             if (!ScreenReaderOutput.CwNotificationsEnabled) return;
             if (!ScreenReaderOutput.CwModeAnnounceEnabled) return;

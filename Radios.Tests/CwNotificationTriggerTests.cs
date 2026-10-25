@@ -35,7 +35,13 @@ namespace Radios.Tests
     /// with any other test that sends CW; a colliding literal would couple
     /// two tests through state neither can see.
     /// </para>
+    /// <para>
+    /// In the radio-config collection since 2026-10-25 because
+    /// LoopbackCheckBenchTests also replaces <see cref="ScreenReaderOutput.PlayCwText"/>;
+    /// two classes swapping one static in parallel would steal each other's plays.
+    /// </para>
     /// </remarks>
+    [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class CwNotificationTriggerTests : IDisposable
     {
         private readonly Func<string, Task>? _savedPlay = ScreenReaderOutput.PlayCwText;
