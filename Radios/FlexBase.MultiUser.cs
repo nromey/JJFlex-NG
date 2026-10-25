@@ -24,10 +24,41 @@ namespace Radios
         /// <summary>
         /// Total panadapters and slices on the radio.
         /// </summary>
+        /// <remarks>
+        /// #584: read LIVE from the radio's slice list. It returned a field
+        /// assigned once per connect and never again, so the Slice menu, which
+        /// IS rebuilt on every slice add and release, re-read a frozen number
+        /// and said "4" after the operator was down to 2. The field is kept
+        /// only for the moment no radio object exists.
+        /// </remarks>
         public int TotalNumSlices
         {
-            get { return _TotalNumSlices; }
+            get
+            {
+                var radio = theRadio;
+                return radio?.SliceList?.Count ?? _TotalNumSlices;
+            }
         }
+
+        /// <summary>
+        /// "2 of 4": the radio's slices in use over this model's ceiling, for
+        /// the Slice menu's label and the About dialog. Null when there is no
+        /// radio, or when the pair is impossible, so the caller says less
+        /// rather than something wrong (#584: "4 of 0" was spoken with the
+        /// same confidence as a correct reading).
+        /// </summary>
+        /// <remarks>
+        /// The ceiling is <see cref="TotalMaxSlices"/>, the model table, NOT
+        /// <see cref="MaxSlices"/>: FlexLib's value came back 0 from a real
+        /// remote 6300 on 2026-10-10 and from the bench 8600 on 2026-09-20.
+        /// </remarks>
+        public string SliceOccupancy =>
+            theRadio == null ? null : SliceOccupancyText(TotalNumSlices, TotalMaxSlices);
+
+        /// <summary>The text of <see cref="SliceOccupancy"/>, or null when
+        /// <paramref name="used"/> over <paramref name="max"/> cannot be true.</summary>
+        public static string SliceOccupancyText(int used, int max) =>
+            max <= 0 || used < 0 || used > max ? null : used + " of " + max;
 
         /// <summary>
         /// Maximum slices currently available (from FlexLib discovery — unreliable, may be 0).

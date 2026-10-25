@@ -2130,8 +2130,12 @@ public class NativeMenuBar : IDisposable
         AddWired(radio, "Exit", () => _window.CloseShellCallback?.Invoke());
 
         // === Slice ===
-        string sliceLabel = Rig != null
-            ? $"&Slice ({Rig.TotalNumSlices} of {Rig.MaxSlices})"
+        // #584: the count is live and the ceiling is the model's, and an
+        // impossible or unknown pair degrades to plain "Slice". The bar is
+        // already rebuilt on every slice add and release (OnSliceCountChanged).
+        string? sliceOccupancy = Rig?.SliceOccupancy;
+        string sliceLabel = sliceOccupancy != null
+            ? $"&Slice ({sliceOccupancy})"
             : "&Slice";
         var slice = AddPopup(bar, sliceLabel);
 
