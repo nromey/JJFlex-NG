@@ -7853,7 +7853,7 @@ namespace Radios
             // TraceLine until Sol's H16 review found it: a real reading, in
             // every detailed capture, that the file never described. The text
             // written is unchanged; only its kind travels with it now.
-            Tracing.TraceRecord(SupplyVoltsRecord, "VoltsDataHandler:" + data.ToString(), TraceLevel.Verbose);
+            Tracing.TraceRecord(SupplyVoltsRecord, "VoltsDataHandler:" + data.ToString(System.Globalization.CultureInfo.InvariantCulture), TraceLevel.Verbose);
             _VoltsData = data;
             // The ordinary capture's window, when supply voltage is recorded
             // without PA temperature (#566; Astra's Track IJK review, blocker
@@ -7923,7 +7923,7 @@ namespace Radios
         {
             // A measurement line: declares its kind like VoltsDataHandler
             // above (#625, H17). Text unchanged.
-            Tracing.TraceRecord(PaEfficiencyRecord, "paEffData:" + data.ToString(), TraceLevel.Verbose);
+            Tracing.TraceRecord(PaEfficiencyRecord, "paEffData:" + data.ToString(System.Globalization.CultureInfo.InvariantCulture), TraceLevel.Verbose);
             _PAEffData = data;
         }
 

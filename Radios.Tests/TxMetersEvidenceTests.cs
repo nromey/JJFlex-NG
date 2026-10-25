@@ -90,6 +90,16 @@ namespace Radios.Tests
 
             public int Mark { get { lock (_captured) return _captured.Count; } }
 
+            /// <summary>Every captured line since <paramref name="mark"/> that contains
+            /// <paramref name="text"/>, whatever writer wrote it (#650).</summary>
+            public List<string> LinesSince(int mark, string text)
+            {
+                lock (_captured)
+                {
+                    return _captured.Skip(mark).Where(l => l.Contains(text, StringComparison.Ordinal)).ToList();
+                }
+            }
+
             /// <summary>Call the writer once and return the reading it wrote,
             /// or null when it wrote none.</summary>
             public string WriteNow()

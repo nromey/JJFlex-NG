@@ -1,6 +1,7 @@
 ﻿#define CWMonitor
 using System;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Xml.Serialization;
@@ -695,8 +696,8 @@ namespace Radios
             _tuneCycleLastValidSwr = float.NaN;
             _tuneCycleLastCoherentComputed = float.NaN;
             Tracing.TraceLine("tuneStart: type=" + type
-                + " swrAtStart=" + _SWR.ToString("F2")
-                + " fwdW=" + ForwardPowerWatts.ToString("F2"),
+                + " swrAtStart=" + _SWR.ToString("F2", CultureInfo.InvariantCulture)
+                + " fwdW=" + ForwardPowerWatts.ToString("F2", CultureInfo.InvariantCulture),
                 TraceLevel.Info);
         }
 
@@ -727,15 +728,15 @@ namespace Radios
             // tell a good match from a meter that has already gone home.
             Tracing.TraceLine("tuneResult: type=" + _tuneCycleType
                 + " outcome=" + outcome
-                + " swrSettled=" + (float.IsNaN(settled) ? "n/a" : settled.ToString("F2"))
-                + " swrNow=" + _SWR.ToString("F2")
-                + " swrCalc=" + (float.IsNaN(ComputedSWR) ? "n/a" : ComputedSWR.ToString("F2"))
+                + " swrSettled=" + (float.IsNaN(settled) ? "n/a" : settled.ToString("F2", CultureInfo.InvariantCulture))
+                + " swrNow=" + _SWR.ToString("F2", CultureInfo.InvariantCulture)
+                + " swrCalc=" + (float.IsNaN(ComputedSWR) ? "n/a" : ComputedSWR.ToString("F2", CultureInfo.InvariantCulture))
                 + " swrSpoken=" + (float.IsNaN(_tuneCycleLastCoherentComputed)
-                    ? "n/a" : _tuneCycleLastCoherentComputed.ToString("F2"))
-                + " fwdW=" + ForwardPowerWatts.ToString("F2")
-                + " reflW=" + ReflectedPowerWatts.ToString("F3")
-                + " back=" + (float.IsNaN(back) ? "n/a" : (back * 100f).ToString("F1") + "%")
-                + " elapsed=" + elapsed.ToString() + "ms",
+                    ? "n/a" : _tuneCycleLastCoherentComputed.ToString("F2", CultureInfo.InvariantCulture))
+                + " fwdW=" + ForwardPowerWatts.ToString("F2", CultureInfo.InvariantCulture)
+                + " reflW=" + ReflectedPowerWatts.ToString("F3", CultureInfo.InvariantCulture)
+                + " back=" + (float.IsNaN(back) ? "n/a" : (back * 100f).ToString("F1", CultureInfo.InvariantCulture) + "%")
+                + " elapsed=" + elapsed.ToString(CultureInfo.InvariantCulture) + "ms",
                 TraceLevel.Info);
         }
 
