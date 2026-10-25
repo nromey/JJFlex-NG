@@ -101,6 +101,13 @@ namespace JJFlexWpf
         public bool EarconWarningsEnabled { get; set; } = true;
         public bool RecorderBeepsEnabled { get; set; } = true;
         public bool RecorderSpeechEnabled { get; set; } = true;
+
+        /// <summary>
+        /// Recorded QSOs' step size in seconds, remembered across restarts
+        /// (Noel, 2026-10-25). The dialog reads and writes it itself; a value
+        /// the combo does not offer falls back to 5 seconds.
+        /// </summary>
+        public double RecordedQsosStepSeconds { get; set; } = 5;
         // EarconContextHelpEnabled lived here until #343 removed the cue. Files
         // that still carry the element deserialize fine — XmlSerializer skips
         // unknown elements — and the next Save drops it.

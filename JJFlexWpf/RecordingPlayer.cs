@@ -199,9 +199,11 @@ public static class RecordingPlayer
                     ("file", Path.GetFileNameWithoutExtension(path))));
                 return false;
             }
+            // FLAC through our decoder; WAV, and the MP3, Opus and M4A files Save
+            // As writes into Recorded QSOs, through RecordedQsoMedia (#787).
             reader = string.Equals(Path.GetExtension(path), ".flac", StringComparison.OrdinalIgnoreCase)
                 ? new RecordedQsoFlacWaveStream(path)
-                : new WaveFileReader(path);
+                : RecordedQsoMedia.Open(path);
         }
         catch (Exception ex)
         {

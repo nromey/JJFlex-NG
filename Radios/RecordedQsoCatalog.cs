@@ -25,7 +25,15 @@ namespace Radios;
 /// <param name="Channels">One or two.</param>
 /// <param name="TotalFrames">Sample frames, or zero when the header does not say.</param>
 public sealed record RecordedQso(string Path, string Name, DateTime RecordedAt, bool NamedByRecorder,
-    double? Seconds, long Bytes, int SampleRate, int Channels, long TotalFrames);
+    double? Seconds, long Bytes, int SampleRate, int Channels, long TotalFrames)
+{
+    /// <summary>
+    /// True for a FLAC file, the recorder's own format. Only these can be
+    /// trimmed or converted with Save As; the others are listed so they can
+    /// be played, deleted and pruned (Noel, 2026-10-25).
+    /// </summary>
+    public bool IsFlac => System.IO.Path.GetExtension(Path).Equals(".flac", StringComparison.OrdinalIgnoreCase);
+}
 
 /// <summary>A scan of the folder: what could be listed, and how many files could not be read.</summary>
 public sealed record RecordedQsoScan(IReadOnlyList<RecordedQso> Recordings, int Unreadable);
@@ -35,9 +43,10 @@ public sealed record RecordedQsoPrunePlan(IReadOnlyList<RecordedQso> Move, IRead
 
 /// <summary>
 /// The computer recordings this program made: the FLAC files under
-/// <c>Recorded QSOs\year\month</c> in the settings root (#787). The recordings
-/// dialog lists them, and "play from computer" falls back to the newest one
-/// when the file it remembered has gone.
+/// <c>Recorded QSOs\year\month</c> in the settings root (#787), and the files
+/// Save As wrote beside them in the other supported types. The recordings
+/// dialog lists them, and "play from computer" falls back to the newest
+/// recording when the file it remembered has gone.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -72,6 +81,21 @@ public static class RecordedQsoCatalog
     /// <summary>The folder, resolved from the settings root so a throwaway settings tree relocates it too.</summary>
     public static string FolderPath => Path.Combine(RadioConfig.AppDataRoot, FolderName);
 
+    /// <summary>
+    /// The types listed, and so the only types Delete and Prune can reach:
+    /// the recorder's FLAC and every type Save As writes. Anything else in
+    /// the folder is left alone (Noel, 2026-10-25).
+    /// </summary>
+    public static readonly string[] Extensions = { ".flac", ".wav", ".mp3", ".opus", ".m4a" };
+
+    /// <summary>
+    /// Reads a non-FLAC file's rate, channels and length in frames, or throws.
+    /// Installed at startup by the WPF side, which has the decoders. Unset,
+    /// or failing, the file is still listed, with its length unknown: its
+    /// audio is on disk and it can still be deleted.
+    /// </summary>
+    public static Func<string, (int Rate, int Channels, long Frames)>? OtherReader { get; set; }
+
     /// <summary>Scan the real folder.</summary>
     public static RecordedQsoScan Scan() => Scan(FolderPath);
 
@@ -84,12 +108,12 @@ public static class RecordedQsoCatalog
         try
         {
             if (!Directory.Exists(root)) return new(found, 0);
-            files = Directory.EnumerateFiles(root, "*.flac", new EnumerationOptions
+            files = Directory.EnumerateFiles(root, "*", new EnumerationOptions
             {
                 RecurseSubdirectories = true,
                 AttributesToSkip = FileAttributes.ReparsePoint,
                 IgnoreInaccessible = false
-            }).ToList();
+            }).Where(IsListedType).ToList();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -110,13 +134,19 @@ public static class RecordedQsoCatalog
         return new(found, unreadable);
     }
 
+    /// <summary>True when the file's type is one the folder lists.</summary>
+    public static bool IsListedType(string path) =>
+        Extensions.Contains(System.IO.Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Read one file's entry, or null when it cannot be read as a recording.</summary>
     public static RecordedQso? Read(string path)
     {
         try
         {
             var info = new FileInfo(path);
-            var (rate, channels, frames) = RecordedQsoFlacDecoder.ReadStreamInfo(path);
+            var (rate, channels, frames) = System.IO.Path.GetExtension(path).Equals(".flac", StringComparison.OrdinalIgnoreCase)
+                ? RecordedQsoFlacDecoder.ReadStreamInfo(path)
+                : ReadOther(path);
             string name = System.IO.Path.GetFileNameWithoutExtension(path);
             bool generated = TryParseRecorderName(name, out DateTime started);
             if (!generated)
@@ -124,7 +154,7 @@ public static class RecordedQsoCatalog
                 DateTime created = info.CreationTime, written = info.LastWriteTime;
                 started = created < written ? created : written;
             }
-            double? seconds = frames > 0 ? frames / (double)rate : null;
+            double? seconds = frames > 0 && rate > 0 ? frames / (double)rate : null;
             return new RecordedQso(path, name, started, generated, seconds, info.Length, rate, channels, frames);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException
@@ -136,8 +166,26 @@ public static class RecordedQsoCatalog
         }
     }
 
-    /// <summary>The newest recording on disk, or null when there is none.</summary>
-    public static RecordedQso? Newest() => Scan().Recordings.FirstOrDefault();
+    /// <summary>
+    /// A file another program wrote: its header through <see cref="OtherReader"/>,
+    /// or an unknown length when that cannot read it. Never null: a file Save
+    /// As made must stay deletable even when this computer cannot decode it.
+    /// </summary>
+    private static (int Rate, int Channels, long Frames) ReadOther(string path)
+    {
+        var reader = OtherReader;
+        if (reader == null) return (0, 0, 0);
+        try { return reader(path); }
+        catch (Exception ex)
+        {
+            JJTrace.Tracing.TraceLine("RecordedQsoCatalog: length of " + path + " unknown: " + ex.Message,
+                System.Diagnostics.TraceLevel.Info);
+            return (0, 0, 0);
+        }
+    }
+
+    /// <summary>The newest recording the recorder made, or null when there is none. Save As files are not recordings.</summary>
+    public static RecordedQso? Newest() => Scan().Recordings.FirstOrDefault(r => r.IsFlac);
 
     /// <summary>
     /// The recorder's own name, <c>QSO-yyyy-MM-dd-HHmmss</c>, with the

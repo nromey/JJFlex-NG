@@ -44,6 +44,34 @@ public sealed class ComputerRecorderControlTests : IDisposable
     }
 
     [Fact]
+    public async Task Finishing_a_new_recording_puts_Play_from_computer_back_on_the_newest()
+    {
+        // Noel, 2026-10-25 10:41: a recording chosen in Recorded QSOs plays
+        // until a new one is made.
+        var engine = new FakeEngine { IsRecording = true };
+        ComputerRecorder.Install(engine);
+        ComputerRecorder.ChosenRecording = @"C:\rec\older.flac";
+        var stopped = await ComputerRecorder.ToggleRecordingAsync(null);
+        Assert.True(stopped.Success);
+        Assert.Null(ComputerRecorder.ChosenRecording);
+
+        // Positive control: a choice survives anything that is not a finished recording.
+        engine.IsRecording = false;
+        ComputerRecorder.ChosenRecording = @"C:\rec\older.flac";
+        await ComputerRecorder.TogglePlaybackAsync(transmitting: false);
+        Assert.Equal(@"C:\rec\older.flac", ComputerRecorder.ChosenRecording);
+    }
+
+    [Fact]
+    public async Task Stopping_Play_from_computer_gives_the_tape_deck_click_not_the_recording_stop_beep()
+    {
+        // The 2026-10-25 bench heard a double beep: StopPlaybackAsync said Stop, the recording cue.
+        var engine = new ComputerFlacRecorder(_ => true, () => { }, () => true);
+        var outcome = await engine.StopPlaybackAsync();
+        Assert.Equal(RecorderCue.PlayStop, outcome.Cue);
+    }
+
+    [Fact]
     public void The_real_engine_defaults_to_radio_audio_in_mono()
     {
         var engine = new ComputerFlacRecorder(_ => true, () => { }, () => false);

@@ -45,32 +45,73 @@ internal static class RecordedQsoWords
 
     /// <summary>
     /// One row: the date once, the time as a time, the length, and nothing
-    /// else. "FLAC" is left off because every file here is FLAC; the
+    /// else. "FLAC" is left off because the recorder's files are FLAC; the
     /// recorder's file name is left off because it only repeats the date. A
-    /// file the operator renamed leads with its new name.
+    /// file the operator renamed leads with its new name. A file Save As wrote
+    /// in another type says its type, so "-trim.opus" and "-trim.mp3" can be
+    /// told apart (Noel, 2026-10-25).
     /// </summary>
     internal static string Row(RecordedQso q, DateTime now, bool stillRecording = false)
     {
         string length = stillRecording ? Lexicon.Get("audio.qsos.recording_now") : Length(q.Seconds);
-        return q.NamedByRecorder
-            ? Lexicon.Get("audio.qsos.row", ("when", When(q.RecordedAt, now)), ("length", length))
-            : Lexicon.Get("audio.qsos.row_named", ("name", q.Name),
+        string? type = Kind(q.Path);
+        if (q.NamedByRecorder)
+            return type == null
+                ? Lexicon.Get("audio.qsos.row", ("when", When(q.RecordedAt, now)), ("length", length))
+                : Lexicon.Get("audio.qsos.row_type", ("when", When(q.RecordedAt, now)), ("type", type), ("length", length));
+        return type == null
+            ? Lexicon.Get("audio.qsos.row_named", ("name", q.Name),
+                ("when_lower", WhenInSentence(q.RecordedAt, now)), ("length", length))
+            : Lexicon.Get("audio.qsos.row_named_type", ("name", q.Name), ("type", type),
                 ("when_lower", WhenInSentence(q.RecordedAt, now)), ("length", length));
     }
 
-    /// <summary>A point in a recording: "the start", "the end", or "1 minute 5 seconds".</summary>
+    /// <summary>The spoken type of a non-FLAC file ("Opus", "MP3", "WAV", "M4A"), or null for FLAC.</summary>
+    internal static string? Kind(string path) => System.IO.Path.GetExtension(path).ToLowerInvariant() switch
+    {
+        ".wav" => Lexicon.Get("audio.qsos.type_wav"),
+        ".mp3" => Lexicon.Get("audio.qsos.type_mp3"),
+        ".opus" => Lexicon.Get("audio.qsos.type_opus"),
+        ".m4a" => Lexicon.Get("audio.qsos.type_m4a"),
+        _ => null,
+    };
+
+    /// <summary>
+    /// A point in a recording to the tenth of a second: "the start", "the
+    /// end", "1.3 seconds" or "2 minutes 5.3 seconds". Noel, 2026-10-25: whole
+    /// seconds were too coarse once marks and steps go to a tenth ("from 1
+    /// second to 2 seconds, under a second" read as wrong arithmetic).
+    /// </summary>
     internal static string Position(double seconds, double? total)
     {
-        if (seconds < 0.5) return Lexicon.Get("audio.qsos.the_start");
-        if (total is double t && seconds >= t - 0.5) return Lexicon.Get("audio.qsos.the_end");
-        return RecordingStore.DescribeLength(seconds);
+        if (seconds < 0.05) return Lexicon.Get("audio.qsos.the_start");
+        if (total is double t && seconds >= t - 0.05) return Lexicon.Get("audio.qsos.the_end");
+        return Precise(seconds);
     }
 
-    /// <summary>A step size's label: "1 second", "5 seconds", "1 minute".</summary>
-    internal static string Step(int seconds) =>
+    /// <summary>
+    /// A duration to the tenth of a second, as words: "0.8 seconds", "1
+    /// second", "12.5 seconds", "1 minute", "2 minutes 5.3 seconds". Positions,
+    /// marks and selections use it; a row's length stays in whole seconds.
+    /// </summary>
+    internal static string Precise(double seconds)
+    {
+        long tenths = (long)Math.Round(Math.Max(0, seconds) * 10, MidpointRounding.AwayFromZero);
+        long minutes = tenths / 600;
+        double rest = (tenths % 600) / 10.0;
+        string secs = rest == 1 ? Lexicon.Get("audio.qsos.one_second")
+            : Lexicon.Get("audio.qsos.n_seconds", ("n", rest.ToString("0.#", CultureInfo.CurrentCulture)));
+        if (minutes == 0) return secs;
+        string mins = minutes == 1 ? Lexicon.Get("audio.qsos.one_minute")
+            : Lexicon.Get("audio.qsos.n_minutes", ("n", minutes));
+        return rest == 0 ? mins : mins + " " + secs;
+    }
+
+    /// <summary>A step size's label: "0.1 seconds", "1 second", "5 seconds", "1 minute".</summary>
+    internal static string Step(double seconds) =>
         seconds == 1 ? Lexicon.Get("audio.qsos.step_one_second")
         : seconds == 60 ? Lexicon.Get("audio.qsos.step_one_minute")
-        : Lexicon.Get("audio.qsos.step_seconds", ("seconds", seconds));
+        : Lexicon.Get("audio.qsos.step_seconds", ("seconds", seconds.ToString("0.#", CultureInfo.CurrentCulture)));
 
     /// <summary>A file size in words: "800 kilobytes", "34 megabytes", "1.2 gigabytes".</summary>
     internal static string Size(long bytes)
@@ -102,25 +143,36 @@ internal static class RecordedQsoWords
 /// edit the file; Save As writes the selection to a new one.
 /// </para>
 /// <para>
-/// <b>The step size is not remembered</b> between openings (Noel, 2026-10-24
-/// 16:03: "I don't think it needs to remember"): each dialog starts at five
-/// seconds.
+/// <b>The step size is remembered</b>, across restarts too (Noel, 2026-10-25,
+/// reversing 2026-10-24 16:03's "I don't think it needs to remember" at the
+/// bench). The dialog keeps it in the audio settings; this class only holds it.
 /// </para>
 /// </remarks>
 // DRAFT PROSE (#787): awaiting Noel.
 internal sealed class RecordedQsoBrowser
 {
-    /// <summary>The step sizes the combo offers, in seconds: 1 second up to a minute (Noel, 2026-10-21 09:25).</summary>
-    internal static readonly int[] Steps = { 1, 5, 10, 30, 60 };
+    /// <summary>
+    /// The step sizes the combo offers, in seconds: a tenth of a second up to
+    /// a minute (Noel, 2026-10-21 09:25; 0.1 and 0.5 added 2026-10-25).
+    /// </summary>
+    internal static readonly double[] Steps = { 0.1, 0.5, 1, 5, 10, 30, 60 };
 
-    /// <summary>The step every opening starts at.</summary>
-    internal const int DefaultStep = 5;
+    /// <summary>The step before one has ever been chosen.</summary>
+    internal const double DefaultStep = 5;
+
+    /// <summary>A remembered step, or the default when it is not one the combo offers.</summary>
+    internal static double ValidStep(double seconds)
+    {
+        foreach (double s in Steps)
+            if (Math.Abs(s - seconds) < 0.0001) return s;
+        return DefaultStep;
+    }
 
     internal RecordedQso? Current { get; private set; }
     internal double Cursor { get; private set; }
     internal double TrimStart { get; private set; }
     internal double? TrimEnd { get; private set; }
-    internal int StepSeconds { get; set; } = DefaultStep;
+    internal double StepSeconds { get; set; } = DefaultStep;
 
     /// <summary>The recording's length, or null when its header does not say.</summary>
     internal double? Duration => Current?.Seconds;
@@ -217,19 +269,36 @@ internal sealed class RecordedQsoBrowser
         return (true, Lexicon.Get("audio.qsos.trim_end_set", Range(("end", RecordedQsoWords.Position(at, Duration)))));
     }
 
-    /// <summary>Put the selection back to the whole recording.</summary>
-    internal string UseWhole()
+    /// <summary>Clear both marks: the selection is the whole recording again (Backspace, and Clear selection).</summary>
+    internal string ClearSelection()
     {
         TrimStart = 0;
         TrimEnd = null;
         return Selection();
     }
 
+    /// <summary>Clear the trim start mark (Shift+Left bracket). Returns the sentence to speak.</summary>
+    internal (bool Changed, string Sentence) ClearStart()
+    {
+        if (TrimStart <= 0) return (false, Lexicon.Get("audio.qsos.no_start_mark"));
+        TrimStart = 0;
+        return (true, Lexicon.Get("audio.qsos.start_cleared", ("selection", Selection())));
+    }
+
+    /// <summary>Clear the trim end mark (Shift+Right bracket). Returns the sentence to speak.</summary>
+    internal (bool Changed, string Sentence) ClearEnd()
+    {
+        if (TrimEnd == null) return (false, Lexicon.Get("audio.qsos.no_end_mark"));
+        TrimEnd = null;
+        return (true, Lexicon.Get("audio.qsos.end_cleared", ("selection", Selection())));
+    }
+
     /// <summary>The selection, as the read-only line and as a sentence.</summary>
     internal string Selection()
     {
         if (Current == null) return "";
-        if (IsWhole || !CanMove) return Lexicon.Get("audio.qsos.whole", ("length", RecordedQsoWords.Length(Duration)));
+        if (!CanMove) return Lexicon.Get("audio.qsos.whole_length_unknown");
+        if (IsWhole) return Lexicon.Get("audio.qsos.whole", ("length", RecordedQsoWords.Precise(Duration!.Value)));
         return Lexicon.Get("audio.qsos.selection", Range());
     }
 
@@ -258,22 +327,22 @@ internal sealed class RecordedQsoBrowser
             parts.Add(("start", RecordedQsoWords.Position(TrimStart, Duration)));
         if (!parts.Any(p => p.Item1 == "end"))
             parts.Add(("end", RecordedQsoWords.Position(SelectionEnd, Duration)));
-        parts.Add(("length", RecordingStore.DescribeLength(SelectionSeconds)));
+        parts.Add(("length", RecordedQsoWords.Precise(SelectionSeconds)));
         return parts.ToArray();
     }
 
     /// <summary>
-    /// Which row the dialog opens on, and whether the newest-recording box is
-    /// ticked (Noel, 2026-10-24 15:55-15:56). A choice that still exists is
-    /// kept and shown, box unticked; otherwise the newest is selected and the
-    /// box is ticked. Opening never changes what Play from computer plays.
+    /// Which row the dialog opens on: Play from computer's choice while it
+    /// still exists, otherwise the newest. Opening never changes what Play from
+    /// computer plays. (The newest-recording box this used to tick came out on
+    /// Noel's ruling, 2026-10-25: "just enter plays the currently selected.")
     /// </summary>
-    internal static (int Index, bool NewestTicked) Opening(IReadOnlyList<RecordedQso> rows, string? chosen)
+    internal static int Opening(IReadOnlyList<RecordedQso> rows, string? chosen)
     {
         if (!string.IsNullOrEmpty(chosen))
             for (int i = 0; i < rows.Count; i++)
                 if (string.Equals(rows[i].Path, chosen, StringComparison.OrdinalIgnoreCase))
-                    return (i, false);
-        return (rows.Count > 0 ? 0 : -1, true);
+                    return i;
+        return rows.Count > 0 ? 0 : -1;
     }
 }

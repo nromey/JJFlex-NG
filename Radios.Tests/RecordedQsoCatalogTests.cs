@@ -33,6 +33,7 @@ public sealed class RecordedQsoCatalogTests : IDisposable
         ComputerRecorder.Install(null);
         ComputerRecorder.ChosenRecording = null;
         RecycleBin.Implementation = DefaultRecycle;
+        RecordedQsoCatalog.OtherReader = null;
         try { Directory.Delete(_root, recursive: true); } catch (IOException) { }
         try
         {
@@ -204,6 +205,48 @@ public sealed class RecordedQsoCatalogTests : IDisposable
         Assert.Equal(0, sink.PostDeleteItem(RecycleBinFileOperation.TsfDeleteRecycleIfPossible,
             IntPtr.Zero, 0, new IntPtr(1)));
         Assert.True(sink.Recycled);
+    }
+
+    [Fact]
+    public void Files_Save_As_wrote_are_listed_so_Delete_and_Prune_can_reach_them_and_nothing_else_is()
+    {
+        // Noel, 2026-10-25: "Yeah sure, that way we can delete them and prune
+        // ... if we don't include support file types, that won't process them."
+        string month = Month(2026, 10);
+        WriteHeader(month, "QSO-2026-10-25-102646.flac");
+        File.WriteAllBytes(Path.Combine(month, "QSO-2026-10-25-102646-trim.opus"), new byte[] { 1, 2, 3 });
+        File.WriteAllBytes(Path.Combine(month, "QSO-2026-10-25-102646.mp3"), new byte[] { 1 });
+        File.WriteAllBytes(Path.Combine(month, "notes.txt"), new byte[] { 1 });
+        File.WriteAllBytes(Path.Combine(month, "cover.jpg"), new byte[] { 1 });
+
+        // No reader installed: still listed, length unknown, not counted unreadable.
+        var scan = RecordedQsoCatalog.Scan(_root);
+        Assert.Equal(0, scan.Unreadable);
+        Assert.Equal(3, scan.Recordings.Count);
+        Assert.DoesNotContain(scan.Recordings, r => r.Path.EndsWith(".txt") || r.Path.EndsWith(".jpg"));
+        var opus = scan.Recordings.Single(r => r.Path.EndsWith(".opus"));
+        Assert.False(opus.IsFlac);
+        Assert.Null(opus.Seconds);
+
+        // With the WPF side's reader, its length is known; a reader that
+        // throws leaves the file listed with an unknown length.
+        RecordedQsoCatalog.OtherReader = path => path.EndsWith(".opus") ? (48000, 1, 48000 * 3 / 5) : throw new InvalidDataException("no decoder");
+        scan = RecordedQsoCatalog.Scan(_root);
+        Assert.Equal(0.6, scan.Recordings.Single(r => r.Path.EndsWith(".opus")).Seconds!.Value, 3);
+        Assert.Null(scan.Recordings.Single(r => r.Path.EndsWith(".mp3")).Seconds);
+        Assert.Equal(0, scan.Unreadable);
+    }
+
+    [Fact]
+    public void The_newest_recording_for_Play_from_computer_is_the_recorders_own_never_a_Save_As_copy()
+    {
+        string month = Path.Combine(RecordedQsoCatalog.FolderPath, "2026", "10");
+        WriteHeader(month, "QSO-2026-10-25-102646.flac");
+        string copy = Path.Combine(month, "Later copy.opus");
+        File.WriteAllBytes(copy, new byte[] { 1 });
+        File.SetCreationTime(copy, new DateTime(2026, 10, 25, 11, 2, 14));
+        File.SetLastWriteTime(copy, new DateTime(2026, 10, 25, 11, 2, 14));
+        Assert.EndsWith("QSO-2026-10-25-102646.flac", RecordedQsoCatalog.Newest()!.Path);
     }
 
     [Fact]

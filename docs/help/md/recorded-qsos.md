@@ -6,37 +6,41 @@ Open it from the Audio menu, with **Ctrl+Alt+Shift+F11**, or with the JJ key and
 
 ## The list
 
-The list comes first, newest at the top. Each recording says when you made it and how long it is, for example "Today at 3:30 PM, 12 minutes 8 seconds". If you renamed a file, its new name comes first. A recording that is still being made says so, and you can't play, trim, save or delete it until you stop recording to file.
+The list comes first, newest at the top. Each recording says when you made it and how long it is, for example "Today at 3:30 PM, 12 minutes 8 seconds". If you renamed a file, its new name comes first. A recording that is still being made says so, and you can't play, trim, save or delete it until you stop recording to file. The list keeps up while it is open: start or stop a recording and it appears, or gets its length, without closing the window.
 
-- **Up and Down** choose a recording.
+Files you make with Save As are in the list too, so Delete and Prune can reach them. Those say their type, for example "QSO-2026-10-25-102646-trim, Opus, recorded today at 10:26 AM, under a second". You can play them here; trimming and Save As work on the recorder's own FLAC files.
+
+- **Press Up and Down** to select a recording.
 - **Home and End** go to the newest and the oldest.
-- **Enter** plays the one you are on through your speakers, from where you are in it. Press Enter again to stop.
+- **Enter** starts or pauses playback of the selected recording, from the play head.
+- **S** stops and returns the play head to the beginning of the file.
 - **Space** only selects. It never plays, and Ctrl+Space is still push to talk.
-- **Left and Right** step back and forward through the recording by the step size. If it is playing, pause first.
-- **Delete** moves it to the Recycle Bin, after asking.
+- **Left and Right** move the play head backward and forward by the selected step size, including during playback.
+- **Delete** moves the selected recording to the Recycle Bin.
 
 If any file in the folder couldn't be read, I tell you how many when the window opens, rather than quietly showing you a shorter list.
 
 ## Which recording Play from computer plays
 
-Play from computer (Ctrl+Alt+F11, or JJ key Ctrl+Shift+P) plays your newest recording, unless you choose another one here. Choosing a recording in the list makes it the one Play from computer plays, and unticks the checkbox called **Play from computer uses the newest recording**. Tick it again to go back to the newest. The choice lasts until you restart JJ Flexible.
+Play from computer (Ctrl+Alt+F11, or JJ key Ctrl+Shift+P) plays your newest recording, unless you select another one here: then it plays the selected recording. Making a new recording puts it back on the newest, and so does restarting JJ Flexible.
 
 ## Listening and stepping
 
-The step size is the next stop after the list: 1 second, 5 seconds, 10 seconds, 30 seconds or a minute. It starts at 5 seconds every time you open the window. After it come the Play button (it becomes Pause, then Resume), the Stop button while something is playing, and the playback position, which says where you are in words.
+The step size is the next stop after the list: 0.1 seconds, 0.5 seconds, 1 second, 5 seconds, 10 seconds, 30 seconds or a minute. It designates the size of the step used to jump forward and backward through a recorded file, and JJ Flexible remembers the one you chose, even after a restart. After it come the Play button (it becomes Pause, then Resume), the Stop button while something is playing, and the playback position, which says where the play head is in words, to the tenth of a second.
 
 These keys work from anywhere in the window, even while a recording is playing:
 
-- **P** pauses and resumes.
-- **[** (left bracket) marks the start of a trim where you are.
-- **]** (right bracket) marks the end.
-- **Escape** stops the preview. Press Escape again to close the window. If you're transmitting, Escape unkeys first, as it does in every window.
+- **S** stops and returns the play head to the beginning of the file.
+- **[** (left bracket) sets the trim start mark at the play head.
+- **]** (right bracket) sets the trim end mark at the play head.
+- **Shift+[** and **Shift+]** clear those marks, and **Backspace** clears the selection.
+- **Escape** stops playback, as S does. Press Escape again to close the window. If you're transmitting, Escape unkeys first, as it does in every window.
 
 Playing a recording here never keys the radio. While it plays, VOX (or CW break-in) is paused so your microphone can't key the radio on the sound from your speakers, and it comes back when the recording stops. Closing the window stops the preview too.
 
 ## Trimming
 
-A trim is just two marks: where to start and where to end. Until you set one, the whole recording is selected. Play the recording, press **[** when you hear where you want it to start, and **]** where you want it to end. You can also pause, step with Left and Right, and use the Set trim start and Set trim end buttons. The line after them tells you what is selected, and Use whole recording clears both marks. Marks never change the recording itself; Save As writes the part you chose to a new file.
+A trim is just two marks: where to start and where to end. Until you set one, the whole recording is selected. Play the recording, press **[** when you hear where you want it to start, and **]** where you want it to end. You can also pause with Enter, move the play head with Left and Right (a step of 0.1 seconds is good for finding the exact spot), and use the Set trim start and Set trim end buttons. The line after them tells you what is selected. Shift+[ or Shift+] clears one mark, and Backspace or the Clear selection button clears both. Marks never change the recording itself; Save As writes the part you chose to a new file.
 
 ## Save As
 
@@ -45,6 +49,8 @@ Save As opens its own window: the file name, the folder and a Browse button, the
 - **FLAC** is lossless and the same format your recordings are made in. **WAV** is uncompressed. Both let you choose mono or stereo.
 - **MP3** starts at 64 kilobits per second and **Opus** at 32. Both let you choose mono or stereo and the bitrate.
 - **M4A** is HE-AAC, mono, at 32 kilobits per second, when Windows can make it.
+
+When Save As writes into the recording's own folder, it tells you the month, for example "Saved QSO-2026-10-25-102646-trim.opus in the October 2026 folder". If you chose another folder, it says the whole path.
 
 The folder starts as the recording's own month folder every time. The file type and the end of the file name always match: choose a type and the name changes, or type a name ending in .mp3 and the type changes. Save As never touches the original, asks before replacing a file that's already there, and works in the background so you can keep using the window. If Windows can't make MP3 files on this computer, MP3 can't be chosen, and Ctrl+F1 on the file type says why and what to install.
 

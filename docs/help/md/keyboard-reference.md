@@ -847,13 +847,15 @@ These keys are active when focus is on the row list inside the Archive Browser t
 
 These keys work inside the Recorded QSOs window (**Ctrl+Alt+Shift+F11**, or **Ctrl+J, Alt+F**).
 
-- **Up Arrow / Down Arrow** — Choose a recording. Play from computer then plays the one you chose, and the "Play from computer uses the newest recording" checkbox unticks
+- **Up Arrow / Down Arrow** — Select a recording. Play from computer plays the selected recording
 - **Home / End** — The newest or the oldest recording
-- **Enter** — Play the chosen recording here, from where you are in it, or stop it
-- **Left Arrow / Right Arrow** — Step back or forward through the recording by the step size, the next stop after the list. Pause first if it is playing
-- **[** (left bracket) — Mark the trim start where you are, even while it plays
-- **]** (right bracket) — Mark the trim end where you are, even while it plays
-- **P** — Pause or resume the preview, from anywhere in the window
-- **Delete** — Move the chosen recording to the Recycle Bin, after asking. It is never deleted outright
-- **Escape** — Stop the preview if one is playing; press again to close. If you are transmitting, Escape unkeys first
+- **Enter** — Start or pause playback of the selected recording, from the play head
+- **S** — Stop, and return the play head to the beginning of the file, from anywhere in the window
+- **Left Arrow / Right Arrow** — Move the play head backward or forward by the selected step size, including during playback
+- **[** (left bracket) — Set the trim start mark at the play head, even while it plays
+- **]** (right bracket) — Set the trim end mark at the play head, even while it plays
+- **Shift+[ / Shift+]** — Clear the trim start mark or the trim end mark
+- **Backspace** — Clear the selection: both trim marks go, and the whole recording is selected
+- **Delete** — Move the selected recording to the Recycle Bin. It is never deleted outright
+- **Escape** — Stop playback if a recording is playing, as S does; press again to close. If you are transmitting, Escape unkeys first
 - **Space** only selects in the list and never plays, and **Ctrl+Space** is still push to talk

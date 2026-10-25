@@ -101,8 +101,8 @@ public static class ComputerRecorder
     /// The recording chosen in the recordings dialog (track 4), or null for
     /// "the last one". Noel, 2026-10-21 09:25: play from computer plays the
     /// last recording, or whatever file you select in the dialog. Kept for
-    /// this run of the program only; whether a choice should survive a
-    /// restart is the dialog's question.
+    /// this run of the program only, and cleared when a new recording is
+    /// finished, so the newest wins again (Noel, 2026-10-25).
     /// </summary>
     public static string ChosenRecording { get; set; }
 
@@ -139,7 +139,14 @@ public static class ComputerRecorder
     public static async Task<RecorderOutcome> ToggleRecordingAsync(FlexBase rig)
     {
         var recorder = _current;
-        if (recorder.IsRecording) return await recorder.StopRecordingAsync().ConfigureAwait(false);
+        if (recorder.IsRecording)
+        {
+            var stopped = await recorder.StopRecordingAsync().ConfigureAwait(false);
+            // A new recording puts Play from computer back on the newest, even
+            // after one was chosen in Recorded QSOs (Noel, 2026-10-25 10:41).
+            if (stopped.Success) ChosenRecording = null;
+            return stopped;
+        }
         if (rig == null) return Refusal("audio.no_radio_connected");
         return await recorder.StartRecordingAsync(rig).ConfigureAwait(false);
     }

@@ -29,24 +29,39 @@ namespace JJFlexWpf.Dialogs;
 /// <para>
 /// <b>Tab order, as ruled:</b> the list; the step size, the very next stop
 /// (Noel 16:03); Play or pause; Stop, only while a preview is running; the
-/// playback position; Set trim start; Set trim end; the selection line; Use
-/// whole recording; Save As; Delete; Prune; the newest-recording checkbox
-/// (15:55); Close. A control that cannot act now is disabled, which takes it
-/// out of the tab order.
+/// playback position; Set trim start; Set trim end; the selection line; Clear
+/// selection; Save As; Delete; Prune; Close. A control that cannot act now is
+/// disabled, which takes it out of the tab order. (The newest-recording
+/// checkbox came out on the 2026-10-25 bench: the selected row is what Play
+/// from computer plays.)
 /// </para>
 /// <para>
-/// <b>Keys that work anywhere in the window, even while playing</b> (Noel
-/// 16:04-16:05): "[" marks the trim start, "]" the end, "P" pauses and
-/// resumes. None of them is Space or a Space chord: Ctrl+Space stays push to
-/// talk and Shift+Space stays refused, through <see cref="DialogTransmitKeys"/>,
-/// which sees every key before this window does. The list's own letter search
-/// is switched off so "P" can never jump to a row.
+/// <b>Transport, as re-ruled at the 2026-10-25 bench</b> ("Enter says that it
+/// stops, but it really pauses"): Enter starts or pauses playback, S stops and
+/// returns the play head to the beginning of the file, and P is gone. Left
+/// and Right move the play head by the selected step size while it plays too.
 /// </para>
 /// <para>
-/// <b>Escape</b> (16:05): while a preview plays or is paused, Escape stops it;
-/// the next Escape closes. While transmitting, the transmit door unkeys
+/// <b>Keys that work anywhere in the window, even while playing</b>: "[" marks
+/// the trim start, "]" the end, Shift with either clears that mark, Backspace
+/// clears both, S stops. None of them is Space or a Space chord: Ctrl+Space
+/// stays push to talk and Shift+Space stays refused, through
+/// <see cref="DialogTransmitKeys"/>, which sees every key before this window
+/// does. The list's own letter search is switched off so "S" can never jump
+/// to a row.
+/// </para>
+/// <para>
+/// <b>Escape</b>: while a preview plays or is paused, Escape stops it, as S
+/// does; the next Escape closes. While transmitting, the transmit door unkeys
 /// first and this window never sees that Escape. Closing any other way stops
 /// the preview too.
+/// </para>
+/// <para>
+/// <b>The list follows the recorder.</b> A recording started or finished while
+/// the window is open appears, and changes from "still recording" to its
+/// length, without reopening (the 2026-10-25 bench found it frozen). The
+/// window polls the recorder twice a second while it is the active window,
+/// as Home polls it, because the recorder has no change event by design.
 /// </para>
 /// <para>
 /// <b>What it says.</b> The list and the controls announce themselves; the
@@ -69,21 +84,20 @@ public sealed class RecordedQsosDialog : JJFlexDialog
     private readonly ListBox _list = new();
     private readonly TextBox _empty = new();
     private readonly ComboBox _step = new();
-    private readonly Button _play, _stop, _setStart, _setEnd, _useWhole, _saveAs, _delete, _prune, _close;
+    private readonly Button _play, _stop, _setStart, _setEnd, _clear, _saveAs, _delete, _prune, _close;
     private readonly PositionSlider _position = new();
     private readonly TextBox _selection = new();
-    private readonly CheckBox _newest = new();
     private readonly TextBlock _status = new();
     private readonly HashSet<string> _exporting = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<RecordedQso> _rows = Array.Empty<RecordedQso>();
     private string? _previewPath;
     private bool _quietSelection;
-    private bool _quietCheck;
-    private bool _choiceAnnounced;
     private int _unreadable;
     private bool _starting;
     private bool _closed;
     private int _selectionVersion;
+    private readonly DispatcherTimer _watch = new() { Interval = TimeSpan.FromMilliseconds(500) };
+    private string? _seenRecording, _seenLast;
 
     private static RecordedQsosDialog? _open;
 
@@ -97,6 +111,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         if (_open != null)
         {
             try { _open.Activate(); } catch (InvalidOperationException) { }
+            _open.FollowRecorder(force: true);
             return;
         }
         var dialog = new RecordedQsosDialog(rig);
@@ -134,28 +149,32 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         stepRow.Children.Add(new Label { Content = Lexicon.Get("audio.qsos.step"), Target = _step, Padding = new Thickness(0, 4, 8, 0) });
         AutomationProperties.SetName(_step, Lexicon.Get("audio.qsos.step"));
         JJFlexHelp.SetText(_step, Lexicon.Get("audio.qsos.step_help"));
-        foreach (int s in RecordedQsoBrowser.Steps)
+        foreach (double s in RecordedQsoBrowser.Steps)
         {
             string label = RecordedQsoWords.Step(s);
             var item = new ComboBoxItem { Content = label, Tag = s };
             AutomationProperties.SetName(item, label);
             _step.Items.Add(item);
         }
-        _step.SelectedIndex = Array.IndexOf(RecordedQsoBrowser.Steps, RecordedQsoBrowser.DefaultStep);
+        _browser.StepSeconds = RememberedStep();
+        _step.SelectedIndex = Array.IndexOf(RecordedQsoBrowser.Steps, _browser.StepSeconds);
         _step.MinWidth = 140;
         _step.SelectionChanged += (_, _) =>
         {
-            if (_step.SelectedItem is ComboBoxItem { Tag: int seconds }) _browser.StepSeconds = seconds;
+            if (_step.SelectedItem is not ComboBoxItem { Tag: double seconds }) return;
+            _browser.StepSeconds = seconds;
+            RememberStep(seconds);
         };
         stepRow.Children.Add(_step);
         controls.Children.Add(stepRow);
 
         var transport = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) };
-        _play = AddButton(transport, Lexicon.Get("audio.qsos.play"), () => _ = PlayOrPauseAsync());
-        _stop = AddButton(transport, Lexicon.Get("audio.qsos.stop"), () => StopPreview(speak: true));
+        _play = AddButton(transport, Lexicon.Get("audio.qsos.play"), () => _ = PlayOrPauseAsync(), "audio.qsos.play_help");
+        _stop = AddButton(transport, Lexicon.Get("audio.qsos.stop"), () => StopToStart(speak: true), "audio.qsos.stop_help");
         controls.Children.Add(transport);
 
         AutomationProperties.SetName(_position, Lexicon.Get("audio.qsos.position"));
+        JJFlexHelp.SetText(_position, Lexicon.Get("audio.qsos.position_help"));
         _position.Minimum = 0;
         _position.Maximum = 1;
         _position.IsTabStop = true;
@@ -164,11 +183,12 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         controls.Children.Add(_position);
 
         var trim = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) };
-        _setStart = AddButton(trim, Lexicon.Get("audio.qsos.set_start"), () => MarkStart());
-        _setEnd = AddButton(trim, Lexicon.Get("audio.qsos.set_end"), () => MarkEnd());
+        _setStart = AddButton(trim, Lexicon.Get("audio.qsos.set_start"), () => MarkStart(), "audio.qsos.set_start_help");
+        _setEnd = AddButton(trim, Lexicon.Get("audio.qsos.set_end"), () => MarkEnd(), "audio.qsos.set_end_help");
         controls.Children.Add(trim);
 
         AutomationProperties.SetName(_selection, Lexicon.Get("audio.qsos.selection_label"));
+        JJFlexHelp.SetText(_selection, Lexicon.Get("audio.qsos.selection_help"));
         _selection.IsReadOnly = true;
         _selection.IsReadOnlyCaretVisible = true;
         _selection.TextWrapping = TextWrapping.Wrap;
@@ -176,22 +196,14 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         controls.Children.Add(_selection);
 
         var actions = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) };
-        _useWhole = AddButton(actions, Lexicon.Get("audio.qsos.use_whole"), () => Say(_browser.UseWhole(), refresh: true));
-        _saveAs = AddButton(actions, Lexicon.Get("audio.qsos.save_as"), () => _ = SaveAsAsync());
-        _delete = AddButton(actions, Lexicon.Get("audio.qsos.delete"), () => DeleteSelected());
-        _prune = AddButton(actions, Lexicon.Get("audio.qsos.prune"), () => Prune());
+        _clear = AddButton(actions, Lexicon.Get("audio.qsos.clear_selection"), () => ClearSelection(), "audio.qsos.clear_selection_help");
+        _saveAs = AddButton(actions, Lexicon.Get("audio.qsos.save_as"), () => _ = SaveAsAsync(), "audio.qsos.save_as_help");
+        _delete = AddButton(actions, Lexicon.Get("audio.qsos.delete"), () => DeleteSelected(), "audio.qsos.delete_help");
+        _prune = AddButton(actions, Lexicon.Get("audio.qsos.prune"), () => Prune(), "audio.qsos.prune_help");
         controls.Children.Add(actions);
 
-        _newest.Content = Lexicon.Get("audio.qsos.newest");
-        AutomationProperties.SetName(_newest, Lexicon.Get("audio.qsos.newest"));
-        JJFlexHelp.SetText(_newest, Lexicon.Get("audio.qsos.newest_help"));
-        _newest.Margin = new Thickness(0, 0, 0, 6);
-        _newest.Checked += (_, _) => OnNewestChanged(true);
-        _newest.Unchecked += (_, _) => OnNewestChanged(false);
-        controls.Children.Add(_newest);
-
         var closeRow = new WrapPanel();
-        _close = AddButton(closeRow, Lexicon.Get("audio.qsos.close"), () => CloseWithResult(true));
+        _close = AddButton(closeRow, Lexicon.Get("audio.qsos.close"), () => CloseWithResult(true), "audio.qsos.close_help");
         controls.Children.Add(closeRow);
 
         var listArea = new Grid();
@@ -199,10 +211,10 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         AutomationProperties.SetName(_list, Lexicon.Get("audio.qsos.list"));
         JJFlexHelp.SetText(_list, Lexicon.Get("audio.qsos.list_help"));
         _list.SelectionMode = SelectionMode.Single;
-        _list.IsTextSearchEnabled = false; // "P" must never jump to a row (Noel 16:05).
+        _list.IsTextSearchEnabled = false; // "S" must never jump to a row (Noel 16:05, then P; S since 2026-10-25).
         _list.SelectionChanged += OnListSelectionChanged;
         _list.PreviewKeyDown += OnListKeyDown;
-        _list.MouseDoubleClick += (_, _) => _ = TogglePlayAsync();
+        _list.MouseDoubleClick += (_, _) => _ = PlayOrPauseAsync();
         listArea.Children.Add(_list);
 
         AutomationProperties.SetName(_empty, Lexicon.Get("audio.qsos.list"));
@@ -223,6 +235,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         Closed += (_, _) =>
         {
             _closed = true;
+            _watch.Stop();
             RecordingPlayer.StateChanged -= OnPlayerStateChanged;
             RecordingPlayer.PlaybackCompleted -= OnPlaybackCompleted;
             // Closing any way at all stops the preview (Noel 16:05). The
@@ -233,8 +246,12 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         // first control, so focus can land on the chosen row. The count of
         // unreadable files is said after the title, which Loaded queues first.
         Populate(opening: true);
+        _watch.Tick += (_, _) => FollowRecorder(force: false);
+        Activated += (_, _) => FollowRecorder(force: false);
         Loaded += (_, _) =>
         {
+            NoteRecorder();
+            _watch.Start();
             if (_unreadable > 0)
                 Say(_unreadable == 1 ? Lexicon.Get("audio.qsos.unreadable_one")
                     : Lexicon.Get("audio.qsos.unreadable_many", ("count", _unreadable)), queue: true);
@@ -268,9 +285,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
             int index;
             if (opening)
             {
-                var (open, newest) = RecordedQsoBrowser.Opening(_rows, ComputerRecorder.ChosenRecording);
-                index = open;
-                SetNewestQuietly(newest);
+                index = RecordedQsoBrowser.Opening(_rows, ComputerRecorder.ChosenRecording);
             }
             else
             {
@@ -332,37 +347,63 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         if (PreviewActive && !SamePath(q?.Path, _previewPath))
             RecordingPlayer.StopWithoutSpeaking(); // a new row is a new recording; its own preview starts on Enter
         _browser.Select(q);
-        if (q != null)
-        {
-            // Arrowing to a recording makes it Play from computer's choice and
-            // unticks the newest box (Noel 15:55-15:56). Said once per opening,
-            // after the reader has read the row, so the change is never silent.
-            ComputerRecorder.ChosenRecording = q.Path;
-            if (_newest.IsChecked == true)
-            {
-                SetNewestQuietly(false);
-                if (!_choiceAnnounced)
-                {
-                    _choiceAnnounced = true;
-                    Say(Lexicon.Get("audio.qsos.choice_follows"), queue: true);
-                }
-            }
-        }
+        // Selecting a recording makes it Play from computer's choice, silently:
+        // "just enter plays the currently selected" (Noel, 2026-10-25), and the
+        // sentence that used to announce it was ruled out the same morning.
+        if (q != null) ComputerRecorder.ChosenRecording = q.Path;
         RefreshControls();
     }
 
-    private void OnNewestChanged(bool ticked)
+    /// <summary>
+    /// Follow the recorder: when a recording starts or finishes, rebuild the
+    /// list on the same row. Only while this is the active window, so the
+    /// rows never change under a confirmation or Save As it opened; becoming
+    /// active again catches up.
+    /// </summary>
+    private void FollowRecorder(bool force)
     {
-        if (_quietCheck) return;
-        if (ticked) ComputerRecorder.ChosenRecording = null;
-        else if (_browser.Current != null) ComputerRecorder.ChosenRecording = _browser.Current.Path;
+        if (_closed || (!force && !IsActive)) return;
+        string? recording = CurrentRecordingPath();
+        string? last = ComputerRecorder.Current.LastRecordingPath;
+        if (!force && SamePath2(recording, _seenRecording) && SamePath2(last, _seenLast)) return;
+        NoteRecorder();
+        Populate(opening: false, keepPath: _browser.Current?.Path);
     }
 
-    private void SetNewestQuietly(bool ticked)
+    private void NoteRecorder()
     {
-        _quietCheck = true;
-        try { _newest.IsChecked = ticked; }
-        finally { _quietCheck = false; }
+        _seenRecording = CurrentRecordingPath();
+        _seenLast = ComputerRecorder.Current.LastRecordingPath;
+    }
+
+    private static bool SamePath2(string? a, string? b) =>
+        string.Equals(a ?? "", b ?? "", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The step size the operator last chose, from the audio settings; 5 seconds the first time.</summary>
+    private static double RememberedStep()
+    {
+        try { return RecordedQsoBrowser.ValidStep(AudioOutputConfig.Load(RadioConfig.AppDataRoot).RecordedQsosStepSeconds); }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("RecordedQsosDialog: step size not read: " + ex.Message, TraceLevel.Warning);
+            return RecordedQsoBrowser.DefaultStep;
+        }
+    }
+
+    /// <summary>Remember the step size across restarts (Noel, 2026-10-25), the way the earcon keys save their switch.</summary>
+    private static void RememberStep(double seconds)
+    {
+        try
+        {
+            var config = AudioOutputConfig.Load(RadioConfig.AppDataRoot);
+            if (config.RecordedQsosStepSeconds == seconds) return;
+            config.RecordedQsosStepSeconds = seconds;
+            config.Save(RadioConfig.AppDataRoot);
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("RecordedQsosDialog: step size not saved: " + ex.Message, TraceLevel.Warning);
+        }
     }
 
     private void OnListKeyDown(object sender, KeyEventArgs e)
@@ -372,7 +413,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         {
             case Key.Enter:
                 e.Handled = true;
-                _ = TogglePlayAsync();
+                _ = PlayOrPauseAsync();
                 break;
             case Key.Delete:
                 e.Handled = true;
@@ -429,7 +470,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         if (key == Key.Escape && Keyboard.Modifiers == ModifierKeys.None && PreviewActive)
         {
             e.Handled = true;
-            StopPreview(speak: true);
+            StopToStart(speak: true);
             return;
         }
         if (key == Key.F1 && Keyboard.Modifiers == ModifierKeys.None)
@@ -438,21 +479,27 @@ public sealed class RecordedQsosDialog : JJFlexDialog
             HelpLauncher.ShowHelp("RecordedQsos");
             return;
         }
-        if (Keyboard.Modifiers != ModifierKeys.None) return;
+        var modifiers = Keyboard.Modifiers;
+        if (modifiers != ModifierKeys.None && modifiers != ModifierKeys.Shift) return;
         if (DialogTransmitKeys.IsEditableText(e.OriginalSource as DependencyObject)) return;
+        bool shift = modifiers == ModifierKeys.Shift;
         switch (key)
         {
             case Key.OemOpenBrackets:
                 e.Handled = true;
-                MarkStart();
+                if (shift) ClearStartMark(); else MarkStart();
                 break;
             case Key.OemCloseBrackets:
                 e.Handled = true;
-                MarkEnd();
+                if (shift) ClearEndMark(); else MarkEnd();
                 break;
-            case Key.P:
+            case Key.Back when !shift:
                 e.Handled = true;
-                _ = PlayOrPauseAsync();
+                ClearSelection();
+                break;
+            case Key.S when !shift:
+                e.Handled = true;
+                StopToStart(speak: true);
                 break;
         }
     }
@@ -467,14 +514,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
 
     private static string? CurrentRecordingPath() => (ComputerRecorder.Current as ComputerFlacRecorder)?.CurrentRecordingPath;
 
-    /// <summary>Enter: play from where you are, or stop.</summary>
-    private async Task TogglePlayAsync()
-    {
-        if (PreviewActive) StopPreview(speak: true);
-        else await StartPreviewAsync();
-    }
-
-    /// <summary>P and the Play button: play, pause, or resume.</summary>
+    /// <summary>Enter and the Play button: play from the play head, pause, or resume.</summary>
     private async Task PlayOrPauseAsync()
     {
         if (!PreviewActive)
@@ -529,7 +569,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
             if (_closed || selectionVersion != _selectionVersion || !SamePath(q.Path, _browser.Current?.Path)) return;
 
             double from = _browser.Cursor;
-            if (_browser.CanMove && from >= _browser.Duration!.Value - 0.5) from = 0;
+            if (_browser.CanMove && from >= _browser.Duration!.Value - 0.05) from = 0;
             _browser.MoveTo(from);
             string announcement = !_browser.CanMove
                 ? Lexicon.Get("audio.qsos.playing_unknown")
@@ -551,13 +591,18 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         finally { pause?.Dispose(); }
     }
 
-    private void StopPreview(bool speak)
+    /// <summary>
+    /// S, the Stop button and Escape while playing: stop, and return the play
+    /// head to the beginning of the file (Noel, 2026-10-25). Pausing is
+    /// Enter's job.
+    /// </summary>
+    private void StopToStart(bool speak)
     {
-        if (!PreviewActive) return;
-        double at = RecordingPlayer.PositionSeconds ?? _browser.Cursor;
-        RecordingPlayer.StopWithoutSpeaking();
-        _browser.MoveTo(at);
-        if (speak) Say(Lexicon.Get("audio.qsos.stopped", ("position", RecordedQsoWords.Position(at, _browser.Duration))));
+        if (_browser.Current == null) { if (speak) Refuse(Lexicon.Get("audio.qsos.nothing_selected")); return; }
+        bool was = PreviewActive;
+        if (was) RecordingPlayer.StopWithoutSpeaking();
+        _browser.MoveTo(0);
+        if (speak) Say(Lexicon.Get(was ? "audio.qsos.stopped_to_start" : "audio.qsos.play_head_start"));
         RefreshControls();
     }
 
@@ -575,13 +620,8 @@ public sealed class RecordedQsosDialog : JJFlexDialog
     private void StepPosition(int direction)
     {
         if (_browser.Current == null) { Refuse(Lexicon.Get("audio.qsos.nothing_selected")); return; }
-        if (PreviewActive && !RecordingPlayer.IsPaused)
-        {
-            // Moving through sounding audio waits for a later round (Noel,
-            // 2026-10-21 10:57); pausing first keeps the position exact.
-            Refuse(Lexicon.Get("audio.qsos.pause_first"));
-            return;
-        }
+        // While it plays too (Noel, 2026-10-25: "I'd make it so it can jump
+        // ahead and back"): the step starts from what is sounding now.
         if (PreviewActive) _browser.MoveTo(RecordingPlayer.PositionSeconds ?? _browser.Cursor);
         string sentence = _browser.Step(direction);
         if (PreviewActive) RecordingPlayer.Seek(_browser.Cursor);
@@ -592,7 +632,6 @@ public sealed class RecordedQsosDialog : JJFlexDialog
     private void MoveToEdge(bool toEnd)
     {
         if (_browser.Current == null) return;
-        if (PreviewActive && !RecordingPlayer.IsPaused) { Refuse(Lexicon.Get("audio.qsos.pause_first")); return; }
         string sentence = _browser.Edge(toEnd);
         if (PreviewActive) RecordingPlayer.Seek(_browser.Cursor);
         Say(sentence, refresh: true);
@@ -619,8 +658,30 @@ public sealed class RecordedQsosDialog : JJFlexDialog
     {
         if (_browser.Current == null) { Refuse(Lexicon.Get("audio.qsos.nothing_selected")); return false; }
         if (CurrentIsStillRecording) { Refuse(Lexicon.Get("audio.qsos.still_recording")); return false; }
+        if (!_browser.Current.IsFlac) { Refuse(Lexicon.Get("audio.qsos.flac_only")); return false; }
         if (!_browser.CanMove) { Refuse(Lexicon.Get("audio.qsos.no_position")); return false; }
         return true;
+    }
+
+    private void ClearStartMark()
+    {
+        if (!CanTrim()) return;
+        var (changed, sentence) = _browser.ClearStart();
+        if (changed) Say(sentence, refresh: true); else Refuse(sentence);
+    }
+
+    private void ClearEndMark()
+    {
+        if (!CanTrim()) return;
+        var (changed, sentence) = _browser.ClearEnd();
+        if (changed) Say(sentence, refresh: true); else Refuse(sentence);
+    }
+
+    /// <summary>Backspace and Clear selection: both marks go, and the whole recording is selected.</summary>
+    private void ClearSelection()
+    {
+        if (!CanTrim()) return;
+        Say(_browser.ClearSelection(), refresh: true);
     }
 
     // ── delete, prune, Save As ──────────────────────────────────────────
@@ -668,10 +729,9 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         var next = _browser.Current;
         if (wasChosen)
         {
-            // The chosen file has gone: the next row becomes the choice, or,
-            // with nothing left, Play from computer goes back to the newest.
+            // The chosen file has gone: the next row, now selected, becomes the
+            // choice, or, with nothing left, Play from computer goes back to the newest.
             ComputerRecorder.ChosenRecording = next?.Path;
-            SetNewestQuietly(next == null);
         }
         SayAfterFocusSettles(next == null
             ? Lexicon.Get("audio.qsos.deleted_last")
@@ -712,7 +772,6 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         if (ComputerRecorder.ChosenRecording != null && gone.Contains(ComputerRecorder.ChosenRecording))
             ComputerRecorder.ChosenRecording = null;
         Populate(opening: false, keepPath: keep != null && !gone.Contains(keep) ? keep : null);
-        if (ComputerRecorder.ChosenRecording == null) SetNewestQuietly(true);
         int asked = dialog.Chosen.Count;
         SayAfterFocusSettles(moved == asked
                 ? (moved == 1 ? Lexicon.Get("audio.qsos.pruned_one") : Lexicon.Get("audio.qsos.pruned", ("count", moved)))
@@ -725,6 +784,7 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         var q = _browser.Current;
         if (q == null) { Refuse(Lexicon.Get("audio.qsos.nothing_selected")); return; }
         if (CurrentIsStillRecording) { Refuse(Lexicon.Get("audio.qsos.still_recording")); return; }
+        if (!q.IsFlac) { Refuse(Lexicon.Get("audio.qsos.flac_only")); return; }
         bool fromList = _list.IsKeyboardFocusWithin;
         var (startFrame, endFrame) = _browser.Frames();
         var dialog = new RecordedQsoSaveAsDialog(q, _browser.IsWhole || !_browser.CanMove, startFrame, endFrame,
@@ -755,12 +815,39 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         if (failure != null)
             Refuse(Lexicon.Get("audio.qsos.saveas_failed", ("reason", EndSentence(failure))), queue: true);
         else
-            Say(Lexicon.Get("audio.qsos.saveas_saved", ("file", file), ("folder", folder),
-                ("length", RecordedQsoWords.Length(request.Seconds))), queue: true);
+            Say(SavedSentence(file, folder, q.Path, request.Seconds), queue: true);
 
         if (IsLoaded && failure == null && RecordedQsoCatalog.IsInFolder(request.Destination, RecordedQsoCatalog.FolderPath))
             Populate(opening: false, keepPath: q.Path);
         else if (IsLoaded) RefreshControls();
+    }
+
+    /// <summary>
+    /// "Saved X in the October 2026 folder" when the file went into the
+    /// recording's own month folder; the full path only when another folder
+    /// was chosen (Noel, 2026-10-25).
+    /// </summary>
+    internal static string SavedSentence(string file, string folder, string source, double? seconds)
+    {
+        string length = seconds is double s ? RecordedQsoWords.Precise(s) : RecordedQsoWords.Length(null);
+        string? month = MonthFolder(folder, source);
+        return month != null
+            ? Lexicon.Get("audio.qsos.saveas_saved_month", ("file", file), ("month", month), ("length", length))
+            : Lexicon.Get("audio.qsos.saveas_saved", ("file", file), ("folder", folder), ("length", length));
+    }
+
+    /// <summary>"October 2026" when <paramref name="folder"/> is the source recording's own year\month folder, else null.</summary>
+    internal static string? MonthFolder(string folder, string source)
+    {
+        string? own = Path.GetDirectoryName(source);
+        if (own == null || !string.Equals(Path.GetFullPath(folder).TrimEnd('\\'), Path.GetFullPath(own).TrimEnd('\\'),
+                StringComparison.OrdinalIgnoreCase)) return null;
+        string monthPart = Path.GetFileName(own);
+        string yearPart = Path.GetFileName(Path.GetDirectoryName(own) ?? "");
+        if (!int.TryParse(yearPart, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int year) ||
+            !int.TryParse(monthPart, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int month) ||
+            month < 1 || month > 12 || year < 2000) return null;
+        return new DateTime(year, month, 1).ToString("MMMM yyyy", System.Globalization.CultureInfo.CurrentCulture);
     }
 
     private static string EndSentence(string text)
@@ -805,15 +892,15 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         _position.Maximum = Math.Max(1, _browser.Duration ?? 1);
         _position.Value = Math.Clamp(_browser.Cursor, 0, _position.Maximum);
         _position.ValueText = has ? _browser.PositionValue() : "";
-        _setStart.IsEnabled = canMove;
-        _setEnd.IsEnabled = canMove;
-        _selection.Text = _browser.Selection();
+        bool flac = has && _browser.Current!.IsFlac;
+        _setStart.IsEnabled = canMove && flac;
+        _setEnd.IsEnabled = canMove && flac;
+        _selection.Text = CurrentIsStillRecording ? Lexicon.Get("audio.qsos.recording_selection") : _browser.Selection();
         _selection.IsEnabled = has;
-        _useWhole.IsEnabled = canMove && !_browser.IsWhole;
-        _saveAs.IsEnabled = has && !busy;
+        _clear.IsEnabled = canMove && flac && !_browser.IsWhole;
+        _saveAs.IsEnabled = has && !busy && flac;
         _delete.IsEnabled = has && !busy;
         _prune.IsEnabled = _rows.Count > 0;
-        _newest.IsEnabled = _rows.Count > 0;
 
         // A control that just went out of the tab order must not take the
         // keyboard with it: a blind operator on Stop when the preview ends
@@ -864,10 +951,13 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         else Say(text, queue: true);
     }
 
-    private Button AddButton(Panel panel, string label, Action onClick)
+    private Button AddButton(Panel panel, string label, Action onClick, string helpKey)
     {
         var button = new Button { Content = label, MinWidth = 96, Height = 28, Margin = new Thickness(0, 0, 8, 6), Padding = new Thickness(8, 0, 8, 0) };
         AutomationProperties.SetName(button, label);
+        // Every button explains itself on Ctrl+F1 (Noel, 2026-10-25: "there's
+        // no help for save as or delete").
+        JJFlexHelp.SetText(button, Lexicon.Get(helpKey));
         button.Click += (_, _) =>
         {
             try { onClick(); }

@@ -160,8 +160,10 @@ public sealed class ComputerFlacRecorder : IComputerRecorder
             : Result(false, "")); // RecordingPlayer already spoke the refusal.
     }
 
+    // PlayStop, the tape-deck click. This said RecorderCue.Stop, the RECORDING
+    // stop beep, until Noel heard the double beep on the 2026-10-25 bench.
     public Task<RecorderOutcome> StopPlaybackAsync()
-    { _stopPlay(); return Task.FromResult(Result(true, "", RecorderCue.Stop)); }
+    { _stopPlay(); return Task.FromResult(Result(true, "", RecorderCue.PlayStop)); }
 
     /// <summary>Called on the receive thread before output decoding. Never touches disk.</summary>
     internal void Receive(FlexBase rig, byte[] packet, int sequence, double timestamp, bool muted)

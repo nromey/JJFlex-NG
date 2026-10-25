@@ -80,9 +80,89 @@ public sealed class RecordedQsoBrowserTests
         Assert.Equal("You are at the end of the recording.", b.Step(1));
         Assert.Equal(70, b.Cursor);
         Assert.Equal("You are at the start of the recording.", b.Edge(toEnd: false));
-        Assert.Equal(new[] { 1, 5, 10, 30, 60 }, RecordedQsoBrowser.Steps);
-        Assert.Equal(new[] { "1 second", "5 seconds", "10 seconds", "30 seconds", "1 minute" },
+        Assert.Equal(new[] { 0.1, 0.5, 1, 5, 10, 30, 60 }, RecordedQsoBrowser.Steps);
+        Assert.Equal(new[] { "0.1 seconds", "0.5 seconds", "1 second", "5 seconds", "10 seconds", "30 seconds", "1 minute" },
             RecordedQsoBrowser.Steps.Select(RecordedQsoWords.Step));
+    }
+
+    [Fact]
+    public void Positions_marks_and_selections_read_to_the_tenth_and_a_tenth_step_lands_on_a_tenth()
+    {
+        // Noel, 2026-10-25: "I'd speak more than just a second resolution",
+        // and a 0.1 and 0.5 second step. The bench read "from 1 second to 2
+        // seconds, under a second" for marks a second apart.
+        Assert.Equal("0.8 seconds", RecordedQsoWords.Precise(0.8));
+        Assert.Equal("1 second", RecordedQsoWords.Precise(1.04));
+        Assert.Equal("1.3 seconds", RecordedQsoWords.Precise(1.25));
+        Assert.Equal("1 minute", RecordedQsoWords.Precise(59.97));
+        Assert.Equal("2 minutes 5.3 seconds", RecordedQsoWords.Precise(125.3));
+        Assert.Equal("the start", RecordedQsoWords.Position(0.04, 5));
+        Assert.Equal("the end", RecordedQsoWords.Position(4.96, 5));
+        Assert.Equal("4.9 seconds", RecordedQsoWords.Position(4.9, 5));
+
+        var b = new RecordedQsoBrowser();
+        b.Select(Qso(Now, 5));
+        b.StepSeconds = 0.1;
+        for (int i = 0; i < 13; i++) b.Step(1);
+        Assert.Equal("You are at 1.4 seconds of 5 seconds.", b.Step(1));
+        b.SetStart(1.4);
+        var end = b.SetEnd(2.3);
+        Assert.Equal("Trim end set to 2.3 seconds. The selection runs from 1.4 seconds to 2.3 seconds, 0.9 seconds.", end.Sentence);
+        // A row's own length stays in whole seconds.
+        Assert.Equal("Today at 5:00 PM, 5 seconds", RecordedQsoWords.Row(Qso(Now.AddHours(-1), 5.04), Now));
+    }
+
+    [Fact]
+    public void Shift_brackets_clear_one_mark_and_Backspace_clears_both()
+    {
+        var b = new RecordedQsoBrowser();
+        b.Select(Qso(Now, 600));
+        Assert.False(b.ClearStart().Changed);
+        Assert.Equal("There is no trim start mark to clear.", b.ClearStart().Sentence);
+        Assert.Equal("There is no trim end mark to clear.", b.ClearEnd().Sentence);
+        b.SetStart(65);
+        b.SetEnd(180);
+        var start = b.ClearStart();
+        Assert.True(start.Changed);
+        Assert.Equal("Trim start mark cleared. The selection runs from the start to 3 minutes, 3 minutes.", start.Sentence);
+        var endCleared = b.ClearEnd();
+        Assert.Equal("Trim end mark cleared. The whole recording is selected. It is 10 minutes long.", endCleared.Sentence);
+        b.SetStart(65);
+        Assert.Equal("The whole recording is selected. It is 10 minutes long.", b.ClearSelection());
+        Assert.True(b.IsWhole);
+    }
+
+    [Fact]
+    public void The_step_size_is_remembered_only_as_one_the_combo_offers()
+    {
+        Assert.Equal(0.5, RecordedQsoBrowser.ValidStep(0.5));
+        Assert.Equal(60, RecordedQsoBrowser.ValidStep(60));
+        Assert.Equal(RecordedQsoBrowser.DefaultStep, RecordedQsoBrowser.ValidStep(7));
+        Assert.Equal(RecordedQsoBrowser.DefaultStep, RecordedQsoBrowser.ValidStep(double.NaN));
+    }
+
+    [Fact]
+    public void A_file_Save_As_wrote_says_its_type_so_two_trims_can_be_told_apart()
+    {
+        var opus = Qso(new DateTime(2026, 10, 24, 15, 30, 12), 0.6, name: "QSO-2026-10-24-153012-trim") with
+            { Path = @"C:\rec\QSO-2026-10-24-153012-trim.opus" };
+        Assert.Equal("QSO-2026-10-24-153012-trim, Opus, recorded today at 3:30 PM, under a second", RecordedQsoWords.Row(opus, Now));
+        var mp3Whole = Qso(new DateTime(2026, 10, 24, 15, 30, 12), 728) with { Path = @"C:\rec\QSO-2026-10-24-153012.mp3" };
+        Assert.Equal("Today at 3:30 PM, MP3, 12 minutes 8 seconds", RecordedQsoWords.Row(mp3Whole, Now));
+        Assert.False(opus.IsFlac);
+        Assert.True(Qso(Now).IsFlac);
+    }
+
+    [Fact]
+    public void Saved_names_the_month_folder_when_it_is_the_recordings_own_and_the_path_otherwise()
+    {
+        string source = @"C:\Users\op\AppData\Roaming\JJFlexRadio\Recorded QSOs\2026\10\QSO-2026-10-25-102646.flac";
+        Assert.Equal("Saved QSO-2026-10-25-102646-trim.opus in the October 2026 folder. It is 0.6 seconds long.",
+            RecordedQsosDialog.SavedSentence("QSO-2026-10-25-102646-trim.opus",
+                @"C:\Users\op\AppData\Roaming\JJFlexRadio\Recorded QSOs\2026\10", source, 0.6));
+        Assert.Equal(@"Saved x.mp3 in D:\Clips. It is 0.6 seconds long.",
+            RecordedQsosDialog.SavedSentence("x.mp3", @"D:\Clips", source, 0.6));
+        Assert.Null(RecordedQsosDialog.MonthFolder(@"C:\Other\2026\10", source));
     }
 
     [Fact]
@@ -124,7 +204,7 @@ public sealed class RecordedQsoBrowserTests
         Assert.Equal(180, b.TrimEnd);
 
         Assert.Equal((65L * 24000, (long?)(180L * 24000)), b.Frames());
-        Assert.Equal("The whole recording is selected. It is 10 minutes long.", b.UseWhole());
+        Assert.Equal("The whole recording is selected. It is 10 minutes long.", b.ClearSelection());
         Assert.Equal((0L, (long?)null), b.Frames());
     }
 
@@ -146,13 +226,23 @@ public sealed class RecordedQsoBrowserTests
     }
 
     [Fact]
-    public void The_dialog_opens_on_a_choice_that_still_exists_otherwise_on_the_newest_with_the_box_ticked()
+    public void The_dialog_opens_on_a_choice_that_still_exists_otherwise_on_the_newest()
     {
         var rows = new List<RecordedQso> { Qso(Now.AddHours(-1)), Qso(Now.AddHours(-2)), Qso(Now.AddHours(-3)) };
-        Assert.Equal((1, false), RecordedQsoBrowser.Opening(rows, rows[1].Path.ToUpperInvariant()));
-        Assert.Equal((0, true), RecordedQsoBrowser.Opening(rows, null));
-        Assert.Equal((0, true), RecordedQsoBrowser.Opening(rows, @"C:\rec\gone.flac"));
-        Assert.Equal((-1, true), RecordedQsoBrowser.Opening(new List<RecordedQso>(), null));
+        Assert.Equal(1, RecordedQsoBrowser.Opening(rows, rows[1].Path.ToUpperInvariant()));
+        Assert.Equal(0, RecordedQsoBrowser.Opening(rows, null));
+        Assert.Equal(0, RecordedQsoBrowser.Opening(rows, @"C:\rec\gone.flac"));
+        Assert.Equal(-1, RecordedQsoBrowser.Opening(new List<RecordedQso>(), null));
+    }
+
+    [Fact]
+    public void A_recording_still_being_made_has_a_sentence_for_its_selection_not_length_unknown_long()
+    {
+        // The bench heard "It is length unknown long." on the still-recording row.
+        var b = new RecordedQsoBrowser();
+        b.Select(Qso(Now, seconds: null));
+        Assert.Equal("The whole recording is selected. Its length is not known yet.", b.Selection());
+        Assert.DoesNotContain("unknown long", Lexicon.Get("audio.qsos.recording_selection"));
     }
 
     [Fact]
@@ -168,15 +258,21 @@ public sealed class RecordedQsoBrowserTests
         var spoken = new[]
         {
             "audio.qsos.empty", "audio.qsos.unreadable_one", "audio.qsos.at_start", "audio.qsos.at_end",
-            "audio.qsos.pause_first", "audio.qsos.no_position", "audio.qsos.playing_unknown",
+            "audio.qsos.no_position", "audio.qsos.playing_unknown",
             "audio.qsos.nothing_selected", "audio.qsos.still_recording", "audio.qsos.play_refused_transmitting",
-            "audio.qsos.vox_unconfirmed", "audio.qsos.choice_follows", "audio.qsos.trim_start_refused",
+            "audio.qsos.vox_unconfirmed", "audio.qsos.trim_start_refused",
             "audio.qsos.trim_end_refused", "audio.qsos.deleted_last", "audio.qsos.refused_missing",
             "audio.qsos.refused_no_bin", "audio.qsos.refused_bin_off", "audio.qsos.refused_too_large",
             "audio.qsos.refused_failed", "audio.qsos.prune_preview_none", "audio.qsos.pruned_one",
             "audio.qsos.saveas_saving", "audio.qsos.saveas_no_name", "audio.qsos.saveas_bad_name",
             "audio.qsos.saveas_same_file", "audio.qsos.saveas_no_folder", "audio.qsos.saveas_mp3_unavailable",
             "audio.qsos.saveas_m4a_unavailable", "audio.qsos.being_saved",
+            "audio.qsos.stopped_to_start", "audio.qsos.play_head_start", "audio.qsos.whole_length_unknown",
+            "audio.qsos.recording_selection", "audio.qsos.no_start_mark", "audio.qsos.no_end_mark",
+            "audio.qsos.flac_only", "audio.qsos.list_help", "audio.qsos.step_help", "audio.qsos.saveas_type_help",
+            "audio.qsos.play_help", "audio.qsos.stop_help", "audio.qsos.position_help", "audio.qsos.set_start_help",
+            "audio.qsos.set_end_help", "audio.qsos.selection_help", "audio.qsos.clear_selection_help",
+            "audio.qsos.save_as_help", "audio.qsos.delete_help", "audio.qsos.prune_help", "audio.qsos.close_help",
         };
         foreach (string key in spoken)
         {
