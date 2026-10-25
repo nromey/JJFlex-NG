@@ -48,6 +48,14 @@ public class KeyCommands
     // cancels, so there is no way to be held.
     private bool _leaderHelpArmed;
 
+    // The chord a near miss named, which the armed layer also accepts (#693,
+    // ruled by Noel 2026-10-06 under #695): "the forgiving move is not
+    // execution, it is that the leader layer stays armed", so recovering from
+    // a slip costs the one chord, not Ctrl+J and the chord. Honoured ONLY
+    // while _leaderHelpArmed is true, and overwritten at every arming —
+    // Keys.None after an unknown key — so a stale value can never fire.
+    private Keys _leaderNearMissChord;
+
     // ── Value sub-layer state (Sprint 37 Track C, #305 — pan was the first
     // consumer, #304; Sprint 44 Track I put the audio layer (#514) and the
     // filter layer (#516) on it too, and retired the hand-rolled volume
@@ -3134,6 +3142,13 @@ public class KeyCommands
                 LeaderCancel();
                 return true;
             }
+            if (IsNearMissChord(k))
+            {
+                // #693: the chord the near miss just named. The operator
+                // pressed it, so it runs exactly as Ctrl+J then that chord.
+                _leaderNearMissChord = Keys.None;
+                return DoLeaderCommand(k);
+            }
             if (IsLeaderHelpKey(k))
             {
                 // H lists, the slash key explores — the same two doors the
@@ -3403,7 +3418,7 @@ public class KeyCommands
             // its way past a mode the operator did not ask for.
             if (!kc._leaderHelpArmed) return;
             var pressed = WpfKeyConverter.ToWinFormsKeys(e);
-            if (pressed != Keys.Escape && !IsLeaderHelpKey(pressed))
+            if (pressed != Keys.Escape && !IsLeaderHelpKey(pressed) && !kc.IsNearMissChord(pressed))
             {
                 kc._leaderHelpArmed = false;
                 return;
@@ -3535,7 +3550,7 @@ public class KeyCommands
         // cannot leave the layer armed behind it.
         if (_leaderHelpArmed)
         {
-            if (k == Keys.Escape || IsLeaderHelpKey(k)) return DoCommand(k);
+            if (k == Keys.Escape || IsLeaderHelpKey(k) || IsNearMissChord(k)) return DoCommand(k);
             _leaderHelpArmed = false;
         }
 
@@ -4332,17 +4347,23 @@ public class KeyCommands
                 // that produces nothing at all is the invisible failure. Only
                 // what is SAID changes below: the disarm on a near miss and
                 // the arm on an unknown key are the same at every verbosity.
-                bool toneStandsAlone = Radios.Speech.RefusalVoice.ToneStandsAlone(
-                    Radios.ScreenReaderOutput.CurrentVerbosity,
-                    EarconPlayer.IsOn(EarconPlayer.EarconCategory.CommandsAndConfirmations));
+                //
+                // #693 (ruled by Noel 2026-10-06 under #695): at Terse a NEAR
+                // MISS speaks its short sentence, because a thunk cannot say
+                // which key to press instead. An unknown key keeps the rule
+                // above. So the question is asked twice, of two predicates
+                // that live side by side in RefusalVoice.
+                var verbosity = Radios.ScreenReaderOutput.CurrentVerbosity;
+                bool toneWillSound = EarconPlayer.IsOn(EarconPlayer.EarconCategory.CommandsAndConfirmations);
+                bool toneStandsAlone = Radios.Speech.RefusalVoice.ToneStandsAlone(verbosity, toneWillSound);
+                bool nearMissToneStandsAlone = Radios.Speech.RefusalVoice.NearMissToneStandsAlone(verbosity, toneWillSound);
 
                 // #206: a near-miss gets named instead of a dead end. The
                 // layer mixes bare, Shift and Ctrl tiers on the same letters
                 // (D vs Ctrl+D, Q vs Ctrl+Q), so a slipped modifier is the
                 // layer's own most predictable mistake — and the recovery
                 // information is already in the inventory. One alternative at
-                // most, bare form first. The layer still disarms — this
-                // changes what is SAID, not what happens.
+                // most, bare form first.
                 //
                 // THE CONTRACT OF THIS ARM (#695, ruled 2026-10-05): it NAMES
                 // the chord the operator probably meant and never EXECUTES it.
@@ -4353,7 +4374,11 @@ public class KeyCommands
                 // something beginning with M. So nothing below this comment
                 // dispatches: it traces, sounds, asks the inventory, and
                 // speaks. LeaderUnknownKeyTests holds the arm to that list of
-                // calls. The sentence itself is Noel's and is open under #693.
+                // calls. The sentence is Noel's, ruled 2026-10-06 (#693, in
+                // #695's body): working chord first, pressed key last, at both
+                // levels, and "isn't assigned" rather than "is not a command",
+                // because once #702 lands a free letter is something an
+                // operator CAN assign.
                 //
                 // Say the RECOVERY, at every tier, and nothing else. (This
                 // paragraph once credited a ruling "#558" of 2026-09-06; no
@@ -4367,12 +4392,24 @@ public class KeyCommands
                 // the key did nothing a moment earlier. The engine was
                 // describing itself, which is the same defect as "nothing
                 // picked" and the pan words scale.
-                if (KeyInventory.TryFindLeaderNearMiss(k, out string nearKey, out string nearWhat))
+                if (KeyInventory.TryFindLeaderNearMiss(k, out Keys nearChord, out string nearKey, out string nearWhat))
                 {
-                    if (!toneStandsAlone)
+                    // #693: the layer STAYS ARMED after a near miss, for H, the
+                    // slash key, Escape and the chord it named, so recovering
+                    // from a slip costs the one chord. #303 once confined the
+                    // arm to the unknown-key branch because the near miss said
+                    // nothing about help; Noel's Chatty sentence names JJ H,
+                    // so the mode is now told and the two branches converge.
+                    // Like the unknown-key arm, it is OUTSIDE the verbosity
+                    // gate: verbosity changes what is said, never what happens.
+                    _leaderHelpArmed = true;
+                    _leaderNearMissChord = nearChord;
+
+                    if (!nearMissToneStandsAlone)
                     {
                         Radios.ScreenReaderOutput.Speak(
-                            Radios.Lexicon.Get("leader.near_miss",
+                            Radios.Lexicon.Get("leader.near_miss", verbosity,
+                                ("pressed", KeyManifest.FormatKey(k)),
                                 ("alt", nearKey), ("what", nearWhat)),
                             Radios.Speech.SpeechIntent.Interrupt,
                             Radios.VerbosityLevel.Critical,
@@ -4382,15 +4419,12 @@ public class KeyCommands
                 else
                 {
                     // #303. The layer stays armed for H, the slash key and
-                    // Escape — but ONLY on this branch, because this is the
-                    // branch that says so. The near-miss above names a chord
-                    // to retry and says nothing about help, so leaving the
-                    // layer armed there would be a mode the operator was never
-                    // told they were in. Two situations, two vocabularies, and
-                    // stickiness follows the sentence that earns it — and,
-                    // below Chatty, the thunk that sentence taught (#528).
-                    // The arm is deliberately OUTSIDE the verbosity gate.
+                    // Escape, because the sentence below says so — and, below
+                    // Chatty, the thunk that sentence taught (#528). The arm
+                    // is deliberately OUTSIDE the verbosity gate. An unknown
+                    // key names no chord, so none is accepted.
                     _leaderHelpArmed = true;
+                    _leaderNearMissChord = Keys.None;
 
                     // Verbosity picks the wording. Terse: "H for the list."
                     // Chatty adds the slash key and what it opens. Both name
@@ -6361,6 +6395,13 @@ public class KeyCommands
         k == Keys.H || k == Keys.Oem2 || k == (Keys.Oem2 | Keys.Shift);
 
     /// <summary>
+    /// The chord the last near miss named (#693), while the layer is armed
+    /// after it. False after an unknown key, which names no chord.
+    /// </summary>
+    private bool IsNearMissChord(Keys k) =>
+        _leaderNearMissChord != Keys.None && k == _leaderNearMissChord;
+
+    /// <summary>
     /// Close the leader layer the way Escape closes it: descending tone, then
     /// "Cancelled". One place, so the help-armed exit and the ordinary exit
     /// can never start sounding different from each other.
@@ -6498,7 +6539,8 @@ public class KeyCommands
             // Whatever the chord did, the hook must know whether the layer is
             // now waiting for H, slash or Escape (#303) — it is the hook that
             // sees those keys next, not this window.
-            SystemWideKeys.NoteHelpArmed(kc._leaderHelpArmed);
+            SystemWideKeys.NoteHelpArmed(kc._leaderHelpArmed,
+                kc._leaderHelpArmed ? kc._leaderNearMissChord : Keys.None);
         }
 
         if (fromOutside && !layerBefore && kc._valueLayer != null)

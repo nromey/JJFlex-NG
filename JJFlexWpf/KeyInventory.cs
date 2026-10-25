@@ -792,7 +792,18 @@ public static class KeyInventory
     /// </remarks>
     public static bool TryFindLeaderNearMiss(WinFormsKeys pressed,
         out string altKeyName, out string altDescription)
+        => TryFindLeaderNearMiss(pressed, out _, out altKeyName, out altDescription);
+
+    /// <summary>
+    /// The near miss, with the bound chord itself as well as its spoken name,
+    /// so the leader can stay armed for exactly that chord (#693, ruled
+    /// 2026-10-06 under #695: the layer stays armed for H, slash, Escape and
+    /// the named chord).
+    /// </summary>
+    public static bool TryFindLeaderNearMiss(WinFormsKeys pressed,
+        out WinFormsKeys altChord, out string altKeyName, out string altDescription)
     {
+        altChord = WinFormsKeys.None;
         altKeyName = "";
         altDescription = "";
 
@@ -803,6 +814,7 @@ public static class KeyInventory
         {
             if (table.TryGetValue(candidate, out var hit))
             {
+                altChord = candidate;
                 altKeyName = hit.KeyName;
                 altDescription = ShortDescription(hit.Description);
                 return true;

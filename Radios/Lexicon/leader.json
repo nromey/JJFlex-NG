@@ -3,7 +3,14 @@
   "leader.armed": "JJ",
   "leader.cancelled": "Cancelled",
   "leader.systemwide.layer_needs_window": "That opens a layer, which needs the JJ Flexible Radio window. Switch to it and press the JJ key there.",
-  "leader.near_miss": "{alt}: {what}",
+  "leader.near_miss": {
+    "text": {
+      "critical": "{alt} launches {what}, not {pressed}.",
+      "terse": "{alt} launches {what}, not {pressed}.",
+      "chatty": "You pressed {pressed} which isn't assigned. Pressing {alt} launches {what} if that was what you were looking for, otherwise use JJ H to hear keys you can use with the JJ key."
+    },
+    "delivery": null
+  },
   "leader.unknown_key": {
     "critical": "Unknown key. H for the list, Escape to cancel.",
     "terse": "Unknown key. H for the list, Escape to cancel.",

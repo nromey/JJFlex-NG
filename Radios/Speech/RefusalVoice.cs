@@ -66,5 +66,18 @@ namespace Radios.Speech
         /// </param>
         public static bool ToneStandsAlone(VerbosityLevel level, bool toneWillSound)
             => toneWillSound && level < VerbosityLevel.Chatty;
+
+        /// <summary>
+        /// The same question for the JJ key layer's NEAR MISS, which answers
+        /// it differently at Terse (#693, ruled by Noel 2026-10-06 under #695).
+        /// A thunk can say "that key did nothing"; it cannot say WHICH key to
+        /// press instead, and that is the entire value of a near miss. Terse
+        /// means short, not silent, so at Terse the short sentence is spoken.
+        /// Below Terse the tone still stands alone when it can sound, so Off
+        /// says no more than Terse, and an unknown key keeps
+        /// <see cref="ToneStandsAlone"/>.
+        /// </summary>
+        public static bool NearMissToneStandsAlone(VerbosityLevel level, bool toneWillSound)
+            => toneWillSound && level < VerbosityLevel.Terse;
     }
 }
