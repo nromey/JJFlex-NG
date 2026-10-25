@@ -857,5 +857,5 @@ These keys work inside the Recorded QSOs window (**Ctrl+Alt+Shift+F11**, or **Ct
 - **Shift+[ / Shift+]** — Clear the trim start mark or the trim end mark
 - **Backspace** — Clear the selection: both trim marks go, and the whole recording is selected
 - **Delete** — Move the selected recording to the Recycle Bin. It is never deleted outright
-- **Escape** — Stop playback if a recording is playing, as S does; press again to close. If you are transmitting, Escape unkeys first
+- **Escape** — Stop playback if a recording is playing, as S does; press again to close. While paused, close the window straight away. If you are transmitting, Escape unkeys first
 - **Space** only selects in the list and never plays, and **Ctrl+Space** is still push to talk

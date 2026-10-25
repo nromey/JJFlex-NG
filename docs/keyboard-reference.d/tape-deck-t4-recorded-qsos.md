@@ -6,7 +6,7 @@ JJ key, actions (Alt plus a letter), new:
 
 - **Alt+F** — Open Recorded QSOs — F for files. This spends the Alt+F that #515's unruled "Alt means speak it" proposal used as its example.
 
-Inside the Recorded QSOs window, new: Up and Down select, Home and End go to the newest and oldest, Enter starts or pauses playback, S stops and returns the play head to the beginning, Left and Right move the play head by the selected step size even while playing, [ and ] set the trim start and end marks, Shift+[ and Shift+] clear them, Backspace clears the selection, Delete moves to the Recycle Bin, Escape stops playback and then closes.
+Inside the Recorded QSOs window, new: Up and Down select, Home and End go to the newest and oldest, Enter starts or pauses playback, S stops and returns the play head to the beginning, Left and Right move the play head by the selected step size even while playing, [ and ] set the trim start and end marks, Shift+[ and Shift+] clear them, Backspace clears the selection, Delete moves to the Recycle Bin, Escape stops playback and then closes, or closes straight away while paused.
 
 Changed at the 2026-10-25 bench (Noel): Enter used to play or stop, P paused and resumed. P is gone, S is new, and Left and Right no longer refuse while playing.
 

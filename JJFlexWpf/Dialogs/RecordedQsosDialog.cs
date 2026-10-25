@@ -483,7 +483,11 @@ public sealed class RecordedQsosDialog : JJFlexDialog
         base.OnPreviewKeyDown(e);
         if (e.Handled) return;
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
-        if (key == Key.Escape && Keyboard.Modifiers == ModifierKeys.None && PreviewActive)
+        // Escape stops only what you can HEAR. Paused, it closes the window
+        // and the preview ends silently with it (Noel, retest 2026-10-25: a
+        // paused preview answered Escape with "Stopped", which was weird for
+        // something not playing; "I'd just close the window").
+        if (key == Key.Escape && Keyboard.Modifiers == ModifierKeys.None && PreviewActive && !RecordingPlayer.IsPaused)
         {
             e.Handled = true;
             StopToStart(speak: true);
