@@ -969,6 +969,15 @@ namespace Radios.Tests
                 // Its sibling leader.unknown_key is legacy and still frozen;
                 // WHEN THE PASS REACHES IT, DECIDE IT WITH THIS ONE IN VIEW.
                 "leader.near_miss",
+                // Junkbox #717, 2026-10-25: Manage Messages' empty-state row
+                // and the list's help text, which names Tab and Escape.
+                // Classified rather than frozen because they were written
+                // here (#720). delivery: null - TextOnly - because both are
+                // the control's own text, read when focus lands on the list
+                // (the #726 item 6 reasoning for labels); the application
+                // never says either on its own account. DRAFTS awaiting Noel.
+                "settings.cw_message.list_empty",
+                "settings.cw_message.list_help",
                 // #778b, same reasoning: the fine-step sentence the engine
                 // appends to the digit line where Shift with the arrows really
                 // is the fine step. Noel asked for one at 14:33; this wording
